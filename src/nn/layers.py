@@ -36,7 +36,15 @@ References
 
 import math
 from abc import ABC, abstractmethod
-from typing import Literal, ParamSpec, TypeVar, override
+from re import I
+from typing import (
+    Literal,
+    ParamSpec,
+    TypedDict,
+    TypeVar,
+    Unpack,
+    override,
+)
 
 import torch
 import torch.nn.functional as F  # noqa: N812
@@ -203,12 +211,16 @@ class DepthWiseConv(BaseModule[[Tensor], Tensor]):
         nonlinearity: Literal["linear", "silu"] = "linear",
     ) -> None:
         super().__init__()
+        if kernel_size % 2 == 0 or kernel_size < 1:
+            msg = "Kernel size must be odd and positive."
+            raise ValueError(msg)
+        pad = (kernel_size - 1) // 2  # odd kernel, so same padding
         self.conv: nn.Conv2d = nn.Conv2d(
             in_channels=in_channels,
             out_channels=out_channels,
             kernel_size=kernel_size,
             stride=stride,
-            padding="same",
+            padding=pad,
             groups=in_channels,
             bias=True,
         )
@@ -231,13 +243,12 @@ class SqueezeExcite(BaseModule[[Tensor], Tensor]):
     def __init__(self, channels: int, reduction: int = 4) -> None:
         super().__init__()
         reduced_channels = max(1, channels // reduction)
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.fc1 = PointWiseConv(
             in_channels=channels,
             out_channels=reduced_channels,
             nonlinearity="silu",
         )
-        self.act = nn.SiLU()
+        self.act = SiLU_bias(channels=reduced_channels)
         self.fc2 = PointWiseConv(
             in_channels=reduced_channels,
             out_channels=channels,
@@ -254,8 +265,7 @@ class SqueezeExcite(BaseModule[[Tensor], Tensor]):
             self.alpha_gate.fill_(2.0)  # Start with no effect
 
     def forward(self, x: Tensor) -> Tensor:
-        b, c, _, _ = x.size()
-        y = self.avg_pool(x).view(b, c, 1, 1)
+        y = x.mean(dim=(-2, -1), keepdim=True)  # (B,C,1,1)
         y = self.fc1(y)
         y = self.act(y)
         y = self.fc2(y)
@@ -520,8 +530,8 @@ class PPSFFT2(BaseModule[[Tensor], Tensor]):
 
     def __init__(
         self,
-        height: int = 32,
-        width: int = 32,
+        height: int,
+        width: int,
         norm: Literal["ortho", "backward", "forward"] | None = "ortho",
         eta: float = 0.375,
         rho: float = 1 / 3,
@@ -554,7 +564,7 @@ class PPSFFT2(BaseModule[[Tensor], Tensor]):
     def _laplacian_eigs_rfft2(self) -> Tensor:
         ky = 2 * torch.pi * torch.arange(self.H).view(self.H, 1) / self.H
         kx = 2 * torch.pi * torch.arange(self.W // 2 + 1).view(1, self.W // 2 + 1) / self.W
-        # Paper denominator: lambda = 2 cos(kx) + 2 cos(ky) - 4   (<= 0, with D[0,0]=0)
+        # Paper denominator: lambda = 2 cos(kx) + 2 cos(ky) - 4   (lambda <= 0, with D[0,0]=0)
         lam: Tensor = 2.0 * (torch.cos(kx) + torch.cos(ky) - 2.0)  # (H, W//2+1)
         lam[0, 0] = -torch.inf  # enforce ŝ(0,0)=0
         return lam
@@ -690,18 +700,25 @@ class LumaY(BaseModule[[Tensor], Tensor]):
         return (x * self.w_luma).sum(dim=1, keepdim=True)
 
 
-class LGAE(BaseModule[[Tensor, float], tuple[Tensor, Tensor, Tensor]]):
+class LGAE(BaseModule[..., tuple[Tensor, Tensor, Tensor]]):
     expm1_threshold: Tensor  # type checker hint
 
-    def __init__(self) -> None:
+    class _Kw(TypedDict, total=False):
+        noise_scale: float
+
+    @override
+    def __call__(self, x: Tensor, **kwargs: Unpack[_Kw]) -> tuple[Tensor, Tensor, Tensor]:
+        return super().__call__(x, **kwargs)
+
+    def __init__(self, height: int, width: int) -> None:
         super().__init__()
         self.encoder = Encoder()
         self.decoder = Decoder()
         self.to_grayscale = LumaY()
-        self.ppsfft2 = PPSFFT2()
-        self.mssim = MS_SSIM(data_range=1.0, channel=1, size_average=True)
+        self.ppsfft2 = PPSFFT2(height=height, width=width)
+        self.mssim = MS_SSIM(data_range=1.0, channel=1, size_average=True, win_size=5)
         self.scharr = ScharrGrad(channels=1, norm="l1")
-
+        self.smooth_l1 = nn.SmoothL1Loss(beta=0.1, reduction="mean")
         # Threshold for stable expm1_over_x in float16 (half precision)
         float16_valid_threshold = 1e-2
         self.register_buffer("expm1_threshold", torch.as_tensor(float16_valid_threshold))
@@ -805,7 +822,7 @@ class LGAE(BaseModule[[Tensor, float], tuple[Tensor, Tensor, Tensor]]):
         fourier_loss_weight: float = 0.1,
     ) -> Tensor:
         # range x, recon_x in [0,1]
-        pixel_loss = F.l1_loss(recon_x, x)
+        pixel_loss: Tensor = self.smooth_l1(recon_x, x)
 
         # convert to grayscale
         y = self.to_grayscale(x)
@@ -824,8 +841,11 @@ class LGAE(BaseModule[[Tensor, float], tuple[Tensor, Tensor, Tensor]]):
     def forward(
         self,
         x: Tensor,
-        noise_scale: float,
+        *,
+        noise_scale: float | None = 1.0,
     ) -> tuple[Tensor, Tensor, Tensor]:
+        if noise_scale is None:
+            noise_scale = 1.0
         theta, phi = self.encoder(x)  # both [B, C, H, W]
         phi = torch.clamp(input=phi, min=-9.0, max=9.0)  # avoid NaNs
         sigma = torch.exp(phi)  # [B, C, H, W]
@@ -835,3 +855,31 @@ class LGAE(BaseModule[[Tensor, float], tuple[Tensor, Tensor, Tensor]]):
         z = mu + noise_scale * sigma * eps  # [B, C, H, W]
         recon_x = self.decoder(z)
         return recon_x, theta, phi  # (return phi/theta, not mu/logvar)
+
+
+height, width = 128, 128
+
+test_tensor = torch.randn(16, 3, height, width)
+model: LGAE = LGAE(height=height, width=width)
+
+recon, theta, phi = model(test_tensor, noise_scale=1.0)
+print("Test forward pass:")
+shape_test = recon.shape == test_tensor.shape
+print(f"Output shape correct: {shape_test}, {recon.shape}")
+sum_recon = recon.abs().sum()
+sum_theta = theta.abs().sum()
+sum_phi = phi.abs().sum()
+print(f"Sum |recon|: {sum_recon.item():.4f}")
+print(f"Sum |theta|: {sum_theta.item():.4f}")
+print(f"Sum |phi|: {sum_phi.item():.4f}")
+print()
+intrinsic_loss = model.intrinsic_loss_freebits(theta, phi)
+reconstruction_loss = model.reconstruction_loss(test_tensor, recon)
+print(f"Intrinsic loss: {intrinsic_loss.item():.4f}")
+print(f"Reconstruction loss: {reconstruction_loss.item():.4f}")
+print(f"Total loss: {intrinsic_loss + reconstruction_loss:.4f}")
+print()
+# SSIM, MAE, MSE, PSNR (with STD and box plots)
+# Run with normal VAE (without all the other fluff)
+# Use normal backbone (Resnet)
+# Extract images from prof's chat to put all the experiments in issues
