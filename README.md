@@ -174,7 +174,9 @@ uv pip install torch==2.8.0 torchvision==0.19.0 torchaudio==2.8.0
 
 # project deps (experiments only; not a library)
 uv pip install -r requirements.txt
+```
 
+---
 Cronograma
 
 Periodo 2026-1
