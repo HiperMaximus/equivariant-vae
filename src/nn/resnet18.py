@@ -341,9 +341,14 @@ class ResNet18Decoder(BaseModule[[Tensor], Tensor]):
             kernel_size=3,
             stride=1,
             padding=1,
+            bias=True,
         )
 
         self.init_weights()
+        # Apply Zero Initialization specifically to the output head
+        nn.init.constant_(self.conv_out.weight, 0)
+        if self.conv_out.bias is not None:
+            nn.init.constant_(self.conv_out.bias, 0)
 
     def init_weights(self) -> None:
         for m in self.modules():
@@ -360,7 +365,6 @@ class ResNet18Decoder(BaseModule[[Tensor], Tensor]):
         blocks: int,
     ) -> nn.Sequential:
         """Build a decoder stage.
-        
         Since we handle upsampling separately with nn.Upsample, these blocks
         just handle channel reduction and feature processing with stride=1.
         """
@@ -412,9 +416,8 @@ class ResNet18Decoder(BaseModule[[Tensor], Tensor]):
         # Output
         x = self.norm_out(x)
         x = self.act_out(x)
-        x = self.conv_out(x)
+        return self.conv_out(x)
 
-        return x
 
 
 class ResNet18VAE(BaseModule[[Tensor], tuple[Tensor, Tensor, Tensor]]):
