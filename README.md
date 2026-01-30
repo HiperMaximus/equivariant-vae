@@ -177,19 +177,21 @@ uv pip install -r requirements.txt
 ```
 
 ---
-Cronograma
+## Cronograma de Actividades - 2026
 
-Periodo 2026-1
-Semana,Actividad,Entregable
-1-2,"Ajuste del protocolo experimental: dataset, particiones, métricas, baseline, control de semillas, estructura de logs ",Documento de diseño experimental + plan de reproducibilidad 
-3-6,Implementación/ejecución experimento no equivariante (entrenamiento + tuning mínimo) ,Scripts + configuración + resultados (tabla métricas) + logs 
-7-10,Implementación/ejecución experimento equivariante (entrenamiento + tuning mínimo) ,Scripts + configuración + resultados (tabla métricas) + logs 
-11-13,"Evaluación comparativa: análisis de desempeño, estabilidad, ablation mínima ",Reporte de evaluación + figuras comparativas 
-14-16,Redacción parcial: metodología + experimentos + resultados preliminares ,Borrador parcial (capítulos/sections) para revisión del director 
+### Periodo 2026-1
+| Semana | Actividad | Entregable |
+| :--- | :--- | :--- |
+| **1-2** | Ajuste del protocolo experimental: dataset, particiones, métricas, baseline, control de semillas, estructura de logs | Documento de diseño experimental + plan de reproducibilidad |
+| **3-6** | Implementación/ejecución experimento no equivariante (entrenamiento + tuning mínimo) | Scripts + configuración + resultados (tabla métricas) + logs |
+| **7-10** | Implementación/ejecución experimento equivariante (entrenamiento + tuning mínimo) | Scripts + configuración + resultados (tabla métricas) + logs |
+| **11-13** | Evaluación comparativa: análisis de desempeño, estabilidad, ablation mínima | Reporte de evaluación + figuras comparativas |
+| **14-16** | Redacción parcial: metodología + experimentos + resultados preliminares | Borrador parcial (capítulos/sections) para revisión del director |
 
-Periodo 2026-2
-Semana,Actividad,Entregable
-1-4,"Módulo de clasificación para ambos enfoques (pipeline, entrenamiento, evaluación) ",Resultados de clasificación por enfoque + comparativo 
-5-8,"Evaluación final: discusión, limitaciones, análisis de generalización ",Capítulo de discusión + conclusiones preliminares 
-9-12,"Escritura final completa y normalización de formato (referencias, anexos) ",Borrador final completo enviado al director 
-13-16,"Ajustes finales, radicación, preparación, sustentación (diapositivas + guion) ",Documento final listo + presentación + preparación de sustentación 
+### Periodo 2026-2
+| Semana | Actividad | Entregable |
+| :--- | :--- | :--- |
+| **1-4** | Módulo de clasificación para ambos enfoques (pipeline, entrenamiento, evaluación) | Resultados de clasificación por enfoque + comparativo |
+| **5-8** | Evaluación final: discusión, limitaciones, análisis de generalización | Capítulo de discusión + conclusiones preliminares |
+| **9-12** | Escritura final completa y normalización de formato (referencias, anexos) | Borrador final completo enviado al director |
+| **13-16** | Ajustes finales, radicación, preparación, sustentación (diapositivas + guion) | Documento final listo + presentación + preparación de sustentación |
