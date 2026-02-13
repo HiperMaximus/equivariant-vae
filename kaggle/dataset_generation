@@ -3,19 +3,19 @@
   {
    "cell_type": "code",
    "execution_count": 1,
-   "id": "6c7968d5",
+   "id": "741a1f89",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-02-12T22:29:45.792042Z",
-     "iopub.status.busy": "2026-02-12T22:29:45.791709Z",
-     "iopub.status.idle": "2026-02-12T22:30:37.199096Z",
-     "shell.execute_reply": "2026-02-12T22:30:37.197799Z"
+     "iopub.execute_input": "2026-02-13T00:50:42.476329Z",
+     "iopub.status.busy": "2026-02-13T00:50:42.476017Z",
+     "iopub.status.idle": "2026-02-13T00:51:34.053777Z",
+     "shell.execute_reply": "2026-02-13T00:51:34.052857Z"
     },
     "papermill": {
-     "duration": 51.414192,
-     "end_time": "2026-02-12T22:30:37.201431",
+     "duration": 51.583926,
+     "end_time": "2026-02-13T00:51:34.055533",
      "exception": false,
-     "start_time": "2026-02-12T22:29:45.787239",
+     "start_time": "2026-02-13T00:50:42.471607",
      "status": "completed"
     },
     "tags": []
@@ -25,34 +25,34 @@
      "name": "stdout",
      "output_type": "stream",
      "text": [
-      "Get:1 http://security.ubuntu.com/ubuntu jammy-security InRelease [129 kB]\r\n",
-      "Get:2 https://cli.github.com/packages stable InRelease [3,917 B]\r\n",
-      "Get:3 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64  InRelease [1,581 B]\r\n",
-      "Hit:4 http://archive.ubuntu.com/ubuntu jammy InRelease\r\n",
-      "Get:5 https://cli.github.com/packages stable/main amd64 Packages [356 B]\r\n",
-      "Get:6 https://r2u.stat.illinois.edu/ubuntu jammy InRelease [6,555 B]\r\n",
-      "Get:7 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64  Packages [2,361 kB]\r\n",
-      "Get:8 https://cloud.r-project.org/bin/linux/ubuntu jammy-cran40/ InRelease [3,632 B]\r\n",
+      "Get:1 https://cloud.r-project.org/bin/linux/ubuntu jammy-cran40/ InRelease [3,632 B]\r\n",
+      "Get:2 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64  InRelease [1,581 B]\r\n",
+      "Get:3 https://cli.github.com/packages stable InRelease [3,917 B]\r\n",
+      "Get:4 https://cloud.r-project.org/bin/linux/ubuntu jammy-cran40/ Packages [85.0 kB]\r\n",
+      "Get:5 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64  Packages [2,361 kB]\r\n",
+      "Get:6 http://security.ubuntu.com/ubuntu jammy-security InRelease [129 kB]\r\n",
+      "Get:7 https://cli.github.com/packages stable/main amd64 Packages [356 B]\r\n",
+      "Hit:8 http://archive.ubuntu.com/ubuntu jammy InRelease\r\n",
       "Get:9 http://archive.ubuntu.com/ubuntu jammy-updates InRelease [128 kB]\r\n",
-      "Get:10 http://security.ubuntu.com/ubuntu jammy-security/restricted amd64 Packages [6,468 kB]\r\n",
+      "Get:10 https://r2u.stat.illinois.edu/ubuntu jammy InRelease [6,555 B]\r\n",
       "Get:11 https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu jammy InRelease [18.1 kB]\r\n",
-      "Get:12 http://security.ubuntu.com/ubuntu jammy-security/universe amd64 Packages [1,298 kB]\r\n",
-      "Get:13 http://security.ubuntu.com/ubuntu jammy-security/main amd64 Packages [3,708 kB]\r\n",
-      "Get:14 https://ppa.launchpadcontent.net/graphics-drivers/ppa/ubuntu jammy InRelease [24.3 kB]\r\n",
-      "Get:15 http://security.ubuntu.com/ubuntu jammy-security/multiverse amd64 Packages [62.6 kB]\r\n",
-      "Get:16 http://archive.ubuntu.com/ubuntu jammy-backports InRelease [127 kB]\r\n",
-      "Get:17 https://ppa.launchpadcontent.net/ubuntugis/ppa/ubuntu jammy InRelease [24.6 kB]\r\n",
-      "Get:18 https://r2u.stat.illinois.edu/ubuntu jammy/main all Packages [9,736 kB]\r\n",
-      "Get:19 https://cloud.r-project.org/bin/linux/ubuntu jammy-cran40/ Packages [85.0 kB]\r\n",
-      "Get:20 https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu jammy/main amd64 Packages [39.2 kB]\r\n",
-      "Get:21 https://r2u.stat.illinois.edu/ubuntu jammy/main amd64 Packages [2,898 kB]\r\n",
+      "Get:12 https://ppa.launchpadcontent.net/graphics-drivers/ppa/ubuntu jammy InRelease [24.3 kB]\r\n",
+      "Get:13 https://r2u.stat.illinois.edu/ubuntu jammy/main amd64 Packages [2,898 kB]\r\n",
+      "Get:14 https://ppa.launchpadcontent.net/ubuntugis/ppa/ubuntu jammy InRelease [24.6 kB]\r\n",
+      "Get:15 http://archive.ubuntu.com/ubuntu jammy-backports InRelease [127 kB]\r\n",
+      "Get:16 http://security.ubuntu.com/ubuntu jammy-security/restricted amd64 Packages [6,468 kB]\r\n",
+      "Get:17 https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu jammy/main amd64 Packages [39.2 kB]\r\n",
+      "Get:18 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 Packages [4,047 kB]\r\n",
+      "Get:19 https://ppa.launchpadcontent.net/graphics-drivers/ppa/ubuntu jammy/main amd64 Packages [45.0 kB]\r\n",
+      "Get:20 https://ppa.launchpadcontent.net/ubuntugis/ppa/ubuntu jammy/main amd64 Packages [75.3 kB]\r\n",
+      "Get:21 https://r2u.stat.illinois.edu/ubuntu jammy/main all Packages [9,736 kB]\r\n",
       "Get:22 http://archive.ubuntu.com/ubuntu jammy-updates/multiverse amd64 Packages [70.9 kB]\r\n",
-      "Get:23 https://ppa.launchpadcontent.net/graphics-drivers/ppa/ubuntu jammy/main amd64 Packages [45.0 kB]\r\n",
-      "Get:24 http://archive.ubuntu.com/ubuntu jammy-updates/universe amd64 Packages [1,610 kB]\r\n",
-      "Get:25 https://ppa.launchpadcontent.net/ubuntugis/ppa/ubuntu jammy/main amd64 Packages [75.3 kB]\r\n",
-      "Get:26 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 Packages [4,047 kB]\r\n",
-      "Get:27 http://archive.ubuntu.com/ubuntu jammy-updates/restricted amd64 Packages [6,688 kB]\r\n",
-      "Fetched 39.7 MB in 3s (13.3 MB/s)\r\n",
+      "Get:23 http://archive.ubuntu.com/ubuntu jammy-updates/universe amd64 Packages [1,610 kB]\r\n",
+      "Get:24 http://security.ubuntu.com/ubuntu jammy-security/main amd64 Packages [3,708 kB]\r\n",
+      "Get:25 http://archive.ubuntu.com/ubuntu jammy-updates/restricted amd64 Packages [6,688 kB]\r\n",
+      "Get:26 http://security.ubuntu.com/ubuntu jammy-security/multiverse amd64 Packages [62.6 kB]\r\n",
+      "Get:27 http://security.ubuntu.com/ubuntu jammy-security/universe amd64 Packages [1,299 kB]\r\n",
+      "Fetched 39.7 MB in 4s (9,170 kB/s)\r\n",
       "\r\n",
       "W: Skipping acquire of configured file 'main/source/Sources' as repository 'https://r2u.stat.illinois.edu/ubuntu jammy InRelease' does not seem to provide it (sources.list entry misspelt?)\r\n",
       "\r\n",
@@ -106,7 +106,7 @@
       "Get:25 http://archive.ubuntu.com/ubuntu jammy/universe amd64 libvips42 amd64 8.12.1-1build1 [1,242 kB]\r\n",
       "Get:26 http://archive.ubuntu.com/ubuntu jammy/universe amd64 nip2 amd64 8.7.1-2build1 [4,893 kB]\r\n",
       "Get:27 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 systemd-hwe-hwdb all 249.11.6 [3,668 B]\r\n",
-      "Fetched 46.1 MB in 1s (58.2 MB/s)\r\n",
+      "Fetched 46.1 MB in 5s (9,409 kB/s)\r\n",
       "Preconfiguring packages ...\r\n",
       "Selecting previously unselected package apparmor.\r\n",
       "(Reading database ... 129073 files and directories currently installed.)\r\n",
@@ -271,7 +271,7 @@
       "\r\n",
       "Collecting pyvips\r\n",
       "  Downloading pyvips-3.1.1.tar.gz (56 kB)\r\n",
-      "\u001b[2K     \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m57.0/57.0 kB\u001b[0m \u001b[31m1.8 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\r\n",
+      "\u001b[2K     \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m57.0/57.0 kB\u001b[0m \u001b[31m1.7 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\r\n",
       "\u001b[?25h  Installing build dependencies ... \u001b[?25l\u001b[?25hdone\r\n",
       "  Getting requirements to build wheel ... \u001b[?25l\u001b[?25hdone\r\n",
       "  Preparing metadata (pyproject.toml) ... \u001b[?25l\u001b[?25hdone\r\n",
@@ -279,7 +279,7 @@
       "Requirement already satisfied: pycparser in /usr/local/lib/python3.12/dist-packages (from cffi>=1.0.0->pyvips) (2.23)\r\n",
       "Building wheels for collected packages: pyvips\r\n",
       "  Building wheel for pyvips (pyproject.toml) ... \u001b[?25l\u001b[?25hdone\r\n",
-      "  Created wheel for pyvips: filename=pyvips-3.1.1-py3-none-any.whl size=54326 sha256=e6778ee52c29115b239b9b7c0c635004f2aaa7fbd331a99b1d63fa5d4eb97eda\r\n",
+      "  Created wheel for pyvips: filename=pyvips-3.1.1-py3-none-any.whl size=54326 sha256=5496b97baccb1122e586d4f0477a0f581569b352720ebb0b9eed135b026f0a7d\r\n",
       "  Stored in directory: /root/.cache/pip/wheels/9f/53/c8/230d343a3109d13b33cf2c2cf2ac7f361c640152974627663e\r\n",
       "Successfully built pyvips\r\n",
       "Installing collected packages: pyvips\r\n",
@@ -295,19 +295,19 @@
   {
    "cell_type": "code",
    "execution_count": 2,
-   "id": "6db2ec67",
+   "id": "a05d552d",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-02-12T22:30:37.225866Z",
-     "iopub.status.busy": "2026-02-12T22:30:37.225208Z",
-     "iopub.status.idle": "2026-02-12T22:30:37.233642Z",
-     "shell.execute_reply": "2026-02-12T22:30:37.232715Z"
+     "iopub.execute_input": "2026-02-13T00:51:34.074079Z",
+     "iopub.status.busy": "2026-02-13T00:51:34.073738Z",
+     "iopub.status.idle": "2026-02-13T00:51:34.080748Z",
+     "shell.execute_reply": "2026-02-13T00:51:34.079665Z"
     },
     "papermill": {
-     "duration": 0.023011,
-     "end_time": "2026-02-12T22:30:37.235556",
+     "duration": 0.018297,
+     "end_time": "2026-02-13T00:51:34.082475",
      "exception": false,
-     "start_time": "2026-02-12T22:30:37.212545",
+     "start_time": "2026-02-13T00:51:34.064178",
      "status": "completed"
     },
     "tags": []
@@ -345,19 +345,19 @@
   {
    "cell_type": "code",
    "execution_count": 3,
-   "id": "d7278ac7",
+   "id": "e71e15cd",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-02-12T22:30:37.259282Z",
-     "iopub.status.busy": "2026-02-12T22:30:37.258897Z",
-     "iopub.status.idle": "2026-02-12T22:30:37.267277Z",
-     "shell.execute_reply": "2026-02-12T22:30:37.266401Z"
+     "iopub.execute_input": "2026-02-13T00:51:34.103551Z",
+     "iopub.status.busy": "2026-02-13T00:51:34.103232Z",
+     "iopub.status.idle": "2026-02-13T00:51:34.110899Z",
+     "shell.execute_reply": "2026-02-13T00:51:34.109579Z"
     },
     "papermill": {
-     "duration": 0.022835,
-     "end_time": "2026-02-12T22:30:37.269538",
+     "duration": 0.019159,
+     "end_time": "2026-02-13T00:51:34.112759",
      "exception": false,
-     "start_time": "2026-02-12T22:30:37.246703",
+     "start_time": "2026-02-13T00:51:34.093600",
      "status": "completed"
     },
     "tags": []
@@ -416,19 +416,19 @@
   {
    "cell_type": "code",
    "execution_count": 4,
-   "id": "d8a55815",
+   "id": "16f89510",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-02-12T22:30:37.293853Z",
-     "iopub.status.busy": "2026-02-12T22:30:37.293536Z",
-     "iopub.status.idle": "2026-02-12T22:30:37.298772Z",
-     "shell.execute_reply": "2026-02-12T22:30:37.297784Z"
+     "iopub.execute_input": "2026-02-13T00:51:34.132351Z",
+     "iopub.status.busy": "2026-02-13T00:51:34.131969Z",
+     "iopub.status.idle": "2026-02-13T00:51:34.137308Z",
+     "shell.execute_reply": "2026-02-13T00:51:34.136497Z"
     },
     "papermill": {
-     "duration": 0.020282,
-     "end_time": "2026-02-12T22:30:37.300768",
+     "duration": 0.017422,
+     "end_time": "2026-02-13T00:51:34.138749",
      "exception": false,
-     "start_time": "2026-02-12T22:30:37.280486",
+     "start_time": "2026-02-13T00:51:34.121327",
      "status": "completed"
     },
     "tags": []
@@ -447,19 +447,19 @@
   {
    "cell_type": "code",
    "execution_count": 5,
-   "id": "1212e067",
+   "id": "fe2595b5",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-02-12T22:30:37.324926Z",
-     "iopub.status.busy": "2026-02-12T22:30:37.324567Z",
-     "iopub.status.idle": "2026-02-12T22:30:37.336637Z",
-     "shell.execute_reply": "2026-02-12T22:30:37.335566Z"
+     "iopub.execute_input": "2026-02-13T00:51:34.157433Z",
+     "iopub.status.busy": "2026-02-13T00:51:34.157088Z",
+     "iopub.status.idle": "2026-02-13T00:51:34.166822Z",
+     "shell.execute_reply": "2026-02-13T00:51:34.165692Z"
     },
     "papermill": {
-     "duration": 0.026807,
-     "end_time": "2026-02-12T22:30:37.338686",
+     "duration": 0.021394,
+     "end_time": "2026-02-13T00:51:34.168934",
      "exception": false,
-     "start_time": "2026-02-12T22:30:37.311879",
+     "start_time": "2026-02-13T00:51:34.147540",
      "status": "completed"
     },
     "tags": []
@@ -536,19 +536,19 @@
   {
    "cell_type": "code",
    "execution_count": 6,
-   "id": "7bcb5751",
+   "id": "712acbc2",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-02-12T22:30:37.362053Z",
-     "iopub.status.busy": "2026-02-12T22:30:37.361656Z",
-     "iopub.status.idle": "2026-02-12T22:30:37.372786Z",
-     "shell.execute_reply": "2026-02-12T22:30:37.371771Z"
+     "iopub.execute_input": "2026-02-13T00:51:34.188468Z",
+     "iopub.status.busy": "2026-02-13T00:51:34.188146Z",
+     "iopub.status.idle": "2026-02-13T00:51:34.196975Z",
+     "shell.execute_reply": "2026-02-13T00:51:34.196199Z"
     },
     "papermill": {
-     "duration": 0.025749,
-     "end_time": "2026-02-12T22:30:37.374971",
+     "duration": 0.019873,
+     "end_time": "2026-02-13T00:51:34.198451",
      "exception": false,
-     "start_time": "2026-02-12T22:30:37.349222",
+     "start_time": "2026-02-13T00:51:34.178578",
      "status": "completed"
     },
     "tags": []
@@ -627,19 +627,19 @@
   {
    "cell_type": "code",
    "execution_count": 7,
-   "id": "17021c17",
+   "id": "f9c28bdd",
    "metadata": {
     "execution": {
-     "iopub.execute_input": "2026-02-12T22:30:37.398887Z",
-     "iopub.status.busy": "2026-02-12T22:30:37.398463Z",
-     "iopub.status.idle": "2026-02-12T23:13:48.549483Z",
-     "shell.execute_reply": "2026-02-12T23:13:48.548285Z"
+     "iopub.execute_input": "2026-02-13T00:51:34.221884Z",
+     "iopub.status.busy": "2026-02-13T00:51:34.221489Z",
+     "iopub.status.idle": "2026-02-13T01:29:21.855525Z",
+     "shell.execute_reply": "2026-02-13T01:29:21.854027Z"
     },
     "papermill": {
-     "duration": 2591.168098,
-     "end_time": "2026-02-12T23:13:48.554082",
+     "duration": 2267.654,
+     "end_time": "2026-02-13T01:29:21.861031",
      "exception": false,
-     "start_time": "2026-02-12T22:30:37.385984",
+     "start_time": "2026-02-13T00:51:34.207031",
      "status": "completed"
     },
     "tags": []
@@ -649,14 +649,14 @@
      "name": "stdout",
      "output_type": "stream",
      "text": [
-      "=== GENERATING SHARD: TRAIN_PART_1 ===\n"
+      "=== GENERATING SHARD: TRAIN_PART_2 ===\n"
      ]
     },
     {
      "name": "stderr",
      "output_type": "stream",
      "text": [
-      "Part 1: 100%|██████████| 53/53 [43:08<00:00, 48.83s/it]\n"
+      "Part 2: 100%|██████████| 53/53 [37:45<00:00, 42.74s/it]\n"
      ]
     },
     {
@@ -680,7 +680,7 @@
     "\n",
     "# --- CONFIGURATION ---\n",
     "MODE = 'train' # 'train' or 'valid'     \n",
-    "PART_ID = 1 # 0...5        \n",
+    "PART_ID = 2 # 0...5        \n",
     "TOTAL_PARTS = 6         \n",
     "\n",
     "if MODE == 'valid':\n",
@@ -914,14 +914,14 @@
   },
   "papermill": {
    "default_parameters": {},
-   "duration": 2647.146892,
-   "end_time": "2026-02-12T23:13:49.402848",
+   "duration": 2323.188153,
+   "end_time": "2026-02-13T01:29:22.614017",
    "environment_variables": {},
    "exception": null,
    "input_path": "__notebook__.ipynb",
    "output_path": "__notebook__.ipynb",
    "parameters": {},
-   "start_time": "2026-02-12T22:29:42.255956",
+   "start_time": "2026-02-13T00:50:39.425864",
    "version": "2.6.0"
   }
  },
