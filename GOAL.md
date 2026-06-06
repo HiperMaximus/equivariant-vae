@@ -35,6 +35,8 @@ for histopathology patches.
   `docs/agentic_review_workflow.md`
 - Spec-driven development workflow:
   `docs/spec_driven_development.md` and `docs/specs/`
+- Strict Python quality workflow:
+  `docs/specs/0002-strict-python-quality-gate.md`
 - SIPAIM paper source:
   `paper/sipaim2026`
 - Overleaf sync workflow:

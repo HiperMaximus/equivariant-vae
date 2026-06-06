@@ -108,7 +108,9 @@ The baseline is not complete until:
 7. rotated-input qualitative artifacts use fixed continuous angles;
 8. `rotated_input_vs_latent_grid.*` can be produced for the same patch/angle set;
 9. banned-operation checks pass;
-10. the implementation spec and `CURRENT.md` are updated with any changed
+10. `./scripts/python_quality.sh` passes, or dependency/network blockers are
+    documented before finalizing;
+11. the implementation spec and `CURRENT.md` are updated with any changed
     contract details.
 
 ## Verification Commands

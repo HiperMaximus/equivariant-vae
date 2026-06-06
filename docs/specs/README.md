@@ -14,6 +14,7 @@ Read first:
 Current active spec:
 
 - `0001-translatable-normal-vae-baseline.md`
+- `0002-strict-python-quality-gate.md`
 
 Keep specs current. If implementation changes the contract, update the spec in
 the same workstream.

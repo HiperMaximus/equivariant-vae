@@ -18,6 +18,8 @@ and clearer evaluation milestone requirements.
 
 Spec-driven development is now an active repo workflow. The first active spec is
 `docs/specs/0001-translatable-normal-vae-baseline.md`.
+Strict Python quality is also an active workflow via
+`docs/specs/0002-strict-python-quality-gate.md`.
 
 ## Settled Decisions
 
@@ -47,11 +49,13 @@ The review process lives in `docs/agentic_review_workflow.md`.
 1. Turn the transition plan into repo code structure: configs, model factories,
    data/eval modules, and launchers.
 2. Lock and implement `docs/specs/0001-translatable-normal-vae-baseline.md`.
-3. Implement the shared evaluation harness for metrics, boxplots, fixed
+3. Lock the Python 3.12 + Ruff + BasedPyright quality gate in
+   `docs/specs/0002-strict-python-quality-gate.md`.
+4. Implement the shared evaluation harness for metrics, boxplots, fixed
    25-patch artifacts, rotated-input artifacts, and latent visualizations.
-4. Add targeted equivalence/equivariance tests for operations before full
+5. Add targeted equivalence/equivariance tests for operations before full
    continuous `SO(2)` training runs.
-5. Only then implement the steerable model path and run matched experiments.
+6. Only then implement the steerable model path and run matched experiments.
 
 ## Current Blockers
 
@@ -76,3 +80,4 @@ When opening this repo in VS Code, the local workflow tasks are:
 - `Agent: preflight`
 - `Paper: compile SIPAIM PDF`
 - `Paper: Overleaf local check`
+- `Python: quality`

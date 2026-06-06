@@ -18,6 +18,12 @@
       "type": "shell",
       "command": "./scripts/sipaim_overleaf_sync.sh check",
       "problemMatcher": []
+    },
+    {
+      "label": "Python: quality",
+      "type": "shell",
+      "command": "./scripts/python_quality.sh",
+      "problemMatcher": []
     }
   ]
 }

@@ -93,6 +93,15 @@ For substantial implementation work, use spec-driven development:
 active implementation spec is
 [docs/specs/0001-translatable-normal-vae-baseline.md](docs/specs/0001-translatable-normal-vae-baseline.md).
 
+For Python changes, run the strict quality gate:
+
+```bash
+./scripts/python_quality.sh
+```
+
+It targets Python 3.12 with uv, Ruff `ALL`, and strict BasedPyright. See
+[docs/specs/0002-strict-python-quality-gate.md](docs/specs/0002-strict-python-quality-gate.md).
+
 ## Current Experiment Horizon
 
 The comparison should be fair by construction:

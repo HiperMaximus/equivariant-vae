@@ -86,8 +86,9 @@ Paper specs must additionally define:
    on the spec before implementation.
 4. Implement only what the spec covers.
 5. Verify against the spec's acceptance criteria.
-6. Update the spec, `CURRENT.md`, and any affected plan/readme files.
-7. Delete or replace stale information. Do not leave contradictory historical
+6. For Python changes, run `./scripts/python_quality.sh` after implementation.
+7. Update the spec, `CURRENT.md`, and any affected plan/readme files.
+8. Delete or replace stale information. Do not leave contradictory historical
    notes.
 
 ## Memory Rule

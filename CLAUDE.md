@@ -18,6 +18,9 @@ workflow, or Overleaf work:
 10. `docs/spec_driven_development.md`
 11. active specs in `docs/specs/`
 
+For Python changes, run `./scripts/python_quality.sh` before finalizing. Ask the
+user first if `uv` needs network access to sync Python or dependencies.
+
 Run this preflight before substantial work:
 
 ```bash

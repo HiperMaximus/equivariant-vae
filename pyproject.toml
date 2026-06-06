@@ -3,16 +3,64 @@ name = "eqvae-histo"
 version = "0.1.0"
 description = "Implementation of Equivariant-VAE"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 authors = [{ name = "HiperMaximus", email = "hipermaximus@gmail.com" }]
 license = { text = "Apache License 2.0"}
 dependencies = []
 
-[tool.uv.workspace]
-members = [
-    "python3.13",
+[dependency-groups]
+dev = [
+    "basedpyright>=1.31.0",
+    "pytest>=8.4.0",
+    "ruff>=0.12.0",
 ]
 
 [tool.ruff]
+fix = false
+line-length = 88
+preview = true
+src = ["src", "tests"]
 target-version = "py312"
 
+[tool.ruff.format]
+docstring-code-format = true
+indent-style = "space"
+line-ending = "lf"
+quote-style = "double"
+
+[tool.ruff.lint]
+fixable = ["ALL"]
+ignore = []
+select = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+
+[tool.basedpyright]
+exclude = [
+    ".venv",
+    "build",
+    "dist",
+    "kaggle",
+    "paper",
+]
+include = [
+    "main.py",
+    "src",
+    "tests",
+]
+pythonPlatform = "Linux"
+pythonVersion = "3.12"
+reportAny = "error"
+reportIgnoreCommentWithoutRule = "error"
+reportMissingImports = "error"
+reportMissingTypeStubs = "error"
+strict = [
+    "main.py",
+    "src",
+    "tests",
+]
+typeCheckingMode = "strict"
+venv = ".venv"
+venvPath = "."

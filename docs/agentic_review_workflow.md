@@ -61,6 +61,7 @@ Keep each project fact in the smallest stable home:
 | `docs/*_plan*.md` | Active implementation plan/checklists. | Execution phases, gates, or technical assumptions change. |
 | `docs/spec_driven_development.md` | Spec-first workflow rules. | The spec workflow changes. |
 | `docs/specs/` | Workstream-level implementation contracts. | A feature, experiment, evaluation, paper artifact, or workflow contract changes. |
+| `pyproject.toml` | Python environment, Ruff, and BasedPyright contract. | Tooling, dependencies, or Python target changes. |
 | `docs/issue_image_inventory.md` | Evidence from inspected issue images. | New issue images are inspected or requirements are corrected. |
 
 Adapters and summaries should point to canonical files instead of copying long

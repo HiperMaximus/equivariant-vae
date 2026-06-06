@@ -71,6 +71,12 @@ This repo is the paper/research repository for the equivariant VAE work.
 20. Use spec-driven development for substantial implementation, experiment,
     evaluation, paper, or workflow changes. Write or update the relevant spec in
     `docs/specs/` before coding, then verify against its acceptance criteria.
+21. For Python changes, run `./scripts/python_quality.sh` before handing work
+    back. If `uv` needs network access to install Python 3.12 or dependencies,
+    ask the user for permission first.
+22. Python quality is intentionally strict: Ruff selects `ALL`, BasedPyright is
+    strict, no global ignores are allowed, and tests may ignore only Ruff `S101`
+    for bare `assert`.
 
 ## Safe Paper Workflow
 
@@ -98,3 +104,4 @@ See:
 - `docs/agentic_review_workflow.md` for independent adversarial review.
 - `docs/spec_driven_development.md` and `docs/specs/` for implementation
   contracts.
+- `docs/specs/0002-strict-python-quality-gate.md` for Python quality rules.
