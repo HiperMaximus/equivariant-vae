@@ -21,6 +21,7 @@ This repo is the paper/research repository for the equivariant VAE work.
    `docs/repo_goal_and_requirements.md`,
    `docs/issue_image_inventory.md`,
    `docs/equivariant_vae_transition_plan.md`,
+   `docs/kaggle_cli_workflow.md`,
    `docs/overleaf_sync_workflow.md`,
    `docs/agentic_review_workflow.md`,
    `docs/spec_driven_development.md`, `docs/specs/README.md`, active specs
@@ -90,6 +91,10 @@ This repo is the paper/research repository for the equivariant VAE work.
     `uv.lock` for the resolved local environment. A root `requirements.txt` is
     not allowed; pip requirements files may only be generated, context-specific
     exports such as a future Kaggle bootstrap file.
+26. Kaggle is a remote execution surface, not a Git remote. Use
+    `./scripts/kaggle_kernel.sh` and `docs/kaggle_cli_workflow.md`; do not use a
+    GitHub-linked Kaggle notebook as the source of truth. Kaggle remote writes
+    require explicit user permission and `KAGGLE_PUSH_CONFIRMED=1`.
 
 ## Safe Paper Workflow
 
@@ -112,6 +117,7 @@ See:
 - `GOAL.md` for the repo north star.
 - `docs/repo_goal_and_requirements.md` for issue-derived deliverables.
 - `docs/issue_image_inventory.md` for inspected issue screenshots.
+- `docs/kaggle_cli_workflow.md` for CLI-managed Kaggle script kernels.
 - `docs/overleaf_sync_workflow.md` for the full workflow and failure modes.
 - `docs/decisions/README.md` for settled project decisions.
 - `docs/agentic_review_workflow.md` for independent adversarial review.

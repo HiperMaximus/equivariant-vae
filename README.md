@@ -16,6 +16,7 @@ paper text, workflow, or Overleaf sync:
 - [docs/repo_goal_and_requirements.md](docs/repo_goal_and_requirements.md)
 - [docs/issue_image_inventory.md](docs/issue_image_inventory.md)
 - [docs/equivariant_vae_transition_plan.md](docs/equivariant_vae_transition_plan.md)
+- [docs/kaggle_cli_workflow.md](docs/kaggle_cli_workflow.md)
 - [docs/overleaf_sync_workflow.md](docs/overleaf_sync_workflow.md)
 - [docs/agentic_review_workflow.md](docs/agentic_review_workflow.md)
 - [docs/spec_driven_development.md](docs/spec_driven_development.md)
@@ -118,6 +119,30 @@ Python dependency truth lives in:
 A root `requirements.txt` is intentionally not used. If a pip requirements file
 is needed later for Kaggle, generate it as a context-specific export and keep the
 generation rule documented in a spec.
+
+## Kaggle Execution
+
+Kaggle is a GPU execution surface, not a Git remote. Historical FSQ notebooks in
+`kaggle/train_runs` and `kaggle/dataset_generation` are evidence for the behavior
+inventory, not the new source of truth.
+
+The first CLI-managed script-kernel scaffold is:
+
+```text
+kaggle/kernels/non_eq_vae_debug
+```
+
+It is intentionally not push-ready yet. Use:
+
+```bash
+./scripts/kaggle_kernel.sh validate
+./scripts/kaggle_kernel.sh check
+```
+
+Remote Kaggle writes require explicit permission and
+`KAGGLE_PUSH_CONFIRMED=1`. See
+[docs/kaggle_cli_workflow.md](docs/kaggle_cli_workflow.md) and
+[docs/specs/0003-kaggle-cli-execution-workflow.md](docs/specs/0003-kaggle-cli-execution-workflow.md).
 
 ## Current Experiment Horizon
 

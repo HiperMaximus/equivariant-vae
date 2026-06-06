@@ -34,6 +34,7 @@ required_files=(
   "docs/repo_goal_and_requirements.md"
   "docs/issue_image_inventory.md"
   "docs/equivariant_vae_transition_plan.md"
+  "docs/kaggle_cli_workflow.md"
   "docs/overleaf_sync_workflow.md"
   "docs/agentic_review_workflow.md"
   "docs/spec_driven_development.md"
@@ -41,10 +42,17 @@ required_files=(
   "docs/specs/template.md"
   "docs/specs/0001-translatable-normal-vae-baseline.md"
   "docs/specs/0002-strict-python-quality-gate.md"
+  "docs/specs/0003-kaggle-cli-execution-workflow.md"
   "docs/decisions/README.md"
   "scripts/agent_preflight.sh"
+  "scripts/kaggle_kernel.sh"
   "scripts/python_quality.sh"
   "scripts/sipaim_overleaf_sync.sh"
+  "kaggle/__init__.py"
+  "kaggle/kernels/__init__.py"
+  "kaggle/kernels/non_eq_vae_debug/__init__.py"
+  "kaggle/kernels/non_eq_vae_debug/kernel-metadata.json"
+  "kaggle/kernels/non_eq_vae_debug/run.py"
   "tests/.gitkeep"
   "paper/sipaim2026/main.tex"
   "paper/sipaim2026/sipaim2026.pdf"
@@ -163,6 +171,30 @@ else
   missing=1
 fi
 
+if git check-ignore --no-index -q runs/kaggle/non_eq_vae_debug/output.txt; then
+  echo "ok: runs/ artifacts are ignored"
+else
+  echo "error: runs/ artifacts should stay ignored"
+  missing=1
+fi
+
+for credential_path in kaggle.json .kaggle/kaggle.json kaggle/kernels/kaggle.json; do
+  if git check-ignore --no-index -q "$credential_path"; then
+    echo "ok: $credential_path is ignored"
+  else
+    echo "error: $credential_path should stay ignored"
+    missing=1
+  fi
+done
+
+if git ls-files | grep -E '(^|/)kaggle\.json$|^\.kaggle/' >/dev/null 2>&1; then
+  echo "error: tracked Kaggle credential-like file found"
+  git ls-files | grep -E '(^|/)kaggle\.json$|^\.kaggle/'
+  missing=1
+else
+  echo "ok: no Kaggle credential-like files are tracked"
+fi
+
 echo
 echo "Stale planning-term check"
 stale_pattern='\b(MAPI4?|Springer|D4)\b'
@@ -186,12 +218,13 @@ printf '%s\n' \
   "4. docs/repo_goal_and_requirements.md" \
   "5. docs/issue_image_inventory.md" \
   "6. docs/equivariant_vae_transition_plan.md" \
-  "7. docs/overleaf_sync_workflow.md" \
-  "8. docs/agentic_review_workflow.md" \
-  "9. docs/spec_driven_development.md" \
-  "10. docs/specs/README.md" \
-  "11. active specs linked from docs/specs/README.md" \
-  "12. docs/decisions/README.md"
+  "7. docs/kaggle_cli_workflow.md" \
+  "8. docs/overleaf_sync_workflow.md" \
+  "9. docs/agentic_review_workflow.md" \
+  "10. docs/spec_driven_development.md" \
+  "11. docs/specs/README.md" \
+  "12. active specs linked from docs/specs/README.md" \
+  "13. docs/decisions/README.md"
 
 if [[ "$missing" -ne 0 || "$tracked_problem" -ne 0 ]]; then
   exit 1

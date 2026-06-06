@@ -25,6 +25,8 @@ for histopathology patches.
   `docs/equivariant_vae_transition_plan.md`
 - Current handoff/status:
   `CURRENT.md`
+- Kaggle CLI execution workflow:
+  `docs/kaggle_cli_workflow.md`
 - Issue-derived requirements and deliverables:
   `docs/repo_goal_and_requirements.md`
 - Issue image inventory:

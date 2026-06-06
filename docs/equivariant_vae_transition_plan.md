@@ -13,6 +13,7 @@ Read this plan together with:
   acceptance gates.
 - `docs/issue_image_inventory.md` for requirements derived from inspected
   GitHub issue screenshots.
+- `docs/kaggle_cli_workflow.md` for CLI-managed Kaggle script execution.
 - `docs/decisions/README.md` for settled project decisions.
 - `docs/agentic_review_workflow.md` for adversarial clean-context review before
   major architecture or workflow changes.
@@ -56,10 +57,10 @@ The target comparison is:
 - The latest Kaggle notebook trains on 256x256 UBC-OCEAN patches.
 - The latest Kaggle model is a deterministic FSQ autoencoder. It has no KL term
   and should not be reported as a VAE baseline.
-- `main.py` is empty, and the recent executable source of truth is the Kaggle
-  notebook JSON in `kaggle/train_runs`. The dataset-generation notebook JSON is
-  `kaggle/dataset_generation`. These need to become references, not executable
-  source-of-truth files.
+- `main.py` is empty, and the last runnable notebook artifacts/evidence are the
+  Kaggle notebook JSON files in `kaggle/train_runs`. The dataset-generation
+  notebook JSON is `kaggle/dataset_generation`. These need to become references,
+  not executable source-of-truth files.
 - `src/nn/layers.py` and `src/nn/resnet18.py` contain useful architectural
   explorations, but also operations that should not be carried forward blindly:
   GroupNorm, depthwise/MBConv, squeeze-excite, nearest upsampling, 1x1-heavy
@@ -826,12 +827,15 @@ decisions such as the continuous `SO(2)` scope.
 2. Write `docs/behavior_inventory_kaggle.md` for the current Kaggle script.
 3. Lock `docs/specs/0001-translatable-normal-vae-baseline.md` enough to start
    implementation, including exact smoke/evaluator/artifact commands.
-4. Resolve or explicitly baseline the strict Ruff/BasedPyright historical debt.
-5. Add `src/eqvae` package skeleton.
-6. Add configs that lock input size, latent shape, group, layer schedule, and
+4. Confirm Kaggle dataset slugs and authentication plan for
+   `kaggle/kernels/non_eq_vae_debug`.
+5. Resolve or explicitly baseline the strict Ruff/BasedPyright historical debt.
+6. Add `src/eqvae` package skeleton.
+7. Add configs that lock input size, latent shape, group, layer schedule, and
    normalization.
-7. Extract data/checkpoint/logging utilities from the Kaggle notebook.
-8. Implement the non-equivariant translatable VAE.
-9. Add banned-operation and shape tests.
-10. Run a Kaggle debug job with the new baseline.
-11. Implement the SO(2) `escnn` feasibility spike.
+8. Extract data/checkpoint/logging utilities from the Kaggle notebook.
+9. Implement the non-equivariant translatable VAE.
+10. Replace the placeholder Kaggle script with the real CLI-managed launcher.
+11. Add banned-operation and shape tests.
+12. Run a Kaggle debug job with the new baseline.
+13. Implement the SO(2) `escnn` feasibility spike.

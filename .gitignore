@@ -204,6 +204,14 @@ cython_debug/
 *.xdv
 paper/sipaim2026/main.pdf
 
+# Experiment and Kaggle run artifacts
+runs/
+
+# Kaggle credentials
+.kaggle/
+kaggle.json
+**/kaggle.json
+
 # PyPI configuration file
 .pypirc
 

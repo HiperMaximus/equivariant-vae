@@ -12,12 +12,13 @@ workflow, or Overleaf work:
 4. `docs/repo_goal_and_requirements.md`
 5. `docs/issue_image_inventory.md`
 6. `docs/equivariant_vae_transition_plan.md`
-7. `docs/overleaf_sync_workflow.md`
-8. `docs/decisions/README.md`
-9. `docs/agentic_review_workflow.md`
-10. `docs/spec_driven_development.md`
-11. `docs/specs/README.md`
-12. active specs linked from `docs/specs/README.md`
+7. `docs/kaggle_cli_workflow.md`
+8. `docs/overleaf_sync_workflow.md`
+9. `docs/decisions/README.md`
+10. `docs/agentic_review_workflow.md`
+11. `docs/spec_driven_development.md`
+12. `docs/specs/README.md`
+13. active specs linked from `docs/specs/README.md`
 
 For Python changes, run `./scripts/python_quality.sh` before finalizing. The
 script uses the existing `.venv` and does not sync dependencies. Ask the user
