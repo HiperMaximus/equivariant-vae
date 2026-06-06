@@ -16,6 +16,8 @@ Read this plan together with:
 - `docs/decisions/README.md` for settled project decisions.
 - `docs/agentic_review_workflow.md` for adversarial clean-context review before
   major architecture or workflow changes.
+- `docs/spec_driven_development.md` and `docs/specs/` for spec-first
+  implementation contracts.
 
 The current Kaggle runs proved that the UBC-OCEAN patch pipeline, DDP loop,
 stain/noise corruption, checkpointing, and evaluation artifact flow can work.
@@ -815,12 +817,14 @@ decisions such as the continuous `SO(2)` scope.
 ## Immediate Next Tasks
 
 1. Treat this document as the active checklist for the branch.
-2. Write the behavior inventory for the current Kaggle script.
-3. Add `src/eqvae` package skeleton.
-4. Add configs that lock input size, latent shape, group, layer schedule, and
+2. Lock `docs/specs/0001-translatable-normal-vae-baseline.md` enough to start
+   implementation.
+3. Write the behavior inventory for the current Kaggle script.
+4. Add `src/eqvae` package skeleton.
+5. Add configs that lock input size, latent shape, group, layer schedule, and
    normalization.
-5. Extract data/checkpoint/logging utilities from the Kaggle notebook.
-6. Implement the non-equivariant translatable VAE.
-7. Add banned-operation and shape tests.
-8. Run a Kaggle debug job with the new baseline.
-9. Implement the SO(2) `escnn` feasibility spike.
+6. Extract data/checkpoint/logging utilities from the Kaggle notebook.
+7. Implement the non-equivariant translatable VAE.
+8. Add banned-operation and shape tests.
+9. Run a Kaggle debug job with the new baseline.
+10. Implement the SO(2) `escnn` feasibility spike.

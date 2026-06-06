@@ -18,6 +18,8 @@ paper text, workflow, or Overleaf sync:
 - [docs/equivariant_vae_transition_plan.md](docs/equivariant_vae_transition_plan.md)
 - [docs/overleaf_sync_workflow.md](docs/overleaf_sync_workflow.md)
 - [docs/agentic_review_workflow.md](docs/agentic_review_workflow.md)
+- [docs/spec_driven_development.md](docs/spec_driven_development.md)
+- [docs/specs/README.md](docs/specs/README.md)
 - [docs/decisions/README.md](docs/decisions/README.md)
 
 Keep these files current. If old notes become misleading, replace or delete
@@ -85,6 +87,11 @@ The same local checks are available as VS Code tasks when opening this repo.
 For substantial workflow, architecture, evaluation, or paper-claim changes, use
 the adversarial clean-context subagent process in
 [docs/agentic_review_workflow.md](docs/agentic_review_workflow.md).
+
+For substantial implementation work, use spec-driven development:
+[docs/spec_driven_development.md](docs/spec_driven_development.md). The first
+active implementation spec is
+[docs/specs/0001-translatable-normal-vae-baseline.md](docs/specs/0001-translatable-normal-vae-baseline.md).
 
 ## Current Experiment Horizon
 

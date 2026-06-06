@@ -11,6 +11,8 @@ For the current handoff state and next concrete steps, read `CURRENT.md`.
 For settled decisions, read `docs/decisions/README.md`.
 For major requirement changes, use the adversarial review process in
 `docs/agentic_review_workflow.md`.
+For substantial implementation work, use the spec-driven workflow in
+`docs/spec_driven_development.md` and write/update specs in `docs/specs/`.
 
 Issue screenshots are part of the evidence. Read
 `docs/issue_image_inventory.md` before changing evaluation requirements.

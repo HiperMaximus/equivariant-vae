@@ -33,6 +33,8 @@ for histopathology patches.
   `docs/decisions/README.md`
 - Agentic adversarial review workflow:
   `docs/agentic_review_workflow.md`
+- Spec-driven development workflow:
+  `docs/spec_driven_development.md` and `docs/specs/`
 - SIPAIM paper source:
   `paper/sipaim2026`
 - Overleaf sync workflow:

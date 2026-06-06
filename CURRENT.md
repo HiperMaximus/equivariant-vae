@@ -16,6 +16,9 @@ the converged fixes were stricter Overleaf remote validation, explicit
 pull/push confirmation, token-safe remote output, stronger preflight checks,
 and clearer evaluation milestone requirements.
 
+Spec-driven development is now an active repo workflow. The first active spec is
+`docs/specs/0001-translatable-normal-vae-baseline.md`.
+
 ## Settled Decisions
 
 - The active symmetry target is continuous `SO(2)`.
@@ -43,7 +46,7 @@ The review process lives in `docs/agentic_review_workflow.md`.
 
 1. Turn the transition plan into repo code structure: configs, model factories,
    data/eval modules, and launchers.
-2. Implement the comparable non-equivariant normal VAE baseline first.
+2. Lock and implement `docs/specs/0001-translatable-normal-vae-baseline.md`.
 3. Implement the shared evaluation harness for metrics, boxplots, fixed
    25-patch artifacts, rotated-input artifacts, and latent visualizations.
 4. Add targeted equivalence/equivariance tests for operations before full

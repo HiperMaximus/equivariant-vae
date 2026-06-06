@@ -31,6 +31,10 @@ required_files=(
   "docs/equivariant_vae_transition_plan.md"
   "docs/overleaf_sync_workflow.md"
   "docs/agentic_review_workflow.md"
+  "docs/spec_driven_development.md"
+  "docs/specs/README.md"
+  "docs/specs/template.md"
+  "docs/specs/0001-translatable-normal-vae-baseline.md"
   "docs/decisions/README.md"
   "scripts/sipaim_overleaf_sync.sh"
   "paper/sipaim2026/main.tex"
@@ -138,7 +142,9 @@ printf '%s\n' \
   "6. docs/equivariant_vae_transition_plan.md" \
   "7. docs/overleaf_sync_workflow.md" \
   "8. docs/agentic_review_workflow.md" \
-  "9. docs/decisions/README.md"
+  "9. docs/spec_driven_development.md" \
+  "10. docs/specs/README.md" \
+  "11. docs/decisions/README.md"
 
 if [[ "$missing" -ne 0 || "$tracked_problem" -ne 0 ]]; then
   exit 1

@@ -59,6 +59,8 @@ Keep each project fact in the smallest stable home:
 | `README.md` | Stable human onboarding. | Stable workflow entry points or repo purpose changes. |
 | `docs/decisions/` | Settled decisions and their rationale. | A decision is made, superseded, or explicitly reopened. |
 | `docs/*_plan*.md` | Active implementation plan/checklists. | Execution phases, gates, or technical assumptions change. |
+| `docs/spec_driven_development.md` | Spec-first workflow rules. | The spec workflow changes. |
+| `docs/specs/` | Workstream-level implementation contracts. | A feature, experiment, evaluation, paper artifact, or workflow contract changes. |
 | `docs/issue_image_inventory.md` | Evidence from inspected issue images. | New issue images are inspected or requirements are corrected. |
 
 Adapters and summaries should point to canonical files instead of copying long

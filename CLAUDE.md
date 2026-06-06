@@ -15,6 +15,8 @@ workflow, or Overleaf work:
 7. `docs/overleaf_sync_workflow.md`
 8. `docs/decisions/README.md`
 9. `docs/agentic_review_workflow.md`
+10. `docs/spec_driven_development.md`
+11. active specs in `docs/specs/`
 
 Run this preflight before substantial work:
 

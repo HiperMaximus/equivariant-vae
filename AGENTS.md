@@ -22,7 +22,8 @@ This repo is the paper/research repository for the equivariant VAE work.
    `docs/issue_image_inventory.md`,
    `docs/equivariant_vae_transition_plan.md`,
    `docs/overleaf_sync_workflow.md`,
-   `docs/agentic_review_workflow.md`, and `docs/decisions/README.md`.
+   `docs/agentic_review_workflow.md`,
+   `docs/spec_driven_development.md`, and `docs/decisions/README.md`.
 2. Do not push this whole repo to Overleaf.
 3. Do not add Overleaf as `origin`.
 4. Do not run plain `git push overleaf`.
@@ -67,6 +68,9 @@ This repo is the paper/research repository for the equivariant VAE work.
 19. For substantial workflow, architecture, evaluation, or paper-claim changes,
     use independent clean-context adversarial subagent reviews when the tooling
     is available. Follow `docs/agentic_review_workflow.md`.
+20. Use spec-driven development for substantial implementation, experiment,
+    evaluation, paper, or workflow changes. Write or update the relevant spec in
+    `docs/specs/` before coding, then verify against its acceptance criteria.
 
 ## Safe Paper Workflow
 
@@ -92,3 +96,5 @@ See:
 - `docs/overleaf_sync_workflow.md` for the full workflow and failure modes.
 - `docs/decisions/README.md` for settled project decisions.
 - `docs/agentic_review_workflow.md` for independent adversarial review.
+- `docs/spec_driven_development.md` and `docs/specs/` for implementation
+  contracts.
