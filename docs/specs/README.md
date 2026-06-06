@@ -9,12 +9,24 @@ Read first:
 
 1. `../spec_driven_development.md`
 2. `template.md`
-3. active specs linked from `CURRENT.md`
+3. the active specs in the table below
 
-Current active spec:
+## Status Values
 
-- `0001-translatable-normal-vae-baseline.md`
-- `0002-strict-python-quality-gate.md`
+- `draft`: useful planning text, not ready for implementation.
+- `draft active`: active workstream, but blocked by open questions or missing
+  verification details.
+- `locked / implementation-ready`: enough contract, acceptance criteria, and
+  commands exist to start coding.
+- `implemented`: accepted and verified.
+- `superseded`: retained only for history, with a pointer to the replacement.
+
+## Active Specs
+
+| Spec | Status | Blocked By | Next Action |
+| --- | --- | --- | --- |
+| `0001-translatable-normal-vae-baseline.md` | draft active, not implementation-ready | Missing Kaggle behavior inventory; open input-size, split, normalization, and nonlinearity decisions; placeholder verification commands. | Write `docs/behavior_inventory_kaggle.md`, then lock exact smoke/evaluator/artifact commands before coding. |
+| `0002-strict-python-quality-gate.md` | active gate installed, not fully green on historical code | 146 strict Ruff errors remain after autofix; BasedPyright reports 51 strict errors; debt is in `main.py` / exploratory `src/nn`; local `.venv` must exist before no-sync checks. | Keep `pyproject.toml` and `uv.lock` canonical, run autofix/lint/type checks, and solve debt via `src/eqvae` cleanup or a typed-adapter spec. |
 
 Keep specs current. If implementation changes the contract, update the spec in
 the same workstream.

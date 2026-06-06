@@ -1,6 +1,8 @@
 # Spec 0002: Strict Python Quality Gate
 
-Status: draft active spec
+Status: active gate installed; not fully green on historical code
+Implementation readiness: active for new Python work
+Owner/workstream: agentic Python quality and local CPU verification
 Last updated: 2026-06-05
 
 ## Purpose
@@ -23,6 +25,10 @@ handing them back to the user.
 - Environment manager: `uv`.
 - Project marker: `.python-version` with `3.12`.
 - Lockfile: `uv.lock` should be tracked.
+- Source of truth:
+  - `pyproject.toml` declares direct dependencies and tool configuration;
+  - `uv.lock` captures the resolved local environment;
+  - root `requirements.txt` is not allowed.
 - Local laptop tests use CPU-only PyTorch. GPU training belongs to Kaggle.
 - Linux PyTorch resolves from the PyTorch CPU wheel index through
   `tool.uv.sources`.
@@ -46,8 +52,17 @@ Agents should run:
 ./scripts/python_quality.sh
 ```
 
-after Python changes. The script formats first, then runs `ruff check --fix`,
-then verifies lint and types.
+after Python changes. The script uses the existing repo-local `.venv` without
+running `uv sync`, formats first, runs `ruff check --fix`, verifies lint, runs
+pytest when Python tests exist, and then runs BasedPyright.
+
+If `.venv` is missing or stale, ask the user before running:
+
+```bash
+uv sync --locked --python 3.12 --group dev
+```
+
+Do not use `ruff.toml`; it shadows the strict settings in `pyproject.toml`.
 
 ## BasedPyright Contract
 
@@ -69,17 +84,29 @@ copying it into the new `src/eqvae` package.
 
 As of 2026-06-05:
 
-- `uv sync --python 3.12 --group dev` creates a repo-local `.venv`.
+- `uv sync --locked --python 3.12 --group dev` creates a repo-local `.venv`.
 - Linux resolves `torch==2.12.0+cpu`.
 - `torch.cuda.is_available()` is `False`, as intended for local laptop tests.
-- Ruff format and `ruff check --fix` run successfully and leave Ruff green.
+- Strict Ruff settings live in `pyproject.toml`. A stale `ruff.toml` previously
+  shadowed them and has been removed.
+- The no-sync quality gate now reaches the strict Ruff config. Ruff autofixed 14
+  formatting issues in historical `src/nn/layers.py`, then reported 146
+  remaining errors in `main.py` and historical exploratory `src/nn` files.
 - BasedPyright runs successfully but reports 51 strict typing errors in the
   historical exploratory files `src/nn/layers.py` and `src/nn/resnet18.py`.
 
-The BasedPyright failures are mostly `reportAny` from PyTorch module call paths,
-plus one redeclaration. This is the expected next blocker to solve during the
-new `src/eqvae` implementation or a dedicated typed-PyTorch adapter spec. Do
-not make the gate green by weakening global strictness.
+Strict Ruff and BasedPyright failures in historical exploratory code are the
+expected next blocker to solve during the new `src/eqvae` implementation, a
+historical-code cleanup, or a dedicated typed-PyTorch adapter spec. Do not make
+the gate green by weakening global strictness.
+
+Interim policy until the historical debt is resolved:
+
+- new Python work must run `./scripts/python_quality.sh`;
+- keep Ruff autofix enabled and accept mechanical fixes;
+- do not add new lint/type debt outside already documented historical files;
+- do not add global ignores or broad suppressions;
+- document any remaining failure count in `CURRENT.md` before handing work back.
 
 ## Acceptance Criteria
 
@@ -87,7 +114,8 @@ This spec is complete when:
 
 1. `pyproject.toml` declares Python 3.12 and strict Ruff/BasedPyright settings;
 2. `.python-version` pins `3.12`;
-3. `scripts/python_quality.sh` runs format, autofix, lint, and type checks;
+3. `scripts/python_quality.sh` runs format, autofix, lint, pytest when tests
+   exist, CPU-environment assertions, and type checks without dependency sync;
 4. agent instructions require the quality script after Python changes;
 5. no global lint/type ignores are introduced;
 6. any PyTorch typing workaround is specified before implementation.
@@ -104,7 +132,7 @@ bash -n scripts/python_quality.sh
 Full quality gate, may need dependency sync:
 
 ```bash
-uv sync --python 3.12 --group dev
+uv sync --locked --python 3.12 --group dev
 ./scripts/python_quality.sh
 ```
 
@@ -115,7 +143,10 @@ before running the full gate in a restricted environment.
 
 - `pyproject.toml`
 - `.python-version`
+- `uv.lock`
+- `.gitignore`
 - `scripts/python_quality.sh`
+- `scripts/agent_preflight.sh`
 - `AGENTS.md`
 - `docs/spec_driven_development.md`
 - `docs/specs/0001-translatable-normal-vae-baseline.md`

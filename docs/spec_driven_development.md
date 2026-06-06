@@ -44,6 +44,10 @@ Active specs should be linked from `CURRENT.md` or the relevant plan. Completed
 or superseded specs should be updated in place with their final status, not left
 as misleading drafts.
 
+`docs/specs/README.md` is the status index. A `draft` or `draft active` spec is
+not permission to implement unless it is explicitly marked
+`locked / implementation-ready`.
+
 ## Minimum Spec Contents
 
 Every implementation spec should include:
@@ -82,13 +86,14 @@ Paper specs must additionally define:
 1. Create or refresh the spec.
 2. Check it against `GOAL.md`, `docs/repo_goal_and_requirements.md`,
    `docs/issue_image_inventory.md`, and `docs/decisions/`.
-3. For substantial or risky work, run clean-context adversarial subagent review
+3. If the spec has implementation blockers, resolve them or stop before coding.
+4. For substantial or risky work, run clean-context adversarial subagent review
    on the spec before implementation.
-4. Implement only what the spec covers.
-5. Verify against the spec's acceptance criteria.
-6. For Python changes, run `./scripts/python_quality.sh` after implementation.
-7. Update the spec, `CURRENT.md`, and any affected plan/readme files.
-8. Delete or replace stale information. Do not leave contradictory historical
+5. Implement only what the spec covers.
+6. Verify against the spec's acceptance criteria.
+7. For Python changes, run `./scripts/python_quality.sh` after implementation.
+8. Update the spec, `CURRENT.md`, and any affected plan/readme files.
+9. Delete or replace stale information. Do not leave contradictory historical
    notes.
 
 ## Memory Rule

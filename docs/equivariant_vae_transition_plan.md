@@ -64,9 +64,11 @@ The target comparison is:
   explorations, but also operations that should not be carried forward blindly:
   GroupNorm, depthwise/MBConv, squeeze-excite, nearest upsampling, 1x1-heavy
   projections, and non-field-aware channel logic.
-- Environment metadata is incomplete. `pyproject.toml` requires Python >=3.12,
-  but dependencies are empty and do not yet capture the packages used by the
-  Kaggle notebooks.
+- Environment metadata now has a strict local source of truth:
+  `pyproject.toml` for direct dependencies/tooling and `uv.lock` for the
+  resolved CPU-only laptop environment. Kaggle-only dependencies from notebooks
+  are not fully captured yet and should be added through a dedicated Kaggle
+  group/bootstrap spec, not a root `requirements.txt`.
 
 ## Experiment Contract
 
@@ -560,13 +562,13 @@ Refactor rules:
 
 Exit criteria:
 
-- A written inventory exists in docs or config.
+- A written inventory exists at `docs/behavior_inventory_kaggle.md`.
 - A one-batch old-script characterization run is reproducible, or the reason it
   cannot be run locally is documented.
 
 ### Phase 0: Lock The Specification
 
-- Commit this plan.
+- Complete Phase -1 first.
 - Decide input size: 256x256 continuation or 32x32 thesis-return.
 - Decide latent shape: default `(B, 24, 4, 4)`.
 - Confirm first implementation group: SO(2).
@@ -579,6 +581,9 @@ Exit criteria:
 
 - Operation translation table has no "unknown" entries for the first baseline.
 - The run config names the group, input size, latent shape, and layer schedule.
+- `docs/specs/0001-translatable-normal-vae-baseline.md` is marked
+  `locked / implementation-ready` with exact smoke, debug, resume, evaluator,
+  and artifact-generation commands.
 
 ### Phase 1: Extract Reusable Infrastructure
 
@@ -590,7 +595,8 @@ Exit criteria:
   training/evaluation dashboards.
 - Keep current Kaggle paths configurable.
 - Add a tiny local smoke dataset path or synthetic dataset path for tests.
-- Fix package metadata and dependencies.
+- Add any missing package metadata and dependencies through `pyproject.toml` and
+  `uv.lock`; keep Kaggle-only pip exports generated and documented if needed.
 
 Exit criteria:
 
@@ -689,7 +695,7 @@ Equivariance tests:
 Training smoke tests:
 
 - CPU synthetic batch: forward, loss, backward.
-- Single-GPU tiny run if available.
+- Kaggle-only single-GPU tiny run if useful.
 - DDP debug run on Kaggle with two ranks.
 - Resume from midpoint and endpoint checkpoints.
 - Export embeddings and run a tiny linear probe.
@@ -817,14 +823,15 @@ decisions such as the continuous `SO(2)` scope.
 ## Immediate Next Tasks
 
 1. Treat this document as the active checklist for the branch.
-2. Lock `docs/specs/0001-translatable-normal-vae-baseline.md` enough to start
-   implementation.
-3. Write the behavior inventory for the current Kaggle script.
-4. Add `src/eqvae` package skeleton.
-5. Add configs that lock input size, latent shape, group, layer schedule, and
+2. Write `docs/behavior_inventory_kaggle.md` for the current Kaggle script.
+3. Lock `docs/specs/0001-translatable-normal-vae-baseline.md` enough to start
+   implementation, including exact smoke/evaluator/artifact commands.
+4. Resolve or explicitly baseline the strict Ruff/BasedPyright historical debt.
+5. Add `src/eqvae` package skeleton.
+6. Add configs that lock input size, latent shape, group, layer schedule, and
    normalization.
-6. Extract data/checkpoint/logging utilities from the Kaggle notebook.
-7. Implement the non-equivariant translatable VAE.
-8. Add banned-operation and shape tests.
-9. Run a Kaggle debug job with the new baseline.
-10. Implement the SO(2) `escnn` feasibility spike.
+7. Extract data/checkpoint/logging utilities from the Kaggle notebook.
+8. Implement the non-equivariant translatable VAE.
+9. Add banned-operation and shape tests.
+10. Run a Kaggle debug job with the new baseline.
+11. Implement the SO(2) `escnn` feasibility spike.

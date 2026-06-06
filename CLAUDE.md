@@ -16,10 +16,12 @@ workflow, or Overleaf work:
 8. `docs/decisions/README.md`
 9. `docs/agentic_review_workflow.md`
 10. `docs/spec_driven_development.md`
-11. active specs in `docs/specs/`
+11. `docs/specs/README.md`
+12. active specs linked from `docs/specs/README.md`
 
-For Python changes, run `./scripts/python_quality.sh` before finalizing. Ask the
-user first if `uv` needs network access to sync Python or dependencies.
+For Python changes, run `./scripts/python_quality.sh` before finalizing. The
+script uses the existing `.venv` and does not sync dependencies. Ask the user
+first before running `uv sync --locked --python 3.12 --group dev`.
 
 Run this preflight before substantial work:
 

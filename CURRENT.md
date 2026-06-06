@@ -11,19 +11,31 @@ Build the repo toward a fair SIPAIM 2026 comparison between:
 2. a continuous `SO(2)` steerable denoising VAE, preferably using `escnn`.
 
 The current task is finishing planning and harness hardening before deeper code
-refactors. A clean-context adversarial subagent review was run on 2026-06-05;
-the converged fixes were stricter Overleaf remote validation, explicit
-pull/push confirmation, token-safe remote output, stronger preflight checks,
-and clearer evaluation milestone requirements.
+refactors. Clean-context adversarial subagent reviews were run on 2026-06-05;
+the latest fixes tightened dependency truth, strict Ruff resolution, no-network
+quality checks, preflight guards, spec readiness, behavior-inventory gates, and
+handoff-memory requirements.
 
 Spec-driven development is now an active repo workflow. The first active spec is
-`docs/specs/0001-translatable-normal-vae-baseline.md`.
+`docs/specs/0001-translatable-normal-vae-baseline.md`, but it is still a draft
+and is not implementation-ready.
 Strict Python quality is also an active workflow via
 `docs/specs/0002-strict-python-quality-gate.md`.
-The local uv environment is CPU-only for PyTorch. Ruff format/autofix/lint is
-green. BasedPyright currently reports strict `Any` failures in historical
-exploratory `src/nn` files; solve that in the new `src/eqvae` implementation or
-a dedicated typed-PyTorch adapter spec rather than weakening global strictness.
+The local uv environment is CPU-only for PyTorch. Strict Ruff settings are
+canonical in `pyproject.toml`; do not add `ruff.toml`. The no-sync quality gate
+verified Python 3.12, `torch==2.12.0+cpu`, and CUDA unavailable. Strict Ruff
+autofixed 14 historical formatting issues and then reported 146 remaining
+errors, all in `main.py` / historical exploratory `src/nn` files. A direct
+BasedPyright run reports 51 strict errors in historical exploratory `src/nn`
+files. Solve this in the new `src/eqvae` implementation, a historical-code
+cleanup, or a dedicated typed-PyTorch adapter spec rather than weakening global
+strictness.
+
+Immediate next action: write the Kaggle behavior inventory in
+`docs/behavior_inventory_kaggle.md` from `kaggle/train_runs` and
+`kaggle/dataset_generation`. Do not implement spec 0001 until that inventory
+exists and `docs/specs/0001-translatable-normal-vae-baseline.md` is locked as
+implementation-ready.
 
 ## Settled Decisions
 
@@ -50,22 +62,33 @@ The review process lives in `docs/agentic_review_workflow.md`.
 
 ## Next Concrete Steps
 
-1. Turn the transition plan into repo code structure: configs, model factories,
+1. Write `docs/behavior_inventory_kaggle.md` with the current data, training,
+   resume, evaluation, and artifact behavior from the Kaggle notebooks/scripts.
+2. Lock `docs/specs/0001-translatable-normal-vae-baseline.md` as
+   implementation-ready with exact smoke/evaluator/artifact commands.
+3. Resolve or explicitly baseline the strict Ruff/BasedPyright historical debt
+   without weakening global quality settings.
+4. Turn the transition plan into repo code structure: configs, model factories,
    data/eval modules, and launchers.
-2. Lock and implement `docs/specs/0001-translatable-normal-vae-baseline.md`.
-3. Lock the Python 3.12 + Ruff + BasedPyright quality gate in
+5. Lock the Python 3.12 + Ruff + BasedPyright quality gate in
    `docs/specs/0002-strict-python-quality-gate.md`.
-4. Implement the shared evaluation harness for metrics, boxplots, fixed
+6. Implement the shared evaluation harness for metrics, boxplots, fixed
    25-patch artifacts, rotated-input artifacts, and latent visualizations.
-5. Add targeted equivalence/equivariance tests for operations before full
+7. Add targeted equivalence/equivariance tests for operations before full
    continuous `SO(2)` training runs.
-6. Only then implement the steerable model path and run matched experiments.
+8. Only then implement the steerable model path and run matched experiments.
 
 ## Current Blockers
 
-No planning blocker is active after the adversarial workflow review. The next
-blocking choices are implementation details that should be locked before full
-runs:
+- `docs/specs/0001-translatable-normal-vae-baseline.md` is draft active, not
+  implementation-ready.
+- The Kaggle behavior inventory has not yet been written.
+- Exact smoke-test, evaluator, and artifact-generation commands are still
+  placeholders in spec 0001.
+- Strict Python quality is intentionally not fully green on historical
+  exploratory code: 146 Ruff errors remain after autofix, and BasedPyright
+  reports 51 strict errors. New work must not add debt or weaken the gate.
+- The next blocking choices to lock before full runs are:
 
 - final input size and split policy;
 - latent field/statistics policy for the first steerable VAE;
@@ -74,8 +97,17 @@ runs:
 ## Update Rule
 
 Update this file after meaningful shifts in active work, blockers, or next
-steps. Delete or replace stale information instead of appending contradictory
-history.
+steps, and before handing work back from a partial state. Each handoff update
+should make clear:
+
+- what changed;
+- what is currently in progress;
+- exactly where the agent left off;
+- the next concrete action;
+- active blockers or decisions needed;
+- verification run and remaining failures.
+
+Delete or replace stale information instead of appending contradictory history.
 
 ## VS Code Tasks
 

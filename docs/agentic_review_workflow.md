@@ -60,12 +60,36 @@ Keep each project fact in the smallest stable home:
 | `docs/decisions/` | Settled decisions and their rationale. | A decision is made, superseded, or explicitly reopened. |
 | `docs/*_plan*.md` | Active implementation plan/checklists. | Execution phases, gates, or technical assumptions change. |
 | `docs/spec_driven_development.md` | Spec-first workflow rules. | The spec workflow changes. |
+| `docs/specs/README.md` | Spec status index and implementation-readiness gate. | A spec is added, locked, implemented, blocked, or superseded. |
 | `docs/specs/` | Workstream-level implementation contracts. | A feature, experiment, evaluation, paper artifact, or workflow contract changes. |
 | `pyproject.toml` | Python environment, Ruff, and BasedPyright contract. | Tooling, dependencies, or Python target changes. |
+| `uv.lock` | Resolved repo-local Python environment. | `pyproject.toml` dependencies or dependency groups change. |
 | `docs/issue_image_inventory.md` | Evidence from inspected issue images. | New issue images are inspected or requirements are corrected. |
 
 Adapters and summaries should point to canonical files instead of copying long
 rule lists. If duplication is necessary for safety, keep the list identical.
+
+Do not use root `requirements.txt` as a state file. If a pip requirements export
+is needed for Kaggle, make it generated, context-specific, and documented in the
+relevant spec.
+
+## Handoff Memory Rule
+
+Before an agent hands work back, pauses, or leaves a partial implementation, it
+must update the repo handoff memory. At minimum:
+
+- update `CURRENT.md` with what changed, what is currently in progress, exactly
+  where the agent left off, the next concrete action, blockers, and verification
+  status;
+- update active plans or specs when their task order, blockers, acceptance
+  criteria, or implementation-readiness state changed;
+- update `README.md`, `AGENTS.md`, or `GOAL.md` only when stable workflow rules,
+  boundaries, or north-star requirements changed;
+- delete or replace stale statements rather than leaving contradictory historical
+  breadcrumbs.
+
+The goal is that a fresh Codex or Claude session can resume from files, not from
+chat memory.
 
 ## Canonical Memory Rule
 

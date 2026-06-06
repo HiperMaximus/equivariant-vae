@@ -26,7 +26,9 @@ required_files=(
   "CURRENT.md"
   "GOAL.md"
   "README.md"
+  ".gitignore"
   ".python-version"
+  ".vscode/tasks.json"
   "pyproject.toml"
   "uv.lock"
   "docs/repo_goal_and_requirements.md"
@@ -40,6 +42,7 @@ required_files=(
   "docs/specs/0001-translatable-normal-vae-baseline.md"
   "docs/specs/0002-strict-python-quality-gate.md"
   "docs/decisions/README.md"
+  "scripts/agent_preflight.sh"
   "scripts/python_quality.sh"
   "scripts/sipaim_overleaf_sync.sh"
   "tests/.gitkeep"
@@ -124,6 +127,43 @@ else
 fi
 
 echo
+echo "Dependency and tool config policy"
+if [[ -f "requirements.txt" ]]; then
+  echo "error: root requirements.txt is stale-prone; use pyproject.toml and uv.lock"
+  missing=1
+else
+  echo "ok: no root requirements.txt"
+fi
+
+if [[ -f "ruff.toml" ]]; then
+  echo "error: ruff.toml shadows strict Ruff settings in pyproject.toml"
+  missing=1
+else
+  echo "ok: Ruff config is canonical in pyproject.toml"
+fi
+
+if git check-ignore --no-index -q uv.lock; then
+  echo "error: uv.lock must remain trackable"
+  missing=1
+else
+  echo "ok: uv.lock is not ignored"
+fi
+
+if git check-ignore --no-index -q paper/sipaim2026/sipaim2026.pdf; then
+  echo "error: paper/sipaim2026/sipaim2026.pdf must remain trackable"
+  missing=1
+else
+  echo "ok: advisor-facing SIPAIM PDF is not ignored"
+fi
+
+if git check-ignore --no-index -q paper/sipaim2026/main.pdf; then
+  echo "ok: paper/sipaim2026/main.pdf is ignored"
+else
+  echo "error: paper/sipaim2026/main.pdf should stay ignored"
+  missing=1
+fi
+
+echo
 echo "Stale planning-term check"
 stale_pattern='\b(MAPI4?|Springer|D4)\b'
 if ! command -v rg >/dev/null 2>&1; then
@@ -150,7 +190,8 @@ printf '%s\n' \
   "8. docs/agentic_review_workflow.md" \
   "9. docs/spec_driven_development.md" \
   "10. docs/specs/README.md" \
-  "11. docs/decisions/README.md"
+  "11. active specs linked from docs/specs/README.md" \
+  "12. docs/decisions/README.md"
 
 if [[ "$missing" -ne 0 || "$tracked_problem" -ne 0 ]]; then
   exit 1

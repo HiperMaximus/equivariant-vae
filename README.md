@@ -89,20 +89,35 @@ the adversarial clean-context subagent process in
 [docs/agentic_review_workflow.md](docs/agentic_review_workflow.md).
 
 For substantial implementation work, use spec-driven development:
-[docs/spec_driven_development.md](docs/spec_driven_development.md). The first
-active implementation spec is
-[docs/specs/0001-translatable-normal-vae-baseline.md](docs/specs/0001-translatable-normal-vae-baseline.md).
+[docs/spec_driven_development.md](docs/spec_driven_development.md). Track active
+spec status in [docs/specs/README.md](docs/specs/README.md). A draft spec is not
+implementation-ready until the spec index and the spec itself say so.
 
 For Python changes, run the strict quality gate:
 
 ```bash
-uv sync --python 3.12 --group dev
 ./scripts/python_quality.sh
+```
+
+The quality script itself uses the existing repo-local `.venv`; it does not sync
+or download packages. If `.venv` is missing or stale, ask before running:
+
+```bash
+uv sync --locked --python 3.12 --group dev
 ```
 
 It targets Python 3.12 with uv, CPU-only local PyTorch on Linux, Ruff `ALL`, and
 strict BasedPyright. See
 [docs/specs/0002-strict-python-quality-gate.md](docs/specs/0002-strict-python-quality-gate.md).
+
+Python dependency truth lives in:
+
+- `pyproject.toml` for direct dependencies and tool configuration;
+- `uv.lock` for the resolved local environment.
+
+A root `requirements.txt` is intentionally not used. If a pip requirements file
+is needed later for Kaggle, generate it as a context-specific export and keep the
+generation rule documented in a spec.
 
 ## Current Experiment Horizon
 

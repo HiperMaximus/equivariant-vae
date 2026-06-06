@@ -34,7 +34,7 @@ for histopathology patches.
 - Agentic adversarial review workflow:
   `docs/agentic_review_workflow.md`
 - Spec-driven development workflow:
-  `docs/spec_driven_development.md` and `docs/specs/`
+  `docs/spec_driven_development.md` and `docs/specs/README.md`
 - Strict Python quality workflow:
   `docs/specs/0002-strict-python-quality-gate.md`
 - SIPAIM paper source:

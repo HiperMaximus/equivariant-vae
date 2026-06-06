@@ -1,6 +1,8 @@
 # Spec NNNN: Title
 
 Status: draft
+Implementation readiness: not ready
+Owner/workstream:
 Last updated: YYYY-MM-DD
 
 ## Purpose
@@ -27,6 +29,13 @@ What is intentionally out of scope?
 - Paper artifacts:
 - Issue updates:
 
+## Related Requirements And Evidence
+
+- GitHub issues:
+- Issue images:
+- Decisions:
+- Paper sections:
+
 ## Architecture Or Workflow Contract
 
 Describe the required behavior, constraints, and defaults.
@@ -35,9 +44,21 @@ Describe the required behavior, constraints, and defaults.
 
 List required config keys and defaults.
 
-## Verification
+## Acceptance Criteria
+
+Concrete conditions that must be true before the work is accepted.
+
+## Tests And Verification Commands
 
 Commands and checks required before calling the work done.
+
+## Implementation Blockers
+
+Questions or missing artifacts that must be resolved before coding.
+
+## Known Risks
+
+What could make this spec fail or mislead future agents?
 
 ## Adversarial Checks
 

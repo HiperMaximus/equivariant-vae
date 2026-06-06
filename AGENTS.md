@@ -23,7 +23,8 @@ This repo is the paper/research repository for the equivariant VAE work.
    `docs/equivariant_vae_transition_plan.md`,
    `docs/overleaf_sync_workflow.md`,
    `docs/agentic_review_workflow.md`,
-   `docs/spec_driven_development.md`, and `docs/decisions/README.md`.
+   `docs/spec_driven_development.md`, `docs/specs/README.md`, active specs
+   linked from that index, and `docs/decisions/README.md`.
 2. Do not push this whole repo to Overleaf.
 3. Do not add Overleaf as `origin`.
 4. Do not run plain `git push overleaf`.
@@ -58,26 +59,37 @@ This repo is the paper/research repository for the equivariant VAE work.
     `docs/agentic_review_workflow.md`.
 16. Keep `CURRENT.md` updated after meaningful shifts in active work, blockers,
     or next steps.
-17. Claude-specific instructions live in `CLAUDE.md` but are adapters only.
+17. Before handing work back or stopping at a partial state, update the repo
+    memory/handoff files. At minimum, record what changed, what is currently in
+    progress, exactly where the agent left off, the next concrete action,
+    blockers, and verification status in `CURRENT.md` and any affected active
+    plan/spec.
+18. Claude-specific instructions live in `CLAUDE.md` but are adapters only.
     Canonical facts belong in `AGENTS.md`, `CURRENT.md`, `GOAL.md`, and docs.
-18. Before substantial work, run:
+19. Before substantial work, run:
 
    ```bash
    ./scripts/agent_preflight.sh
    ```
-19. For substantial workflow, architecture, evaluation, or paper-claim changes,
+20. For substantial workflow, architecture, evaluation, or paper-claim changes,
     use independent clean-context adversarial subagent reviews when the tooling
     is available. Follow `docs/agentic_review_workflow.md`.
-20. Use spec-driven development for substantial implementation, experiment,
+21. Use spec-driven development for substantial implementation, experiment,
     evaluation, paper, or workflow changes. Write or update the relevant spec in
     `docs/specs/` before coding, then verify against its acceptance criteria.
-21. For Python changes, run `./scripts/python_quality.sh` before handing work
-    back. If `uv` needs network access to install Python 3.12 or dependencies,
-    ask the user for permission first.
-22. Python quality is intentionally strict: Ruff selects `ALL`, BasedPyright is
+22. For Python changes, run `./scripts/python_quality.sh` before handing work
+    back. The script intentionally uses the existing repo-local `.venv` and does
+    not run `uv sync` or download dependencies. If the environment needs to be
+    created or refreshed, ask the user first, then run
+    `uv sync --locked --python 3.12 --group dev`.
+23. Python quality is intentionally strict: Ruff selects `ALL`, BasedPyright is
     strict, no global ignores are allowed, and tests may ignore only Ruff `S101`
     for bare `assert`.
-23. Local repo tests use CPU-only PyTorch. GPU training belongs to Kaggle.
+24. Local repo tests use CPU-only PyTorch. GPU training belongs to Kaggle.
+25. Python dependency truth lives in `pyproject.toml` for direct dependencies and
+    `uv.lock` for the resolved local environment. A root `requirements.txt` is
+    not allowed; pip requirements files may only be generated, context-specific
+    exports such as a future Kaggle bootstrap file.
 
 ## Safe Paper Workflow
 
@@ -103,6 +115,6 @@ See:
 - `docs/overleaf_sync_workflow.md` for the full workflow and failure modes.
 - `docs/decisions/README.md` for settled project decisions.
 - `docs/agentic_review_workflow.md` for independent adversarial review.
-- `docs/spec_driven_development.md` and `docs/specs/` for implementation
-  contracts.
+- `docs/spec_driven_development.md`, `docs/specs/README.md`, and active specs
+  in `docs/specs/` for implementation contracts.
 - `docs/specs/0002-strict-python-quality-gate.md` for Python quality rules.

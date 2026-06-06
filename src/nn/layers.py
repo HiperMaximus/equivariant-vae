@@ -328,7 +328,7 @@ class ResBlock(BaseModule[[Tensor], Tensor]):
 
 class DownsampleBlock(BaseModule[[Tensor], Tensor]):
     def __init__(
-        self, in_channels: int, out_channels: int, kernel_size: int = 3
+        self, in_channels: int, out_channels: int, kernel_size: int = 3,
     ) -> None:
         super().__init__()
         self.seq = nn.Sequential(
@@ -374,7 +374,7 @@ class DownsampleStage(BaseModule[[Tensor], Tensor]):
 
 class UpsampleBlock(BaseModule[[Tensor], Tensor]):
     def __init__(
-        self, in_channels: int, out_channels: int, kernel_size: int = 3
+        self, in_channels: int, out_channels: int, kernel_size: int = 3,
     ) -> None:
         super().__init__()
         self.seq = nn.Sequential(
@@ -422,7 +422,7 @@ class UpsampleStage(BaseModule[[Tensor], Tensor]):
 
 class FinalConvLinearHead(BaseModule[[Tensor], Tensor]):
     def __init__(
-        self, in_channels: int, out_channels: int = 3, kernel_size: int = 5
+        self, in_channels: int, out_channels: int = 3, kernel_size: int = 5,
     ) -> None:
         super().__init__()
         self.conv = nn.Conv2d(
@@ -471,10 +471,10 @@ class Encoder(BaseModule[[Tensor], tuple[Tensor, Tensor]]):
             L=L,
         )  # 8x8x64 -> 4x4x128
         self.theta_head = PointWiseConv(
-            in_channels=128, out_channels=24
+            in_channels=128, out_channels=24,
         )  # 4x4x128 -> 4x4x24
         self.phi_head = PointWiseConv(
-            in_channels=128, out_channels=24
+            in_channels=128, out_channels=24,
         )  # 4x4x128 -> 4x4x24
         # compression factor: (32*32*3)/(4*4*24) = 8
 
@@ -494,7 +494,7 @@ class Decoder(BaseModule[[Tensor], Tensor]):
         L = 6
         num_blocks = 2
         self.initial_pw = PointWiseConv(
-            in_channels=24, out_channels=128
+            in_channels=24, out_channels=128,
         )  # 4x4x24 -> 4x4x128
         self.stage1 = UpsampleStage(
             in_channels=128,
@@ -517,7 +517,7 @@ class Decoder(BaseModule[[Tensor], Tensor]):
             L=L,
         )  # 16x16x32 -> 32x32x16
         self.final_conv = FinalConvLinearHead(
-            in_channels=16, out_channels=3
+            in_channels=16, out_channels=3,
         )  # 32x32x16 -> 32x32x3
 
     def forward(self, x: Tensor) -> Tensor:
@@ -588,7 +588,7 @@ class PPSFFT2(BaseModule[[Tensor], Tensor]):
         return lam
 
     def build_lowfreq_patches_rfft2(
-        self, r0: int = 1, r1: int = 3
+        self, r0: int = 1, r1: int = 3,
     ) -> tuple[Tensor, Tensor]:
         """Return (w_top, w_bot) weighting patches for low-freq Fourier coeffs.
 
@@ -678,7 +678,7 @@ class ScharrGrad(BaseModule[[Tensor], tuple[Tensor, Tensor]]):
     ky: Tensor
 
     def __init__(
-        self, channels: int = 1, norm: Literal["l1", "l2"] | None = "l1"
+        self, channels: int = 1, norm: Literal["l1", "l2"] | None = "l1",
     ) -> None:
         super().__init__()
         kx = torch.tensor([[3.0, 0.0, -3.0], [10.0, 0.0, -10.0], [3.0, 0.0, -3.0]])
@@ -693,10 +693,10 @@ class ScharrGrad(BaseModule[[Tensor], tuple[Tensor, Tensor]]):
 
         self.channels = channels
         self.register_buffer(
-            "kx", kx.view(1, 1, 3, 3).repeat(channels, 1, 1, 1), persistent=False
+            "kx", kx.view(1, 1, 3, 3).repeat(channels, 1, 1, 1), persistent=False,
         )
         self.register_buffer(
-            "ky", ky.view(1, 1, 3, 3).repeat(channels, 1, 1, 1), persistent=False
+            "ky", ky.view(1, 1, 3, 3).repeat(channels, 1, 1, 1), persistent=False,
         )
 
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
@@ -738,7 +738,7 @@ class LGAE(BaseModule[..., tuple[Tensor, Tensor, Tensor]]):
 
     @override
     def __call__(
-        self, x: Tensor, **kwargs: Unpack[_Kw]
+        self, x: Tensor, **kwargs: Unpack[_Kw],
     ) -> tuple[Tensor, Tensor, Tensor]:
         return super().__call__(x, **kwargs)
 
@@ -754,7 +754,7 @@ class LGAE(BaseModule[..., tuple[Tensor, Tensor, Tensor]]):
         # Threshold for stable expm1_over_x in float16 (half precision)
         float16_valid_threshold = 1e-2
         self.register_buffer(
-            "expm1_threshold", torch.as_tensor(float16_valid_threshold)
+            "expm1_threshold", torch.as_tensor(float16_valid_threshold),
         )
 
     def expm1_over_x_stable(
@@ -830,7 +830,7 @@ class LGAE(BaseModule[..., tuple[Tensor, Tensor, Tensor]]):
         r1 = self.ppsfft2.w_top.shape[0] - 1
         # top block
         Err[..., 0 : r1 + 1, 0 : r1 + 1] *= self.ppsfft2.w_top.view(
-            1, 1, r1 + 1, r1 + 1
+            1, 1, r1 + 1, r1 + 1,
         )
         # bottom block (wrap ky = -1..-r1)
         Err[..., H - r1 : H, 0 : r1 + 1] *= self.ppsfft2.w_bot.view(1, 1, r1, r1 + 1)

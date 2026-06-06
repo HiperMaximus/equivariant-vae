@@ -1,6 +1,8 @@
 # Spec 0001: Translatable Normal VAE Baseline
 
 Status: draft active spec
+Implementation readiness: not ready
+Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-05
 
 ## Purpose
@@ -10,6 +12,10 @@ baseline whose operations can be translated to the future continuous `SO(2)`
 steerable model.
 
 This is the first implementation target before building the full `escnn` path.
+
+Do not implement this spec yet. It must first be locked as
+`implementation-ready` after the Kaggle behavior inventory and exact
+verification commands exist.
 
 ## Non-Goals
 
@@ -38,6 +44,12 @@ Default input contract until the spec is locked:
 
 The behavior inventory for the current Kaggle scripts must be written before
 copying code into reusable modules.
+
+Required inventory artifact:
+
+```text
+docs/behavior_inventory_kaggle.md
+```
 
 ## Architecture Contract
 
@@ -99,18 +111,22 @@ learning rate. SSIM is a metric for the first run, not a training loss.
 
 The baseline is not complete until:
 
-1. a CPU smoke test can instantiate data, model, loss, and evaluator;
-2. a debug training run completes from start;
-3. a resume run completes from a midpoint checkpoint;
-4. metrics include per-image SSIM, MAE, MSE, PSNR and summary mean/std/`n`;
-5. boxplots and a training/evaluation dashboard are produced;
-6. the fixed 25-patch qualitative artifact protocol is implemented;
-7. rotated-input qualitative artifacts use fixed continuous angles;
-8. `rotated_input_vs_latent_grid.*` can be produced for the same patch/angle set;
-9. banned-operation checks pass;
-10. `./scripts/python_quality.sh` passes, or dependency/network blockers are
-    documented before finalizing;
-11. the implementation spec and `CURRENT.md` are updated with any changed
+1. `docs/behavior_inventory_kaggle.md` records the current Kaggle data,
+   training, resume, evaluation, and artifact behavior;
+2. this spec is updated from draft active to implementation-ready before coding;
+3. a CPU smoke test can instantiate data, model, loss, and evaluator;
+4. a debug training run completes from start;
+5. a resume run completes from a midpoint checkpoint;
+6. metrics include per-image SSIM, MAE, MSE, PSNR and summary mean/std/`n`;
+7. boxplots and a training/evaluation dashboard are produced;
+8. the fixed 25-patch qualitative artifact protocol is implemented;
+9. rotated-input qualitative artifacts use fixed continuous angles;
+10. `rotated_input_vs_latent_grid.*` can be produced for the same patch/angle set;
+11. banned-operation checks pass;
+12. `./scripts/python_quality.sh` passes, or any failure is limited to the
+    documented historical Ruff/BasedPyright debt with unchanged counts and no
+    new debt outside `main.py` / historical exploratory `src/nn` files;
+13. the implementation spec and `CURRENT.md` are updated with any changed
     contract details.
 
 ## Verification Commands
@@ -119,11 +135,31 @@ These are placeholders until the package/test structure is implemented:
 
 ```bash
 ./scripts/agent_preflight.sh
-pytest
+./scripts/python_quality.sh
 ```
 
 Once the code exists, add exact smoke-test, evaluator, and artifact-generation
 commands here.
+
+## Implementation Blockers
+
+- `docs/behavior_inventory_kaggle.md` does not exist yet.
+- Exact local CPU smoke-test command is not defined.
+- Exact debug training command is not defined.
+- Exact resume command is not defined.
+- Exact evaluator/dashboard/artifact-generation commands are not defined.
+- Final input size and split policy are not locked.
+- Normalization and scalar/radial nonlinearity policy are not locked.
+- The strict Python quality gate still has historical exploratory-code debt.
+
+## Known Risks
+
+- Starting implementation from this draft could copy FSQ-era behavior into the
+  new VAE path.
+- Placeholder commands could let future agents call the spec "done" without a
+  runnable local CPU workflow.
+- A too-flexible baseline could become stronger or less constrained than the
+  future continuous `SO(2)` model, making the comparison unfair.
 
 ## Adversarial Checks
 
