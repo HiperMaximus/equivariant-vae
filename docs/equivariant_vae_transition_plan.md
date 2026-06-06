@@ -1,7 +1,7 @@
 # Equivariant VAE Transition Plan
 
 Status: draft working plan
-Last updated: 2026-06-05
+Last updated: 2026-06-06
 
 ## Purpose
 
@@ -14,6 +14,8 @@ Read this plan together with:
 - `docs/issue_image_inventory.md` for requirements derived from inspected
   GitHub issue screenshots.
 - `docs/kaggle_cli_workflow.md` for CLI-managed Kaggle script execution.
+- `docs/behavior_inventory_kaggle.md` for historical Kaggle data, training,
+  resume, metric, and artifact behavior.
 - `docs/decisions/README.md` for settled project decisions.
 - `docs/agentic_review_workflow.md` for adversarial clean-context review before
   major architecture or workflow changes.
@@ -824,18 +826,17 @@ decisions such as the continuous `SO(2)` scope.
 ## Immediate Next Tasks
 
 1. Treat this document as the active checklist for the branch.
-2. Write `docs/behavior_inventory_kaggle.md` for the current Kaggle script.
-3. Lock `docs/specs/0001-translatable-normal-vae-baseline.md` enough to start
+2. Use `docs/behavior_inventory_kaggle.md` to lock
+   `docs/specs/0001-translatable-normal-vae-baseline.md` enough to start
    implementation, including exact smoke/evaluator/artifact commands.
-4. Confirm Kaggle dataset slugs and authentication plan for
-   `kaggle/kernels/non_eq_vae_debug`.
-5. Resolve or explicitly baseline the strict Ruff/BasedPyright historical debt.
-6. Add `src/eqvae` package skeleton.
-7. Add configs that lock input size, latent shape, group, layer schedule, and
+3. Replace the placeholder Kaggle debug kernel with the real CLI-managed
+   launcher only after spec 0001 is implementation-ready.
+4. Resolve or explicitly baseline the strict Ruff/BasedPyright historical debt.
+5. Add `src/eqvae` package skeleton.
+6. Add configs that lock input size, latent shape, group, layer schedule, and
    normalization.
-8. Extract data/checkpoint/logging utilities from the Kaggle notebook.
-9. Implement the non-equivariant translatable VAE.
-10. Replace the placeholder Kaggle script with the real CLI-managed launcher.
-11. Add banned-operation and shape tests.
-12. Run a Kaggle debug job with the new baseline.
-13. Implement the SO(2) `escnn` feasibility spike.
+7. Extract data/checkpoint/logging utilities from the Kaggle notebook.
+8. Implement the non-equivariant translatable VAE.
+9. Add banned-operation and shape tests.
+10. Run a Kaggle debug job with the new baseline.
+11. Implement the SO(2) `escnn` feasibility spike.

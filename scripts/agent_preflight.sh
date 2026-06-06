@@ -35,6 +35,7 @@ required_files=(
   "docs/issue_image_inventory.md"
   "docs/equivariant_vae_transition_plan.md"
   "docs/kaggle_cli_workflow.md"
+  "docs/behavior_inventory_kaggle.md"
   "docs/overleaf_sync_workflow.md"
   "docs/agentic_review_workflow.md"
   "docs/spec_driven_development.md"
@@ -219,12 +220,13 @@ printf '%s\n' \
   "5. docs/issue_image_inventory.md" \
   "6. docs/equivariant_vae_transition_plan.md" \
   "7. docs/kaggle_cli_workflow.md" \
-  "8. docs/overleaf_sync_workflow.md" \
-  "9. docs/agentic_review_workflow.md" \
-  "10. docs/spec_driven_development.md" \
-  "11. docs/specs/README.md" \
-  "12. active specs linked from docs/specs/README.md" \
-  "13. docs/decisions/README.md"
+  "8. docs/behavior_inventory_kaggle.md" \
+  "9. docs/overleaf_sync_workflow.md" \
+  "10. docs/agentic_review_workflow.md" \
+  "11. docs/spec_driven_development.md" \
+  "12. docs/specs/README.md" \
+  "13. active specs linked from docs/specs/README.md" \
+  "14. docs/decisions/README.md"
 
 if [[ "$missing" -ne 0 || "$tracked_problem" -ne 0 ]]; then
   exit 1

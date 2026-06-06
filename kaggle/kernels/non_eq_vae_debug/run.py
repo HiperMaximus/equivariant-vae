@@ -8,7 +8,7 @@ from typing import NoReturn
 NOT_IMPLEMENTATION_READY = True
 EXIT_MESSAGE = (
     "This Kaggle kernel scaffold is not implementation-ready. "
-    "Write docs/behavior_inventory_kaggle.md, lock spec 0001, implement the "
+    "Use docs/behavior_inventory_kaggle.md, lock spec 0001, implement the "
     "real launcher, and remove NOT_IMPLEMENTATION_READY before pushing."
 )
 

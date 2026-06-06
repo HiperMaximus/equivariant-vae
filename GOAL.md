@@ -27,6 +27,8 @@ for histopathology patches.
   `CURRENT.md`
 - Kaggle CLI execution workflow:
   `docs/kaggle_cli_workflow.md`
+- Historical Kaggle behavior inventory:
+  `docs/behavior_inventory_kaggle.md`
 - Issue-derived requirements and deliverables:
   `docs/repo_goal_and_requirements.md`
 - Issue image inventory:

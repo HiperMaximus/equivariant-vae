@@ -115,7 +115,7 @@ guard_push_ready() {
     cat >&2 <<'EOF'
 error: kernel scaffold is not implementation-ready.
 
-Write docs/behavior_inventory_kaggle.md, lock spec 0001, implement the real
+Use docs/behavior_inventory_kaggle.md, lock spec 0001, implement the real
 launcher, and remove the NOT_IMPLEMENTATION_READY guard before pushing.
 EOF
     exit 1

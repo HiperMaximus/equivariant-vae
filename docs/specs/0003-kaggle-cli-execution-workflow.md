@@ -3,7 +3,7 @@
 Status: draft active workflow scaffold
 Implementation readiness: local scaffold only; not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
-Last updated: 2026-06-05
+Last updated: 2026-06-06
 
 ## Purpose
 
@@ -19,8 +19,7 @@ scaffolded script kernels through the Kaggle API.
 - Do not use Kaggle as a Git remote.
 - Do not require Kaggle's GitHub-linked notebook UI workflow.
 - Do not edit the historical FSQ notebooks as the new baseline source.
-- Do not push a real training kernel before the behavior inventory and spec 0001
-  are locked.
+- Do not push a real training kernel before spec 0001 is locked.
 - Do not commit Kaggle credentials, API tokens, output datasets, checkpoints, or
   run artifacts.
 
@@ -65,8 +64,8 @@ kaggle/kernels/non_eq_vae_debug
 ```
 
 It is intentionally not push-ready. The placeholder script exits immediately
-until `docs/behavior_inventory_kaggle.md` exists and spec 0001 is locked as
-implementation-ready.
+until spec 0001 is locked as implementation-ready and the real launcher replaces
+the placeholder.
 
 ## Kaggle Authentication Contract
 
@@ -103,6 +102,15 @@ Metadata should declare:
 Dataset slugs must be explicit. Do not infer them from display names in the
 Kaggle web UI.
 
+The first confirmed training dataset source is:
+
+```text
+maximusshtefan/patches-pre-shuffled-ubc-ocean
+```
+
+Other historical sources are recorded in
+`docs/behavior_inventory_kaggle.md`.
+
 ## Acceptance Criteria
 
 This workflow scaffold is complete when:
@@ -118,11 +126,9 @@ This workflow scaffold is complete when:
 
 This workflow becomes Kaggle-push-ready only after:
 
-1. `docs/behavior_inventory_kaggle.md` exists;
-2. spec 0001 is locked as implementation-ready;
-3. real dataset slugs are confirmed;
-4. the placeholder guard is removed from `run.py`;
-5. the user confirms Kaggle authentication and remote push permission.
+1. spec 0001 is locked as implementation-ready;
+2. the placeholder guard is removed from `run.py`;
+3. the user confirms Kaggle authentication and remote push permission.
 
 ## Verification Commands
 

@@ -3,7 +3,7 @@
 Status: draft active spec
 Implementation readiness: not ready
 Owner/workstream: comparable non-equivariant VAE baseline
-Last updated: 2026-06-05
+Last updated: 2026-06-06
 
 ## Purpose
 
@@ -32,7 +32,8 @@ verification commands exist.
 Default input contract until the spec is locked:
 
 - dataset: UBC-OCEAN histopathology patches from the current Kaggle pipeline;
-- source behavior inventory: `kaggle/train_runs` and `kaggle/dataset_generation`;
+- source behavior inventory: `docs/behavior_inventory_kaggle.md`, derived from
+  `kaggle/train_runs` and `kaggle/dataset_generation`;
 - image size: 256x256 RGB unless explicitly changed in config;
 - normalization: `[-1, 1]`;
 - training input: corrupted patch `x_in = corrupt(x_clean)`;
@@ -42,8 +43,8 @@ Default input contract until the spec is locked:
 - latent target: spatial Gaussian latent `(B, 24, 4, 4)` unless an ablation spec
   says otherwise.
 
-The behavior inventory for the current Kaggle scripts must be written before
-copying code into reusable modules.
+The behavior inventory for the current Kaggle scripts has been written and must
+be used before copying code into reusable modules.
 
 Required inventory artifact:
 
@@ -74,6 +75,7 @@ Banned first-run operations:
 - depthwise/grouped/MBConv/squeeze-excite/channel-attention operations;
 - arbitrary flattening or channel slicing that cannot be mirrored for
   `GeometricTensor` fields.
+- FSQ-era resume sources or discrete-latent artifact requirements.
 
 ## Objective Contract
 
@@ -143,7 +145,6 @@ commands here.
 
 ## Implementation Blockers
 
-- `docs/behavior_inventory_kaggle.md` does not exist yet.
 - Exact local CPU smoke-test command is not defined.
 - Exact debug training command is not defined.
 - Exact resume command is not defined.

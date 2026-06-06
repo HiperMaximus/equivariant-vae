@@ -22,6 +22,7 @@ This repo is the paper/research repository for the equivariant VAE work.
    `docs/issue_image_inventory.md`,
    `docs/equivariant_vae_transition_plan.md`,
    `docs/kaggle_cli_workflow.md`,
+   `docs/behavior_inventory_kaggle.md`,
    `docs/overleaf_sync_workflow.md`,
    `docs/agentic_review_workflow.md`,
    `docs/spec_driven_development.md`, `docs/specs/README.md`, active specs
@@ -118,6 +119,8 @@ See:
 - `docs/repo_goal_and_requirements.md` for issue-derived deliverables.
 - `docs/issue_image_inventory.md` for inspected issue screenshots.
 - `docs/kaggle_cli_workflow.md` for CLI-managed Kaggle script kernels.
+- `docs/behavior_inventory_kaggle.md` for historical Kaggle data, training,
+  resume, metric, and artifact behavior.
 - `docs/overleaf_sync_workflow.md` for the full workflow and failure modes.
 - `docs/decisions/README.md` for settled project decisions.
 - `docs/agentic_review_workflow.md` for independent adversarial review.

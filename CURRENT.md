@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-06-05
+Last updated: 2026-06-06
 
 ## Active Workstream
 
@@ -26,6 +26,10 @@ Kaggle CLI execution is scaffolded via
 `docs/specs/0003-kaggle-cli-execution-workflow.md`,
 `docs/kaggle_cli_workflow.md`, `scripts/kaggle_kernel.sh`, and
 `kaggle/kernels/non_eq_vae_debug`.
+The Kaggle behavior inventory now lives at
+`docs/behavior_inventory_kaggle.md`. Dataset slugs were confirmed through the
+Kaggle CLI, and the debug kernel metadata now points at
+`maximusshtefan/patches-pre-shuffled-ubc-ocean`.
 The local uv environment is CPU-only for PyTorch. Strict Ruff settings are
 canonical in `pyproject.toml`; do not add `ruff.toml`. The no-sync quality gate
 verified Python 3.12, `torch==2.12.0+cpu`, and CUDA unavailable. Strict Ruff
@@ -36,18 +40,19 @@ files. Solve this in the new `src/eqvae` implementation, a historical-code
 cleanup, or a dedicated typed-PyTorch adapter spec rather than weakening global
 strictness.
 
-Immediate next action: write the Kaggle behavior inventory in
-`docs/behavior_inventory_kaggle.md` from `kaggle/train_runs` and
-`kaggle/dataset_generation`. Do not implement spec 0001 until that inventory
-exists and `docs/specs/0001-translatable-normal-vae-baseline.md` is locked as
-implementation-ready.
+Immediate next action: use `docs/behavior_inventory_kaggle.md` to lock
+`docs/specs/0001-translatable-normal-vae-baseline.md` as
+implementation-ready, especially exact smoke-test, evaluator, artifact, and
+debug Kaggle launcher commands.
 
-Kaggle-specific handoff: `scripts/kaggle_kernel.sh validate` works locally, but
-`kaggle` is not installed/authenticated on this laptop yet. Do not run
-`KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push` until the behavior
-inventory exists, spec 0001 is locked, dataset slugs are confirmed, the
-placeholder guard is removed from `kaggle/kernels/non_eq_vae_debug/run.py`, and
-the user explicitly approves the remote write.
+Kaggle-specific handoff: `scripts/kaggle_kernel.sh validate` and
+`scripts/kaggle_kernel.sh check` worked locally on 2026-06-06 with Kaggle CLI
+2.2.1, but Kaggle authentication is a user-local secret and must be treated as
+permission-gated. Do not run
+`KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push` until spec 0001 is
+locked, the placeholder guard is removed from
+`kaggle/kernels/non_eq_vae_debug/run.py`, and the user explicitly approves the
+remote write.
 
 ## Settled Decisions
 
@@ -74,33 +79,30 @@ The review process lives in `docs/agentic_review_workflow.md`.
 
 ## Next Concrete Steps
 
-1. Write `docs/behavior_inventory_kaggle.md` with the current data, training,
-   resume, evaluation, and artifact behavior from the Kaggle notebooks/scripts.
-2. Lock `docs/specs/0001-translatable-normal-vae-baseline.md` as
+1. Lock `docs/specs/0001-translatable-normal-vae-baseline.md` as
    implementation-ready with exact smoke/evaluator/artifact commands.
-3. Confirm Kaggle dataset slugs and authentication plan for the CLI-managed
-   script-kernel workflow.
-4. Resolve or explicitly baseline the strict Ruff/BasedPyright historical debt
+2. Replace the placeholder Kaggle debug kernel with a real launcher only after
+   spec 0001 is locked.
+3. Resolve or explicitly baseline the strict Ruff/BasedPyright historical debt
    without weakening global quality settings.
-5. Turn the transition plan into repo code structure: configs, model factories,
+4. Turn the transition plan into repo code structure: configs, model factories,
    data/eval modules, and launchers.
-6. Lock the Python 3.12 + Ruff + BasedPyright quality gate in
+5. Lock the Python 3.12 + Ruff + BasedPyright quality gate in
    `docs/specs/0002-strict-python-quality-gate.md`.
-7. Implement the shared evaluation harness for metrics, boxplots, fixed
+6. Implement the shared evaluation harness for metrics, boxplots, fixed
    25-patch artifacts, rotated-input artifacts, and latent visualizations.
-8. Add targeted equivalence/equivariance tests for operations before full
+7. Add targeted equivalence/equivariance tests for operations before full
    continuous `SO(2)` training runs.
-9. Only then implement the steerable model path and run matched experiments.
+8. Only then implement the steerable model path and run matched experiments.
 
 ## Current Blockers
 
 - `docs/specs/0001-translatable-normal-vae-baseline.md` is draft active, not
   implementation-ready.
-- The Kaggle behavior inventory has not yet been written.
 - Exact smoke-test, evaluator, and artifact-generation commands are still
   placeholders in spec 0001.
-- Kaggle CLI is not installed/authenticated locally, and real dataset slugs are
-  not confirmed in `kaggle/kernels/non_eq_vae_debug/kernel-metadata.json`.
+- The Kaggle debug kernel still has a `NOT_IMPLEMENTATION_READY` placeholder and
+  must not be pushed.
 - Strict Python quality is intentionally not fully green on historical
   exploratory code: 146 Ruff errors remain after autofix, and BasedPyright
   reports 51 strict errors. New work must not add debt or weaken the gate.
