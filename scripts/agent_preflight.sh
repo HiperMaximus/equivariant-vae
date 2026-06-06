@@ -28,6 +28,7 @@ required_files=(
   "README.md"
   ".python-version"
   "pyproject.toml"
+  "uv.lock"
   "docs/repo_goal_and_requirements.md"
   "docs/issue_image_inventory.md"
   "docs/equivariant_vae_transition_plan.md"
@@ -41,6 +42,7 @@ required_files=(
   "docs/decisions/README.md"
   "scripts/python_quality.sh"
   "scripts/sipaim_overleaf_sync.sh"
+  "tests/.gitkeep"
   "paper/sipaim2026/main.tex"
   "paper/sipaim2026/sipaim2026.pdf"
 )

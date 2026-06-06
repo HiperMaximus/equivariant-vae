@@ -22,6 +22,11 @@ handing them back to the user.
 - Python target: 3.12, matching the intended Kaggle-style runtime.
 - Environment manager: `uv`.
 - Project marker: `.python-version` with `3.12`.
+- Lockfile: `uv.lock` should be tracked.
+- Local laptop tests use CPU-only PyTorch. GPU training belongs to Kaggle.
+- Linux PyTorch resolves from the PyTorch CPU wheel index through
+  `tool.uv.sources`.
+- Runtime dependencies currently include `torch`, `pytorch-msssim`, and `numpy`.
 - Developer tools:
   - Ruff for formatting and linting;
   - BasedPyright for strict static typing;
@@ -60,6 +65,22 @@ Existing exploratory code already contains a `BaseModule` idea; future code
 should evaluate whether current PyTorch typing still needs that pattern before
 copying it into the new `src/eqvae` package.
 
+## Current Gate Status
+
+As of 2026-06-05:
+
+- `uv sync --python 3.12 --group dev` creates a repo-local `.venv`.
+- Linux resolves `torch==2.12.0+cpu`.
+- `torch.cuda.is_available()` is `False`, as intended for local laptop tests.
+- Ruff format and `ruff check --fix` run successfully and leave Ruff green.
+- BasedPyright runs successfully but reports 51 strict typing errors in the
+  historical exploratory files `src/nn/layers.py` and `src/nn/resnet18.py`.
+
+The BasedPyright failures are mostly `reportAny` from PyTorch module call paths,
+plus one redeclaration. This is the expected next blocker to solve during the
+new `src/eqvae` implementation or a dedicated typed-PyTorch adapter spec. Do
+not make the gate green by weakening global strictness.
+
 ## Acceptance Criteria
 
 This spec is complete when:
@@ -83,6 +104,7 @@ bash -n scripts/python_quality.sh
 Full quality gate, may need dependency sync:
 
 ```bash
+uv sync --python 3.12 --group dev
 ./scripts/python_quality.sh
 ```
 

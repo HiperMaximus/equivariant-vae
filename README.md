@@ -96,10 +96,12 @@ active implementation spec is
 For Python changes, run the strict quality gate:
 
 ```bash
+uv sync --python 3.12 --group dev
 ./scripts/python_quality.sh
 ```
 
-It targets Python 3.12 with uv, Ruff `ALL`, and strict BasedPyright. See
+It targets Python 3.12 with uv, CPU-only local PyTorch on Linux, Ruff `ALL`, and
+strict BasedPyright. See
 [docs/specs/0002-strict-python-quality-gate.md](docs/specs/0002-strict-python-quality-gate.md).
 
 ## Current Experiment Horizon

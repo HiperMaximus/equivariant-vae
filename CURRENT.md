@@ -20,6 +20,10 @@ Spec-driven development is now an active repo workflow. The first active spec is
 `docs/specs/0001-translatable-normal-vae-baseline.md`.
 Strict Python quality is also an active workflow via
 `docs/specs/0002-strict-python-quality-gate.md`.
+The local uv environment is CPU-only for PyTorch. Ruff format/autofix/lint is
+green. BasedPyright currently reports strict `Any` failures in historical
+exploratory `src/nn` files; solve that in the new `src/eqvae` implementation or
+a dedicated typed-PyTorch adapter spec rather than weakening global strictness.
 
 ## Settled Decisions
 

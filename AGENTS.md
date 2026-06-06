@@ -77,6 +77,7 @@ This repo is the paper/research repository for the equivariant VAE work.
 22. Python quality is intentionally strict: Ruff selects `ALL`, BasedPyright is
     strict, no global ignores are allowed, and tests may ignore only Ruff `S101`
     for bare `assert`.
+23. Local repo tests use CPU-only PyTorch. GPU training belongs to Kaggle.
 
 ## Safe Paper Workflow
 

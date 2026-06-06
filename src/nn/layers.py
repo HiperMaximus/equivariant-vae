@@ -36,7 +36,6 @@ References
 
 import math
 from abc import ABC, abstractmethod
-from re import I
 from typing import (
     Literal,
     ParamSpec,
@@ -328,7 +327,9 @@ class ResBlock(BaseModule[[Tensor], Tensor]):
 
 
 class DownsampleBlock(BaseModule[[Tensor], Tensor]):
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: int = 3) -> None:
+    def __init__(
+        self, in_channels: int, out_channels: int, kernel_size: int = 3
+    ) -> None:
         super().__init__()
         self.seq = nn.Sequential(
             PointWiseConv(in_channels=in_channels, out_channels=out_channels),
@@ -372,7 +373,9 @@ class DownsampleStage(BaseModule[[Tensor], Tensor]):
 
 
 class UpsampleBlock(BaseModule[[Tensor], Tensor]):
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: int = 3) -> None:
+    def __init__(
+        self, in_channels: int, out_channels: int, kernel_size: int = 3
+    ) -> None:
         super().__init__()
         self.seq = nn.Sequential(
             PointWiseConv(in_channels, in_channels),
@@ -418,7 +421,9 @@ class UpsampleStage(BaseModule[[Tensor], Tensor]):
 
 
 class FinalConvLinearHead(BaseModule[[Tensor], Tensor]):
-    def __init__(self, in_channels: int, out_channels: int = 3, kernel_size: int = 5) -> None:
+    def __init__(
+        self, in_channels: int, out_channels: int = 3, kernel_size: int = 5
+    ) -> None:
         super().__init__()
         self.conv = nn.Conv2d(
             in_channels=in_channels,
@@ -465,8 +470,12 @@ class Encoder(BaseModule[[Tensor], tuple[Tensor, Tensor]]):
             num_blocks=num_blocks,
             L=L,
         )  # 8x8x64 -> 4x4x128
-        self.theta_head = PointWiseConv(in_channels=128, out_channels=24)  # 4x4x128 -> 4x4x24
-        self.phi_head = PointWiseConv(in_channels=128, out_channels=24)  # 4x4x128 -> 4x4x24
+        self.theta_head = PointWiseConv(
+            in_channels=128, out_channels=24
+        )  # 4x4x128 -> 4x4x24
+        self.phi_head = PointWiseConv(
+            in_channels=128, out_channels=24
+        )  # 4x4x128 -> 4x4x24
         # compression factor: (32*32*3)/(4*4*24) = 8
 
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
@@ -484,7 +493,9 @@ class Decoder(BaseModule[[Tensor], Tensor]):
         super().__init__()
         L = 6
         num_blocks = 2
-        self.initial_pw = PointWiseConv(in_channels=24, out_channels=128)  # 4x4x24 -> 4x4x128
+        self.initial_pw = PointWiseConv(
+            in_channels=24, out_channels=128
+        )  # 4x4x24 -> 4x4x128
         self.stage1 = UpsampleStage(
             in_channels=128,
             out_channels=64,
@@ -505,7 +516,9 @@ class Decoder(BaseModule[[Tensor], Tensor]):
             kernel_size=5,
             L=L,
         )  # 16x16x32 -> 32x32x16
-        self.final_conv = FinalConvLinearHead(in_channels=16, out_channels=3)  # 32x32x16 -> 32x32x3
+        self.final_conv = FinalConvLinearHead(
+            in_channels=16, out_channels=3
+        )  # 32x32x16 -> 32x32x3
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.initial_pw(x)
@@ -563,13 +576,20 @@ class PPSFFT2(BaseModule[[Tensor], Tensor]):
 
     def _laplacian_eigs_rfft2(self) -> Tensor:
         ky = 2 * torch.pi * torch.arange(self.H).view(self.H, 1) / self.H
-        kx = 2 * torch.pi * torch.arange(self.W // 2 + 1).view(1, self.W // 2 + 1) / self.W
+        kx = (
+            2
+            * torch.pi
+            * torch.arange(self.W // 2 + 1).view(1, self.W // 2 + 1)
+            / self.W
+        )
         # Paper denominator: lambda = 2 cos(kx) + 2 cos(ky) - 4   (lambda <= 0, with D[0,0]=0)
         lam: Tensor = 2.0 * (torch.cos(kx) + torch.cos(ky) - 2.0)  # (H, W//2+1)
         lam[0, 0] = -torch.inf  # enforce ŝ(0,0)=0
         return lam
 
-    def build_lowfreq_patches_rfft2(self, r0: int = 1, r1: int = 3) -> tuple[Tensor, Tensor]:
+    def build_lowfreq_patches_rfft2(
+        self, r0: int = 1, r1: int = 3
+    ) -> tuple[Tensor, Tensor]:
         """Return (w_top, w_bot) weighting patches for low-freq Fourier coeffs.
 
         Args:
@@ -603,7 +623,9 @@ class PPSFFT2(BaseModule[[Tensor], Tensor]):
         w_top = torch.ones_like(r_top)
         w_top[r_top <= r0] = 0.0  # DC floor
         in_ramp = (r_top > r0) & (r_top < r1)
-        w_top[in_ramp] = 0.5 * (1.0 - torch.cos(math.pi * (r_top[in_ramp] - r0) / (r1 - r0)))
+        w_top[in_ramp] = 0.5 * (
+            1.0 - torch.cos(math.pi * (r_top[in_ramp] - r0) / (r1 - r0))
+        )
         # enforce exact DC:
         w_top[0, 0] = 0.0
 
@@ -613,7 +635,9 @@ class PPSFFT2(BaseModule[[Tensor], Tensor]):
         w_bot = torch.ones_like(r_bot)
         w_bot[r_bot <= r0] = 0.0  # DC floor
         in_ramp = (r_bot > r0) & (r_bot < r1)
-        w_bot[in_ramp] = 0.5 * (1.0 - torch.cos(math.pi * (r_bot[in_ramp] - r0) / (r1 - r0)))
+        w_bot[in_ramp] = 0.5 * (
+            1.0 - torch.cos(math.pi * (r_bot[in_ramp] - r0) / (r1 - r0))
+        )
 
         return w_top, w_bot  # small patches only
 
@@ -653,7 +677,9 @@ class ScharrGrad(BaseModule[[Tensor], tuple[Tensor, Tensor]]):
     kx: Tensor
     ky: Tensor
 
-    def __init__(self, channels: int = 1, norm: Literal["l1", "l2"] | None = "l1") -> None:
+    def __init__(
+        self, channels: int = 1, norm: Literal["l1", "l2"] | None = "l1"
+    ) -> None:
         super().__init__()
         kx = torch.tensor([[3.0, 0.0, -3.0], [10.0, 0.0, -10.0], [3.0, 0.0, -3.0]])
         ky = kx.t()
@@ -666,8 +692,12 @@ class ScharrGrad(BaseModule[[Tensor], tuple[Tensor, Tensor]]):
             kx, ky = kx / scale, ky / scale
 
         self.channels = channels
-        self.register_buffer("kx", kx.view(1, 1, 3, 3).repeat(channels, 1, 1, 1), persistent=False)
-        self.register_buffer("ky", ky.view(1, 1, 3, 3).repeat(channels, 1, 1, 1), persistent=False)
+        self.register_buffer(
+            "kx", kx.view(1, 1, 3, 3).repeat(channels, 1, 1, 1), persistent=False
+        )
+        self.register_buffer(
+            "ky", ky.view(1, 1, 3, 3).repeat(channels, 1, 1, 1), persistent=False
+        )
 
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         # padding="valid" to avoid boundary effects
@@ -707,7 +737,9 @@ class LGAE(BaseModule[..., tuple[Tensor, Tensor, Tensor]]):
         noise_scale: float
 
     @override
-    def __call__(self, x: Tensor, **kwargs: Unpack[_Kw]) -> tuple[Tensor, Tensor, Tensor]:
+    def __call__(
+        self, x: Tensor, **kwargs: Unpack[_Kw]
+    ) -> tuple[Tensor, Tensor, Tensor]:
         return super().__call__(x, **kwargs)
 
     def __init__(self, height: int, width: int) -> None:
@@ -721,7 +753,9 @@ class LGAE(BaseModule[..., tuple[Tensor, Tensor, Tensor]]):
         self.smooth_l1 = nn.SmoothL1Loss(beta=0.1, reduction="mean")
         # Threshold for stable expm1_over_x in float16 (half precision)
         float16_valid_threshold = 1e-2
-        self.register_buffer("expm1_threshold", torch.as_tensor(float16_valid_threshold))
+        self.register_buffer(
+            "expm1_threshold", torch.as_tensor(float16_valid_threshold)
+        )
 
     def expm1_over_x_stable(
         self,
@@ -795,7 +829,9 @@ class LGAE(BaseModule[..., tuple[Tensor, Tensor, Tensor]]):
         _, _, H, _ = Err.shape
         r1 = self.ppsfft2.w_top.shape[0] - 1
         # top block
-        Err[..., 0 : r1 + 1, 0 : r1 + 1] *= self.ppsfft2.w_top.view(1, 1, r1 + 1, r1 + 1)
+        Err[..., 0 : r1 + 1, 0 : r1 + 1] *= self.ppsfft2.w_top.view(
+            1, 1, r1 + 1, r1 + 1
+        )
         # bottom block (wrap ky = -1..-r1)
         Err[..., H - r1 : H, 0 : r1 + 1] *= self.ppsfft2.w_bot.view(1, 1, r1, r1 + 1)
 

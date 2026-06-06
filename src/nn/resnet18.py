@@ -255,18 +255,21 @@ class ResNet18Encoder(BaseModule[[Tensor], tuple[Tensor, Tensor]]):
 
         # Subsequent blocks in the stage always have stride=1
         # and input_channels == output_channels.
-        layers.extend(BasicBlock(
-                    in_channels=out_channels,
-                    out_channels=out_channels,
-                    stride=1,
-                ) for _ in range(1, blocks))
+        layers.extend(
+            BasicBlock(
+                in_channels=out_channels,
+                out_channels=out_channels,
+                stride=1,
+            )
+            for _ in range(1, blocks)
+        )
 
         return nn.Sequential(*layers)
 
     @staticmethod
     def reparameterize(mu: Tensor, logvar: Tensor) -> Tensor:
         """Sample z from the Gaussian distribution N(mu, std) using the reparameterization trick.
-        
+
         z = mu + std * epsilon.
         """
         # Standard training mode
@@ -419,7 +422,6 @@ class ResNet18Decoder(BaseModule[[Tensor], Tensor]):
         return self.conv_out(x)
 
 
-
 class ResNet18VAE(BaseModule[[Tensor], tuple[Tensor, Tensor, Tensor]]):
     def __init__(self, latent_dim: int = 4) -> None:
         super().__init__()
@@ -436,10 +438,11 @@ class ResNet18VAE(BaseModule[[Tensor], tuple[Tensor, Tensor, Tensor]]):
 
     def decode(self, z: Tensor) -> Tensor:
         """Decode latents directly.
-        
+
         Needed for EQ-VAE to decode transformed latents: D(tau(z)).
         """
         return self.decoder(z)
+
 
 # --- Verification Script ---
 
@@ -472,14 +475,20 @@ if __name__ == "__main__":
         # 4. Correctness Checks
         # Check Spatial Dimensions (Should correspond to f=8 compression)
         # 256 / 8 = 32
-        assert mu.shape == (BATCH_SIZE, LATENT_DIM, 32, 32), \
+        assert mu.shape == (BATCH_SIZE, LATENT_DIM, 32, 32), (
             f"ERROR: Latent shape mismatch. Expected (B, {LATENT_DIM}, 32, 32), got {mu.shape}"
+        )
 
-        assert recon_x.shape == test_tensor.shape, \
+        assert recon_x.shape == test_tensor.shape, (
             f"ERROR: Output shape mismatch. Expected {test_tensor.shape}, got {recon_x.shape}"
+        )
 
         # Check for NaNs
-        has_nan = torch.isnan(recon_x).any() or torch.isnan(mu).any() or torch.isnan(logvar).any()
+        has_nan = (
+            torch.isnan(recon_x).any()
+            or torch.isnan(mu).any()
+            or torch.isnan(logvar).any()
+        )
         if has_nan:
             print("FAILURE: NaN values detected in output!")
         else:
