@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-06-06
+Last updated: 2026-06-10
 
 ## Active Workstream
 
@@ -30,6 +30,11 @@ The Kaggle behavior inventory now lives at
 `docs/behavior_inventory_kaggle.md`. Dataset slugs were confirmed through the
 Kaggle CLI, and the debug kernel metadata now points at
 `maximusshtefan/patches-pre-shuffled-ubc-ocean`.
+Important dataset nuance: that dataset is the pre-shuffled training patch source;
+do not assume it contains validation files. Validation was generated as a
+derived shard through the dataset-generation/classification notebook route using
+the `train_val_atlas` split. Spec 0001 must lock the exact validation source
+before implementation.
 The local uv environment is CPU-only for PyTorch. Strict Ruff settings are
 canonical in `pyproject.toml`; do not add `ruff.toml`. The no-sync quality gate
 verified Python 3.12, `torch==2.12.0+cpu`, and CUDA unavailable. Strict Ruff
@@ -43,7 +48,7 @@ strictness.
 Immediate next action: use `docs/behavior_inventory_kaggle.md` to lock
 `docs/specs/0001-translatable-normal-vae-baseline.md` as
 implementation-ready, especially exact smoke-test, evaluator, artifact, and
-debug Kaggle launcher commands.
+debug Kaggle launcher commands, plus the explicit validation shard source.
 
 Kaggle-specific handoff: `scripts/kaggle_kernel.sh validate` and
 `scripts/kaggle_kernel.sh check` worked locally on 2026-06-06 with Kaggle CLI
@@ -101,6 +106,9 @@ The review process lives in `docs/agentic_review_workflow.md`.
   implementation-ready.
 - Exact smoke-test, evaluator, and artifact-generation commands are still
   placeholders in spec 0001.
+- The exact validation shard source must be locked. The pre-shuffled training
+  dataset should not be assumed to contain validation files without checking the
+  Kaggle dataset version/file list.
 - The Kaggle debug kernel still has a `NOT_IMPLEMENTATION_READY` placeholder and
   must not be pushed.
 - Strict Python quality is intentionally not fully green on historical
@@ -108,7 +116,7 @@ The review process lives in `docs/agentic_review_workflow.md`.
   reports 51 strict errors. New work must not add debt or weaken the gate.
 - The next blocking choices to lock before full runs are:
 
-- final input size and split policy;
+- final input size and split/validation-source policy;
 - latent field/statistics policy for the first steerable VAE;
 - normalization and nonlinearities to test before full experiments.
 

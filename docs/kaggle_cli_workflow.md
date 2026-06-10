@@ -1,7 +1,7 @@
 # Kaggle CLI Workflow
 
 Status: draft workflow scaffold
-Last updated: 2026-06-06
+Last updated: 2026-06-10
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
 source of truth for experiment code, specs, configs, and paper-facing claims.
@@ -103,6 +103,11 @@ Other confirmed historical slugs are recorded in
 `docs/behavior_inventory_kaggle.md`. Do not attach
 `maximusshtefan/non-eq-vae-output` to the new baseline unless intentionally
 reproducing the old FSQ resume path.
+
+The pre-shuffled patch dataset should be treated as the training patch source.
+Validation is a generated shard from the dataset-generation/classification
+notebook route and must be declared explicitly before the first real baseline
+kernel is pushed.
 
 The push wrapper refuses remote writes while `dataset_sources` is empty, while
 the placeholder guard remains, or while spec 0001 is not locked as

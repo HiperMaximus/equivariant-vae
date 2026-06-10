@@ -1,7 +1,7 @@
 # Kaggle Behavior Inventory
 
 Status: current historical inventory
-Last updated: 2026-06-06
+Last updated: 2026-06-10
 
 This file records the behavior of the historical Kaggle notebooks before the
 repo extracts reusable modules for the translatable normal VAE baseline.
@@ -10,6 +10,7 @@ Sources inspected:
 
 - `kaggle/train_runs`
 - `kaggle/dataset_generation`
+- `kaggle/generate_dataset_Classification_With_Masks`
 
 This is an inventory, not an implementation contract. Spec 0001 decides what is
 carried forward into the new comparable non-equivariant VAE.
@@ -25,7 +26,7 @@ replace them with display names from the web UI.
 | Supplemental masks | `sohier/ubc-ovarian-cancer-competition-supplemental-masks` | Historical dataset-generation input. |
 | Raw atlas | `maximusshtefan/raw-atlas-ubc-ocean` | Historical atlas input before train/valid split. |
 | Train/valid atlas | `maximusshtefan/train-val-atlas-ubc-ocean` | Historical split atlas used to generate patch shards. |
-| Pre-shuffled patches | `maximusshtefan/patches-pre-shuffled-ubc-ocean` | Historical training and validation patch binaries. Use this as the first CLI kernel dataset source. |
+| Pre-shuffled patches | `maximusshtefan/patches-pre-shuffled-ubc-ocean` | Historical pre-shuffled training patch binaries. Use this as the first CLI kernel dataset source, but do not assume it contains the generated validation shard without verifying the dataset version/file list. |
 | Non-eq-VAE output | `maximusshtefan/non-eq-vae-output` | Historical FSQ checkpoint/output source for resume only. Do not attach it to the new normal VAE baseline unless intentionally reproducing the old run. |
 
 The current CLI-managed debug kernel should start with:
@@ -37,6 +38,12 @@ The current CLI-managed debug kernel should start with:
 Dataset-generation kernels, if reintroduced later, should use
 `competition_sources` for `UBC-OCEAN` and explicit `dataset_sources` for the
 mask/atlas inputs.
+
+Validation data is a derived artifact. The pre-shuffled training dataset should
+not be treated as the source of truth for validation until the exact dataset
+version and file list are checked. The validation shard was generated from the
+dataset-generation/classification notebook route using the `train_val_atlas`
+split.
 
 ## Historical Training Notebook
 
@@ -68,7 +75,7 @@ script kernel.
 
 ### Historical Training Inputs
 
-The notebook referenced:
+The notebook referenced both train and validation paths:
 
 ```text
 /kaggle/input/datasets/maximusshtefan/patches-pre-shuffled-ubc-ocean/dataset/ubc_train_shuffled.bin
@@ -77,6 +84,12 @@ The notebook referenced:
 /kaggle/input/datasets/maximusshtefan/patches-pre-shuffled-ubc-ocean/dataset/ubc_ocean_valid.csv
 /kaggle/input/datasets/maximusshtefan/non-eq-vae-output/run_004/checkpoints/checkpoint_ep_28.5.pt
 ```
+
+Treat the `ubc_ocean_valid.*` paths as historical references from that run, not
+as proof that the current `patches-pre-shuffled-ubc-ocean` dataset version
+contains validation files. Before locking spec 0001, either verify those files in
+the mounted Kaggle dataset or declare the validation shard as a separate
+generated input.
 
 For the new baseline, keep dataset roots configurable. Do not hard-code the
 historical `/kaggle/input/datasets/...` shape unless the launcher verifies that
@@ -306,6 +319,50 @@ Binary output contract:
 The new repo should not regenerate data casually. If data generation is needed,
 write a separate spec and preserve the atlas/split/checksum contract.
 
+## Classification/Validation Dataset Notebook
+
+Notebook source:
+
+```text
+kaggle/generate_dataset_Classification_With_Masks
+```
+
+This notebook was pushed from Kaggle on 2026-06-10 and is relevant because it
+captures the validation-shard generation route. It is still historical notebook
+evidence, not canonical repo implementation.
+
+Its metadata records:
+
+- language: Python notebook;
+- Python version recorded by the notebook: 3.12.12;
+- accelerator: none;
+- internet enabled in the historical notebook;
+- data sources include the `UBC-OCEAN` competition and the supplemental-mask
+  dataset source.
+
+Important behavior:
+
+- installs `libvips` and `pyvips`;
+- sets `TMPDIR`, `TEMP`, `TMP`, and libvips cache variables to avoid Kaggle
+  temporary-storage failures;
+- can create a leakage-resistant train/valid atlas by splitting slides, not
+  patches, with `random_state=42`;
+- samples `TRAIN_TARGET_PER_CLASS = 60000` and
+  `VAL_TARGET_PER_CLASS = int(0.1 * TRAIN_TARGET_PER_CLASS)`;
+- writes `split = 'train'` and `split = 'valid'` metadata in
+  `train_val_atlas.csv`;
+- when `MODE = 'valid'`, forces `PART_ID = 0` and `TOTAL_PARTS = 1`;
+- writes validation files as `ubc_ocean_valid.bin` and `ubc_ocean_valid.csv`;
+- uses the same binary format as the other shard generator:
+  64-byte header, `UBC_DATA` magic, CHW layout, `uint8`, and `3x256x256`
+  patches;
+- contains a separate merge/shuffle path for training shards that writes
+  `ubc_train_shuffled.bin` and `ubc_train_shuffled.csv`.
+
+The autoencoder and later supervised classifier can share this validation split,
+but spec 0001 should make the validation source explicit instead of silently
+assuming it is bundled with the pre-shuffled training dataset.
+
 ## Carry Forward
 
 Carry these ideas forward into spec 0001 unless a later decision changes them:
@@ -314,6 +371,8 @@ Carry these ideas forward into spec 0001 unless a later decision changes them:
 - keep `[-1, 1]` normalization unless the steerable path requires a change;
 - keep a configurable HED corruption policy shared by both comparison branches;
 - keep fixed 25-patch qualitative artifacts;
+- keep a validation shard generated from the slide-level `train_val_atlas` split,
+  and make its source explicit in configs;
 - keep checkpoint/resume support;
 - keep Kaggle DDP/AMP/compile as isolated launch/runtime concerns;
 - keep exact dataset slugs in metadata, not UI display names;
@@ -342,7 +401,7 @@ These remain open after the inventory:
 - exact resume command;
 - exact evaluator/dashboard/artifact-generation commands;
 - final input size if deviating from 256x256;
-- split metadata source and leakage checks;
+- exact validation shard source, split metadata source, and leakage checks;
 - scalar/radial nonlinearity policy;
 - whether normalization starts disabled or uses a tested steerable-safe
   equivalent;

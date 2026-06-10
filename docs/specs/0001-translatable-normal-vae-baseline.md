@@ -3,7 +3,7 @@
 Status: draft active spec
 Implementation readiness: not ready
 Owner/workstream: comparable non-equivariant VAE baseline
-Last updated: 2026-06-06
+Last updated: 2026-06-10
 
 ## Purpose
 
@@ -40,6 +40,9 @@ Default input contract until the spec is locked:
 - target: clean patch `x_clean`;
 - split policy: WSI/patient/site-level split where metadata allows, never
   patch-level leakage;
+- validation source: explicit generated validation shard from the
+  `train_val_atlas` split; do not assume it is bundled into the pre-shuffled
+  training dataset without checking the Kaggle dataset version/file list;
 - latent target: spatial Gaussian latent `(B, 24, 4, 4)` unless an ablation spec
   says otherwise.
 
@@ -150,6 +153,7 @@ commands here.
 - Exact resume command is not defined.
 - Exact evaluator/dashboard/artifact-generation commands are not defined.
 - Final input size and split policy are not locked.
+- Exact validation shard source is not locked.
 - Normalization and scalar/radial nonlinearity policy are not locked.
 - The strict Python quality gate still has historical exploratory-code debt.
 
@@ -176,6 +180,7 @@ commands here.
 
 - Lock final input size: 256x256 continuation or 32x32 thesis-return.
 - Lock split metadata source and leakage checks.
+- Lock exact validation shard source and mount path.
 - Lock normalization policy for the comparable baseline and steerable model.
 - Lock activation/radial nonlinearity policy for vector-like lanes.
 - Decide whether normalization starts disabled or uses a tested steerable-safe
