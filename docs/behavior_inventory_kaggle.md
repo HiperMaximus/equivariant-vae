@@ -52,6 +52,14 @@ dataset/ubc_ocean_valid.csv
 It does not contain `test` files. Final paper claims need a sealed held-out test
 set generated and documented separately from the train/validation tuning loop.
 
+The binary file sizes imply exact patch counts after subtracting the 64-byte
+header and dividing by `3 * 256 * 256` bytes:
+
+| File | Patches |
+| --- | ---: |
+| `dataset/ubc_train_shuffled.bin` | 300000 |
+| `dataset/ubc_ocean_valid.bin` | 30000 |
+
 ## Historical Training Notebook
 
 Notebook source:
@@ -364,8 +372,18 @@ Important behavior:
 - uses the same binary format as the other shard generator:
   64-byte header, `UBC_DATA` magic, CHW layout, `uint8`, and `3x256x256`
   patches;
-- contains a separate merge/shuffle path for training shards that writes
-  `ubc_train_shuffled.bin` and `ubc_train_shuffled.csv`.
+- contains a separate merge/shuffle path for training shards that reads
+  `./shards/*_part_*.csv/bin`, performs a global
+  `sample(frac=1, random_state=42)`, writes `ubc_train_shuffled.bin` and
+  `ubc_train_shuffled.csv`, recomputes CRC32, and prints a run-length entropy
+  report.
+
+The committed copy of this notebook has `execution_count = null` and no outputs
+for all cells. The merge/shuffle cell is therefore historical/local-script
+evidence rather than proof of a completed Kaggle run. It also assumes local
+helper state such as `glob` and the `./shards` directory. The uploaded Kaggle
+dataset filename and file sizes, plus user confirmation, are the current source
+of truth that the training shard is already correctly pre-shuffled.
 
 As committed, the notebook still uses `MODE = 'train'` or `MODE = 'valid'`,
 writes `split = 'train'` and `split = 'valid'`, and does not yet write
