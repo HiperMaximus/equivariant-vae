@@ -104,10 +104,9 @@ Other confirmed historical slugs are recorded in
 `maximusshtefan/non-eq-vae-output` to the new baseline unless intentionally
 reproducing the old FSQ resume path.
 
-The pre-shuffled patch dataset should be treated as the training patch source.
-Validation is a generated shard from the dataset-generation/classification
-notebook route and must be declared explicitly before the first real baseline
-kernel is pushed.
+The pre-shuffled patch dataset is the confirmed train/validation patch source.
+It contains `ubc_train_shuffled.*` and `ubc_ocean_valid.*`, but no held-out test
+shard. Final evaluation needs a separate sealed test dataset/source.
 
 The push wrapper refuses remote writes while `dataset_sources` is empty, while
 the placeholder guard remains, or while spec 0001 is not locked as

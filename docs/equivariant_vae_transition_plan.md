@@ -731,6 +731,8 @@ Before claiming an equivariance result:
 - Same validation access and tuning budget.
 - Report parameter count, approximate FLOPs/throughput, and wall-clock budget.
 - Keep the test set sealed until final evaluation.
+- The current pre-shuffled Kaggle dataset has train/validation files but no
+  held-out test shard; generate and lock that shard before final claims.
 
 Capacity matching policy:
 

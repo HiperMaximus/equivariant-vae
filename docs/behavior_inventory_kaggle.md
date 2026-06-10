@@ -26,7 +26,7 @@ replace them with display names from the web UI.
 | Supplemental masks | `sohier/ubc-ovarian-cancer-competition-supplemental-masks` | Historical dataset-generation input. |
 | Raw atlas | `maximusshtefan/raw-atlas-ubc-ocean` | Historical atlas input before train/valid split. |
 | Train/valid atlas | `maximusshtefan/train-val-atlas-ubc-ocean` | Historical split atlas used to generate patch shards. |
-| Pre-shuffled patches | `maximusshtefan/patches-pre-shuffled-ubc-ocean` | Historical pre-shuffled training patch binaries. Use this as the first CLI kernel dataset source, but do not assume it contains the generated validation shard without verifying the dataset version/file list. |
+| Pre-shuffled patches | `maximusshtefan/patches-pre-shuffled-ubc-ocean` | Historical pre-shuffled train and validation patch binaries. Use this as the first CLI kernel dataset source. It does not contain a held-out test shard. |
 | Non-eq-VAE output | `maximusshtefan/non-eq-vae-output` | Historical FSQ checkpoint/output source for resume only. Do not attach it to the new normal VAE baseline unless intentionally reproducing the old run. |
 
 The current CLI-managed debug kernel should start with:
@@ -39,11 +39,18 @@ Dataset-generation kernels, if reintroduced later, should use
 `competition_sources` for `UBC-OCEAN` and explicit `dataset_sources` for the
 mask/atlas inputs.
 
-Validation data is a derived artifact. The pre-shuffled training dataset should
-not be treated as the source of truth for validation until the exact dataset
-version and file list are checked. The validation shard was generated from the
-dataset-generation/classification notebook route using the `train_val_atlas`
-split.
+The pre-shuffled dataset file list was checked through the Kaggle CLI on
+2026-06-10. It contains:
+
+```text
+dataset/ubc_train_shuffled.bin
+dataset/ubc_train_shuffled.csv
+dataset/ubc_ocean_valid.bin
+dataset/ubc_ocean_valid.csv
+```
+
+It does not contain `test` files. Final paper claims need a sealed held-out test
+set generated and documented separately from the train/validation tuning loop.
 
 ## Historical Training Notebook
 
@@ -75,7 +82,8 @@ script kernel.
 
 ### Historical Training Inputs
 
-The notebook referenced both train and validation paths:
+The notebook referenced train and validation paths that are present in the
+current pre-shuffled dataset:
 
 ```text
 /kaggle/input/datasets/maximusshtefan/patches-pre-shuffled-ubc-ocean/dataset/ubc_train_shuffled.bin
@@ -85,11 +93,9 @@ The notebook referenced both train and validation paths:
 /kaggle/input/datasets/maximusshtefan/non-eq-vae-output/run_004/checkpoints/checkpoint_ep_28.5.pt
 ```
 
-Treat the `ubc_ocean_valid.*` paths as historical references from that run, not
-as proof that the current `patches-pre-shuffled-ubc-ocean` dataset version
-contains validation files. Before locking spec 0001, either verify those files in
-the mounted Kaggle dataset or declare the validation shard as a separate
-generated input.
+These files are the train/validation input contract for the first baseline. They
+are not a full train/validation/test contract, because there is no held-out test
+shard in this dataset.
 
 For the new baseline, keep dataset roots configurable. Do not hard-code the
 historical `/kaggle/input/datasets/...` shape unless the launcher verifies that
@@ -319,7 +325,7 @@ Binary output contract:
 The new repo should not regenerate data casually. If data generation is needed,
 write a separate spec and preserve the atlas/split/checksum contract.
 
-## Classification/Validation Dataset Notebook
+## Classification/Validation/Test Dataset Notebook
 
 Notebook source:
 
@@ -328,8 +334,10 @@ kaggle/generate_dataset_Classification_With_Masks
 ```
 
 This notebook was pushed from Kaggle on 2026-06-10 and is relevant because it
-captures the validation-shard generation route. It is still historical notebook
-evidence, not canonical repo implementation.
+captures the train/validation shard generation route and the current attempt to
+create a held-out test set for the autoencoder. The same held-out test set can
+later serve the supervised classification experiment. It is still historical
+notebook evidence, not canonical repo implementation.
 
 Its metadata records:
 
@@ -359,9 +367,15 @@ Important behavior:
 - contains a separate merge/shuffle path for training shards that writes
   `ubc_train_shuffled.bin` and `ubc_train_shuffled.csv`.
 
-The autoencoder and later supervised classifier can share this validation split,
-but spec 0001 should make the validation source explicit instead of silently
-assuming it is bundled with the pre-shuffled training dataset.
+As committed, the notebook still uses `MODE = 'train'` or `MODE = 'valid'`,
+writes `split = 'train'` and `split = 'valid'`, and does not yet write
+`split = 'test'` or `ubc_ocean_test.*` files. Treat it as a starting point for a
+test-set generator, not as proof that the test set already exists.
+
+The autoencoder and later supervised classifier can share the same sealed test
+set once generated. Spec 0001 should make both validation and test sources
+explicit: validation can come from the confirmed pre-shuffled dataset, while test
+must be generated, uploaded, and kept out of the tuning loop.
 
 ## Carry Forward
 
@@ -371,8 +385,9 @@ Carry these ideas forward into spec 0001 unless a later decision changes them:
 - keep `[-1, 1]` normalization unless the steerable path requires a change;
 - keep a configurable HED corruption policy shared by both comparison branches;
 - keep fixed 25-patch qualitative artifacts;
-- keep a validation shard generated from the slide-level `train_val_atlas` split,
-  and make its source explicit in configs;
+- keep the confirmed pre-shuffled train/validation shards explicit in configs;
+- generate and seal a held-out test shard before final evaluation or paper
+  claims;
 - keep checkpoint/resume support;
 - keep Kaggle DDP/AMP/compile as isolated launch/runtime concerns;
 - keep exact dataset slugs in metadata, not UI display names;
@@ -401,7 +416,7 @@ These remain open after the inventory:
 - exact resume command;
 - exact evaluator/dashboard/artifact-generation commands;
 - final input size if deviating from 256x256;
-- exact validation shard source, split metadata source, and leakage checks;
+- exact held-out test shard source, split metadata source, and leakage checks;
 - scalar/radial nonlinearity policy;
 - whether normalization starts disabled or uses a tested steerable-safe
   equivalent;
