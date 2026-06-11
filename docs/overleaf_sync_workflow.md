@@ -38,10 +38,11 @@ This configures a local Git remote named `overleaf`.
 The script refuses embedded credentials in remote URLs. Use a Git credential
 helper for Overleaf tokens.
 
-Overleaf pull/push operations require explicit user permission. After checking
-status and receiving permission, run them with:
+Overleaf remote reads and pull/push operations require explicit user permission.
+After checking status and receiving permission, run them with:
 
 ```bash
+OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh ls-remote
 OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh pull
 OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh push
 ```
@@ -90,7 +91,8 @@ If the pull creates merge conflicts, resolve only files under
 - Never run `git push overleaf` from this repo.
 - Never set `overleaf` as `origin`.
 - Never embed Overleaf tokens in Git remote URLs.
-- Never run Overleaf pull/push as an agent without asking the user first.
+- Never run Overleaf remote reads, pull, or push as an agent without asking the
+  user first.
 - Never push notebooks, training code, or experiment folders to Overleaf.
 - Avoid concurrent editing: if the professor is actively editing in Overleaf,
   pull before making local edits and push only after checking with them.

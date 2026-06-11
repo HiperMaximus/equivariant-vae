@@ -44,8 +44,8 @@ This repo is the paper/research repository for the equivariant VAE work.
 8. Pull Overleaf edits before local paper edits when the professor may have
    changed the project.
 9. Commit local paper changes before pushing the subtree to Overleaf.
-   Overleaf `pull` and `push` require explicit user permission and must be run
-   with `OVERLEAF_SYNC_CONFIRMED=1` only after that permission.
+   Overleaf remote reads, `pull`, and `push` require explicit user permission
+   and must be run with `OVERLEAF_SYNC_CONFIRMED=1` only after that permission.
 10. The architecture target is continuous `SO(2)` steerability, not a
    discrete-group implementation.
 11. GitHub issue updates intended for the thesis professor should be written in

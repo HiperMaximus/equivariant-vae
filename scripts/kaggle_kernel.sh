@@ -10,6 +10,7 @@ default_output_dir="runs/kaggle/non_eq_vae_debug"
 usage() {
   cat <<'EOF'
 Usage:
+  ./scripts/kaggle_kernel.sh build [kernel_dir]
   ./scripts/kaggle_kernel.sh validate [kernel_dir]
   ./scripts/kaggle_kernel.sh check [kernel_dir]
   ./scripts/kaggle_kernel.sh push [kernel_dir] [extra kaggle args...]
@@ -97,6 +98,41 @@ validate_kernel_dir() {
   echo "ok: $kernel_dir/$code_file"
 }
 
+build_kernel_payload() {
+  local kernel_dir="${1:-$default_kernel_dir}"
+  local payload_dir="$kernel_dir/payload"
+
+  validate_kernel_dir "$kernel_dir"
+
+  if [[ ! -d "src/eqvae" ]]; then
+    echo "error: missing src/eqvae; implement spec 0001 before building Kaggle payload" >&2
+    exit 1
+  fi
+
+  if [[ ! -d "configs/spec0001" ]]; then
+    echo "error: missing configs/spec0001; implement spec 0001 before building Kaggle payload" >&2
+    exit 1
+  fi
+
+  python3 - "$payload_dir" <<'PY'
+import shutil
+import sys
+from pathlib import Path
+
+payload = Path(sys.argv[1])
+if payload.exists():
+    shutil.rmtree(payload)
+(payload / "src").mkdir(parents=True)
+(payload / "configs").mkdir(parents=True)
+shutil.copytree("src/eqvae", payload / "src" / "eqvae")
+shutil.copytree("configs/spec0001", payload / "configs" / "spec0001")
+shutil.copy2("pyproject.toml", payload / "pyproject.toml")
+shutil.copy2("uv.lock", payload / "uv.lock")
+PY
+
+  echo "ok: built $payload_dir"
+}
+
 kernel_id_from_metadata() {
   local kernel_dir="${1:-$default_kernel_dir}"
   local metadata
@@ -115,14 +151,24 @@ guard_push_ready() {
     cat >&2 <<'EOF'
 error: kernel scaffold is not implementation-ready.
 
-Use docs/behavior_inventory_kaggle.md, lock spec 0001, implement the real
-launcher, and remove the NOT_IMPLEMENTATION_READY guard before pushing.
+Use docs/behavior_inventory_kaggle.md and spec 0001, implement the real launcher,
+and remove the NOT_IMPLEMENTATION_READY guard before pushing.
 EOF
     exit 1
   fi
 
   if [[ ! -f "docs/behavior_inventory_kaggle.md" ]]; then
     echo "error: missing docs/behavior_inventory_kaggle.md" >&2
+    exit 1
+  fi
+
+  if [[ ! -d "$kernel_dir/payload/src/eqvae" ]]; then
+    echo "error: missing bundled payload src/eqvae in $kernel_dir" >&2
+    exit 1
+  fi
+
+  if [[ ! -d "$kernel_dir/payload/configs/spec0001" ]]; then
+    echo "error: missing bundled payload configs/spec0001 in $kernel_dir" >&2
     exit 1
   fi
 
@@ -158,12 +204,25 @@ for key, expected in required_values.items():
         errors.append(f"{key} must be {expected!r}")
 
 dataset_sources = data.get("dataset_sources")
-if not isinstance(dataset_sources, list) or not dataset_sources:
-    errors.append("dataset_sources must contain at least one confirmed slug")
-else:
-    for source in dataset_sources:
-        if not isinstance(source, str) or "/" not in source or source == "owner/dataset-slug":
-            errors.append(f"invalid dataset source slug: {source!r}")
+expected_dataset_sources = ["maximusshtefan/patches-pre-shuffled-ubc-ocean"]
+forbidden_sources = {"maximusshtefan/non-eq-vae-output"}
+
+if dataset_sources != expected_dataset_sources:
+    errors.append(
+        "dataset_sources must be exactly "
+        f"{expected_dataset_sources!r} for the spec 0001 debug kernel"
+    )
+
+for source_group in (
+    data.get("dataset_sources"),
+    data.get("competition_sources"),
+    data.get("kernel_sources"),
+    data.get("model_sources"),
+):
+    if isinstance(source_group, list):
+        for source in source_group:
+            if source in forbidden_sources:
+                errors.append(f"forbidden historical FSQ source: {source!r}")
 
 if errors:
     for error in errors:
@@ -187,6 +246,9 @@ EOF
 
 action="${1:-}"
 case "$action" in
+  build)
+    build_kernel_payload "${2:-$default_kernel_dir}"
+    ;;
   validate)
     validate_kernel_dir "${2:-$default_kernel_dir}"
     ;;

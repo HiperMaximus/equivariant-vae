@@ -25,8 +25,8 @@ The first CLI-managed script-kernel scaffold lives in:
 kaggle/kernels/non_eq_vae_debug
 ```
 
-It is not push-ready yet. It intentionally exits until spec 0001 is locked as
-implementation-ready and the real launcher replaces the placeholder.
+It is not push-ready yet. It intentionally exits until the real spec 0001
+launcher replaces the placeholder.
 
 The behavior inventory now lives at:
 
@@ -45,6 +45,18 @@ Validate the local scaffold:
 ```bash
 ./scripts/kaggle_kernel.sh validate
 ```
+
+After spec 0001 implementation creates repo code/configs, build the self-contained
+kernel payload before any remote push:
+
+```bash
+./scripts/kaggle_kernel.sh build
+```
+
+The generated `kaggle/kernels/*/payload/` directory is ignored and must be
+rebuilt from source before remote pushes. Payload metadata includes both
+`pyproject.toml` and `uv.lock`; spec 0001 kernels must not resolve or install
+dependencies on Kaggle unless a later spec explicitly changes that rule.
 
 Check whether the Kaggle CLI is installed and whether local metadata is valid:
 
@@ -102,8 +114,9 @@ The current scaffold uses the confirmed pre-shuffled patch dataset:
 
 Other confirmed historical slugs are recorded in
 `docs/behavior_inventory_kaggle.md`. Do not attach
-`maximusshtefan/non-eq-vae-output` to the new baseline unless intentionally
-reproducing the old FSQ resume path.
+`maximusshtefan/non-eq-vae-output` to spec 0001 or any new normal VAE baseline.
+A future historical-reproduction spec would need to opt into that source
+explicitly.
 
 The pre-shuffled patch dataset is the confirmed train/validation patch source.
 It contains `ubc_train_shuffled.*` and `ubc_ocean_valid.*`, but no held-out test
@@ -112,8 +125,9 @@ UBC-OCEAN WSIs with supplemental masks. Those masks are non-exhaustive and shoul
 not be interpreted as full-WSI negative/positive coverage.
 
 The push wrapper refuses remote writes while `dataset_sources` is empty, while
-the placeholder guard remains, or while spec 0001 is not locked as
-implementation-ready.
+the placeholder guard remains, while the bundled payload is missing, while the
+dataset slug differs from `maximusshtefan/patches-pre-shuffled-ubc-ocean`, or
+while spec 0001 and the spec index are not marked `locked / implementation-ready`.
 
 ## GitHub Linking
 

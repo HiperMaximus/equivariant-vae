@@ -1,7 +1,7 @@
 # Kaggle Behavior Inventory
 
 Status: current historical inventory
-Last updated: 2026-06-10
+Last updated: 2026-06-11
 
 This file records the behavior of the historical Kaggle notebooks before the
 repo extracts reusable modules for the translatable normal VAE baseline.
@@ -246,6 +246,14 @@ The new comparison should use the same corruption policy for both branches once
 locked, and should log whether the target is clean `x_clean` and the input is
 `corrupt(x_clean)`.
 
+Clean-context implementation audit on 2026-06-11 found that the historical
+corruptor must not be copied directly: the fixed HED matrix is likely applied
+with the wrong orientation for channel-first left multiplication, the buffer
+names are ambiguous under the row-vector versus column-vector convention, and
+global RNG use is not DDP-clean. The relocked implementation should rewrite this
+as a tested Tellez-style HED/OD stain jitter module with explicit matrix
+convention and per-sample/rank/step-aware RNG.
+
 ### Historical Model
 
 The historical model is an FSQ autoencoder, not a normal VAE:
@@ -270,8 +278,9 @@ The historical objective combines:
 - FSQ excursion penalty.
 
 It does not implement the normal VAE objective. There is no KL loss and no
-posterior statistics. For the new normal VAE, SSIM should be a metric first, not
-the initial training loss, unless spec 0001 is changed deliberately.
+posterior statistics. Spec 0001 deliberately replaces this with
+`L1 + 0.1 * (1 - SSIM) + beta * KL`; SSIM remains a reported metric but is also
+part of the first-run reconstruction objective.
 
 ### Historical Training Loop
 
@@ -501,26 +510,59 @@ Do not copy these FSQ-era behaviors into the new first baseline:
 - FSQ, vector quantization, codebooks, discrete indices, or bin histograms;
 - PixelShuffle/sub-pixel upsampling;
 - 1x1 pointwise projections in the comparable first-run architecture;
-- Charbonnier+SSIM as the initial training objective;
+- Charbonnier loss or FSQ-era objective terms;
 - FSQ excursion penalties;
 - resume from `maximusshtefan/non-eq-vae-output`;
 - only 90-degree `rot90` checks as the equivariance evaluation;
 - metrics without sample count `n`;
 - notebook-generated source code as the canonical implementation.
 
-## Open Decisions For Spec 0001
+## Spec 0001 Reopened Decisions
 
-These remain open after the inventory:
+`docs/specs/0001-translatable-normal-vae-baseline.md` was reopened on
+2026-06-11 after user correction and adversarial review. It is not currently
+implementation-ready.
 
-- exact local CPU smoke-test command;
-- exact debug training command;
-- exact resume command;
-- exact evaluator/dashboard/artifact-generation commands;
-- final input size if deviating from 256x256;
-- exact held-out masked-WSI test shard source, split metadata source, and
-  leakage checks;
-- scalar/radial nonlinearity policy;
-- whether normalization starts disabled or uses a tested steerable-safe
-  equivalent;
-- how much historical Ruff/BasedPyright debt must be cleaned before the first
-  new implementation.
+Current reopened direction:
+
+- first-run input size: 256x256 RGB;
+- first-run latent shape: `(B, 16, 32, 32)`, matching the useful spatial
+  bottleneck scale of the historical FSQ run while removing FSQ quantization and
+  the learned bottleneck scale `s`;
+- first-run normalization policy: no normalization layers;
+- first-run activation policy: full-mixing scalar Conv2d baseline channels with
+  componentwise gated scalar activations; future `SO(2)` nontrivial irrep fields
+  use radial gates with no additive vector bias;
+- first-run corruption: corrected Tellez-style HED/OD stain jitter plus
+  per-image Gaussian noise sampled from `Uniform(0.0, 0.05)`;
+- first-run objective: `L1 + 0.1 * (1 - SSIM) + beta * KL`, with repo-owned
+  FP32 Torch SSIM suitable for compiled/offline Kaggle execution;
+- beta warmup: first epoch for epoch-based runs, 10 percent of optimizer steps
+  for step-limited debug runs, no cyclic restarts;
+- first real baseline run: 10 epochs, with validation and checkpointing every
+  half epoch;
+- checkpoint retention: keep `best_model.pt`, the final checkpoint, and the
+  latest four interval checkpoints, preserving the useful FSQ retention idea
+  without reusing FSQ checkpoint formats;
+- runtime choice must be decided from a short Kaggle benchmark matrix covering
+  single T4 and dual T4 DDP, each with AMP off/on and `torch.compile` off/on.
+
+Remaining implementation-relock blockers:
+
+- run parameter/FLOP counting for the reopened `32x32x16` architecture schedule;
+- run clean-context adversarial spec review after the edits and parameter/FLOP
+  count are integrated.
+
+Full-run blockers after implementation:
+
+- run the short Kaggle runtime benchmark and select single/dual T4,
+  per-device/global batch, AMP, and `torch.compile` settings;
+- write the selected runtime to the benchmark artifacts and resolved full-run
+  config before the first 10-epoch baseline run.
+
+Remaining final-claim blockers:
+
+- generate, upload, and lock the sealed masked-WSI test shard from
+  `docs/data/ubc_ocean_masked_holdout_ids.csv`;
+- verify the final Kaggle test dataset slug, mount path, manifest, and provenance
+  before using any result for paper claims.

@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-06-10
+Last updated: 2026-06-11
 
 ## Active Workstream
 
@@ -10,16 +10,24 @@ Build the repo toward a fair SIPAIM 2026 comparison between:
    steerable implementation; and
 2. a continuous `SO(2)` steerable denoising VAE, preferably using `escnn`.
 
-The current task is finishing planning and harness hardening before deeper code
-refactors. Clean-context adversarial subagent reviews were run on 2026-06-05;
-the latest fixes tightened dependency truth, strict Ruff resolution, no-network
-quality checks, preflight guards, spec readiness, behavior-inventory gates, and
-handoff-memory requirements. A local Kaggle CLI execution scaffold now exists,
-but it is not Kaggle-push-ready.
+The current task is relocking the translatable normal VAE baseline spec after
+architecture/objective corrections. Clean-context adversarial subagent reviews
+were run on 2026-06-05, 2026-06-10, and 2026-06-11. The 2026-06-11 pass
+confirmed that the previous `4x4` latent target was inconsistent with the
+FSQ-successor spatial-coherence goal and that the historical HED corruptor must
+not be copied as-is. A local Kaggle CLI execution scaffold now exists, but it is
+not Kaggle-push-ready.
 
 Spec-driven development is now an active repo workflow. The first active spec is
-`docs/specs/0001-translatable-normal-vae-baseline.md`, but it is still a draft
-and is not implementation-ready.
+`docs/specs/0001-translatable-normal-vae-baseline.md`, now reopened as
+`draft active` and not implementation-ready. The reopened direction is:
+`32x32x16` scalar Gaussian latent, no FSQ quantizer or learned bottleneck scale
+`s`, corrected Tellez-style HED/OD stain corruption plus per-image Gaussian
+noise `Uniform(0.0, 0.05)`, full-mixing scalar Conv2d baseline channels with a
+shared gated scalar activation family, future `SO(2)` radial gates only for
+nontrivial irrep fields, and `L1 + 0.1 * (1 - SSIM) + beta * KL`. It is not
+final-paper-claim-ready until the sealed masked-WSI test shard is generated and
+locked.
 Strict Python quality is also an active workflow via
 `docs/specs/0002-strict-python-quality-gate.md`.
 Kaggle CLI execution is scaffolded via
@@ -50,8 +58,16 @@ A clean-context adversarial review pass on 2026-06-10 checked the agentic
 workflow and Kaggle data contract. It found and fixed stale onboarding references
 to the Kaggle mask notebook, missing preflight coverage for the masked-holdout
 CSV, loose Kaggle spec-index readiness checks, and an ambiguity in the patch CSV
-metadata schema. The new holdout CSV is staged so repo preflight can verify it as
+metadata schema. The new holdout CSV is tracked so repo preflight can verify it as
 tracked.
+An additional clean-context adversarial coding-readiness audit on 2026-06-11
+found that the repo is not yet safe for broad spec 0001 implementation. It is
+ready for a spec-relock/scaffolding decision pass only. The audit added or
+confirmed blockers for parameter/FLOP counting, residual-off policy,
+strict-quality debt route, package/import policy, config parser/dependency
+policy, fixed-25 selector generation, CPU compile/float16 smoke constraints,
+baseline rotated/latent artifact semantics, and local-vs-Kaggle acceptance
+separation.
 The local uv environment is CPU-only for PyTorch. Strict Ruff settings are
 canonical in `pyproject.toml`; do not add `ruff.toml`. The no-sync quality gate
 verified Python 3.12, `torch==2.12.0+cpu`, and CUDA unavailable. Strict Ruff
@@ -62,20 +78,26 @@ files. Solve this in the new `src/eqvae` implementation, a historical-code
 cleanup, or a dedicated typed-PyTorch adapter spec rather than weakening global
 strictness.
 
-Immediate next action: use `docs/behavior_inventory_kaggle.md` to lock
-`docs/specs/0001-translatable-normal-vae-baseline.md` as
-implementation-ready, especially exact smoke-test, evaluator, artifact, and
-debug Kaggle launcher commands, plus the sealed held-out masked-WSI test-set plan
-for final evaluation.
+Immediate next action: finish relocking
+`docs/specs/0001-translatable-normal-vae-baseline.md` before implementation.
+The benchmark contract is now written, but the runtime result cannot be selected
+until the benchmarkable code exists. Resolve the remaining implementation-relock
+blockers in spec 0001, especially parameter/FLOP count for the reopened
+`32x32x16` architecture schedule, strict-quality and config/dependency
+decisions, and final clean-context adversarial spec review. Then implement
+`src/eqvae`, `configs/spec0001`, tests, and CLI commands in the milestone slices
+recorded in spec 0001. After local verification, run the short Kaggle runtime
+benchmark to choose single/dual T4, per-device/global batch, AMP, and compile
+settings before the first 10-epoch full run.
 
 Kaggle-specific handoff: `scripts/kaggle_kernel.sh validate` and
 `scripts/kaggle_kernel.sh check` worked locally on 2026-06-06 with Kaggle CLI
 2.2.1, but Kaggle authentication is a user-local secret and must be treated as
 permission-gated. Do not run
-`KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push` until spec 0001 is
-locked, the placeholder guard is removed from
-`kaggle/kernels/non_eq_vae_debug/run.py`, and the user explicitly approves the
-remote write.
+`KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push` until the placeholder
+guard is removed from `kaggle/kernels/non_eq_vae_debug/run.py`, the real spec
+0001 launcher exists, local verification passes, and the user explicitly
+approves the remote write.
 
 ## Settled Decisions
 
@@ -102,28 +124,45 @@ The review process lives in `docs/agentic_review_workflow.md`.
 
 ## Next Concrete Steps
 
-1. Lock `docs/specs/0001-translatable-normal-vae-baseline.md` as
-   implementation-ready with exact smoke/evaluator/artifact commands.
-2. Replace the placeholder Kaggle debug kernel with a real launcher only after
-   spec 0001 is locked.
-3. Resolve or explicitly baseline the strict Ruff/BasedPyright historical debt
+1. Finish the spec 0001 relock: parameter/FLOP count, final `32x32x16`
+   channel/future-field schedule, strict-quality route, package/import policy,
+   config parser/dependency policy, fixed-25 selector plan, CPU smoke policy, and
+   final clean-context adversarial spec review.
+2. Mark spec 0001 `locked / implementation-ready` only after those relock
+   blockers are resolved.
+3. Add the `src/eqvae` package skeleton and `configs/spec0001` files required by
+   the relocked spec.
+4. Implement synthetic patch data, patch-shard loading, corrected stain
+   corruption, shared gated scalar activation policy, and the non-equivariant VAE
+   factory.
+5. Add the exact spec 0001 tests and CLI commands for smoke, train, resume,
+   evaluate, and artifacts.
+6. Replace the placeholder Kaggle debug kernel with the real launcher only after
+   local spec 0001 verification passes.
+7. Run the short Kaggle runtime benchmark after explicit user permission and
+   record the selected single/dual T4, per-device/global batch, AMP, and compile
+   config before the first 10-epoch baseline run.
+8. Resolve or explicitly baseline the strict Ruff/BasedPyright historical debt
    without weakening global quality settings.
-4. Turn the transition plan into repo code structure: configs, model factories,
-   data/eval modules, and launchers.
-5. Lock the Python 3.12 + Ruff + BasedPyright quality gate in
+9. Lock the Python 3.12 + Ruff + BasedPyright quality gate in
    `docs/specs/0002-strict-python-quality-gate.md`.
-6. Implement the shared evaluation harness for metrics, boxplots, fixed
+10. Implement the shared evaluation harness for metrics, boxplots, fixed
    25-patch artifacts, rotated-input artifacts, and latent visualizations.
-7. Add targeted equivalence/equivariance tests for operations before full
+11. Add targeted equivalence/equivariance tests for operations before full
    continuous `SO(2)` training runs.
-8. Only then implement the steerable model path and run matched experiments.
+12. Only then implement the steerable model path and run matched experiments.
 
 ## Current Blockers
 
-- `docs/specs/0001-translatable-normal-vae-baseline.md` is draft active, not
-  implementation-ready.
-- Exact smoke-test, evaluator, and artifact-generation commands are still
-  placeholders in spec 0001.
+- Spec 0001 is reopened and not implementation-ready. Remaining
+  implementation-relock blockers are listed in
+  `docs/specs/0001-translatable-normal-vae-baseline.md` and include
+  parameter/FLOP count, strict-quality route, package/import policy,
+  config/dependency policy, fixed-25 selector generation, CPU smoke policy, and
+  final adversarial spec review.
+- The first full Kaggle run remains blocked after implementation until the short
+  runtime benchmark selects single/dual T4, per-device/global batch, AMP, and
+  compile settings.
 - The exact held-out masked-WSI test shard must be generated, uploaded, and
   locked before final paper claims. The 152-image candidate pool is documented in
   `docs/data/ubc_ocean_masked_holdout_ids.csv`, and train/validation are
@@ -131,15 +170,16 @@ The review process lives in `docs/agentic_review_workflow.md`.
   non-exhaustive, so test generation and later supervised experiments must not
   treat unmasked regions as exhaustive negative labels.
 - The Kaggle debug kernel still has a `NOT_IMPLEMENTATION_READY` placeholder and
-  must not be pushed.
+  must not be pushed until the real spec 0001 launcher is implemented and
+  verified.
 - Strict Python quality is intentionally not fully green on historical
   exploratory code: 146 Ruff errors remain after autofix, and BasedPyright
   reports 51 strict errors. New work must not add debt or weaken the gate.
-- The next blocking choices to lock before full runs are:
-
-- final input size and split/masked-test-source policy;
-- latent field/statistics policy for the first steerable VAE;
-- normalization and nonlinearities to test before full experiments.
+- The next blocking choices before final paper claims are the exact sealed
+  masked-WSI test-shard artifact, upload slug, and mount-path verification.
+  The next blocking choices before the steerable model are the latent
+  field/statistics policy for nontrivial `SO(2)` latents and any normalization
+  ablation.
 
 ## Update Rule
 

@@ -19,7 +19,8 @@ scaffolded script kernels through the Kaggle API.
 - Do not use Kaggle as a Git remote.
 - Do not require Kaggle's GitHub-linked notebook UI workflow.
 - Do not edit the historical FSQ notebooks as the new baseline source.
-- Do not push a real training kernel before spec 0001 is locked.
+- Do not push a real training kernel before the spec 0001 launcher is
+  implemented and locally verified.
 - Do not commit Kaggle credentials, API tokens, output datasets, checkpoints, or
   run artifacts.
 
@@ -37,6 +38,19 @@ Local commands must go through:
 ```bash
 ./scripts/kaggle_kernel.sh
 ```
+
+Spec 0001 implementation must add a build step that copies the repo code/config
+payload needed by Kaggle into the kernel folder:
+
+```bash
+./scripts/kaggle_kernel.sh build
+```
+
+The generated `kaggle/kernels/*/payload/` directory is ignored and must not be
+committed. It is rebuilt from `src/eqvae`, `configs/spec0001`, `pyproject.toml`,
+and `uv.lock`. Kaggle kernels must not resolve/install dependencies from that
+metadata unless a later spec explicitly introduces an offline wheel/bootstrap
+path.
 
 Remote writes require explicit user permission plus:
 
@@ -64,8 +78,7 @@ kaggle/kernels/non_eq_vae_debug
 ```
 
 It is intentionally not push-ready. The placeholder script exits immediately
-until spec 0001 is locked as implementation-ready and the real launcher replaces
-the placeholder.
+until the real spec 0001 launcher replaces the placeholder.
 
 ## Kaggle Authentication Contract
 
@@ -127,18 +140,26 @@ This workflow scaffold is complete when:
 This workflow becomes Kaggle-push-ready only after:
 
 1. spec 0001 is locked as implementation-ready;
-2. the placeholder guard is removed from `run.py`;
-3. the user confirms Kaggle authentication and remote push permission.
+2. the spec 0001 code/config payload is built into the kernel folder;
+3. the placeholder guard is removed from `run.py`;
+4. local spec 0001 verification passes;
+5. the user confirms Kaggle authentication and remote push permission.
 
 ## Verification Commands
 
-Local no-network checks:
+Current scaffold no-network checks:
 
 ```bash
 ./scripts/kaggle_kernel.sh validate
 bash -n scripts/kaggle_kernel.sh
 python3 -m json.tool kaggle/kernels/non_eq_vae_debug/kernel-metadata.json
 ./scripts/agent_preflight.sh
+```
+
+Spec 0001 post-implementation payload check:
+
+```bash
+./scripts/kaggle_kernel.sh build
 ```
 
 Remote commands, only after explicit permission:

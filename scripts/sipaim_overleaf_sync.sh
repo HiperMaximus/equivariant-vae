@@ -25,7 +25,8 @@ Rules:
   - Commit local paper changes before `push`.
   - Run `compile` before committing paper changes.
   - Pull Overleaf edits before starting local paper edits when advisor edits are possible.
-  - Commands that change local/remote sync state require:
+  - Commands that access or change Overleaf remote state require:
+      OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh ls-remote
       OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh pull
       OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh push
 EOF
@@ -207,7 +208,9 @@ cmd_setup() {
 }
 
 cmd_ls_remote() {
-  ensure_overleaf_remote
+  require_remote_confirmation "ls-remote"
+  validate_remote_safety
+  require_overleaf_remote_exact
   git ls-remote "$REMOTE_NAME"
 }
 

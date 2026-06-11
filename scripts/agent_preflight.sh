@@ -97,6 +97,9 @@ done
 echo
 echo "Git status"
 git status --short
+if [[ -n "$(git status --short)" ]]; then
+  echo "note: preflight permits a dirty worktree; resolve or document changes before handoff"
+fi
 
 echo
 echo "Overleaf remote"
@@ -177,6 +180,13 @@ if git check-ignore --no-index -q runs/kaggle/non_eq_vae_debug/output.txt; then
   echo "ok: runs/ artifacts are ignored"
 else
   echo "error: runs/ artifacts should stay ignored"
+  missing=1
+fi
+
+if git check-ignore --no-index -q kaggle/kernels/non_eq_vae_debug/payload/src/eqvae/__init__.py; then
+  echo "ok: Kaggle kernel payloads are ignored"
+else
+  echo "error: Kaggle kernel payloads should stay ignored"
   missing=1
 fi
 

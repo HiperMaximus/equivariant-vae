@@ -1,7 +1,7 @@
 # Equivariant VAE Transition Plan
 
 Status: draft working plan
-Last updated: 2026-06-06
+Last updated: 2026-06-11
 
 ## Purpose
 
@@ -86,21 +86,19 @@ Lock these before implementation:
 6. Data split policy.
 7. Fairness budget.
 
-Default proposal unless intentionally changed:
+Current proposal after the 2026-06-11 spec correction:
 
 - Continue the current UBC-OCEAN patch contract: 256x256 RGB patches normalized
   to `[-1, 1]`.
-- Return to the thesis embedding target: spatial Gaussian latent
-  `(B, 24, 4, 4)`.
+- Use an FSQ-successor spatial Gaussian latent target `(B, 16, 32, 32)` for the
+  first comparable VAE, preserving spatial coherence for the future `SO(2)`
+  comparison while removing the FSQ quantizer and its learned scalar `s`
+  bottleneck trick.
 - First implementation target: continuous `SO(2)` steerability via
   `rot2dOnR2(N=-1, maximum_frequency=2)`.
 - Use frequencies up to `L <= 2` in the steerable model.
-- Treat any alternative latent size, such as the FSQ-style 32x32 latent map, as a
-  separate experiment with its own config and run name.
+- Treat compact `4x4` latents as later ablations unless explicitly relocked.
 - Split by WSI/patient/site where metadata allows. Never split by patch.
-
-If the thesis scope returns to 32x32 patches, keep the same 24x4x4 latent target
-but remove the extra 256-to-32 downsampling stages.
 
 ## Non-Negotiable Design Rules
 
@@ -170,10 +168,10 @@ Continuous image-space gate:
 | Downsampling | Strided conv/avg-pool shortcuts | Strided odd-kernel conv, optionally anti-aliased | `R2Conv(stride=2)` plus equivariance tests | Downsampling can alias and damage equivariance. |
 | Upsampling | PixelShuffle or nearest-like decoder code in older files | Bilinear scale factor + Conv2d | `R2Upsampling(mode="bilinear")` + `R2Conv` | Use uniform `scale_factor`, not arbitrary nonuniform `size`. |
 | Bottleneck | FSQ discrete 16-level latents | Gaussian VAE latent map | SO(2) scalar plus irrep-aware latent statistics | Test latent statistics under transforms. |
-| Activation | ReLU/SiLU everywhere | Field-aware scalar/radial activation policy | Scalar SiLU plus radial gates over vector norms | Do not apply ordinary componentwise SiLU to nontrivial fields. |
+| Activation | ReLU/SiLU everywhere | Gated scalar activation on all ordinary tensor channels | Same scalar gate family plus radial gates over vector norms for nontrivial fields | Treat SiLU as `x * sigmoid(x)`; do not add equivariant-only activation parameters or vector biases. |
 | Normalization | GroupNorm in many blocks | Prefer no norm first | `IIDBatchNorm2d`, `GNormBatchNorm`, `NormBatchNorm`, field norm, or no norm | Raw GroupNorm is unsafe until proven. |
 | Corruption | HED stain/noise corruption | Same corruption policy | Same corruption policy | For equivariance losses, use controlled/shared randomness. |
-| Loss | Charbonnier + SSIM, no KL | Fixed Gaussian NLL proxy + beta KL | Same scalar losses plus optional equivariance regularizer | SSIM is a metric first, not a first-run training term. |
+| Loss | Charbonnier + SSIM, no KL | `L1 + 0.1 * (1 - SSIM) + beta * KL` | Same scalar losses plus optional equivariance regularizer | Composite beta-VAE-style objective, not a strict Gaussian ELBO. |
 | Equivariance metric | 25-patch artifact metric | Dataset-level metric plus qualitative artifacts | Dataset-level metric plus layer/full-model checks | 25 patches are qualitative only. |
 
 ## Baseline Architecture Direction
@@ -185,13 +183,10 @@ Recommended SO(2)-compatible schedule:
 
 ```text
 Input: 256x256 RGB, normalized to [-1, 1]
-Latent: 24 x 4 x 4
+Latent: 16 x 32 x 32
 
 For 256x256:
-  256 -> 128 -> 64 -> 32 -> 16 -> 8 -> 4
-
-For 32x32:
-  32 -> 16 -> 8 -> 4
+  256 -> 128 -> 64 -> 32
 ```
 
 Use the same spatial schedule for both models. The equivariant model defines
@@ -209,9 +204,11 @@ Latent: start with scalar/trivial spatial latents for the first complete run.
         Then add frequency-1/frequency-2 latent fields with invariant variance.
 ```
 
-The baseline should keep the same lane bookkeeping where practical: scalar lanes
-use scalar activations, vector-pair lanes use radial activations, but the baseline
-convolutions themselves are unconstrained ordinary convolutions.
+The non-equivariant baseline treats all channels as ordinary scalar tensor
+channels. Its Conv2d layers may freely mix all channels, and its gated scalar
+activation is applied componentwise. The scalar/F1/F2 schedule remains capacity
+bookkeeping for the future `SO(2)` field multiplicities, not a restriction on
+baseline channel mixing.
 
 Recommended block pattern:
 
@@ -220,8 +217,7 @@ ConvBlock:
   Conv2d(in -> out, kernel=5 or 7, stride=1 or 2, padding=same)
   activation policy
   Conv2d(out -> out, kernel=5 or 7, stride=1, padding=same)
-  optional ReZero/Fixup scalar gate
-  residual add only if skip path has matching shape and semantics
+  no first-run residual/ReZero/Fixup branch
 
 VAE heads:
   mu_head: Conv2d(C -> latent_channels, kernel=5, padding=2)
@@ -257,23 +253,27 @@ Training input/target:
 First-run loss:
 
 ```text
-recon_loss = mean((x_hat - x_clean) ** 2)
+l1_loss = mean(abs(x_hat - x_clean))
+ssim_loss = 1 - ssim(x_hat, x_clean)
+recon_loss = l1_loss + 0.1 * ssim_loss
 kl_element = -0.5 * (1 + logvar - mu ** 2 - exp(logvar))
 kl_loss = mean(kl_element)
-beta = linear_warmup(step, start=0.0, end=1.0, warmup_fraction=0.10)
+beta = configured_linear_warmup_to_1
 loss = recon_loss + beta * kl_loss
 ```
 
 Interpretation:
 
-- `recon_loss` is the fixed-variance Gaussian NLL up to a constant, with sigma
-  absorbed into beta/scale by choosing a fixed convention.
+- `recon_loss` is a composite image-fidelity objective chosen to remain close to
+  the successful FSQ training signal while adding a proper Gaussian latent and
+  KL term.
 - `kl_loss` is measured per latent scalar. This keeps beta comparable if latent
   spatial size or channel count changes in an ablation.
-- SSIM, Charbonnier, PSNR, MAE, and MSE are logged as metrics. They are not part
-  of the first-run optimization objective.
-- Any future Charbonnier/SSIM training objective must be marked as an ablation and
-  should not be called a strict ELBO without qualification.
+- SSIM is part of the first-run objective with weight `0.1`; PSNR, MAE, MSE, and
+  SSIM are still logged as metrics.
+- Beta warms up over the first full epoch for epoch-based runs and over the
+  first 10 percent of optimizer steps only for tiny step-limited debug runs.
+- Do not call this a strict ELBO without qualification.
 
 Validation metrics:
 
@@ -306,7 +306,7 @@ Representation plan:
 
 Latent plan:
 
-1. First version: scalar/trivial spatial latent fields with `(B, 24, 4, 4)`.
+1. First version: scalar/trivial spatial latent fields with `(B, 16, 32, 32)`.
 2. Second version: mixed-frequency latent fields with isotropic
    Gaussian sampling per nontrivial irrep/subfield.
 3. Add a specific test: transform input, encode, compare transformed `mu` and
@@ -384,21 +384,22 @@ out = gate * v
 
 Baseline comparability:
 
-- The non-equivariant baseline should keep scalar/vector lane bookkeeping where
-  possible.
-- Scalar lanes use the same scalar activation as the equivariant scalar fields.
-- Vector-pair lanes use the same radial activation formula, but the surrounding
-  convolutions are unconstrained ordinary Conv2d layers.
-- This makes the comparison focus on steerable kernel constraints and field
-  representations, not on giving the baseline a completely different
-  nonlinearity.
+- The non-equivariant baseline uses full-mixing Conv2d over ordinary scalar
+  channels.
+- Every baseline channel uses the same gated scalar activation family as future
+  equivariant scalar fields.
+- Future nontrivial `SO(2)` vector/irrep fields use radial gates over invariant
+  norms because ordinary componentwise scalar gates would break equivariance.
+- This keeps the activation family conceptually aligned while letting the
+  representation constraints, not fake vector groups in the baseline, define
+  the difference between models.
 
 Implementation note:
 
 - Prefer an explicit `RadialGate` module over ad hoc tensor reshaping scattered
   through the model.
-- The `field_types.py` registry should know which channel ranges are scalar
-  fields and which are 2D irrep copies.
+- The field schedule registry should distinguish ordinary baseline tensor
+  channels from future `SO(2)` scalar fields and 2D irrep copies.
 - Add tests that rotate a vector field and verify
   `activation(rho(theta) v) == rho(theta) activation(v)` within tolerance.
 
@@ -496,46 +497,52 @@ SO(2) protocol:
 
 ## Repo Refactor Plan
 
-Target layout:
+Spec 0001 is the canonical layout for the first implementation. Target layout:
 
 ```text
 src/eqvae/
   __init__.py
   config.py
   data/
-    ubc_patches.py
-    transforms.py
+    patch_shards.py
+    synthetic.py
+    splits.py
+  corruption/
+    stain.py
   models/
     __init__.py
-    common.py
-    layer_schedule.py
-    vae_non_equivariant.py
-    vae_equivariant.py
-    field_types.py
-  losses.py
-  metrics.py
-  train/
-    loop.py
-    checkpointing.py
-    distributed.py
-    logging.py
-  eval/
-    equivariance.py
-    reconstructions.py
-    embeddings.py
-  scripts/
-    train_vae.py
-    export_embeddings.py
-    linear_probe.py
-    export_kaggle_notebook.py
-configs/
-  non_eq_vae_ubc.yaml
-  eq_vae_ubc.yaml
+    activations.py
+    field_schedule.py
+    non_equivariant_vae.py
+  losses/
+    vae.py
+  metrics/
+    reconstruction.py
+  artifacts/
+  checkpointing.py
+  cli/
+    smoke.py
+    train.py
+    benchmark_runtime.py
+    select_fixed_patches.py
+    evaluate.py
+    artifacts.py
+configs/spec0001/
+  non_eq_vae_baseline.yaml
+  non_eq_vae_debug_cpu.yaml
+  non_eq_vae_kaggle_debug.yaml
+  non_eq_vae_kaggle_runtime_benchmark.yaml
+  ubc_ocean_masked_holdout_test.yaml
+  fixed_25_validation_patches.yaml
 docs/
   equivariant_vae_transition_plan.md
 runs/
   README.md
 ```
+
+Older names such as `ubc_patches.py`, `layer_schedule.py`,
+`vae_non_equivariant.py`, or root-level `configs/non_eq_vae_ubc.yaml` are
+superseded for spec 0001 unless a later spec intentionally reopens the layout.
 
 Refactor rules:
 
@@ -573,13 +580,15 @@ Exit criteria:
 ### Phase 0: Lock The Specification
 
 - Complete Phase -1 first.
-- Decide input size: 256x256 continuation or 32x32 thesis-return.
-- Decide latent shape: default `(B, 24, 4, 4)`.
+- Input size is 256x256 continuation for spec 0001.
+- Latent shape is reopened to the FSQ-successor spatial target
+  `(B, 16, 32, 32)`.
 - Confirm first implementation group: SO(2).
 - Decide whether `O(2)` is a later ablation.
 - Decide SO(2) representation schedule up to `L <= 2`.
 - Decide whether normalization starts disabled.
-- Decide augmentation policy and fairness budget.
+- Use corrected Tellez-style stain-aware corruption plus per-image Gaussian noise
+  and decide the remaining fairness budget details.
 
 Exit criteria:
 
@@ -743,8 +752,9 @@ Capacity matching policy:
   the same input size, downsampling depths, latent shape, kernel sizes, decoder
   structure, optimizer budget, and logging.
 - The SO(2) equivariant model uses field multiplicities that correspond to the
-  baseline lane schedule: scalar lanes, frequency-1 vector-pair lanes, and
-  frequency-2 vector-pair lanes map to ordinary channel groups in the baseline.
+  baseline channel-capacity schedule: future scalar, frequency-1, and
+  frequency-2 multiplicities map to the total ordinary channel widths used by
+  the baseline.
 - Exact parameter equality is not required for the primary comparison because
   steerable kernels and weight sharing change the parameterization. The parameter
   gap must be reported.
@@ -818,7 +828,7 @@ decisions such as the continuous `SO(2)` scope.
 | Item | Default for now | Why it matters |
 | --- | --- | --- |
 | Input size | 256x256 continuation | Matches current Kaggle data pipeline. |
-| Latent shape | `(B, 24, 4, 4)` | Restores the thesis embedding target and gives a compact probe vector. |
+| Latent shape | `(B, 16, 32, 32)` | Preserves spatial coherence for the future continuous `SO(2)` comparison while removing FSQ quantization. |
 | First implementation group | `SO(2)` via `rot2dOnR2(N=-1, maximum_frequency=2)` | This is the actual research target. |
 | SO(2) hidden reps | Scalars plus frequency-1 and frequency-2 vector fields | Matches the `L <= 2` goal. |
 | Latent reps | Scalar first, then irrep-aware vector latents | Avoids breaking VAE sampling on day one. |
@@ -831,17 +841,23 @@ decisions such as the continuous `SO(2)` scope.
 ## Immediate Next Tasks
 
 1. Treat this document as the active checklist for the branch.
-2. Use `docs/behavior_inventory_kaggle.md` to lock
-   `docs/specs/0001-translatable-normal-vae-baseline.md` enough to start
-   implementation, including exact smoke/evaluator/artifact commands.
-3. Replace the placeholder Kaggle debug kernel with the real CLI-managed
-   launcher only after spec 0001 is implementation-ready.
-4. Resolve or explicitly baseline the strict Ruff/BasedPyright historical debt.
-5. Add `src/eqvae` package skeleton.
-6. Add configs that lock input size, latent shape, group, layer schedule, and
-   normalization.
-7. Extract data/checkpoint/logging utilities from the Kaggle notebook.
-8. Implement the non-equivariant translatable VAE.
-9. Add banned-operation and shape tests.
-10. Run a Kaggle debug job with the new baseline.
-11. Implement the SO(2) `escnn` feasibility spike.
+2. Finish relocking `docs/specs/0001-translatable-normal-vae-baseline.md`:
+   parameter/FLOP count and final adversarial spec review. The runtime benchmark
+   contract is written, but the benchmark result is a full-run gate after
+   implementation.
+3. Mark spec 0001 `locked / implementation-ready`, then add `src/eqvae` package
+   skeleton.
+4. Add configs that lock input size, latent shape, group, layer schedule,
+   activation policy, runtime benchmark, and normalization.
+5. Extract data/checkpoint/logging utilities from the Kaggle notebook.
+6. Implement the non-equivariant translatable VAE.
+7. Add banned-operation, activation-policy, shape, compile, and precision tests.
+8. Replace the placeholder Kaggle debug kernel with the real CLI-managed
+   launcher after local verification passes.
+9. Resolve or explicitly baseline the strict Ruff/BasedPyright historical debt.
+10. Run the short Kaggle runtime benchmark after explicit user permission, then
+    choose single/dual GPU, AMP, compile, and batch size. Record this in
+    `benchmark/selected_runtime.yaml` and the resolved full-run config.
+11. Run the first 10-epoch Kaggle baseline only after benchmark selection and
+    explicit user permission.
+12. Implement the SO(2) `escnn` feasibility spike.

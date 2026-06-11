@@ -206,6 +206,7 @@ paper/sipaim2026/main.pdf
 
 # Experiment and Kaggle run artifacts
 runs/
+kaggle/kernels/*/payload/
 
 # Kaggle credentials
 .kaggle/
