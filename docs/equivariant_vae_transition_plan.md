@@ -733,6 +733,8 @@ Before claiming an equivariance result:
 - Keep the test set sealed until final evaluation.
 - The current pre-shuffled Kaggle dataset has train/validation files but no
   held-out test shard; generate and lock that shard before final claims.
+- The held-out test shard should come from the WSIs with non-exhaustive
+  supplemental masks; train/validation should remain on WSIs without those masks.
 
 Capacity matching policy:
 

@@ -44,7 +44,11 @@ Default input contract until the spec is locked:
   `maximusshtefan/patches-pre-shuffled-ubc-ocean`, which contains
   `ubc_train_shuffled.*` and `ubc_ocean_valid.*`;
 - test source: not present in the pre-shuffled dataset; generate and seal a
-  held-out test shard before final evaluation or paper claims;
+  held-out test shard from the UBC-OCEAN WSIs with supplemental masks before
+  final evaluation or paper claims;
+- mask policy: supplemental masks are not exhaustive over each WSI; use masked
+  WSIs as a held-out slide pool, but do not treat unmasked regions inside those
+  WSIs as exhaustive negative labels;
 - latent target: spatial Gaussian latent `(B, 24, 4, 4)` unless an ablation spec
   says otherwise.
 
@@ -130,8 +134,8 @@ The baseline is not complete until:
 9. rotated-input qualitative artifacts use fixed continuous angles;
 10. `rotated_input_vs_latent_grid.*` can be produced for the same patch/angle set;
 11. banned-operation checks pass;
-12. final evaluation has a sealed held-out test source, or the run is explicitly
-    marked train/validation-only and not used for final paper claims;
+12. final evaluation has a sealed held-out masked-WSI test source, or the run is
+    explicitly marked train/validation-only and not used for final paper claims;
 13. `./scripts/python_quality.sh` passes, or any failure is limited to the
     documented historical Ruff/BasedPyright debt with unchanged counts and no
     new debt outside `main.py` / historical exploratory `src/nn` files;
@@ -157,7 +161,7 @@ commands here.
 - Exact resume command is not defined.
 - Exact evaluator/dashboard/artifact-generation commands are not defined.
 - Final input size and split policy are not locked.
-- Exact sealed test shard source is not locked.
+- Exact sealed masked-WSI test shard source is not locked.
 - Normalization and scalar/radial nonlinearity policy are not locked.
 - The strict Python quality gate still has historical exploratory-code debt.
 
@@ -184,7 +188,7 @@ commands here.
 
 - Lock final input size: 256x256 continuation or 32x32 thesis-return.
 - Lock split metadata source and leakage checks.
-- Lock exact test shard source and mount path.
+- Lock exact masked-WSI test shard source, image ID list, and mount path.
 - Lock normalization policy for the comparable baseline and steerable model.
 - Lock activation/radial nonlinearity policy for vector-like lanes.
 - Decide whether normalization starts disabled or uses a tested steerable-safe

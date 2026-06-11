@@ -23,7 +23,7 @@ replace them with display names from the web UI.
 | Source | Confirmed slug | Historical role |
 | --- | --- | --- |
 | UBC-OCEAN competition | `UBC-OCEAN` | Raw labels, WSI images, and thumbnails for dataset generation. |
-| Supplemental masks | `sohier/ubc-ovarian-cancer-competition-supplemental-masks` | Historical dataset-generation input. |
+| Supplemental masks | `sohier/ubc-ovarian-cancer-competition-supplemental-masks` | Identifies the UBC-OCEAN WSIs with available non-exhaustive masks. These masked WSIs are intentionally held out from train/validation for the autoencoder test set and later supervised experiments. |
 | Raw atlas | `maximusshtefan/raw-atlas-ubc-ocean` | Historical atlas input before train/valid split. |
 | Train/valid atlas | `maximusshtefan/train-val-atlas-ubc-ocean` | Historical split atlas used to generate patch shards. |
 | Pre-shuffled patches | `maximusshtefan/patches-pre-shuffled-ubc-ocean` | Historical pre-shuffled train and validation patch binaries. Use this as the first CLI kernel dataset source. It does not contain a held-out test shard. |
@@ -51,6 +51,19 @@ dataset/ubc_ocean_valid.csv
 
 It does not contain `test` files. Final paper claims need a sealed held-out test
 set generated and documented separately from the train/validation tuning loop.
+
+User-confirmed split intent, recorded 2026-06-10:
+
+- UBC-OCEAN includes a subset of WSIs with supplemental masks.
+- Those masks are not exhaustive over the full WSI, so unmasked regions inside a
+  masked WSI must not be treated as exhaustive negative/normal labels.
+- The current train/validation patch dataset was made from WSIs without
+  supplemental masks.
+- WSIs with supplemental masks were deliberately left out of train/validation so
+  they can become the held-out autoencoder test set and support later supervised
+  experiments.
+- The test-set generator must therefore select the masked-WSI pool, preserve
+  slide-level separation, and document the exact image ID list.
 
 The binary file sizes imply exact patch counts after subtracting the 64-byte
 header and dividing by `3 * 256 * 256` bytes:
@@ -361,6 +374,9 @@ Important behavior:
 - installs `libvips` and `pyvips`;
 - sets `TMPDIR`, `TEMP`, `TMP`, and libvips cache variables to avoid Kaggle
   temporary-storage failures;
+- contains a debug-path selection that builds `with_mask` from the supplemental
+  masks dataset and excludes those image IDs plus TMA slides from the train/valid
+  candidate pool, matching the intended train/valid versus masked-test split;
 - can create a leakage-resistant train/valid atlas by splitting slides, not
   patches, with `random_state=42`;
 - samples `TRAIN_TARGET_PER_CLASS = 60000` and
@@ -388,7 +404,9 @@ of truth that the training shard is already correctly pre-shuffled.
 As committed, the notebook still uses `MODE = 'train'` or `MODE = 'valid'`,
 writes `split = 'train'` and `split = 'valid'`, and does not yet write
 `split = 'test'` or `ubc_ocean_test.*` files. Treat it as a starting point for a
-test-set generator, not as proof that the test set already exists.
+test-set generator, not as proof that the test set already exists. The test
+generator should explicitly invert the train/valid exclusion and operate on the
+masked-WSI pool.
 
 The autoencoder and later supervised classifier can share the same sealed test
 set once generated. Spec 0001 should make both validation and test sources
@@ -404,8 +422,8 @@ Carry these ideas forward into spec 0001 unless a later decision changes them:
 - keep a configurable HED corruption policy shared by both comparison branches;
 - keep fixed 25-patch qualitative artifacts;
 - keep the confirmed pre-shuffled train/validation shards explicit in configs;
-- generate and seal a held-out test shard before final evaluation or paper
-  claims;
+- generate and seal a held-out test shard from the masked-WSI pool before final
+  evaluation or paper claims;
 - keep checkpoint/resume support;
 - keep Kaggle DDP/AMP/compile as isolated launch/runtime concerns;
 - keep exact dataset slugs in metadata, not UI display names;
@@ -434,7 +452,8 @@ These remain open after the inventory:
 - exact resume command;
 - exact evaluator/dashboard/artifact-generation commands;
 - final input size if deviating from 256x256;
-- exact held-out test shard source, split metadata source, and leakage checks;
+- exact held-out masked-WSI test shard source, split metadata source, and
+  leakage checks;
 - scalar/radial nonlinearity policy;
 - whether normalization starts disabled or uses a tested steerable-safe
   equivalent;

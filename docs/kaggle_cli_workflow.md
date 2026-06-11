@@ -106,7 +106,9 @@ reproducing the old FSQ resume path.
 
 The pre-shuffled patch dataset is the confirmed train/validation patch source.
 It contains `ubc_train_shuffled.*` and `ubc_ocean_valid.*`, but no held-out test
-shard. Final evaluation needs a separate sealed test dataset/source.
+shard. Final evaluation needs a separate sealed test dataset/source from the
+UBC-OCEAN WSIs with supplemental masks. Those masks are non-exhaustive and should
+not be interpreted as full-WSI negative/positive coverage.
 
 The push wrapper refuses remote writes while `dataset_sources` is empty, while
 the placeholder guard remains, or while spec 0001 is not locked as

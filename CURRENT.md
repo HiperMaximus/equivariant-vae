@@ -36,7 +36,10 @@ train/validation patch source, with `ubc_train_shuffled.*` and
 not contain a held-out test shard. The
 `kaggle/generate_dataset_Classification_With_Masks` notebook is the current
 test-set-generation starting point, but as committed it still writes train/valid
-splits rather than `test` files.
+splits rather than `test` files. User-confirmed split intent: train/validation
+uses WSIs without supplemental masks; WSIs with non-exhaustive supplemental masks
+are reserved for the held-out autoencoder test set and later supervised
+experiments.
 The local uv environment is CPU-only for PyTorch. Strict Ruff settings are
 canonical in `pyproject.toml`; do not add `ruff.toml`. The no-sync quality gate
 verified Python 3.12, `torch==2.12.0+cpu`, and CUDA unavailable. Strict Ruff
@@ -50,8 +53,8 @@ strictness.
 Immediate next action: use `docs/behavior_inventory_kaggle.md` to lock
 `docs/specs/0001-translatable-normal-vae-baseline.md` as
 implementation-ready, especially exact smoke-test, evaluator, artifact, and
-debug Kaggle launcher commands, plus the sealed held-out test-set plan for final
-evaluation.
+debug Kaggle launcher commands, plus the sealed held-out masked-WSI test-set plan
+for final evaluation.
 
 Kaggle-specific handoff: `scripts/kaggle_kernel.sh validate` and
 `scripts/kaggle_kernel.sh check` worked locally on 2026-06-06 with Kaggle CLI
@@ -109,9 +112,11 @@ The review process lives in `docs/agentic_review_workflow.md`.
   implementation-ready.
 - Exact smoke-test, evaluator, and artifact-generation commands are still
   placeholders in spec 0001.
-- The exact held-out test shard source must be generated, uploaded, and locked
-  before final paper claims. Train/validation are available in the confirmed
-  pre-shuffled patch dataset.
+- The exact held-out masked-WSI test shard source must be generated, uploaded,
+  and locked before final paper claims. Train/validation are available in the
+  confirmed pre-shuffled patch dataset. Supplemental masks are non-exhaustive, so
+  test generation and later supervised experiments must not treat unmasked
+  regions as exhaustive negative labels.
 - The Kaggle debug kernel still has a `NOT_IMPLEMENTATION_READY` placeholder and
   must not be pushed.
 - Strict Python quality is intentionally not fully green on historical
@@ -119,7 +124,7 @@ The review process lives in `docs/agentic_review_workflow.md`.
   reports 51 strict errors. New work must not add debt or weaken the gate.
 - The next blocking choices to lock before full runs are:
 
-- final input size and split/test-source policy;
+- final input size and split/masked-test-source policy;
 - latent field/statistics policy for the first steerable VAE;
 - normalization and nonlinearities to test before full experiments.
 
