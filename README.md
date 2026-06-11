@@ -17,6 +17,7 @@ paper text, workflow, or Overleaf sync:
 - [docs/issue_image_inventory.md](docs/issue_image_inventory.md)
 - [docs/equivariant_vae_transition_plan.md](docs/equivariant_vae_transition_plan.md)
 - [docs/kaggle_cli_workflow.md](docs/kaggle_cli_workflow.md)
+- [docs/behavior_inventory_kaggle.md](docs/behavior_inventory_kaggle.md)
 - [docs/overleaf_sync_workflow.md](docs/overleaf_sync_workflow.md)
 - [docs/agentic_review_workflow.md](docs/agentic_review_workflow.md)
 - [docs/spec_driven_development.md](docs/spec_driven_development.md)
@@ -122,9 +123,15 @@ generation rule documented in a spec.
 
 ## Kaggle Execution
 
-Kaggle is a GPU execution surface, not a Git remote. Historical FSQ notebooks in
-`kaggle/train_runs` and `kaggle/dataset_generation` are evidence for the behavior
-inventory, not the new source of truth.
+Kaggle is a GPU execution surface, not a Git remote. Historical notebooks in
+`kaggle/train_runs`, `kaggle/dataset_generation`, and
+`kaggle/generate_dataset_Classification_With_Masks` are evidence for the
+behavior inventory, not the new source of truth.
+
+The current verified train/validation source is
+`maximusshtefan/patches-pre-shuffled-ubc-ocean`. The exact masked-WSI candidate
+pool for the future sealed test shard is tracked in
+`docs/data/ubc_ocean_masked_holdout_ids.csv`.
 
 The first CLI-managed script-kernel scaffold is:
 

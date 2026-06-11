@@ -36,6 +36,7 @@ required_files=(
   "docs/equivariant_vae_transition_plan.md"
   "docs/kaggle_cli_workflow.md"
   "docs/behavior_inventory_kaggle.md"
+  "docs/data/ubc_ocean_masked_holdout_ids.csv"
   "docs/overleaf_sync_workflow.md"
   "docs/agentic_review_workflow.md"
   "docs/spec_driven_development.md"

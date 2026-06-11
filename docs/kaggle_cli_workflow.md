@@ -13,6 +13,7 @@ Historical Kaggle notebooks live in:
 ```text
 kaggle/train_runs
 kaggle/dataset_generation
+kaggle/generate_dataset_Classification_With_Masks
 ```
 
 They are JSON notebooks kept as historical evidence and behavior-inventory input.

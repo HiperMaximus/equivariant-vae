@@ -33,7 +33,8 @@ Default input contract until the spec is locked:
 
 - dataset: UBC-OCEAN histopathology patches from the current Kaggle pipeline;
 - source behavior inventory: `docs/behavior_inventory_kaggle.md`, derived from
-  `kaggle/train_runs` and `kaggle/dataset_generation`;
+  `kaggle/train_runs`, `kaggle/dataset_generation`, and
+  `kaggle/generate_dataset_Classification_With_Masks`;
 - image size: 256x256 RGB unless explicitly changed in config;
 - normalization: `[-1, 1]`;
 - training input: corrupted patch `x_in = corrupt(x_clean)`;
@@ -43,12 +44,17 @@ Default input contract until the spec is locked:
 - train/validation source: confirmed pre-shuffled dataset
   `maximusshtefan/patches-pre-shuffled-ubc-ocean`, which contains
   `ubc_train_shuffled.*` and `ubc_ocean_valid.*`;
+- train/validation split verification: 322 train WSIs and 39 validation WSIs,
+  both non-TMA and with zero overlap with supplemental-mask image IDs;
 - test source: not present in the pre-shuffled dataset; generate and seal a
-  held-out test shard from the UBC-OCEAN WSIs with supplemental masks before
-  final evaluation or paper claims;
+  held-out test shard from the 152 UBC-OCEAN non-TMA WSIs with supplemental
+  masks before final evaluation or paper claims;
+- exact masked holdout candidate list:
+  `docs/data/ubc_ocean_masked_holdout_ids.csv`;
 - mask policy: supplemental masks are not exhaustive over each WSI; use masked
   WSIs as a held-out slide pool, but do not treat unmasked regions inside those
   WSIs as exhaustive negative labels;
+- patch CSV label mapping: `0=CC`, `1=EC`, `2=HGSC`, `3=LGSC`, `4=MC`;
 - latent target: spatial Gaussian latent `(B, 24, 4, 4)` unless an ablation spec
   says otherwise.
 
@@ -160,8 +166,11 @@ commands here.
 - Exact debug training command is not defined.
 - Exact resume command is not defined.
 - Exact evaluator/dashboard/artifact-generation commands are not defined.
-- Final input size and split policy are not locked.
-- Exact sealed masked-WSI test shard source is not locked.
+- Final input size is not locked.
+- Train/validation split and masked-WSI candidate list are locked; the sealed
+  test shard artifact and mount path are not locked.
+- Exact sealed masked-WSI test shard artifact/mount path is not locked; the 152
+  WSI candidate ID list is locked in `docs/data/ubc_ocean_masked_holdout_ids.csv`.
 - Normalization and scalar/radial nonlinearity policy are not locked.
 - The strict Python quality gate still has historical exploratory-code debt.
 
@@ -188,7 +197,8 @@ commands here.
 
 - Lock final input size: 256x256 continuation or 32x32 thesis-return.
 - Lock split metadata source and leakage checks.
-- Lock exact masked-WSI test shard source, image ID list, and mount path.
+- Lock exact masked-WSI test shard artifact and mount path from the documented
+  152-image candidate list.
 - Lock normalization policy for the comparable baseline and steerable model.
 - Lock activation/radial nonlinearity policy for vector-like lanes.
 - Decide whether normalization starts disabled or uses a tested steerable-safe

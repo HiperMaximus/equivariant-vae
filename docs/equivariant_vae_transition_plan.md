@@ -60,9 +60,10 @@ The target comparison is:
 - The latest Kaggle model is a deterministic FSQ autoencoder. It has no KL term
   and should not be reported as a VAE baseline.
 - `main.py` is empty, and the last runnable notebook artifacts/evidence are the
-  Kaggle notebook JSON files in `kaggle/train_runs`. The dataset-generation
-  notebook JSON is `kaggle/dataset_generation`. These need to become references,
-  not executable source-of-truth files.
+  Kaggle notebook JSON files in `kaggle/train_runs`. Dataset-generation evidence
+  lives in `kaggle/dataset_generation` and
+  `kaggle/generate_dataset_Classification_With_Masks`. These need to become
+  references, not executable source-of-truth files.
 - `src/nn/layers.py` and `src/nn/resnet18.py` contain useful architectural
   explorations, but also operations that should not be carried forward blindly:
   GroupNorm, depthwise/MBConv, squeeze-excite, nearest upsampling, 1x1-heavy

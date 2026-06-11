@@ -33,13 +33,25 @@ Kaggle CLI, and the debug kernel metadata now points at
 Important dataset nuance: that dataset is the confirmed pre-shuffled
 train/validation patch source, with `ubc_train_shuffled.*` and
 `ubc_ocean_valid.*` files verified through the Kaggle CLI on 2026-06-10. It does
-not contain a held-out test shard. The
+not contain a held-out test shard. The split was checked against official
+UBC-OCEAN metadata on 2026-06-10: train has 322 non-TMA WSIs and 300000 patch
+rows, validation has 39 non-TMA WSIs and 30000 patch rows, train/validation WSI
+overlap is zero, and both splits have zero overlap with the 152 supplemental-mask
+WSIs. The exact masked holdout candidate list is
+`docs/data/ubc_ocean_masked_holdout_ids.csv`; the sealed test shard itself still
+needs to be generated. The
 `kaggle/generate_dataset_Classification_With_Masks` notebook is the current
 test-set-generation starting point, but as committed it still writes train/valid
 splits rather than `test` files. User-confirmed split intent: train/validation
 uses WSIs without supplemental masks; WSIs with non-exhaustive supplemental masks
 are reserved for the held-out autoencoder test set and later supervised
 experiments.
+A clean-context adversarial review pass on 2026-06-10 checked the agentic
+workflow and Kaggle data contract. It found and fixed stale onboarding references
+to the Kaggle mask notebook, missing preflight coverage for the masked-holdout
+CSV, loose Kaggle spec-index readiness checks, and an ambiguity in the patch CSV
+metadata schema. The new holdout CSV is staged so repo preflight can verify it as
+tracked.
 The local uv environment is CPU-only for PyTorch. Strict Ruff settings are
 canonical in `pyproject.toml`; do not add `ruff.toml`. The no-sync quality gate
 verified Python 3.12, `torch==2.12.0+cpu`, and CUDA unavailable. Strict Ruff
@@ -112,11 +124,12 @@ The review process lives in `docs/agentic_review_workflow.md`.
   implementation-ready.
 - Exact smoke-test, evaluator, and artifact-generation commands are still
   placeholders in spec 0001.
-- The exact held-out masked-WSI test shard source must be generated, uploaded,
-  and locked before final paper claims. Train/validation are available in the
-  confirmed pre-shuffled patch dataset. Supplemental masks are non-exhaustive, so
-  test generation and later supervised experiments must not treat unmasked
-  regions as exhaustive negative labels.
+- The exact held-out masked-WSI test shard must be generated, uploaded, and
+  locked before final paper claims. The 152-image candidate pool is documented in
+  `docs/data/ubc_ocean_masked_holdout_ids.csv`, and train/validation are
+  available in the confirmed pre-shuffled patch dataset. Supplemental masks are
+  non-exhaustive, so test generation and later supervised experiments must not
+  treat unmasked regions as exhaustive negative labels.
 - The Kaggle debug kernel still has a `NOT_IMPLEMENTATION_READY` placeholder and
   must not be pushed.
 - Strict Python quality is intentionally not fully green on historical

@@ -52,6 +52,67 @@ dataset/ubc_ocean_valid.csv
 It does not contain `test` files. Final paper claims need a sealed held-out test
 set generated and documented separately from the train/validation tuning loop.
 
+The accessible UBC-OCEAN source listings were rechecked through the Kaggle CLI
+on 2026-06-10 with `--page-size 200`. The official competition listing contains
+538 train WSI images, 513 train thumbnails, 25 TMA train images without
+thumbnails, one public `test_images/41.png` stub, `train.csv`, `test.csv`,
+`sample_submission.csv`, and `updated_image_ids.json`. The supplemental mask
+dataset contains 152 mask PNGs. Every mask filename maps to an official
+non-TMA train image ID.
+
+Small CSV/JSON metadata files inspected on 2026-06-10:
+
+- official `UBC-OCEAN/train.csv`;
+- official `UBC-OCEAN/test.csv`;
+- official `UBC-OCEAN/updated_image_ids.json`;
+- `patches-pre-shuffled-ubc-ocean/dataset/ubc_train_shuffled.csv`;
+- `patches-pre-shuffled-ubc-ocean/dataset/ubc_ocean_valid.csv`.
+
+The derived patch split was verified against those metadata files:
+
+| Split or pool | WSI count | Patch rows | Notes |
+| --- | ---: | ---: | --- |
+| Pre-shuffled train | 322 | 300000 | Non-TMA, no supplemental-mask WSI overlap. |
+| Pre-shuffled validation | 39 | 30000 | Non-TMA, no supplemental-mask WSI overlap. |
+| Masked holdout candidate pool | 152 | not generated yet | All remaining non-TMA supplemental-mask WSIs. |
+| Official TMA images | 25 | not used | All excluded from the current patch split. |
+
+The 322 train WSIs, 39 validation WSIs, and 152 masked candidate WSIs partition
+the 513 official non-TMA train WSIs. Train/validation WSI overlap is zero.
+Train/validation overlap with the 152 supplemental-mask IDs is zero. The exact
+masked holdout candidate list is stored in:
+
+```text
+docs/data/ubc_ocean_masked_holdout_ids.csv
+```
+
+Masked holdout candidate label counts from official `train.csv`:
+
+| Label | WSI count |
+| --- | ---: |
+| CC | 33 |
+| EC | 36 |
+| HGSC | 56 |
+| LGSC | 15 |
+| MC | 12 |
+
+The patch CSV numeric labels map to official labels as:
+
+| Patch label | Official label |
+| ---: | --- |
+| 0 | CC |
+| 1 | EC |
+| 2 | HGSC |
+| 3 | LGSC |
+| 4 | MC |
+
+The private derived datasets `maximusshtefan/raw-atlas-ubc-ocean` and
+`maximusshtefan/train-val-atlas-ubc-ocean` expose metadata through the CLI and
+are marked private, but `kaggle datasets files` returned 403 for their file
+lists when last checked on 2026-06-10. Treat that as last-observed operational
+status rather than durable provenance. Do not rely on those file lists until
+access is fixed or the needed files are regenerated from documented inputs.
+
 User-confirmed split intent, recorded 2026-06-10:
 
 - UBC-OCEAN includes a subset of WSIs with supplemental masks.
@@ -334,7 +395,11 @@ Important dataset-generation values:
 Binary output contract:
 
 - filenames: `ubc_ocean_{suffix}.bin`, `ubc_ocean_{suffix}.csv`;
-- metadata columns: `idx,wsi_id,label,x,y`;
+- metadata columns from the generator: `idx,wsi_id,label,x,y`;
+- current uploaded pre-shuffled CSVs differ slightly: `ubc_train_shuffled.csv`
+  has `wsi_id,label,x,y`, while `ubc_ocean_valid.csv` has
+  `idx,wsi_id,label,x,y`; future loaders must key by column name and treat
+  `idx` as optional;
 - header format: `<8sIQiiii3s25x`;
 - magic: `UBC_DATA`;
 - header size: 64 bytes;

@@ -1,7 +1,7 @@
 # Repo Goal And Requirements Tracker
 
 Status: active tracker
-Last updated: 2026-06-05
+Last updated: 2026-06-10
 
 This document keeps the repo horizon visible. It consolidates the research goal,
 GitHub issue requirements, paper obligations, and evaluation artifacts so they
@@ -9,6 +9,8 @@ do not disappear inside issue comments or notebooks.
 
 For the current handoff state and next concrete steps, read `CURRENT.md`.
 For settled decisions, read `docs/decisions/README.md`.
+For Kaggle dataset behavior, train/validation split verification, and the
+masked-WSI holdout candidate list, read `docs/behavior_inventory_kaggle.md`.
 For major requirement changes, use the adversarial review process in
 `docs/agentic_review_workflow.md`.
 For substantial implementation work, use the spec-driven workflow in
@@ -46,6 +48,7 @@ The final claim should compare models that share:
 | Issue #3, metrics | Produce box-and-whisker plots for SSIM, MAE, MSE, and PSNR. | `paper/sipaim2026/figures/metrics_boxplots.*`, with `n` visible in caption or labels. |
 | Issue #3/#4, attached dashboard images | Produce an analogous training/evaluation dashboard for each major run. | `paper/sipaim2026/figures/training_dashboard.*` with objective, reconstruction components, SSIM, PSNR, equivariance diagnostic, and learning-rate schedule. |
 | Issue #3, metrics | Compare experiment 1 and experiment 2 using the same metric pipeline. | One shared evaluator, one comparison table, one comparison plot set. |
+| Dataset gate, Kaggle | Keep final paper claims off the tuning validation set unless the sealed masked-WSI test shard has been generated and locked. | Test-shard dataset slug/mount path plus provenance from `docs/data/ubc_ocean_masked_holdout_ids.csv`. |
 | Issue #4, VAE validation | Generate original and reconstructed artifacts for 25 fixed patches. | `paper/sipaim2026/figures/reconstructions_25.*` or linked folders/grids. |
 | Issue #4, VAE validation | Generate rotated-input qualitative artifacts. | `paper/sipaim2026/figures/rotated_reconstructions_25.*` with fixed angles. |
 | Issue #4, attached reconstruction image | Compare ground truth, rotated-input reconstruction, and transformed-latent reconstruction. | `paper/sipaim2026/figures/rotated_input_vs_latent_grid.*`, with error/difference maps if possible. |
@@ -173,6 +176,9 @@ The current inventory is in `docs/issue_image_inventory.md`.
 Before claiming one model is better than the other:
 
 1. Both models must use the same dataset split and evaluation images.
+   Train/validation are locked to the verified pre-shuffled patch dataset; final
+   paper claims require a sealed test shard generated from
+   `docs/data/ubc_ocean_masked_holdout_ids.csv`.
 2. Both models must use the same corruption protocol for denoising validation.
 3. The metric script must be shared between models.
 4. Boxplots and tables must include sample count `n`.

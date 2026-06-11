@@ -132,6 +132,12 @@ EOF
     exit 1
   fi
 
+  if ! grep -Eq '^\| `0001-translatable-normal-vae-baseline\.md` \|[^|]*locked / implementation-ready' \
+    "docs/specs/README.md"; then
+    echo "error: spec 0001 is not locked as implementation-ready in docs/specs/README.md" >&2
+    exit 1
+  fi
+
   python3 - "$metadata" <<'PY'
 import json
 import sys
