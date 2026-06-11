@@ -10,7 +10,8 @@ Compare two genuinely comparable histopathology patch representation learners:
 
 1. A non-equivariant denoising VAE built only from operations that have a clear
    path to the steerable implementation.
-2. A continuous `SO(2)`-steerable denoising VAE, preferably using `escnn`, with
+2. A continuous `SO(2)`-steerable denoising VAE using a repo-owned,
+   compile-compatible implementation, with `escnn` as a reference, and with
    matched data, schedule, latent target, training budget, and evaluation.
 
 The comparison should answer whether continuous rotation-equivariant structure
@@ -78,3 +79,19 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   latent maps, transformed latent maps, and error/difference maps.
 - Validate equivariance of nonlinearities, normalization, upsampling, VAE
   sampling, and latent statistics before running the full experiment.
+- For the first repo-owned `SO(2)` convolution, use Gaussian radial shells times
+  real angular harmonics with zero center support for spatial angular
+  frequencies `m > 0`; keep Bessel/Fourier-Bessel as a future fallback only.
+- Do not hide reconstruction boundaries with a final `tanh`; use a
+  zero-initialized raw RGB output head and explicit clamped projections only for
+  image-domain metrics/artifacts.
+- Track learned activation gate health before full training, including `a,b`
+  ranges, saturation, gradients/updates, and input/output RMS, so gate
+  parameters cannot silently kill channels.
+- Before the first full Kaggle run, benchmark where FP16/AMP is numerically safe
+  and actually faster, and benchmark whether branchless full-batch corruption or
+  indexed masked-sample corruption gives better throughput without breaking
+  compile stability or RNG semantics.
+- The first full run also needs passing dataloader-throughput, paired numerical,
+  selected-runtime debug, checkpoint/resume, tiny-overfit, and gate-health
+  checks on the selected runtime.

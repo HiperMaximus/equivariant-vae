@@ -25,8 +25,8 @@ Build and evaluate a comparable pair of histopathology patch VAEs:
 
 1. A non-equivariant denoising VAE whose operations can be translated to the
    steerable model.
-2. A continuous `SO(2)`-steerable denoising VAE, preferably implemented with
-   `escnn`.
+2. A continuous `SO(2)`-steerable denoising VAE implemented with repo-owned,
+   compile-compatible SO(2) layers, using `escnn` as a reference.
 
 The final claim should compare models that share:
 
@@ -56,7 +56,7 @@ The final claim should compare models that share:
 | Issue #4, VAE validation | Implement latent visualization "a la EQ-VAE". | `paper/sipaim2026/figures/latent_pca_eqvae_style.*`. |
 | Issue #5, SIPAIM writing | Maintain SIPAIM paper base in IEEE conference style. | `paper/sipaim2026/main.tex`, `sipaim2026.pdf`, Overleaf project. |
 | Issue #5, SIPAIM writing | Keep outline, related work, methodology, experiments, and result placeholders current. | Updated paper sections and tracked compiled PDF. |
-| Issue #6, equivariant validation | Use continuous `SO(2)` as the target symmetry and `escnn` where possible. | Config records `rot2dOnR2(N=-1, maximum_frequency=2)` or successor setting. |
+| Issue #6, equivariant validation | Use continuous `SO(2)` as the target symmetry with a repo-owned implementation; use `escnn` as a reference, not the runtime dependency. | Config records continuous `SO(2)`, maximum frequency `L <= 2`, and the custom layer/downsample implementation choices. |
 | Issue #6, equivariant validation | Validate nonlinearities, normalization, upsampling, VAE sampling, and latent statistics for equivariance before full runs. | Unit/block tests plus a small feasibility report. |
 
 ## Required Evaluation Artifacts
@@ -167,6 +167,23 @@ The current inventory is in `docs/issue_image_inventory.md`.
 - Avoid sub-pixel/channel-to-space upsampling. Use bilinear upsampling plus
   convolution.
 - Use kernels large enough for the `L <= 2` steerable basis, such as 5x5 or 7x7.
+- Use Gaussian radial shells times real angular harmonics as the first
+  repo-owned `SO(2)` kernel basis. Enforce zero center support for spatial
+  angular frequencies `m > 0`; keep Bessel/Fourier-Bessel bases only as a future
+  fallback/ablation.
+- Use learned scalar gate parameters `a,b` in both the Conv2d baseline and
+  `SO(2)` scalar/trivial fields to keep pointwise nonlinear expressivity
+  comparable. Use radial gates for nontrivial `SO(2)` fields with
+  `r = sqrt(||v||**2 + eps)` and an explicitly configured FP16-safe `eps`.
+- Before full training, log a gate-health benchmark for learned gate parameters:
+  saturation, `a,b` ranges, gradients/updates, and input/output RMS, so dead or
+  saturated gates are caught before they can invalidate a full run.
+- Before the first full Kaggle run, require runtime, dataloader-throughput,
+  paired numerical, selected-runtime debug, checkpoint/resume, and tiny-overfit
+  gates to pass on the selected configuration.
+- Do not use a final `tanh` in the VAE output head. Use a zero-initialized final
+  RGB convolution, train L1 on raw normalized output, and clamp only for
+  SSIM/PSNR/images/artifacts outside the model forward path.
 - Avoid arbitrary channel operations on `GeometricTensor` objects.
 - Do not introduce a baseline layer unless the corresponding steerable layer is
   known or explicitly documented as a temporary non-comparable ablation.

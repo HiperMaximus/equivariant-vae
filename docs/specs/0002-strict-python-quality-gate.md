@@ -32,7 +32,9 @@ handing them back to the user.
 - Local laptop tests use CPU-only PyTorch. GPU training belongs to Kaggle.
 - Linux PyTorch resolves from the PyTorch CPU wheel index through
   `tool.uv.sources`.
-- Runtime dependencies currently include `torch`, `pytorch-msssim`, and `numpy`.
+- Runtime dependencies currently include `torch`, `pytorch-msssim`, and
+  `numpy`. `pytorch-msssim` is historical debt from exploratory `src/nn`; spec
+  0001 requires repo-owned Torch SSIM and must not import it.
 - Developer tools:
   - Ruff for formatting and linting;
   - BasedPyright for strict static typing;
@@ -107,6 +109,27 @@ Interim policy until the historical debt is resolved:
 - do not add new lint/type debt outside already documented historical files;
 - do not add global ignores or broad suppressions;
 - document any remaining failure count in `CURRENT.md` before handing work back.
+
+Benchmark-unblock route:
+
+- implement the new comparable VAE work only under `src/eqvae`, with tests under
+  `tests`;
+- extract any still-useful behavior from `main.py` / exploratory `src/nn` into
+  typed `src/eqvae` modules instead of importing `src.nn`;
+- once the extracted behavior exists, remove `main.py` and `src/nn` as active
+  Python source. Git history and the behavior inventory are the preservation
+  mechanism. If a human-readable copy is needed, keep it only as markdown or
+  `.py.txt` under documentation, not as importable `.py` files;
+- update `pyproject.toml` BasedPyright `include` / `strict` to active paths such
+  as `src/eqvae` and `tests` after the historical source is removed. This is not
+  a global ignore; it defines the active package boundary;
+- keep `ruff format .` and `ruff check --fix .` in `scripts/python_quality.sh`.
+  Do not add Ruff global ignores for historical code;
+- remove the `pytorch-msssim` direct dependency from `pyproject.toml` and refresh
+  `uv.lock` in the same cleanup patch that removes/quarantines historical
+  `src/nn`, because spec 0001 uses repo-owned SSIM;
+- after this route lands, `./scripts/python_quality.sh` must pass before the
+  benchmark CLIs are considered implementation-ready.
 
 ## Acceptance Criteria
 

@@ -143,7 +143,14 @@ This workflow becomes Kaggle-push-ready only after:
 2. the spec 0001 code/config payload is built into the kernel folder;
 3. the placeholder guard is removed from `run.py`;
 4. local spec 0001 verification passes;
-5. the user confirms Kaggle authentication and remote push permission.
+5. for benchmark kernels, metadata validation requires
+   `machine_shape == "NvidiaTeslaT4"` and the safe `single_visible_t4` versus
+   `dual_t4_ddp` launch mode recorded in `docs/kaggle_cli_workflow.md`;
+6. `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check` passes the
+   required read-only auth/list/status/logs/dataset checks; if the quota
+   endpoint warns, GPU quota is verified in the Kaggle web UI and recorded in
+   the run notes;
+7. the user confirms Kaggle authentication and remote push permission.
 
 ## Verification Commands
 

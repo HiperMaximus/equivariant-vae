@@ -8,26 +8,44 @@ Build the repo toward a fair SIPAIM 2026 comparison between:
 
 1. a non-equivariant normal denoising VAE whose operations translate to the
    steerable implementation; and
-2. a continuous `SO(2)` steerable denoising VAE, preferably using `escnn`.
+2. a continuous `SO(2)` steerable denoising VAE using a repo-owned,
+   compile-compatible implementation, with `escnn` as a reference.
 
 The current task is relocking the translatable normal VAE baseline spec after
 architecture/objective corrections. Clean-context adversarial subagent reviews
-were run on 2026-06-05, 2026-06-10, and 2026-06-11. The 2026-06-11 pass
+were run on 2026-06-05, 2026-06-10, and 2026-06-11. The 2026-06-11 passes
 confirmed that the previous `4x4` latent target was inconsistent with the
-FSQ-successor spatial-coherence goal and that the historical HED corruptor must
-not be copied as-is. A local Kaggle CLI execution scaffold now exists, but it is
-not Kaggle-push-ready.
+FSQ-successor spatial-coherence goal, that the historical HED corruptor must not
+be copied as-is, and that the benchmark specs were directionally right but not
+implementation-ready until launch topology, schemas, thresholds, dataloader
+throughput, paired numerical checks, selected-runtime debug, and tiny-overfit
+gates were made explicit. A local Kaggle CLI execution scaffold now exists, but
+it is not Kaggle-push-ready.
 
 Spec-driven development is now an active repo workflow. The first active spec is
 `docs/specs/0001-translatable-normal-vae-baseline.md`, now reopened as
 `draft active` and not implementation-ready. The reopened direction is:
 `32x32x16` scalar Gaussian latent, no FSQ quantizer or learned bottleneck scale
 `s`, corrected Tellez-style HED/OD stain corruption plus per-image Gaussian
-noise `Uniform(0.0, 0.05)`, full-mixing scalar Conv2d baseline channels with a
-shared gated scalar activation family, future `SO(2)` radial gates only for
-nontrivial irrep fields, and `L1 + 0.1 * (1 - SSIM) + beta * KL`. It is not
-final-paper-claim-ready until the sealed masked-WSI test shard is generated and
-locked.
+noise `Uniform(0.0, 0.05)`, full-mixing scalar Conv2d baseline channels with the
+same learned pointwise scalar gate family used by future `SO(2)` scalar/trivial
+fields, future `SO(2)` radial gates for nontrivial irrep fields, no activation
+`gamma`, radial-gate `eps = 1e-4` as the first FP16-safe candidate, no final
+`tanh` output, a zero-initialized final RGB convolution, and
+`L1 + 0.1 * (1 - SSIM) + beta * KL`. L1 uses raw normalized output; SSIM,
+PSNR, saved images, and artifacts use an explicit clamped image-domain
+projection outside the model forward path. The precision/autograd policy is now
+explicit: AMP may cover the main convolutional forward after benchmarking, while
+corruption runs FP32/no-grad, posterior/KL/loss/radial-gate numerics run FP32
+with gradients where needed, and clean validation must not consume corruption
+RNG. The Kaggle benchmark must now select the fastest safe precision policy
+among `amp_off_fp32`, `amp_conservative`, and `amp_scalar_gate_relaxed`, must
+measure whether `branchless_all` or `indexed_masked` corruption is faster
+without breaking compile stability or RNG semantics, must include paired
+numerical checks and dataloader throughput checks, and must include gate-health
+telemetry for learned gate `a,b` parameters so saturation/dead-channel behavior
+is caught before full training. It is not final-paper-claim-ready until the
+sealed masked-WSI test shard is generated and locked.
 Strict Python quality is also an active workflow via
 `docs/specs/0002-strict-python-quality-gate.md`.
 Kaggle CLI execution is scaffolded via
@@ -63,11 +81,14 @@ tracked.
 An additional clean-context adversarial coding-readiness audit on 2026-06-11
 found that the repo is not yet safe for broad spec 0001 implementation. It is
 ready for a spec-relock/scaffolding decision pass only. The audit added or
-confirmed blockers for parameter/FLOP counting, residual-off policy,
-strict-quality debt route, package/import policy, config parser/dependency
-policy, fixed-25 selector generation, CPU compile/float16 smoke constraints,
-baseline rotated/latent artifact semantics, and local-vs-Kaggle acceptance
-separation.
+confirmed blockers for count verification of the ResNet-like residual schedule
+with branch-local non-naive ResNet-D/anti-aliased-style projection/downsample
+primitives, strict-quality debt route, package/import policy, JSON config
+policy, fixed validation/tiny-overfit selector generation, CPU compile/float16
+smoke constraints, baseline rotated/latent artifact semantics, and
+local-vs-Kaggle acceptance separation. The analytic Conv2d baseline count target
+is now recorded in spec 0001; implementation still needs to generate and verify
+`benchmark/model_count.json`.
 The local uv environment is CPU-only for PyTorch. Strict Ruff settings are
 canonical in `pyproject.toml`; do not add `ruff.toml`. The no-sync quality gate
 verified Python 3.12, `torch==2.12.0+cpu`, and CUDA unavailable. Strict Ruff
@@ -77,18 +98,69 @@ BasedPyright run reports 51 strict errors in historical exploratory `src/nn`
 files. Solve this in the new `src/eqvae` implementation, a historical-code
 cleanup, or a dedicated typed-PyTorch adapter spec rather than weakening global
 strictness.
+Spec 0002 now defines the benchmark-unblock route: extract any useful behavior
+from `main.py` / exploratory `src/nn` into typed `src/eqvae`, remove the
+historical code or preserve it only as non-importable documentation, remove the
+historical `pytorch-msssim` dependency in the same cleanup, refresh `uv.lock`,
+and keep `ruff format/check .` plus strict BasedPyright intact.
+A final focused clean-context adversarial review on 2026-06-11 found two
+benchmark-unblock doc gaps: `benchmark/model_count.json` was required in prose
+but missing from CLI/output acceptance, and Kaggle push acceptance did not
+explicitly require accelerator metadata validation. Both are now fixed in spec
+0001, and `scripts/kaggle_kernel.sh` rejects benchmark pushes unless metadata
+uses `machine_shape = "NvidiaTeslaT4"` and the launcher contains
+single-visible, dual-DDP, and wrong-accelerator validation hooks.
+Kaggle API read-only preflight on 2026-06-11:
+`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check` passed OAuth
+token generation, kernel list/status/logs, and dataset file listing for
+`maximusshtefan/patches-pre-shuffled-ubc-ocean`. It warned that
+`kaggle quota -v` and `kaggle kernels files maximusshtefan/non-eq-vae -v` return
+Kaggle's authentication-required message despite OAuth token generation working.
+Spec 0001 now requires the API preflight before remote benchmark push, with a
+Kaggle web UI quota check if the CLI quota endpoint still warns.
+The user visually confirmed the Kaggle web UI quota on 2026-06-11: phone
+verification is complete, identity verification is not complete, and Kaggle GPU
+quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
+implementation planning; before an actual remote benchmark push, rerun
+`api-check` and confirm the UI still shows available GPU quota.
 
 Immediate next action: finish relocking
 `docs/specs/0001-translatable-normal-vae-baseline.md` before implementation.
 The benchmark contract is now written, but the runtime result cannot be selected
 until the benchmarkable code exists. Resolve the remaining implementation-relock
-blockers in spec 0001, especially parameter/FLOP count for the reopened
-`32x32x16` architecture schedule, strict-quality and config/dependency
-decisions, and final clean-context adversarial spec review. Then implement
+blockers in spec 0001, especially implementation count verification, future
+`SO(2)` count ceiling, Kaggle T4 metadata validation/runtime proof,
+package/import policy, and strict quality route for the reopened `32x32x16`
+ResNet-like residual architecture schedule. Kaggle metadata was verified on
+2026-06-11 by pulling `maximusshtefan/non-eq-vae`: the T4 benchmark
+`machine_shape` value is `"NvidiaTeslaT4"`, and dual-DDP rows must still prove
+two visible T4 devices at runtime. The branch-local
+non-naive ResNet-D/anti-aliased-style residual projection/downsample policy is
+now explicit in spec 0001, and the spec 0001 downsample operator is locked as a
+repo-owned 5x5 separable binomial low-pass followed by decimation. Resize/area
+downsampling is only a later fallback if the binomial operator fails a future
+SO(2) stage-transition test. Normalization is now real-run default: standard
+GroupNorm in the Conv2d baseline, repo-owned field-aware norm in the SO(2)
+model, scalar bias allowed, vector additive bias forbidden. Activation uses
+sigmoid gates with
+learned `a` and `b`, no `gamma`, and a required gate-health benchmark before
+full training; model padding defaults to zero padding with border-cropped
+equivariance diagnostics. Comparable means the SO(2) model should
+use less than or equal learned parameters than the Conv2d baseline and must not
+blow the Kaggle memory budget. The SO(2) first-run kernel basis is now locked:
+Gaussian radial shells times real angular harmonics with zero support at the
+kernel center for spatial angular frequencies `m > 0`; Bessel/Fourier-Bessel is
+kept only as a future fallback after disk-radius and sampled-zero risks are
+locked. Also resolve the strict-quality route, package/import policy, and final
+clean-context adversarial spec review.
+Then implement
 `src/eqvae`, `configs/spec0001`, tests, and CLI commands in the milestone slices
 recorded in spec 0001. After local verification, run the short Kaggle runtime
-benchmark to choose single/dual T4, per-device/global batch, AMP, and compile
-settings before the first 10-epoch full run.
+benchmark to choose single/dual T4, per-device/global batch, AMP, compile,
+precision-policy, and corruption-strategy settings before the first 10-epoch
+full run. The full run stays blocked until dataloader throughput, paired
+numerical checks, gate-health telemetry, selected-runtime debug, checkpoint
+resume, and tiny-overfit summaries pass.
 
 Kaggle-specific handoff: `scripts/kaggle_kernel.sh validate` and
 `scripts/kaggle_kernel.sh check` worked locally on 2026-06-06 with Kaggle CLI
@@ -124,10 +196,12 @@ The review process lives in `docs/agentic_review_workflow.md`.
 
 ## Next Concrete Steps
 
-1. Finish the spec 0001 relock: parameter/FLOP count, final `32x32x16`
-   channel/future-field schedule, strict-quality route, package/import policy,
-   config parser/dependency policy, fixed-25 selector plan, CPU smoke policy, and
-   final clean-context adversarial spec review.
+1. Finish the spec 0001 relock: implementation `model_count.json`
+   verification, future `SO(2)` count ceiling, final `32x32x16`
+   channel/future-field schedule, Kaggle `NvidiaTeslaT4` metadata validation
+   plus single/dual launch-mode checks, strict-quality route, package/import
+   policy, JSON config/dependency policy, fixed validation/tiny-overfit selector
+   plan, CPU smoke policy, and final clean-context adversarial spec review.
 2. Mark spec 0001 `locked / implementation-ready` only after those relock
    blockers are resolved.
 3. Add the `src/eqvae` package skeleton and `configs/spec0001` files required by
@@ -140,8 +214,11 @@ The review process lives in `docs/agentic_review_workflow.md`.
 6. Replace the placeholder Kaggle debug kernel with the real launcher only after
    local spec 0001 verification passes.
 7. Run the short Kaggle runtime benchmark after explicit user permission and
-   record the selected single/dual T4, per-device/global batch, AMP, and compile
-   config before the first 10-epoch baseline run.
+   record the selected single/dual T4, per-device/global batch, AMP, compile,
+   precision-policy, and corruption-strategy config before the first 10-epoch
+   baseline run; include dataloader throughput, paired numerical checks,
+   gate-health telemetry, selected-runtime debug, checkpoint/resume, and
+   tiny-overfit gates.
 8. Resolve or explicitly baseline the strict Ruff/BasedPyright historical debt
    without weakening global quality settings.
 9. Lock the Python 3.12 + Ruff + BasedPyright quality gate in
@@ -157,12 +234,17 @@ The review process lives in `docs/agentic_review_workflow.md`.
 - Spec 0001 is reopened and not implementation-ready. Remaining
   implementation-relock blockers are listed in
   `docs/specs/0001-translatable-normal-vae-baseline.md` and include
-  parameter/FLOP count, strict-quality route, package/import policy,
-  config/dependency policy, fixed-25 selector generation, CPU smoke policy, and
-  final adversarial spec review.
+  implementation `model_count.json` verification, future `SO(2)` count ceiling,
+  Kaggle `NvidiaTeslaT4` metadata validation with runtime two-T4 proof,
+  strict-quality route, package/import policy, JSON config/dependency policy,
+  fixed validation/tiny-overfit selector generation, CPU smoke policy, and final
+  adversarial spec review. The analytic Conv2d baseline target is now recorded
+  in spec 0001.
 - The first full Kaggle run remains blocked after implementation until the short
-  runtime benchmark selects single/dual T4, per-device/global batch, AMP, and
-  compile settings.
+  runtime benchmark selects single/dual T4, per-device/global batch, AMP,
+  compile, precision policy, and corruption strategy settings, and the
+  dataloader throughput, paired numerical checks, gate-health summary,
+  selected-runtime debug, checkpoint/resume, and tiny-overfit gates pass.
 - The exact held-out masked-WSI test shard must be generated, uploaded, and
   locked before final paper claims. The 152-image candidate pool is documented in
   `docs/data/ubc_ocean_masked_holdout_ids.csv`, and train/validation are

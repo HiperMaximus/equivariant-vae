@@ -301,6 +301,27 @@ Debug mode runs only one relative epoch and breaks after a few train/valid
 batches. The new local tests should exercise CPU shape/compile/precision
 contracts without requiring a GPU; Kaggle remains the GPU execution surface.
 
+Historical precision/autograd behavior:
+
+- The main compiled training step ran the model forward under CUDA autocast with
+  `dtype=torch.float16` and `cache_enabled=False`.
+- The encoder final projection explicitly disabled autocast and cast to FP32
+  before `enc_norm -> enc_act -> enc_out`.
+- The FSQ quantizer explicitly disabled autocast, cast latents to FP32, and used
+  straight-through `.detach()` terms around clamp/round operations.
+- The decoder final `tanh` was computed after casting logits to FP32.
+- The HED/OD corruptor ran under `torch.no_grad()`, converted to FP32 for
+  log/exp/color operations and random draws, then returned a clamped tensor in
+  the input dtype.
+- The reconstruction objective was computed in FP32 outside autocast after
+  casting reconstructions to FP32.
+- Metric accumulation, FSQ codebook telemetry, validation, fixed-patch artifact
+  generation, and equivariance artifacts ran under `torch.no_grad()`.
+- The branchless validation path still called the corruptor with probability
+  `0.0`, so it consumed corruption RNG even though the clean input was selected.
+  Spec 0001 intentionally improves this: clean validation must not call the
+  corruptor or consume corruption RNG.
+
 ### Historical Resume
 
 Resume behavior:
@@ -529,10 +550,27 @@ Current reopened direction:
 - first-run latent shape: `(B, 16, 32, 32)`, matching the useful spatial
   bottleneck scale of the historical FSQ run while removing FSQ quantization and
   the learned bottleneck scale `s`;
-- first-run normalization policy: no normalization layers;
-- first-run activation policy: full-mixing scalar Conv2d baseline channels with
-  componentwise gated scalar activations; future `SO(2)` nontrivial irrep fields
-  use radial gates with no additive vector bias;
+- first-run macro-architecture: keep the broad historical FSQ/ResNet18-like
+  residual encoder-decoder shape, but replace FSQ, PixelShuffle, 1x1
+  projections, and other non-translatable details. Keep standard GroupNorm in
+  the Conv2d baseline for real-run stability, while replacing raw GroupNorm with
+  field-aware normalization in the SO(2) path. Projection shortcuts should follow
+  a ResNet-D/anti-aliased-style policy: branch-local fixed fieldwise
+  downsample/upscale primitives replace learned stride in stage-transition
+  branches, with 5x5 projection convolution for channel changes, not naive
+  pointwise or one-shot shape adapters. The exact downsample operator must be
+  selected from the future `SO(2)` side first and then mirrored exactly in the
+  non-equivariant baseline;
+- first-run normalization policy: baseline uses `torch.nn.GroupNorm(8, C,
+  affine=True)` in hidden blocks; SO(2) uses repo-owned field-aware norm with
+  scalar affine bias and no additive vector bias;
+- first-run activation policy: full-mixing scalar Conv2d baseline channels and
+  future `SO(2)` scalar/trivial fields use the same learned pointwise scalar
+  gate; future `SO(2)` nontrivial irrep fields use learned radial gates with no
+  additive vector bias; activation gates use learned `a,b` and no `gamma`;
+- first-run output policy: no final `tanh`; use a zero-initialized final RGB
+  convolution, train L1 on raw normalized output, and clamp/project only for
+  SSIM, PSNR, saved images, and artifacts outside the model forward path;
 - first-run corruption: corrected Tellez-style HED/OD stain jitter plus
   per-image Gaussian noise sampled from `Uniform(0.0, 0.05)`;
 - first-run objective: `L1 + 0.1 * (1 - SSIM) + beta * KL`, with repo-owned
@@ -545,18 +583,46 @@ Current reopened direction:
   latest four interval checkpoints, preserving the useful FSQ retention idea
   without reusing FSQ checkpoint formats;
 - runtime choice must be decided from a short Kaggle benchmark matrix covering
-  single T4 and dual T4 DDP, each with AMP off/on and `torch.compile` off/on.
+  single T4 and dual T4 DDP, each with AMP off/on and `torch.compile` off/on;
+  inside that matrix, the benchmark must also choose the fastest safe precision
+  policy among `amp_off_fp32`, `amp_conservative`, and
+  `amp_scalar_gate_relaxed`, and choose between `branchless_all` and
+  `indexed_masked` corruption execution by measured throughput, compile
+  stability, and reproducible RNG semantics;
+- the runtime benchmark must also write dataloader throughput and paired
+  numerical-check artifacts before a full run can be selected;
+- the short benchmark/debug path must log gate-health telemetry for learned gate
+  `a,b` parameters so non-finite values, persistent saturation, or hidden-block
+  collapse are caught before full training.
 
 Remaining implementation-relock blockers:
 
-- run parameter/FLOP counting for the reopened `32x32x16` architecture schedule;
-- run clean-context adversarial spec review after the edits and parameter/FLOP
-  count are integrated.
+- implement a model-count artifact that verifies the recorded analytic Conv2d
+  baseline count target for the reopened `32x32x16` ResNet-like residual
+  architecture schedule, including projection shortcuts and fixed resampling
+  operators;
+- keep the exact branch-local non-naive ResNet-D/anti-aliased-style residual
+  projection/downsample operator locked to the repo-owned 5x5 separable
+  binomial low-pass + decimation operator unless a later SO(2) spike supersedes
+  it;
+- enforce the verified Kaggle T4 benchmark metadata value
+  `machine_shape = "NvidiaTeslaT4"` and the safe single-visible-GPU versus
+  dual-DDP launch mode before remote benchmark push; `dual_t4_ddp` rows must
+  prove two visible T4 devices and two ranks at runtime;
+- run clean-context adversarial spec review after the count target, metadata,
+  and quality/import routes are integrated.
 
 Full-run blockers after implementation:
 
 - run the short Kaggle runtime benchmark and select single/dual T4,
-  per-device/global batch, AMP, and `torch.compile` settings;
+  per-device/global batch, AMP, `torch.compile`, precision-policy, and
+  corruption-strategy settings;
+- require dataloader throughput and paired numerical-check artifacts for the
+  selected row;
+- confirm the gate-health summary has no non-finite gates, persistent near-total
+  saturation, or unexplained hidden-block collapse;
+- run selected-runtime real-data debug, checkpoint/resume, and tiny-overfit
+  checks before the first 10-epoch baseline run;
 - write the selected runtime to the benchmark artifacts and resolved full-run
   config before the first 10-epoch baseline run.
 

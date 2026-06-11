@@ -8,7 +8,10 @@ Date: 2026-06-05
 The active equivariant target is continuous `SO(2)` steerability for planar
 histopathology patches.
 
-The intended implementation route is `escnn`, with a first target equivalent to:
+The intended implementation route is a repo-owned, compile-compatible
+continuous `SO(2)` implementation specialized to this project. `escnn` remains a
+reference implementation and notation source, not the planned runtime
+dependency. The first target should be equivalent to:
 
 ```text
 rot2dOnR2(N=-1, maximum_frequency=2)

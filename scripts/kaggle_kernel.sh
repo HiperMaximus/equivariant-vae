@@ -13,6 +13,7 @@ Usage:
   ./scripts/kaggle_kernel.sh build [kernel_dir]
   ./scripts/kaggle_kernel.sh validate [kernel_dir]
   ./scripts/kaggle_kernel.sh check [kernel_dir]
+  ./scripts/kaggle_kernel.sh api-check
   ./scripts/kaggle_kernel.sh push [kernel_dir] [extra kaggle args...]
   ./scripts/kaggle_kernel.sh status [kernel_id]
   ./scripts/kaggle_kernel.sh output [kernel_id] [output_dir]
@@ -196,7 +197,9 @@ errors: list[str] = []
 required_values = {
     "kernel_type": "script",
     "is_private": "true",
+    "enable_gpu": "true",
     "enable_internet": "false",
+    "machine_shape": "NvidiaTeslaT4",
 }
 
 for key, expected in required_values.items():
@@ -229,6 +232,13 @@ if errors:
         print(f"error: {error}", file=sys.stderr)
     raise SystemExit(1)
 PY
+
+  for required_hook in single_visible_t4 dual_t4_ddp wrong_accelerator; do
+    if ! grep -q "$required_hook" "$kernel_dir/$code_file"; then
+      echo "error: launcher must include $required_hook runtime validation hook" >&2
+      exit 1
+    fi
+  done
 }
 
 guard_clean_kernel_dir() {
@@ -241,6 +251,42 @@ Commit/stash/reconcile local changes before pulling from Kaggle, or pull into a
 separate temporary directory manually.
 EOF
     exit 1
+  fi
+}
+
+api_check() {
+  require_remote_confirmed
+  require_kaggle_cli
+
+  echo "Kaggle API read-only preflight"
+  echo "=============================="
+  kaggle --version
+
+  kaggle auth print-access-token >/dev/null
+  echo "ok: OAuth access token can be generated"
+
+  kaggle kernels list --mine --search non-eq-vae --csv >/dev/null
+  echo "ok: kernels list can see non-eq-vae"
+
+  kaggle kernels status maximusshtefan/non-eq-vae >/dev/null
+  echo "ok: kernels status works for maximusshtefan/non-eq-vae"
+
+  kaggle kernels logs maximusshtefan/non-eq-vae >/dev/null
+  echo "ok: kernels logs works for maximusshtefan/non-eq-vae"
+
+  kaggle datasets files maximusshtefan/patches-pre-shuffled-ubc-ocean -v >/dev/null
+  echo "ok: dataset file listing works for patches-pre-shuffled-ubc-ocean"
+
+  if kaggle quota -v >/dev/null 2>&1; then
+    echo "ok: accelerator quota endpoint works"
+  else
+    echo "warn: accelerator quota endpoint failed; verify quota in Kaggle UI before remote benchmark push" >&2
+  fi
+
+  if kaggle kernels files maximusshtefan/non-eq-vae -v >/dev/null 2>&1; then
+    echo "ok: kernels files endpoint works"
+  else
+    echo "warn: kernels files endpoint failed; status/logs still work, but source-file introspection is unavailable" >&2
   fi
 }
 
@@ -257,8 +303,16 @@ case "$action" in
     require_kaggle_cli
     kaggle --version
     ;;
+  api-check)
+    api_check
+    ;;
   push)
     kernel_dir="${2:-$default_kernel_dir}"
+    if [[ "$#" -ge 2 ]]; then
+      shift 2
+    else
+      shift 1
+    fi
     if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" ]]; then
       echo "error: set KAGGLE_PUSH_CONFIRMED=1 after explicit user permission" >&2
       exit 1
@@ -266,7 +320,6 @@ case "$action" in
     validate_kernel_dir "$kernel_dir"
     guard_push_ready "$kernel_dir"
     require_kaggle_cli
-    shift 2 || true
     kaggle kernels push -p "$kernel_dir" "$@"
     ;;
   status)

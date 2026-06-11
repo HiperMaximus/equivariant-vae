@@ -23,10 +23,11 @@ Read this plan together with:
   implementation contracts.
 
 The current Kaggle runs proved that the UBC-OCEAN patch pipeline, DDP loop,
-stain/noise corruption, checkpointing, and evaluation artifact flow can work.
-The latest model, however, is an FSQ autoencoder, not a normal VAE. That makes it
-the wrong long-term baseline for an `escnn`/steerable comparison because too many
-operations and assumptions do not translate cleanly.
+stain/noise corruption, ResNet-like encoder/decoder macro-architecture,
+checkpointing, and evaluation artifact flow can work. The latest model,
+however, is an FSQ autoencoder, not a normal VAE. The replacement keeps the
+broad ResNet18-like architecture family but removes or replaces operations and
+assumptions that do not translate cleanly.
 
 This plan replaces the current non-equivariant experiment with a continuous
 denoising VAE baseline whose operations are equivariant-translatable by
@@ -40,10 +41,15 @@ The target comparison is:
 2. Steerable/equivariant denoising VAE with matched training, data, evaluation,
    and capacity reporting.
 
+The equivariant implementation target is repo-owned and specialized for
+continuous `SO(2)` so it can be optimized and kept `torch.compile` compatible.
+`escnn` is a reference for representation semantics, field bookkeeping, and
+operator design, not the planned runtime dependency.
+
 ## References
 
-- `escnn` repository: https://github.com/QUVA-Lab/escnn
-- `escnn` docs: https://quva-lab.github.io/escnn/
+- `escnn` reference repository: https://github.com/QUVA-Lab/escnn
+- `escnn` reference docs: https://quva-lab.github.io/escnn/
 - G-spaces and planar groups: https://quva-lab.github.io/escnn/api/escnn.gspaces.html
 - `escnn.nn` modules, field types, nonlinearities, normalization:
   https://quva-lab.github.io/escnn/api/escnn.nn.html
@@ -51,6 +57,12 @@ The target comparison is:
   https://quva-lab.github.io/escnn/_modules/escnn/nn/modules/conv/r2convolution.html
 - `R2Upsampling` implementation and bilinear/nearest warning:
   https://quva-lab.github.io/escnn/_modules/escnn/nn/modules/rdupsampling.html
+- `PointwiseAvgPoolAntialiased2D` implementation details:
+  https://quva-lab.github.io/escnn/_modules/escnn/nn/modules/pooling/pointwise_avg.html
+- ResNet-D reference:
+  https://arxiv.org/abs/1812.01187
+- Anti-aliased CNN / BlurPool reference:
+  https://arxiv.org/abs/1904.11486
 
 ## Current Repo Facts To Resolve
 
@@ -117,6 +129,11 @@ Current proposal after the 2026-06-11 spec correction:
    a `GeometricTensor` unless it is field-aligned and documented.
 8. No layer enters the baseline until its equivariant replacement is known.
 9. Kaggle notebooks must become launchers, not the source of truth.
+10. Keep the broad ResNet18-like/FSQ macro-architecture: residual basic blocks
+    are part of the comparable baseline. Remove FSQ quantization, PixelShuffle,
+    and 1x1 projections rather than flattening the model into a plain
+    sequential CNN. Keep standard GroupNorm in the Conv2d baseline for real-run
+    stability, but replace it with a field-aware norm in the SO(2) path.
 
 Pointwise convolution policy:
 
@@ -162,17 +179,27 @@ Continuous image-space gate:
 
 | Role | Current FSQ script | Replacement baseline | Equivariant target | Notes |
 | --- | --- | --- | --- | --- |
-| Encoder convolution | ResNet-style Conv2d blocks | Odd square Conv2d, usually 5x5 or 7x7 | `escnn.nn.R2Conv` | Use the same abstract layer schedule in both models. |
-| Channel changes | 1x1 projections and pointwise-style mixing | Spatial kernels only at first | `R2Conv` between compatible `FieldType`s | 1x1 is possible but banned initially. |
-| Residual adds | Standard tensor addition | Allowed when shapes match | GeometricTensor add with same `FieldType` | Projection branch must produce the same field type as the main branch. |
-| Downsampling | Strided conv/avg-pool shortcuts | Strided odd-kernel conv, optionally anti-aliased | `R2Conv(stride=2)` plus equivariance tests | Downsampling can alias and damage equivariance. |
-| Upsampling | PixelShuffle or nearest-like decoder code in older files | Bilinear scale factor + Conv2d | `R2Upsampling(mode="bilinear")` + `R2Conv` | Use uniform `scale_factor`, not arbitrary nonuniform `size`. |
+| Encoder convolution | ResNet-style Conv2d blocks | Odd square Conv2d, usually 5x5 or 7x7 | Repo-owned SO(2) steerable convolution equivalent to `R2Conv` | Use the same abstract layer schedule in both models. |
+| Channel changes | 1x1 projections and pointwise-style mixing | Spatial kernels only at first | Repo-owned SO(2) convolution between compatible field types | 1x1 is possible but banned initially. |
+| Residual adds | Standard tensor addition | Required ResNet-like residual topology with branch-local ResNet-D / BlurPool-style downsampling for stage transitions | GeometricTensor add with same `FieldType` | Projection branches use fixed anti-aliased resampling before odd spatial projection kernels; no 1x1 pointwise projections or ad hoc shape adapters. |
+| Downsampling | Strided conv/avg-pool shortcuts | Fixed fieldwise anti-aliased 2x downsample/resizer replacing learned stride | Repo-owned fieldwise low-pass/downsample, then SO(2) convolution with stride 1 | Spec 0001 locks an explicit 5x5 separable binomial blur plus decimation; resize/area is only a later fallback if this fails an SO(2) stage-transition test. |
+| Upsampling | PixelShuffle or nearest-like decoder code in older files | Bilinear scale factor + Conv2d | Repo-owned fieldwise bilinear upsampling + SO(2) convolution | Use uniform `scale_factor`, not arbitrary nonuniform `size`. |
 | Bottleneck | FSQ discrete 16-level latents | Gaussian VAE latent map | SO(2) scalar plus irrep-aware latent statistics | Test latent statistics under transforms. |
 | Activation | ReLU/SiLU everywhere | Gated scalar activation on all ordinary tensor channels | Same scalar gate family plus radial gates over vector norms for nontrivial fields | Treat SiLU as `x * sigmoid(x)`; do not add equivariant-only activation parameters or vector biases. |
-| Normalization | GroupNorm in many blocks | Prefer no norm first | `IIDBatchNorm2d`, `GNormBatchNorm`, `NormBatchNorm`, field norm, or no norm | Raw GroupNorm is unsafe until proven. |
+| Normalization | GroupNorm in many blocks | Standard `torch.nn.GroupNorm` in Conv2d baseline | Repo-owned field-aware norm: scalar affine norm plus invariant RMS/norm scaling for vector irreps | Raw GroupNorm is allowed only in the non-equivariant baseline; the SO(2) path cannot group arbitrary channels. |
 | Corruption | HED stain/noise corruption | Same corruption policy | Same corruption policy | For equivariance losses, use controlled/shared randomness. |
 | Loss | Charbonnier + SSIM, no KL | `L1 + 0.1 * (1 - SSIM) + beta * KL` | Same scalar losses plus optional equivariance regularizer | Composite beta-VAE-style objective, not a strict Gaussian ELBO. |
 | Equivariance metric | 25-patch artifact metric | Dataset-level metric plus qualitative artifacts | Dataset-level metric plus layer/full-model checks | 25 patches are qualitative only. |
+
+Downsampling caveat: fieldwise resize/downsample is compatible with `FieldType`
+semantics because it applies the same scalar spatial operator to every fiber
+component, but it is still an approximate sampled-grid operation.
+Spec 0001 locks a repo-owned 5x5 separable binomial low-pass filter applied
+fieldwise, then decimation by 2. This is explicit, odd-centered,
+compile-friendly, easy to mirror in the Conv2d baseline, and easy to count.
+Resize/area downsampling is only a later fallback if the locked binomial
+operator fails an SO(2) stage-transition test. Require block-level equivariance
+error tests around every stage transition.
 
 ## Baseline Architecture Direction
 
@@ -214,10 +241,14 @@ Recommended block pattern:
 
 ```text
 ConvBlock:
-  Conv2d(in -> out, kernel=5 or 7, stride=1 or 2, padding=same)
+  main: Conv2d(in -> out, kernel=5 or 7, stride=1, padding=same)
   activation policy
+  optional fixed fieldwise anti-aliased 2x downsample/resizer
   Conv2d(out -> out, kernel=5 or 7, stride=1, padding=same)
-  no first-run residual/ReZero/Fixup branch
+  skip: identity if shape/channel count matches, otherwise optional fixed
+        fieldwise anti-aliased 2x downsample/resizer followed by 5x5
+        projection conv
+  residual add
 
 VAE heads:
   mu_head: Conv2d(C -> latent_channels, kernel=5, padding=2)
@@ -227,11 +258,14 @@ Decoder:
   Conv2d(latent_channels -> C, kernel=5, padding=2)
   repeated: bilinear upsample x2 + ConvBlock
   final Conv2d(C -> 3, kernel=5, padding=2)
-  tanh output
+  raw RGB output, no final tanh
 ```
 
 Initial latent should stay spatial, not flattened. A spatial latent map
 translates more naturally to equivariant feature fields than a dense vector.
+The final RGB head should be zero-initialized; L1 uses the raw normalized output,
+while SSIM, PSNR, saved images, and qualitative artifacts explicitly project and
+clamp to image coordinates outside the model forward path.
 
 KL convention must be written in the config:
 
@@ -254,7 +288,7 @@ First-run loss:
 
 ```text
 l1_loss = mean(abs(x_hat - x_clean))
-ssim_loss = 1 - ssim(x_hat, x_clean)
+ssim_loss = 1 - ssim(project_for_ssim(x_hat), project_for_ssim(x_clean))
 recon_loss = l1_loss + 0.1 * ssim_loss
 kl_element = -0.5 * (1 + logvar - mu ** 2 - exp(logvar))
 kl_loss = mean(kl_element)
@@ -286,13 +320,12 @@ Validation metrics:
 
 Core building blocks:
 
-- Inputs are trivial RGB fields:
-  `FieldType(gspace, 3 * [gspace.trivial_repr])`.
-- Internal features are explicit `FieldType`s, not raw channel counts.
-- Use `R2Conv` for every convolution.
-- Use `R2Upsampling(mode="bilinear", scale_factor=2)` for decoder upsampling.
-- Use `GeometricTensor` boundaries only inside model code. Training and loss code
-  should receive ordinary tensors after model output extraction.
+- Inputs are trivial RGB fields in the repo-owned SO(2) field registry.
+- Internal features are explicit field specifications, not raw channel counts.
+- Use repo-owned SO(2) steerable convolutions for every equivariant convolution.
+- Use repo-owned fieldwise bilinear upsampling for decoder upsampling.
+- Keep field/tensor wrapper boundaries only inside model code. Training and loss
+  code should receive ordinary tensors after model output extraction.
 
 Representation plan:
 
@@ -323,29 +356,26 @@ For nontrivial SO(2) latent fields:
 
 ## Normalization Policy
 
-Conservative default:
+Real-run default:
 
-- No normalization in the first baseline and first equivariant model unless
-  training stability requires it.
-
-If normalization is needed:
-
-- Non-equivariant baseline may use a `NormPolicy` abstraction, but the chosen
-  policy must have an equivariant counterpart.
-- Equivariant model should use `escnn` normalization modules such as
-  `IIDBatchNorm2d`, `GNormBatchNorm`, `NormBatchNorm`, field norm, or no norm,
-  depending on the representation.
-- Raw GroupNorm is not allowed in the equivariant model. It may only be considered
-  after a written proof/test that each group is a direct sum of compatible fields
-  and the grouping operation commutes with the group action.
-
-Practical note:
-
-- `GNormBatchNorm` is more general but may be slower.
-- `IIDBatchNorm2d` can be efficient when the field type contains repeated copies
-  of larger reducible representations.
-- BatchNorm statistics can interact with DDP and small batches. If batch size per
-  rank becomes too small, prefer no norm or field/norm-based alternatives.
+- The non-equivariant Conv2d baseline uses ordinary `torch.nn.GroupNorm` with
+  `affine=True`, because the historical FSQ run trained well with GroupNorm and
+  the real run should not gamble on no-normalization stability.
+- Use `num_groups=8` for hidden widths 32/48/64/96 and 16-channel hidden/latent
+  projection layers where normalization is applied.
+- The SO(2) model uses repo-owned field-aware normalization, not raw GroupNorm
+  over arbitrary tensor channels.
+- Scalar/trivial fields may have additive bias.
+- Nontrivial frequency-1/frequency-2 vector fields may have invariant scalar
+  scale parameters, but no additive learned vector bias.
+- Vector/irrep normalization uses invariant energy over whole irrep copies. It
+  must never split a 2D irrep copy or normalize frequency-1 and frequency-2
+  components as if they were ordinary exchangeable channels.
+- Normalization is placed after learned convolutions and before activation.
+- Do not normalize `mu_head`, `logvar_head`, or the final RGB output head.
+- Disable convolution bias when the convolution is immediately followed by
+  normalization; keep scalar affine bias in the normalization/activation or in
+  scalar-only heads that are not normalized.
 
 ## Nonlinearity Policy
 
@@ -357,30 +387,52 @@ componentwise SiLU everywhere.
 Scalar fields:
 
 - Ordinary scalar nonlinearities are valid.
-- First choice: SiLU, `silu(x) = x * sigmoid(x)`.
-- Alternative to test as an ablation: GELU-like `x * Phi(x)` or an
-  erf-based smooth gate.
+- First choice: learned pointwise SiLU-style gate shared by the non-equivariant
+  baseline and future `SO(2)` scalar/trivial fields:
+
+```text
+gate_i = sigmoid(a_i * x_i + b_i)
+out_i = gate_i * x_i
+```
+
+- Initialize `a_i = 1` and `b_i = 0`.
+- These learned `a_i,b_i` parameters are included in both scalar paths to restore
+  pointwise activation expressivity that would otherwise be disproportionately
+  lost in the equivariant model, while keeping scalar-field nonlinear
+  expressivity matched between the two compared architectures.
+- Before the first full run, benchmark/log gate health for these parameters:
+  saturation, `a,b` ranges, gradients/updates, and input/output RMS. This is a
+  stability check, not an activation ablation.
+- Do not use a learned activation amplitude `gamma` in the first run; amplitude
+  remains controlled by convolutions and normalization affine parameters.
+- Alternative scalar gates such as GELU-like `x * Phi(x)` or erf-based gates are
+  later ablations, not first-run choices.
 
 SO(2) vector/irrep fields:
 
 - Do not apply SiLU/ReLU/GELU independently to vector components.
+- Learned additive bias is allowed on scalar/trivial fields only.
+- Do not add learned vector bias to nontrivial irrep fields.
 - For each 2D irrep copy `v = (u, w)`, compute an invariant radius statistic:
 
 ```text
-r2 = u**2 + w**2
-gate = sigmoid(a_i * r2 + b_i)
+r = sqrt(||v||**2 + eps) = sqrt(u**2 + w**2 + eps)
+gate = sigmoid(a_i * r + b_i)
 out = gate * v
 ```
 
 - `a_i` and `b_i` are learned scalar parameters per irrep copy, or per frequency
   and copy. They must not be different for `u` and `w`.
-- This radial gate is equivariant because `r2` is invariant and the same scalar
+- This radial gate is equivariant because `r` is invariant and the same scalar
   gate multiplies both vector components.
-- A richer ablation can replace `sigmoid(a_i * r2 + b_i)` with
-  `silu(a_i * r2 + b_i)` or `erf(a_i * r2 + b_i)`, but negative gates should be
+- `eps` stabilizes gradients near zero vector norm and must be large enough for
+  FP16/AMP execution. Configure it explicitly, smoke-test it under AMP, and start
+  with `eps = 1e-4`.
+- A richer ablation can replace `sigmoid(a_i * r + b_i)` with
+  `silu(a_i * r + b_i)` or `erf(a_i * r + b_i)`, but negative gates should be
   treated carefully because they can flip vector phase by pi.
-- Initialize `a_i` small and `b_i` near zero or mildly positive so the gate starts
-  close to linear/pass-through rather than shutting down all vector fields.
+- Initialize `a_i = 1` and `b_i = 0`, matching the scalar gate convention. Do not
+  add `gamma` unless a later ablation shows the model is underpowered.
 
 Baseline comparability:
 
@@ -393,6 +445,8 @@ Baseline comparability:
 - This keeps the activation family conceptually aligned while letting the
   representation constraints, not fake vector groups in the baseline, define
   the difference between models.
+- Gate parameters use no weight decay, a first-run learning-rate multiplier of
+  `0.5`, and separate reporting in the parameter count.
 
 Implementation note:
 
@@ -412,7 +466,8 @@ Initial settings for 256x256:
 
 - Stem kernel: 7x7.
 - Hidden block kernels: 5x5 default.
-- Early high-resolution blocks: 7x7 if compute allows.
+- Early high-resolution hidden blocks: 5x5 for spec 0001; do not add optional
+  7x7 hidden blocks unless a later ablation opens that question.
 - VAE heads: 5x5.
 - Decoder post-upsampling kernels: 5x5.
 - Avoid 1x1 unless the experiment explicitly studies it.
@@ -422,20 +477,63 @@ Initial settings for 32x32:
 - Stem/hidden kernels: 3x3 or 5x5.
 - Avoid 7x7 stride-2 stems on tiny inputs unless tested.
 
-For `escnn.R2Conv`:
+For the repo-owned SO(2) convolution:
 
 - Set `kernel_size` explicitly.
-- Set or log `frequencies_cutoff`, `rings`, and `sigma` when deviating from
-  defaults.
+- Use Gaussian radial rings times real angular harmonics as the locked first-run
+  basis.
+- Set and log `frequencies_cutoff`, `rings`, and `sigma`.
 - For `L <= 2`, use a documented cutoff such as:
   `frequencies_cutoff=lambda r: 0 if r == 0 else min(2, 2 * r)`.
+- Enforce the origin rule: basis elements with angular frequency `m > 0` have
+  zero support at the kernel center because the angular direction is undefined
+  at `r = 0`. The center sample may only carry the `m = 0`/trivial angular
+  spatial component. This does not mean "scalar fields only" at the center:
+  representation-theoretic intertwiners between compatible same-frequency input
+  and output irreps are still allowed.
+- Mirror the useful `escnn` defaults unless a spike shows a better option:
+  default ring centers are one radial shell per integer radius from the center
+  to the axis-aligned kernel edge, so 5x5 uses `[0, 1, 2]` and 7x7 uses
+  `[0, 1, 2, 3]`; ring widths are approximately `0.6` for interior rings,
+  `0.4` for the outer ring, and a tiny width at the origin.
 - Add a model summary that prints field types, kernel sizes, and frequency caps.
+
+Basis fallback notes:
+
+- Pixel/delta rings: simple and very local, but discrete and less smooth under
+  rotation; keep only as a diagnostic.
+- Gaussian radial rings times angular harmonics are the accepted first-run
+  basis. They are smooth, local, easy to precompute on 5x5/7x7 grids, and
+  compatible with dense `conv2d` after basis expansion. This follows the same
+  design principle as `escnn`: equivariance fixes the angular/intertwiner
+  structure, while the radial profile can be chosen freely, so smooth Gaussian
+  rings are a stable finite radial basis on a small sampled grid.
+- Fourier-Bessel/Bessel radial functions: mathematically clean and orthogonal on
+  a disk, but heavier to implement and tune for tiny kernels. Keep as the named
+  future fallback if Gaussian rings fail. They are valid precomputed-buffer
+  candidates, especially because Torch provides useful Bessel special functions,
+  but the exact orders/API, disk radius, boundary convention, and sampled zeros
+  must be chosen carefully so a 5x5 or 7x7 kernel does not lose useful degrees
+  of freedom at common grid locations.
+- Wavelet/scattering-style filters: strong multiscale prior, but less like a
+  drop-in learned convolution basis and too much extra design surface for the
+  first paper comparison.
+
+Locked first-run choice: Gaussian radial shells and real angular harmonics
+`cos(m theta), sin(m theta)` for `m <= 2`; precompute basis buffers, learn only
+expansion coefficients, enforce zero center support for `m > 0`, and use Bessel
+variants only as a later fallback/ablation if the Gaussian-ring spike fails.
 
 ## Upsampling Validation Gate
 
 Bilinear upsampling is the first decoder policy because it has a direct
-`R2Upsampling(mode="bilinear")` counterpart and avoids PixelShuffle. It is still
-not accepted on faith.
+fieldwise SO(2) counterpart and avoids PixelShuffle. It is still not accepted on
+faith. Unlike downsampling, upsampling does not discard samples; it creates a
+larger grid by interpolation, then the following 5x5 convolution performs the
+learned synthesis/filtering step. This makes fieldwise bilinear upsample plus
+convolution the decoder counterpart to fixed fieldwise downsample plus
+convolution, without requiring PixelShuffle or transposed convolution in the
+first comparable run.
 
 Required convention:
 
@@ -452,7 +550,8 @@ Required tests before full equivariant training:
 
 Fallback if bilinear upsampling fails the SO(2) block test:
 
-- Try `R2ConvTransposed` as a controlled decoder-upsample spike.
+- Try a repo-owned SO(2) transposed-convolution equivalent as a controlled
+  decoder-upsample spike.
 - Or redesign the decoder to keep upsampling outside the equivariant block only if
   the resulting approximation is explicitly documented and accepted as a limitation.
 
@@ -522,18 +621,21 @@ src/eqvae/
   checkpointing.py
   cli/
     smoke.py
+    model_count.py
     train.py
     benchmark_runtime.py
     select_fixed_patches.py
     evaluate.py
     artifacts.py
 configs/spec0001/
-  non_eq_vae_baseline.yaml
-  non_eq_vae_debug_cpu.yaml
-  non_eq_vae_kaggle_debug.yaml
-  non_eq_vae_kaggle_runtime_benchmark.yaml
-  ubc_ocean_masked_holdout_test.yaml
-  fixed_25_validation_patches.yaml
+  non_eq_vae_baseline.json
+  non_eq_vae_debug_cpu.json
+  non_eq_vae_kaggle_debug.json
+  non_eq_vae_kaggle_runtime_benchmark.json
+  non_eq_vae_kaggle_tiny_overfit.json
+  ubc_ocean_masked_holdout_test.json
+  fixed_32_train_overfit_patches.json
+  fixed_25_validation_patches.json
 docs/
   equivariant_vae_transition_plan.md
 runs/
@@ -541,7 +643,7 @@ runs/
 ```
 
 Older names such as `ubc_patches.py`, `layer_schedule.py`,
-`vae_non_equivariant.py`, or root-level `configs/non_eq_vae_ubc.yaml` are
+`vae_non_equivariant.py`, or root-level `configs/non_eq_vae_ubc.json` are
 superseded for spec 0001 unless a later spec intentionally reopens the layout.
 
 Refactor rules:
@@ -586,7 +688,8 @@ Exit criteria:
 - Confirm first implementation group: SO(2).
 - Decide whether `O(2)` is a later ablation.
 - Decide SO(2) representation schedule up to `L <= 2`.
-- Decide whether normalization starts disabled.
+- Use standard GroupNorm in the Conv2d baseline hidden/projection blocks and
+  repo-owned field-aware normalization in the future SO(2) path.
 - Use corrected Tellez-style stain-aware corruption plus per-image Gaussian noise
   and decide the remaining fairness budget details.
 
@@ -635,25 +738,27 @@ Exit criteria:
   equivariance error, boxplots, training/evaluation dashboard, and qualitative
   artifacts are logged.
 
-### Phase 3: Implement escnn Feasibility Spike
+### Phase 3: Implement Custom SO(2) Feasibility Spike
 
 - Build field type registry.
 - Implement one encoder block, one downsample path, one decoder/upscale path, one
   VAE latent policy, and one output head.
-- Test `R2Conv`, normalization, activation, upsampling, and output conversion.
-- Explicitly test bilinear `R2Upsampling` with the chosen SO(2) sampled-angle
-  protocol.
+- Test repo-owned SO(2) convolution, normalization, activation, fieldwise
+  downsampling, upsampling, and output conversion.
+- Explicitly test bilinear fieldwise upsampling and the chosen fixed fieldwise
+  downsample with the chosen SO(2) sampled-angle protocol.
 
 Exit criteria:
 
-- `check_equivariance` passes for custom blocks where possible.
+- Custom equivariance checks pass for blocks and stage transitions.
 - End-to-end `SO(2)` rotation checks pass within documented tolerances.
   Reflection checks are only required for an explicit later `O(2)` ablation.
 - Forward/backward and one optimizer step complete.
 
 ### Phase 4: Implement Full Equivariant VAE
 
-- Implement the full shared layer schedule with `escnn` layer factories.
+- Implement the full shared layer schedule with repo-owned SO(2) layer
+  factories.
 - Add frequency-1 and frequency-2 fields for SO(2).
 - Add representation-aware latent sampling if using nontrivial latent fields.
 - Match the baseline training protocol.
@@ -751,16 +856,16 @@ Capacity matching policy:
 - Primary comparison is schedule-matched: the baseline and equivariant model use
   the same input size, downsampling depths, latent shape, kernel sizes, decoder
   structure, optimizer budget, and logging.
-- The SO(2) equivariant model uses field multiplicities that correspond to the
-  baseline channel-capacity schedule: future scalar, frequency-1, and
-  frequency-2 multiplicities map to the total ordinary channel widths used by
-  the baseline.
-- Exact parameter equality is not required for the primary comparison because
-  steerable kernels and weight sharing change the parameterization. The parameter
-  gap must be reported.
-- If parameter count differs by more than 25 percent, add a secondary
-  parameter-matched or compute-matched ablation before making a strong performance
-  claim.
+- The SO(2) equivariant model uses field multiplicities chosen so its learned
+  parameter count is less than or equal to the Conv2d baseline's learned
+  parameter count.
+- Exact equality is not required; the paper claim is whether equivariance is
+  worth it under an equal-or-smaller learned-parameter budget.
+- Memory must not exceed the Kaggle-selected runtime budget. If the SO(2)
+  implementation forces a smaller batch or materially lower throughput, report
+  the memory/throughput cost alongside metrics instead of hiding it.
+- Report learned parameters, fixed resampling FLOPs, approximate total FLOPs,
+  throughput, max VRAM, and wall-clock budget for both models.
 - Tuning budget is matched by run count and validation access, not by whichever
   model is harder to stabilize.
 
@@ -774,10 +879,11 @@ Issue #1, conferences:
 
 Issue #2, baseline with ResNet18:
 
-- The old ResNet18/FSQ baseline is historical and should not be the final
-  comparison baseline.
-- The replacement baseline is a normal continuous denoising VAE with operations
-  chosen for SO(2) translation.
+- The old FSQ autoencoder implementation is historical and should not be the
+  final comparison baseline.
+- The replacement baseline keeps the broad ResNet18-like residual
+  macro-architecture, but changes the bottleneck to a normal continuous VAE and
+  replaces operations that do not translate cleanly to `SO(2)`.
 - Do not close until baseline metrics/plots have been produced for the new
   baseline or until the issue is explicitly re-scoped to historical FSQ results.
 
@@ -815,7 +921,8 @@ Issue #6, equivariant VAE validation:
 
 - The target is SO(2).
 - Implement the comparable SO(2) VAE after the non-equivariant translatable VAE.
-- Use `escnn` where possible instead of hand-rolled steerable kernels.
+- Use a repo-owned, compile-compatible SO(2) implementation; use `escnn` as a
+  reference rather than a runtime dependency.
 - Explicitly test nonlinearities, normalization, upsampling, VAE sampling, and
   latent statistics for equivariance before running the full experiment.
 
@@ -829,25 +936,29 @@ decisions such as the continuous `SO(2)` scope.
 | --- | --- | --- |
 | Input size | 256x256 continuation | Matches current Kaggle data pipeline. |
 | Latent shape | `(B, 16, 32, 32)` | Preserves spatial coherence for the future continuous `SO(2)` comparison while removing FSQ quantization. |
-| First implementation group | `SO(2)` via `rot2dOnR2(N=-1, maximum_frequency=2)` | This is the actual research target. |
+| First implementation group | Continuous `SO(2)`, equivalent in scope to `rot2dOnR2(N=-1, maximum_frequency=2)` | This is the actual research target. |
 | SO(2) hidden reps | Scalars plus frequency-1 and frequency-2 vector fields | Matches the `L <= 2` goal. |
+| SO(2) kernel basis | Gaussian radial shells plus real angular harmonics, `L <= 2`, with zero center support for spatial angular frequencies `m > 0` | Keeps the forward pass as dense `conv2d` after basis expansion and avoids runtime `escnn` dependency; Bessel is a future fallback only. |
 | Latent reps | Scalar first, then irrep-aware vector latents | Avoids breaking VAE sampling on day one. |
-| Normalization | None initially | Avoids representation-mixing mistakes and DDP stat issues. |
+| Normalization | Baseline GroupNorm; SO(2) field-aware norm | Preserves FSQ-like training stability while avoiding representation-breaking raw GroupNorm in the equivariant path. |
 | Kernel size | 7x7 stem, 5x5 hidden, 5x5 heads for 256x256 | Gives steerable bases enough support for low frequencies. |
 | Equivariance regularizer | Evaluation-only first | Separates architectural equivariance from training regularization. |
 | Pointwise convs | Banned initially | Matches the intended translatable baseline constraint. |
-| Upsampling | Bilinear scale factor + conv | Directly mirrors `R2Upsampling` and avoids PixelShuffle. |
+| Downsampling | Locked repo-owned 5x5 separable binomial fieldwise low-pass + decimation | Chosen from the SO(2) side first, then mirrored exactly in the Conv2d baseline; resize/area is future fallback only. |
+| Upsampling | Bilinear scale factor + conv | Directly mirrors fieldwise SO(2) upsampling and avoids PixelShuffle. |
 
 ## Immediate Next Tasks
 
 1. Treat this document as the active checklist for the branch.
 2. Finish relocking `docs/specs/0001-translatable-normal-vae-baseline.md`:
-   parameter/FLOP count and final adversarial spec review. The runtime benchmark
-   contract is written, but the benchmark result is a full-run gate after
-   implementation.
+   implementation `model_count.json` verification, future SO(2) count ceiling,
+   Kaggle T4 metadata validation plus single/dual launch-mode checks, exact
+   branch-local residual projection/downsample policy, and final adversarial
+   spec review. The runtime benchmark contract is written, but the benchmark
+   result is a full-run gate after implementation.
 3. Mark spec 0001 `locked / implementation-ready`, then add `src/eqvae` package
    skeleton.
-4. Add configs that lock input size, latent shape, group, layer schedule,
+4. Add JSON configs that lock input size, latent shape, group, layer schedule,
    activation policy, runtime benchmark, and normalization.
 5. Extract data/checkpoint/logging utilities from the Kaggle notebook.
 6. Implement the non-equivariant translatable VAE.
@@ -856,8 +967,9 @@ decisions such as the continuous `SO(2)` scope.
    launcher after local verification passes.
 9. Resolve or explicitly baseline the strict Ruff/BasedPyright historical debt.
 10. Run the short Kaggle runtime benchmark after explicit user permission, then
-    choose single/dual GPU, AMP, compile, and batch size. Record this in
-    `benchmark/selected_runtime.yaml` and the resolved full-run config.
+    choose single/dual GPU, AMP, compile, batch size, `precision.policy`, and
+    `corruption.strategy`. Record this in `benchmark/selected_runtime.json` and
+    the resolved full-run config.
 11. Run the first 10-epoch Kaggle baseline only after benchmark selection and
     explicit user permission.
-12. Implement the SO(2) `escnn` feasibility spike.
+12. Implement the custom SO(2) feasibility spike.

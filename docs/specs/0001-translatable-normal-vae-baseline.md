@@ -11,7 +11,13 @@ Replace the historical FSQ autoencoder experiment with a normal denoising VAE
 baseline whose operations can be translated to the future continuous `SO(2)`
 steerable model.
 
-This is the first implementation target before building the full `escnn` path.
+Keep the broad historical FSQ architecture family: the replacement baseline is
+ResNet18-like, with residual basic blocks and a spatial encoder/decoder
+topology. The replacement removes FSQ quantization and non-translatable
+operations, not the ResNet-like macro-architecture.
+
+This is the first implementation target before building the full repo-owned
+continuous `SO(2)` path.
 The spec was reopened after adversarial review and user correction: the previous
 `4x4` latent target was too compressed for the intended spatial-coherence
 comparison. This spec must be relocked only after the open questions near the end
@@ -45,7 +51,10 @@ First-run input contract:
 - binary patch shape: `3x256x256`, CHW, `uint8`, 64-byte `UBC_DATA` header;
 - normalization: convert `uint8` to float in `[-1, 1]` with
   `x = image.float() / 127.5 - 1.0`;
-- model output range: `tanh`, also in `[-1, 1]`;
+- model output: raw normalized RGB reconstruction values in the same coordinate
+  system as the target, without a final `tanh` or hard output clamp;
+- image-domain projections for SSIM, PSNR, saved images, and visual artifacts
+  use `clamp((x_hat + 1.0) / 2.0, 0.0, 1.0)`;
 - training input: corrupted patch `x_in = corrupt(x_clean)`;
 - target: clean patch `x_clean`;
 - train/validation source: confirmed Kaggle dataset
@@ -140,11 +149,12 @@ Relevant stain-domain references to cite in the paper/spec implementation:
 
 ## Model Contract
 
-The baseline must be generated from a layer schedule that the equivariant model
-can reuse. The non-equivariant convolutions are ordinary `torch.nn.Conv2d`; all
-channels are treated as scalar tensor channels, and each convolution may freely
-mix all input channels. The macro-topology, capacity bookkeeping, kernels,
-upsampling, latent shape, and gate family must mirror the planned `SO(2)` path.
+The baseline must be generated from a ResNet-like layer schedule that the
+equivariant model can reuse. The non-equivariant convolutions are ordinary
+`torch.nn.Conv2d`; all channels are treated as scalar tensor channels, and each
+convolution may freely mix all input channels. The residual macro-topology,
+capacity bookkeeping, kernels, upsampling, latent shape, and gate family must
+mirror the planned `SO(2)` path.
 
 First-run fixed choices:
 
@@ -152,13 +162,33 @@ First-run fixed choices:
 | --- | --- |
 | Input | 256x256 RGB |
 | Latent | spatial Gaussian latent `(B, 16, 32, 32)` |
-| Normalization layers | none |
+| Normalization layers | baseline `GroupNorm`; future SO(2) field-aware norm |
 | Stem kernel | 7x7, same padding |
 | Hidden/down/up kernels | 5x5, same padding |
 | VAE head kernels | 5x5, same padding |
+| Padding mode | zero padding for train/model code; border-cropped metrics for equivariance diagnostics |
 | Upsampling | bilinear scale factor 2 followed by convolution |
-| Output | final 5x5 convolution to RGB plus `tanh` |
+| Future SO(2) kernel basis | Gaussian radial shells plus real angular harmonics, `L <= 2` |
+| Output | zero-initialized final 5x5 convolution to raw RGB, no final `tanh` |
 | KL convention | mean over batch, latent channels, and latent spatial positions |
+
+Future `SO(2)` kernel-basis policy is locked for the first implementation:
+
+- use repo-owned analytic polar-harmonic basis construction with Gaussian radial
+  shells and real angular harmonics `cos(m theta), sin(m theta)`;
+- 5x5 kernels use radial shell centers `[0, 1, 2]`;
+- 7x7 kernels use radial shell centers `[0, 1, 2, 3]`;
+- use approximate ring widths `0.6` for interior rings, `0.4` for the outer
+  ring, and a tiny origin width;
+- angular frequencies `m > 0` have zero support at the kernel center; the center
+  sample may only carry the `m = 0` spatial angular component, while still
+  allowing legal intertwiners between compatible same-frequency input and output
+  irreps;
+- precompute basis buffers and learn only expansion coefficients;
+- expand to dense `conv2d` inside the compiled forward path;
+- allow scalar-output bias only where the representation policy permits it;
+- keep Fourier-Bessel/Bessel bases as a future fallback/ablation requiring a
+  separate radius, boundary, radial-order, and sampled-zero policy.
 
 Encoder spatial schedule:
 
@@ -190,55 +220,205 @@ Encoder block pattern:
 
 ```text
 Stem:
-  Conv2d(3 -> 32, kernel=7, stride=1, padding=3)
-  ActivationPolicy
+  Conv2d(3 -> 32, kernel=7, stride=1, padding=3, bias=False)
+  Norm(32)
+  ActivationPolicy(32)
 
-Down block i:
-  Conv2d(C_i -> C_{i+1}, kernel=5, stride=2, padding=2)
-  ActivationPolicy
-  Conv2d(C_{i+1} -> C_{i+1}, kernel=5, stride=1, padding=2)
-  ActivationPolicy
+ResBlock(in_channels, out_channels, downsample):
+  main:
+    Conv2d(in_channels -> out_channels, kernel=5, stride=1, padding=2, bias=False)
+    Norm(out_channels)
+    ActivationPolicy(out_channels)
+    if downsample: FixedBinomialLowpassDownsample2x(out_channels)
+    Conv2d(out_channels -> out_channels, kernel=5, stride=1, padding=2, bias=False)
+    Norm(out_channels)
+  skip:
+    identity if not downsample and in_channels == out_channels
+    otherwise ResNet-D-style projection:
+      if downsample: FixedBinomialLowpassDownsample2x(in_channels)
+      Conv2d(in_channels -> out_channels, kernel=5, stride=1, padding=2, bias=False)
+      Norm(out_channels)
+  output:
+    ActivationPolicy(out_channels)(main + skip)
+
+Encoder stages:
+  stage 256: two ResBlocks at 32 channels, first downsample=False
+  stage 128: two ResBlocks at 48 channels, first downsample=True
+  stage 64: two ResBlocks at 64 channels, first downsample=True
+  stage 32: two ResBlocks at 96 channels, first downsample=True
 
 VAE heads:
-  mu_head: Conv2d(96 -> 16, kernel=5, stride=1, padding=2)
-  logvar_head: Conv2d(96 -> 16, kernel=5, stride=1, padding=2)
+  mu_head: Conv2d(96 -> 16, kernel=5, stride=1, padding=2, bias=True)
+  logvar_head: Conv2d(96 -> 16, kernel=5, stride=1, padding=2, bias=True)
 ```
 
 Decoder mirrors the encoder:
 
 ```text
 Latent projection:
-  Conv2d(16 -> 96, kernel=5, stride=1, padding=2)
-  ActivationPolicy
+  Conv2d(16 -> 96, kernel=5, stride=1, padding=2, bias=False)
+  Norm(96)
+  ActivationPolicy(96)
 
-Up block i:
-  bilinear upsample(scale_factor=2, align_corners=False)
-  Conv2d(C_i -> C_{i-1}, kernel=5, stride=1, padding=2)
-  ActivationPolicy
-  Conv2d(C_{i-1} -> C_{i-1}, kernel=5, stride=1, padding=2)
-  ActivationPolicy
+UpResBlock(in_channels, out_channels, upsample):
+  main:
+    optional bilinear upsample(scale_factor=2, align_corners=False)
+    Conv2d(in_channels -> out_channels, kernel=5, stride=1, padding=2, bias=False)
+    Norm(out_channels)
+    ActivationPolicy(out_channels)
+    Conv2d(out_channels -> out_channels, kernel=5, stride=1, padding=2, bias=False)
+    Norm(out_channels)
+  skip:
+    identity if not upsample and in_channels == out_channels
+    otherwise ResNet-D-style up projection:
+      if upsample: bilinear upsample(scale_factor=2, align_corners=False)
+      Conv2d(in_channels -> out_channels, kernel=5, stride=1, padding=2, bias=False)
+      Norm(out_channels)
+  output:
+    ActivationPolicy(out_channels)(main + skip)
+
+Decoder stages:
+  stage 32: two UpResBlocks at 96 channels, first upsample=False
+  stage 64: two UpResBlocks to 64 channels, first upsample=True
+  stage 128: two UpResBlocks to 48 channels, first upsample=True
+  stage 256: two UpResBlocks to 32 channels, first upsample=True
 
 Output:
-  Conv2d(32 -> 3, kernel=5, stride=1, padding=2)
-  tanh
+  Conv2d(32 -> 3, kernel=5, stride=1, padding=2, bias=True)
+  zero-initialize weight and bias
 ```
 
 Allowed first-run operations:
 
-- odd square `Conv2d` with 5x5 or 7x7 kernels;
-- strided odd-kernel convolution for downsampling;
+- odd square `Conv2d` with 7x7 only in the stem and 5x5 everywhere else;
+- fixed fieldwise anti-aliased 2x downsampling for encoder stage transitions,
+  used in both residual branches at their literature-consistent branch-local
+  locations, followed by stride-1 odd square convolution;
 - bilinear upsampling plus convolution for upsampling;
+- ResNet-like residual adds with identity skips when shape/channel match;
+- ResNet-D/anti-aliased-style projection skips: fixed spatial resampling first,
+  then 5x5 spatial projection convolution, never 1x1 pointwise projections;
 - spatial Gaussian VAE latent map;
 - scalar gated activation policy defined below.
 
+Output-head policy:
+
+- do not apply a final `tanh`, sigmoid, or clamp in the model forward path;
+- initialize the final RGB convolution weight and bias to zero, so the initial
+  reconstruction is the normalized midpoint `0.0` and early training is stable;
+- compute L1 against raw `x_hat` and `x_clean` in normalized `[-1, 1]`
+  coordinates;
+- compute SSIM, PSNR, image saving, and qualitative artifacts after projecting
+  model output to image coordinates with
+  `x_hat_img = clamp((x_hat + 1.0) / 2.0, 0.0, 1.0)`;
+- log output range telemetry, including `x_hat_min`, `x_hat_max`, and fraction
+  of pixels below `-1` or above `1`, so the run exposes boundary behavior
+  instead of hiding it behind a saturating output nonlinearity.
+
 Residual policy:
 
-- first-run residual/ReZero/Fixup connections are disabled;
-- do not add residual branches, learned residual scales, or skip projections in
-  spec 0001 implementation;
-- if residuals are needed later for stability, write a follow-up spec with exact
-  locations, parameters, initialization, parameter/FLOP impact, and `SO(2)`
-  counterpart.
+- first-run residual connections are required and ResNet-like;
+- no ReZero/Fixup/SkipInit learned residual scaling in spec 0001 unless a later
+  spec explicitly adds it;
+- projection skips are not naive one-shot channel adapters. They use explicit
+  spatial resampling followed by odd 5x5 convolutions so they have a direct
+  fixed-resampling-plus-repo-owned-SO2-convolution counterpart;
+- encoder stage-transition blocks use branch-local fieldwise anti-aliased
+  downsampling, following ResNet-D / BlurPool style rather than a pre-split
+  downsample:
+  the main branch replaces learned stride with
+  `Conv5x5(stride=1) -> ActivationPolicy -> fixed_downsample_2x`, while the
+  skip branch uses `fixed_downsample_2x -> Conv5x5` when spatial size changes;
+- downsampling must not be hidden inside a learned stride or a one-off shortcut
+  adapter;
+- the fixed downsample operator is chosen from the future `SO(2)` side first:
+  it must be a fieldwise spatial operator mapping a `FieldType` to the same
+  `FieldType`, applying the same scalar spatial resampling to every fiber
+  component and never mixing channels/frequencies;
+- spec 0001 locks a repo-owned 5x5 separable binomial low-pass filter followed
+  by decimation by 2:
+  `kernel_1d = [1, 4, 6, 4, 1] / 16`, `kernel_2d = outer(kernel_1d, kernel_1d)`,
+  zero padding `2`, and decimation by taking stride-2 samples. The Torch
+  implementation may use fixed grouped `conv2d(..., groups=C, stride=2)` as an
+  implementation detail, but this is a fixed fieldwise resampling operator, not
+  a learned grouped/depthwise convolution;
+- the fixed low-pass/downsample maps `(B, C, H, W)` to `(B, C, H/2, W/2)` for
+  even `H,W`, preserves dtype/device where numerically safe, stores the filter
+  as a non-trainable FP32 buffer, and applies the same scalar spatial operator
+  independently to every future fiber component;
+- resize/area-style scale-factor-0.5 fieldwise downsampling is moved to a later
+  fallback/spike only if the locked binomial operator fails a future SO(2)
+  stage-transition equivariance test. It is not a spec 0001 benchmark axis;
+- FLOPs for the chosen fixed downsample are reported separately from learned
+  convolutions;
+- fieldwise downsampling is representation-compatible because it acts as a
+  scalar spatial operator tensored with the identity on fiber components, but it
+  is still a sampled-grid approximation. Future `SO(2)` stage transitions must
+  include measured equivariance-error tests rather than assume perfect
+  continuous-grid behavior;
+- decoder up-projection skip uses bilinear upsampling before the 5x5 projection
+  conv;
+- parameter/FLOP counting must include all residual skip projections and fixed
+  resampling operators;
+- the future `SO(2)` model must mirror residual topology with matching
+  `FieldType`s before addition.
+
+Analytic Conv2d baseline count target:
+
+The locked non-equivariant topology above has the following analytic count for a
+single `256x256` RGB sample. Count MACs as multiply-accumulates; if reporting
+FLOPs with the common multiply-plus-add convention, use `FLOPs = 2 * MACs`.
+
+| Count target | Value | Notes |
+| --- | ---: | --- |
+| Learned convolution count | 43 | Includes skip projections, VAE heads, and RGB head |
+| Normalization module count | 40 | `GroupNorm` modules with affine parameters |
+| Gate module count | 34 | One learned scalar gate per hidden activation site |
+| Fixed resampling op count | 12 | Six branch-local downsample ops plus six bilinear upsample ops |
+| Learned convolution parameters | 3,949,539 | Includes zero-initialized RGB head bias |
+| GroupNorm affine parameters | 4,800 | `weight,bias` for every norm channel |
+| Learned gate parameters | 4,096 | Per-channel `a,b` for 2,048 activation-channel instances |
+| Total learned parameters | 3,958,435 | Convs + norms + gates |
+| Learned convolution MACs/sample | 36,471,046,144 | `36.471` GMAC/sample |
+| Learned convolution FLOPs/sample | 72,942,092,288 | `72.942` GFLOP/sample with `2*MAC` convention |
+| Fixed resampling MACs/sample | 85,032,960 | Conservative grouped-5x5 downsample plus 4-tap bilinear upsample |
+| Fixed resampling FLOPs/sample | 170,065,920 | `0.170` GFLOP/sample with `2*MAC` convention |
+| Total MACs/sample with fixed resampling | 36,556,079,104 | `36.556` GMAC/sample |
+
+Section-level learned-convolution count:
+
+| Section | Learned conv params | Learned conv MACs/sample |
+| --- | ---: | ---: |
+| Stem | 4,704 | 308,281,344 |
+| Encoder residual body | 1,811,200 | 17,013,129,216 |
+| VAE heads | 76,832 | 78,643,200 |
+| Decoder and RGB head | 2,056,803 | 19,070,992,384 |
+
+Activation-memory planning target:
+
+- summing all learned-conv output tensors once gives `36,110,336` elements per
+  sample;
+- this rough activation-output sum is `137.75 MiB/sample` in FP32 and
+  `68.88 MiB/sample` in FP16;
+- largest individual hidden maps are `32x256x256 = 2,097,152` elements
+  (`8 MiB` FP32), `48x128x128 = 786,432` elements (`3 MiB` FP32),
+  `64x64x64 = 262,144` elements (`1 MiB` FP32), `96x32x32 = 98,304`
+  elements (`0.375 MiB` FP32), and latent `16x32x32 = 16,384` elements
+  (`0.0625 MiB` FP32);
+- this is not a full autograd peak-memory estimate. The benchmark must still
+  measure `max_vram_allocated_mb`, `max_vram_reserved_mb`, and headroom on
+  Kaggle.
+
+Implementation requirements:
+
+- the model-count CLI/test must write `benchmark/model_count.json` and compare
+  learned parameters, learned-conv MACs, and fixed-resampling MACs against the
+  target above;
+- if the fixed binomial downsample is implemented separably, report both the
+  actual implementation MACs and the conservative dense grouped-5x5 equivalent;
+- any topology change that moves a resampling op, adds/removes a norm, changes
+  a kernel size, or changes gate placement must update this count section in
+  the same patch.
 
 Banned first-run operations:
 
@@ -246,9 +426,10 @@ Banned first-run operations:
 - PixelShuffle or sub-pixel convolution;
 - nearest-neighbor upsampling in the comparable path;
 - 1x1 pointwise convolutions;
-- depthwise/grouped/MBConv/squeeze-excite/channel-attention operations;
-- raw `GroupNorm`, `BatchNorm2d`, `LayerNorm`, per-channel affine normalization,
-  or channel dropout;
+- learned depthwise/grouped/MBConv/squeeze-excite/channel-attention operations;
+- `BatchNorm2d`, `LayerNorm`, channel dropout, or arbitrary normalization that
+  cannot be mapped to the future SO(2) field schedule. Baseline `GroupNorm` is
+  required and the future SO(2) counterpart is repo-owned field-aware norm;
 - arbitrary flattening, channel slicing, `.chunk()`, or tensor reshaping that
   cannot be mapped to future `GeometricTensor` field boundaries;
 - FSQ-era resume sources or discrete-latent artifact requirements.
@@ -263,58 +444,96 @@ nonlinearity.
 For the non-equivariant baseline, every hidden channel is a scalar tensor
 channel. Apply the scalar gate componentwise to all channels, and allow the
 surrounding Conv2d layers to mix channels freely.
+These learned `a_i,b_i` gate parameters are intentionally added to the baseline
+as well as the future `SO(2)` scalar/trivial fields. The purpose is to restore
+some pointwise activation expressivity that the equivariant model loses when it
+cannot use arbitrary componentwise nonlinearities, while keeping scalar-field
+nonlinear expressivity matched between models.
 
 Baseline scalar gate:
 
 ```text
-gate_i = sigmoid(alpha_i * x_i + beta_i)
-out_i = gamma_i * gate_i * x_i
+gate_i = sigmoid(a_i * x_i + b_i)
+out_i = gate_i * x_i
 ```
 
 Rules for the baseline scalar gate:
 
-- `alpha_i`, `beta_i`, and `gamma_i` are learned scalar parameters per channel;
+- `a_i` and `b_i` are learned scalar parameters per channel;
 - initialize to ordinary SiLU/Swish behavior where possible
-  (`alpha=1`, `beta=0`, `gamma=1`);
-- do not add extra activation scalars only to the future equivariant model to
-  compensate for parameter count differences;
+  (`a=1`, `b=0`);
+- do not add scalar activation parameters only to one model. The non-equivariant
+  baseline and future `SO(2)` scalar/trivial fields use the same learned
+  pointwise scalar gate family;
 - do not tie or group baseline activation parameters by future field schedule in
   the first run. Any grouped activation tying requires a later explicit
   ablation/spec.
 
 Future `SO(2)` counterpart:
 
-- scalar/trivial fields use the same scalar gate family;
+- scalar/trivial fields use the same learned pointwise scalar gate family;
+- learned additive bias is allowed only on scalar/trivial output fields;
 - nontrivial 2D irrep copies use a radial gate over an invariant norm;
-- this radial gate is implemented and tested as part of the activation policy,
-  but it is not applied to fake vector pairs in the first scalar Conv2d
-  baseline.
+- learned additive vector bias is forbidden on nontrivial irrep/vector fields;
+- nontrivial radial gates are implemented and tested as part of the activation
+  policy, but they are not applied to fake vector pairs in the first scalar
+  Conv2d baseline.
 
 For each future 2-channel irrep copy `v = (u, w)`:
 
 ```text
-r2 = u**2 + w**2
-gate = sigmoid(a_i * r2 + b_i)
-out = gamma_i * gate * v
+r = sqrt(||v||**2 + eps) = sqrt(u**2 + w**2 + eps)
+gate = sigmoid(a_i * r + b_i)
+out = gate * v
 ```
 
 Rules for future radial gates:
 
 - the two components in a vector pair must share the same gate;
-- initialize future vector/irrep copies near pass-through with a mildly positive
-  gate bias and stable `gamma`; document the exact initialization in config/code;
+- initialize future vector/irrep copies to the same neutral gate convention as
+  scalar fields (`a=1`, `b=0`) unless a later spec changes this;
 - future vector/irrep copies may have scalar gate bias `b_i`, but must not have
   an additive learned 2D vector bias because that would break `SO(2)`
   equivariance;
+- `eps` is required for stable gradients near zero vector norm. It must be large
+  enough to avoid FP16 underflow/instability in AMP runs, configured explicitly,
+  and tested in local/benchmark smoke. First candidate: `eps = 1e-4`;
+- no learned activation amplitude `gamma` is used in spec 0001. Amplitude is
+  handled by convolutions and normalization affine parameters, and `gamma` is
+  reserved for a later ablation if the equivariant model is underpowered;
+- gate parameters are included in trainable parameter counts and reported
+  separately as a count and percentage of the model;
 - implement this as an explicit `GatedScalarActivation`,
   `RadialGate`, and `ActivationPolicy` module using a central field schedule,
   not ad hoc reshaping inside model blocks;
 - add a unit test that rotates synthetic vector pairs and verifies
   `activation(rho(theta) v) == rho(theta) activation(v)` within tolerance.
 
-No normalization layers are allowed in the first implementation. If training
-stability later requires normalization, write a follow-up spec and prove/test the
-equivariant counterpart first.
+Normalization contract for the real run:
+
+- the non-equivariant Conv2d baseline uses ordinary `torch.nn.GroupNorm` with
+  affine parameters;
+- default baseline groups: `num_groups = 8` for hidden widths
+  32/48/64/96 and 16 latent-projection channels where normalization is applied;
+- the future SO(2) model uses a repo-owned field-aware norm, not arbitrary raw
+  GroupNorm over tensor channels;
+- scalar/trivial fields may use additive affine bias;
+- nontrivial frequency-1/frequency-2 vector fields may use invariant scalar
+  scale parameters, but no additive learned vector bias;
+- vector/irrep normalization uses invariant energy over whole irrep copies, for
+  example RMS over `(copy, component, spatial)` groups chosen in the field
+  schedule. It must never split a 2D irrep copy or group frequency-1 and
+  frequency-2 components as if they were ordinary channels;
+- normalization placement is after learned convolutions and before activation;
+- VAE `mu_head`, `logvar_head`, and the final RGB output head do not use
+  normalization;
+- when a projection skip has a learned projection convolution at a location where
+  the matching main branch is normalized before residual addition, normalize the
+  projection branch before the add as well;
+- convolution bias is disabled when immediately followed by normalization;
+  scalar affine bias lives in the normalization or scalar activation. Learned
+  biases remain allowed for scalar-only heads that are not followed by
+  normalization.
 
 ## Objective Contract
 
@@ -323,7 +542,7 @@ Use a normal denoising VAE with a composite reconstruction objective:
 ```text
 z = mu + exp(0.5 * logvar) * eps
 l1_loss = mean(abs(x_hat - x_clean))
-ssim_loss = 1 - ssim(x_hat, x_clean)
+ssim_loss = 1 - ssim(project_for_ssim(x_hat), project_for_ssim(x_clean))
 recon_loss = l1_loss + ssim_weight * ssim_loss
 kl_element = -0.5 * (1 + logvar - mu ** 2 - exp(logvar))
 kl_loss = mean(kl_element)
@@ -357,6 +576,70 @@ AMP and GradScaler policy:
   step-triggered validation/checkpointing, or count the batch as an optimizer
   update when the optimizer step was skipped.
 
+Precision and autograd policy:
+
+- Mirror the useful FSQ precision structure as the conservative candidate:
+  allow AMP/fp16 for the main model convolutional forward when the runtime
+  benchmark selects AMP, but keep numerically sensitive islands in FP32.
+- Do not assume the conservative split is fastest or necessary. The Kaggle
+  runtime benchmark must compare safe precision placements and select the
+  fastest one that passes numerical checks.
+- Run the corruption module under `torch.no_grad()` and compute HED/OD color
+  transforms, logarithms, exponentials, and random stain/noise draws in FP32.
+  Corruption is data augmentation, not a differentiable model component.
+- Run VAE posterior arithmetic in FP32 with gradients enabled:
+  `logvar` clamp, `exp(0.5 * logvar)`, latent sampling, and KL computation.
+- Run SSIM, L1, KL, beta weighting, and total loss composition in FP32 outside
+  autocast. SSIM buffers/constants are FP32.
+- Run radial-gate norm/sigmoid arithmetic in FP32 when AMP is enabled, using the
+  configured `radial_gate_eps`, then return to the surrounding model dtype if
+  needed. The gate remains differentiable with respect to the input field and
+  gate parameters.
+- Cast the model reconstruction output to FP32 before losses and metrics.
+- Do not wrap training model forward, VAE sampling, losses, or SO(2) basis
+  expansion in `torch.no_grad()`. Fixed basis buffers are non-trainable, but
+  expansion coefficients require gradients.
+- Use `torch.no_grad()` for metric accumulation, range/telemetry summaries,
+  validation/evaluation passes, fixed-patch artifact generation, and checkpoint
+  serialization helpers.
+- Unlike the historical branchless FSQ validation path, `eval_clean` must not
+  call the corruptor or consume corruption RNG. Deterministic corruption is used
+  only in `eval_corrupted`.
+
+Precision candidates for the Kaggle runtime benchmark:
+
+- `amp_off_fp32`: full FP32 training step, used as the correctness and stability
+  baseline.
+- `amp_conservative`: main convolutional forward under AMP/fp16; corruption,
+  posterior/KL, scalar/radial gate sigmoid arithmetic, SSIM, L1, and total loss
+  in FP32.
+- `amp_scalar_gate_relaxed`: same as `amp_conservative`, except the
+  non-equivariant scalar gate sigmoid/multiply may run in the surrounding AMP
+  dtype. This policy is eligible only for the scalar Conv2d baseline and only if
+  paired numerical checks against `amp_off_fp32` pass. Posterior sampling,
+  `logvar`, KL, SSIM/L1/loss, corruption, and future radial-gate norm/sigmoid
+  arithmetic must remain FP32 in spec 0001.
+
+Do not relax posterior/KL/loss/corruption or radial-gate norm/sigmoid numerics
+in spec 0001. A broader precision ablation requires a later spec.
+
+Corruption strategy candidates for the Kaggle runtime benchmark:
+
+- `branchless_all`: compute corrupted images for the full batch, sample a mask,
+  and select corrupted versus clean tensors with `torch.where`, matching the
+  compile-friendly historical FSQ pattern.
+- `indexed_masked`: sample a mask, corrupt only selected samples, and scatter
+  them back into the batch. Accept this only if `torch.compile` stays stable and
+  throughput improves.
+- Both strategies must produce the same training distribution, support
+  reproducible RNG, and preserve the validation rule that `eval_clean` consumes
+  no corruption RNG.
+- equivalence tests must key randomness by `sample_id`, rank, and optimizer
+  step, then verify that `branchless_all` and `indexed_masked` produce the same
+  Bernoulli corruption decisions, the same HED/noise parameters for corrupted
+  samples, unchanged clean samples, no RNG consumption in `eval_clean`, and
+  stable compile behavior across varying mask counts.
+
 Log at minimum:
 
 - total loss;
@@ -386,9 +669,13 @@ Validation/evaluation modes:
 
 ## Training And Config Contract
 
-All values that affect the experiment must live in YAML configs, not hidden
-inside model or CLI code. CLI flags may override config values only when the
-override is recorded in the run config snapshot.
+All values that affect the experiment must live in versioned JSON config files,
+not hidden inside model or CLI code. JSON is the first-run config format because
+it can be parsed and written with the Python standard library on offline Kaggle
+kernels. `uv`, `pyproject.toml`, and `uv.lock` remain the Python environment and
+dependency source of truth; they are orthogonal to experiment config files. CLI
+flags may override config values only when the override is recorded in the run
+config snapshot.
 
 Required seed policy:
 
@@ -413,34 +700,230 @@ Required optimizer and schedule defaults:
 | Beta warmup | first epoch for epoch-based runs; first 10 percent of optimizer steps for step-limited debug runs; no cyclic restarts |
 | `logvar` clamp | clamp to `[-8.0, 4.0]` before sampling and KL |
 
+Optimizer parameter groups:
+
+- learned convolution kernels, VAE head weights, final RGB head weights, and
+  future `SO(2)` kernel expansion coefficients use the base learning rate and
+  configured weight decay;
+- additive biases, GroupNorm/field-norm affine parameters, and activation gate
+  parameters use `weight_decay = 0.0`;
+- activation gate parameters `a_i` and `b_i` use `lr_multiplier = 0.5` for the
+  first run;
+- this replaces the historical FSQ shape-only grouping with a semantic grouping:
+  future `SO(2)` expansion coefficients may be stored as 1D tensors but still
+  count as learned kernel weights and should receive weight decay unless a later
+  spec overrides it;
+- log gate parameter min/max and gate saturation summaries for scalar and radial
+  gates.
+
+Gate-health benchmark before the first full run:
+
+- treat learned gate parameters as monitored capacity, not as an activation
+  ablation in spec 0001;
+- during the short real-data Kaggle debug/benchmark path, log gate behavior at
+  fixed intervals for every gated activation module;
+- write `metrics/gate_health.csv` with at least
+  `run_name,optimizer_step,module,gate_kind,num_channels,num_elements,a_min,a_max,a_mean,a_std,b_min,b_max,b_mean,b_std,max_abs_a,max_abs_b,gate_mean,gate_std,gate_p01,gate_p50,gate_p99,frac_gate_lt_0_01,frac_gate_gt_0_99,worst_channel_frac_gate_lt_0_01,worst_channel_frac_gate_gt_0_99,dead_channel_count,input_rms,output_rms,output_input_rms_ratio,a_grad_norm,b_grad_norm,a_update_to_param_norm,b_update_to_param_norm,gate_health_status`;
+- write `benchmark/gate_health_summary.json` with per-module worst-case
+  saturation, non-finite counts, largest absolute `a`/`b`, dead-channel counts,
+  zero-gradient counts, final input/output RMS ratio, and an overall
+  `pass|warn|fail` status;
+- compute `*_update_to_param_norm` as
+  `update_norm / max(parameter_norm, 1e-8)` so zero-initialized or near-zero
+  parameters have a defined denominator;
+- gate-health warning thresholds: `max_abs_a > 10`, `max_abs_b > 10`,
+  `max(frac_gate_lt_0_01, frac_gate_gt_0_99) >= 0.80`,
+  `dead_channel_count > 0`, `output_input_rms_ratio < 1e-2`, or zero
+  `a_grad_norm + b_grad_norm` for three consecutive logged intervals;
+- gate-health failure thresholds: any non-finite gate value, parameter, input,
+  output, gradient, or update; `max_abs_a > 20` or `max_abs_b > 20`;
+  `max(frac_gate_lt_0_01, frac_gate_gt_0_99) >= 0.95` for three consecutive
+  logged intervals; `dead_channel_count > max(1, 0.10 * num_channels)`;
+  `output_input_rms_ratio < 1e-3` for three consecutive logged intervals in a
+  hidden block; or any gate-health status explicitly marked `fail`;
+- do not start the first full training run unless
+  `benchmark/gate_health_summary.json` has overall status `pass`. A `warn`
+  status requires inspection and a spec/config update before full training;
+- do not use the gate-health benchmark to choose among many nonlinearities
+  unless a later spec explicitly opens an activation ablation.
+
 Runtime benchmark requirement before the first full Kaggle run:
 
-- the benchmark is a short decision run, not training; it must finish in minutes
-  rather than multiple hours and must stop after fixed warmup/measured steps;
-- use the real data loader and training step, but do not run a full epoch
-  schedule or tune model quality during the benchmark;
-- benchmark single T4 and dual T4 DDP;
-- for each GPU configuration, benchmark AMP off/on and `torch.compile` off/on
-  where the runtime supports it;
+- the benchmark is a short decision run, not training; it must stop after fixed
+  warmup/measured steps and must not tune model quality;
+- use the real train and validation data loaders and the real training step;
+- benchmark two accelerator modes:
+  `single_visible_t4` and `dual_t4_ddp`;
+- `single_visible_t4` may run inside the dual-T4 Kaggle machine by setting
+  visible devices to one GPU and `world_size = 1`;
+- `dual_t4_ddp` must launch with two ranks, restore the historical
+  `torchrun --standalone --nproc_per_node=2` behavior or an equivalent
+  self-spawn implementation, and record `world_size = 2`;
+- the Kaggle kernel metadata must request `machine_shape = "NvidiaTeslaT4"`
+  before the remote benchmark is pushed. This value was verified on 2026-06-11
+  by pulling metadata for the existing `maximusshtefan/non-eq-vae` notebook that
+  the Kaggle UI showed as GPU T4 x2. Because the metadata value does not encode
+  visible device count, `dual_t4_ddp` rows must still verify
+  `cuda_device_count == 2`, two T4 names, `world_size == 2`, and
+  `nproc_per_node == 2` at runtime;
+- for each GPU configuration, benchmark `torch.compile` off/on where the runtime
+  supports it;
+- within the AMP/precision axis, compare the named precision policies
+  `amp_off_fp32`, `amp_conservative`, and `amp_scalar_gate_relaxed`;
+- compare the corruption execution strategies `branchless_all` and
+  `indexed_masked`; keep the branchless path unless masked indexing is compile
+  stable, preserves RNG semantics, and is measurably faster;
 - for each row, record warm steady-state samples/sec, step time, compile
   overhead, max VRAM, largest stable per-device batch, global batch,
-  `amp_step_skipped` count, and any compile/DDP failure;
+  `amp_step_skipped` count, gate-health warning count, and any compile/DDP
+  failure;
 - batch size is selected from VRAM and throughput evidence for each runtime
   configuration, not hard-coded from the historical FSQ run.
 
+Valid runtime matrix rows:
+
+| AMP enabled | Precision policy | Compile | Corruption strategy |
+| --- | --- | --- | --- |
+| false | `amp_off_fp32` | false/true | `branchless_all` / `indexed_masked` |
+| true | `amp_conservative` | false/true | `branchless_all` / `indexed_masked` |
+| true | `amp_scalar_gate_relaxed` | false/true | `branchless_all` / `indexed_masked` |
+
+Invalid rows must not be emitted, for example `amp_off_fp32` with AMP enabled or
+`amp_conservative` with AMP disabled.
+
+Benchmark budget and reset rules:
+
+- default candidate per-device batch sizes:
+  `[4, 8, 12, 16, 24, 32, 48, 64]`;
+- each row starts from identical model weights, optimizer state, scaler state,
+  beta/LR scheduler state, data order, and RNG seeds;
+- each row uses `warmup_steps = 3`, `measured_steps = 12`, and `repeats = 1`;
+  after a row is selected as a top candidate, rerun it with
+  `warmup_steps = 5`, `measured_steps = 25`, and `repeats = 1`;
+- if `torch.compile` needs compilation, report compile/startup time separately
+  from steady-state step time;
+- OOM rows are valid failure rows: record the attempted per-device batch size,
+  the exception class/message hash, max allocated/reserved memory if available,
+  and continue with the next smaller candidate;
+- selected rows must leave at least 10 percent VRAM headroom after warmup and
+  measured steps;
+- any row with non-finite loss, non-finite gradients, an AMP skipped step,
+  DDP failure, compile failure, repeated graph breaks/recompiles after warmup,
+  or gate-health status `fail` is ineligible;
+- `indexed_masked` must improve measured steady-state samples/sec by at least
+  5 percent over `branchless_all` in the same accelerator/precision/compile
+  setting, or else `branchless_all` remains selected;
+- a faster AMP/compile/precision row must pass paired numerical checks against
+  `amp_off_fp32` eager on the same fixed batches before it is eligible.
+
+Paired numerical checks:
+
+- for every non-FP32 candidate, run three fixed-seed benchmark batches against
+  `amp_off_fp32` eager with identical model initialization, data order,
+  corruption decisions, and latent noise;
+- log absolute and relative deltas for total loss, reconstruction loss, L1,
+  SSIM loss, KL, gradient norm, output range, `mu` stats, `logvar` stats,
+  `logvar_clamp_count`, gate-health summary, and parameter-update norm;
+- default pass thresholds are: no non-finite values, no AMP skipped step,
+  absolute loss/reconstruction/L1/SSIM-loss delta `<= 1e-3` or relative delta
+  `<= 5e-3`, KL relative delta `<= 1e-2`, gradient-norm relative delta
+  `<= 0.05`, and parameter-update-norm relative delta `<= 0.05`;
+- if a threshold is too strict for a future verified reason, update this spec
+  before selecting that runtime.
+
+Dataloader benchmark requirement:
+
+- before selecting a runtime, write `benchmark/dataloader_matrix.csv` for train
+  and validation shards on real Kaggle data;
+- record at least
+  `run_name,accelerator_mode,world_size,rank,split,num_workers,prefetch_factor,pin_memory,batch_size,batches_measured,batch_fetch_ms_p50,batch_fetch_ms_p95,h2d_ms_p50,h2d_ms_p95,loader_samples_sec,trainer_samples_sec,data_wait_fraction_p50,data_wait_fraction_p95,rank_sample_count,dropped_sample_count,status`;
+- a runtime is ineligible if validation loading is unmeasured, any rank fails,
+  rank sample counts differ beyond one batch, `data_wait_fraction_p95 > 0.20`,
+  or loader throughput is below `1.25 * trainer_samples_sec` for the selected
+  training row.
+
 The selected baseline runtime must be recorded in the resolved config. Use
 `per_device_batch_size`, `global_batch_size`, `mixed_precision.enabled`, and
-`torch_compile.enabled`; do not leave the batch-size or precision meaning
-ambiguous.
+`torch_compile.enabled`, plus explicit `precision.policy` and
+`corruption.strategy`; do not leave the batch-size, precision, or corruption
+execution meaning ambiguous.
+
+`benchmark/model_count.json` required shape:
+
+```json
+{
+  "status": "pass",
+  "config": "invoked config path",
+  "input_shape": [1, 3, 256, 256],
+  "learned_convolution_count": 43,
+  "normalization_module_count": 40,
+  "gate_module_count": 34,
+  "fixed_resampling_op_count": 12,
+  "learned_convolution_parameters": 3949539,
+  "groupnorm_affine_parameters": 4800,
+  "learned_gate_parameters": 4096,
+  "total_learned_parameters": 3958435,
+  "learned_convolution_macs_per_sample": 36471046144,
+  "fixed_resampling_macs_per_sample": 85032960,
+  "total_macs_per_sample_with_fixed_resampling": 36556079104,
+  "activation_output_elements_per_sample": 36110336,
+  "matches_spec_target": true
+}
+```
+
+`benchmark/runtime_matrix.csv` required columns:
+
+```text
+run_name,row_id,accelerator_mode,machine_shape,visible_device_count,cuda_device_count,gpu_names,ddp_backend,world_size,nproc_per_node,precision_policy,amp_enabled,torch_compile_enabled,corruption_strategy,per_device_batch_size,global_batch_size,gradient_accumulation_steps,warmup_steps,measured_steps,repeats,compile_startup_sec,steady_step_ms_p50,steady_step_ms_p95,samples_sec,trainer_samples_sec,max_vram_allocated_mb,max_vram_reserved_mb,vram_headroom_fraction,amp_step_skipped_count,gate_health_status,gate_health_warning_count,numerical_check_status,data_wait_fraction_p95,oom,status,failure_kind,failure_message_hash
+```
+
+`benchmark/selected_runtime.json` required shape:
+
+```json
+{
+  "status": "pass",
+  "selected_row_id": "string",
+  "accelerator_mode": "single_visible_t4 or dual_t4_ddp",
+  "machine_shape": "NvidiaTeslaT4",
+  "world_size": 2,
+  "nproc_per_node": 2,
+  "gpu_names": ["..."],
+  "per_device_batch_size": 0,
+  "global_batch_size": 0,
+  "gradient_accumulation_steps": 1,
+  "optimizer_updates_per_epoch": 0,
+  "lr_warmup_steps": 0,
+  "beta_warmup_steps": 0,
+  "mixed_precision": {"enabled": false, "policy": "amp_off_fp32"},
+  "torch_compile": {"enabled": false, "backend": "eager-or-inductor"},
+  "corruption": {"strategy": "branchless_all"},
+  "throughput": {
+    "samples_sec": 0.0,
+    "steady_step_ms_p50": 0.0,
+    "compile_startup_sec": 0.0,
+    "estimated_10_epoch_wall_time_sec": 0.0
+  },
+  "safety": {
+    "numerical_check_status": "pass",
+    "gate_health_status": "pass",
+    "dataloader_status": "pass",
+    "amp_step_skipped_count": 0
+  }
+}
+```
+
+For `selected_runtime.json`, `world_size` and `nproc_per_node` are numeric:
+`1` for `single_visible_t4`, `2` for `dual_t4_ddp`.
 
 Required first-run budget defaults:
 
 | Config | Batch size | Train steps | Validation interval | Checkpoint interval |
 | --- | ---: | ---: | ---: | ---: |
-| `non_eq_vae_debug_cpu.yaml` | 2 global | 8 | 4 | 4 |
-| `non_eq_vae_kaggle_runtime_benchmark.yaml` | searched per device | short fixed benchmark steps | optional one fixed validation micro-pass | none except benchmark summary |
-| `non_eq_vae_kaggle_debug.yaml` | benchmarked per device | 200 | 50 | half epoch or 100 steps |
-| `non_eq_vae_baseline.yaml` | benchmark-selected per device | 10 epochs | half epoch | half epoch |
+| `non_eq_vae_debug_cpu.json` | 2 global | 8 | 4 | 4 |
+| `non_eq_vae_kaggle_runtime_benchmark.json` | searched per device | short fixed benchmark steps | optional one fixed validation micro-pass | none except benchmark summary |
+| `non_eq_vae_kaggle_debug.json` | benchmarked per device | 200 | 50 | half epoch or 100 steps |
+| `non_eq_vae_kaggle_tiny_overfit.json` | selected runtime | 300 on 32 fixed real patches | 50 | 100 |
+| `non_eq_vae_baseline.json` | benchmark-selected per device | 10 epochs | half epoch | half epoch |
 
 The future `SO(2)` model must use the same training budget and validation
 access, unless a later run spec explicitly supersedes both models together.
@@ -457,22 +940,36 @@ Checkpoint retention:
 
 Required output schemas:
 
-- `config_resolved.yaml`: full config after CLI overrides;
+- `config_resolved.json`: full config after CLI overrides;
 - `metrics/train_steps.csv`: one row per logged train step with at least
-  `run_name,event_id,batch_attempt,optimizer_step,split,loss,recon_loss,l1_loss,ssim_loss,kl_loss,beta,lr,grad_norm,batch_size,amp_step_skipped`;
+  `run_name,event_id,batch_attempt,optimizer_step,split,loss,recon_loss,l1_loss,ssim_loss,ssim_metric,mae,mse,psnr,kl_loss,beta,lr,grad_norm,batch_size,precision_policy,amp_enabled,torch_compile_enabled,corruption_strategy,amp_step_skipped,mu_mean,mu_std,mu_min,mu_max,logvar_mean,logvar_std,logvar_min,logvar_max,logvar_clamp_count,x_hat_min,x_hat_max,frac_x_hat_lt_minus1,frac_x_hat_gt_1`;
 - skipped AMP rows are logged as batch-attempt events with
   `amp_step_skipped = 1`; they do not increment `optimizer_step` and do not
   trigger optimizer-step-based schedules, validation, or checkpointing;
 - `metrics/validation_steps.csv`: one row per validation event with at least
-  `run_name,optimizer_step,split,view,n,mse_mean,mae_mean,psnr_mean,ssim_mean,kl_mean`;
+  `run_name,optimizer_step,split,view,n,mse_mean,mae_mean,psnr_mean,ssim_mean,kl_mean,mu_mean,mu_std,logvar_mean,logvar_std,logvar_clamp_count,x_hat_min,x_hat_max,frac_x_hat_lt_minus1,frac_x_hat_gt_1`;
 - `eval/per_image_metrics.csv`: one row per evaluated patch with at least
   `sample_id,split,view,wsi_id,label,x,y,mse,mae,psnr,ssim`;
 - `eval/summary.json`: mean, standard deviation, and `n` for every metric,
   grouped by `split` and `view`;
 - `artifacts/manifest.json`: paths and provenance for every generated figure;
+- `benchmark/model_count.json`: analytic/implementation model count comparison
+  including learned parameters, learned-conv MACs, fixed-resampling MACs,
+  normalization/gate parameters, and pass/fail status against this spec;
 - `benchmark/runtime_matrix.csv`: one row per benchmarked runtime configuration;
-- `benchmark/selected_runtime.yaml`: selected accelerator, compile, AMP, and
-  batch-size decision for the first full run;
+- `benchmark/selected_runtime.json`: selected accelerator, compile, AMP, and
+  batch-size decision for the first full run, including selected
+  `precision.policy` and `corruption.strategy`;
+- `benchmark/dataloader_matrix.csv`: real train/validation loader, transfer,
+  throughput, wait-fraction, and rank-balance measurements;
+- `benchmark/numerical_checks.csv`: paired fixed-batch deltas against
+  `amp_off_fp32` eager for precision/compile candidates;
+- `metrics/gate_health.csv`: per-module gate parameter, saturation, RMS, and
+  gradient/update telemetry from debug and benchmark runs;
+- `benchmark/gate_health_summary.json`: gate-health pass/warn/fail summary used
+  before the first full run;
+- `benchmark/tiny_overfit_summary.json`: selected-runtime real-patch overfit
+  sanity summary before the first full run;
 - `checkpoints/step_*.pt`: model, optimizer, scheduler, beta scheduler, scaler
   if present, current step, config hash, and RNG state.
 
@@ -483,7 +980,7 @@ Required output schemas:
 The qualitative 25-patch set must be deterministic and shared by the baseline
 and future `SO(2)` model.
 
-Selection policy for `configs/spec0001/fixed_25_validation_patches.yaml`:
+Selection policy for `configs/spec0001/fixed_25_validation_patches.json`:
 
 1. Use the validation CSV from `maximusshtefan/patches-pre-shuffled-ubc-ocean`.
 2. Group rows by numeric label `0..4`.
@@ -502,15 +999,33 @@ implementation must include a deterministic selector generator:
 
 ```bash
 PYTHONPATH=src uv run --locked --no-sync python -m eqvae.cli.select_fixed_patches \
-  --config configs/spec0001/non_eq_vae_kaggle_debug.yaml \
+  --config configs/spec0001/non_eq_vae_kaggle_debug.json \
   --data-root auto \
-  --output configs/spec0001/fixed_25_validation_patches.yaml
+  --output configs/spec0001/fixed_25_validation_patches.json
 ```
 
 This generator requires access to the real validation CSV and is therefore a
 data-access step, not a pure offline local test. Local synthetic tests may use a
 separate generated synthetic selector under `runs/` but must never overwrite the
 canonical fixed-25 config.
+
+## Fixed 32-Train Tiny-Overfit Protocol
+
+The tiny-overfit sanity check must not reuse the fixed 25-patch validation
+artifact set. It uses a separate deterministic train-patch selector so the
+validation qualitative set remains a held-out visual protocol.
+
+Selection policy for `configs/spec0001/fixed_32_train_overfit_patches.json`:
+
+1. Use the train CSV from `maximusshtefan/patches-pre-shuffled-ubc-ocean`.
+2. Exclude any WSI listed in `docs/data/ubc_ocean_masked_holdout_ids.csv`.
+3. Compute `sha256("20260611:tiny-overfit:{wsi_id}:{label}:{x}:{y}")`.
+4. Sort by digest, then by `wsi_id,label,x,y`.
+5. Select the first 32 rows.
+6. Store the ordered 32 selectors with `wsi_id,label,x,y,source_split`.
+
+Tiny-overfit commands must fail if the fixed 32-train config is missing, has any
+validation row, or contains a count other than 32.
 
 ## Rotated And Latent Artifact Protocol
 
@@ -561,17 +1076,19 @@ Required modules:
 - `src/eqvae/artifacts/`: boxplots, dashboards, fixed-patch grids, rotated-input
   grids, rotated-input versus latent grids, and latent visualization helpers;
 - `src/eqvae/checkpointing.py`: save/resume with RNG state;
-- `src/eqvae/cli/`: `smoke`, `train`, `benchmark_runtime`,
+- `src/eqvae/cli/`: `smoke`, `model_count`, `train`, `benchmark_runtime`,
   `select_fixed_patches`, `evaluate`, and `artifacts` entry points.
 
 Required config files:
 
-- `configs/spec0001/non_eq_vae_baseline.yaml`;
-- `configs/spec0001/non_eq_vae_debug_cpu.yaml`;
-- `configs/spec0001/non_eq_vae_kaggle_debug.yaml`;
-- `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.yaml`;
-- `configs/spec0001/ubc_ocean_masked_holdout_test.yaml`;
-- `configs/spec0001/fixed_25_validation_patches.yaml`.
+- `configs/spec0001/non_eq_vae_baseline.json`;
+- `configs/spec0001/non_eq_vae_debug_cpu.json`;
+- `configs/spec0001/non_eq_vae_kaggle_debug.json`;
+- `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json`;
+- `configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json`;
+- `configs/spec0001/ubc_ocean_masked_holdout_test.json`;
+- `configs/spec0001/fixed_32_train_overfit_patches.json`;
+- `configs/spec0001/fixed_25_validation_patches.json`.
 
 Run outputs should go under ignored `runs/` paths locally and `/kaggle/working`
 on Kaggle.
@@ -588,14 +1105,17 @@ Package/import policy:
 
 Config and dependency policy:
 
-- configs are YAML by contract, but spec 0001 is not lockable until the parser
-  choice is recorded in `pyproject.toml`/`uv.lock` or the config format is
-  changed to a standard-library format;
+- configs are JSON by contract for spec 0001 and must use only the Python
+  standard-library `json` parser/writer;
+- do not add a YAML parser solely for experiment config files in spec 0001;
 - repo-owned Torch SSIM must be implemented under `src/eqvae`; do not import
   `pytorch-msssim` in spec 0001 code unless a later spec deliberately changes
   the offline/compiled SSIM policy;
 - if `pytorch-msssim` remains in `pyproject.toml` as historical dependency debt,
-  record it in the quality/dependency cleanup route before locking spec 0001.
+  resolve it through the benchmark-unblock route in
+  `docs/specs/0002-strict-python-quality-gate.md`: extract/quarantine
+  historical `src/nn`, remove the direct dependency, and refresh `uv.lock` in
+  one cleanup patch before benchmark CLIs are implementation-ready.
 
 Local CPU smoke policy:
 
@@ -609,9 +1129,10 @@ Local CPU smoke policy:
 
 Implementation milestones before broad coding:
 
-1. Spec relock slice: parameter/FLOP counting, residual-off confirmation,
-   package/import policy, config parser decision, quality-debt route, fixed-25
-   selector plan, artifact protocol, and final clean-context spec review.
+1. Spec relock slice: implementation count verification, future SO(2) count
+   ceiling, ResNet-like residual confirmation, package/import policy, JSON
+   config policy, quality-debt route, fixed validation/tiny-overfit selector
+   plan, artifact protocol, and final clean-context spec review.
 2. Skeleton slice: `src/eqvae`, `configs/spec0001`, no-sync import smoke, and
    one CPU pytest proving CLI/import wiring.
 3. Data/metrics slice: patch-shard loader, synthetic data, split validation,
@@ -622,8 +1143,8 @@ Implementation milestones before broad coding:
    and 25-patch visual QA.
 6. Train/resume slice: optimizer/scheduler, AMP skipped-step behavior,
    checkpoint save/resume, metrics schemas, retention.
-7. Artifact/evaluation slice: fixed-25 selector, evaluator, boxplots,
-   dashboards, rotated/latent artifacts.
+7. Artifact/evaluation slice: fixed validation/tiny-overfit selectors,
+   evaluator, boxplots, dashboards, rotated/latent artifacts.
 8. Kaggle slice: payload build, debug launcher, local payload validation, then
    permission-gated remote benchmark/debug runs.
 
@@ -723,7 +1244,7 @@ Local CPU synthetic smoke:
 
 ```bash
 PYTHONPATH=src uv run --locked --no-sync python -m eqvae.cli.smoke \
-  --config configs/spec0001/non_eq_vae_debug_cpu.yaml \
+  --config configs/spec0001/non_eq_vae_debug_cpu.json \
   --data synthetic \
   --device cpu \
   --batch-size 2 \
@@ -735,7 +1256,7 @@ Local CPU float16 smoke:
 
 ```bash
 PYTHONPATH=src uv run --locked --no-sync python -m eqvae.cli.smoke \
-  --config configs/spec0001/non_eq_vae_debug_cpu.yaml \
+  --config configs/spec0001/non_eq_vae_debug_cpu.json \
   --data synthetic \
   --device cpu \
   --batch-size 1 \
@@ -747,7 +1268,7 @@ Debug train from scratch:
 
 ```bash
 PYTHONPATH=src uv run --locked --no-sync python -m eqvae.cli.train \
-  --config configs/spec0001/non_eq_vae_debug_cpu.yaml \
+  --config configs/spec0001/non_eq_vae_debug_cpu.json \
   --data synthetic \
   --output-dir runs/local/spec0001-debug \
   --run-name spec0001_cpu_debug \
@@ -760,7 +1281,7 @@ Resume from midpoint checkpoint:
 
 ```bash
 PYTHONPATH=src uv run --locked --no-sync python -m eqvae.cli.train \
-  --config configs/spec0001/non_eq_vae_debug_cpu.yaml \
+  --config configs/spec0001/non_eq_vae_debug_cpu.json \
   --data synthetic \
   --resume runs/local/spec0001-debug/checkpoints/step_000004.pt \
   --output-dir runs/local/spec0001-resume \
@@ -773,7 +1294,7 @@ Evaluator and summaries:
 
 ```bash
 PYTHONPATH=src uv run --locked --no-sync python -m eqvae.cli.evaluate \
-  --config configs/spec0001/non_eq_vae_debug_cpu.yaml \
+  --config configs/spec0001/non_eq_vae_debug_cpu.json \
   --checkpoint runs/local/spec0001-debug/checkpoints/step_000008.pt \
   --data synthetic \
   --split validation \
@@ -791,6 +1312,24 @@ PYTHONPATH=src uv run --locked --no-sync python -m eqvae.cli.artifacts \
   --output-dir runs/local/spec0001-artifacts
 ```
 
+Local synthetic benchmark schema smoke:
+
+```bash
+PYTHONPATH=src uv run --locked --no-sync python -m eqvae.cli.model_count \
+  --config configs/spec0001/non_eq_vae_debug_cpu.json \
+  --output runs/local/spec0001-runtime-benchmark/benchmark/model_count.json
+
+PYTHONPATH=src uv run --locked --no-sync python -m eqvae.cli.benchmark_runtime \
+  --config configs/spec0001/non_eq_vae_debug_cpu.json \
+  --data synthetic \
+  --device cpu \
+  --output-dir runs/local/spec0001-runtime-benchmark \
+  --run-name spec0001_cpu_runtime_benchmark \
+  --max-benchmark-rows 2 \
+  --warmup-steps 1 \
+  --measured-steps 2
+```
+
 Kaggle local scaffold checks:
 
 ```bash
@@ -804,7 +1343,7 @@ Kaggle debug command that the script kernel must run after implementation:
 
 ```bash
 python -m eqvae.cli.train \
-  --config configs/spec0001/non_eq_vae_kaggle_debug.yaml \
+  --config configs/spec0001/non_eq_vae_kaggle_debug.json \
   --data ubc-pre-shuffled \
   --data-root auto \
   --output-dir /kaggle/working \
@@ -818,12 +1357,48 @@ Kaggle runtime benchmark command that the script kernel must run before the
 first full run:
 
 ```bash
+python -m eqvae.cli.model_count \
+  --config configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json \
+  --output /kaggle/working/runtime_benchmark/benchmark/model_count.json
+
 python -m eqvae.cli.benchmark_runtime \
-  --config configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.yaml \
+  --config configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json \
   --data ubc-pre-shuffled \
   --data-root auto \
   --output-dir /kaggle/working/runtime_benchmark \
   --run-name non_eq_vae_spec0001_runtime_benchmark
+```
+
+Kaggle selected-runtime debug command that must run after
+`benchmark/selected_runtime.json` is written:
+
+```bash
+python -m eqvae.cli.train \
+  --config configs/spec0001/non_eq_vae_kaggle_debug.json \
+  --runtime-config /kaggle/working/runtime_benchmark/benchmark/selected_runtime.json \
+  --data ubc-pre-shuffled \
+  --data-root auto \
+  --output-dir /kaggle/working/selected_runtime_debug \
+  --run-name non_eq_vae_spec0001_selected_runtime_debug \
+  --max-train-steps 200 \
+  --max-val-steps 20 \
+  --save-every-steps 100
+```
+
+Kaggle tiny-overfit command that must pass before the first 10-epoch run:
+
+```bash
+python -m eqvae.cli.train \
+  --config configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json \
+  --runtime-config /kaggle/working/runtime_benchmark/benchmark/selected_runtime.json \
+  --data ubc-pre-shuffled \
+  --data-root auto \
+  --fixed-train-patches configs/spec0001/fixed_32_train_overfit_patches.json \
+  --output-dir /kaggle/working/tiny_overfit \
+  --run-name non_eq_vae_spec0001_tiny_overfit \
+  --max-train-steps 300 \
+  --max-val-steps 20 \
+  --save-every-steps 100
 ```
 
 Permission-gated remote check, not required for local implementation acceptance:
@@ -842,7 +1417,9 @@ The local implementation is complete when:
 1. all verification commands above pass;
 2. model construction is generated from the locked layer/channel schedule;
 3. banned-operation checks reject FSQ, PixelShuffle, nearest upsampling, 1x1
-   convs, grouped/depthwise convs, attention blocks, and normalization layers;
+   convs, learned grouped/depthwise convs, attention blocks, `BatchNorm2d`,
+   `LayerNorm`, and arbitrary representation-breaking normalization, while
+   requiring baseline `GroupNorm` in hidden/projection blocks;
 4. the data loader validates binary header, shape, dtype, patch count, required
    CSV columns, optional `idx`, and train/validation WSI non-overlap;
 5. the split validator checks exact train/validation patch counts, exact
@@ -858,32 +1435,46 @@ The local implementation is complete when:
    evaluator, and artifact writers;
 9. compile/precision smoke tests cover `torch.compile`, output shapes, and the
    configured float16 path without requiring a GPU;
-10. debug training completes from scratch and writes metrics, config, checkpoint,
+10. model tests verify that the final RGB head is zero-initialized, that the
+    initial reconstruction is all zeros within tolerance, and that the model
+    forward path contains no final `tanh`, sigmoid, or clamp;
+11. debug training completes from scratch and writes metrics, config, checkpoint,
    and RNG state;
-11. resume training restores checkpoint, optimizer, scheduler/beta state, and RNG
+12. resume training restores checkpoint, optimizer, scheduler/beta state, and RNG
    state;
-12. AMP skipped-step behavior is tested or exercised so skipped steps do not
+13. AMP skipped-step behavior is tested or exercised so skipped steps do not
     advance optimizer-step counters, LR/beta schedules, validation, or
     checkpoint cadence;
-13. the runtime benchmark CLI exists, runs on a tiny local synthetic budget, and
-    writes the expected schema without requiring GPU or network access;
-14. checkpoint retention keeps `best_model.pt`, the final checkpoint, and the
+14. the runtime benchmark CLI exists, runs on a tiny local synthetic budget, and
+    writes `benchmark/runtime_matrix.csv`, `benchmark/selected_runtime.json`,
+    `benchmark/model_count.json`, `benchmark/dataloader_matrix.csv`,
+    `benchmark/numerical_checks.csv`, `metrics/gate_health.csv`, and
+    `benchmark/gate_health_summary.json` with the expected schemas without
+    requiring GPU or network access;
+15. checkpoint retention keeps `best_model.pt`, the final checkpoint, and the
     latest four interval checkpoints;
-15. evaluator writes per-image SSIM, MAE, MSE, PSNR and summary mean/std/`n`
+16. evaluator writes per-image SSIM, MAE, MSE, PSNR and summary mean/std/`n`
     separately for `eval_clean` and fixed-seed `eval_corrupted`;
-16. artifact writer emits metric boxplots, dashboard, fixed 25-patch
+17. artifact writer emits metric boxplots, dashboard, fixed 25-patch
     reconstructions, rotated-input grids, rotated-input versus latent grids, and
     latent visualization placeholders or outputs;
-17. the fixed 25-patch config contains exactly 5 validation patches per label and
-    all future qualitative commands read it rather than resampling;
-18. Kaggle debug kernel runs bundled repo code through the CLI, not notebook
+18. offline selector tests use synthetic fixtures; the real
+    `fixed_25_validation_patches.json` and
+    `fixed_32_train_overfit_patches.json` generation are data-access steps that
+    must be run on the real validation/train CSVs before Kaggle debug/full runs;
+19. the fixed 25-patch config contains exactly 5 validation patches per label and
+    all future qualitative commands read it rather than resampling; the fixed
+    32-train tiny-overfit config contains exactly 32 train patches and no
+    validation rows;
+20. Kaggle debug kernel runs bundled repo code through the CLI, not notebook
     source or a GitHub-linked notebook;
-19. `scripts/kaggle_kernel.sh push` rejects wrong dataset slugs, historical FSQ
-    output sources, internet-enabled metadata, missing payloads, and placeholder
-    launchers;
-20. runs without the sealed masked-WSI test shard are labeled
+21. `scripts/kaggle_kernel.sh push` rejects wrong dataset slugs, historical FSQ
+    output sources, internet-enabled metadata, missing payloads, placeholder
+    launchers, missing or wrong benchmark `machine_shape`, and missing
+    single-visible versus dual-DDP launch-mode validation hooks;
+22. runs without the sealed masked-WSI test shard are labeled
     train/validation-only and excluded from final paper claims;
-21. `CURRENT.md`, `docs/specs/README.md`, and relevant workflow docs are updated
+23. `CURRENT.md`, `docs/specs/README.md`, and relevant workflow docs are updated
     with implementation status and verification results.
 
 ## Full Kaggle Run Acceptance Criteria
@@ -891,49 +1482,91 @@ The local implementation is complete when:
 The first 10-epoch Kaggle baseline is not ready until:
 
 1. local implementation acceptance passes;
-2. the user explicitly approves the remote Kaggle write/run;
-3. the short Kaggle runtime benchmark writes `benchmark/runtime_matrix.csv` and
-   `benchmark/selected_runtime.yaml`, including AMP off/on and compile off/on
-   evidence for single and dual T4;
-4. the selected single/dual T4, per-device/global batch, AMP, and compile config
-   is copied into the resolved full-run config;
-5. the baseline run uses the selected runtime config, validates/checkpoints every
+2. the read-only Kaggle API preflight
+   `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check` passes its
+   required auth/list/status/logs/dataset checks. If the quota endpoint warns,
+   verify GPU quota in the Kaggle web UI before approving the remote benchmark
+   push and record the warning in the run notes;
+3. the user explicitly approves the remote Kaggle write/run;
+4. the model-count command writes `benchmark/model_count.json` with status
+   `pass` before runtime selection;
+5. the short Kaggle runtime benchmark writes `benchmark/runtime_matrix.csv` and
+   `benchmark/selected_runtime.json`, including AMP off/on, compile off/on,
+   named precision-policy, and branchless-versus-indexed corruption evidence
+   for single and dual T4;
+6. the benchmark writes `benchmark/dataloader_matrix.csv` and
+   `benchmark/numerical_checks.csv`; the selected row must have dataloader,
+   numerical-check, and gate-health status `pass`;
+7. the selected single/dual T4, per-device/global batch, AMP, compile,
+   precision policy, and corruption strategy are copied into the resolved
+   full-run config;
+8. the gate-health benchmark writes `metrics/gate_health.csv` and
+   `benchmark/gate_health_summary.json` without non-finite gate values,
+   persistent near-total saturation, or unexplained near-zero hidden-block
+   output/input RMS;
+9. a selected-runtime real-data debug run completes 200 train steps, runs both
+   `eval_clean` and fixed-seed `eval_corrupted`, writes at least one checkpoint,
+   resumes once from that checkpoint, and emits nonblank fixed-patch artifacts;
+10. a selected-runtime tiny-overfit run on 32 fixed real patches writes
+   `benchmark/tiny_overfit_summary.json` with finite losses, final smoothed L1
+   and reconstruction loss at least 5 percent below their initial smoothed
+   values, PSNR or SSIM improved over the zero-head baseline, no pathological
+   `logvar_clamp_count`, and gate-health status not worse than `warn`;
+11. the baseline run uses the selected runtime config, validates/checkpoints every
    half epoch, and keeps the declared checkpoint retention.
 
 ## Open Questions And Gates
 
 Implementation-relock blockers:
 
-1. Final channel/future-field schedule: is the current `32x32x16` scalar latent
-   and 32/48/64/96 hidden schedule acceptable after parameter/FLOP counting?
-2. Final clean-context adversarial spec review must pass after the edits and
-   parameter/FLOP count are integrated.
-3. Strict quality-debt route must be explicit: either clean the historical
-   `main.py` / exploratory `src/nn` debt, move/quarantine it through an approved
-   spec without weakening global strictness, or make spec 0002 define the exact
-   accepted command boundary.
-4. Config parser/dependency policy must be locked, including whether a YAML
-   parser dependency is added or config format changes.
-5. Package/import policy must be locked enough that the verification commands
+1. Final channel/future-field schedule: the Conv2d baseline count is now
+   recorded in this spec. Before the `SO(2)` implementation is locked, the
+   steerable basis/count tool must show the future field multiplicities can stay
+   at or below the Conv2d baseline's learned parameter count without exceeding
+   the Kaggle memory budget.
+2. Implementation model-count artifact: the benchmark implementation must write
+   `benchmark/model_count.json` and verify the exact locked residual topology,
+   projection shortcuts, GroupNorm/activation gates, fixed binomial resampling
+   FLOPs, and zero-initialized RGB head against the analytic target above.
+3. Kaggle metadata enforcement: the workflow now records
+   `machine_shape = "NvidiaTeslaT4"` for the T4 benchmark kernel. The
+   implementation must enforce that metadata value before remote push and fail
+   `dual_t4_ddp` benchmark rows unless runtime CUDA/DDP telemetry proves two T4
+   devices and two ranks.
+4. Final clean-context adversarial spec review must pass after the edits and
+   implementation count, metadata, import, and quality routes are integrated.
+5. Strict quality-debt route must follow spec 0002's benchmark-unblock route:
+   extract any needed behavior into `src/eqvae`, remove/quarantine historical
+   `main.py` / exploratory `src/nn` without leaving importable `.py` debt,
+   remove the historical `pytorch-msssim` dependency, refresh `uv.lock`, and
+   keep global Ruff/BasedPyright strictness intact.
+6. JSON config/dependency policy must remain locked, or a later spec must
+   explicitly justify changing config format and dependencies.
+7. Package/import policy must be locked enough that the verification commands
    import `eqvae` without dependency sync.
-6. Fixed-25 selector generation and baseline rotated/latent artifact semantics
+8. Fixed-25 selector generation and baseline rotated/latent artifact semantics
    must remain exactly as specified above, or be revised before implementation.
 
 Full-run blockers after implementation:
 
 1. Runtime target: after the Kaggle benchmark matrix, should the full run use
    single GPU or dual T4 DDP, should AMP and/or `torch.compile` be enabled, and
-   what is the selected per-device/global batch size?
-2. The selected runtime must be written to `benchmark/selected_runtime.yaml` and
+   what are the selected precision policy, corruption execution strategy, and
+   per-device/global batch size?
+2. The selected runtime must be written to `benchmark/selected_runtime.json` and
    the resolved baseline config before the first 10-epoch Kaggle run.
+3. Gate-health target: the short benchmark/debug path must show that learned
+   gate `a,b` parameters do not create non-finite values, persistent saturation,
+   or hidden-block collapse before the first full run.
+4. Data/quality target: dataloader throughput, paired numerical checks,
+   selected-runtime debug, checkpoint/resume, and tiny-overfit summaries must all
+   pass before the first 10-epoch Kaggle run.
 
 ## Known Risks
 
-- The first implementation may train less stably without normalization. Do not
-  add normalization ad hoc; write a follow-up normalization spec if needed.
 - The future radial gate can suppress vector/irrep copies if initialized poorly.
-  Initialize it near pass-through and test gradient flow before the `SO(2)`
-  model depends on it.
+  Initialize it with the accepted Swish-like `a=1,b=0` convention and test
+  gradient flow before the `SO(2)` model depends on it.
 - CPU float16 behavior can differ from Kaggle GPU float16 behavior. Local smoke
   checks are a contract test, not a replacement for Kaggle debug training.
 - The target sealed test slug may need to change before upload. If it changes,
