@@ -78,6 +78,14 @@ from eqvae.data.synthetic import (
     synthetic_patch_records,
     write_synthetic_patch_shard,
 )
+from eqvae.data.training_batches import (
+    PatchTrainingBatch,
+    PatchTrainingDataset,
+    PatchTrainingDatasetSpec,
+    PatchTrainingSample,
+    collate_patch_training_samples,
+    semantic_key_for_record,
+)
 
 __all__ = [
     "DATA_ROOT_ENV_VAR",
@@ -113,6 +121,10 @@ __all__ = [
     "PatchSplitPaths",
     "PatchTensorDataset",
     "PatchTensorDatasetSpec",
+    "PatchTrainingBatch",
+    "PatchTrainingDataset",
+    "PatchTrainingDatasetSpec",
+    "PatchTrainingSample",
     "SelectorKind",
     "SelectorStatus",
     "SplitStatus",
@@ -121,6 +133,7 @@ __all__ = [
     "SplitValidationOptions",
     "SplitValidationResult",
     "SyntheticPatchSpec",
+    "collate_patch_training_samples",
     "compute_patch_payload_crc",
     "expected_count_for_kind",
     "generate_fixed_selector_document",
@@ -136,6 +149,7 @@ __all__ = [
     "resolve_patch_data_paths",
     "selection_key_sha256",
     "selector_seed_for_kind",
+    "semantic_key_for_record",
     "summarize_records",
     "synthetic_patch_ids",
     "synthetic_patch_records",

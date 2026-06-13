@@ -1,7 +1,7 @@
 # Kaggle CLI Workflow
 
-Status: draft workflow scaffold
-Last updated: 2026-06-10
+Status: draft workflow scaffold; narrow capped smoke path ready after permission
+Last updated: 2026-06-13
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
 source of truth for experiment code, specs, configs, and paper-facing claims.
@@ -25,8 +25,10 @@ The first CLI-managed script-kernel scaffold lives in:
 kaggle/kernels/non_eq_vae_debug
 ```
 
-It is not push-ready yet. It intentionally exits until the real spec 0001
-launcher replaces the placeholder.
+It now launches only the capped `kaggle_smoke_ready` debug path. That path is
+allowed to run at most three train steps and one clean-validation batch, writes
+`benchmark/kaggle_smoke.json`, and keeps `full_run_eligible = false`. It is not
+runtime selection, convergence evidence, a full benchmark, or a full run.
 
 Spec 0001 runtime benchmarking requires two accelerator modes:
 
@@ -115,6 +117,20 @@ The generated `kaggle/kernels/*/payload/` directory is ignored and must be
 rebuilt from source before remote pushes. Payload metadata includes both
 `pyproject.toml` and `uv.lock`; spec 0001 kernels must not resolve or install
 dependencies on Kaggle unless a later spec explicitly changes that rule.
+
+For the current capped smoke, the intended remote sequence is:
+
+```bash
+./scripts/kaggle_kernel.sh build
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check
+KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output
+```
+
+Run those remote commands only after explicit user permission. A successful
+smoke should produce `benchmark/kaggle_smoke.json` with `status =
+"smoke_pass"` and `full_run_eligible = false`.
 
 Check whether the Kaggle CLI is installed and whether local metadata is valid:
 

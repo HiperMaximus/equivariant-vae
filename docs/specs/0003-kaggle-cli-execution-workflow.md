@@ -1,7 +1,8 @@
 # Spec 0003: Kaggle CLI Execution Workflow
 
 Status: draft active workflow scaffold
-Implementation readiness: local scaffold only; not Kaggle-push-ready
+Implementation readiness: narrow capped smoke push path ready after permission;
+full benchmark/full-run launchers are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-06
 
@@ -19,8 +20,10 @@ scaffolded script kernels through the Kaggle API.
 - Do not use Kaggle as a Git remote.
 - Do not require Kaggle's GitHub-linked notebook UI workflow.
 - Do not edit the historical FSQ notebooks as the new baseline source.
-- Do not push a real training kernel before the spec 0001 launcher is
-  implemented and locally verified.
+- Do not push a full training or runtime-benchmark kernel before the spec 0001
+  launcher is implemented and locally verified. The only current exception is
+  the capped `kaggle_smoke_ready` debug script, which runs at most three train
+  steps and one clean-validation batch and writes non-promotable smoke evidence.
 - Do not commit Kaggle credentials, API tokens, output datasets, checkpoints, or
   run artifacts.
 
@@ -77,8 +80,10 @@ The current scaffold kernel is:
 kaggle/kernels/non_eq_vae_debug
 ```
 
-It is intentionally not push-ready. The placeholder script exits immediately
-until the real spec 0001 launcher replaces the placeholder.
+It now contains the narrow capped smoke launcher only. It is push-ready only for
+the `kaggle_smoke_ready` debug smoke after explicit user permission,
+`KAGGLE_PUSH_CONFIRMED=1`, and a rebuilt payload. It is not a full benchmark or
+full-run launcher.
 
 ## Kaggle Authentication Contract
 
@@ -137,11 +142,22 @@ This workflow scaffold is complete when:
 6. `runs/` is ignored for downloaded Kaggle outputs;
 7. `CURRENT.md` records that the scaffold exists but is not push-ready.
 
-This workflow becomes Kaggle-push-ready only after:
+This workflow becomes Kaggle-push-ready for the narrow capped smoke only after:
+
+1. spec 0001 and the spec index contain `kaggle_smoke_ready`;
+2. the smoke script kernel has `KAGGLE_SMOKE_READY = True`;
+3. `./scripts/kaggle_kernel.sh build` has copied the current `src/eqvae`,
+   `configs/spec0001`, `pyproject.toml`, and `uv.lock` into the ignored payload;
+4. local smoke tests and the production Python quality gate pass;
+5. `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check` passes the
+   read-only checks or records only the known quota/files warnings;
+6. the user explicitly approves the remote write/run.
+
+The full benchmark/full-run workflow becomes Kaggle-push-ready only after:
 
 1. spec 0001 is locked as implementation-ready;
 2. the spec 0001 code/config payload is built into the kernel folder;
-3. the placeholder guard is removed from `run.py`;
+3. a full benchmark/full-run launcher replaces the capped smoke launcher;
 4. local spec 0001 verification passes;
 5. for benchmark kernels, metadata validation requires
    `machine_shape == "NvidiaTeslaT4"` and the safe `single_visible_t4` versus

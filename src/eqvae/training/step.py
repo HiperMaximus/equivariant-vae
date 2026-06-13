@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class TrainStepRequest:
-    """Inputs for one identity-clean local optimizer update."""
+    """Inputs for one optimizer update."""
 
     model: NonEquivariantVAE
     optimizer: torch.optim.Optimizer
@@ -32,6 +32,7 @@ class TrainStepRequest:
     ssim_weight: float
     optimizer_step_index: int
     gradient_clip_global_norm: float
+    input_batch: torch.Tensor | None = None
 
 
 @dataclass(frozen=True)
@@ -51,7 +52,7 @@ class TrainStepResult:
 
 
 def run_train_step(request: TrainStepRequest) -> TrainStepResult:
-    """Run one identity-clean local training step.
+    """Run one local training step.
 
     Returns:
         Train-step telemetry from the successful update.
@@ -72,10 +73,16 @@ def run_train_step(request: TrainStepRequest) -> TrainStepResult:
             f"{request.gradient_clip_global_norm}"
         )
         raise ValueError(message)
+    model_input = (
+        request.clean_batch if request.input_batch is None else request.input_batch
+    )
+    if tuple(model_input.shape) != tuple(request.clean_batch.shape):
+        message = "input_batch and clean_batch must have the same shape"
+        raise ValueError(message)
 
     request.optimizer.zero_grad(set_to_none=True)
     output: VaeForwardOutput = request.model.forward(
-        request.clean_batch,
+        model_input,
         eps=request.eps,
     )
     losses = compute_vae_loss(

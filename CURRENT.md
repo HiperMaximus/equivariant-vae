@@ -69,7 +69,13 @@ Strict Python quality is also an active workflow via
 Kaggle CLI execution is scaffolded via
 `docs/specs/0003-kaggle-cli-execution-workflow.md`,
 `docs/kaggle_cli_workflow.md`, `scripts/kaggle_kernel.sh`, and
-`kaggle/kernels/non_eq_vae_debug`.
+`kaggle/kernels/non_eq_vae_debug`. The debug kernel now contains only the
+narrow capped `kaggle_smoke_ready` launcher: it runs bundled repo code from the
+ignored payload, resolves the pre-shuffled UBC dataset, carries sample metadata
+for deterministic HED corruption, executes at most three train steps and one
+clean-validation batch, and writes non-promotable
+`benchmark/kaggle_smoke.json`. It is not runtime selection, convergence
+evidence, a full benchmark, or a full run.
 The Kaggle behavior inventory now lives at
 `docs/behavior_inventory_kaggle.md`. Dataset slugs were confirmed through the
 Kaggle CLI, and the debug kernel metadata now points at
@@ -179,13 +185,17 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: the HED/stain corruptor local correctness/QA slice is
-implemented and verified as `corruption_ready`. The next safe slice is a
-spec-lock pass for training integration and data-metadata plumbing: decide how
-the trainer will carry semantic sample keys/masks alongside tensor batches,
-where corruption metadata is logged, and how fixed real 25-patch visual QA is
-generated before the first Kaggle baseline run. Do not start Kaggle remote
-execution, Overleaf work, broad real training/resume, or paper claims. The
+Immediate next action: the capped Kaggle smoke is locally prepared as
+`kaggle_smoke_ready` and the ignored payload was rebuilt with
+`./scripts/kaggle_kernel.sh build`. If the user wants to send the tiny smoke to
+Kaggle, first run the read-only API preflight with explicit permission:
+`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check`; then, only
+after explicit remote-write approval, run
+`KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push`. After the remote run,
+use permission-gated `status`/`output` commands to retrieve
+`benchmark/kaggle_smoke.json` and check for `status = "smoke_pass"` and
+`full_run_eligible = false`. Do not start Overleaf work, broad real
+training/resume, runtime selection, or paper claims. The
 data/metrics, selector/dataloader, and local benchmark pre-test contracts are
 recorded in spec 0001, and the local benchmark pre-test is now
 `local_benchmark_pretest_ready`. The local implementation already exists under
@@ -647,6 +657,26 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `/tmp/eqvae-local-stain-corruptor-qa/benchmark/stain_corruptor_qa.json`
   with `status = "local_pass"`/`full_run_eligible = false`, and full
   `./scripts/python_quality.sh` with 72 tests and 0 BasedPyright errors.
+- 2026-06-13 capped Kaggle smoke prep: added
+  `src/eqvae/data/training_batches.py`, `src/eqvae/benchmarking/kaggle_smoke.py`,
+  `src/eqvae/cli/kaggle_smoke.py`, a smoke-only
+  `kaggle/kernels/non_eq_vae_debug/run.py`, and
+  `tests/test_kaggle_smoke.py`. `PatchTensorDataset` remains tensor-only for
+  throughput evidence; `PatchTrainingDataset` carries metadata for corruption
+  RNG and metric/artifact provenance. `TrainStepRequest` now accepts optional
+  `input_batch` so the model can consume `corrupt(x_clean)` while the loss
+  targets `x_clean`. The Kaggle debug config is capped at three train steps and
+  one clean-validation batch with `full_run_eligible = false`. Focused Ruff,
+  focused BasedPyright, focused pytest with 2 tests, `bash -n
+  scripts/kaggle_kernel.sh`, metadata JSON validation, `kaggle_kernel.sh
+  validate`, `kaggle_kernel.sh build`, and full `./scripts/python_quality.sh`
+  passed; the full Python gate now has 74 tests and 0 BasedPyright errors.
+  The built `kaggle/kernels/non_eq_vae_debug/run.py` entrypoint also ran
+  locally against tiny synthetic 256-pixel UBC-format shards and wrote
+  `/tmp/eqvae-kaggle-smoke-entry-run/benchmark/kaggle_smoke.json` with
+  `status = "smoke_pass"` and `full_run_eligible = false`.
+  `./scripts/agent_preflight.sh` passed before handoff, noting only the
+  expected dirty worktree.
 
 ## Update Rule
 

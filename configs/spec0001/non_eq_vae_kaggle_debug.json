@@ -1,6 +1,6 @@
 {
   "schema_version": "spec0001.v0",
-  "status": "scaffold_not_remote_push_ready",
+  "status": "kaggle_smoke_ready",
   "run": {
     "name": "non_eq_vae_spec0001_kaggle_debug",
     "mode": "kaggle_debug"
@@ -14,7 +14,18 @@
   "runtime": {
     "machine_shape": "NvidiaTeslaT4",
     "remote_execution_requires_permission": true,
-    "selected_runtime_required": true
+    "selected_runtime_required": false
+  },
+  "kaggle_smoke": {
+    "benchmark_kind": "real_data_kaggle_debug_smoke",
+    "benchmark_source": "kaggle_script_kernel_capped_smoke",
+    "full_run_eligible": false,
+    "batch_size": 1,
+    "max_train_steps": 3,
+    "max_validation_batches": 1,
+    "num_workers": 0,
+    "validate_crc": false,
+    "corruption_view": "train_corrupted_kaggle_smoke"
   },
   "training": {
     "max_train_steps": 200,

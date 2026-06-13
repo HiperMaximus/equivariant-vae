@@ -129,7 +129,7 @@ As of 2026-06-12:
 - `scripts/python_quality.sh` runs pytest with `PYTHONPATH=src`, matching the
   spec 0001 local import policy while the repo has no packaging backend.
 - The latest `./scripts/python_quality.sh` run passed: Ruff format/check,
-  pytest with 72 tests, and BasedPyright with 0 errors.
+  pytest with 74 tests, and BasedPyright with 0 errors.
 - `pytorch-msssim` is no longer a direct dependency; any missing-import/type
   noise caused by its remaining reference-only import in `src/nn` is part of
   the same retained historical debt, not a reason to re-add the dependency.

@@ -8,7 +8,8 @@ data/metrics slice is implemented as `data_metrics_ready`; narrow local
 selector/dataloader slice is implemented as `fixed_selectors_dataloader_ready`;
 narrow local CPU dataloader pre-test is `local_benchmark_pretest_ready`;
 narrow model/loss local train-step pre-test is `model_loss_train_step_ready`;
-the HED/stain corruption local correctness/QA slice is `corruption_ready`
+the HED/stain corruption local correctness/QA slice is `corruption_ready`;
+the narrow capped Kaggle smoke is `kaggle_smoke_ready`
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-13
 
@@ -139,6 +140,19 @@ Kaggle, touch Overleaf, or make paper claims. The first real training run must
 use the locked HED corruptor after training integration and fixed real-patch
 visual QA are completed; `identity_clean_no_corruption` remains valid only for
 the already completed local model/loss train-step smoke.
+
+Capped Kaggle smoke implementation, 2026-06-13: this spec now authorizes only
+the narrow `kaggle_smoke_ready` remote-debug slice. It adds a metadata-carrying
+training dataset/collate path, keeps the existing `PatchTensorDataset`
+tensor-only for throughput evidence, lets `run_train_step` use
+`input_batch = corrupt(x_clean)` with clean targets, and adds a capped smoke CLI
+that runs at most three real-data train steps plus one clean-validation batch
+from `configs/spec0001/non_eq_vae_kaggle_debug.json`. The smoke writes
+`benchmark/kaggle_smoke.json` with `status = "smoke_pass"` and
+`full_run_eligible = false`; it is not runtime selection, not convergence
+evidence, not a full training run, and not paper evidence. Remote execution
+still requires explicit user permission, `KAGGLE_PUSH_CONFIRMED=1` for the push,
+and the read-only Kaggle API preflight before/after as appropriate.
 
 ## Purpose
 
@@ -1261,6 +1275,10 @@ Runtime benchmark requirement before the first full Kaggle run:
     `status = "local_pass"` and `full_run_eligible = false`, passed focused and
     full production-scope quality checks, and remains blocked from Kaggle use
     until fixed real 25-patch visual QA is generated;
+  - `kaggle_smoke_ready`: the capped real-data smoke launcher has run locally on
+    synthetic UBC-format shards, the Kaggle debug config caps execution at three
+    train steps and one clean-validation batch, the script kernel payload can be
+    built locally, and remote push remains permission-gated and non-promotable;
   - `benchmark_cli_implementation_ready`: local benchmark CLIs instantiate real
     code, `benchmark/model_count.json` has `status = "pass"` from an
     instantiated model, the `data_metrics_ready`, selector/dataloader,
@@ -2892,7 +2910,10 @@ authorized slices have been implemented and:
    schema validation, synthetic visual QA artifact generation, and fixed real
    25-patch visual QA before the first Kaggle baseline run;
 8. CPU smoke tests instantiate data, model, corruption, loss, optimizer,
-   evaluator, and artifact writers;
+   evaluator, and artifact writers. The narrow `kaggle_smoke_ready` path
+   specifically tests metadata-carrying UBC-format batches and writes
+   non-promotable `benchmark/kaggle_smoke.json` after one local synthetic train
+   step and one clean-validation batch;
 9. compile/precision smoke tests cover `torch.compile`, output shapes, and the
    configured float16 path without requiring a GPU;
 10. model tests verify that the final RGB head is zero-initialized, that the
@@ -3003,20 +3024,25 @@ Implementation-relock blockers:
    corruption still needs training integration, selected-runtime corruption
    checks, and fixed real 25-patch visual QA before the first Kaggle baseline
    run. The first real training run must use this corruptor.
-4. Kaggle metadata enforcement: the workflow now records
+4. Capped Kaggle smoke status: the narrow `kaggle_smoke_ready` launcher is
+   implemented for a tiny real-data smoke only. It may be pushed/run only after
+   explicit user permission and read-only API preflight. It does not satisfy
+   selected-runtime debug, runtime benchmark, tiny-overfit, fixed real visual QA,
+   or full-run acceptance.
+5. Kaggle metadata enforcement: the workflow now records
    `machine_shape = "NvidiaTeslaT4"` for the T4 benchmark kernel. The
    implementation must enforce that metadata value before remote push and fail
    `dual_t4_ddp` benchmark rows unless runtime CUDA/DDP telemetry proves two T4
    devices and two ranks.
-5. Final clean-context adversarial spec review must pass after the edits and
+6. Final clean-context adversarial spec review must pass after the edits and
    implementation count, metadata, import, and quality routes are integrated.
-6. Strict quality route must follow spec 0002's production-boundary decision:
+7. Strict quality route must follow spec 0002's production-boundary decision:
    extract any needed behavior into `src/eqvae`, keep the removed
    `pytorch-msssim` dependency out of active dependency truth, exclude
    historical `src/nn` from production Ruff/BasedPyright scopes, and forbid
    active code from importing `src.nn`. Keep global Ruff/BasedPyright strictness
    intact.
-7. JSON config/dependency policy must remain locked, or a later spec must
+8. JSON config/dependency policy must remain locked, or a later spec must
    explicitly justify changing config format and dependencies.
 8. Package/import policy must be locked enough that the verification commands
    import `eqvae` without dependency sync.

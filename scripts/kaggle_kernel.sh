@@ -173,16 +173,29 @@ EOF
     exit 1
   fi
 
-  if ! grep -Eq '^Implementation readiness: (locked / implementation-ready|implementation-ready|ready)$' \
-    "docs/specs/0001-translatable-normal-vae-baseline.md"; then
-    echo "error: spec 0001 is not locked as implementation-ready" >&2
-    exit 1
-  fi
+  if grep -q "KAGGLE_SMOKE_READY = True" "$kernel_dir/$code_file"; then
+    if ! grep -q 'kaggle_smoke_ready' \
+      "docs/specs/0001-translatable-normal-vae-baseline.md"; then
+      echo "error: spec 0001 does not authorize the narrow Kaggle smoke" >&2
+      exit 1
+    fi
+    if ! grep -Eq '^\| `0001-translatable-normal-vae-baseline\.md` \|[^|]*kaggle smoke is `kaggle_smoke_ready`' \
+      "docs/specs/README.md"; then
+      echo "error: spec index does not authorize the narrow Kaggle smoke" >&2
+      exit 1
+    fi
+  else
+    if ! grep -Eq '^Implementation readiness: (locked / implementation-ready|implementation-ready|ready)$' \
+      "docs/specs/0001-translatable-normal-vae-baseline.md"; then
+      echo "error: spec 0001 is not locked as implementation-ready" >&2
+      exit 1
+    fi
 
-  if ! grep -Eq '^\| `0001-translatable-normal-vae-baseline\.md` \|[^|]*locked / implementation-ready' \
-    "docs/specs/README.md"; then
-    echo "error: spec 0001 is not locked as implementation-ready in docs/specs/README.md" >&2
-    exit 1
+    if ! grep -Eq '^\| `0001-translatable-normal-vae-baseline\.md` \|[^|]*locked / implementation-ready' \
+      "docs/specs/README.md"; then
+      echo "error: spec 0001 is not locked as implementation-ready in docs/specs/README.md" >&2
+      exit 1
+    fi
   fi
 
   python3 - "$metadata" <<'PY'
