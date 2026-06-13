@@ -153,6 +153,12 @@ from `configs/spec0001/non_eq_vae_kaggle_debug.json`. The smoke writes
 evidence, not a full training run, and not paper evidence. Remote execution
 still requires explicit user permission, `KAGGLE_PUSH_CONFIRMED=1` for the push,
 and the read-only Kaggle API preflight before/after as appropriate.
+This real-data smoke intentionally attaches
+`maximusshtefan/patches-pre-shuffled-ubc-ocean`; it is therefore not the right
+tool for setup-only Kaggle plumbing tests. A future setup-only smoke should use
+empty `dataset_sources`, generate tiny synthetic UBC-format shards inside
+`/kaggle/working`, record a distinct synthetic/setup-only status and source, and
+remain non-promotable.
 
 ## Purpose
 
@@ -3028,7 +3034,9 @@ Implementation-relock blockers:
    implemented for a tiny real-data smoke only. It may be pushed/run only after
    explicit user permission and read-only API preflight. It does not satisfy
    selected-runtime debug, runtime benchmark, tiny-overfit, fixed real visual QA,
-   or full-run acceptance.
+   or full-run acceptance. Do not use this real-data smoke for setup-only
+   kernel plumbing checks; add a synthetic no-dataset setup smoke first when
+   the goal is only to validate Kaggle packaging/API/artifact plumbing.
 5. Kaggle metadata enforcement: the workflow now records
    `machine_shape = "NvidiaTeslaT4"` for the T4 benchmark kernel. The
    implementation must enforce that metadata value before remote push and fail

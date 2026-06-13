@@ -153,6 +153,14 @@ This workflow becomes Kaggle-push-ready for the narrow capped smoke only after:
    read-only checks or records only the known quota/files warnings;
 6. the user explicitly approves the remote write/run.
 
+The 2026-06-13 real-data smoke push showed that even a three-step script can
+spend substantial time in Kaggle setup when it attaches the 60 GB+
+`patches-pre-shuffled-ubc-ocean` dataset. Before the next setup-only remote
+test, add a distinct synthetic setup-smoke path: no `dataset_sources`, no real
+dataset attachment, tiny synthetic UBC-format shards generated under
+`/kaggle/working`, and a separate non-promotable status/source. Keep the
+current dataset-source guard for real-data smoke and benchmark kernels.
+
 The full benchmark/full-run workflow becomes Kaggle-push-ready only after:
 
 1. spec 0001 is locked as implementation-ready;

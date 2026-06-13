@@ -196,8 +196,12 @@ version or start a broader run until this smoke resolves. Next, poll with
 `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status`; when complete,
 retrieve outputs with `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh
 output` and check `benchmark/kaggle_smoke.json` for
-`status = "smoke_pass"` and `full_run_eligible = false`. Do not start Overleaf
-work, broad real training/resume, runtime selection, or paper claims. The
+`status = "smoke_pass"` and `full_run_eligible = false`. For the next
+setup-only Kaggle test, do not attach the real 60 GB+ dataset; add a synthetic
+no-dataset setup smoke that generates tiny UBC-format shards in
+`/kaggle/working` and records separate non-promotable setup evidence. Do not
+start Overleaf work, broad real training/resume, runtime selection, or paper
+claims. The
 data/metrics, selector/dataloader, and local benchmark pre-test contracts are
 recorded in spec 0001, and the local benchmark pre-test is now
 `local_benchmark_pretest_ready`. The local implementation already exists under
@@ -693,6 +697,14 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `Kernel version 1 successfully pushed`. Read-only status polls currently show
   `KernelWorkerStatus.RUNNING`; read-only logs are empty so far, consistent
   with Kaggle setup/dataset attachment before script output.
+- 2026-06-13 remote-smoke workflow correction: setup-only Kaggle tests should
+  not attach `maximusshtefan/patches-pre-shuffled-ubc-ocean`, because Kaggle may
+  spend a long time preparing the 60 GB+ dataset before a capped script starts.
+  Add a separate synthetic setup smoke before the next plumbing-only push; it
+  should use empty `dataset_sources`, generate tiny synthetic UBC-format shards
+  in `/kaggle/working`, write distinct non-promotable setup evidence, and leave
+  the real-data dataset-source guard intact for real-data smoke/benchmark
+  kernels.
 
 ## Update Rule
 

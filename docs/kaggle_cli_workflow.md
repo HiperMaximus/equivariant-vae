@@ -132,6 +132,17 @@ Run those remote commands only after explicit user permission. A successful
 smoke should produce `benchmark/kaggle_smoke.json` with `status =
 "smoke_pass"` and `full_run_eligible = false`.
 
+Important correction from the 2026-06-13 debug push: use this real-data smoke
+only when intentionally testing Kaggle dataset attachment plus UBC shard
+resolution. The `patches-pre-shuffled-ubc-ocean` source is larger than 60 GB,
+so Kaggle may spend a long time preparing the environment before the capped
+script starts. For setup-only tests of the API, script-kernel payload, imports,
+and artifact writing, add a separate synthetic setup smoke with empty
+`dataset_sources`, no real dataset attachment, and tiny synthetic UBC-format
+shards generated inside `/kaggle/working`. That synthetic setup smoke must use
+a distinct status/source and must never be promoted to real-data benchmark
+evidence.
+
 Check whether the Kaggle CLI is installed and whether local metadata is valid:
 
 ```bash
@@ -205,10 +216,13 @@ shard. Final evaluation needs a separate sealed test dataset/source from the
 UBC-OCEAN WSIs with supplemental masks. Those masks are non-exhaustive and should
 not be interpreted as full-WSI negative/positive coverage.
 
-The push wrapper refuses remote writes while `dataset_sources` is empty, while
-the placeholder guard remains, while the bundled payload is missing, while the
+For the current real-data smoke and future real-data benchmark kernels, the
+push wrapper refuses remote writes while `dataset_sources` is empty, while the
+placeholder guard remains, while the bundled payload is missing, while the
 dataset slug differs from `maximusshtefan/patches-pre-shuffled-ubc-ocean`, or
-while spec 0001 and the spec index are not marked `locked / implementation-ready`.
+while spec 0001 and the spec index are not marked with the appropriate
+readiness label. A future synthetic setup-smoke path must use a separate guard
+branch so this real-data dataset requirement is not accidentally weakened.
 
 For spec 0001 benchmark kernels, the wrapper or metadata validation must require
 `machine_shape == "NvidiaTeslaT4"` and the single-visible versus dual-DDP launch
