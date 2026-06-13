@@ -185,17 +185,19 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: the capped Kaggle smoke is locally prepared as
-`kaggle_smoke_ready` and the ignored payload was rebuilt with
-`./scripts/kaggle_kernel.sh build`. If the user wants to send the tiny smoke to
-Kaggle, first run the read-only API preflight with explicit permission:
-`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check`; then, only
-after explicit remote-write approval, run
-`KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push`. After the remote run,
-use permission-gated `status`/`output` commands to retrieve
-`benchmark/kaggle_smoke.json` and check for `status = "smoke_pass"` and
-`full_run_eligible = false`. Do not start Overleaf work, broad real
-training/resume, runtime selection, or paper claims. The
+Immediate next action: the capped Kaggle smoke was pushed to
+`maximusshtefan/non-eq-vae-debug` on 2026-06-13 with
+`KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push` after a read-only
+API preflight and local payload rebuild. Kaggle reported `Kernel version 1
+successfully pushed`; subsequent read-only status polls showed
+`KernelWorkerStatus.RUNNING`, likely while attaching the large
+`maximusshtefan/patches-pre-shuffled-ubc-ocean` dataset. Do not push another
+version or start a broader run until this smoke resolves. Next, poll with
+`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status`; when complete,
+retrieve outputs with `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh
+output` and check `benchmark/kaggle_smoke.json` for
+`status = "smoke_pass"` and `full_run_eligible = false`. Do not start Overleaf
+work, broad real training/resume, runtime selection, or paper claims. The
 data/metrics, selector/dataloader, and local benchmark pre-test contracts are
 recorded in spec 0001, and the local benchmark pre-test is now
 `local_benchmark_pretest_ready`. The local implementation already exists under
@@ -677,6 +679,20 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `status = "smoke_pass"` and `full_run_eligible = false`.
   `./scripts/agent_preflight.sh` passed before handoff, noting only the
   expected dirty worktree.
+- 2026-06-13 capped Kaggle smoke remote launch: read-only
+  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check` passed for
+  auth, debug-kernel status/log access, and dataset file listing, with the
+  expected quota/files endpoint warnings. The first push attempt was blocked
+  locally before any remote write because the push guard lowercased the
+  case-sensitive `machine_shape = "NvidiaTeslaT4"` value; `scripts/kaggle_kernel.sh`
+  was fixed to lowercase only boolean-like metadata values and to make
+  `api-check` derive the debug kernel ID from `kernel-metadata.json` instead of
+  probing the old `maximusshtefan/non-eq-vae` kernel. After
+  `./scripts/kaggle_kernel.sh build`, the approved remote write
+  `KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push` succeeded with
+  `Kernel version 1 successfully pushed`. Read-only status polls currently show
+  `KernelWorkerStatus.RUNNING`; read-only logs are empty so far, consistent
+  with Kaggle setup/dataset attachment before script output.
 
 ## Update Rule
 

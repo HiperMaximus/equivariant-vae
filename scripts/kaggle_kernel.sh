@@ -216,7 +216,9 @@ required_values = {
 }
 
 for key, expected in required_values.items():
-    if str(data.get(key, "")).lower() != expected:
+    actual = str(data.get(key, ""))
+    comparable = actual.lower() if expected in {"true", "false"} else actual
+    if comparable != expected:
         errors.append(f"{key} must be {expected!r}")
 
 dataset_sources = data.get("dataset_sources")
@@ -270,6 +272,8 @@ EOF
 api_check() {
   require_remote_confirmed
   require_kaggle_cli
+  local kernel_id
+  kernel_id="$(kernel_id_from_metadata "$default_kernel_dir")"
 
   echo "Kaggle API read-only preflight"
   echo "=============================="
@@ -278,14 +282,14 @@ api_check() {
   kaggle auth print-access-token >/dev/null
   echo "ok: OAuth access token can be generated"
 
-  kaggle kernels list --mine --search non-eq-vae --csv >/dev/null
-  echo "ok: kernels list can see non-eq-vae"
+  kaggle kernels list --mine --search "${kernel_id#*/}" --csv >/dev/null
+  echo "ok: kernels list can see $kernel_id"
 
-  kaggle kernels status maximusshtefan/non-eq-vae >/dev/null
-  echo "ok: kernels status works for maximusshtefan/non-eq-vae"
+  kaggle kernels status "$kernel_id" >/dev/null
+  echo "ok: kernels status works for $kernel_id"
 
-  kaggle kernels logs maximusshtefan/non-eq-vae >/dev/null
-  echo "ok: kernels logs works for maximusshtefan/non-eq-vae"
+  kaggle kernels logs "$kernel_id" >/dev/null
+  echo "ok: kernels logs works for $kernel_id"
 
   kaggle datasets files maximusshtefan/patches-pre-shuffled-ubc-ocean -v >/dev/null
   echo "ok: dataset file listing works for patches-pre-shuffled-ubc-ocean"
@@ -296,7 +300,7 @@ api_check() {
     echo "warn: accelerator quota endpoint failed; verify quota in Kaggle UI before remote benchmark push" >&2
   fi
 
-  if kaggle kernels files maximusshtefan/non-eq-vae -v >/dev/null 2>&1; then
+  if kaggle kernels files "$kernel_id" -v >/dev/null 2>&1; then
     echo "ok: kernels files endpoint works"
   else
     echo "warn: kernels files endpoint failed; status/logs still work, but source-file introspection is unavailable" >&2
