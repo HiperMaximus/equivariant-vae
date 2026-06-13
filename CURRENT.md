@@ -20,8 +20,9 @@ FSQ-successor spatial-coherence goal, that the historical HED corruptor must not
 be copied as-is, and that the benchmark specs were directionally right but not
 implementation-ready until launch topology, schemas, thresholds, dataloader
 throughput, paired numerical checks, selected-runtime debug, and tiny-overfit
-gates were made explicit. A local Kaggle CLI execution scaffold now exists, but
-it is not Kaggle-push-ready.
+    gates were made explicit. A local Kaggle CLI execution scaffold now exists; it
+    is not broad/full-run Kaggle-push-ready, though a narrow capped real-data smoke
+    version was pushed on 2026-06-13 and is still awaiting final remote output.
 
 Spec-driven development is now an active repo workflow. The first active spec is
 `docs/specs/0001-translatable-normal-vae-baseline.md`, now reopened as
@@ -195,13 +196,16 @@ successfully pushed`; subsequent read-only status polls showed
 version or start a broader run until this smoke resolves. Next, poll with
 `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status`; when complete,
 retrieve outputs with `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh
-output` and check `benchmark/kaggle_smoke.json` for
-`status = "smoke_pass"` and `full_run_eligible = false`. For the next
-setup-only Kaggle test, do not attach the real 60 GB+ dataset; add a synthetic
-no-dataset setup smoke that generates tiny UBC-format shards in
-`/kaggle/working` and records separate non-promotable setup evidence. Do not
-start Overleaf work, broad real training/resume, runtime selection, or paper
-claims. The
+output`. This pushed version predates the adversarial hardening that now
+requires hard caps, at least one applied corruption, nonzero input-target delta,
+nonzero update counts, T4 runtime for real-data smoke, payload-manifest
+provenance, and explicit data-integrity status; therefore any v1 output is
+preliminary only and must not be promoted as accepted smoke evidence unless it
+is rerun with the hardened payload. For the next setup-only Kaggle test, do not
+attach the real 60 GB+ dataset; add a synthetic no-dataset setup smoke that
+generates tiny UBC-format shards in `/kaggle/working` and records separate
+non-promotable setup evidence. Do not start Overleaf work, broad real
+training/resume, runtime selection, or paper claims. The
 data/metrics, selector/dataloader, and local benchmark pre-test contracts are
 recorded in spec 0001, and the local benchmark pre-test is now
 `local_benchmark_pretest_ready`. The local implementation already exists under
@@ -676,11 +680,15 @@ The review process lives in `docs/agentic_review_workflow.md`.
   focused BasedPyright, focused pytest with 2 tests, `bash -n
   scripts/kaggle_kernel.sh`, metadata JSON validation, `kaggle_kernel.sh
   validate`, `kaggle_kernel.sh build`, and full `./scripts/python_quality.sh`
-  passed; the full Python gate now has 74 tests and 0 BasedPyright errors.
-  The built `kaggle/kernels/non_eq_vae_debug/run.py` entrypoint also ran
-  locally against tiny synthetic 256-pixel UBC-format shards and wrote
+  passed; the full Python gate then had 74 tests and 0 BasedPyright errors.
+  Before the later adversarial hardening, the built
+  `kaggle/kernels/non_eq_vae_debug/run.py` entrypoint also ran locally against
+  tiny synthetic 256-pixel UBC-format shards and wrote
   `/tmp/eqvae-kaggle-smoke-entry-run/benchmark/kaggle_smoke.json` with
-  `status = "smoke_pass"` and `full_run_eligible = false`.
+  `status = "smoke_pass"` and `full_run_eligible = false`. After hardening, the
+  same real-data launcher correctly refuses local CPU execution because
+  real-data Kaggle smoke evidence must prove visible T4 CUDA; local setup-only
+  entrypoint proof now belongs in a separate synthetic no-dataset smoke.
   `./scripts/agent_preflight.sh` passed before handoff, noting only the
   expected dirty worktree.
 - 2026-06-13 capped Kaggle smoke remote launch: read-only
@@ -705,6 +713,23 @@ The review process lives in `docs/agentic_review_workflow.md`.
   in `/kaggle/working`, write distinct non-promotable setup evidence, and leave
   the real-data dataset-source guard intact for real-data smoke/benchmark
   kernels.
+- 2026-06-13 adversarial smoke hardening: clean-context subagent passes found
+  that the first capped smoke could report `smoke_pass` without an applied
+  corruption, did not hard-enforce the three-step/one-validation cap, could pass
+  real-data smoke on CPU, did not seed model initialization for reproducible
+  losses, had weak stale-payload protection, and left `smoke_pass` outside the
+  explicit artifact status taxonomy. Local code now hard-fails uncapped smoke
+  settings, requires real-data Kaggle smoke to run on visible T4 CUDA, seeds the
+  model from `global_seed`, requires at least one applied corruption plus nonzero
+  input-target delta and nonzero update counts for `smoke_pass`, records seeds,
+  provenance, payload manifest, data-integrity status, corruption metadata
+  summaries, and update telemetry, and tightens the push guard around target ID,
+  caps, and payload freshness. The already-running Kaggle version predates this
+  hardening and is preliminary only. Focused Ruff, focused BasedPyright, focused
+  `tests/test_kaggle_smoke.py`, `bash -n scripts/kaggle_kernel.sh`,
+  `./scripts/kaggle_kernel.sh validate`, and full
+  `./scripts/python_quality.sh` passed; the full Python gate now has 75 tests
+  and 0 BasedPyright errors.
 
 ## Update Rule
 

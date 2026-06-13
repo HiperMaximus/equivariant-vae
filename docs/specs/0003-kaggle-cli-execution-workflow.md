@@ -137,7 +137,8 @@ This workflow scaffold is complete when:
 2. `scripts/kaggle_kernel.sh` validates local metadata and guards remote writes;
 3. `kaggle/kernels/non_eq_vae_debug/kernel-metadata.json` exists as a private
    script-kernel scaffold;
-4. `kaggle/kernels/non_eq_vae_debug/run.py` is a non-pushable placeholder;
+4. `kaggle/kernels/non_eq_vae_debug/run.py` was initially a non-pushable
+   placeholder and has since been replaced by the capped smoke launcher;
 5. preflight tracks the Kaggle workflow files;
 6. `runs/` is ignored for downloaded Kaggle outputs;
 7. `CURRENT.md` records that the scaffold exists but is not push-ready.
@@ -148,10 +149,13 @@ This workflow becomes Kaggle-push-ready for the narrow capped smoke only after:
 2. the smoke script kernel has `KAGGLE_SMOKE_READY = True`;
 3. `./scripts/kaggle_kernel.sh build` has copied the current `src/eqvae`,
    `configs/spec0001`, `pyproject.toml`, and `uv.lock` into the ignored payload;
-4. local smoke tests and the production Python quality gate pass;
-5. `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check` passes the
+4. the ignored payload has a fresh manifest whose git commit and file hashes
+   match the current source, and the push guard validates the target kernel ID
+   plus capped smoke settings;
+5. local smoke tests and the production Python quality gate pass;
+6. `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check` passes the
    read-only checks or records only the known quota/files warnings;
-6. the user explicitly approves the remote write/run.
+7. the user explicitly approves the remote write/run.
 
 The 2026-06-13 real-data smoke push showed that even a three-step script can
 spend substantial time in Kaggle setup when it attaches the 60 GB+

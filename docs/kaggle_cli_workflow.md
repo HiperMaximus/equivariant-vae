@@ -118,7 +118,7 @@ rebuilt from source before remote pushes. Payload metadata includes both
 `pyproject.toml` and `uv.lock`; spec 0001 kernels must not resolve or install
 dependencies on Kaggle unless a later spec explicitly changes that rule.
 
-For the current capped smoke, the intended remote sequence is:
+For a fresh capped real-data smoke, the intended remote sequence is:
 
 ```bash
 ./scripts/kaggle_kernel.sh build
@@ -129,8 +129,13 @@ KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output
 ```
 
 Run those remote commands only after explicit user permission. A successful
-smoke should produce `benchmark/kaggle_smoke.json` with `status =
-"smoke_pass"` and `full_run_eligible = false`.
+smoke should produce `benchmark/kaggle_smoke.json` with
+`status = "smoke_pass"`, `status_scope = "non_promotable_debug"`,
+`full_run_eligible = false`, at least one applied corruption, nonzero
+input-target delta, nonzero optimizer updates, visible T4 CUDA runtime for the
+real-data path, payload-manifest provenance, and explicit
+`data_integrity_status`. Do not push a fresh version while an existing remote
+smoke version is still `RUNNING`; poll `status`/`output` first.
 
 Important correction from the 2026-06-13 debug push: use this real-data smoke
 only when intentionally testing Kaggle dataset attachment plus UBC shard

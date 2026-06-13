@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import cast
 
+import pytest
 from torch.utils.data import DataLoader
 
 from eqvae.benchmarking.kaggle_smoke import (
@@ -22,6 +23,9 @@ from eqvae.data.training_batches import (
 )
 
 _IMAGE_SIZE = 64
+_TINY_SHARD_COUNT = 4
+_EXPECTED_SMOKE_STEPS = 3
+_EXPECTED_APPLIED_COUNTS = [0, 0, 1]
 
 
 def test_patch_training_dataset_collates_semantic_metadata(tmp_path: Path) -> None:
@@ -67,17 +71,44 @@ def test_kaggle_smoke_writes_non_promotable_artifact(tmp_path: Path) -> None:
     )
 
     payload = _load_json(output_path)
+    data = payload["data"]
     train = payload["train"]
     validation = payload["validation"]
+    assert isinstance(data, dict)
     assert isinstance(train, dict)
     assert isinstance(validation, dict)
     assert output_path == tmp_path / "run" / "benchmark" / "kaggle_smoke.json"
     assert payload["status"] == "smoke_pass"
+    assert payload["status_scope"] == "non_promotable_debug"
     assert payload["full_run_eligible"] is False
-    assert train["steps_completed"] == 1
+    assert data["data_integrity_status"] == "not_checked"
+    assert data["train_record_count"] == _TINY_SHARD_COUNT
+    assert train["steps_completed"] == _EXPECTED_SMOKE_STEPS
+    assert train["applied_counts"] == _EXPECTED_APPLIED_COUNTS
+    assert train["total_applied_count"] == 1
+    assert max(cast("list[float]", train["input_target_delta_maxes"])) > 0.0
+    assert all(count > 0 for count in cast("list[int]", train["nonzero_update_counts"]))
     assert validation["batches_completed"] == 1
     assert validation["clean_validation_rng_advanced"] is False
     assert validation["finite_outputs"] == [True]
+
+
+def test_kaggle_smoke_rejects_uncapped_config(tmp_path: Path) -> None:
+    """The capped smoke cannot be converted into a longer run by config drift."""
+    data_root = _write_tiny_shards(tmp_path)
+    config_path = _write_smoke_config(
+        tmp_path,
+        data_root=data_root,
+        max_train_steps=4,
+    )
+
+    with pytest.raises(ValueError, match="max_train_steps"):
+        write_kaggle_smoke(
+            KaggleSmokeRequest(
+                config_path=config_path,
+                output_dir=tmp_path / "run",
+            ),
+        )
 
 
 def _write_tiny_shards(tmp_path: Path) -> Path:
@@ -97,7 +128,12 @@ def _write_tiny_shards(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _write_smoke_config(tmp_path: Path, *, data_root: Path) -> Path:
+def _write_smoke_config(
+    tmp_path: Path,
+    *,
+    data_root: Path,
+    max_train_steps: int = 3,
+) -> Path:
     config_path = tmp_path / "kaggle_smoke_config.json"
     payload = {
         "source_config": str(
@@ -114,7 +150,7 @@ def _write_smoke_config(tmp_path: Path, *, data_root: Path) -> Path:
             "benchmark_source": "local_cpu_synthetic_kaggle_smoke",
             "full_run_eligible": False,
             "batch_size": 1,
-            "max_train_steps": 1,
+            "max_train_steps": max_train_steps,
             "max_validation_batches": 1,
             "num_workers": 0,
             "validate_crc": False,

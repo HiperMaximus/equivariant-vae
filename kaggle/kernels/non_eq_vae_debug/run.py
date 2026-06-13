@@ -59,6 +59,9 @@ def wrong_accelerator() -> None:
 
     """
     if not torch.cuda.is_available():
+        if _is_kaggle_runtime():
+            message = "Expected Kaggle T4 GPU runtime, but CUDA is unavailable"
+            raise RuntimeError(message)
         return
     gpu_names = [
         torch.cuda.get_device_name(index) for index in range(torch.cuda.device_count())
@@ -76,6 +79,10 @@ def single_visible_t4() -> None:
 def dual_t4_ddp() -> None:
     """Record that this smoke does not launch dual-T4 DDP."""
     return
+
+
+def _is_kaggle_runtime() -> bool:
+    return Path("/kaggle").exists()
 
 
 if __name__ == "__main__":

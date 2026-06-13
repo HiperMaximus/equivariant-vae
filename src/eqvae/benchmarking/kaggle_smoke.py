@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
@@ -15,11 +16,13 @@ from eqvae.benchmarking.io import JsonObject, write_json
 from eqvae.config import resolve_json_config
 from eqvae.corruption.stain import (
     CORRUPTION_VERSION,
+    StainCorruptionMetadata,
     clean_validation_passthrough,
     corrupt_normalized_batch,
     profile_from_config,
 )
 from eqvae.data.dataloaders import normalize_uint8_batch
+from eqvae.data.patch_shards import load_patch_records
 from eqvae.data.roots import PatchDataPaths, PatchSplit, resolve_patch_data_paths
 from eqvae.data.training_batches import (
     PatchTrainingBatch,
@@ -50,6 +53,7 @@ DEFAULT_MAX_TRAIN_STEPS = 3
 DEFAULT_MAX_VALIDATION_BATCHES = 1
 DEFAULT_BATCH_SIZE = 1
 DEFAULT_NUM_WORKERS = 0
+EXPECTED_REAL_DATASET_SLUG = "maximusshtefan/patches-pre-shuffled-ubc-ocean"
 ADAM_BETA_COUNT = 2
 
 
@@ -75,11 +79,15 @@ class KaggleSmokeSettings:
     num_workers: int
     validate_crc: bool
     corruption_view: str
+    data_kind: str
+    dataset_slug: str
     data_root: str
     image_size: int
     channels: int
+    global_seed: int
     data_seed: int
     corruption_seed: int
+    latent_seed: int
     corruption_config: JsonObject
     ssim_weight: float
     beta_target: float
@@ -95,6 +103,12 @@ class _TrainSmokeSummary:
     applied_counts: tuple[int, ...]
     first_sample_key_hashes: tuple[str, ...]
     nonfinite_counts: tuple[int, ...]
+    input_target_delta_maxes: tuple[float, ...]
+    input_target_delta_means: tuple[float, ...]
+    nonzero_grad_counts: tuple[int, ...]
+    nonzero_update_counts: tuple[int, ...]
+    update_norms: tuple[float, ...]
+    corruption_metadata: tuple[JsonObject, ...]
 
 
 @dataclass(frozen=True)
@@ -111,18 +125,15 @@ def write_kaggle_smoke(request: KaggleSmokeRequest) -> Path:
     Returns:
         Path to the smoke artifact.
 
-    Raises:
-        ValueError: If the smoke config is accidentally full-run eligible.
-
     """
     resolved = resolve_json_config(request.config_path)
     effective = resolved.effective_config
     settings = _settings(effective, data_root_override=request.data_root)
-    if settings.full_run_eligible:
-        message = "Kaggle smoke config must keep full_run_eligible = false"
-        raise ValueError(message)
+    _validate_smoke_settings(settings)
     paths = resolve_patch_data_paths(settings.data_root)
+    _seed_runtime(settings)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    _validate_runtime(settings=settings, device=device)
     model = build_non_equivariant_vae(norm_groups=settings.norm_groups).to(device)
     optimizer, optimizer_summary = create_adamw_optimizer(
         model,
@@ -154,6 +165,7 @@ def write_kaggle_smoke(request: KaggleSmokeRequest) -> Path:
         effective_config_hash=resolved.effective_config_hash,
         train_summary=train_summary,
         validation_summary=validation_summary,
+        payload_manifest=_payload_manifest_for_config(request.config_path),
         device=device,
         optimizer_group_count=optimizer_summary.parameter_group_count,
         status=status,
@@ -163,7 +175,7 @@ def write_kaggle_smoke(request: KaggleSmokeRequest) -> Path:
     return output_path
 
 
-def _run_train_smoke(
+def _run_train_smoke(  # noqa: PLR0914
     *,
     paths: PatchDataPaths,
     settings: KaggleSmokeSettings,
@@ -178,8 +190,15 @@ def _run_train_smoke(
     applied_counts: list[int] = []
     first_hashes: list[str] = []
     nonfinite_counts: list[int] = []
+    delta_maxes: list[float] = []
+    delta_means: list[float] = []
+    grad_counts: list[int] = []
+    update_counts: list[int] = []
+    update_norms: list[float] = []
+    corruption_metadata: list[JsonObject] = []
     for step_index in range(settings.max_train_steps):
         batch = _next_batch(iterator)
+        _validate_semantic_keys(batch)
         clean = normalize_uint8_batch(batch.images_uint8).to(device=device)
         corruption = corrupt_normalized_batch(
             clean,
@@ -212,16 +231,31 @@ def _run_train_smoke(
                 input_batch=corruption.corrupted,
             ),
         )
+        input_target_delta = (corruption.corrupted - clean).detach().abs()
         losses.append(float(result.losses.loss.detach().cpu().item()))
         applied_counts.append(sum(1 for item in corruption.metadata if item.applied))
         first_hashes.append(_hash_text(batch.semantic_sample_keys[0]))
         nonfinite_counts.append(result.nonfinite_count)
+        delta_maxes.append(float(input_target_delta.max().cpu().item()))
+        delta_means.append(float(input_target_delta.mean().cpu().item()))
+        grad_counts.append(result.nonzero_grad_parameter_tensor_count)
+        update_counts.append(result.nonzero_update_parameter_tensor_count)
+        update_norms.append(result.param_update_norm)
+        corruption_metadata.extend(
+            _corruption_metadata_payload(item) for item in corruption.metadata
+        )
     return _TrainSmokeSummary(
         steps_completed=len(losses),
         losses=tuple(losses),
         applied_counts=tuple(applied_counts),
         first_sample_key_hashes=tuple(first_hashes),
         nonfinite_counts=tuple(nonfinite_counts),
+        input_target_delta_maxes=tuple(delta_maxes),
+        input_target_delta_means=tuple(delta_means),
+        nonzero_grad_counts=tuple(grad_counts),
+        nonzero_update_counts=tuple(update_counts),
+        update_norms=tuple(update_norms),
+        corruption_metadata=tuple(corruption_metadata),
     )
 
 
@@ -241,6 +275,7 @@ def _run_validation_smoke(
     with torch.no_grad():
         for _batch_index in range(settings.max_validation_batches):
             batch = _next_batch(iterator)
+            _validate_semantic_keys(batch)
             clean = normalize_uint8_batch(batch.images_uint8).to(device=device)
             state = torch.get_rng_state()
             model_input = clean_validation_passthrough(clean)
@@ -320,7 +355,10 @@ def _status(
         and validation_summary.batches_completed == settings.max_validation_batches
         and not validation_summary.clean_validation_rng_advanced
         and all(validation_summary.finite_outputs)
+        and sum(train_summary.applied_counts) > 0
+        and any(delta > 0.0 for delta in train_summary.input_target_delta_maxes)
         and not any(count != 0 for count in train_summary.nonfinite_counts)
+        and all(count > 0 for count in train_summary.nonzero_update_counts)
         and all(torch.isfinite(torch.tensor(train_summary.losses)))
     )
     return "smoke_pass" if passed else "fail"
@@ -335,6 +373,7 @@ def _payload(  # noqa: PLR0913
     effective_config_hash: str,
     train_summary: _TrainSmokeSummary,
     validation_summary: _ValidationSmokeSummary,
+    payload_manifest: JsonObject | None,
     device: torch.device,
     optimizer_group_count: int,
     status: str,
@@ -344,6 +383,7 @@ def _payload(  # noqa: PLR0913
         {
             "schema_version": SMOKE_SCHEMA_VERSION,
             "status": status,
+            "status_scope": "non_promotable_debug",
             "benchmark_kind": settings.benchmark_kind,
             "benchmark_source": settings.benchmark_source,
             "full_run_eligible": False,
@@ -352,25 +392,47 @@ def _payload(  # noqa: PLR0913
                 "invoked_config_hash": invoked_config_hash,
                 "effective_config_hash": effective_config_hash,
             },
+            "payload_manifest": payload_manifest,
             "data": {
+                "kind": settings.data_kind,
+                "dataset_slug": settings.dataset_slug,
+                "origin": _data_origin(paths),
                 "data_root": str(paths.root),
                 "train_bin": str(paths.train.bin_path),
                 "train_csv": str(paths.train.csv_path),
                 "validation_bin": str(paths.validation.bin_path),
                 "validation_csv": str(paths.validation.csv_path),
                 "validate_crc": settings.validate_crc,
+                "data_integrity_status": (
+                    "crc_checked" if settings.validate_crc else "not_checked"
+                ),
                 "batch_schema": "PatchTrainingBatch.metadata_v1",
+                "train_record_count": len(load_patch_records(paths.train.csv_path)),
+                "validation_record_count": len(
+                    load_patch_records(paths.validation.csv_path),
+                ),
+                "train_bin_bytes": paths.train.bin_path.stat().st_size,
+                "validation_bin_bytes": paths.validation.bin_path.stat().st_size,
             },
             "runtime": {
                 "device": str(device),
                 "cuda_available": torch.cuda.is_available(),
                 "cuda_device_count": torch.cuda.device_count(),
                 "gpu_names": _gpu_names(),
+                "requires_cuda_t4": _requires_kaggle_t4(settings),
+            },
+            "seeds": {
+                "global_seed": settings.global_seed,
+                "data_seed": settings.data_seed,
+                "corruption_seed": settings.corruption_seed,
+                "latent_seed": settings.latent_seed,
+                "latent_eps_policy": "zero_eps_deterministic_smoke",
             },
             "corruption": {
                 "version": CORRUPTION_VERSION,
                 "strategy": "branchless_all",
                 "view": settings.corruption_view,
+                "profile": settings.corruption_config,
                 "clean_validation_consumes_rng": False,
             },
             "limits": {
@@ -383,10 +445,21 @@ def _payload(  # noqa: PLR0913
                 "steps_completed": train_summary.steps_completed,
                 "losses": list(train_summary.losses),
                 "applied_counts": list(train_summary.applied_counts),
+                "total_applied_count": sum(train_summary.applied_counts),
+                "input_target_delta_maxes": list(
+                    train_summary.input_target_delta_maxes,
+                ),
+                "input_target_delta_means": list(
+                    train_summary.input_target_delta_means,
+                ),
                 "first_sample_key_hashes": list(
                     train_summary.first_sample_key_hashes,
                 ),
                 "nonfinite_counts": list(train_summary.nonfinite_counts),
+                "nonzero_grad_counts": list(train_summary.nonzero_grad_counts),
+                "nonzero_update_counts": list(train_summary.nonzero_update_counts),
+                "update_norms": list(train_summary.update_norms),
+                "corruption_metadata": list(train_summary.corruption_metadata),
                 "optimizer_group_count": optimizer_group_count,
             },
             "validation": {
@@ -448,6 +521,8 @@ def _settings(
             "corruption_view",
             default=DEFAULT_CORRUPTION_VIEW,
         ),
+        data_kind=_optional_str(data_config, "kind", default="unknown"),
+        dataset_slug=_optional_str(data_config, "dataset_slug", default=""),
         data_root=(
             data_root_override
             if data_root_override is not None
@@ -455,14 +530,76 @@ def _settings(
         ),
         image_size=_optional_int(data_config, "image_size", default=256),
         channels=_optional_int(data_config, "channels", default=3),
+        global_seed=_required_int(seeds, "global_seed"),
         data_seed=_required_int(seeds, "data_seed"),
         corruption_seed=_required_int(seeds, "corruption_seed"),
+        latent_seed=_required_int(seeds, "latent_seed"),
         corruption_config=corruption_config,
         ssim_weight=_required_float(objective, "ssim_weight"),
         beta_target=_required_float(beta, "target"),
         beta_warmup_fraction=_required_float(beta, "step_limited_warmup_fraction"),
         optimizer_config=_optimizer_config(effective_config),
         norm_groups=_norm_groups(effective_config),
+    )
+
+
+def _validate_smoke_settings(settings: KaggleSmokeSettings) -> None:
+    if settings.full_run_eligible:
+        message = "Kaggle smoke config must keep full_run_eligible = false"
+        raise ValueError(message)
+    if settings.batch_size != DEFAULT_BATCH_SIZE:
+        message = f"Kaggle smoke batch_size must be 1, got {settings.batch_size}"
+        raise ValueError(message)
+    if not 1 <= settings.max_train_steps <= DEFAULT_MAX_TRAIN_STEPS:
+        message = (
+            "Kaggle smoke max_train_steps must be between 1 and "
+            f"{DEFAULT_MAX_TRAIN_STEPS}, got {settings.max_train_steps}"
+        )
+        raise ValueError(message)
+    if settings.max_validation_batches != DEFAULT_MAX_VALIDATION_BATCHES:
+        message = (
+            "Kaggle smoke max_validation_batches must be exactly "
+            f"{DEFAULT_MAX_VALIDATION_BATCHES}, got {settings.max_validation_batches}"
+        )
+        raise ValueError(message)
+    if settings.num_workers != DEFAULT_NUM_WORKERS:
+        message = f"Kaggle smoke num_workers must be 0, got {settings.num_workers}"
+        raise ValueError(message)
+    if _requires_kaggle_t4(settings) and (
+        settings.data_kind != "ubc-pre-shuffled"
+        or settings.dataset_slug != EXPECTED_REAL_DATASET_SLUG
+    ):
+        message = (
+            "Real-data Kaggle smoke must record data.kind='ubc-pre-shuffled' "
+            f"and dataset_slug={EXPECTED_REAL_DATASET_SLUG!r}"
+        )
+        raise ValueError(message)
+
+
+def _seed_runtime(settings: KaggleSmokeSettings) -> None:
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(settings.global_seed)
+    torch.set_rng_state(generator.get_state())
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(settings.global_seed)
+
+
+def _validate_runtime(*, settings: KaggleSmokeSettings, device: torch.device) -> None:
+    if not _requires_kaggle_t4(settings):
+        return
+    if device.type != "cuda":
+        message = "wrong_accelerator: real-data Kaggle smoke requires CUDA T4 runtime"
+        raise RuntimeError(message)
+    gpu_names = _gpu_names()
+    if not gpu_names or not all("T4" in name for name in gpu_names):
+        message = f"wrong_accelerator: expected visible T4 GPUs, got {gpu_names}"
+        raise RuntimeError(message)
+
+
+def _requires_kaggle_t4(settings: KaggleSmokeSettings) -> bool:
+    return (
+        settings.benchmark_kind == DEFAULT_SMOKE_KIND
+        and settings.benchmark_source == DEFAULT_SMOKE_SOURCE
     )
 
 
@@ -510,6 +647,45 @@ def _gpu_names() -> list[str]:
 
 def _hash_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _validate_semantic_keys(batch: PatchTrainingBatch) -> None:
+    expected_prefix = f"{batch.split}:"
+    if any(not key.startswith(expected_prefix) for key in batch.semantic_sample_keys):
+        message = "Patch-training batch semantic keys must start with the batch split"
+        raise ValueError(message)
+    if len(set(batch.semantic_sample_keys)) != len(batch.semantic_sample_keys):
+        message = "Patch-training batch semantic keys must be unique"
+        raise ValueError(message)
+
+
+def _corruption_metadata_payload(metadata: StainCorruptionMetadata) -> JsonObject:
+    payload = cast("JsonObject", metadata.as_json())
+    semantic_key = payload.pop("semantic_sample_key")
+    if not isinstance(semantic_key, str):
+        message = "Corruption metadata semantic_sample_key must be a string"
+        raise TypeError(message)
+    payload["semantic_sample_key_hash"] = _hash_text(semantic_key)
+    return payload
+
+
+def _data_origin(paths: PatchDataPaths) -> str:
+    root = str(paths.root)
+    if root.startswith("/kaggle/input/"):
+        return "kaggle_input_mount"
+    if root.startswith(("/tmp/", "/kaggle/working/")):  # noqa: S108
+        return "synthetic_or_ephemeral_path"
+    return "local_or_explicit_path"
+
+
+def _payload_manifest_for_config(config_path: Path) -> JsonObject | None:
+    manifest_path = config_path.parents[2] / "payload_manifest.json"
+    if not manifest_path.exists():
+        return None
+    return cast(
+        "JsonObject",
+        json.loads(manifest_path.read_text(encoding="utf-8")),
+    )
 
 
 def _required_object(payload: JsonObject, key: str) -> JsonObject:

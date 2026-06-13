@@ -153,6 +153,14 @@ from `configs/spec0001/non_eq_vae_kaggle_debug.json`. The smoke writes
 evidence, not a full training run, and not paper evidence. Remote execution
 still requires explicit user permission, `KAGGLE_PUSH_CONFIRMED=1` for the push,
 and the read-only Kaggle API preflight before/after as appropriate.
+Adversarial hardening requires `smoke_pass` to prove: hard caps were enforced
+(`batch_size = 1`, `1 <= max_train_steps <= 3`, `max_validation_batches = 1`,
+`num_workers = 0`), at least one train sample was actually corrupted, corrupted
+input differed from the clean target, optimizer updates were nonzero, real-data
+Kaggle smoke ran on visible T4 CUDA, model initialization was seeded from
+`global_seed`, and the artifact recorded payload provenance plus data-integrity
+status. The first remote version pushed on 2026-06-13 predates this hardening and
+is preliminary only if it returns.
 This real-data smoke intentionally attaches
 `maximusshtefan/patches-pre-shuffled-ubc-ocean`; it is therefore not the right
 tool for setup-only Kaggle plumbing tests. A future setup-only smoke should use
@@ -1234,6 +1242,11 @@ Runtime benchmark requirement before the first full Kaggle run:
   - `local_pass`: measured local CPU/laptop pre-test on synthetic or otherwise
     explicitly local data; never full-run eligible and never sufficient for
     runtime selection;
+  - `smoke_pass`: narrow permission-gated debug smoke on a declared remote or
+    setup-only path; never full-run eligible, never runtime selection evidence,
+    and valid only when the artifact records its non-promotable scope, source,
+    caps, data origin, integrity status, payload provenance, and linked smoke
+    assertions;
   - `pass`: verified on the required real runtime/data path and eligible for the
     next gate if all linked artifacts also pass;
   - `warn`: completed, but blocked from automatic promotion until inspected and
@@ -3036,7 +3049,10 @@ Implementation-relock blockers:
    selected-runtime debug, runtime benchmark, tiny-overfit, fixed real visual QA,
    or full-run acceptance. Do not use this real-data smoke for setup-only
    kernel plumbing checks; add a synthetic no-dataset setup smoke first when
-   the goal is only to validate Kaggle packaging/API/artifact plumbing.
+   the goal is only to validate Kaggle packaging/API/artifact plumbing. A
+   `smoke_pass` result is accepted only from the hardened payload that enforces
+   caps, actual corruption, T4 CUDA for real-data smoke, seeded initialization,
+   payload provenance, and non-promotable artifact semantics.
 5. Kaggle metadata enforcement: the workflow now records
    `machine_shape = "NvidiaTeslaT4"` for the T4 benchmark kernel. The
    implementation must enforce that metadata value before remote push and fail

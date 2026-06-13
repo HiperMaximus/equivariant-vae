@@ -116,7 +116,10 @@ build_kernel_payload() {
   fi
 
   python3 - "$payload_dir" <<'PY'
+import hashlib
+import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -125,10 +128,60 @@ if payload.exists():
     shutil.rmtree(payload)
 (payload / "src").mkdir(parents=True)
 (payload / "configs").mkdir(parents=True)
-shutil.copytree("src/eqvae", payload / "src" / "eqvae")
-shutil.copytree("configs/spec0001", payload / "configs" / "spec0001")
+ignore_generated = shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache")
+shutil.copytree("src/eqvae", payload / "src" / "eqvae", ignore=ignore_generated)
+shutil.copytree(
+    "configs/spec0001",
+    payload / "configs" / "spec0001",
+    ignore=ignore_generated,
+)
 shutil.copy2("pyproject.toml", payload / "pyproject.toml")
 shutil.copy2("uv.lock", payload / "uv.lock")
+
+
+def digest_file(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def digest_tree(path: Path) -> str:
+    hasher = hashlib.sha256()
+    for item in sorted(candidate for candidate in path.rglob("*") if candidate.is_file()):
+        relative = item.relative_to(path).as_posix().encode("utf-8")
+        hasher.update(relative)
+        hasher.update(b"\0")
+        hasher.update(digest_file(item).encode("ascii"))
+        hasher.update(b"\0")
+    return hasher.hexdigest()
+
+
+def git_output(*args: str) -> str:
+    return subprocess.run(
+        ("git", *args),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+manifest = {
+    "schema_version": "spec0001.kaggle_payload_manifest.v1",
+    "git_commit": git_output("rev-parse", "HEAD"),
+    "git_dirty": bool(git_output("status", "--short")),
+    "entries": {
+        "src/eqvae": digest_tree(payload / "src" / "eqvae"),
+        "configs/spec0001": digest_tree(payload / "configs" / "spec0001"),
+        "pyproject.toml": digest_file(payload / "pyproject.toml"),
+        "uv.lock": digest_file(payload / "uv.lock"),
+    },
+}
+(payload / "payload_manifest.json").write_text(
+    f"{json.dumps(manifest, indent=2, sort_keys=True)}\n",
+    encoding="utf-8",
+)
 PY
 
   echo "ok: built $payload_dir"
@@ -145,8 +198,10 @@ guard_push_ready() {
   local kernel_dir="${1:-$default_kernel_dir}"
   local metadata
   local code_file
+  local payload_dir
   metadata="$(metadata_path "$kernel_dir")"
   code_file="$(json_field "$metadata" code_file)"
+  payload_dir="$kernel_dir/payload"
 
   if grep -q "NOT_IMPLEMENTATION_READY" "$kernel_dir/$code_file"; then
     cat >&2 <<'EOF'
@@ -163,15 +218,17 @@ EOF
     exit 1
   fi
 
-  if [[ ! -d "$kernel_dir/payload/src/eqvae" ]]; then
+  if [[ ! -d "$payload_dir/src/eqvae" ]]; then
     echo "error: missing bundled payload src/eqvae in $kernel_dir" >&2
     exit 1
   fi
 
-  if [[ ! -d "$kernel_dir/payload/configs/spec0001" ]]; then
+  if [[ ! -d "$payload_dir/configs/spec0001" ]]; then
     echo "error: missing bundled payload configs/spec0001 in $kernel_dir" >&2
     exit 1
   fi
+
+  validate_payload_freshness "$payload_dir"
 
   if grep -q "KAGGLE_SMOKE_READY = True" "$kernel_dir/$code_file"; then
     if ! grep -q 'kaggle_smoke_ready' \
@@ -208,6 +265,10 @@ data = json.loads(metadata.read_text(encoding="utf-8"))
 errors: list[str] = []
 
 required_values = {
+    "id": "maximusshtefan/non-eq-vae-debug",
+    "title": "non-eq-VAE debug",
+    "code_file": "run.py",
+    "language": "python",
     "kernel_type": "script",
     "is_private": "true",
     "enable_gpu": "true",
@@ -248,12 +309,118 @@ if errors:
     raise SystemExit(1)
 PY
 
+  python3 - "$payload_dir/configs/spec0001/non_eq_vae_kaggle_debug.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+smoke = config.get("kaggle_smoke")
+errors: list[str] = []
+if not isinstance(smoke, dict):
+    errors.append("payload config must contain kaggle_smoke object")
+else:
+    expected = {
+        "full_run_eligible": False,
+        "batch_size": 1,
+        "max_validation_batches": 1,
+        "num_workers": 0,
+    }
+    for key, value in expected.items():
+        if smoke.get(key) != value:
+            errors.append(f"kaggle_smoke.{key} must be {value!r}")
+    max_train_steps = smoke.get("max_train_steps")
+    if not isinstance(max_train_steps, int) or not 1 <= max_train_steps <= 3:
+        errors.append("kaggle_smoke.max_train_steps must be an integer from 1 to 3")
+    if smoke.get("benchmark_source") != "kaggle_script_kernel_capped_smoke":
+        errors.append("kaggle_smoke.benchmark_source must identify capped smoke")
+
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+
   for required_hook in single_visible_t4 dual_t4_ddp wrong_accelerator; do
     if ! grep -q "$required_hook" "$kernel_dir/$code_file"; then
       echo "error: launcher must include $required_hook runtime validation hook" >&2
       exit 1
     fi
   done
+}
+
+validate_payload_freshness() {
+  local payload_dir="$1"
+  python3 - "$payload_dir" <<'PY'
+import hashlib
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+payload = Path(sys.argv[1])
+manifest_path = payload / "payload_manifest.json"
+if not manifest_path.exists():
+    print("error: missing payload_manifest.json; rebuild kernel payload", file=sys.stderr)
+    raise SystemExit(1)
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+errors: list[str] = []
+
+
+def digest_file(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def digest_tree(path: Path) -> str:
+    hasher = hashlib.sha256()
+    for item in sorted(candidate for candidate in path.rglob("*") if candidate.is_file()):
+        relative = item.relative_to(path).as_posix().encode("utf-8")
+        hasher.update(relative)
+        hasher.update(b"\0")
+        hasher.update(digest_file(item).encode("ascii"))
+        hasher.update(b"\0")
+    return hasher.hexdigest()
+
+
+def git_output(*args: str) -> str:
+    return subprocess.run(
+        ("git", *args),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+if manifest.get("schema_version") != "spec0001.kaggle_payload_manifest.v1":
+    errors.append("payload manifest has an unexpected schema_version")
+if manifest.get("git_dirty") is not False:
+    errors.append("payload was built from a dirty git worktree")
+if manifest.get("git_commit") != git_output("rev-parse", "HEAD"):
+    errors.append("payload git_commit does not match current HEAD; rebuild payload")
+
+entries = manifest.get("entries")
+expected_entries = {
+    "src/eqvae": digest_tree(Path("src/eqvae")),
+    "configs/spec0001": digest_tree(Path("configs/spec0001")),
+    "pyproject.toml": digest_file(Path("pyproject.toml")),
+    "uv.lock": digest_file(Path("uv.lock")),
+}
+if not isinstance(entries, dict):
+    errors.append("payload manifest entries must be an object")
+else:
+    for key, expected in expected_entries.items():
+        if entries.get(key) != expected:
+            errors.append(f"payload entry {key!r} is stale; rebuild payload")
+
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PY
 }
 
 guard_clean_kernel_dir() {
