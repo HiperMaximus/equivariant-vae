@@ -8,8 +8,7 @@ data/metrics slice is implemented as `data_metrics_ready`; narrow local
 selector/dataloader slice is implemented as `fixed_selectors_dataloader_ready`;
 narrow local CPU dataloader pre-test is `local_benchmark_pretest_ready`;
 narrow model/loss local train-step pre-test is `model_loss_train_step_ready`;
-the HED/stain corruption contract is `corruption_contract_ready` for the next
-local correctness/QA slice only
+the HED/stain corruption local correctness/QA slice is `corruption_ready`
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-13
 
@@ -127,16 +126,19 @@ BasedPyright, pytest, and the full production-scope quality gate. It also keeps
 `--model-loss-train-step` as a dedicated mode that does not write
 `benchmark/selected_runtime.json`.
 
-HED/stain corruption contract, 2026-06-13: this spec now locks the next narrow
-local corruption slice as `corruption_contract_ready`, but implementation has
-not started in this slice. The next local code slice may implement only
+HED/stain corruption implementation, 2026-06-13: this spec now authorizes and
+locally implements only the narrow `corruption_ready` correctness/QA slice:
 `src/eqvae/corruption/stain.py`, focused corruption tests, config-schema fields,
-and non-promotable local QA artifact writers needed to prove HED/RGB convention,
-RNG determinism, output range, and visual QA. It must not integrate corruption
-into real training, write promotable Kaggle runtime evidence, push Kaggle, touch
-Overleaf, or make paper claims. The first real training run must use the locked
-HED corruptor once implemented; `identity_clean_no_corruption` remains valid only
-for the already completed local model/loss train-step smoke.
+and the non-promotable local QA artifact writer needed to prove the HED/RGB
+convention, RNG determinism, output range, and synthetic visual QA. Runtime
+corruption math is repo-owned PyTorch and scikit-image is a dev/test oracle only.
+The local CLI writes `benchmark/stain_corruptor_qa.json` with
+`status = "local_pass"` and `full_run_eligible = false`. This does not integrate
+corruption into real training, write promotable Kaggle runtime evidence, push
+Kaggle, touch Overleaf, or make paper claims. The first real training run must
+use the locked HED corruptor after training integration and fixed real-patch
+visual QA are completed; `identity_clean_no_corruption` remains valid only for
+the already completed local model/loss train-step smoke.
 
 ## Purpose
 
@@ -305,7 +307,7 @@ must use a repo-owned PyTorch implementation:
 - do not apply the historical sRGB-to-linear gamma decode in this first
   convention; if a later experiment wants linear-RGB optical density, it needs a
   separate profile/spec and must not be described as scikit-compatible;
-- use the scikit-image v0.25.x HED basis:
+- use the scikit-image v0.26.0 HED basis:
 
   ```text
   rgb_from_hed =
@@ -322,7 +324,10 @@ must use a repo-owned PyTorch implementation:
   `rgb_safe = max(rgb, 1e-6)`, `hed = log(rgb_safe) / log(1e-6) @ hed_from_rgb`,
   clamp `hed >= 0`, reconstruct with
   `rgb = exp(-(hed * -log(1e-6)) @ rgb_from_hed)`, then clamp RGB to `[0, 1]`;
-- identity parameters must round-trip RGB within tolerance before noise.
+- identity parameters must round-trip RGB within tolerance on valid
+  nonnegative-HED-manifold fixtures before noise. Arbitrary RGB is not required
+  to be losslessly round-trippable after `rgb2hed` clamps negative stain
+  channels to zero under scikit-image semantics.
 
 First-run corruption profiles:
 
@@ -377,7 +382,8 @@ Required stain-corruptor implementation rules:
 - add unit tests against scikit-image reference outputs on small tensors; the
   tests may use scikit-image as an oracle, but active runtime code must not call
   it in the training path;
-- identity parameters must round-trip RGB within tolerance before noise;
+- identity parameters must round-trip valid nonnegative-HED-manifold RGB within
+  tolerance before noise;
 - H/E and residual-axis perturbation parameters must affect the intended HED
   channels, not transposed mixtures;
 - use stateless Torch RNG derived from the semantic seed contract above;
@@ -1884,35 +1890,39 @@ corruption correctness/QA slice:
   "benchmark_source": "local_cpu_synthetic_stain_corruptor_qa",
   "full_run_eligible": false,
   "run_name": "string",
-  "config_path": "configs/spec0001/non_eq_vae_debug_cpu.json",
-  "config_sha256": "sha256 hex",
-  "effective_config_sha256": "sha256 hex",
+  "config": {
+    "path": "configs/spec0001/non_eq_vae_debug_cpu.json",
+    "invoked_config_hash": "sha256 hex",
+    "effective_config_hash": "sha256 hex",
+    "source_config_chain": []
+  },
   "corruption_version": "spec0001.hed_corruptor.v1",
   "profile_name": "conservative_default",
   "reference_oracle": {
     "name": "scikit-image",
-    "version": "0.25.x",
-    "source_url": "https://github.com/scikit-image/scikit-image/blob/v0.25.2/skimage/color/colorconv.py",
-    "runtime_dependency": false
+    "version": "0.26.0",
+    "source_url": "https://github.com/scikit-image/scikit-image/blob/v0.26.0/skimage/color/colorconv.py",
+    "runtime_dependency": false,
+    "runtime_code_imports_scikit_image": false,
+    "fixture_source": "checked-in scikit-image 0.26.0 oracle values"
   },
   "api_contract": {
     "input_shape": [25, 3, 256, 256],
+    "output_shape": [25, 3, 256, 256],
     "input_domain": "normalized_rgb_minus1_1",
     "output_domain": "normalized_rgb_minus1_1",
     "channel_order": "NCHW_RGB",
-    "same_shape": true,
-    "same_dtype": true,
-    "same_device": true,
-    "final_clamp_range": [-1.0, 1.0]
+    "dtype": "torch.float32",
+    "target_preservation": "x_clean_unchanged",
+    "mask_handling": "masks_not_modified_by_corruptor"
   },
   "hed_convention": {
     "rgb_from_hed": [[0.65, 0.70, 0.29], [0.07, 0.99, 0.11], [0.27, 0.57, 0.78]],
+    "hed_from_rgb": [[1.8779827368521356, -1.0076786862855642, -0.5561158181996246], [-0.06590806222356334, 1.1347303724996625, -0.13552179862837116], [-0.6019073634392891, -0.4804141884970579, 1.5735880719641926]],
     "od_epsilon": 0.000001,
     "uses_srgb_gamma_decode": false,
-    "channel_first_matches_channel_last_oracle": true,
-    "identity_round_trip_max_abs_error": 0.0,
-    "oracle_rgb2hed_max_abs_error": 0.0,
-    "oracle_hed2rgb_max_abs_error": 0.0
+    "channel_first_multiplication": "torch.einsum('bchw,cd->bdhw')",
+    "arbitrary_rgb_roundtrip": "not_required_after_rgb2hed_clamps_negative_stain_channels"
   },
   "rng": {
     "corruption_seed": 0,
@@ -1924,9 +1934,9 @@ corruption correctness/QA slice:
       "corruption_view",
       "corruption_version"
     ],
-    "rank_excluded_from_semantic_seed": true,
-    "fixed_seed_reproducible": true,
-    "rank_move_reproducible": true,
+    "rank_in_semantic_seed": false,
+    "corruption_step": 0,
+    "corruption_view": "train_corrupted_local_qa",
     "clean_validation_consumes_rng": false
   },
   "profile": {
@@ -1939,16 +1949,20 @@ corruption correctness/QA slice:
     "residual_axis_semantics": "tiny_residual_axis_jitter_not_biological_dab"
   },
   "checks": {
-    "finite_outputs": true,
-    "he_channel_semantics": true,
-    "residual_channel_semantics": true,
+    "finite_pass": true,
+    "output_range_pass": true,
+    "shape_preserved": true,
+    "dtype_preserved": true,
     "target_preserved": true,
-    "metadata_schema_valid": true,
-    "synthetic_visual_qa_status": "local_pass",
-    "fixed_real_25_visual_qa_status": "requires_real_data_generation"
+    "clean_validation_rng_advanced": false,
+    "oracle_rgb2hed_max_abs_error": 0.0,
+    "oracle_hed2rgb_max_abs_error": 0.0,
+    "applied_count": 0,
+    "sample_count": 25
   },
-  "summary_stats": {
+  "summary": {
     "clean": {"min": 0.0, "max": 0.0, "mean": 0.0, "std": 0.0},
+    "corrupted": {"min": 0.0, "max": 0.0, "mean": 0.0, "std": 0.0},
     "stain_only": {"min": 0.0, "max": 0.0, "mean": 0.0, "std": 0.0},
     "gaussian_only": {"min": 0.0, "max": 0.0, "mean": 0.0, "std": 0.0},
     "combined": {"min": 0.0, "max": 0.0, "mean": 0.0, "std": 0.0}
@@ -1965,11 +1979,9 @@ corruption correctness/QA slice:
     "directory": "artifacts/stain_corruptor_qa",
     "synthetic_grid_path": "artifacts/stain_corruptor_qa/synthetic_grid.png",
     "synthetic_grid_sha256": "sha256 hex",
-    "fixed_real_25_grid_path": "",
-    "fixed_real_25_grid_sha256": ""
-  },
-  "failure_kind": "",
-  "failure_message_hash": ""
+    "grid_order": ["clean", "stain_only", "gaussian_only", "combined"],
+    "fixed_real_25_status": "requires_real_data_generation"
+  }
 }
 ```
 
@@ -2304,8 +2316,9 @@ Required config files:
 - `configs/spec0001/fixed_32_train_overfit_patches.json`;
 - `configs/spec0001/fixed_25_validation_patches.json`.
 
-The shared `corruption` config object must be expanded before the
-`corruption_contract_ready` implementation starts. It must include:
+The shared `corruption` config object is expanded in
+`configs/spec0001/non_eq_vae_model_base.json` and the duplicated local debug CPU
+config. It must include:
 
 - `kind = "tellez_hed_gaussian"`;
 - `implementation_status`;
@@ -2411,11 +2424,12 @@ Implementation milestones before broad coding:
    input rule, semantic AdamW groups, non-promotable
    `benchmark/model_loss_train_step.json`, first-step final-head update
    telemetry, and local compile/precision smoke status semantics.
-7. HED/stain corruption slice: `corruption_contract_ready` is locked for a
-   local correctness/QA implementation only; next implement PyTorch
+7. HED/stain corruption slice: `corruption_ready` now implements PyTorch
    scikit-compatible HED/RGB conversion, conservative and FSQ-wide profiles,
    semantic stateless RNG, branchless-all execution, metadata, and
-   `benchmark/stain_corruptor_qa.json`.
+   non-promotable synthetic `benchmark/stain_corruptor_qa.json` evidence.
+   Training integration, branchless/indexed runtime checks, and fixed real
+   25-patch visual QA remain separate gates.
 8. Train/resume slice: optimizer/scheduler, AMP skipped-step behavior,
    checkpoint save/resume, metrics schemas, retention.
 9. Artifact/evaluation slice: fixed validation/tiny-overfit selectors,
@@ -2595,7 +2609,7 @@ The final command writes
 `/tmp/eqvae-local-model-loss-train-step/benchmark/model_loss_train_step.json`
 with `status = "local_pass"` and `full_run_eligible = false`.
 
-Narrow `corruption_contract_ready` implementation checks, once code is added:
+Narrow `corruption_ready` implementation checks:
 
 ```bash
 .venv/bin/ruff format src/eqvae/corruption src/eqvae/benchmarking \
@@ -2984,12 +2998,11 @@ Implementation-relock blockers:
    split-validation, reconstruction-metric, Ruff, BasedPyright, and pytest
    checks. This is not broad benchmark readiness and does not unlock corruption,
    training, real selector generation, Kaggle remote work, or paper claims.
-3. HED/stain corruption implementation status: the narrow
-   `corruption_contract_ready` decisions are now locked, but code still needs to
-   implement the PyTorch scikit-compatible convention, config fields, stateless
-   semantic RNG, local QA artifact, and focused tests before corruption can be
-   integrated into training. The first real training run must use this corruptor
-   once implemented.
+3. HED/stain corruption implementation status: the narrow `corruption_ready`
+   local correctness/QA slice is implemented and verified with synthetic QA, but
+   corruption still needs training integration, selected-runtime corruption
+   checks, and fixed real 25-patch visual QA before the first Kaggle baseline
+   run. The first real training run must use this corruptor.
 4. Kaggle metadata enforcement: the workflow now records
    `machine_shape = "NvidiaTeslaT4"` for the T4 benchmark kernel. The
    implementation must enforce that metadata value before remote push and fail

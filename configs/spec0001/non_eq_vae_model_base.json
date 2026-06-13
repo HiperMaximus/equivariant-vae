@@ -118,9 +118,40 @@
   },
   "corruption": {
     "kind": "tellez_hed_gaussian",
-    "implementation_status": "not_implemented",
+    "implementation_status": "corruption_ready",
+    "corruption_version": "spec0001.hed_corruptor.v1",
+    "profile_name": "conservative_default",
     "corrupt_prob": 0.3,
+    "he_alpha_range": [0.8, 1.2],
+    "he_beta_range": [-0.05, 0.05],
+    "residual_alpha_range": [0.98, 1.02],
+    "residual_beta_range": [-0.01, 0.01],
     "noise_std_range": [0.0, 0.05],
-    "clean_validation_consumes_rng": false
+    "hed_matrix_source": "skimage.color.colorconv.rgb_from_hed",
+    "hed_matrix_version": "0.26.0",
+    "rgb_from_hed": [
+      [0.65, 0.7, 0.29],
+      [0.07, 0.99, 0.11],
+      [0.27, 0.57, 0.78]
+    ],
+    "od_epsilon": 0.000001,
+    "uses_srgb_gamma_decode": false,
+    "rng_policy": "semantic_stateless_v1",
+    "semantic_seed_fields": [
+      "corruption_seed",
+      "split",
+      "semantic_sample_key",
+      "corruption_step",
+      "corruption_view",
+      "corruption_version"
+    ],
+    "rank_in_semantic_seed": false,
+    "clean_validation_consumes_rng": false,
+    "input_domain": "normalized_rgb_minus1_1",
+    "output_domain": "normalized_rgb_minus1_1",
+    "channel_order": "NCHW_RGB",
+    "final_clamp_min": -1.0,
+    "final_clamp_max": 1.0,
+    "metadata_schema_version": "spec0001.stain_corruptor.metadata.v1"
   }
 }

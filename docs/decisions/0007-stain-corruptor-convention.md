@@ -6,8 +6,9 @@ Date: 2026-06-13
 ## Decision
 
 Spec 0001 uses a scikit-image-compatible HED stain-coordinate convention as the
-reference oracle, but runtime corruption is implemented in repo-owned PyTorch
-code so it can run in the compiled training path.
+reference oracle, pinned for local tests and fixture documentation to
+scikit-image 0.26.0, but runtime corruption is implemented in repo-owned
+PyTorch code so it can run in the compiled training path.
 
 The public corruptor API takes and returns NCHW RGB tensors normalized to
 `[-1, 1]`. Internally, the corruptor converts to RGB `[0, 1]`, applies
@@ -42,8 +43,9 @@ same patch moves between single-GPU, DDP, branchless, indexed, or resumed runs.
 
 ## Consequences
 
-The next local corruption slice must prove HED/RGB oracle agreement, per-channel
+The local corruption slice must prove HED/RGB oracle agreement, per-channel
 semantics, deterministic stateless RNG, clean-validation RNG non-consumption,
 range/clamp telemetry, and visual QA through a non-promotable
 `benchmark/stain_corruptor_qa.json` artifact before corruption is integrated
-into real training.
+into real training. The first implementation completed this synthetic local QA;
+fixed real 25-patch visual QA and training integration remain separate gates.

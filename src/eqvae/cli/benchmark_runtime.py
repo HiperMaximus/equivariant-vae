@@ -20,6 +20,10 @@ from eqvae.benchmarking.runtime_schema import (
     SyntheticBenchmarkRequest,
     write_synthetic_benchmark_artifacts,
 )
+from eqvae.benchmarking.stain_corruptor_qa import (
+    LocalStainCorruptorQaRequest,
+    write_local_stain_corruptor_qa,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -39,6 +43,7 @@ class BenchmarkRuntimeArgs:
     measured_steps: int
     dataloader_pretest: bool
     model_loss_train_step: bool
+    stain_corruptor_qa: bool
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -52,16 +57,29 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     """
     args = _parse_args(argv)
+    local_dedicated_modes = (
+        args.dataloader_pretest,
+        args.model_loss_train_step,
+        args.stain_corruptor_qa,
+    )
+    if sum(1 for enabled in local_dedicated_modes if enabled) > 1:
+        message = (
+            "`--dataloader-pretest`, `--model-loss-train-step`, and "
+            "`--stain-corruptor-qa` are mutually exclusive local modes."
+        )
+        raise ValueError(message)
     if args.model_loss_train_step:
-        if args.dataloader_pretest:
-            message = (
-                "`--model-loss-train-step` cannot be combined with "
-                "`--dataloader-pretest` because it must not update runtime "
-                "selection artifacts."
-            )
-            raise ValueError(message)
         write_local_model_loss_train_step(
             LocalModelLossTrainStepRequest(
+                config_path=args.config,
+                output_dir=args.output_dir,
+                run_name=args.run_name,
+            ),
+        )
+        return 0
+    if args.stain_corruptor_qa:
+        write_local_stain_corruptor_qa(
+            LocalStainCorruptorQaRequest(
                 config_path=args.config,
                 output_dir=args.output_dir,
                 run_name=args.run_name,
@@ -112,6 +130,11 @@ def _parse_args(argv: Sequence[str] | None) -> BenchmarkRuntimeArgs:
         action="store_true",
         help="Run the local CPU synthetic model/loss train-step pre-test.",
     )
+    parser.add_argument(
+        "--stain-corruptor-qa",
+        action="store_true",
+        help="Write the local CPU synthetic HED stain-corruptor QA artifact.",
+    )
     namespace = parser.parse_args(argv)
     return BenchmarkRuntimeArgs(
         config=Path(_required_str(namespace, "config")),
@@ -124,6 +147,7 @@ def _parse_args(argv: Sequence[str] | None) -> BenchmarkRuntimeArgs:
         measured_steps=_required_int(namespace, "measured_steps"),
         dataloader_pretest=_required_bool(namespace, "dataloader_pretest"),
         model_loss_train_step=_required_bool(namespace, "model_loss_train_step"),
+        stain_corruptor_qa=_required_bool(namespace, "stain_corruptor_qa"),
     )
 
 

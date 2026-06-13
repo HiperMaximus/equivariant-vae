@@ -49,7 +49,7 @@ is caught before full training. It is not final-paper-claim-ready until the
 sealed masked-WSI test shard is generated and locked.
 The 2026-06-13 HED/stain corruptor spec-lock pass completed a focused
 literature and historical-FSQ review plus adversarial subagent review. Spec 0001
-now records `corruption_contract_ready` for the next local correctness/QA slice:
+now records `corruption_ready` for the local correctness/QA slice:
 scikit-image-compatible HED semantics are the oracle, runtime code must be
 repo-owned PyTorch, the public API remains NCHW RGB `[-1, 1]`, the internal HED
 domain is RGB `[0, 1]` without the historical sRGB-to-linear step, tiny third
@@ -58,8 +58,12 @@ DAB, conservative corruption is the default, FSQ-wide values are a named
 benchmark profile, RNG is stateless from semantic patch keys and excludes rank,
 clean validation/test consume no corruption RNG, `branchless_all` is first, and
 `benchmark/stain_corruptor_qa.json` is the non-promotable local QA artifact.
-No corruption code was implemented in that pass. The canonical short decision
-note is `docs/decisions/0007-stain-corruptor-convention.md`.
+The local implementation now exists in `src/eqvae/corruption/stain.py` with
+focused `tests/test_stain_corruptor.py` and
+`src/eqvae/benchmarking/stain_corruptor_qa.py`; scikit-image 0.26.0 is a
+dev/test oracle, not a runtime import in active `src/eqvae` corruption code. The
+canonical short decision note is
+`docs/decisions/0007-stain-corruptor-convention.md`.
 Strict Python quality is also an active workflow via
 `docs/specs/0002-strict-python-quality-gate.md`.
 Kaggle CLI execution is scaffolded via
@@ -175,14 +179,13 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: with the HED/stain corruptor contract now
-`corruption_contract_ready`, ask for explicit approval before implementing the
-next narrow local corruption correctness/QA slice. That slice should update the
-corruption config schema, implement repo-owned PyTorch HED/RGB conversion and
-stateless semantic RNG, add focused `tests/test_stain_corruptor.py`, and write
-non-promotable `/tmp/.../benchmark/stain_corruptor_qa.json` evidence. Do not
-start Kaggle remote execution, Overleaf work, broad real training/resume, or
-paper claims. The
+Immediate next action: the HED/stain corruptor local correctness/QA slice is
+implemented and verified as `corruption_ready`. The next safe slice is a
+spec-lock pass for training integration and data-metadata plumbing: decide how
+the trainer will carry semantic sample keys/masks alongside tensor batches,
+where corruption metadata is logged, and how fixed real 25-patch visual QA is
+generated before the first Kaggle baseline run. Do not start Kaggle remote
+execution, Overleaf work, broad real training/resume, or paper claims. The
 data/metrics, selector/dataloader, and local benchmark pre-test contracts are
 recorded in spec 0001, and the local benchmark pre-test is now
 `local_benchmark_pretest_ready`. The local implementation already exists under
@@ -223,9 +226,11 @@ and omits selector/sample provenance. The scaffold exists, `model_count` is now
 `topology_count_ready`, `data_metrics_ready` and
 `fixed_selectors_dataloader_ready` are local verified slices, and local runtime
 schema smoke or local dataloader pre-test evidence still cannot be selected as a
-Kaggle runtime. The HED/stain corruption contract is now locked for local
-implementation, but the PyTorch corruptor, config fields, tests, and
-`stain_corruptor_qa.json` evidence are still pending. The remaining
+Kaggle runtime. The HED/stain corruption local slice is now implemented with
+repo-owned PyTorch HED/RGB conversion, stateless semantic RNG, config fields,
+focused tests, and `/tmp/eqvae-local-stain-corruptor-qa/benchmark/stain_corruptor_qa.json`
+evidence. Training integration, branchless/indexed runtime corruption checks,
+and fixed real 25-patch visual QA are still pending. The remaining
 implementation-relock blockers still include the future `SO(2)` count ceiling,
 Kaggle T4 metadata validation/runtime proof, real fixed selector generation from
 real Kaggle shards, remaining artifact protocol, and final adversarial spec
@@ -630,6 +635,18 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `/tmp/eqvae-local-model-loss-train-step/benchmark/model_loss_train_step.json`
   plus model-count artifacts and no selected-runtime artifact; and full
   `./scripts/python_quality.sh` passed with 60 tests and 0 BasedPyright errors.
+- 2026-06-13 HED/stain corruptor local QA slice: added
+  `src/eqvae/corruption/stain.py`, `src/eqvae/benchmarking/stain_corruptor_qa.py`,
+  `--stain-corruptor-qa`, expanded corruption config fields, and
+  `tests/test_stain_corruptor.py`. The focused tests compare the Torch
+  channel-first HED/RGB math against scikit-image 0.26.0, verify valid
+  HED-manifold identity behavior, semantic stateless RNG, clean-validation RNG
+  non-consumption, public `[-1, 1]` output range, metadata, and synthetic QA
+  artifact writing. Verification passed: focused Ruff, focused BasedPyright,
+  focused pytest with 12 tests, CLI artifact generation at
+  `/tmp/eqvae-local-stain-corruptor-qa/benchmark/stain_corruptor_qa.json`
+  with `status = "local_pass"`/`full_run_eligible = false`, and full
+  `./scripts/python_quality.sh` with 72 tests and 0 BasedPyright errors.
 
 ## Update Rule
 
