@@ -1,0 +1,33 @@
+{
+  "schema_version": "spec0001.v0",
+  "status": "scaffold_pending_runtime_selection",
+  "run": {
+    "name": "non_eq_vae_spec0001_baseline",
+    "mode": "kaggle_10_epoch_baseline"
+  },
+  "source_config": "configs/spec0001/non_eq_vae_model_base.json",
+  "data": {
+    "kind": "ubc-pre-shuffled",
+    "dataset_slug": "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+    "train_files": [
+      "dataset/ubc_train_shuffled.bin",
+      "dataset/ubc_train_shuffled.csv"
+    ],
+    "validation_files": [
+      "dataset/ubc_ocean_valid.bin",
+      "dataset/ubc_ocean_valid.csv"
+    ],
+    "test_status": "sealed_masked_holdout_not_generated"
+  },
+  "runtime": {
+    "selection_required": true,
+    "selected_runtime_path": "benchmark/selected_runtime.json",
+    "remote_execution_requires_permission": true
+  },
+  "training": {
+    "epochs": 10,
+    "validate_every": "half_epoch",
+    "checkpoint_every": "half_epoch",
+    "checkpoint_retention": "best_final_latest_four_interval"
+  }
+}

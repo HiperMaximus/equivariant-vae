@@ -1,0 +1,30 @@
+{
+  "schema_version": "spec0001.fixed_selector.v1",
+  "status": "requires_real_data_generation",
+  "selector_kind": "fixed_32_train_overfit",
+  "source_split": "train",
+  "expected_count": 32,
+  "selector_seed": "20260611:tiny-overfit",
+  "dataset_slug": "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+  "canonical_overwrite_requires_crc": true,
+  "masked_holdout_exclusion": "docs/data/ubc_ocean_masked_holdout_ids.csv",
+  "generation_command": [
+    "PYTHONPATH=src",
+    "uv",
+    "run",
+    "--locked",
+    "--no-sync",
+    "python",
+    "-m",
+    "eqvae.cli.select_fixed_patches",
+    "--config",
+    "configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json",
+    "--data-root",
+    "auto",
+    "--output",
+    "configs/spec0001/fixed_32_train_overfit_patches.json",
+    "--validate-crc",
+    "--allow-tracked-config-overwrite"
+  ],
+  "selectors": []
+}

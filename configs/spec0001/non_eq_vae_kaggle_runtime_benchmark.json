@@ -1,0 +1,43 @@
+{
+  "schema_version": "spec0001.v0",
+  "status": "scaffold_not_remote_push_ready",
+  "run": {
+    "name": "non_eq_vae_spec0001_runtime_benchmark",
+    "mode": "kaggle_runtime_benchmark"
+  },
+  "source_config": "configs/spec0001/non_eq_vae_model_base.json",
+  "data": {
+    "kind": "ubc-pre-shuffled",
+    "dataset_slug": "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+    "data_root": "auto"
+  },
+  "dataloader": {
+    "hot_path": "mmap_tensor_only_v1",
+    "selector_provenance": "fixed_selector_json_v1",
+    "warmup_batches": 5,
+    "measured_batches": 25,
+    "candidates": {
+      "num_workers": [1, 2, 4],
+      "prefetch_factor": [2, 4],
+      "pin_memory": [true, false],
+      "persistent_workers": [true, false],
+      "non_blocking_h2d": [true, false]
+    }
+  },
+  "runtime_matrix": {
+    "machine_shape": "NvidiaTeslaT4",
+    "accelerator_modes": ["single_visible_t4", "dual_t4_ddp"],
+    "precision_policies": [
+      "amp_off_fp32",
+      "amp_conservative",
+      "amp_scalar_gate_relaxed"
+    ],
+    "compile_options": [false, true],
+    "corruption_strategies": ["branchless_all", "indexed_masked"],
+    "candidate_per_device_batch_sizes": [4, 8, 12, 16, 24, 32, 48, 64],
+    "warmup_steps": 3,
+    "measured_steps": 12,
+    "repeats": 1,
+    "remote_execution_requires_permission": true
+  }
+}

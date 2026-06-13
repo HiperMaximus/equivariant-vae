@@ -1,0 +1,30 @@
+{
+  "schema_version": "spec0001.fixed_selector.v1",
+  "status": "requires_real_data_generation",
+  "selector_kind": "fixed_25_validation",
+  "source_split": "validation",
+  "expected_count": 25,
+  "expected_per_label": 5,
+  "selector_seed": "20260610",
+  "dataset_slug": "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+  "canonical_overwrite_requires_crc": true,
+  "generation_command": [
+    "PYTHONPATH=src",
+    "uv",
+    "run",
+    "--locked",
+    "--no-sync",
+    "python",
+    "-m",
+    "eqvae.cli.select_fixed_patches",
+    "--config",
+    "configs/spec0001/non_eq_vae_kaggle_debug.json",
+    "--data-root",
+    "auto",
+    "--output",
+    "configs/spec0001/fixed_25_validation_patches.json",
+    "--validate-crc",
+    "--allow-tracked-config-overwrite"
+  ],
+  "selectors": []
+}

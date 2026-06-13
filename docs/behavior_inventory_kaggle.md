@@ -595,16 +595,30 @@ Current reopened direction:
   `a,b` parameters so non-finite values, persistent saturation, or hidden-block
   collapse are caught before full training.
 
-Remaining implementation-relock blockers:
+Current 2026-06-12 local slice status:
 
-- implement a model-count artifact that verifies the recorded analytic Conv2d
+- the topology-count artifact now verifies the recorded analytic Conv2d
   baseline count target for the reopened `32x32x16` ResNet-like residual
   architecture schedule, including projection shortcuts and fixed resampling
-  operators;
-- keep the exact branch-local non-naive ResNet-D/anti-aliased-style residual
-  projection/downsample operator locked to the repo-owned 5x5 separable
+  operators. See spec 0001 for the `topology_count_ready` exception and current
+  artifact schema;
+- the branch-local non-naive ResNet-D/anti-aliased-style residual
+  projection/downsample operator remains locked to the repo-owned 5x5 separable
   binomial low-pass + decimation operator unless a later SO(2) spike supersedes
   it;
+- the narrow local `data_metrics_ready` slice now implements UBC-format
+  synthetic patch shards, exact header/CRC parsing, split validation with
+  `synthetic_pass` versus real `pass|warn|fail`, and repo-owned FP32
+  MAE/MSE/PSNR/full-SSIM metrics. This is local evidence only, not a Kaggle
+  runtime or paper-claim unlock;
+- the narrow local `fixed_selectors_dataloader_ready` slice now implements
+  deterministic data-root resolution, read-only mmap tensor-only loading, and
+  fixed selector schema/generation/validation with synthetic tests. Real fixed
+  selector generation remains a local data-access step against the real Kaggle
+  train/validation shards and is not a Kaggle remote execution step;
+
+Remaining implementation-relock blockers:
+
 - enforce the verified Kaggle T4 benchmark metadata value
   `machine_shape = "NvidiaTeslaT4"` and the safe single-visible-GPU versus
   dual-DDP launch mode before remote benchmark push; `dual_t4_ddp` rows must

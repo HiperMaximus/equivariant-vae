@@ -1,7 +1,7 @@
 # Equivariant VAE Transition Plan
 
 Status: draft working plan
-Last updated: 2026-06-11
+Last updated: 2026-06-12
 
 ## Purpose
 
@@ -71,7 +71,8 @@ operator design, not the planned runtime dependency.
 - The latest Kaggle notebook trains on 256x256 UBC-OCEAN patches.
 - The latest Kaggle model is a deterministic FSQ autoencoder. It has no KL term
   and should not be reported as a VAE baseline.
-- `main.py` is empty, and the last runnable notebook artifacts/evidence are the
+- Empty `main.py` was deleted on 2026-06-12, and the last runnable notebook
+  artifacts/evidence are the
   Kaggle notebook JSON files in `kaggle/train_runs`. Dataset-generation evidence
   lives in `kaggle/dataset_generation` and
   `kaggle/generate_dataset_Classification_With_Masks`. These need to become
@@ -603,7 +604,10 @@ src/eqvae/
   __init__.py
   config.py
   data/
+    dataloaders.py
+    fixed_selectors.py
     patch_shards.py
+    roots.py
     synthetic.py
     splits.py
   corruption/
@@ -697,9 +701,11 @@ Exit criteria:
 
 - Operation translation table has no "unknown" entries for the first baseline.
 - The run config names the group, input size, latent shape, and layer schedule.
-- `docs/specs/0001-translatable-normal-vae-baseline.md` is marked
-  `locked / implementation-ready` with exact smoke, debug, resume, evaluator,
-  and artifact-generation commands.
+- Broad `docs/specs/0001-translatable-normal-vae-baseline.md`
+  `locked / implementation-ready` remains a future milestone with exact smoke,
+  debug, resume, evaluator, and artifact-generation commands. Until then,
+  implementation may proceed only through explicitly authorized narrow readiness
+  labels. Current verified local labels include `model_loss_train_step_ready`.
 
 ### Phase 1: Extract Reusable Infrastructure
 
@@ -950,26 +956,44 @@ decisions such as the continuous `SO(2)` scope.
 ## Immediate Next Tasks
 
 1. Treat this document as the active checklist for the branch.
-2. Finish relocking `docs/specs/0001-translatable-normal-vae-baseline.md`:
-   implementation `model_count.json` verification, future SO(2) count ceiling,
-   Kaggle T4 metadata validation plus single/dual launch-mode checks, exact
-   branch-local residual projection/downsample policy, and final adversarial
-   spec review. The runtime benchmark contract is written, but the benchmark
-   result is a full-run gate after implementation.
-3. Mark spec 0001 `locked / implementation-ready`, then add `src/eqvae` package
-   skeleton.
-4. Add JSON configs that lock input size, latent shape, group, layer schedule,
-   activation policy, runtime benchmark, and normalization.
-5. Extract data/checkpoint/logging utilities from the Kaggle notebook.
-6. Implement the non-equivariant translatable VAE.
-7. Add banned-operation, activation-policy, shape, compile, and precision tests.
-8. Replace the placeholder Kaggle debug kernel with the real CLI-managed
+2. Keep the implemented `src/eqvae` scaffold, topology-count slice,
+   data/metrics slice, selector/dataloader slice, local benchmark pre-test, and
+   model/loss train-step contract aligned with spec 0001:
+   layered `source_config` resolution, observed `model_count.json`,
+   `model_inventory.csv`, local data/metric focused tests, deterministic
+   data-root resolution, mmap tensor-only loaders, fixed selector schema tests,
+   model-only config inheritance for Kaggle/debug/full-run configs, and
+   measured local CPU dataloader pre-tests, and non-promotable
+   `benchmark/model_loss_train_step.json` are local evidence only, not a Kaggle
+   runtime selection.
+3. Spec-lock the next narrow slice before coding, likely corrected HED/stain
+   corruption or trainer/checkpoint acceptance. Do not implement real
+   training/resume, Kaggle payload changes, or paper artifacts without an
+   explicit ready contract.
+4. Use the implemented local CPU synthetic dataloader pre-test before remote
+   Kaggle benchmarking: it writes tiny UBC-format shards, varies the locked
+   loader knobs, and writes `benchmark/dataloader_matrix.csv` rows with
+   `status = "local_pass"` or explicit candidate failure status and
+   `full_run_eligible = false`. The checked-in debug pre-test was rerun outside
+   the sandbox on 2026-06-12 and all configured local CPU candidates measured
+   successfully.
+5. Generate the real fixed-25 validation and fixed-32 tiny-overfit selector
+   JSON files only after the real Kaggle train/validation shards are available
+   locally; canonical overwrites require CRC validation and explicit overwrite.
+6. Finish the remaining broad implementation blockers before marking spec 0001
+   `locked / implementation-ready`: future SO(2) count ceiling, Kaggle T4
+   metadata validation plus single/dual launch-mode checks, remaining artifact
+   protocol, package/import policy, and final adversarial spec review.
+7. Extract data/checkpoint/logging utilities from the Kaggle notebook only after
+   the relevant spec exception authorizes the slice.
+8. Add banned-operation, activation-policy, shape, compile, and precision tests
+   as each corresponding implementation slice is authorized.
+9. Replace the placeholder Kaggle debug kernel with the real CLI-managed
    launcher after local verification passes.
-9. Resolve or explicitly baseline the strict Ruff/BasedPyright historical debt.
 10. Run the short Kaggle runtime benchmark after explicit user permission, then
     choose single/dual GPU, AMP, compile, batch size, `precision.policy`, and
     `corruption.strategy`. Record this in `benchmark/selected_runtime.json` and
     the resolved full-run config.
 11. Run the first 10-epoch Kaggle baseline only after benchmark selection and
     explicit user permission.
-12. Implement the custom SO(2) feasibility spike.
+11. Implement the custom SO(2) feasibility spike.

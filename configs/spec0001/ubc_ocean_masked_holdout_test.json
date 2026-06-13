@@ -1,0 +1,14 @@
+{
+  "schema_version": "spec0001.masked_holdout.v0",
+  "status": "not_generated",
+  "candidate_ids": "docs/data/ubc_ocean_masked_holdout_ids.csv",
+  "target_dataset_slug": "maximusshtefan/ubc-ocean-masked-holdout-patches",
+  "target_files": [
+    "dataset/ubc_ocean_test.bin",
+    "dataset/ubc_ocean_test.csv",
+    "dataset/ubc_ocean_test_manifest.csv",
+    "dataset/ubc_ocean_test_provenance.json"
+  ],
+  "paper_claims_allowed": false,
+  "notes": "The sealed masked-WSI test shard is a later data-generation task."
+}

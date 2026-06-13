@@ -1,0 +1,126 @@
+{
+  "schema_version": "spec0001.v0",
+  "status": "model_contract_base",
+  "seeds": {
+    "global_seed": 20260610,
+    "data_seed": 20260610,
+    "corruption_seed": 20260611,
+    "latent_seed": 20260612
+  },
+  "model": {
+    "kind": "non_eq_vae_translatable",
+    "architecture_id": "spec0001_non_eq_vae_translatable",
+    "topology_version": "spec0001.count.v1",
+    "implementation_status": "topology_count_ready",
+    "input_shape": [1, 3, 256, 256],
+    "latent_shape": [1, 16, 32, 32],
+    "channel_schedule": [
+      {
+        "spatial_size": 256,
+        "channels": 32,
+        "future_scalar_fields": 16,
+        "future_f1_irrep_copies": 8,
+        "future_f2_irrep_copies": 0
+      },
+      {
+        "spatial_size": 128,
+        "channels": 48,
+        "future_scalar_fields": 16,
+        "future_f1_irrep_copies": 12,
+        "future_f2_irrep_copies": 4
+      },
+      {
+        "spatial_size": 64,
+        "channels": 64,
+        "future_scalar_fields": 24,
+        "future_f1_irrep_copies": 12,
+        "future_f2_irrep_copies": 8
+      },
+      {
+        "spatial_size": 32,
+        "channels": 96,
+        "future_scalar_fields": 32,
+        "future_f1_irrep_copies": 20,
+        "future_f2_irrep_copies": 12
+      },
+      {
+        "spatial_size": 32,
+        "channels": 16,
+        "future_scalar_fields": 16,
+        "future_f1_irrep_copies": 0,
+        "future_f2_irrep_copies": 0
+      }
+    ],
+    "normalization": {
+      "kind": "groupnorm",
+      "num_groups": 8,
+      "affine": true
+    },
+    "activation": {
+      "kind": "gated_scalar",
+      "a_init": 1.0,
+      "b_init": 0.0,
+      "lr_multiplier": 0.5,
+      "weight_decay": 0.0
+    },
+    "resampling": {
+      "downsample": "fixed_binomial_lowpass_5x5_stride2",
+      "upsample": "bilinear_scale_factor_2_align_corners_false"
+    },
+    "expected_model_count": {
+      "learned_convolution_count": 43,
+      "normalization_module_count": 40,
+      "gate_module_count": 34,
+      "fixed_resampling_op_count": 12,
+      "total_learned_parameters": 3958435,
+      "learned_convolution_macs_per_sample": 36471046144,
+      "fixed_resampling_macs_per_sample": 85032960,
+      "total_macs_per_sample_with_fixed_resampling": 36556079104
+    }
+  },
+  "objective": {
+    "reconstruction": "l1_plus_0_1_ssim",
+    "ssim_weight": 0.1,
+    "kl_reduction": "mean_batch_channel_spatial",
+    "logvar_clamp": [-8.0, 4.0],
+    "beta": {
+      "target": 1.0,
+      "epoch_warmup_epochs": 1,
+      "step_limited_warmup_fraction": 0.1,
+      "first_successful_update_beta": 0.0,
+      "cyclic_restarts": false
+    }
+  },
+  "optimizer": {
+    "kind": "adamw",
+    "learning_rate": 0.0005,
+    "betas": [0.9, 0.999],
+    "epsilon": 0.00000001,
+    "weight_decay": 0.00001,
+    "gradient_clip_global_norm": 1.0,
+    "lr_warmup_fraction": 0.05,
+    "lr_decay_min": 0.000005,
+    "lr_schedule": "cosine_decay_no_restarts",
+    "parameter_groups": {
+      "decay": {
+        "weight_decay": 0.00001,
+        "lr_multiplier": 1.0
+      },
+      "no_decay": {
+        "weight_decay": 0.0,
+        "lr_multiplier": 1.0
+      },
+      "gate_no_decay": {
+        "weight_decay": 0.0,
+        "lr_multiplier": 0.5
+      }
+    }
+  },
+  "corruption": {
+    "kind": "tellez_hed_gaussian",
+    "implementation_status": "not_implemented",
+    "corrupt_prob": 0.3,
+    "noise_std_range": [0.0, 0.05],
+    "clean_validation_consumes_rng": false
+  }
+}

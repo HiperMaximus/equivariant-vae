@@ -1,9 +1,142 @@
 # Spec 0001: Translatable Normal VAE Baseline
 
 Status: draft active / reopened for architecture and objective corrections
-Implementation readiness: not locked
+Implementation readiness: not locked for broad implementation; narrow local
+benchmark scaffold is `scaffold_schema_ready`; narrow instantiated topology
+count slice is implemented locally as `topology_count_ready`; narrow local
+data/metrics slice is implemented as `data_metrics_ready`; narrow local
+selector/dataloader slice is implemented as `fixed_selectors_dataloader_ready`;
+narrow local CPU dataloader pre-test is `local_benchmark_pretest_ready`;
+narrow model/loss local train-step pre-test is `model_loss_train_step_ready`;
+the HED/stain corruption contract is `corruption_contract_ready` for the next
+local correctness/QA slice only
 Owner/workstream: comparable non-equivariant VAE baseline
-Last updated: 2026-06-11
+Last updated: 2026-06-13
+
+Local scaffold exception, 2026-06-12: the user-authorized local
+benchmark-unblock slice may create `src/eqvae`, `configs/spec0001`, the
+local synthetic benchmark schema writer, and the first schema-only
+`model_count` writer. This exception does not lock spec 0001 for model, data,
+corruption, training, evaluation, Kaggle, or paper-claim implementation. The
+schema-only `model_count` state has now been superseded by the
+`topology_count_ready` slice below.
+
+Topology-count exception, 2026-06-12: this spec now authorizes only the
+instantiated model-count slice and its local hardening fixes:
+`src/eqvae.models.non_equivariant_vae`, the activation and fixed-resampling
+modules needed to instantiate that topology, shared JSON config resolution under
+`src/eqvae/config.py`, benchmark helper modules under `src/eqvae/benchmarking`,
+`eqvae.cli.model_count`, `benchmark/model_count.json`,
+`benchmark/model_inventory.csv`, and focused tests. This exception does not
+authorize data loading, corruption, training, runtime selection, Kaggle remote
+execution, or paper-claim work. The slice may mark `model_count.json` with
+`status = "pass"` only if it instantiates the locked model, resolves any
+`source_config` overlays, verifies every expected inventory path/type, observes
+inventory shapes and execution order from the instantiated model, confirms the
+zero-initialized RGB head, rejects banned or uninventoried leaf modules, and
+matches the analytic target exactly.
+
+Topology-count implementation status, 2026-06-12: the local slice now
+instantiates the locked Conv2d topology, resolves thin configs through
+`source_config`, writes `benchmark/model_count.json` with `status = "pass"`,
+and writes `benchmark/model_inventory.csv` with 129 observed rows: 43 learned
+convolutions, 40 GroupNorm modules, 34 gates, and 12 fixed resampling ops.
+Inventory input/output shapes and forward order are observed by meta-tensor
+forward hooks rather than copied only from the analytic table. Runtime selection
+remains blocked; this is model-count evidence only.
+
+Data/metrics exception, 2026-06-12: this spec now authorizes only the narrow
+`data_metrics_ready` local slice: `src/eqvae/data/synthetic.py`,
+`src/eqvae/data/patch_shards.py`, `src/eqvae/data/splits.py`,
+`src/eqvae/metrics/reconstruction.py`, package `__init__.py` exports, and
+focused tests under `tests/test_patch_shards.py`,
+`tests/test_split_validation.py`, and `tests/test_reconstruction_metrics.py`.
+This exception may implement deterministic synthetic patch-shard fixtures, UBC
+binary/CSV patch-shard loading, WSI/masked-holdout split validation helpers,
+and repo-owned reconstruction metrics: MAE, MSE, PSNR, and standard full
+SSIM. It does not authorize stain corruption, model/loss training code,
+checkpointing, fixed-selector generation from real Kaggle CSVs, dashboards,
+artifact writers, Kaggle payload changes, Kaggle remote execution, or paper
+claims. The slice may be called `data_metrics_ready` only when local focused
+tests pass, artifacts are clearly local/synthetic when applicable, and no
+metric implementation imports `pytorch-msssim` or historical `src/nn` code. The
+slice must lock the exact binary header/CRC contract, canonical `file_index`,
+`row_index`, and `sample_id` semantics, synthetic-versus-real split validation
+status semantics, explicit metric column domains, exact SSIM formula details,
+and JSON-safe PSNR summary behavior before any broader benchmark CLI may depend
+on it.
+
+Selector/dataloader exception, 2026-06-12: this spec now authorizes only the
+narrow `fixed_selectors_dataloader_ready` local slice:
+`src/eqvae/data/roots.py`, `src/eqvae/data/dataloaders.py`,
+`src/eqvae/data/fixed_selectors.py`, `eqvae.cli.select_fixed_patches`, package
+exports, fixed-selector placeholder config refreshes, runtime dataloader
+candidate config fields, and focused tests under `tests/test_data_roots.py`,
+`tests/test_dataloaders.py`, and `tests/test_fixed_selectors.py`. This
+exception may implement deterministic data-root resolution, a fast read-only
+mmap tensor-only dataset, deterministic fixed-selector generation and
+validation, and local synthetic selector smoke tests. It does not authorize
+stain corruption, model/loss training code, evaluator/artifact writers,
+Kaggle payload changes, Kaggle remote execution, or paper claims. The slice may
+be called `fixed_selectors_dataloader_ready` only when the selector schema,
+canonical split naming, row/file-index semantics, canonical overwrite policy,
+CRC policy, `data_root = "auto"` policy, and two-rail tensor/provenance policy
+are locked in this spec and pass focused local Ruff, BasedPyright, and pytest
+checks.
+
+Local benchmark pre-test contract and implementation, 2026-06-12: this spec now
+authorizes the narrow local benchmark slice that measures the FSQ-derived mmap
+tensor-only loader path on tiny synthetic UBC-format shards before any Kaggle
+remote benchmark is attempted. The slice may write local CPU synthetic
+dataloader pre-test rows with `status = "local_pass"`, `benchmark_kind =
+"local_synthetic_pretest"`, `benchmark_source =
+"local_cpu_synthetic_pretest"`, `accelerator_mode = "local_cpu"`,
+`machine_shape = "local_cpu"`, and `full_run_eligible = false`. It does not
+authorize Kaggle runtime selection, training, corruption implementation,
+paper-claim work, or use of local laptop throughput as a runtime decision. The
+writer and CLI flag are implemented locally. In the managed sandbox,
+`num_workers = 0` rows measured successfully while worker-positive rows were
+recorded as explicit non-promotable failures when multiprocessing tensor
+transport was unavailable. After rerunning the same command outside the sandbox
+on 2026-06-12, all configured local CPU candidates measured successfully with
+`status = "local_pass"`, so this narrow slice is
+`local_benchmark_pretest_ready`.
+
+Model/loss train-step implementation, 2026-06-12: this spec now authorizes and
+locally implements only the narrow `model_loss_train_step_ready` slice:
+`src/eqvae/models/non_equivariant_vae.py` forward-contract updates,
+`src/eqvae/losses/vae.py`, optional focused helpers under `src/eqvae/training`,
+optional local pre-test code under `src/eqvae/benchmarking`, config fields for
+objective/optimizer/schedule smoke, `eqvae.cli.benchmark_runtime` flags needed
+to write the local evidence artifact, and focused tests such as
+`tests/test_vae_loss.py`, `tests/test_train_step.py`,
+`tests/test_optimizer_groups.py`, and `tests/test_compile_precision_smoke.py`.
+This exception may implement the VAE forward API, explicit latent-noise
+control, clamped-logvar sampling/KL semantics, `L1 + 0.1 * (1 - SSIM) + beta *
+KL`, beta scheduling, semantic AdamW parameter groups, and a tiny local CPU
+synthetic train-step pre-test artifact. It does not authorize HED/stain
+corruption, real-data training, checkpoint/resume, evaluator/artifact writers,
+Kaggle payload changes, Kaggle remote execution, runtime selection, or paper
+claims. The local pre-test uses `x_in = x_clean` and
+`corruption_strategy = "identity_clean_no_corruption"` until the corruption
+slice exists. The local artifact now writes `status = "local_pass"`, keeps
+`full_run_eligible = false`, proves the zero-head forward behavior before the
+first update, emits finite loss/logvar-clamp telemetry plus explicit
+first-step final-head gradient/update counts, and passes focused Ruff,
+BasedPyright, pytest, and the full production-scope quality gate. It also keeps
+`--model-loss-train-step` as a dedicated mode that does not write
+`benchmark/selected_runtime.json`.
+
+HED/stain corruption contract, 2026-06-13: this spec now locks the next narrow
+local corruption slice as `corruption_contract_ready`, but implementation has
+not started in this slice. The next local code slice may implement only
+`src/eqvae/corruption/stain.py`, focused corruption tests, config-schema fields,
+and non-promotable local QA artifact writers needed to prove HED/RGB convention,
+RNG determinism, output range, and visual QA. It must not integrate corruption
+into real training, write promotable Kaggle runtime evidence, push Kaggle, touch
+Overleaf, or make paper claims. The first real training run must use the locked
+HED corruptor once implemented; `identity_clean_no_corruption` remains valid only
+for the already completed local model/loss train-step smoke.
 
 ## Purpose
 
@@ -48,7 +181,22 @@ First-run input contract:
   `kaggle/train_runs`, `kaggle/dataset_generation`, and
   `kaggle/generate_dataset_Classification_With_Masks`;
 - image size: 256x256 RGB;
-- binary patch shape: `3x256x256`, CHW, `uint8`, 64-byte `UBC_DATA` header;
+- binary patch shape: `3x256x256`, CHW, `uint8`;
+- binary patch header format: little-endian `struct` format
+  `<8sIQiiii3s25x`, exactly 64 bytes, with fields
+  `magic = b"UBC_DATA"`, CRC32 over the payload bytes, patch count, channel
+  count, height, width, format version `1`, and layout `b"CHW"`;
+- a loader integrity pass validates header magic, version, layout, channel
+  count, image height/width, declared patch count, CSV row count, file size
+  `64 + patch_count * channels * height * width`, and CRC32 when
+  `validate_crc = true`;
+- real benchmark data may skip full-file CRC during normal repeated loader
+  construction only if a separate data-integrity artifact or manifest records a
+  prior CRC pass for that exact file hash/header. Any artifact claiming
+  data-integrity `pass` must state whether CRC was checked or covered by that
+  manifest. Because no broader real-data integrity manifest exists yet,
+  canonical fixed-selector config overwrites must run with `validate_crc = true`
+  and record `crc_checked = true` before writing the tracked selector JSON;
 - normalization: convert `uint8` to float in `[-1, 1]` with
   `x = image.float() / 127.5 - 1.0`;
 - model output: raw normalized RGB reconstruction values in the same coordinate
@@ -63,15 +211,50 @@ First-run input contract:
   `dataset/ubc_train_shuffled.csv`;
 - required validation files: `dataset/ubc_ocean_valid.bin` and
   `dataset/ubc_ocean_valid.csv`;
+- `data_root = "auto"` is deterministic and offline: explicit `--data-root`
+  always wins; auto mode checks nonblank `EQVAE_DATA_ROOT`, then known Kaggle
+  input mounts, then repo-root local paths such as
+  `data/patches-pre-shuffled-ubc-ocean` and `dataset`. It must not use the
+  process current working directory as an implicit candidate;
+- canonical public split names are `train` and `validation`. Historical
+  `valid` and `val` may be accepted only as input aliases; generated selector
+  files, sample IDs, metrics, and artifacts must write `validation`;
 - CSV schema rule: load by column name; `idx` is optional because train metadata
   has `wsi_id,label,x,y` while validation metadata has `idx,wsi_id,label,x,y`;
+  if `idx` exists it is the canonical `file_index` used for binary offsets and
+  must be unique, nonnegative, contiguous, and in range; if `idx` is absent,
+  CSV row order is the canonical `file_index`;
+- every loaded record keeps both `row_index` and `file_index`;
+- hot-path training and throughput loaders use a two-rail policy:
+  `PatchTensorDataset` indexes by CSV `row_index`, maps to binary `file_index`,
+  uses worker-local read-only mmap, and returns only CHW `uint8` tensors;
+  selector/evaluation code carries provenance separately through records and
+  fixed-selector JSON. Replay of selector files must use `row_index` for
+  PyTorch subset/dataset indexing after validation, or explicit direct
+  `file_index` reads when bypassing row indexing;
+- canonical `sample_id` is
+  `{split}:{file_index:08d}:{wsi_id}:{label}:{x}:{y}` when the split is known,
+  or `unknown:{file_index:08d}:{wsi_id}:{label}:{x}:{y}` inside generic loader
+  helpers;
 - train/validation split verification: 322 train WSIs and 39 validation WSIs,
   both non-TMA and with zero overlap with supplemental-mask image IDs;
+- split validation status must distinguish `synthetic_pass` from real-data
+  `pass`. Synthetic fixtures may use tiny counts and generated WSI IDs. Real
+  benchmark data may claim `pass` only if exact train/validation patch counts,
+  exact train/validation WSI counts, train/validation WSI non-overlap,
+  supplemental-mask holdout non-overlap, and non-TMA provenance are all checked
+  from official metadata or from a committed manifest tied to exact source file
+  hashes. If non-TMA provenance is unavailable, the real-data status is
+  `warn` or `fail`, not `pass`;
 - patch CSV label mapping: `0=CC`, `1=EC`, `2=HGSC`, `3=LGSC`, `4=MC`;
 - train/validation patch counts: 300000 train patches and 30000 validation
   patches;
 - local tests and debug runs must support synthetic/generated patch shards so
-  the laptop workflow does not require downloading the Kaggle binaries.
+  the laptop workflow does not require downloading the Kaggle binaries;
+- synthetic/generated patch shards must use the same header format, CRC32, CSV
+  column rules, CHW layout, `uint8` dtype, and split-validation code paths as
+  real UBC shards, while allowing tiny image sizes and tiny expected counts for
+  local fixtures.
 
 Masked holdout contract:
 
@@ -97,41 +280,115 @@ Use the same denoising corruption policy for the baseline and future steerable
 model:
 
 - apply corruption to `x_clean` after `[-1, 1]` normalization;
-- use a Tellez-style HED/optical-density stain jitter plus mild image-space
-  Gaussian noise as the first implementation;
+- use a Tellez-style HED/optical-density stain-coordinate jitter plus mild
+  image-space Gaussian noise as the first implementation;
 - cite and frame this as stain-domain randomization for robust denoising, not as
   a calibrated physical scanner or section-thickness simulator;
 - do not copy the historical notebook corruptor from `kaggle/train_runs`; a
   clean implementation is required because the historical CHW/HED matrix
-  convention is ambiguous and likely wrong for channel-first left multiplication;
-- default config:
-  - `corrupt_prob = 0.30`;
-  - H/E alpha range `[0.80, 1.20]`;
-  - H/E beta range `[-0.05, 0.05]`;
-  - D alpha range `[0.98, 1.02]`;
-  - D beta range `[-0.01, 0.01]`;
-  - image-space Gaussian noise standard deviation sampled per image from
-    `Uniform(0.0, 0.05)` on the `[-1, 1]` image scale, so the denoiser cannot
-    memorize one fixed noise variance;
-- log whether an image was corrupted and the RNG seed policy for reproducible
-  debug runs.
+  convention is ambiguous and likely wrong for channel-first left multiplication,
+  it uses a historical linear-RGB path that is not the scikit-image stain-helper
+  convention, and it relies on global RNG state.
+
+The canonical HED convention is scikit-image-compatible, but runtime training
+must use a repo-owned PyTorch implementation:
+
+- scikit-image `rgb2hed`/`hed2rgb`, `separate_stains`, and `combine_stains` are
+  the oracle for tests and documentation, not a hot-path dependency;
+- the PyTorch implementation must be made of tensor operations and fixed buffers
+  that are eligible for `torch.compile`;
+- the public API takes and returns NCHW RGB tensors on the normalized `[-1, 1]`
+  scale;
+- internally, convert to RGB transmission values with `rgb = (x + 1) / 2` on the
+  `[0, 1]` scale before stain separation, and convert back with
+  `x = rgb * 2 - 1` before returning;
+- do not apply the historical sRGB-to-linear gamma decode in this first
+  convention; if a later experiment wants linear-RGB optical density, it needs a
+  separate profile/spec and must not be described as scikit-compatible;
+- use the scikit-image v0.25.x HED basis:
+
+  ```text
+  rgb_from_hed =
+    [[0.65, 0.70, 0.29],
+     [0.07, 0.99, 0.11],
+     [0.27, 0.57, 0.78]]
+  hed_from_rgb = inverse(rgb_from_hed)
+  ```
+
+- for channel-first tensors, document the exact left-multiplication convention
+  and test it against channel-last scikit-image oracle outputs so row/column
+  transposition mistakes fail fast;
+- match scikit-image stain-helper optical-density semantics:
+  `rgb_safe = max(rgb, 1e-6)`, `hed = log(rgb_safe) / log(1e-6) @ hed_from_rgb`,
+  clamp `hed >= 0`, reconstruct with
+  `rgb = exp(-(hed * -log(1e-6)) @ rgb_from_hed)`, then clamp RGB to `[0, 1]`;
+- identity parameters must round-trip RGB within tolerance before noise.
+
+First-run corruption profiles:
+
+| Profile | Use | H/E alpha | H/E beta | residual-axis alpha | residual-axis beta | noise std |
+| --- | --- | --- | --- | --- | --- | --- |
+| `conservative_default` | first real run default | `[0.80, 1.20]` | `[-0.05, 0.05]` | `[0.98, 1.02]` | `[-0.01, 0.01]` | per-image `Uniform(0.0, 0.05)` |
+| `fsq_legacy_wide` | later benchmark/ablation only | `[0.75, 1.25]` | `[-0.10, 0.10]` | `[0.98, 1.02]` | `[-0.01, 0.01]` | per-image `Uniform(0.0, 0.05)` |
+
+`conservative_default` is the only default for the first run. The wider
+historical FSQ profile may be benchmarked, but benchmark rows and artifacts must
+record the profile name so convergence evidence from different corruption
+strengths is never mixed. The third HED channel is not biological DAB for this
+H&E dataset; it is a tiny residual-axis jitter used to reduce an obvious
+corruption signature. Paper/spec wording must not claim DAB stain variation.
+
+Corruption RNG policy:
+
+- sample Bernoulli corruption decisions, H/E/residual alpha-beta parameters,
+  per-image Gaussian noise standard deviations, and Gaussian noise tensors from
+  stateless per-sample seeds;
+- derive the semantic seed from
+  `corruption_seed`, `split`, `semantic_sample_key`, `corruption_step`,
+  `corruption_view`, and `corruption_version`;
+- the semantic sample key is `{split}:{wsi_id}:{label}:{x}:{y}`. Keep
+  `file_index`, `row_index`, and the existing audit `sample_id` in metadata, but
+  do not use physical file order as the semantic corruption identity;
+- do not include rank in the semantic per-sample seed. Log rank/world size as
+  execution context only, so the same patch receives the same corruption when it
+  moves between single-GPU and DDP rows for the same step/view;
+- clean validation and clean test views must not call the corruptor and must not
+  consume corruption RNG. Any corrupted validation/robustness view must be named
+  explicitly, for example `eval_corrupted`, with a fixed view/step seed.
+
+Required output and metadata contract:
+
+- preserve input shape, device, dtype, RGB channel order, and public `[-1, 1]`
+  range;
+- run HED/OD transforms, logarithms, exponentials, stain parameter sampling, and
+  noise generation in FP32 under `torch.no_grad()`;
+- clamp the final corrupted tensor to `[-1, 1]` after stain jitter and image-space
+  Gaussian noise;
+- preserve the clean target `x_clean`; masks and labels are not modified by the
+  corruptor;
+- record per-sample metadata: `applied`, semantic key, derived seed, profile name,
+  H/E/residual alpha-beta values, sampled noise std, finite/range checks,
+  pre-clamp min/max, final min/max, and lower/upper clamp fractions.
 
 Required stain-corruptor implementation rules:
 
-- store the fixed HED stain matrix with an explicit channel-first convention;
-- add unit tests against a known HED/RGB convention such as `scikit-image`
-  `rgb2hed`/`hed2rgb` on small tensors, or include a documented copied matrix
-  convention if `scikit-image` is not a runtime dependency;
+- store the fixed HED stain matrix with an explicit channel-first convention and
+  a documented scikit-image source/version for oracle fixtures;
+- add unit tests against scikit-image reference outputs on small tensors; the
+  tests may use scikit-image as an oracle, but active runtime code must not call
+  it in the training path;
 - identity parameters must round-trip RGB within tolerance before noise;
-- H/E and D perturbation parameters must affect the intended HED channels, not
-  transposed mixtures;
-- use explicit Torch RNG state derived from `corruption_seed`, rank, sample
-  identity, and optimizer step where applicable;
+- H/E and residual-axis perturbation parameters must affect the intended HED
+  channels, not transposed mixtures;
+- use stateless Torch RNG derived from the semantic seed contract above;
 - do not consume stain/noise RNG in clean validation mode;
 - preserve input shape and dtype, and document any memory-format conversion;
-- generate a fixed 25-patch visual QA artifact showing clean, stain-corrupted,
-  Gaussian-only, and combined corrupted patches before the first Kaggle baseline
-  run.
+- implement `branchless_all` as the first execution strategy; keep
+  `indexed_masked` as a later runtime benchmark candidate only;
+- generate a fixed visual QA artifact showing clean, stain-only, Gaussian-only,
+  and combined corrupted patches before the first Kaggle baseline run. Synthetic
+  QA is sufficient for the first local correctness slice; fixed real-patch QA is
+  required before the first Kaggle baseline run.
 
 Relevant stain-domain references to cite in the paper/spec implementation:
 
@@ -288,6 +545,32 @@ Output:
   zero-initialize weight and bias
 ```
 
+Canonical residual-block topology table:
+
+| Block | Spatial in -> out | Channels in -> out | Resampling | Skip kind | Learned convs | Norms | Gates | Fixed resampling ops |
+| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |
+| `enc0` | `256 -> 256` | `32 -> 32` | none | identity | 2 | 2 | 2 | 0 |
+| `enc1` | `256 -> 256` | `32 -> 32` | none | identity | 2 | 2 | 2 | 0 |
+| `enc2` | `256 -> 128` | `32 -> 48` | downsample | downsample then projection conv | 3 | 3 | 2 | 2 |
+| `enc3` | `128 -> 128` | `48 -> 48` | none | identity | 2 | 2 | 2 | 0 |
+| `enc4` | `128 -> 64` | `48 -> 64` | downsample | downsample then projection conv | 3 | 3 | 2 | 2 |
+| `enc5` | `64 -> 64` | `64 -> 64` | none | identity | 2 | 2 | 2 | 0 |
+| `enc6` | `64 -> 32` | `64 -> 96` | downsample | downsample then projection conv | 3 | 3 | 2 | 2 |
+| `enc7` | `32 -> 32` | `96 -> 96` | none | identity | 2 | 2 | 2 | 0 |
+| `dec0` | `32 -> 32` | `96 -> 96` | none | identity | 2 | 2 | 2 | 0 |
+| `dec1` | `32 -> 32` | `96 -> 96` | none | identity | 2 | 2 | 2 | 0 |
+| `dec2` | `32 -> 64` | `96 -> 64` | upsample | upsample then projection conv | 3 | 3 | 2 | 2 |
+| `dec3` | `64 -> 64` | `64 -> 64` | none | identity | 2 | 2 | 2 | 0 |
+| `dec4` | `64 -> 128` | `64 -> 48` | upsample | upsample then projection conv | 3 | 3 | 2 | 2 |
+| `dec5` | `128 -> 128` | `48 -> 48` | none | identity | 2 | 2 | 2 | 0 |
+| `dec6` | `128 -> 256` | `48 -> 32` | upsample | upsample then projection conv | 3 | 3 | 2 | 2 |
+| `dec7` | `256 -> 256` | `32 -> 32` | none | identity | 2 | 2 | 2 | 0 |
+
+The table above is the canonical source for residual block count verification.
+It makes explicit that second blocks in every stage do not downsample/upsample,
+skip projections have normalization but no gate, and each block has exactly one
+post-add output gate.
+
 Allowed first-run operations:
 
 - odd square `Conv2d` with 7x7 only in the stem and 5x5 everywhere else;
@@ -390,9 +673,9 @@ Section-level learned-convolution count:
 | Section | Learned conv params | Learned conv MACs/sample |
 | --- | ---: | ---: |
 | Stem | 4,704 | 308,281,344 |
-| Encoder residual body | 1,811,200 | 17,013,129,216 |
+| Encoder residual body | 1,811,200 | 17,013,145,600 |
 | VAE heads | 76,832 | 78,643,200 |
-| Decoder and RGB head | 2,056,803 | 19,070,992,384 |
+| Decoder and RGB head | 2,056,803 | 19,070,976,000 |
 
 Activation-memory planning target:
 
@@ -411,14 +694,19 @@ Activation-memory planning target:
 
 Implementation requirements:
 
-- the model-count CLI/test must write `benchmark/model_count.json` and compare
-  learned parameters, learned-conv MACs, and fixed-resampling MACs against the
-  target above;
+- the historical first local scaffold `model_count` CLI/test was allowed to
+  write `benchmark/model_count.json` from the analytic target above as a schema
+  and contract smoke only;
+- the current topology-count slice must instantiate the locked model topology,
+  observe inventory input/output shapes and execution order with meta-forward
+  hooks, and compare learned parameters, learned-conv MACs, fixed-resampling
+  MACs, and activation elements against the target above before downstream
+  runtime rows are eligible;
 - if the fixed binomial downsample is implemented separably, report both the
   actual implementation MACs and the conservative dense grouped-5x5 equivalent;
 - any topology change that moves a resampling op, adds/removes a norm, changes
-  a kernel size, or changes gate placement must update this count section in
-  the same patch.
+  a kernel size, changes gate placement, or adds an uninventoried leaf module
+  must update this count section in the same patch.
 
 Banned first-run operations:
 
@@ -514,7 +802,8 @@ Normalization contract for the real run:
 - the non-equivariant Conv2d baseline uses ordinary `torch.nn.GroupNorm` with
   affine parameters;
 - default baseline groups: `num_groups = 8` for hidden widths
-  32/48/64/96 and 16 latent-projection channels where normalization is applied;
+  32/48/64/96 wherever normalization is applied, including the 96-channel
+  latent projection output;
 - the future SO(2) model uses a repo-owned field-aware norm, not arbitrary raw
   GroupNorm over tensor channels;
 - scalar/trivial fields may use additive affine bias;
@@ -540,11 +829,14 @@ Normalization contract for the real run:
 Use a normal denoising VAE with a composite reconstruction objective:
 
 ```text
-z = mu + exp(0.5 * logvar) * eps
+mu, logvar_raw = encode(x_in)
+logvar_clamped = clamp(logvar_raw, -8.0, 4.0)
+z = mu + exp(0.5 * logvar_clamped) * eps
+x_hat = decode(z)
 l1_loss = mean(abs(x_hat - x_clean))
-ssim_loss = 1 - ssim(project_for_ssim(x_hat), project_for_ssim(x_clean))
+ssim_loss = 1 - mean(ssim_per_image(project_for_ssim(x_hat), project_for_ssim(x_clean)))
 recon_loss = l1_loss + ssim_weight * ssim_loss
-kl_element = -0.5 * (1 + logvar - mu ** 2 - exp(logvar))
+kl_element = -0.5 * (1 + logvar_clamped - mu ** 2 - exp(logvar_clamped))
 kl_loss = mean(kl_element)
 loss = recon_loss + beta * kl_loss
 ```
@@ -555,14 +847,117 @@ Implement SSIM as repo-owned Torch code that runs in FP32 and can be included in
 the compiled step function without internet or undeclared Kaggle dependencies.
 First locked `ssim_weight`: `0.1`.
 
+VAE forward API contract for training and benchmark code:
+
+- `NonEquivariantVAE.forward()` is the authoritative stochastic training
+  forward and must accept an optional explicit `eps` tensor. When `eps` is
+  provided, the forward path must use it exactly and must not call
+  `torch.randn_like`; this is required for paired numerical checks and compile
+  comparisons. When `eps` is absent, the method may sample internally from the
+  active Torch RNG.
+- `VaeForwardOutput` must expose at least `reconstruction`, `mu`, raw
+  `logvar`, `logvar_clamped`, sampled `z`, used `eps`, and
+  `logvar_clamp_count`. The raw `logvar` field is model-output evidence;
+  `logvar_clamped` is the tensor used for sampling and KL.
+- Shapes are fixed for the first run: `reconstruction` is `(B, 3, 256, 256)`,
+  while `mu`, `logvar`, `logvar_clamped`, `z`, and `eps` are
+  `(B, 16, 32, 32)`.
+- Posterior arithmetic, logvar clamp, latent sampling, KL, SSIM, L1, beta
+  weighting, and total loss composition run in FP32 with gradients enabled.
+  The reconstruction tensor may carry the surrounding model dtype, but loss code
+  casts it to FP32 before arithmetic.
+- Deterministic artifact code may decode `mu` directly through `decode(mu)` for
+  mean-posterior reconstructions, but it must label that path separately from
+  stochastic sampled reconstructions. Training loss uses sampled `z`, not
+  `decode(mu)`.
+- `logvar_clamp_count` counts elements where raw `logvar` differs from
+  `logvar_clamped`; telemetry must also record raw and clamped logvar summaries
+  when the train-step slice writes evidence.
+
+Training-loss reduction contract:
+
+- `l1_loss` is the global mean absolute error over all `B,C,H,W` raw normalized
+  reconstruction and target elements.
+- `ssim_loss` is `1 - mean(ssim_per_image(...))`, where `ssim_per_image`
+  follows the standard full SSIM metric contract below on projected image-domain
+  tensors.
+- `kl_loss` is the global mean of `kl_element` over all batch, latent channel,
+  and latent spatial elements.
+- The loss API must return scalar tensors for `loss`, `recon_loss`, `l1_loss`,
+  `ssim_loss`, and `kl_loss`, plus JSON/CSV-safe detached telemetry values for
+  benchmark artifacts.
+
+Reconstruction metric contract:
+
+- metric inputs are NCHW tensors with shape `(B, C, H, W)`, matching channel
+  count, spatial size, device, and finite numeric values;
+- official MAE and MSE columns are computed on raw normalized `[-1, 1]`
+  tensors and named `mae_norm` and `mse_norm`;
+- image-domain MAE/MSE may be added later only with explicit names such as
+  `mae_img` and `mse_img`, never by reusing the official normalized columns;
+- official PSNR and SSIM columns are computed on image-domain tensors in
+  `[0, 1]` and named `psnr_img` and `ssim_img`;
+- model outputs and targets are projected for PSNR/SSIM with
+  `clamp((x + 1.0) / 2.0, 0.0, 1.0)` outside the model forward path;
+- all metric arithmetic runs in FP32, including when model outputs arrive as
+  FP16/BF16 tensors;
+- PSNR uses `data_range = 1.0` and returns `inf` for exactly zero MSE;
+- standard full SSIM uses the Wang-style full-reference formula with
+  `data_range = 1.0`, `K1 = 0.01`, `K2 = 0.03`, an odd `11x11` Gaussian
+  window, `sigma = 1.5`, grouped per-channel convolution, reflect padding of
+  five pixels, and no learned or external dependency;
+- the SSIM Gaussian kernel is built in FP32 from positions `[-5, ..., 5]` with
+  weights `exp(-(x**2)/(2*sigma**2))`, normalized so the 1D kernel sums to 1,
+  then outer-producted into a 2D window. Local variance and covariance use
+  `E[x^2] - E[x]^2` and `E[xy] - E[x]E[y]`; the SSIM map is
+  `((2*mu_x*mu_y + C1) * (2*sigma_xy + C2)) /
+  ((mu_x^2 + mu_y^2 + C1) * (sigma_x^2 + sigma_y^2 + C2))`;
+- SSIM returns per-image values by averaging the SSIM map over channel and
+  spatial dimensions, and scalar summaries average those per-image values;
+- SSIM requires `H >= 11` and `W >= 11`; smaller tensors must fail clearly
+  rather than silently changing the window;
+- every metric summary reports `n`, population mean, and population standard
+  deviation (`std = 0.0` for `n == 1`);
+- JSON summaries for PSNR must not emit non-standard JSON `Infinity` or `NaN`.
+  A PSNR summary with one or more infinite per-image values records
+  `psnr_img_inf_count`, computes `psnr_img_finite_mean` and
+  `psnr_img_finite_std` over finite values only, and sets the ordinary
+  `psnr_img.mean`/`psnr_img.std` fields to JSON `null` unless all values are
+  finite. CSV per-image rows may write the string `inf` for exactly zero-MSE
+  samples.
+
 First beta policy:
 
 - full epoch-based runs: linear warmup from 0 to 1 over the first full epoch,
   then keep beta fixed at 1;
 - tiny step-based debug runs: linear warmup from 0 to 1 over the first 10 percent
   of configured optimizer steps;
+- for step-limited debug or local pre-test runs,
+  `beta_warmup_steps = max(1, ceil(0.10 * max_optimizer_steps))`;
+- beta is computed from the zero-based successful optimizer-step index before
+  the optimizer update:
+  `beta = target_beta * min(successful_optimizer_step / beta_warmup_steps, 1.0)`;
+  therefore the first successful optimizer update uses `beta = 0.0`;
+- skipped AMP steps do not increment the successful optimizer-step index and do
+  not advance the beta schedule;
 - no cyclic beta restarts in the first locked run;
 - beta value must be logged per optimizer step.
+
+Optimizer-step indexing convention:
+
+- `optimizer_step_index` means the zero-based successful update index used
+  before the current optimizer update and before beta/LR values for that update
+  are computed. The first successful optimizer update has
+  `optimizer_step_index = 0`.
+- `successful_optimizer_update_count` means the completed-update count after a
+  successful `optimizer.step()`. After the first successful update, this count
+  is `1`.
+- CSV columns named `optimizer_step` are historical-short names for
+  `successful_optimizer_update_count` unless a schema explicitly uses
+  `optimizer_step_index`. New local train-step artifacts must include both
+  fields where an update is performed.
+- Skipped AMP batches do not increment either `optimizer_step_index` or
+  `successful_optimizer_update_count`; they are logged only as batch attempts.
 
 AMP and GradScaler policy:
 
@@ -596,6 +991,12 @@ Precision and autograd policy:
   needed. The gate remains differentiable with respect to the input field and
   gate parameters.
 - Cast the model reconstruction output to FP32 before losses and metrics.
+- The narrow local model/loss train-step pre-test is restricted to
+  `precision_policy = "amp_off_fp32"` for required pass/fail evidence. CPU
+  `torch.compile` and CPU float16 are bounded contract smokes only; they may
+  write `status = "skipped_unsupported"` when the local CPU runtime lacks
+  support, provided eager FP32 evidence passes. These local smokes are not
+  Kaggle AMP or throughput proof.
 - Do not wrap training model forward, VAE sampling, losses, or SO(2) basis
   expansion in `torch.no_grad()`. Fixed basis buffers are non-trainable, but
   expansion coefficients require gradients.
@@ -623,22 +1024,40 @@ Precision candidates for the Kaggle runtime benchmark:
 Do not relax posterior/KL/loss/corruption or radial-gate norm/sigmoid numerics
 in spec 0001. A broader precision ablation requires a later spec.
 
+The current scalar Conv2d activation implementation keeps scalar-gate sigmoid
+arithmetic in FP32. The `model_loss_train_step_ready` slice does not introduce
+an `amp_scalar_gate_relaxed` implementation hook; that policy becomes active
+only in the later Kaggle runtime benchmark slice after paired numerical checks
+exist.
+
 Corruption strategy candidates for the Kaggle runtime benchmark:
 
 - `branchless_all`: compute corrupted images for the full batch, sample a mask,
   and select corrupted versus clean tensors with `torch.where`, matching the
-  compile-friendly historical FSQ pattern.
+  compile-friendly historical FSQ pattern. This is the only execution strategy
+  required for the first local corruption correctness/QA implementation and the
+  default for the first real run unless later runtime evidence selects another
+  strategy.
 - `indexed_masked`: sample a mask, corrupt only selected samples, and scatter
   them back into the batch. Accept this only if `torch.compile` stays stable and
   throughput improves.
 - Both strategies must produce the same training distribution, support
   reproducible RNG, and preserve the validation rule that `eval_clean` consumes
   no corruption RNG.
-- equivalence tests must key randomness by `sample_id`, rank, and optimizer
-  step, then verify that `branchless_all` and `indexed_masked` produce the same
-  Bernoulli corruption decisions, the same HED/noise parameters for corrupted
-  samples, unchanged clean samples, no RNG consumption in `eval_clean`, and
-  stable compile behavior across varying mask counts.
+- equivalence tests must key randomness by semantic sample key, corruption step,
+  view, and corruption version, then verify that `branchless_all` and
+  `indexed_masked` produce the same Bernoulli corruption decisions, the same
+  HED/noise parameters and noise-field hashes for corrupted samples, unchanged
+  clean samples, no RNG consumption in `eval_clean`, and stable compile behavior
+  across varying mask counts. Rank/world size are logged execution context, not
+  semantic per-sample seed inputs.
+
+Until the corruption slice is implemented, the local model/loss train-step
+pre-test must use identity denoising input, `x_in = x_clean`, and must write
+`corruption_strategy = "identity_clean_no_corruption"`. This strategy is valid
+only for local contract evidence with `full_run_eligible = false`; it is not a
+Kaggle runtime matrix candidate and must not satisfy any corruption or denoising
+readiness gate.
 
 Log at minimum:
 
@@ -709,6 +1128,15 @@ Optimizer parameter groups:
   parameters use `weight_decay = 0.0`;
 - activation gate parameters `a_i` and `b_i` use `lr_multiplier = 0.5` for the
   first run;
+- every trainable parameter must appear in exactly one optimizer group, and
+  tests must fail on duplicates, omissions, or a gate parameter placed in a
+  decayed group;
+- the first implementation should expose stable semantic group names:
+  `decay`, `no_decay`, and `gate_no_decay`. `gate_no_decay` uses
+  `lr = base_lr * 0.5` and `weight_decay = 0.0`;
+- train-step evidence must record optimizer name, base learning rate, weight
+  decay, group count, parameter coverage status, and whether every gate
+  parameter is in the gate-specific no-decay group;
 - this replaces the historical FSQ shape-only grouping with a semantic grouping:
   future `SO(2)` expansion coefficients may be stored as 1D tensors but still
   count as learned kernel weights and should receive weight decay unless a later
@@ -722,6 +1150,19 @@ Gate-health benchmark before the first full run:
   ablation in spec 0001;
 - during the short real-data Kaggle debug/benchmark path, log gate behavior at
   fixed intervals for every gated activation module;
+- use the stable module id from `model.named_modules()` with any DDP `module.`
+  prefix stripped. The expected module count for the locked Conv2d baseline is
+  34 gated activation modules, and every expected module must appear at every
+  logged interval for the summary to pass;
+- log at optimizer step 0, every 25 successful optimizer updates, and at the
+  final successful optimizer update for selected-runtime debug and tiny-overfit
+  runs. Runtime benchmark rows with fewer than 25 measured updates must log at
+  least the first and last measured successful optimizer update;
+- capture gate inputs/outputs in FP32 summary buffers during the forward pass,
+  gate parameter values before `optimizer.step()`, unscaled gate gradient norms
+  after `loss.backward()` and before the optimizer update, and
+  `*_update_to_param_norm` from the actual parameter delta after
+  `optimizer.step()`;
 - write `metrics/gate_health.csv` with at least
   `run_name,optimizer_step,module,gate_kind,num_channels,num_elements,a_min,a_max,a_mean,a_std,b_min,b_max,b_mean,b_std,max_abs_a,max_abs_b,gate_mean,gate_std,gate_p01,gate_p50,gate_p99,frac_gate_lt_0_01,frac_gate_gt_0_99,worst_channel_frac_gate_lt_0_01,worst_channel_frac_gate_gt_0_99,dead_channel_count,input_rms,output_rms,output_input_rms_ratio,a_grad_norm,b_grad_norm,a_update_to_param_norm,b_update_to_param_norm,gate_health_status`;
 - write `benchmark/gate_health_summary.json` with per-module worst-case
@@ -731,6 +1172,14 @@ Gate-health benchmark before the first full run:
 - compute `*_update_to_param_norm` as
   `update_norm / max(parameter_norm, 1e-8)` so zero-initialized or near-zero
   parameters have a defined denominator;
+- a channel counts as dead only when it has nontrivial input
+  (`input_rms >= 1e-4`) and either per-channel `output_rms < 1e-6` or
+  per-channel `output_input_rms_ratio < 1e-3` for three consecutive logged
+  intervals. `dead_channel_count` is the number of unique module channels that
+  meet that condition;
+- summary fields are worst-case reductions over all required modules, ranks,
+  and logged intervals. Missing modules, missing ranks, missing intervals, or
+  malformed gate rows make the summary `fail`;
 - gate-health warning thresholds: `max_abs_a > 10`, `max_abs_b > 10`,
   `max(frac_gate_lt_0_01, frac_gate_gt_0_99) >= 0.80`,
   `dead_channel_count > 0`, `output_input_rms_ratio < 1e-2`, or zero
@@ -752,6 +1201,83 @@ Runtime benchmark requirement before the first full Kaggle run:
 - the benchmark is a short decision run, not training; it must stop after fixed
   warmup/measured steps and must not tune model quality;
 - use the real train and validation data loaders and the real training step;
+- every benchmark artifact must carry enough state to prevent accidental
+  promotion from a local schema smoke to a real Kaggle runtime decision;
+- valid artifact status values are:
+  - `schema_pass`: local synthetic schema smoke only; never full-run eligible;
+  - `local_pass`: measured local CPU/laptop pre-test on synthetic or otherwise
+    explicitly local data; never full-run eligible and never sufficient for
+    runtime selection;
+  - `pass`: verified on the required real runtime/data path and eligible for the
+    next gate if all linked artifacts also pass;
+  - `warn`: completed, but blocked from automatic promotion until inspected and
+    recorded in a spec/config update;
+  - `skipped_unsupported`: a configured optional local or runtime smoke was not
+    supported by the observed environment, and the artifact records a
+    deterministic `failure_kind`; this is never full-run eligible and cannot be
+    selected as runtime evidence;
+  - `fail`: completed or aborted with a failure; never eligible;
+- runtime-matrix row statuses are a separate CSV row-status vocabulary scoped to
+  `benchmark/runtime_matrix.csv`. Row-only statuses such as `ineligible`,
+  `oom`, `compile_fail`, `ddp_fail`, `wrong_accelerator`, `nonfinite_fail`,
+  `numerical_fail`, `dataloader_fail`, `gate_health_fail`,
+  `amp_skipped_fail`, and `runtime_error` must not be reused as top-level JSON
+  artifact statuses unless a later spec explicitly says so;
+- benchmark-readiness labels used in `CURRENT.md`, the spec index, and handoff
+  notes are:
+  - `scaffold_schema_ready`: only local import/CLI/schema contract checks have
+    passed; artifacts may use `schema_pass` and must keep
+    `full_run_eligible = false`;
+  - `local_benchmark_pretest_contract_ready`: the local CPU/laptop benchmark
+    pre-test status, candidate matrix, and schemas are locked, but measured
+    pre-test implementation has not necessarily run yet;
+  - `local_benchmark_pretest_ready`: local CPU/laptop benchmark pre-tests have
+    run real local code on synthetic UBC-format shards and may use
+    `local_pass`, but all artifacts must keep `full_run_eligible = false` and
+    must not be consumed as selected runtime evidence;
+  - `model_loss_train_step_contract_ready`: the VAE forward API, explicit
+    latent-noise control, clamped-logvar sampling/KL semantics, exact loss
+    reductions, beta schedule, local identity-input train-step rule, semantic
+    AdamW groups, and non-promotable local train-step artifact schema are
+    locked, but the implementation may not have run yet;
+  - `model_loss_train_step_ready`: the local model/loss train-step pre-test has
+    run real local code on synthetic tensors, written
+    `benchmark/model_loss_train_step.json` with `status = "local_pass"` and
+    `full_run_eligible = false`, and passed focused plus full production-scope
+    quality checks;
+  - `corruption_contract_ready`: the scikit-compatible PyTorch HED convention,
+    conservative/default and FSQ-wide profiles, residual-axis wording, semantic
+    stateless RNG, branchless-all first execution strategy, metadata contract,
+    and non-promotable QA artifact schema are locked, but no corruption code has
+    been accepted yet;
+  - `corruption_ready`: the local corruption correctness/QA implementation has
+    run real local code, written `benchmark/stain_corruptor_qa.json` with
+    `status = "local_pass"` and `full_run_eligible = false`, passed focused and
+    full production-scope quality checks, and remains blocked from Kaggle use
+    until fixed real 25-patch visual QA is generated;
+  - `benchmark_cli_implementation_ready`: local benchmark CLIs instantiate real
+    code, `benchmark/model_count.json` has `status = "pass"` from an
+    instantiated model, the `data_metrics_ready`, selector/dataloader,
+    local-pretest, model/loss train-step, and corruption slices are locked and
+    verified, dataloader, corruption-check, numerical-check, and gate-health
+    artifacts are produced by real local code, strict production Python quality
+    passes, no active `src/eqvae` code imports historical `src.nn`, and no
+    undeclared `pytorch-msssim` dependency remains;
+  - `runtime_selected`: the permission-gated real Kaggle benchmark has produced
+    `benchmark/selected_runtime.json` with `status = "pass"` and
+    `full_run_eligible = true`;
+- schema-only local synthetic benchmark artifacts must set `benchmark_kind =
+  "local_synthetic_schema"`, `benchmark_source =
+  "local_synthetic_schema_smoke"`, `status = "schema_pass"`,
+  `full_run_eligible = false`, `accelerator_mode = "local_cpu"`, and
+  `machine_shape = "local_cpu"`;
+- measured local CPU synthetic pre-test artifacts must set `benchmark_kind =
+  "local_synthetic_pretest"`, `benchmark_source =
+  "local_cpu_synthetic_pretest"`, `status = "local_pass"`,
+  `full_run_eligible = false`,
+  `accelerator_mode = "local_cpu"`, and `machine_shape = "local_cpu"`.
+  Training, selected-runtime debug, tiny-overfit, and full-run CLIs must reject
+  any `--runtime-config` whose `full_run_eligible` is not `true`;
 - benchmark two accelerator modes:
   `single_visible_t4` and `dual_t4_ddp`;
 - `single_visible_t4` may run inside the dual-T4 Kaggle machine by setting
@@ -766,6 +1292,12 @@ Runtime benchmark requirement before the first full Kaggle run:
   visible device count, `dual_t4_ddp` rows must still verify
   `cuda_device_count == 2`, two T4 names, `world_size == 2`, and
   `nproc_per_node == 2` at runtime;
+- before any runtime row is eligible, write `benchmark/runtime_proof.json`.
+  This file must prove the Kaggle metadata, launch mode, visible devices,
+  per-rank device names, dataset slugs, launcher command hash, and Kaggle CLI
+  version used for the benchmark. If Kaggle provides the wrong accelerator, the
+  proof file still must be written with `status = "fail"` and
+  `failure_kind = "wrong_accelerator"`;
 - for each GPU configuration, benchmark `torch.compile` off/on where the runtime
   supports it;
 - within the AMP/precision axis, compare the named precision policies
@@ -779,6 +1311,16 @@ Runtime benchmark requirement before the first full Kaggle run:
   failure;
 - batch size is selected from VRAM and throughput evidence for each runtime
   configuration, not hard-coded from the historical FSQ run.
+- row IDs must be stable and machine-readable:
+  `{accelerator_mode}__bs{per_device_batch_size}__{precision_policy}__compile_{on|off}__{corruption_strategy}`.
+  Repeated measurements of the same row may add `__repeat{n}` but must still
+  point to one canonical row when selecting.
+- runtime matrix coverage is one row per attempted
+  `{accelerator_mode, per_device_batch_size, precision_policy,
+  torch_compile_enabled, corruption_strategy}` combination. If a row is invalid
+  by the valid-row table, do not emit it. If a row is valid but unsupported by
+  the observed runtime, emit it with `status = "skipped_unsupported"` and a
+  `failure_kind` explaining the unsupported feature.
 
 Valid runtime matrix rows:
 
@@ -790,6 +1332,30 @@ Valid runtime matrix rows:
 
 Invalid rows must not be emitted, for example `amp_off_fp32` with AMP enabled or
 `amp_conservative` with AMP disabled.
+
+Allowed `benchmark/runtime_matrix.csv` row statuses:
+
+- `schema_pass`: local synthetic schema-smoke row only; never eligible and must
+  keep `benchmark_source = "local_synthetic_schema_smoke"`;
+- `pass`: row ran to completion and is eligible if all linked safety artifacts
+  pass;
+- `ineligible`: row completed but failed a selection rule, such as insufficient
+  VRAM headroom, no speedup for `indexed_masked`, or warning/fail status in a
+  linked artifact;
+- `skipped_unsupported`: row was configured and valid by the matrix table but
+  is unsupported by the observed runtime, for example CPU-only compile or dtype
+  smoke limitations in local pre-tests;
+- `oom`: row hit an out-of-memory condition and must include memory telemetry if
+  available;
+- `compile_fail`, `ddp_fail`, `wrong_accelerator`, `nonfinite_fail`,
+  `numerical_fail`, `dataloader_fail`, `gate_health_fail`,
+  `amp_skipped_fail`, or `runtime_error`: row is not eligible and must record a
+  `failure_kind` matching the status class plus a deterministic
+  `failure_message_hash`.
+
+The implementation must not silently drop attempted rows. Every configured row
+or stopped batch-size search attempt must produce a row with a status and
+failure metadata.
 
 Benchmark budget and reset rules:
 
@@ -815,32 +1381,107 @@ Benchmark budget and reset rules:
   setting, or else `branchless_all` remains selected;
 - a faster AMP/compile/precision row must pass paired numerical checks against
   `amp_off_fp32` eager on the same fixed batches before it is eligible.
+- select the runtime by filtering to eligible rows, then sorting by:
+  1. highest `samples_sec`;
+  2. lower `steady_step_ms_p95`;
+  3. higher `vram_headroom_fraction`;
+  4. simpler execution policy in this order:
+     `amp_off_fp32` before AMP when throughput differs by less than 3 percent,
+     `torch_compile=false` before `true` when throughput differs by less than
+     3 percent, and `branchless_all` before `indexed_masked` unless
+     `indexed_masked` clears its 5 percent speedup rule;
+  5. `single_visible_t4` before `dual_t4_ddp` when global throughput differs by
+     less than 5 percent, because the extra DDP complexity is not justified.
 
 Paired numerical checks:
 
-- for every non-FP32 candidate, run three fixed-seed benchmark batches against
-  `amp_off_fp32` eager with identical model initialization, data order,
-  corruption decisions, and latent noise;
+- for every candidate that differs from
+  `amp_off_fp32 + eager + branchless_all`, run three fixed-seed benchmark
+  batches against that reference with identical model initialization, data
+  order, corruption decisions, and latent noise. This includes compile-only FP32
+  rows and corruption-strategy-only rows;
 - log absolute and relative deltas for total loss, reconstruction loss, L1,
   SSIM loss, KL, gradient norm, output range, `mu` stats, `logvar` stats,
   `logvar_clamp_count`, gate-health summary, and parameter-update norm;
+- compute relative deltas as
+  `abs(candidate - reference) / max(abs(reference), 1e-8)` unless a metric has
+  a more specific denominator in this spec;
+- corruption strategy checks must also log Bernoulli corruption decisions,
+  HED/noise parameters for corrupted samples, unchanged clean-sample checks, and
+  clean-validation RNG non-consumption;
 - default pass thresholds are: no non-finite values, no AMP skipped step,
   absolute loss/reconstruction/L1/SSIM-loss delta `<= 1e-3` or relative delta
   `<= 5e-3`, KL relative delta `<= 1e-2`, gradient-norm relative delta
-  `<= 0.05`, and parameter-update-norm relative delta `<= 0.05`;
+  `<= 0.05`, parameter-update-norm relative delta `<= 0.05`,
+  output-range absolute deltas `<= 1e-3`, `mu/logvar` mean/std absolute deltas
+  `<= 1e-3`, and `logvar_clamp_count_delta == 0`;
 - if a threshold is too strict for a future verified reason, update this spec
   before selecting that runtime.
 
 Dataloader benchmark requirement:
 
+- the dataloader benchmark starts from the historical FSQ idea that is still
+  useful here: read UBC binary patch shards through a worker-local read-only
+  mmap and keep the hot path tensor-only. Selector/sample provenance stays on
+  the separate fixed-selector rail;
 - before selecting a runtime, write `benchmark/dataloader_matrix.csv` for train
   and validation shards on real Kaggle data;
+- before remote Kaggle execution, a local CPU/laptop pre-test may write the same
+  matrix schema on tiny synthetic UBC-format shards to validate the benchmark
+  mechanics and candidate expansion. These rows use `status = "local_pass"`
+  when measured successfully, `accelerator_mode = "local_cpu"`,
+  `machine_shape = "local_cpu"`, `benchmark_kind =
+  "local_synthetic_pretest"`, `benchmark_source =
+  "local_cpu_synthetic_pretest"`, and `full_run_eligible = false`. They must
+  never be selected as a runtime and must not satisfy Kaggle artifact
+  dependencies;
+- benchmark loader settings that are runtime-relevant, at minimum
+  `num_workers`, `prefetch_factor`, `pin_memory`, `persistent_workers`, and
+  `non_blocking_h2d`;
+- default local CPU pre-test loader candidates are:
+  - `num_workers`: `[0, 1]`;
+  - `prefetch_factor`: `null` when `num_workers = 0`, otherwise `2`;
+  - `pin_memory`: `false`;
+  - `persistent_workers`: `false` when `num_workers = 0`, otherwise
+    `[false, true]`;
+  - `non_blocking_h2d`: `false`;
+  - `warmup_batches = 1` and `measured_batches = 3`;
+- default Kaggle loader candidates are:
+  - `num_workers`: `[1, 2, 4]`;
+  - `prefetch_factor`: `[2, 4]` when `num_workers > 0`;
+  - `pin_memory`: `[true, false]`;
+  - `persistent_workers`: `[true, false]` when `num_workers > 0`;
+  - `non_blocking_h2d`: `[true, false]`;
+  - first pass uses at least `warmup_batches = 5` and
+    `measured_batches = 25`;
+- `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json` must declare
+  those candidates under `dataloader.candidates` and must identify the hot path
+  as `mmap_tensor_only_v1` plus selector provenance as
+  `fixed_selector_json_v1`;
 - record at least
-  `run_name,accelerator_mode,world_size,rank,split,num_workers,prefetch_factor,pin_memory,batch_size,batches_measured,batch_fetch_ms_p50,batch_fetch_ms_p95,h2d_ms_p50,h2d_ms_p95,loader_samples_sec,trainer_samples_sec,data_wait_fraction_p50,data_wait_fraction_p95,rank_sample_count,dropped_sample_count,status`;
+  `run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,world_size,rank,split,num_workers,prefetch_factor,pin_memory,persistent_workers,non_blocking_h2d,batch_size,batches_measured,batch_fetch_ms_p50,batch_fetch_ms_p95,h2d_ms_p50,h2d_ms_p95,loader_samples_sec,trainer_samples_sec,data_wait_fraction_p50,data_wait_fraction_p95,rank_sample_count,dropped_sample_count,status,failure_kind`;
+- local CPU pre-test rows must leave `h2d_ms_p50` and `h2d_ms_p95` empty
+  because there is no host-to-device transfer to benchmark. Real Kaggle GPU
+  rows must time host-to-device transfer with the declared `pin_memory` and
+  `non_blocking_h2d` settings;
+- local CPU pre-test rows must also leave `trainer_samples_sec`,
+  `data_wait_fraction_p50`, and `data_wait_fraction_p95` empty because they do
+  not execute the training step;
+- local CPU pre-test candidate failures must still produce rows with
+  `status = "fail"` and a deterministic `failure_kind`; worker-positive
+  failures on constrained local environments must not hang or disappear;
 - a runtime is ineligible if validation loading is unmeasured, any rank fails,
   rank sample counts differ beyond one batch, `data_wait_fraction_p95 > 0.20`,
   or loader throughput is below `1.25 * trainer_samples_sec` for the selected
   training row.
+- each loader row must measure at least 5 warmup batches followed by 25 measured
+  batches per split unless the split is intentionally smaller in a local
+  synthetic test. For DDP, report both per-rank rows and global aggregate rows;
+  selection uses the global aggregate while failure checks inspect every rank.
+- the selected runtime must copy the selected loader settings into
+  `selected_runtime.json` under `dataloader` and into the resolved full-run
+  config, so Kaggle debug/tiny/full runs do not quietly use a different loader.
+  The copied settings include `non_blocking_h2d`.
 
 The selected baseline runtime must be recorded in the resolved config. Use
 `per_device_batch_size`, `global_batch_size`, `mixed_precision.enabled`, and
@@ -848,12 +1489,45 @@ The selected baseline runtime must be recorded in the resolved config. Use
 `corruption.strategy`; do not leave the batch-size, precision, or corruption
 execution meaning ambiguous.
 
+Benchmark artifact dependency graph:
+
+1. `benchmark/model_count.json` must pass before runtime rows are eligible.
+2. `benchmark/runtime_proof.json` must pass before any Kaggle runtime row is
+   eligible.
+3. `benchmark/runtime_matrix.csv` can mark candidate rows as completed, but no
+   row may be selected until matching `benchmark/dataloader_matrix.csv`,
+   `benchmark/numerical_checks.csv`, `metrics/gate_health.csv`, and
+   `benchmark/gate_health_summary.json` entries exist.
+4. `benchmark/selected_runtime.json` may be written with `status = "pass"` only
+   when it references one row from `runtime_matrix.csv` whose row status is
+   `pass`, whose linked artifacts have `pass`, and whose accelerator proof
+   matches the selected mode.
+5. selected-runtime debug must consume that selected runtime and write a resume
+   proof before tiny-overfit may run.
+6. `benchmark/tiny_overfit_summary.json` must pass before
+   `non_eq_vae_baseline.json` can be used for a first 10-epoch run.
+
 `benchmark/model_count.json` required shape:
 
 ```json
 {
   "status": "pass",
+  "benchmark_kind": "implementation_model_count",
+  "benchmark_source": "instantiated_model",
+  "full_run_eligible": true,
   "config": "invoked config path",
+  "config_resolution": "source_config_deep_merge_v1",
+  "source_config_chain": [
+    {
+      "path": "configs/spec0001/non_eq_vae_model_base.json",
+      "sha256": "sha256 hex of raw source config"
+    }
+  ],
+  "invoked_config_hash": "sha256 hex of raw invoked config",
+  "effective_config_hash": "sha256 hex of resolved effective config",
+  "model_config_hash": "same value as effective_config_hash",
+  "model_config_hash_source": "canonical_json_sorted_compact_effective_config",
+  "count_source": "instantiated_model",
   "input_shape": [1, 3, 256, 256],
   "learned_convolution_count": 43,
   "normalization_module_count": 40,
@@ -867,21 +1541,112 @@ execution meaning ambiguous.
   "fixed_resampling_macs_per_sample": 85032960,
   "total_macs_per_sample_with_fixed_resampling": 36556079104,
   "activation_output_elements_per_sample": 36110336,
+  "implementation": {
+    "model_factory": "eqvae.models.non_equivariant_vae",
+    "instantiated_model": true,
+    "uses_meta_device_or_real_cpu": "cpu",
+    "zero_initialized_rgb_head_verified": true,
+    "banned_operations_checked": true,
+    "inventory_matches_expected": true,
+    "forward_order_verified": true,
+    "shape_source": "meta_forward_hooks"
+  },
+  "inventory_mismatch_count": 0,
+  "inventory_mismatches": [],
+  "expected": {
+    "total_learned_parameters": 3958435,
+    "learned_convolution_macs_per_sample": 36471046144,
+    "fixed_resampling_macs_per_sample": 85032960
+  },
+  "observed": {
+    "total_learned_parameters": 3958435,
+    "learned_convolution_macs_per_sample": 36471046144,
+    "fixed_resampling_macs_per_sample": 85032960
+  },
+  "resampling_macs": {
+    "actual_implementation": 85032960,
+    "conservative_dense_grouped_5x5_equivalent": 85032960
+  },
+  "module_inventory_path": "benchmark/model_inventory.csv",
+  "tolerances": {
+    "parameters_abs": 0,
+    "macs_abs": 0,
+    "activation_output_elements_abs": 0
+  },
   "matches_spec_target": true
 }
 ```
 
+For `benchmark/model_count.json`, `full_run_eligible = true` means the artifact
+is eligible only as a model-count dependency in the benchmark artifact graph. It
+does not make any runtime config, selected runtime, training command, Kaggle
+remote push, or paper claim eligible by itself.
+
+The local scaffold-only form may instead use `benchmark_kind =
+"local_synthetic_schema"`, `benchmark_source =
+"local_synthetic_schema_smoke"`, `full_run_eligible = false`, and
+`status = "schema_pass"`, but it must not satisfy Kaggle runtime or full-run
+acceptance. Implementation-ready output must set `count_source =
+"instantiated_model"` and `implementation.instantiated_model = true`.
+
+Config hashing uses parsed JSON re-emitted as canonical sorted compact bytes
+with separators `,`, `:`, and UTF-8 encoding. `invoked_config_hash` hashes the
+raw invoked config file. `effective_config_hash` hashes the recursively resolved
+config after `source_config` overlays are deep-merged, with `source_config`
+treated as provenance rather than an effective runtime field.
+`model_config_hash` is an alias of `effective_config_hash`, so a model-count
+artifact is tied to the actual resolved run contract while still preserving the
+invoked file hash. Pass-mode model-count configs must resolve to a model object
+declaring `architecture_id = "spec0001_non_eq_vae_translatable"` and
+`topology_version = "spec0001.count.v1"`. The model-count CLI must reject
+configs whose resolved `model.implementation_status` remains
+`"count_schema_only"` when writing pass-mode instantiated counts.
+
+For `resampling_macs`, `actual_implementation` is the measured/countable
+implementation formula and must never be `0` in pass mode. The first pass-mode
+implementation uses dense grouped 5x5 downsampling, so actual downsample MACs
+equal the conservative equivalent:
+`channels * 25 * output_h * output_w`. Bilinear upsample MACs use a 4-tap
+formula: `channels * 4 * output_h * output_w`. If a future separable
+implementation is used, `actual_implementation` must report the separable
+two-pass formula and
+`conservative_dense_grouped_5x5_equivalent` must still report the dense 5x5
+equivalent for comparable accounting.
+
+`benchmark/model_inventory.csv` required columns:
+
+```text
+module_id,module_type,parent_path,stage,block,branch,op_index,observed_forward_index,input_shape,output_shape,kernel_size,stride,padding,groups,taps,trainable,learned_parameter_count,macs_per_sample,activation_output_elements,in_channels,out_channels,has_bias,followed_by_norm,gate_channels,resampling_kind,count_category,mac_formula
+```
+
+The inventory must include every learned convolution, GroupNorm, gate module,
+fixed binomial downsample, and bilinear upsample that contributes to the count.
+Rows are ordered by the canonical architecture order in this spec and must match
+the observed forward-hook execution order: stem, encoder blocks `enc0` to
+`enc7`, heads, latent projection, decoder blocks `dec0` to `dec7`, and RGB
+output head. `activation_output_elements` contributes to
+`activation_output_elements_per_sample` only for rows with
+`count_category = "learned_convolution"`; norm, gate, and fixed-resampling rows
+must set it to `0`.
+
 `benchmark/runtime_matrix.csv` required columns:
 
 ```text
-run_name,row_id,accelerator_mode,machine_shape,visible_device_count,cuda_device_count,gpu_names,ddp_backend,world_size,nproc_per_node,precision_policy,amp_enabled,torch_compile_enabled,corruption_strategy,per_device_batch_size,global_batch_size,gradient_accumulation_steps,warmup_steps,measured_steps,repeats,compile_startup_sec,steady_step_ms_p50,steady_step_ms_p95,samples_sec,trainer_samples_sec,max_vram_allocated_mb,max_vram_reserved_mb,vram_headroom_fraction,amp_step_skipped_count,gate_health_status,gate_health_warning_count,numerical_check_status,data_wait_fraction_p95,oom,status,failure_kind,failure_message_hash
+run_name,benchmark_kind,benchmark_source,full_run_eligible,row_id,accelerator_mode,machine_shape,visible_device_count,cuda_device_count,gpu_names,ddp_backend,world_size,nproc_per_node,precision_policy,amp_enabled,torch_compile_enabled,corruption_strategy,per_device_batch_size,global_batch_size,gradient_accumulation_steps,warmup_steps,measured_steps,repeats,compile_startup_sec,steady_step_ms_p50,steady_step_ms_p95,samples_sec,trainer_samples_sec,max_vram_allocated_mb,max_vram_reserved_mb,vram_headroom_fraction,amp_step_skipped_count,gate_health_status,gate_health_warning_count,numerical_check_status,data_wait_fraction_p95,oom,status,failure_kind,failure_message_hash
 ```
+
+`gpu_names` is encoded as a compact JSON array string. `amp_enabled`,
+`torch_compile_enabled`, and `oom` are lowercase `true|false` strings in CSV.
+Timing fields use milliseconds except `compile_startup_sec`.
 
 `benchmark/selected_runtime.json` required shape:
 
 ```json
 {
   "status": "pass",
+  "benchmark_kind": "kaggle_runtime_selection",
+  "benchmark_source": "kaggle_runtime_benchmark",
+  "full_run_eligible": true,
   "selected_row_id": "string",
   "accelerator_mode": "single_visible_t4 or dual_t4_ddp",
   "machine_shape": "NvidiaTeslaT4",
@@ -897,6 +1662,13 @@ run_name,row_id,accelerator_mode,machine_shape,visible_device_count,cuda_device_
   "mixed_precision": {"enabled": false, "policy": "amp_off_fp32"},
   "torch_compile": {"enabled": false, "backend": "eager-or-inductor"},
   "corruption": {"strategy": "branchless_all"},
+  "dataloader": {
+    "num_workers": 1,
+    "prefetch_factor": 2,
+    "pin_memory": true,
+    "persistent_workers": true,
+    "non_blocking_h2d": true
+  },
   "throughput": {
     "samples_sec": 0.0,
     "steady_step_ms_p50": 0.0,
@@ -908,12 +1680,398 @@ run_name,row_id,accelerator_mode,machine_shape,visible_device_count,cuda_device_
     "gate_health_status": "pass",
     "dataloader_status": "pass",
     "amp_step_skipped_count": 0
-  }
+  },
+  "artifacts": {
+    "runtime_matrix": "benchmark/runtime_matrix.csv",
+    "runtime_matrix_sha256": "sha256 hex",
+    "model_count": "benchmark/model_count.json",
+    "model_count_sha256": "sha256 hex",
+    "runtime_proof": "benchmark/runtime_proof.json",
+    "runtime_proof_sha256": "sha256 hex",
+    "dataloader_matrix": "benchmark/dataloader_matrix.csv",
+    "dataloader_matrix_sha256": "sha256 hex",
+    "numerical_checks": "benchmark/numerical_checks.csv",
+    "numerical_checks_sha256": "sha256 hex",
+    "corruption_checks": "benchmark/corruption_checks.csv",
+    "corruption_checks_sha256": "sha256 hex",
+    "stain_corruptor_qa": "benchmark/stain_corruptor_qa.json",
+    "stain_corruptor_qa_sha256": "sha256 hex",
+    "gate_health_summary": "benchmark/gate_health_summary.json",
+    "gate_health_summary_sha256": "sha256 hex"
+  },
+  "selected_row_snapshot": {"row_id": "same as selected_row_id"},
+  "resolved_full_run_config_path": "configs/spec0001/non_eq_vae_baseline.resolved.json",
+  "resolved_full_run_config_sha256": "sha256 hex"
 }
 ```
 
 For `selected_runtime.json`, `world_size` and `nproc_per_node` are numeric:
 `1` for `single_visible_t4`, `2` for `dual_t4_ddp`.
+
+Local schema-smoke `selected_runtime.json` must use `status = "schema_pass"`,
+`benchmark_kind = "local_synthetic_schema"`, `benchmark_source =
+"local_synthetic_schema_smoke"`, and `full_run_eligible = false`.
+Its `dataloader` object must include `non_blocking_h2d = false`, and any linked
+local safety statuses must be `schema_pass`, not real-data `pass`. No training
+command may accept it as a runtime config.
+
+`benchmark/runtime_proof.json` required shape:
+
+```json
+{
+  "status": "pass",
+  "machine_shape": "NvidiaTeslaT4",
+  "kernel_metadata_machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": ["maximusshtefan/patches-pre-shuffled-ubc-ocean"],
+  "kaggle_cli_version": "string",
+  "launch_command_hash": "sha256 hex",
+  "accelerator_modes_checked": ["single_visible_t4", "dual_t4_ddp"],
+  "single_visible_t4": {
+    "visible_device_count": 1,
+    "cuda_device_count": 1,
+    "gpu_names": ["..."],
+    "world_size": 1,
+    "nproc_per_node": 1,
+    "cuda_visible_devices": "0-or-equivalent"
+  },
+  "dual_t4_ddp": {
+    "visible_device_count": 2,
+    "cuda_device_count": 2,
+    "gpu_names": ["...", "..."],
+    "world_size": 2,
+    "nproc_per_node": 2,
+    "ranks": [
+      {"rank": 0, "local_rank": 0, "device_name": "..."},
+      {"rank": 1, "local_rank": 1, "device_name": "..."}
+    ]
+  },
+  "failure_kind": ""
+}
+```
+
+`benchmark/model_loss_train_step.json` required shape for the narrow local
+model/loss slice:
+
+```json
+{
+  "status": "local_pass",
+  "benchmark_kind": "local_synthetic_model_loss_train_step",
+  "benchmark_source": "local_cpu_synthetic_train_step",
+  "full_run_eligible": false,
+  "run_name": "string",
+  "config_path": "configs/spec0001/non_eq_vae_debug_cpu.json",
+  "config_sha256": "sha256 hex",
+  "effective_config_sha256": "sha256 hex",
+  "architecture_id": "spec0001_non_eq_vae_translatable",
+  "topology_version": "spec0001.count.v1",
+  "model_count_path": "benchmark/model_count.json",
+  "model_count_sha256": "sha256 hex",
+  "model_count_status": "pass",
+  "matches_spec_target": true,
+  "accelerator_mode": "local_cpu",
+  "machine_shape": "local_cpu",
+  "device": "cpu",
+  "precision_policy": "amp_off_fp32",
+  "amp_enabled": false,
+  "torch_compile": {
+    "enabled": true,
+    "status": "local_pass or skipped_unsupported",
+    "failure_kind": ""
+  },
+  "float16_smoke": {
+    "enabled": true,
+    "status": "local_pass or skipped_unsupported",
+    "failure_kind": ""
+  },
+  "corruption_strategy": "identity_clean_no_corruption",
+  "batch_size": 2,
+  "input_shape": [2, 3, 256, 256],
+  "latent_shape": [2, 16, 32, 32],
+  "forward_contract": {
+    "explicit_eps_used": true,
+    "returned_reconstruction": true,
+    "returned_mu": true,
+    "returned_logvar_raw": true,
+    "returned_logvar_clamped": true,
+    "returned_z": true,
+    "returned_eps": true,
+    "returned_logvar_clamp_count": true
+  },
+  "zero_head": {
+    "weight_zero": true,
+    "bias_zero": true,
+    "initial_reconstruction_max_abs": 0.0,
+    "status": "pass"
+  },
+  "loss": {
+    "loss": 0.0,
+    "recon_loss": 0.0,
+    "l1_loss": 0.0,
+    "ssim_loss": 0.0,
+    "ssim_metric": 0.0,
+    "kl_loss": 0.0,
+    "beta": 0.0,
+    "all_finite": true
+  },
+  "posterior": {
+    "mu_mean": 0.0,
+    "mu_std": 0.0,
+    "logvar_raw_mean": 0.0,
+    "logvar_raw_std": 0.0,
+    "logvar_clamped_mean": 0.0,
+    "logvar_clamped_std": 0.0,
+    "logvar_clamp_count": 0,
+    "logvar_clamp_fraction": 0.0
+  },
+  "optimizer": {
+    "name": "AdamW",
+    "parameter_group_count": 3,
+    "all_trainable_parameters_covered_once": true,
+    "gate_parameters_in_gate_no_decay_group": true,
+    "base_lr": 0.0005,
+    "weight_decay": 0.00001,
+    "gate_lr_multiplier": 0.5
+  },
+  "backward_update": {
+    "grad_norm": 0.0,
+    "param_update_norm": 0.0,
+    "nonfinite_count": 0,
+    "trainable_parameter_tensor_count": 194,
+    "nonzero_grad_parameter_tensor_count": 2,
+    "nonzero_update_parameter_tensor_count": 2,
+    "first_step_update_scope": "zero_head_final_rgb_head_smoke",
+    "optimizer_step_index": 0,
+    "successful_optimizer_update_count": 1,
+    "beta_warmup_steps": 1
+  },
+  "metrics": {
+    "mae_norm": 0.0,
+    "mse_norm": 0.0,
+    "psnr_img": 0.0,
+    "ssim_img": 0.0
+  },
+  "failure_kind": "",
+  "failure_message_hash": ""
+}
+```
+
+The local model/loss train-step artifact must never update or replace
+`benchmark/selected_runtime.json`. If eager FP32 evidence fails, the artifact
+status is `fail`. Optional CPU compile or float16 smoke failures may be recorded
+inside their nested objects as `skipped_unsupported` without failing the whole
+slice, but only when eager FP32 has `status = "local_pass"` and the unsupported
+feature has deterministic `failure_kind` metadata.
+Because this first local smoke uses a zero-initialized RGB output head and
+`beta = 0.0`, it is expected to prove the final-head forward/update path rather
+than full hidden-stack gradient connectivity. The artifact must therefore record
+`trainable_parameter_tensor_count`, `nonzero_grad_parameter_tensor_count`,
+`nonzero_update_parameter_tensor_count`, and `first_step_update_scope =
+"zero_head_final_rgb_head_smoke"` so later agents do not over-interpret the
+smoke result. Broader hidden-stack connectivity and gate-health evidence belong
+to later selected-runtime debug and tiny-overfit gates.
+The train-step writer must run or consume the current instantiated
+`benchmark/model_count.json` proof and fail unless that proof has
+`status = "pass"` and `matches_spec_target = true` for the same effective config
+hash, `architecture_id`, and `topology_version`.
+
+`benchmark/stain_corruptor_qa.json` required shape for the narrow local
+corruption correctness/QA slice:
+
+```json
+{
+  "status": "local_pass",
+  "benchmark_kind": "local_synthetic_stain_corruptor_qa",
+  "benchmark_source": "local_cpu_synthetic_stain_corruptor_qa",
+  "full_run_eligible": false,
+  "run_name": "string",
+  "config_path": "configs/spec0001/non_eq_vae_debug_cpu.json",
+  "config_sha256": "sha256 hex",
+  "effective_config_sha256": "sha256 hex",
+  "corruption_version": "spec0001.hed_corruptor.v1",
+  "profile_name": "conservative_default",
+  "reference_oracle": {
+    "name": "scikit-image",
+    "version": "0.25.x",
+    "source_url": "https://github.com/scikit-image/scikit-image/blob/v0.25.2/skimage/color/colorconv.py",
+    "runtime_dependency": false
+  },
+  "api_contract": {
+    "input_shape": [25, 3, 256, 256],
+    "input_domain": "normalized_rgb_minus1_1",
+    "output_domain": "normalized_rgb_minus1_1",
+    "channel_order": "NCHW_RGB",
+    "same_shape": true,
+    "same_dtype": true,
+    "same_device": true,
+    "final_clamp_range": [-1.0, 1.0]
+  },
+  "hed_convention": {
+    "rgb_from_hed": [[0.65, 0.70, 0.29], [0.07, 0.99, 0.11], [0.27, 0.57, 0.78]],
+    "od_epsilon": 0.000001,
+    "uses_srgb_gamma_decode": false,
+    "channel_first_matches_channel_last_oracle": true,
+    "identity_round_trip_max_abs_error": 0.0,
+    "oracle_rgb2hed_max_abs_error": 0.0,
+    "oracle_hed2rgb_max_abs_error": 0.0
+  },
+  "rng": {
+    "corruption_seed": 0,
+    "semantic_seed_fields": [
+      "corruption_seed",
+      "split",
+      "semantic_sample_key",
+      "corruption_step",
+      "corruption_view",
+      "corruption_version"
+    ],
+    "rank_excluded_from_semantic_seed": true,
+    "fixed_seed_reproducible": true,
+    "rank_move_reproducible": true,
+    "clean_validation_consumes_rng": false
+  },
+  "profile": {
+    "corrupt_prob": 0.3,
+    "he_alpha_range": [0.8, 1.2],
+    "he_beta_range": [-0.05, 0.05],
+    "residual_alpha_range": [0.98, 1.02],
+    "residual_beta_range": [-0.01, 0.01],
+    "noise_std_range": [0.0, 0.05],
+    "residual_axis_semantics": "tiny_residual_axis_jitter_not_biological_dab"
+  },
+  "checks": {
+    "finite_outputs": true,
+    "he_channel_semantics": true,
+    "residual_channel_semantics": true,
+    "target_preserved": true,
+    "metadata_schema_valid": true,
+    "synthetic_visual_qa_status": "local_pass",
+    "fixed_real_25_visual_qa_status": "requires_real_data_generation"
+  },
+  "summary_stats": {
+    "clean": {"min": 0.0, "max": 0.0, "mean": 0.0, "std": 0.0},
+    "stain_only": {"min": 0.0, "max": 0.0, "mean": 0.0, "std": 0.0},
+    "gaussian_only": {"min": 0.0, "max": 0.0, "mean": 0.0, "std": 0.0},
+    "combined": {"min": 0.0, "max": 0.0, "mean": 0.0, "std": 0.0}
+  },
+  "clamp_fractions": {
+    "stain_only_low": 0.0,
+    "stain_only_high": 0.0,
+    "gaussian_only_low": 0.0,
+    "gaussian_only_high": 0.0,
+    "combined_low": 0.0,
+    "combined_high": 0.0
+  },
+  "visual_artifacts": {
+    "directory": "artifacts/stain_corruptor_qa",
+    "synthetic_grid_path": "artifacts/stain_corruptor_qa/synthetic_grid.png",
+    "synthetic_grid_sha256": "sha256 hex",
+    "fixed_real_25_grid_path": "",
+    "fixed_real_25_grid_sha256": ""
+  },
+  "failure_kind": "",
+  "failure_message_hash": ""
+}
+```
+
+The local `stain_corruptor_qa.json` artifact is a correctness artifact, not
+runtime-selection evidence. It may use synthetic patches before real data are
+available and may report `fixed_real_25_visual_qa_status =
+"requires_real_data_generation"`. Before the first Kaggle baseline run, the
+fixed real 25-patch visual QA must be generated from the canonical selector
+provenance and must pass without changing the corruption profile.
+
+`benchmark/corruption_checks.csv` required columns for branchless/indexed and
+clean-validation RNG evidence:
+
+```text
+run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,row_id,reference_row_id,candidate_row_id,batch_index,corruption_version,profile_name,corruption_strategy,corruption_view,corruption_step,split,semantic_sample_key_hash,binary_sample_id_hash,rank,world_size,applied_mask_hash,stain_param_hash,noise_std_hash,noise_field_hash,clean_sample_unchanged_count,clean_validation_rng_advanced,status,failure_kind
+```
+
+`benchmark/numerical_checks.csv` required columns:
+
+```text
+run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,row_id,reference_row_id,candidate_row_id,batch_index,precision_policy,torch_compile_enabled,corruption_strategy,total_loss_abs_delta,total_loss_rel_delta,recon_loss_abs_delta,recon_loss_rel_delta,l1_loss_abs_delta,l1_loss_rel_delta,ssim_loss_abs_delta,ssim_loss_rel_delta,kl_loss_abs_delta,kl_loss_rel_delta,grad_norm_abs_delta,grad_norm_rel_delta,param_update_norm_abs_delta,param_update_norm_rel_delta,x_hat_min_abs_delta,x_hat_max_abs_delta,mu_mean_abs_delta,mu_std_abs_delta,logvar_mean_abs_delta,logvar_std_abs_delta,logvar_clamp_count_delta,gate_health_status,nonfinite_count,amp_step_skipped,status,failure_kind
+```
+
+`metrics/gate_health.csv` required columns:
+
+```text
+run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,optimizer_step,module,gate_kind,num_channels,num_elements,a_min,a_max,a_mean,a_std,b_min,b_max,b_mean,b_std,max_abs_a,max_abs_b,gate_mean,gate_std,gate_p01,gate_p50,gate_p99,frac_gate_lt_0_01,frac_gate_gt_0_99,worst_channel_frac_gate_lt_0_01,worst_channel_frac_gate_gt_0_99,dead_channel_count,input_rms,output_rms,output_input_rms_ratio,a_grad_norm,b_grad_norm,a_update_to_param_norm,b_update_to_param_norm,gate_health_status
+```
+
+`benchmark/gate_health_summary.json` required shape:
+
+```json
+{
+  "status": "pass",
+  "benchmark_kind": "kaggle_gate_health_benchmark",
+  "benchmark_source": "kaggle_runtime_benchmark",
+  "overall_status": "pass",
+  "full_run_eligible": true,
+  "logged_intervals": 0,
+  "module_count": 34,
+  "nonfinite_count": 0,
+  "max_abs_a": 0.0,
+  "max_abs_b": 0.0,
+  "worst_frac_gate_lt_0_01": 0.0,
+  "worst_frac_gate_gt_0_99": 0.0,
+  "dead_channel_count": 0,
+  "zero_gradient_interval_count": 0,
+  "worst_output_input_rms_ratio": 0.0,
+  "failing_modules": [],
+  "warning_modules": []
+}
+```
+
+`benchmark/tiny_overfit_summary.json` required shape:
+
+```json
+{
+  "status": "pass",
+  "runtime_config": "benchmark/selected_runtime.json",
+  "runtime_config_sha256": "sha256 hex",
+  "fixed_train_patches": "configs/spec0001/fixed_32_train_overfit_patches.json",
+  "fixed_train_patches_sha256": "sha256 hex",
+  "patch_count": 32,
+  "optimizer_steps": 300,
+  "smoothing_window_steps": 25,
+  "corruption_strategy": "branchless_all",
+  "eval_views": ["train_clean", "train_corrupted_fixed_seed"],
+  "initial_smoothed_l1": 0.0,
+  "final_smoothed_l1": 0.0,
+  "initial_smoothed_recon_loss": 0.0,
+  "final_smoothed_recon_loss": 0.0,
+  "l1_improvement_fraction": 0.05,
+  "recon_loss_improvement_fraction": 0.05,
+  "zero_head_baseline_psnr": 0.0,
+  "final_psnr": 0.0,
+  "zero_head_baseline_ssim": 0.0,
+  "final_ssim": 0.0,
+  "max_logvar_clamp_fraction": 0.0,
+  "max_frac_x_hat_lt_minus1": 0.0,
+  "max_frac_x_hat_gt_1": 0.0,
+  "gate_health_status": "pass"
+}
+```
+
+Tiny-overfit passes only if `patch_count == 32`, `status == "pass"`,
+finite losses/metrics are present, both L1 and reconstruction loss improve by at
+least 5 percent, either PSNR or SSIM improves over the zero-head baseline,
+`max_logvar_clamp_fraction <= 0.05`,
+`max(max_frac_x_hat_lt_minus1, max_frac_x_hat_gt_1) <= 0.05`, and gate health
+is `pass` or `warn` with an explicit note. A `warn` gate-health status still
+blocks the first full run until inspected.
+
+Tiny-overfit smoothing is fixed: `initial_smoothed_*` is the mean over the first
+25 successful optimizer updates and `final_smoothed_*` is the mean over the last
+25 successful optimizer updates. Skipped AMP batches do not count as successful
+updates. The zero-head baseline is computed before any optimizer update on the
+same 32 fixed clean patches, with PSNR/SSIM measured after the image-domain
+projection used elsewhere in this spec. The corruption path uses the selected
+runtime's corruption strategy, but the overfit evaluation view must also include
+a fixed-seed corrupted pass so the improvement check is reproducible. The
+`fixed_train_patches_sha256` is computed from canonical JSON bytes for the
+selector file; changing the selector requires a spec/config update.
 
 Required first-run budget defaults:
 
@@ -942,20 +2100,27 @@ Required output schemas:
 
 - `config_resolved.json`: full config after CLI overrides;
 - `metrics/train_steps.csv`: one row per logged train step with at least
-  `run_name,event_id,batch_attempt,optimizer_step,split,loss,recon_loss,l1_loss,ssim_loss,ssim_metric,mae,mse,psnr,kl_loss,beta,lr,grad_norm,batch_size,precision_policy,amp_enabled,torch_compile_enabled,corruption_strategy,amp_step_skipped,mu_mean,mu_std,mu_min,mu_max,logvar_mean,logvar_std,logvar_min,logvar_max,logvar_clamp_count,x_hat_min,x_hat_max,frac_x_hat_lt_minus1,frac_x_hat_gt_1`;
+  `run_name,event_id,batch_attempt,optimizer_step,split,loss,recon_loss,l1_loss,ssim_loss,ssim_metric,mae_norm,mse_norm,psnr_img,ssim_img,kl_loss,beta,lr,grad_norm,batch_size,precision_policy,amp_enabled,torch_compile_enabled,corruption_strategy,amp_step_skipped,mu_mean,mu_std,mu_min,mu_max,logvar_mean,logvar_std,logvar_min,logvar_max,logvar_clamp_count,x_hat_min,x_hat_max,frac_x_hat_lt_minus1,frac_x_hat_gt_1`;
 - skipped AMP rows are logged as batch-attempt events with
   `amp_step_skipped = 1`; they do not increment `optimizer_step` and do not
   trigger optimizer-step-based schedules, validation, or checkpointing;
 - `metrics/validation_steps.csv`: one row per validation event with at least
-  `run_name,optimizer_step,split,view,n,mse_mean,mae_mean,psnr_mean,ssim_mean,kl_mean,mu_mean,mu_std,logvar_mean,logvar_std,logvar_clamp_count,x_hat_min,x_hat_max,frac_x_hat_lt_minus1,frac_x_hat_gt_1`;
+  `run_name,optimizer_step,split,view,n,mse_norm_mean,mae_norm_mean,psnr_img_mean,ssim_img_mean,psnr_img_inf_count,kl_mean,mu_mean,mu_std,logvar_mean,logvar_std,logvar_clamp_count,x_hat_min,x_hat_max,frac_x_hat_lt_minus1,frac_x_hat_gt_1`;
 - `eval/per_image_metrics.csv`: one row per evaluated patch with at least
-  `sample_id,split,view,wsi_id,label,x,y,mse,mae,psnr,ssim`;
+  `sample_id,split,view,wsi_id,label,x,y,file_index,row_index,mse_norm,mae_norm,psnr_img,ssim_img`;
 - `eval/summary.json`: mean, standard deviation, and `n` for every metric,
-  grouped by `split` and `view`;
+  grouped by `split` and `view`, with the PSNR infinite-value policy described
+  in the reconstruction metric contract;
 - `artifacts/manifest.json`: paths and provenance for every generated figure;
 - `benchmark/model_count.json`: analytic/implementation model count comparison
   including learned parameters, learned-conv MACs, fixed-resampling MACs,
   normalization/gate parameters, and pass/fail status against this spec;
+- `benchmark/model_loss_train_step.json`: local synthetic model/loss
+  train-step evidence for the narrow slice, with `status = "local_pass"` only
+  for eager FP32 real-code evidence and `full_run_eligible = false`;
+- `benchmark/stain_corruptor_qa.json`: local synthetic and later fixed-real
+  HED/stain corruptor convention, RNG, metadata, range, and visual-QA evidence
+  for the narrow corruption slice, with `full_run_eligible = false`;
 - `benchmark/runtime_matrix.csv`: one row per benchmarked runtime configuration;
 - `benchmark/selected_runtime.json`: selected accelerator, compile, AMP, and
   batch-size decision for the first full run, including selected
@@ -964,6 +2129,8 @@ Required output schemas:
   throughput, wait-fraction, and rank-balance measurements;
 - `benchmark/numerical_checks.csv`: paired fixed-batch deltas against
   `amp_off_fp32` eager for precision/compile candidates;
+- `benchmark/corruption_checks.csv`: branchless/indexed corruption-equivalence
+  hashes, clean-sample unchanged counts, and clean-validation RNG evidence;
 - `metrics/gate_health.csv`: per-module gate parameter, saturation, RMS, and
   gradient/update telemetry from debug and benchmark runs;
 - `benchmark/gate_health_summary.json`: gate-health pass/warn/fail summary used
@@ -988,7 +2155,13 @@ Selection policy for `configs/spec0001/fixed_25_validation_patches.json`:
    `sha256("20260610:{wsi_id}:{label}:{x}:{y}")`.
 4. Sort each label group by that digest, then by `wsi_id,x,y`.
 5. Select the first 5 rows per label.
-6. Store the ordered 25 selectors with `wsi_id,label,x,y,source_split`.
+6. Store the ordered 25 selectors with audit-stable fields:
+   `rank,source_split,file_index,row_index,sample_id,wsi_id,label,x,y,
+   selection_key_sha256,patch_sha256`.
+7. Store top-level source provenance: `dataset_slug`, resolved `data_root`,
+   `csv_path`, `csv_sha256`, `bin_path`, `bin_file_size`, `header_sha256`,
+   parsed header fields, `row_count`, `patch_count`, `idx_policy`, and
+   `crc_checked`.
 
 The artifact command may accept `--fixed-count 25`, but implementation must fail
 if the fixed-patch config is missing or if the selected count is not exactly 25.
@@ -1001,13 +2174,33 @@ implementation must include a deterministic selector generator:
 PYTHONPATH=src uv run --locked --no-sync python -m eqvae.cli.select_fixed_patches \
   --config configs/spec0001/non_eq_vae_kaggle_debug.json \
   --data-root auto \
-  --output configs/spec0001/fixed_25_validation_patches.json
+  --output configs/spec0001/fixed_25_validation_patches.json \
+  --validate-crc \
+  --allow-tracked-config-overwrite
 ```
 
 This generator requires access to the real validation CSV and is therefore a
 data-access step, not a pure offline local test. Local synthetic tests may use a
 separate generated synthetic selector under `runs/` but must never overwrite the
 canonical fixed-25 config.
+
+Locked selector/dataloader policy, 2026-06-12:
+
+- selector schema is `spec0001.fixed_selector.v1` with top-level source
+  provenance plus audit-stable selector rows; `wsi_id,label,x,y` alone are not
+  sufficient;
+- selector validation recomputes the deterministic selection policy and fails
+  if a document contains internally consistent but noncanonical rows;
+- canonical split names are `train` and `validation`; `valid`/`val` are input
+  aliases only;
+- `eqvae.cli.select_fixed_patches` may write canonical tracked selector config
+  paths only when both `--allow-tracked-config-overwrite` and `--validate-crc`
+  are supplied. Noncanonical local synthetic outputs should live under ignored
+  `runs/` paths and may skip full CRC;
+- canonical selector placeholders stay tracked with
+  `status = "requires_real_data_generation"` until the real Kaggle CSV/bin
+  files are available locally. Commands that consume fixed selectors must reject
+  those placeholders rather than resampling.
 
 ## Fixed 32-Train Tiny-Overfit Protocol
 
@@ -1022,7 +2215,19 @@ Selection policy for `configs/spec0001/fixed_32_train_overfit_patches.json`:
 3. Compute `sha256("20260611:tiny-overfit:{wsi_id}:{label}:{x}:{y}")`.
 4. Sort by digest, then by `wsi_id,label,x,y`.
 5. Select the first 32 rows.
-6. Store the ordered 32 selectors with `wsi_id,label,x,y,source_split`.
+6. Store the ordered 32 selectors with the same audit-stable selector row and
+   source-provenance schema used by the fixed-25 validation selector.
+
+Canonical generation command:
+
+```bash
+PYTHONPATH=src uv run --locked --no-sync python -m eqvae.cli.select_fixed_patches \
+  --config configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json \
+  --data-root auto \
+  --output configs/spec0001/fixed_32_train_overfit_patches.json \
+  --validate-crc \
+  --allow-tracked-config-overwrite
+```
 
 Tiny-overfit commands must fail if the fixed 32-train config is missing, has any
 validation row, or contains a count other than 32.
@@ -1064,6 +2269,12 @@ Required modules:
 - `src/eqvae/data/synthetic.py`: tiny deterministic synthetic patch shards for
   local tests and smoke runs;
 - `src/eqvae/data/splits.py`: WSI and masked-holdout split validation helpers;
+- `src/eqvae/data/roots.py`: deterministic explicit/auto UBC data-root
+  resolution;
+- `src/eqvae/data/dataloaders.py`: fast read-only mmap tensor-only dataset and
+  `uint8` batch normalization helper;
+- `src/eqvae/data/fixed_selectors.py`: fixed-25/fixed-32 selector generation,
+  schema loading, and drift/policy validation;
 - `src/eqvae/corruption/stain.py`: Tellez-style HED/OD stain jitter and
   Gaussian noise corruption with corrected matrix convention;
 - `src/eqvae/models/field_schedule.py`: tensor-channel schedule and future
@@ -1072,6 +2283,8 @@ Required modules:
   gate policy;
 - `src/eqvae/models/non_equivariant_vae.py`: translatable Conv2d VAE factory;
 - `src/eqvae/losses/vae.py`: reconstruction, KL, and beta schedule;
+- `src/eqvae/training/`: train-step and optimizer-group helpers introduced by
+  the narrow model/loss train-step slice;
 - `src/eqvae/metrics/reconstruction.py`: SSIM, MAE, MSE, PSNR;
 - `src/eqvae/artifacts/`: boxplots, dashboards, fixed-patch grids, rotated-input
   grids, rotated-input versus latent grids, and latent visualization helpers;
@@ -1081,6 +2294,7 @@ Required modules:
 
 Required config files:
 
+- `configs/spec0001/non_eq_vae_model_base.json`;
 - `configs/spec0001/non_eq_vae_baseline.json`;
 - `configs/spec0001/non_eq_vae_debug_cpu.json`;
 - `configs/spec0001/non_eq_vae_kaggle_debug.json`;
@@ -1089,6 +2303,32 @@ Required config files:
 - `configs/spec0001/ubc_ocean_masked_holdout_test.json`;
 - `configs/spec0001/fixed_32_train_overfit_patches.json`;
 - `configs/spec0001/fixed_25_validation_patches.json`.
+
+The shared `corruption` config object must be expanded before the
+`corruption_contract_ready` implementation starts. It must include:
+
+- `kind = "tellez_hed_gaussian"`;
+- `implementation_status`;
+- `corruption_version = "spec0001.hed_corruptor.v1"`;
+- `profile_name` with one of `conservative_default` or `fsq_legacy_wide`;
+- `corrupt_prob`;
+- `he_alpha_range`, `he_beta_range`, `residual_alpha_range`,
+  `residual_beta_range`, and `noise_std_range`;
+- `hed_matrix_source`, `hed_matrix_version`, `rgb_from_hed`,
+  `od_epsilon = 1e-6`, and `uses_srgb_gamma_decode = false`;
+- `rng_policy = "semantic_stateless_v1"`, `corruption_seed`,
+  `semantic_seed_fields`, and `rank_in_semantic_seed = false`;
+- `clean_validation_consumes_rng = false`;
+- output-domain fields: `input_domain`, `output_domain`, `channel_order`,
+  `final_clamp_min`, `final_clamp_max`, and `metadata_schema_version`.
+
+Scaffold status, 2026-06-12: the config files exist as JSON scaffolds.
+`fixed_25_validation_patches.json` and
+`fixed_32_train_overfit_patches.json` are deliberately marked
+`requires_real_data_generation` with `spec0001.fixed_selector.v1` metadata and
+empty selectors until the real Kaggle CSVs are available. Commands that need
+canonical fixed selectors must reject those placeholder files rather than
+silently resampling.
 
 Run outputs should go under ignored `runs/` paths locally and `/kaggle/working`
 on Kaggle.
@@ -1108,14 +2348,20 @@ Config and dependency policy:
 - configs are JSON by contract for spec 0001 and must use only the Python
   standard-library `json` parser/writer;
 - do not add a YAML parser solely for experiment config files in spec 0001;
+- Kaggle/debug/full-run configs that use `source_config` must inherit from the
+  model-only base contract, not from the local CPU debug config. Local-only keys
+  such as `benchmark`, `dataloader_pretest`, and CPU `runtime.device` must not
+  appear in resolved Kaggle configs;
 - repo-owned Torch SSIM must be implemented under `src/eqvae`; do not import
   `pytorch-msssim` in spec 0001 code unless a later spec deliberately changes
   the offline/compiled SSIM policy;
-- if `pytorch-msssim` remains in `pyproject.toml` as historical dependency debt,
-  resolve it through the benchmark-unblock route in
-  `docs/specs/0002-strict-python-quality-gate.md`: extract/quarantine
-  historical `src/nn`, remove the direct dependency, and refresh `uv.lock` in
-  one cleanup patch before benchmark CLIs are implementation-ready.
+- `pytorch-msssim` is no longer a direct dependency in `pyproject.toml` or
+  `uv.lock`; the remaining `pytorch_msssim` import is inside user-retained
+  historical `src/nn` reference code and must not be imported by `src/eqvae`;
+- historical `src/nn` is excluded from Ruff/BasedPyright production scopes by
+  spec 0002 decision and may remain as reference material; benchmark CLIs are
+  not implementation-ready unless `./scripts/python_quality.sh` passes for the
+  production scope and no active `src/eqvae` code imports `src.nn`.
 
 Local CPU smoke policy:
 
@@ -1126,26 +2372,55 @@ Local CPU smoke policy:
   tolerances or explicit skips for unsupported CPU operations;
 - GPU speed, AMP, and DDP behavior are decided only by the permission-gated
   Kaggle runtime benchmark.
+- Local synthetic benchmark outputs may use `accelerator_mode = "local_cpu"`,
+  `machine_shape = "local_cpu"`, `status = "schema_pass"` for schema-only
+  smoke, or `status = "local_pass"` for measured local CPU synthetic
+  pre-tests. Both local statuses require `full_run_eligible = false` and cannot
+  be selected as runtime evidence.
 
 Implementation milestones before broad coding:
 
-1. Spec relock slice: implementation count verification, future SO(2) count
-   ceiling, ResNet-like residual confirmation, package/import policy, JSON
-   config policy, quality-debt route, fixed validation/tiny-overfit selector
-   plan, artifact protocol, and final clean-context spec review.
-2. Skeleton slice: `src/eqvae`, `configs/spec0001`, no-sync import smoke, and
-   one CPU pytest proving CLI/import wiring.
-3. Data/metrics slice: patch-shard loader, synthetic data, split validation,
-   MAE/MSE/PSNR/SSIM metrics.
-4. Model/loss slice: activation policy, non-equivariant VAE shapes, KL/L1/SSIM
-   loss, beta schedule, compile/precision smoke.
-5. Corruption slice: tested HED/OD stain jitter, Gaussian corruption, RNG policy,
-   and 25-patch visual QA.
-6. Train/resume slice: optimizer/scheduler, AMP skipped-step behavior,
+1. Completed narrow scaffold/topology-count slice: `src/eqvae`,
+   `configs/spec0001`, no-sync import smoke, local schema artifacts,
+   instantiated model-count verification, layered JSON config resolution, and
+   observed `model_inventory.csv`.
+2. Remaining spec relock slice: future SO(2) count ceiling, real fixed
+   validation/tiny-overfit selector generation data-access step, remaining
+   artifact protocol, package/import policy, and final clean-context
+   spec review.
+3. Completed narrow data/metrics slice: `data_metrics_ready` now covers
+   patch-shard loader, synthetic UBC-format shards, split validation, and
+   MAE/MSE/PSNR/SSIM metrics under that narrow authorization. It is local
+   implementation evidence only, not a benchmark, Kaggle, training, or paper
+   unlock.
+4. Completed narrow selector/dataloader slice:
+   `fixed_selectors_dataloader_ready` now covers deterministic data-root
+   resolution, tensor-only mmap loaders, fixed selector schema/generation/
+   validation, and local synthetic selector tests. It is local implementation
+   evidence only and does not generate the real canonical selectors until the
+   real Kaggle CSV/bin files are available locally.
+5. Implemented local benchmark pre-test writer:
+   `local_benchmark_pretest_ready` now locks and implements how local
+   CPU synthetic dataloader pre-tests report `local_pass`, the FSQ-derived mmap
+   tensor-only hot path, explicit candidate knobs, candidate failure rows, and
+   `full_run_eligible = false`. The checked-in debug pre-test was rerun outside
+   the sandbox on 2026-06-12 and measured all configured candidates.
+6. Completed model/loss slice: `model_loss_train_step_ready` now implements the
+   VAE forward API, explicit `eps` control, clamped-logvar sampling/KL
+   semantics, exact L1/SSIM/KL reductions, beta schedule, identity-clean local
+   input rule, semantic AdamW groups, non-promotable
+   `benchmark/model_loss_train_step.json`, first-step final-head update
+   telemetry, and local compile/precision smoke status semantics.
+7. HED/stain corruption slice: `corruption_contract_ready` is locked for a
+   local correctness/QA implementation only; next implement PyTorch
+   scikit-compatible HED/RGB conversion, conservative and FSQ-wide profiles,
+   semantic stateless RNG, branchless-all execution, metadata, and
+   `benchmark/stain_corruptor_qa.json`.
+8. Train/resume slice: optimizer/scheduler, AMP skipped-step behavior,
    checkpoint save/resume, metrics schemas, retention.
-7. Artifact/evaluation slice: fixed validation/tiny-overfit selectors,
+9. Artifact/evaluation slice: fixed validation/tiny-overfit selectors,
    evaluator, boxplots, dashboards, rotated/latent artifacts.
-8. Kaggle slice: payload build, debug launcher, local payload validation, then
+10. Kaggle slice: payload build, debug launcher, local payload validation, then
    permission-gated remote benchmark/debug runs.
 
 ## Kaggle Packaging Contract
@@ -1217,9 +2492,137 @@ General repo checks:
 ./scripts/python_quality.sh
 ```
 
-Spec 0001 includes resolving or quarantining the historical strict-quality debt
-in `main.py` / exploratory `src/nn` so `./scripts/python_quality.sh` passes.
-Do not weaken global Ruff/BasedPyright settings and do not add global ignores.
+Spec 0001 uses the spec 0002 production boundary: historical exploratory
+`src/nn` is excluded from Ruff/BasedPyright and may remain as reference
+material, while production Python under `src/eqvae` and tests must pass
+`./scripts/python_quality.sh`. Empty `main.py` was deleted on 2026-06-12. Do
+not weaken global Ruff/BasedPyright settings and do not add global ignores.
+
+Narrow `data_metrics_ready` local checks:
+
+```bash
+.venv/bin/ruff format src/eqvae \
+  tests/test_patch_shards.py \
+  tests/test_split_validation.py \
+  tests/test_reconstruction_metrics.py \
+  tests/test_spec0001_benchmark_scaffold.py
+
+.venv/bin/ruff check src/eqvae \
+  tests/test_patch_shards.py \
+  tests/test_split_validation.py \
+  tests/test_reconstruction_metrics.py \
+  tests/test_spec0001_benchmark_scaffold.py \
+  tests/__init__.py
+
+.venv/bin/basedpyright src/eqvae \
+  tests/test_patch_shards.py \
+  tests/test_split_validation.py \
+  tests/test_reconstruction_metrics.py \
+  tests/test_spec0001_benchmark_scaffold.py \
+  tests/__init__.py
+
+PYTHONPATH=src .venv/bin/pytest \
+  tests/test_patch_shards.py \
+  tests/test_split_validation.py \
+  tests/test_reconstruction_metrics.py \
+  tests/test_spec0001_benchmark_scaffold.py
+```
+
+As of 2026-06-12 these focused checks pass locally. Benchmark CLIs still become
+implementation-ready only when the full production-scope
+`./scripts/python_quality.sh` passes and the relevant benchmark artifacts are
+real-code outputs rather than schema placeholders.
+
+Narrow `fixed_selectors_dataloader_ready` local checks:
+
+```bash
+.venv/bin/ruff format src/eqvae/data src/eqvae/cli/select_fixed_patches.py \
+  tests/test_data_roots.py tests/test_dataloaders.py tests/test_fixed_selectors.py
+
+.venv/bin/ruff check src/eqvae/data src/eqvae/cli/select_fixed_patches.py \
+  tests/test_data_roots.py tests/test_dataloaders.py tests/test_fixed_selectors.py
+
+.venv/bin/basedpyright src/eqvae/data src/eqvae/cli/select_fixed_patches.py \
+  tests/test_data_roots.py tests/test_dataloaders.py tests/test_fixed_selectors.py
+
+PYTHONPATH=src .venv/bin/pytest \
+  tests/test_data_roots.py tests/test_dataloaders.py tests/test_fixed_selectors.py
+```
+
+As of 2026-06-12 these focused checks pass locally for the new selector and
+dataloader slice. The canonical real selector JSON files remain placeholders
+until real Kaggle train/validation shards are available locally and the
+permission-gated canonical generation commands are run with CRC validation.
+
+Narrow `model_loss_train_step_ready` verification checks:
+
+```bash
+.venv/bin/ruff format src/eqvae/models/non_equivariant_vae.py \
+  src/eqvae/losses src/eqvae/training src/eqvae/benchmarking \
+  src/eqvae/cli/benchmark_runtime.py \
+  tests/test_vae_loss.py tests/test_train_step.py \
+  tests/test_optimizer_groups.py tests/test_compile_precision_smoke.py
+
+.venv/bin/ruff check src/eqvae/models/non_equivariant_vae.py \
+  src/eqvae/losses src/eqvae/training src/eqvae/benchmarking \
+  src/eqvae/cli/benchmark_runtime.py \
+  tests/test_vae_loss.py tests/test_train_step.py \
+  tests/test_optimizer_groups.py tests/test_compile_precision_smoke.py
+
+.venv/bin/basedpyright src/eqvae/models/non_equivariant_vae.py \
+  src/eqvae/losses src/eqvae/training src/eqvae/benchmarking \
+  src/eqvae/cli/benchmark_runtime.py \
+  tests/test_vae_loss.py tests/test_train_step.py \
+  tests/test_optimizer_groups.py tests/test_compile_precision_smoke.py
+
+PYTHONPATH=src .venv/bin/pytest \
+  tests/test_vae_loss.py tests/test_train_step.py \
+  tests/test_optimizer_groups.py tests/test_compile_precision_smoke.py
+
+PYTHONPATH=src .venv/bin/python -m eqvae.cli.benchmark_runtime \
+  --config configs/spec0001/non_eq_vae_debug_cpu.json \
+  --data synthetic \
+  --device cpu \
+  --output-dir /tmp/eqvae-local-model-loss-train-step \
+  --run-name spec0001_cpu_model_loss_train_step \
+  --max-benchmark-rows 1 \
+  --warmup-steps 1 \
+  --measured-steps 1 \
+  --model-loss-train-step
+```
+
+The final command writes
+`/tmp/eqvae-local-model-loss-train-step/benchmark/model_loss_train_step.json`
+with `status = "local_pass"` and `full_run_eligible = false`.
+
+Narrow `corruption_contract_ready` implementation checks, once code is added:
+
+```bash
+.venv/bin/ruff format src/eqvae/corruption src/eqvae/benchmarking \
+  src/eqvae/cli/benchmark_runtime.py tests/test_stain_corruptor.py
+
+.venv/bin/ruff check src/eqvae/corruption src/eqvae/benchmarking \
+  src/eqvae/cli/benchmark_runtime.py tests/test_stain_corruptor.py
+
+.venv/bin/basedpyright src/eqvae/corruption src/eqvae/benchmarking \
+  src/eqvae/cli/benchmark_runtime.py tests/test_stain_corruptor.py
+
+PYTHONPATH=src .venv/bin/pytest tests/test_stain_corruptor.py
+
+PYTHONPATH=src .venv/bin/python -m eqvae.cli.benchmark_runtime \
+  --config configs/spec0001/non_eq_vae_debug_cpu.json \
+  --data synthetic \
+  --device cpu \
+  --output-dir /tmp/eqvae-local-stain-corruptor-qa \
+  --run-name spec0001_cpu_stain_corruptor_qa \
+  --stain-corruptor-qa
+```
+
+The final command must write
+`/tmp/eqvae-local-stain-corruptor-qa/benchmark/stain_corruptor_qa.json` with
+`status = "local_pass"` and `full_run_eligible = false` before the corruptor is
+eligible for training integration. This local QA does not replace the required
+fixed real 25-patch visual QA before the first Kaggle baseline run.
 
 Unit and contract tests:
 
@@ -1327,7 +2730,8 @@ PYTHONPATH=src uv run --locked --no-sync python -m eqvae.cli.benchmark_runtime \
   --run-name spec0001_cpu_runtime_benchmark \
   --max-benchmark-rows 2 \
   --warmup-steps 1 \
-  --measured-steps 2
+  --measured-steps 2 \
+  --dataloader-pretest
 ```
 
 Kaggle local scaffold checks:
@@ -1410,9 +2814,46 @@ KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push
 Only run the remote push after all local commands pass and the user explicitly
 approves the remote write.
 
-## Local Implementation Acceptance Criteria
+## Narrow Model/Loss Train-Step Acceptance
 
-The local implementation is complete when:
+The `model_loss_train_step_ready` slice is accepted only while:
+
+1. the focused `model_loss_train_step_ready` verification commands
+   above pass;
+2. `./scripts/python_quality.sh` passes for the production Python scope;
+3. `NonEquivariantVAE.forward()` exposes the locked fields and supports
+   explicit `eps` without hidden latent RNG consumption;
+4. sampling and KL use `logvar_clamped`, while telemetry records raw and clamped
+   logvar summaries plus `logvar_clamp_count`, and the writer rejects
+   `objective.logvar_clamp` values that drift from the implementation
+   constants;
+5. loss tests verify global L1, per-image-mean SSIM loss, global KL, and beta
+   scheduling with the zero-based `optimizer_step_index`;
+6. optimizer-group tests verify every trainable parameter appears exactly once
+   and all gate parameters are in `gate_no_decay`;
+7. the local train-step pre-test writes
+   `benchmark/model_loss_train_step.json` with `status = "local_pass"`,
+   `benchmark_kind = "local_synthetic_model_loss_train_step"`,
+   `benchmark_source = "local_cpu_synthetic_train_step"`,
+   `corruption_strategy = "identity_clean_no_corruption"`,
+   `full_run_eligible = false`, matching effective config/model-count hashes,
+   model-count `architecture_id` and `topology_version`,
+   finite losses, finite gradient/update telemetry, nonzero grad/update tensor
+   counts, `first_step_update_scope = "zero_head_final_rgb_head_smoke"`, and
+   zero-head forward proof;
+8. optional local CPU compile/fp16 smoke outcomes are either `local_pass` or
+   `skipped_unsupported` with deterministic `failure_kind` metadata.
+9. `--model-loss-train-step` does not write, update, or replace
+   `benchmark/selected_runtime.json`.
+
+This narrow acceptance does not require HED corruption, checkpoint/resume,
+evaluator/artifact writers, Kaggle payload changes, Kaggle remote execution, or
+runtime selection.
+
+## Full Local Baseline Acceptance Criteria
+
+The broad local baseline implementation is complete only when its later
+authorized slices have been implemented and:
 
 1. all verification commands above pass;
 2. model construction is generated from the locked layer/channel schedule;
@@ -1420,17 +2861,22 @@ The local implementation is complete when:
    convs, learned grouped/depthwise convs, attention blocks, `BatchNorm2d`,
    `LayerNorm`, and arbitrary representation-breaking normalization, while
    requiring baseline `GroupNorm` in hidden/projection blocks;
-4. the data loader validates binary header, shape, dtype, patch count, required
-   CSV columns, optional `idx`, and train/validation WSI non-overlap;
+4. the data loader validates binary header fields, optional or required CRC
+   status, shape, dtype, patch count, file size, required CSV columns, optional
+   `idx`, canonical `file_index`, `row_index`, `sample_id`, and
+   train/validation WSI non-overlap;
 5. the split validator checks exact train/validation patch counts, exact
    train/validation WSI counts, zero overlap with
    `docs/data/ubc_ocean_masked_holdout_ids.csv`, and non-TMA status whenever
    official `train.csv` metadata is available;
 6. synthetic data tests do not require network, Kaggle, or GPU access;
-7. stain-corruptor tests verify HED/RGB round-trip convention, per-channel
-   perturbation semantics, fixed-seed reproducibility, DDP/rank seed separation,
-   no RNG consumption in clean validation mode, finite outputs, and visual QA
-   artifact generation;
+7. stain-corruptor tests verify scikit-compatible HED/RGB round-trip convention,
+   channel-first/channel-last oracle agreement, per-channel H/E/residual-axis
+   perturbation semantics, fixed-seed reproducibility, rank-move reproducibility
+   with rank excluded from the semantic seed, no RNG consumption in clean
+   validation mode, finite outputs, output-domain clamp telemetry, metadata
+   schema validation, synthetic visual QA artifact generation, and fixed real
+   25-patch visual QA before the first Kaggle baseline run;
 8. CPU smoke tests instantiate data, model, corruption, loss, optimizer,
    evaluator, and artifact writers;
 9. compile/precision smoke tests cover `torch.compile`, output shapes, and the
@@ -1438,43 +2884,52 @@ The local implementation is complete when:
 10. model tests verify that the final RGB head is zero-initialized, that the
     initial reconstruction is all zeros within tolerance, and that the model
     forward path contains no final `tanh`, sigmoid, or clamp;
-11. debug training completes from scratch and writes metrics, config, checkpoint,
-   and RNG state;
-12. resume training restores checkpoint, optimizer, scheduler/beta state, and RNG
-   state;
-13. AMP skipped-step behavior is tested or exercised so skipped steps do not
+11. the narrow model/loss local train-step slice writes
+    `benchmark/model_loss_train_step.json` with `status = "local_pass"`,
+    `full_run_eligible = false`, explicit `eps` control, clamped-logvar
+    sampling/KL telemetry, finite `L1 + 0.1 * (1 - SSIM) + beta * KL`
+    components, semantic AdamW group coverage, nonzero finite first-step
+    final-head gradient/update evidence, and identity-clean corruption
+    provenance;
+12. debug training completes from scratch and writes metrics, config, checkpoint,
+    and RNG state;
+13. resume training restores checkpoint, optimizer, scheduler/beta state, and RNG
+    state;
+14. AMP skipped-step behavior is tested or exercised so skipped steps do not
     advance optimizer-step counters, LR/beta schedules, validation, or
     checkpoint cadence;
-14. the runtime benchmark CLI exists, runs on a tiny local synthetic budget, and
+15. the runtime benchmark CLI exists, runs on a tiny local synthetic budget, and
     writes `benchmark/runtime_matrix.csv`, `benchmark/selected_runtime.json`,
     `benchmark/model_count.json`, `benchmark/dataloader_matrix.csv`,
     `benchmark/numerical_checks.csv`, `metrics/gate_health.csv`, and
     `benchmark/gate_health_summary.json` with the expected schemas without
-    requiring GPU or network access;
-15. checkpoint retention keeps `best_model.pt`, the final checkpoint, and the
+    requiring GPU or network access. Schema-only artifacts use `schema_pass`;
+    measured local CPU pre-test artifacts may use `local_pass`; both must keep
+    `full_run_eligible = false`;
+16. checkpoint retention keeps `best_model.pt`, the final checkpoint, and the
     latest four interval checkpoints;
-16. evaluator writes per-image SSIM, MAE, MSE, PSNR and summary mean/std/`n`
+17. evaluator writes per-image SSIM, MAE, MSE, PSNR and summary mean/std/`n`
     separately for `eval_clean` and fixed-seed `eval_corrupted`;
-17. artifact writer emits metric boxplots, dashboard, fixed 25-patch
+18. artifact writer emits metric boxplots, dashboard, fixed 25-patch
     reconstructions, rotated-input grids, rotated-input versus latent grids, and
     latent visualization placeholders or outputs;
-18. offline selector tests use synthetic fixtures; the real
+19. offline selector tests use synthetic fixtures; the real
     `fixed_25_validation_patches.json` and
     `fixed_32_train_overfit_patches.json` generation are data-access steps that
     must be run on the real validation/train CSVs before Kaggle debug/full runs;
-19. the fixed 25-patch config contains exactly 5 validation patches per label and
+20. the fixed 25-patch config contains exactly 5 validation patches per label and
     all future qualitative commands read it rather than resampling; the fixed
     32-train tiny-overfit config contains exactly 32 train patches and no
     validation rows;
-20. Kaggle debug kernel runs bundled repo code through the CLI, not notebook
+21. Kaggle debug kernel runs bundled repo code through the CLI, not notebook
     source or a GitHub-linked notebook;
-21. `scripts/kaggle_kernel.sh push` rejects wrong dataset slugs, historical FSQ
+22. `scripts/kaggle_kernel.sh push` rejects wrong dataset slugs, historical FSQ
     output sources, internet-enabled metadata, missing payloads, placeholder
     launchers, missing or wrong benchmark `machine_shape`, and missing
     single-visible versus dual-DDP launch-mode validation hooks;
-22. runs without the sealed masked-WSI test shard are labeled
+23. runs without the sealed masked-WSI test shard are labeled
     train/validation-only and excluded from final paper claims;
-23. `CURRENT.md`, `docs/specs/README.md`, and relevant workflow docs are updated
+24. `CURRENT.md`, `docs/specs/README.md`, and relevant workflow docs are updated
     with implementation status and verification results.
 
 ## Full Kaggle Run Acceptance Criteria
@@ -1524,28 +2979,40 @@ Implementation-relock blockers:
    steerable basis/count tool must show the future field multiplicities can stay
    at or below the Conv2d baseline's learned parameter count without exceeding
    the Kaggle memory budget.
-2. Implementation model-count artifact: the benchmark implementation must write
-   `benchmark/model_count.json` and verify the exact locked residual topology,
-   projection shortcuts, GroupNorm/activation gates, fixed binomial resampling
-   FLOPs, and zero-initialized RGB head against the analytic target above.
-3. Kaggle metadata enforcement: the workflow now records
+2. Data/metrics implementation status: the narrow `data_metrics_ready`
+   exception is recorded and locally verified by focused patch-shard,
+   split-validation, reconstruction-metric, Ruff, BasedPyright, and pytest
+   checks. This is not broad benchmark readiness and does not unlock corruption,
+   training, real selector generation, Kaggle remote work, or paper claims.
+3. HED/stain corruption implementation status: the narrow
+   `corruption_contract_ready` decisions are now locked, but code still needs to
+   implement the PyTorch scikit-compatible convention, config fields, stateless
+   semantic RNG, local QA artifact, and focused tests before corruption can be
+   integrated into training. The first real training run must use this corruptor
+   once implemented.
+4. Kaggle metadata enforcement: the workflow now records
    `machine_shape = "NvidiaTeslaT4"` for the T4 benchmark kernel. The
    implementation must enforce that metadata value before remote push and fail
    `dual_t4_ddp` benchmark rows unless runtime CUDA/DDP telemetry proves two T4
    devices and two ranks.
-4. Final clean-context adversarial spec review must pass after the edits and
+5. Final clean-context adversarial spec review must pass after the edits and
    implementation count, metadata, import, and quality routes are integrated.
-5. Strict quality-debt route must follow spec 0002's benchmark-unblock route:
-   extract any needed behavior into `src/eqvae`, remove/quarantine historical
-   `main.py` / exploratory `src/nn` without leaving importable `.py` debt,
-   remove the historical `pytorch-msssim` dependency, refresh `uv.lock`, and
-   keep global Ruff/BasedPyright strictness intact.
-6. JSON config/dependency policy must remain locked, or a later spec must
+6. Strict quality route must follow spec 0002's production-boundary decision:
+   extract any needed behavior into `src/eqvae`, keep the removed
+   `pytorch-msssim` dependency out of active dependency truth, exclude
+   historical `src/nn` from production Ruff/BasedPyright scopes, and forbid
+   active code from importing `src.nn`. Keep global Ruff/BasedPyright strictness
+   intact.
+7. JSON config/dependency policy must remain locked, or a later spec must
    explicitly justify changing config format and dependencies.
-7. Package/import policy must be locked enough that the verification commands
+8. Package/import policy must be locked enough that the verification commands
    import `eqvae` without dependency sync.
-8. Fixed-25 selector generation and baseline rotated/latent artifact semantics
-   must remain exactly as specified above, or be revised before implementation.
+9. Fixed selector schema/dataloader semantics are locked and locally verified
+   by `fixed_selectors_dataloader_ready`; the real fixed-25 and fixed-32 JSON
+   generation remains a data-access step that must be run against the real
+   Kaggle train/validation shards before Kaggle debug/tiny/full runs.
+   Baseline rotated/latent artifact semantics must remain exactly as specified
+   above, or be revised before implementation.
 
 Full-run blockers after implementation:
 
@@ -1579,7 +3046,17 @@ Full-run blockers after implementation:
 
 - Does any operation violate the future continuous `SO(2)` translation path?
 - Does the VAE objective accidentally omit KL or use the wrong reduction?
+- Does the training forward sample from unclamped `logvar` or hide latent noise
+  so paired numerical checks cannot reuse the same `eps`?
+- Does the beta schedule advance on skipped optimizer steps or use a different
+  step index than the logged train-step artifact?
 - Does corruption randomness differ between comparison branches?
+- Does the HED PyTorch implementation match the scikit-image oracle under the
+  locked RGB-domain convention without calling scikit-image in the runtime path?
+- Does any code treat the third HED residual axis as biological DAB instead of a
+  tiny anti-signature residual jitter?
+- Does the corruption seed accidentally depend on rank, batch order, physical
+  `file_index`, global Torch RNG, or clean-validation calls?
 - Do metric scripts include `n` and run on the same evaluation images?
 - Do qualitative artifacts use the same fixed patch IDs for both future models?
 - Does any split leak WSI, patient, site, or masked-holdout information?

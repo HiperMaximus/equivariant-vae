@@ -63,7 +63,7 @@ PY
 "$venv_bin/ruff" check .
 
 if find tests -type f -name '*.py' -print -quit | grep -q .; then
-  CUDA_VISIBLE_DEVICES="" "$venv_bin/pytest" tests
+  PYTHONPATH=src CUDA_VISIBLE_DEVICES="" "$venv_bin/pytest" tests
 else
   echo "Skipping pytest: tests/ has no Python tests yet."
 fi

@@ -52,6 +52,7 @@ required_files=(
   "docs/decisions/0004-so2-gaussian-ring-kernel-basis.md"
   "docs/decisions/0005-gated-activation-policy.md"
   "docs/decisions/0006-no-final-tanh-output.md"
+  "docs/decisions/0007-stain-corruptor-convention.md"
   "scripts/agent_preflight.sh"
   "scripts/kaggle_kernel.sh"
   "scripts/python_quality.sh"

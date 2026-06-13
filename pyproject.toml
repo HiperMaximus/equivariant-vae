@@ -8,7 +8,6 @@ authors = [{ name = "HiperMaximus", email = "hipermaximus@gmail.com" }]
 license = { text = "Apache License 2.0"}
 dependencies = [
     "numpy>=2.4.6",
-    "pytorch-msssim>=1.0.0",
     "torch>=2.12.0",
 ]
 
@@ -30,6 +29,7 @@ dev = [
 ]
 
 [tool.ruff]
+extend-exclude = ["src/nn"]
 fix = false
 line-length = 88
 preview = true
@@ -58,10 +58,10 @@ exclude = [
     "dist",
     "kaggle",
     "paper",
+    "src/nn",
 ]
 include = [
-    "main.py",
-    "src",
+    "src/eqvae",
     "tests",
 ]
 pythonPlatform = "Linux"
@@ -71,8 +71,7 @@ reportIgnoreCommentWithoutRule = "error"
 reportMissingImports = "error"
 reportMissingTypeStubs = "error"
 strict = [
-    "main.py",
-    "src",
+    "src/eqvae",
     "tests",
 ]
 typeCheckingMode = "strict"
