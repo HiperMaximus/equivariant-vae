@@ -191,7 +191,9 @@ tiny synthetic UBC-format shards under the output directory, and writes
 and `requires_cuda_t4 = false`. It is packaging/API/import/artifact evidence
 only; it is not real-data loader evidence, runtime selection, convergence
 evidence, or paper evidence. The real-data smoke and future benchmarks must not
-reuse the setup source strings to bypass T4 or dataset checks.
+reuse the setup source strings to bypass T4 or dataset checks. Remote
+setup-smoke v1 completed on 2026-06-17 with this non-promotable setup artifact
+contract and clean embedded payload provenance for commit `3162bec`.
 
 ## Purpose
 

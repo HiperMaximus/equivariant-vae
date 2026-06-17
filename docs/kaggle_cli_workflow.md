@@ -52,6 +52,15 @@ the output directory, and writes non-promotable
 artifact plumbing only; it is not real-data loader evidence, runtime selection,
 or convergence evidence.
 
+Remote setup-smoke v1 was pushed on 2026-06-17 after explicit permission and
+completed successfully. The downloaded ignored artifact at
+`runs/kaggle/setup_smoke/benchmark/kaggle_setup_smoke.json` records
+`status = "smoke_pass"`, `status_scope = "non_promotable_setup_smoke"`,
+`benchmark_kind = "synthetic_kaggle_setup_smoke"`, no dataset slug, synthetic
+data origin, CPU runtime, `requires_cuda_t4 = false`, 3 train steps, 1
+clean-validation batch, 2 deterministic applied corruptions, and clean embedded
+payload provenance for commit `3162bec`.
+
 Spec 0001 runtime benchmarking requires two accelerator modes:
 
 - `single_visible_t4`: run on one visible GPU with `world_size = 1`;

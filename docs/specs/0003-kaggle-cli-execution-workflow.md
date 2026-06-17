@@ -1,9 +1,9 @@
 # Spec 0003: Kaggle CLI Execution Workflow
 
 Status: draft active workflow scaffold
-Implementation readiness: synthetic setup-smoke push path ready after
-permission; real-data capped smoke needs embedded packaging before rerun; full
-benchmark/full-run launchers are not Kaggle-push-ready
+Implementation readiness: synthetic setup-smoke remote v1 passed as
+non-promotable setup evidence; real-data capped smoke needs embedded packaging
+before rerun; full benchmark/full-run launchers are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-17
 
@@ -114,6 +114,13 @@ explicit user permission and `KAGGLE_PUSH_CONFIRMED=1`. It requests no GPU,
 attaches no dataset, generates tiny synthetic UBC-format shards under the output
 directory, and writes `benchmark/kaggle_setup_smoke.json` as non-promotable
 packaging/API/import/artifact evidence.
+
+Remote setup-smoke v1 was pushed on 2026-06-17 and completed with
+`status = "smoke_pass"` in the downloaded non-promotable setup artifact. This
+proves the current Kaggle API push/status/output path, single-file embedded
+payload import, synthetic shard generation, artifact writing, and output
+download path. It does not prove real dataset attachment, T4 runtime, loader
+throughput, runtime selection, or convergence.
 
 ## Kaggle Authentication Contract
 

@@ -195,17 +195,21 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: finish local verification for the synthetic no-dataset
-setup smoke, then ask the user for explicit permission before any remote Kaggle
-write. The local setup path is `./scripts/kaggle_kernel.sh build
-kaggle/kernels/setup_smoke`; the approved remote command would be
-`KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push
-kaggle/kernels/setup_smoke`, followed by permission-gated read-only
-`status-setup` and `output-setup`. Do not rerun the real-data smoke yet: its
-remote source delivery must first be migrated to embedded single-file packaging
-or another mechanism proved by upload simulation. Do not attach the real
-60 GB+ dataset for setup-only checks. Do not start Overleaf work, broad real
-training/resume, runtime selection, or paper claims. The
+Immediate next action: decide whether to push the local setup-smoke commits to
+GitHub, then continue with the real-data smoke packaging fix before any real
+dataset rerun. The synthetic setup-smoke remote test passed on Kaggle as
+version 1 of `maximusshtefan/eqvae-setup-smoke`; downloaded ignored evidence is
+at `runs/kaggle/setup_smoke/benchmark/kaggle_setup_smoke.json` with
+`status = "smoke_pass"`, `status_scope = "non_promotable_setup_smoke"`,
+`benchmark_kind = "synthetic_kaggle_setup_smoke"`, no dataset slug,
+`data.origin = "synthetic_or_ephemeral_path"`, `runtime.requires_cuda_t4 =
+false`, `train.applied_counts = [1, 1, 0]`, and payload
+`git_commit = 3162bececdf40b5270b06654603f1a018d5ada05` /
+`git_dirty = false`. Do not rerun the real-data smoke yet: its remote source
+delivery must first be migrated to embedded single-file packaging or another
+mechanism proved by upload simulation. Do not attach the real 60 GB+ dataset
+for setup-only checks. Do not start Overleaf work, broad real training/resume,
+runtime selection, or paper claims. The
 data/metrics, selector/dataloader, and local benchmark pre-test contracts are
 recorded in spec 0001, and the local benchmark pre-test is now
 `local_benchmark_pretest_ready`. The local implementation already exists under
@@ -742,6 +746,19 @@ The review process lives in `docs/agentic_review_workflow.md`.
   tests. Full `./scripts/python_quality.sh` passed with 79 tests and 0
   BasedPyright errors. `./scripts/agent_preflight.sh` passed after staging the
   new tracked setup-smoke files.
+- 2026-06-17 remote setup-smoke run: after committing
+  `3162bec Add synthetic Kaggle setup smoke`, rebuilt the generated setup
+  kernel from a clean HEAD and pushed only `kaggle/kernels/setup_smoke` with
+  `KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push
+  kaggle/kernels/setup_smoke`. Kaggle returned `Kernel version 1 successfully
+  pushed`, `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-setup`
+  progressed from `KernelWorkerStatus.RUNNING` to `KernelWorkerStatus.COMPLETE`,
+  and `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-setup`
+  downloaded the artifact/logs into ignored `runs/kaggle/setup_smoke/`. The
+  artifact passed as non-promotable setup evidence only: no dataset slug,
+  synthetic/ephemeral data origin, CPU runtime, `requires_cuda_t4 = false`, 3
+  train steps, 1 clean-validation batch, 2 deterministic applied corruptions,
+  and clean embedded payload provenance for commit `3162bec`.
 
 ## Update Rule
 
