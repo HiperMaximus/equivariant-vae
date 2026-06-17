@@ -35,9 +35,9 @@ kernel upload serialized the declared `code_file`, so the sibling
 `payload/` directory prepared for `non_eq_vae_debug` was not available remotely.
 The first remote version ended in `KernelWorkerStatus.ERROR` with
 `ModuleNotFoundError: No module named 'eqvae'` and produced no benchmark
-artifact. Do not rerun the real-data smoke until its source delivery is migrated
-to embedded single-file packaging or another mechanism proved by upload
-simulation.
+artifact. The real-data smoke launcher has since been migrated locally to
+embedded single-file packaging with an upload-simulation import test; a fresh
+remote real-data rerun is still pending after clean commit/rebuild.
 
 The setup-only script-kernel scaffold lives in:
 
@@ -177,8 +177,8 @@ setup smoke should produce `benchmark/kaggle_setup_smoke.json` with
 input mount origin, `requires_cuda_t4 = false`, a payload manifest, nonzero
 optimizer updates, and at least one deterministic applied corruption.
 
-For a future fresh capped real-data smoke, after its packaging is fixed, the
-intended remote sequence is:
+For a fresh capped real-data smoke after clean commit/rebuild, the intended
+remote sequence is:
 
 ```bash
 ./scripts/kaggle_kernel.sh build

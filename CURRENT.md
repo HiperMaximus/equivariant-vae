@@ -195,21 +195,22 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: decide whether to push the local setup-smoke commits to
-GitHub, then continue with the real-data smoke packaging fix before any real
-dataset rerun. The synthetic setup-smoke remote test passed on Kaggle as
-version 1 of `maximusshtefan/eqvae-setup-smoke`; downloaded ignored evidence is
-at `runs/kaggle/setup_smoke/benchmark/kaggle_setup_smoke.json` with
+Immediate next action: finish full local verification for the real-data smoke
+embedded-packaging migration, commit it, rebuild the generated real-data
+`run.py` from a clean HEAD, then push the capped real-data smoke only when ready
+to attach the 60 GB+ dataset. The synthetic setup-smoke remote test passed on
+Kaggle as version 1 of `maximusshtefan/eqvae-setup-smoke`; downloaded ignored
+evidence is at `runs/kaggle/setup_smoke/benchmark/kaggle_setup_smoke.json` with
 `status = "smoke_pass"`, `status_scope = "non_promotable_setup_smoke"`,
 `benchmark_kind = "synthetic_kaggle_setup_smoke"`, no dataset slug,
 `data.origin = "synthetic_or_ephemeral_path"`, `runtime.requires_cuda_t4 =
 false`, `train.applied_counts = [1, 1, 0]`, and payload
 `git_commit = 3162bececdf40b5270b06654603f1a018d5ada05` /
-`git_dirty = false`. Do not rerun the real-data smoke yet: its remote source
-delivery must first be migrated to embedded single-file packaging or another
-mechanism proved by upload simulation. Do not attach the real 60 GB+ dataset
-for setup-only checks. Do not start Overleaf work, broad real training/resume,
-runtime selection, or paper claims. The
+`git_dirty = false`. The real-data source delivery is now migrated locally to
+embedded single-file packaging with an import-only upload-simulation test, but
+there is not yet fresh remote real-data smoke evidence. Do not attach the real
+60 GB+ dataset for setup-only checks. Do not start Overleaf work, broad real
+training/resume, runtime selection, or paper claims. The
 data/metrics, selector/dataloader, and local benchmark pre-test contracts are
 recorded in spec 0001, and the local benchmark pre-test is now
 `local_benchmark_pretest_ready`. The local implementation already exists under
@@ -759,6 +760,19 @@ The review process lives in `docs/agentic_review_workflow.md`.
   synthetic/ephemeral data origin, CPU runtime, `requires_cuda_t4 = false`, 3
   train steps, 1 clean-validation batch, 2 deterministic applied corruptions,
   and clean embedded payload provenance for commit `3162bec`.
+- 2026-06-17 real-data smoke embedded packaging migration in progress:
+  replaced the tracked `kaggle/kernels/non_eq_vae_debug/run.py` source with
+  tracked `run_template.py` plus ignored generated `run.py`, generalized
+  `scripts/build_kaggle_embedded_kernel.py` with a ready-marker option, updated
+  `scripts/kaggle_kernel.sh` so the default debug kernel builds/verifies an
+  embedded payload and reads capped-smoke settings from the embedded zip, and
+  added an import-only upload-simulation test for the real-data kernel. Focused
+  `PYTHONPATH=src CUDA_VISIBLE_DEVICES="" .venv/bin/pytest
+  tests/test_kaggle_embedded_kernel.py` passed with 2 tests. Full
+  `./scripts/python_quality.sh` passed with 80 tests and 0 BasedPyright errors.
+  `./scripts/agent_preflight.sh` passed after staging the generated-file
+  tracking change. Clean commit/rebuild and fresh remote real-data smoke are
+  still pending.
 
 ## Update Rule
 

@@ -204,8 +204,15 @@ is_setup_kernel_dir() {
 
 build_embedded_setup_kernel() {
   local kernel_dir="${1:-$setup_kernel_dir}"
+  build_embedded_kernel "$kernel_dir"
+}
+
+build_embedded_kernel() {
+  local kernel_dir="${1:-$default_kernel_dir}"
   local metadata
+  local ready_marker
   metadata="$(metadata_path "$kernel_dir")"
+  ready_marker="$(embedded_ready_marker "$kernel_dir")"
 
   if [[ ! -f "$metadata" ]]; then
     echo "missing: $metadata" >&2
@@ -217,8 +224,28 @@ build_embedded_setup_kernel() {
   fi
 
   python3 -m json.tool "$metadata" >/dev/null
-  python3 scripts/build_kaggle_embedded_kernel.py --kernel-dir "$kernel_dir" --allow-dirty
+  python3 scripts/build_kaggle_embedded_kernel.py \
+    --kernel-dir "$kernel_dir" \
+    --ready-marker "$ready_marker" \
+    --allow-dirty
   validate_kernel_dir "$kernel_dir"
+}
+
+embedded_ready_marker() {
+  local kernel_dir="${1:-$default_kernel_dir}"
+  local metadata
+  metadata="$(metadata_path "$kernel_dir")"
+  case "$(json_field "$metadata" id)" in
+    maximusshtefan/eqvae-setup-smoke)
+      printf '%s\n' "KAGGLE_SETUP_SMOKE_READY = True"
+      ;;
+    maximusshtefan/non-eq-vae-debug)
+      printf '%s\n' "KAGGLE_SMOKE_READY = True"
+      ;;
+    *)
+      printf '%s\n' "KAGGLE_SMOKE_READY = True"
+      ;;
+  esac
 }
 
 kernel_id_from_metadata() {
@@ -232,10 +259,8 @@ guard_push_ready() {
   local kernel_dir="${1:-$default_kernel_dir}"
   local metadata
   local code_file
-  local payload_dir
   metadata="$(metadata_path "$kernel_dir")"
   code_file="$(json_field "$metadata" code_file)"
-  payload_dir="$kernel_dir/payload"
 
   if grep -q "NOT_IMPLEMENTATION_READY" "$kernel_dir/$code_file"; then
     cat >&2 <<'EOF'
@@ -257,29 +282,9 @@ EOF
     exit 1
   fi
 
-  if [[ ! -d "$payload_dir/src/eqvae" ]]; then
-    echo "error: missing bundled payload src/eqvae in $kernel_dir" >&2
-    exit 1
-  fi
-
-  if [[ ! -d "$payload_dir/configs/spec0001" ]]; then
-    echo "error: missing bundled payload configs/spec0001 in $kernel_dir" >&2
-    exit 1
-  fi
-
-  validate_payload_freshness "$payload_dir"
-
   if grep -q "KAGGLE_SMOKE_READY = True" "$kernel_dir/$code_file"; then
-    if ! grep -q 'kaggle_smoke_ready' \
-      "docs/specs/0001-translatable-normal-vae-baseline.md"; then
-      echo "error: spec 0001 does not authorize the narrow Kaggle smoke" >&2
-      exit 1
-    fi
-    if ! grep -Eq '^\| `0001-translatable-normal-vae-baseline\.md` \|[^|]*kaggle smoke is `kaggle_smoke_ready`' \
-      "docs/specs/README.md"; then
-      echo "error: spec index does not authorize the narrow Kaggle smoke" >&2
-      exit 1
-    fi
+    guard_real_smoke_push_ready "$kernel_dir" "$metadata"
+    return
   else
     if ! grep -Eq '^Implementation readiness: (locked / implementation-ready|implementation-ready|ready)$' \
       "docs/specs/0001-translatable-normal-vae-baseline.md"; then
@@ -293,6 +298,27 @@ EOF
       exit 1
     fi
   fi
+}
+
+guard_real_smoke_push_ready() {
+  local kernel_dir="$1"
+  local metadata="$2"
+
+  if ! grep -q 'kaggle_smoke_ready' \
+    "docs/specs/0001-translatable-normal-vae-baseline.md"; then
+    echo "error: spec 0001 does not authorize the narrow Kaggle smoke" >&2
+    exit 1
+  fi
+  if ! grep -Eq '^\| `0001-translatable-normal-vae-baseline\.md` \|[^|]*kaggle smoke is `kaggle_smoke_ready`' \
+    "docs/specs/README.md"; then
+    echo "error: spec index does not authorize the narrow Kaggle smoke" >&2
+    exit 1
+  fi
+
+  python3 scripts/build_kaggle_embedded_kernel.py \
+    --kernel-dir "$kernel_dir" \
+    --ready-marker "KAGGLE_SMOKE_READY = True" \
+    --verify-only
 
   python3 - "$metadata" <<'PY'
 import json
@@ -348,12 +374,29 @@ if errors:
     raise SystemExit(1)
 PY
 
-  python3 - "$payload_dir/configs/spec0001/non_eq_vae_kaggle_debug.json" <<'PY'
+  python3 - "$kernel_dir/run.py" <<'PY'
+import base64
+import io
 import json
+import re
 import sys
-from pathlib import Path
+import zipfile
 
-config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+run_text = open(sys.argv[1], encoding="utf-8").read()
+match = re.search(
+    r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""',
+    run_text,
+    flags=re.DOTALL,
+)
+if match is None:
+    print("error: generated run.py has no embedded payload", file=sys.stderr)
+    raise SystemExit(1)
+zip_bytes = base64.b64decode(match.group("payload").encode("ascii"))
+with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+    config = json.loads(
+        archive.read("configs/spec0001/non_eq_vae_kaggle_debug.json"),
+    )
+
 smoke = config.get("kaggle_smoke")
 errors: list[str] = []
 if not isinstance(smoke, dict):
@@ -381,7 +424,7 @@ if errors:
 PY
 
   for required_hook in single_visible_t4 dual_t4_ddp wrong_accelerator; do
-    if ! grep -q "$required_hook" "$kernel_dir/$code_file"; then
+    if ! grep -q "$required_hook" "$kernel_dir/run.py"; then
       echo "error: launcher must include $required_hook runtime validation hook" >&2
       exit 1
     fi
@@ -460,6 +503,7 @@ PY
 
   python3 scripts/build_kaggle_embedded_kernel.py \
     --kernel-dir "$kernel_dir" \
+    --ready-marker "KAGGLE_SETUP_SMOKE_READY = True" \
     --verify-only
 }
 
@@ -592,7 +636,9 @@ action="${1:-}"
 case "$action" in
   build)
     kernel_dir="${2:-$default_kernel_dir}"
-    if is_setup_kernel_dir "$kernel_dir"; then
+    if [[ -f "$kernel_dir/run_template.py" ]]; then
+      build_embedded_kernel "$kernel_dir"
+    elif is_setup_kernel_dir "$kernel_dir"; then
       build_embedded_setup_kernel "$kernel_dir"
     else
       build_kernel_payload "$kernel_dir"

@@ -2,8 +2,9 @@
 
 Status: draft active workflow scaffold
 Implementation readiness: synthetic setup-smoke remote v1 passed as
-non-promotable setup evidence; real-data capped smoke needs embedded packaging
-before rerun; full benchmark/full-run launchers are not Kaggle-push-ready
+non-promotable setup evidence; real-data capped smoke has local embedded
+packaging/upload-simulation proof but needs a fresh remote rerun; full
+benchmark/full-run launchers are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-17
 
@@ -26,7 +27,8 @@ scaffolded script kernels through the Kaggle API.
   the synthetic `kaggle_setup_smoke_ready` setup script, which attaches no real
   dataset and writes non-promotable setup evidence. The capped
   `kaggle_smoke_ready` real-data debug script remains non-promotable, but must
-  not be rerun remotely until its source delivery is fixed.
+  not be treated as accepted smoke evidence; its source delivery has since been
+  migrated locally, but a fresh remote rerun is still required.
 - Do not commit Kaggle credentials, API tokens, output datasets, checkpoints, or
   run artifacts.
 
@@ -99,9 +101,8 @@ kaggle/kernels/non_eq_vae_debug
 It now contains the narrow capped smoke launcher only. It is push-ready only for
 local validation of the `kaggle_smoke_ready` debug smoke; the first remote push
 failed at import because the sibling payload was not uploaded. Do not rerun it
-remotely until the real-data launcher uses embedded single-file packaging or
-another source-delivery mechanism proved by upload simulation. It is not a full
-benchmark or full-run launcher.
+as accepted remote evidence until rerun with the embedded single-file launcher
+and upload-simulation proof. It is not a full benchmark or full-run launcher.
 
 The setup-smoke kernel is:
 

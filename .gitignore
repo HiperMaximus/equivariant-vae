@@ -207,6 +207,7 @@ paper/sipaim2026/main.pdf
 # Experiment and Kaggle run artifacts
 runs/
 kaggle/kernels/*/payload/
+kaggle/kernels/non_eq_vae_debug/run.py
 kaggle/kernels/setup_smoke/run.py
 
 # Kaggle credentials

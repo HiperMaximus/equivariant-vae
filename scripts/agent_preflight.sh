@@ -62,7 +62,7 @@ required_files=(
   "kaggle/kernels/__init__.py"
   "kaggle/kernels/non_eq_vae_debug/__init__.py"
   "kaggle/kernels/non_eq_vae_debug/kernel-metadata.json"
-  "kaggle/kernels/non_eq_vae_debug/run.py"
+  "kaggle/kernels/non_eq_vae_debug/run_template.py"
   "kaggle/kernels/setup_smoke/__init__.py"
   "kaggle/kernels/setup_smoke/kernel-metadata.json"
   "kaggle/kernels/setup_smoke/run_template.py"
@@ -198,6 +198,13 @@ if git check-ignore --no-index -q kaggle/kernels/non_eq_vae_debug/payload/src/eq
   echo "ok: Kaggle kernel payloads are ignored"
 else
   echo "error: Kaggle kernel payloads should stay ignored"
+  missing=1
+fi
+
+if git check-ignore --no-index -q kaggle/kernels/non_eq_vae_debug/run.py; then
+  echo "ok: generated real-data smoke run.py is ignored"
+else
+  echo "error: generated real-data smoke run.py should stay ignored"
   missing=1
 fi
 

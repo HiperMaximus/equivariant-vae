@@ -2516,19 +2516,15 @@ benchmark must be self-contained in the uploaded code file, or must use another
 source-delivery mechanism explicitly proved by an upload-simulation test before
 remote push.
 
-The legacy local real-data payload layout remains useful for local payload
-assembly and freshness checks, but it is not sufficient for remote execution
-until the real-data launcher is migrated to embedded single-file packaging:
+The legacy local real-data sibling-payload layout is retained only as an ignored
+historical build artifact path. The active real-data launcher now uses the same
+generated single-file embedded packaging pattern as setup smoke:
 
 ```text
 kaggle/kernels/non_eq_vae_debug/
   kernel-metadata.json
-  run.py
-  payload/
-    src/eqvae/
-    configs/spec0001/
-    pyproject.toml
-    uv.lock
+  run_template.py
+  run.py                  # generated/ignored, embeds a zipped payload
 ```
 
 The setup-smoke generated layout is:
@@ -3112,9 +3108,10 @@ Implementation-relock blockers:
    run. The first real training run must use this corruptor.
 4. Kaggle smoke status: the narrow `kaggle_smoke_ready` launcher is implemented
    for a tiny real-data smoke only, but the first remote version failed before
-   import because the sibling payload directory was not uploaded. Do not rerun
-   the real-data smoke until its source delivery is migrated to embedded
-   single-file packaging or another proved mechanism. The narrow
+   import because the sibling payload directory was not uploaded. The real-data
+   launcher has since been migrated locally to embedded single-file packaging
+   and an upload-simulation import test, but still needs a fresh remote rerun
+   before accepted smoke evidence exists. The narrow
    `kaggle_setup_smoke_ready` launcher is implemented for setup-only
    packaging/API/artifact checks with no dataset attachment. Both paths may be
    pushed/run only after explicit user permission and read-only API preflight;

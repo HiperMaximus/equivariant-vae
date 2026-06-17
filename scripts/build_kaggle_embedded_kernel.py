@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-"""Build and verify a single-file embedded Kaggle setup-smoke kernel."""
+"""Build and verify a single-file embedded Kaggle script kernel."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from typing import cast
 PAYLOAD_SCHEMA_VERSION = "spec0001.kaggle_payload_manifest.v1"
 DEFAULT_KERNEL_DIR = Path("kaggle/kernels/setup_smoke")
 GIT_EXECUTABLE = shutil.which("git") or "git"
-SETUP_READY_MARKER = "KAGGLE_SETUP_SMOKE_READY = True"
+DEFAULT_READY_MARKER = "KAGGLE_SETUP_SMOKE_READY = True"
 EMBEDDED_B64_PATTERN = re.compile(
     r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""',
     flags=re.DOTALL,
@@ -45,10 +45,11 @@ class BuildArgs:
     output_run_path: Path
     verify_only: bool
     allow_dirty: bool
+    ready_marker: str
 
 
 def main() -> int:
-    """Build or verify the embedded setup-smoke kernel.
+    """Build or verify an embedded Kaggle kernel.
 
     Returns:
         Process exit status.
@@ -101,8 +102,8 @@ def verify_run_file(args: BuildArgs) -> None:
 
     """
     run_text = args.output_run_path.read_text(encoding="utf-8")
-    if SETUP_READY_MARKER not in run_text:
-        message = "generated setup smoke is missing KAGGLE_SETUP_SMOKE_READY marker"
+    if args.ready_marker not in run_text:
+        message = f"generated kernel is missing ready marker: {args.ready_marker}"
         raise RuntimeError(message)
 
     zip_bytes = _embedded_zip_bytes(run_text)
@@ -132,7 +133,7 @@ def verify_run_file(args: BuildArgs) -> None:
 
 def _parse_args() -> BuildArgs:
     parser = argparse.ArgumentParser(
-        description="Build the embedded Kaggle setup-smoke run.py.",
+        description="Build an embedded Kaggle script-kernel run.py.",
     )
     parser.add_argument(
         "--repo-root",
@@ -144,6 +145,7 @@ def _parse_args() -> BuildArgs:
     )
     parser.add_argument("--template")
     parser.add_argument("--output-run")
+    parser.add_argument("--ready-marker", default=DEFAULT_READY_MARKER)
     parser.add_argument("--verify-only", action="store_true")
     parser.add_argument(
         "--allow-dirty",
@@ -176,6 +178,7 @@ def _parse_args() -> BuildArgs:
         output_run_path=output_run_path,
         verify_only=cast("bool", namespace.verify_only),
         allow_dirty=cast("bool", namespace.allow_dirty),
+        ready_marker=cast("str", namespace.ready_marker),
     )
 
 
