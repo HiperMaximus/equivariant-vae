@@ -6,6 +6,8 @@ cd "$script_dir/.."
 
 default_kernel_dir="kaggle/kernels/non_eq_vae_debug"
 default_output_dir="runs/kaggle/non_eq_vae_debug"
+setup_kernel_dir="kaggle/kernels/setup_smoke"
+setup_output_dir="runs/kaggle/setup_smoke"
 
 usage() {
   cat <<'EOF'
@@ -16,7 +18,9 @@ Usage:
   ./scripts/kaggle_kernel.sh api-check
   ./scripts/kaggle_kernel.sh push [kernel_dir] [extra kaggle args...]
   ./scripts/kaggle_kernel.sh status [kernel_id]
+  ./scripts/kaggle_kernel.sh status-setup
   ./scripts/kaggle_kernel.sh output [kernel_id] [output_dir]
+  ./scripts/kaggle_kernel.sh output-setup [output_dir]
   ./scripts/kaggle_kernel.sh pull [kernel_id] [kernel_dir]
 
 Remote writes require KAGGLE_PUSH_CONFIRMED=1.
@@ -178,6 +182,7 @@ manifest = {
         "uv.lock": digest_file(payload / "uv.lock"),
     },
 }
+
 (payload / "payload_manifest.json").write_text(
     f"{json.dumps(manifest, indent=2, sort_keys=True)}\n",
     encoding="utf-8",
@@ -185,6 +190,35 @@ manifest = {
 PY
 
   echo "ok: built $payload_dir"
+}
+
+is_setup_kernel_dir() {
+  local kernel_dir="${1:-$default_kernel_dir}"
+  local metadata
+  metadata="$(metadata_path "$kernel_dir")"
+  if [[ ! -f "$metadata" ]]; then
+    return 1
+  fi
+  [[ "$(json_field "$metadata" id)" == "maximusshtefan/eqvae-setup-smoke" ]]
+}
+
+build_embedded_setup_kernel() {
+  local kernel_dir="${1:-$setup_kernel_dir}"
+  local metadata
+  metadata="$(metadata_path "$kernel_dir")"
+
+  if [[ ! -f "$metadata" ]]; then
+    echo "missing: $metadata" >&2
+    exit 1
+  fi
+  if [[ ! -f "$kernel_dir/run_template.py" ]]; then
+    echo "missing: $kernel_dir/run_template.py" >&2
+    exit 1
+  fi
+
+  python3 -m json.tool "$metadata" >/dev/null
+  python3 scripts/build_kaggle_embedded_kernel.py --kernel-dir "$kernel_dir" --allow-dirty
+  validate_kernel_dir "$kernel_dir"
 }
 
 kernel_id_from_metadata() {
@@ -211,6 +245,11 @@ Use docs/behavior_inventory_kaggle.md and spec 0001, implement the real launcher
 and remove the NOT_IMPLEMENTATION_READY guard before pushing.
 EOF
     exit 1
+  fi
+
+  if grep -q "KAGGLE_SETUP_SMOKE_READY = True" "$kernel_dir/$code_file"; then
+    guard_setup_push_ready "$kernel_dir" "$metadata"
+    return
   fi
 
   if [[ ! -f "docs/behavior_inventory_kaggle.md" ]]; then
@@ -349,6 +388,81 @@ PY
   done
 }
 
+guard_setup_push_ready() {
+  local kernel_dir="$1"
+  local metadata="$2"
+
+  if [[ -d "$kernel_dir/payload" ]]; then
+    echo "error: setup smoke must be a single generated run.py, not a sibling payload" >&2
+    exit 1
+  fi
+
+  if ! grep -q 'kaggle_setup_smoke_ready' \
+    "docs/specs/0003-kaggle-cli-execution-workflow.md"; then
+    echo "error: spec 0003 does not authorize the synthetic setup smoke" >&2
+    exit 1
+  fi
+
+  if ! grep -q 'synthetic no-dataset setup smoke' \
+    "docs/kaggle_cli_workflow.md"; then
+    echo "error: Kaggle workflow doc does not describe setup-smoke evidence" >&2
+    exit 1
+  fi
+
+  python3 - "$metadata" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+metadata = Path(sys.argv[1])
+data = json.loads(metadata.read_text(encoding="utf-8"))
+errors: list[str] = []
+
+required_values = {
+    "id": "maximusshtefan/eqvae-setup-smoke",
+    "title": "eqvae setup smoke",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "false",
+    "enable_internet": "false",
+}
+
+for key, expected in required_values.items():
+    actual = str(data.get(key, ""))
+    comparable = actual.lower() if expected in {"true", "false"} else actual
+    if comparable != expected:
+        errors.append(f"{key} must be {expected!r}")
+
+if data.get("machine_shape") not in (None, "", "None"):
+    errors.append("setup smoke machine_shape must be absent or empty")
+
+for source_field in (
+    "dataset_sources",
+    "competition_sources",
+    "kernel_sources",
+    "model_sources",
+):
+    if data.get(source_field) != []:
+        errors.append(f"{source_field} must be an empty list for setup smoke")
+
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+
+  if ! grep -q "synthetic_kaggle_setup_smoke" "$kernel_dir/run.py"; then
+    echo "error: setup run.py must declare synthetic_kaggle_setup_smoke" >&2
+    exit 1
+  fi
+
+  python3 scripts/build_kaggle_embedded_kernel.py \
+    --kernel-dir "$kernel_dir" \
+    --verify-only
+}
+
 validate_payload_freshness() {
   local payload_dir="$1"
   python3 - "$payload_dir" <<'PY'
@@ -477,7 +591,12 @@ api_check() {
 action="${1:-}"
 case "$action" in
   build)
-    build_kernel_payload "${2:-$default_kernel_dir}"
+    kernel_dir="${2:-$default_kernel_dir}"
+    if is_setup_kernel_dir "$kernel_dir"; then
+      build_embedded_setup_kernel "$kernel_dir"
+    else
+      build_kernel_payload "$kernel_dir"
+    fi
     ;;
   validate)
     validate_kernel_dir "${2:-$default_kernel_dir}"
@@ -512,9 +631,23 @@ case "$action" in
     require_kaggle_cli
     kaggle kernels status "$kernel_id"
     ;;
+  status-setup)
+    kernel_id="$(kernel_id_from_metadata "$setup_kernel_dir")"
+    require_remote_confirmed
+    require_kaggle_cli
+    kaggle kernels status "$kernel_id"
+    ;;
   output)
     kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"
     output_dir="${3:-$default_output_dir}"
+    require_remote_confirmed
+    require_kaggle_cli
+    mkdir -p "$output_dir"
+    kaggle kernels output "$kernel_id" -p "$output_dir"
+    ;;
+  output-setup)
+    kernel_id="$(kernel_id_from_metadata "$setup_kernel_dir")"
+    output_dir="${2:-$setup_output_dir}"
     require_remote_confirmed
     require_kaggle_cli
     mkdir -p "$output_dir"

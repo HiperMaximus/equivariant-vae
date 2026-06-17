@@ -9,9 +9,10 @@ selector/dataloader slice is implemented as `fixed_selectors_dataloader_ready`;
 narrow local CPU dataloader pre-test is `local_benchmark_pretest_ready`;
 narrow model/loss local train-step pre-test is `model_loss_train_step_ready`;
 the HED/stain corruption local correctness/QA slice is `corruption_ready`;
-the narrow capped Kaggle smoke is `kaggle_smoke_ready`
+the narrow capped Kaggle smoke is `kaggle_smoke_ready`; the synthetic
+no-dataset Kaggle setup smoke is `kaggle_setup_smoke_ready`
 Owner/workstream: comparable non-equivariant VAE baseline
-Last updated: 2026-06-13
+Last updated: 2026-06-17
 
 Local scaffold exception, 2026-06-12: the user-authorized local
 benchmark-unblock slice may create `src/eqvae`, `configs/spec0001`, the
@@ -167,6 +168,30 @@ tool for setup-only Kaggle plumbing tests. A future setup-only smoke should use
 empty `dataset_sources`, generate tiny synthetic UBC-format shards inside
 `/kaggle/working`, record a distinct synthetic/setup-only status and source, and
 remain non-promotable.
+
+Synthetic Kaggle setup-smoke implementation, 2026-06-17: the first remote
+real-data smoke version ended with `ModuleNotFoundError: No module named
+'eqvae'` before producing a benchmark artifact, because the Kaggle CLI script
+kernel upload serialized the declared `code_file` rather than the sibling
+`payload/` directory. This spec now authorizes the narrow
+`kaggle_setup_smoke_ready` setup-only slice: `kaggle/kernels/setup_smoke`,
+`scripts/build_kaggle_embedded_kernel.py`, setup-specific guards in
+`scripts/kaggle_kernel.sh`, focused tests, and setup-smoke artifact naming. The
+setup kernel has empty `dataset_sources`, `enable_gpu = "false"`,
+`enable_internet = "false"`, and a generated ignored `run.py` that embeds a zip
+payload containing `src/eqvae`, `configs/spec0001`, `pyproject.toml`, `uv.lock`,
+and a payload manifest. At runtime it checks Python >= 3.12 before importing
+active code, extracts the payload under the output directory, asserts `eqvae`
+was imported from that extracted payload, clears `EQVAE_DATA_ROOT`, generates
+tiny synthetic UBC-format shards under the output directory, and writes
+`benchmark/kaggle_setup_smoke.json` with `status_scope =
+"non_promotable_setup_smoke"`, `benchmark_kind =
+"synthetic_kaggle_setup_smoke"`, `benchmark_source =
+"kaggle_script_kernel_synthetic_setup_smoke"`, `full_run_eligible = false`,
+and `requires_cuda_t4 = false`. It is packaging/API/import/artifact evidence
+only; it is not real-data loader evidence, runtime selection, convergence
+evidence, or paper evidence. The real-data smoke and future benchmarks must not
+reuse the setup source strings to bypass T4 or dataset checks.
 
 ## Purpose
 
@@ -1298,6 +1323,11 @@ Runtime benchmark requirement before the first full Kaggle run:
     synthetic UBC-format shards, the Kaggle debug config caps execution at three
     train steps and one clean-validation batch, the script kernel payload can be
     built locally, and remote push remains permission-gated and non-promotable;
+  - `kaggle_setup_smoke_ready`: the no-dataset setup-smoke kernel has a
+    generated single-file `run.py` with an embedded payload, empty Kaggle source
+    attachments, setup-specific push guards, an upload-simulation test proving
+    it works without a sibling payload directory, and a non-promotable
+    `benchmark/kaggle_setup_smoke.json` artifact contract;
   - `benchmark_cli_implementation_ready`: local benchmark CLIs instantiate real
     code, `benchmark/model_count.json` has `status = "pass"` from an
     instantiated model, the `data_metrics_ready`, selector/dataloader,
@@ -2476,10 +2506,17 @@ Implementation milestones before broad coding:
 
 ## Kaggle Packaging Contract
 
-`kaggle kernels push` uploads only the kernel folder. Therefore the debug kernel
-must be self-contained before it is push-ready.
+The Kaggle CLI script-kernel push serializes the declared `code_file`; the
+2026-06-13 real-data smoke failed with `ModuleNotFoundError: No module named
+'eqvae'` because a sibling `payload/` directory was prepared locally but was not
+available to the remote script. Therefore every remote script-kernel smoke or
+benchmark must be self-contained in the uploaded code file, or must use another
+source-delivery mechanism explicitly proved by an upload-simulation test before
+remote push.
 
-Required generated kernel layout:
+The legacy local real-data payload layout remains useful for local payload
+assembly and freshness checks, but it is not sufficient for remote execution
+until the real-data launcher is migrated to embedded single-file packaging:
 
 ```text
 kaggle/kernels/non_eq_vae_debug/
@@ -2492,18 +2529,30 @@ kaggle/kernels/non_eq_vae_debug/
     uv.lock
 ```
 
-Required build command:
+The setup-smoke generated layout is:
+
+```text
+kaggle/kernels/setup_smoke/
+  kernel-metadata.json
+  run_template.py
+  run.py                  # generated/ignored, embeds a zipped payload
+```
+
+Required local build commands:
 
 ```bash
 ./scripts/kaggle_kernel.sh build
+./scripts/kaggle_kernel.sh build kaggle/kernels/setup_smoke
 ```
 
 Build rules:
 
-- copy only allowlisted implementation files into `payload/`;
+- copy or embed only allowlisted implementation files;
 - do not copy `.git`, `.venv`, paper files, historical notebooks, checkpoints,
   local run artifacts, credentials, or Overleaf data;
-- `run.py` must insert `payload/src` into `sys.path` before importing `eqvae`;
+- generated setup `run.py` must decode the embedded zip, verify embedded
+  SHA-256 constants, insert the extracted `src` into `sys.path` before
+  importing `eqvae`, and assert `eqvae.__file__` is under the extracted payload;
 - Kaggle internet stays disabled;
 - first implementation must not require `pip install` or dependency resolution
   on Kaggle;
@@ -2525,6 +2574,18 @@ Kaggle debug metadata must keep:
 
 The historical FSQ output dataset `maximusshtefan/non-eq-vae-output` is forbidden
 for spec 0001 kernels.
+
+The setup-smoke metadata must instead keep all source lists empty, request no
+GPU, and write only non-promotable setup evidence:
+
+```json
+"dataset_sources": [],
+"competition_sources": [],
+"kernel_sources": [],
+"model_sources": [],
+"enable_gpu": "false",
+"enable_internet": "false"
+```
 
 ## Verification Commands
 
@@ -2932,7 +2993,10 @@ authorized slices have been implemented and:
    evaluator, and artifact writers. The narrow `kaggle_smoke_ready` path
    specifically tests metadata-carrying UBC-format batches and writes
    non-promotable `benchmark/kaggle_smoke.json` after one local synthetic train
-   step and one clean-validation batch;
+   step and one clean-validation batch. The narrow `kaggle_setup_smoke_ready`
+   path specifically tests Kaggle single-file packaging/import/artifact
+   plumbing without real dataset attachment and writes non-promotable
+   `benchmark/kaggle_setup_smoke.json`;
 9. compile/precision smoke tests cover `torch.compile`, output shapes, and the
    configured float16 path without requiring a GPU;
 10. model tests verify that the final RGB head is zero-initialized, that the
@@ -2978,9 +3042,10 @@ authorized slices have been implemented and:
 21. Kaggle debug kernel runs bundled repo code through the CLI, not notebook
     source or a GitHub-linked notebook;
 22. `scripts/kaggle_kernel.sh push` rejects wrong dataset slugs, historical FSQ
-    output sources, internet-enabled metadata, missing payloads, placeholder
-    launchers, missing or wrong benchmark `machine_shape`, and missing
-    single-visible versus dual-DDP launch-mode validation hooks;
+    output sources, internet-enabled metadata, missing payloads or stale
+    embedded payloads, placeholder launchers, missing or wrong benchmark
+    `machine_shape`, setup-smoke kernels with any Kaggle source attachment, and
+    missing single-visible versus dual-DDP launch-mode validation hooks;
 23. runs without the sealed masked-WSI test shard are labeled
     train/validation-only and excluded from final paper claims;
 24. `CURRENT.md`, `docs/specs/README.md`, and relevant workflow docs are updated
@@ -3043,16 +3108,19 @@ Implementation-relock blockers:
    corruption still needs training integration, selected-runtime corruption
    checks, and fixed real 25-patch visual QA before the first Kaggle baseline
    run. The first real training run must use this corruptor.
-4. Capped Kaggle smoke status: the narrow `kaggle_smoke_ready` launcher is
-   implemented for a tiny real-data smoke only. It may be pushed/run only after
-   explicit user permission and read-only API preflight. It does not satisfy
-   selected-runtime debug, runtime benchmark, tiny-overfit, fixed real visual QA,
-   or full-run acceptance. Do not use this real-data smoke for setup-only
-   kernel plumbing checks; add a synthetic no-dataset setup smoke first when
-   the goal is only to validate Kaggle packaging/API/artifact plumbing. A
-   `smoke_pass` result is accepted only from the hardened payload that enforces
-   caps, actual corruption, T4 CUDA for real-data smoke, seeded initialization,
-   payload provenance, and non-promotable artifact semantics.
+4. Kaggle smoke status: the narrow `kaggle_smoke_ready` launcher is implemented
+   for a tiny real-data smoke only, but the first remote version failed before
+   import because the sibling payload directory was not uploaded. Do not rerun
+   the real-data smoke until its source delivery is migrated to embedded
+   single-file packaging or another proved mechanism. The narrow
+   `kaggle_setup_smoke_ready` launcher is implemented for setup-only
+   packaging/API/artifact checks with no dataset attachment. Both paths may be
+   pushed/run only after explicit user permission and read-only API preflight;
+   neither satisfies selected-runtime debug, runtime benchmark, tiny-overfit,
+   fixed real visual QA, or full-run acceptance. A real-data `smoke_pass` result
+   is accepted only from a hardened payload that enforces caps, actual
+   corruption, T4 CUDA for real-data smoke, seeded initialization, payload
+   provenance, and non-promotable artifact semantics.
 5. Kaggle metadata enforcement: the workflow now records
    `machine_shape = "NvidiaTeslaT4"` for the T4 benchmark kernel. The
    implementation must enforce that metadata value before remote push and fail

@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-06-13
+Last updated: 2026-06-17
 
 ## Active Workstream
 
@@ -76,7 +76,16 @@ ignored payload, resolves the pre-shuffled UBC dataset, carries sample metadata
 for deterministic HED corruption, executes at most three train steps and one
 clean-validation batch, and writes non-promotable
 `benchmark/kaggle_smoke.json`. It is not runtime selection, convergence
-evidence, a full benchmark, or a full run.
+evidence, a full benchmark, or a full run. The first remote real-data smoke
+version finished as `KernelWorkerStatus.ERROR` with `ModuleNotFoundError: No
+module named 'eqvae'`, because the Kaggle CLI did not make the sibling payload
+directory available to the uploaded script. It produced no benchmark evidence.
+The new setup-only scaffold lives in `kaggle/kernels/setup_smoke`: it attaches
+no dataset, requests no GPU, generates an ignored single-file `run.py` with an
+embedded zipped payload, creates tiny synthetic UBC-format shards under the
+output directory, and writes non-promotable
+`benchmark/kaggle_setup_smoke.json`. It is setup/API/import/artifact evidence
+only, not real-data loader evidence or runtime selection.
 The Kaggle behavior inventory now lives at
 `docs/behavior_inventory_kaggle.md`. Dataset slugs were confirmed through the
 Kaggle CLI, and the debug kernel metadata now points at
@@ -186,25 +195,16 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: the capped Kaggle smoke was pushed to
-`maximusshtefan/non-eq-vae-debug` on 2026-06-13 with
-`KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push` after a read-only
-API preflight and local payload rebuild. Kaggle reported `Kernel version 1
-successfully pushed`; subsequent read-only status polls showed
-`KernelWorkerStatus.RUNNING`, likely while attaching the large
-`maximusshtefan/patches-pre-shuffled-ubc-ocean` dataset. Do not push another
-version or start a broader run until this smoke resolves. Next, poll with
-`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status`; when complete,
-retrieve outputs with `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh
-output`. This pushed version predates the adversarial hardening that now
-requires hard caps, at least one applied corruption, nonzero input-target delta,
-nonzero update counts, T4 runtime for real-data smoke, payload-manifest
-provenance, and explicit data-integrity status; therefore any v1 output is
-preliminary only and must not be promoted as accepted smoke evidence unless it
-is rerun with the hardened payload. For the next setup-only Kaggle test, do not
-attach the real 60 GB+ dataset; add a synthetic no-dataset setup smoke that
-generates tiny UBC-format shards in `/kaggle/working` and records separate
-non-promotable setup evidence. Do not start Overleaf work, broad real
+Immediate next action: finish local verification for the synthetic no-dataset
+setup smoke, then ask the user for explicit permission before any remote Kaggle
+write. The local setup path is `./scripts/kaggle_kernel.sh build
+kaggle/kernels/setup_smoke`; the approved remote command would be
+`KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push
+kaggle/kernels/setup_smoke`, followed by permission-gated read-only
+`status-setup` and `output-setup`. Do not rerun the real-data smoke yet: its
+remote source delivery must first be migrated to embedded single-file packaging
+or another mechanism proved by upload simulation. Do not attach the real
+60 GB+ dataset for setup-only checks. Do not start Overleaf work, broad real
 training/resume, runtime selection, or paper claims. The
 data/metrics, selector/dataloader, and local benchmark pre-test contracts are
 recorded in spec 0001, and the local benchmark pre-test is now
@@ -702,17 +702,16 @@ The review process lives in `docs/agentic_review_workflow.md`.
   probing the old `maximusshtefan/non-eq-vae` kernel. After
   `./scripts/kaggle_kernel.sh build`, the approved remote write
   `KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push` succeeded with
-  `Kernel version 1 successfully pushed`. Read-only status polls currently show
-  `KernelWorkerStatus.RUNNING`; read-only logs are empty so far, consistent
-  with Kaggle setup/dataset attachment before script output.
+  `Kernel version 1 successfully pushed`. A later read-only status check showed
+  `KernelWorkerStatus.ERROR`; logs showed `ModuleNotFoundError: No module named
+  'eqvae'`, so no benchmark artifact was produced.
 - 2026-06-13 remote-smoke workflow correction: setup-only Kaggle tests should
   not attach `maximusshtefan/patches-pre-shuffled-ubc-ocean`, because Kaggle may
   spend a long time preparing the 60 GB+ dataset before a capped script starts.
-  Add a separate synthetic setup smoke before the next plumbing-only push; it
-  should use empty `dataset_sources`, generate tiny synthetic UBC-format shards
-  in `/kaggle/working`, write distinct non-promotable setup evidence, and leave
-  the real-data dataset-source guard intact for real-data smoke/benchmark
-  kernels.
+  The follow-up setup smoke must use empty `dataset_sources`, generate tiny
+  synthetic UBC-format shards under the output directory, write distinct
+  non-promotable setup evidence, and leave the real-data dataset-source guard
+  intact for real-data smoke/benchmark kernels.
 - 2026-06-13 adversarial smoke hardening: clean-context subagent passes found
   that the first capped smoke could report `smoke_pass` without an applied
   corruption, did not hard-enforce the three-step/one-validation cap, could pass
@@ -724,12 +723,25 @@ The review process lives in `docs/agentic_review_workflow.md`.
   input-target delta and nonzero update counts for `smoke_pass`, records seeds,
   provenance, payload manifest, data-integrity status, corruption metadata
   summaries, and update telemetry, and tightens the push guard around target ID,
-  caps, and payload freshness. The already-running Kaggle version predates this
-  hardening and is preliminary only. Focused Ruff, focused BasedPyright, focused
+  caps, and payload freshness. The failed Kaggle version predates this
+  hardening and produced no evidence. Focused Ruff, focused BasedPyright, focused
   `tests/test_kaggle_smoke.py`, `bash -n scripts/kaggle_kernel.sh`,
   `./scripts/kaggle_kernel.sh validate`, and full
   `./scripts/python_quality.sh` passed; the full Python gate now has 75 tests
   and 0 BasedPyright errors.
+- 2026-06-17 synthetic setup-smoke packaging: added
+  `scripts/build_kaggle_embedded_kernel.py`,
+  `kaggle/kernels/setup_smoke`, setup-specific guards in
+  `scripts/kaggle_kernel.sh`, setup artifact naming/validation in
+  `src/eqvae/benchmarking/kaggle_smoke.py`, and
+  `tests/test_kaggle_embedded_kernel.py`. The setup kernel has no dataset
+  sources, no GPU, no internet, and a generated ignored `run.py` that embeds a
+  zipped payload. Local build passed with `./scripts/kaggle_kernel.sh build
+  kaggle/kernels/setup_smoke`; focused pytest passed for
+  `tests/test_kaggle_smoke.py tests/test_kaggle_embedded_kernel.py` with 7
+  tests. Full `./scripts/python_quality.sh` passed with 79 tests and 0
+  BasedPyright errors. `./scripts/agent_preflight.sh` passed after staging the
+  new tracked setup-smoke files.
 
 ## Update Rule
 

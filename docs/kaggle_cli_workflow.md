@@ -1,7 +1,7 @@
 # Kaggle CLI Workflow
 
-Status: draft workflow scaffold; narrow capped smoke path ready after permission
-Last updated: 2026-06-13
+Status: draft workflow scaffold; synthetic setup-smoke path ready after permission
+Last updated: 2026-06-17
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
 source of truth for experiment code, specs, configs, and paper-facing claims.
@@ -29,6 +29,28 @@ It now launches only the capped `kaggle_smoke_ready` debug path. That path is
 allowed to run at most three train steps and one clean-validation batch, writes
 `benchmark/kaggle_smoke.json`, and keeps `full_run_eligible = false`. It is not
 runtime selection, convergence evidence, a full benchmark, or a full run.
+
+Important correction from the first remote debug push: the Kaggle CLI script
+kernel upload serialized the declared `code_file`, so the sibling
+`payload/` directory prepared for `non_eq_vae_debug` was not available remotely.
+The first remote version ended in `KernelWorkerStatus.ERROR` with
+`ModuleNotFoundError: No module named 'eqvae'` and produced no benchmark
+artifact. Do not rerun the real-data smoke until its source delivery is migrated
+to embedded single-file packaging or another mechanism proved by upload
+simulation.
+
+The setup-only script-kernel scaffold lives in:
+
+```text
+kaggle/kernels/setup_smoke
+```
+
+It attaches no datasets, requests no GPU, uses a generated ignored `run.py` that
+embeds a zipped repo payload, generates tiny synthetic UBC-format shards under
+the output directory, and writes non-promotable
+`benchmark/kaggle_setup_smoke.json`. It validates Kaggle API/script/import/
+artifact plumbing only; it is not real-data loader evidence, runtime selection,
+or convergence evidence.
 
 Spec 0001 runtime benchmarking requires two accelerator modes:
 
@@ -106,8 +128,10 @@ Validate the local scaffold:
 ./scripts/kaggle_kernel.sh validate
 ```
 
-After spec 0001 implementation creates repo code/configs, build the self-contained
-kernel payload before any remote push:
+After spec 0001 implementation creates repo code/configs, build the local
+real-data payload before local validation. This legacy sibling payload is not
+sufficient for remote execution until the real-data launcher is migrated to a
+proved upload mechanism:
 
 ```bash
 ./scripts/kaggle_kernel.sh build
@@ -118,7 +142,34 @@ rebuilt from source before remote pushes. Payload metadata includes both
 `pyproject.toml` and `uv.lock`; spec 0001 kernels must not resolve or install
 dependencies on Kaggle unless a later spec explicitly changes that rule.
 
-For a fresh capped real-data smoke, the intended remote sequence is:
+Build the synthetic no-dataset setup smoke as a single generated upload file:
+
+```bash
+./scripts/kaggle_kernel.sh build kaggle/kernels/setup_smoke
+```
+
+That command writes ignored `kaggle/kernels/setup_smoke/run.py` and verifies its
+embedded zip and manifest. The setup push guard decodes the generated file again
+and rejects stale payloads before any remote write.
+
+For a setup-only remote smoke, the intended sequence is:
+
+```bash
+./scripts/kaggle_kernel.sh build kaggle/kernels/setup_smoke
+KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/setup_smoke
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-setup
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-setup
+```
+
+Run those remote commands only after explicit user permission. A successful
+setup smoke should produce `benchmark/kaggle_setup_smoke.json` with
+`status = "smoke_pass"`, `status_scope = "non_promotable_setup_smoke"`,
+`benchmark_kind = "synthetic_kaggle_setup_smoke"`, no dataset slug, no Kaggle
+input mount origin, `requires_cuda_t4 = false`, a payload manifest, nonzero
+optimizer updates, and at least one deterministic applied corruption.
+
+For a future fresh capped real-data smoke, after its packaging is fixed, the
+intended remote sequence is:
 
 ```bash
 ./scripts/kaggle_kernel.sh build
@@ -134,19 +185,16 @@ smoke should produce `benchmark/kaggle_smoke.json` with
 `full_run_eligible = false`, at least one applied corruption, nonzero
 input-target delta, nonzero optimizer updates, visible T4 CUDA runtime for the
 real-data path, payload-manifest provenance, and explicit
-`data_integrity_status`. Do not push a fresh version while an existing remote
-smoke version is still `RUNNING`; poll `status`/`output` first.
+`data_integrity_status`. The first remote version is already `ERROR` from the
+missing source package and produced no smoke evidence.
 
-Important correction from the 2026-06-13 debug push: use this real-data smoke
-only when intentionally testing Kaggle dataset attachment plus UBC shard
-resolution. The `patches-pre-shuffled-ubc-ocean` source is larger than 60 GB,
-so Kaggle may spend a long time preparing the environment before the capped
-script starts. For setup-only tests of the API, script-kernel payload, imports,
-and artifact writing, add a separate synthetic setup smoke with empty
-`dataset_sources`, no real dataset attachment, and tiny synthetic UBC-format
-shards generated inside `/kaggle/working`. That synthetic setup smoke must use
-a distinct status/source and must never be promoted to real-data benchmark
-evidence.
+Use the real-data smoke only when intentionally testing Kaggle dataset
+attachment plus UBC shard resolution. The `patches-pre-shuffled-ubc-ocean`
+source is larger than 60 GB, so Kaggle may spend a long time preparing the
+environment before a capped script starts. For setup-only tests of the API,
+script-kernel payload, imports, and artifact writing, use the separate synthetic
+setup smoke with empty `dataset_sources`. It has a distinct status/source and
+must never be promoted to real-data benchmark evidence.
 
 Check whether the Kaggle CLI is installed and whether local metadata is valid:
 
@@ -226,8 +274,10 @@ push wrapper refuses remote writes while `dataset_sources` is empty, while the
 placeholder guard remains, while the bundled payload is missing, while the
 dataset slug differs from `maximusshtefan/patches-pre-shuffled-ubc-ocean`, or
 while spec 0001 and the spec index are not marked with the appropriate
-readiness label. A future synthetic setup-smoke path must use a separate guard
-branch so this real-data dataset requirement is not accidentally weakened.
+readiness label. The synthetic setup-smoke guard is a separate branch: it
+requires empty source lists, no GPU, no internet, a generated embedded payload,
+and setup-specific readiness docs, so this real-data dataset requirement is not
+weakened.
 
 For spec 0001 benchmark kernels, the wrapper or metadata validation must require
 `machine_shape == "NvidiaTeslaT4"` and the single-visible versus dual-DDP launch

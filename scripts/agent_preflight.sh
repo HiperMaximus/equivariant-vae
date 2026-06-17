@@ -54,6 +54,7 @@ required_files=(
   "docs/decisions/0006-no-final-tanh-output.md"
   "docs/decisions/0007-stain-corruptor-convention.md"
   "scripts/agent_preflight.sh"
+  "scripts/build_kaggle_embedded_kernel.py"
   "scripts/kaggle_kernel.sh"
   "scripts/python_quality.sh"
   "scripts/sipaim_overleaf_sync.sh"
@@ -62,6 +63,9 @@ required_files=(
   "kaggle/kernels/non_eq_vae_debug/__init__.py"
   "kaggle/kernels/non_eq_vae_debug/kernel-metadata.json"
   "kaggle/kernels/non_eq_vae_debug/run.py"
+  "kaggle/kernels/setup_smoke/__init__.py"
+  "kaggle/kernels/setup_smoke/kernel-metadata.json"
+  "kaggle/kernels/setup_smoke/run_template.py"
   "tests/.gitkeep"
   "paper/sipaim2026/main.tex"
   "paper/sipaim2026/sipaim2026.pdf"
@@ -194,6 +198,13 @@ if git check-ignore --no-index -q kaggle/kernels/non_eq_vae_debug/payload/src/eq
   echo "ok: Kaggle kernel payloads are ignored"
 else
   echo "error: Kaggle kernel payloads should stay ignored"
+  missing=1
+fi
+
+if git check-ignore --no-index -q kaggle/kernels/setup_smoke/run.py; then
+  echo "ok: generated setup-smoke run.py is ignored"
+else
+  echo "error: generated setup-smoke run.py should stay ignored"
   missing=1
 fi
 

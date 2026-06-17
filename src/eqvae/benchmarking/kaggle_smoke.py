@@ -48,13 +48,18 @@ if TYPE_CHECKING:
 SMOKE_SCHEMA_VERSION = "spec0001.kaggle_smoke.v1"
 DEFAULT_SMOKE_KIND = "real_data_kaggle_debug_smoke"
 DEFAULT_SMOKE_SOURCE = "kaggle_script_kernel_capped_smoke"
+SETUP_SMOKE_KIND = "synthetic_kaggle_setup_smoke"
+SETUP_SMOKE_SOURCE = "kaggle_script_kernel_synthetic_setup_smoke"
 DEFAULT_CORRUPTION_VIEW = "train_corrupted_kaggle_smoke"
+SETUP_CORRUPTION_VIEW = "train_corrupted_kaggle_setup_smoke"
 DEFAULT_MAX_TRAIN_STEPS = 3
 DEFAULT_MAX_VALIDATION_BATCHES = 1
 DEFAULT_BATCH_SIZE = 1
 DEFAULT_NUM_WORKERS = 0
 EXPECTED_REAL_DATASET_SLUG = "maximusshtefan/patches-pre-shuffled-ubc-ocean"
+SETUP_DATA_KIND = "synthetic-ubc-setup-smoke"
 ADAM_BETA_COUNT = 2
+RGB_CHANNEL_COUNT = 3
 
 
 @dataclass(frozen=True)
@@ -170,7 +175,7 @@ def write_kaggle_smoke(request: KaggleSmokeRequest) -> Path:
         optimizer_group_count=optimizer_summary.parameter_group_count,
         status=status,
     )
-    output_path = request.output_dir / "benchmark" / "kaggle_smoke.json"
+    output_path = request.output_dir / "benchmark" / _artifact_filename(settings)
     write_json(output_path, payload)
     return output_path
 
@@ -383,7 +388,7 @@ def _payload(  # noqa: PLR0913
         {
             "schema_version": SMOKE_SCHEMA_VERSION,
             "status": status,
-            "status_scope": "non_promotable_debug",
+            "status_scope": _status_scope(settings),
             "benchmark_kind": settings.benchmark_kind,
             "benchmark_source": settings.benchmark_source,
             "full_run_eligible": False,
@@ -565,6 +570,28 @@ def _validate_smoke_settings(settings: KaggleSmokeSettings) -> None:
     if settings.num_workers != DEFAULT_NUM_WORKERS:
         message = f"Kaggle smoke num_workers must be 0, got {settings.num_workers}"
         raise ValueError(message)
+    if _is_setup_smoke(settings):
+        _validate_setup_smoke_settings(settings)
+        return
+    if (
+        settings.data_kind == SETUP_DATA_KIND
+        or settings.benchmark_kind == SETUP_SMOKE_KIND
+        or settings.benchmark_source == SETUP_SMOKE_SOURCE
+    ):
+        message = (
+            "Synthetic Kaggle setup smoke must use the locked setup kind/source "
+            "and data contract together"
+        )
+        raise ValueError(message)
+    if (
+        settings.data_kind == "ubc-pre-shuffled"
+        or settings.dataset_slug == EXPECTED_REAL_DATASET_SLUG
+    ) and not _requires_kaggle_t4(settings):
+        message = (
+            "Real-data Kaggle smoke must use the capped real-data benchmark "
+            "kind/source so T4 and dataset checks cannot be bypassed"
+        )
+        raise ValueError(message)
     if _requires_kaggle_t4(settings) and (
         settings.data_kind != "ubc-pre-shuffled"
         or settings.dataset_slug != EXPECTED_REAL_DATASET_SLUG
@@ -573,6 +600,39 @@ def _validate_smoke_settings(settings: KaggleSmokeSettings) -> None:
             "Real-data Kaggle smoke must record data.kind='ubc-pre-shuffled' "
             f"and dataset_slug={EXPECTED_REAL_DATASET_SLUG!r}"
         )
+        raise ValueError(message)
+
+
+def _validate_setup_smoke_settings(settings: KaggleSmokeSettings) -> None:
+    if settings.data_kind != SETUP_DATA_KIND:
+        message = (
+            f"Setup smoke data.kind must be {SETUP_DATA_KIND!r}, "
+            f"got {settings.data_kind!r}"
+        )
+        raise ValueError(message)
+    if settings.dataset_slug:
+        message = "Setup smoke must not declare or attach a Kaggle dataset slug"
+        raise ValueError(message)
+    if settings.data_root == "auto":
+        message = "Setup smoke must pass an explicit synthetic data root"
+        raise ValueError(message)
+    if settings.data_root.startswith("/kaggle/input/"):
+        message = "Setup smoke data root must not resolve under /kaggle/input"
+        raise ValueError(message)
+    if settings.channels != RGB_CHANNEL_COUNT:
+        message = (
+            f"Setup smoke requires RGB channels={RGB_CHANNEL_COUNT}, "
+            f"got {settings.channels}"
+        )
+        raise ValueError(message)
+    if settings.corruption_view != SETUP_CORRUPTION_VIEW:
+        message = (
+            f"Setup smoke corruption_view must be {SETUP_CORRUPTION_VIEW!r}, "
+            f"got {settings.corruption_view!r}"
+        )
+        raise ValueError(message)
+    if settings.corruption_config.get("profile_name") != "conservative_default":
+        message = "Setup smoke must use the locked conservative_default profile"
         raise ValueError(message)
 
 
@@ -601,6 +661,25 @@ def _requires_kaggle_t4(settings: KaggleSmokeSettings) -> bool:
         settings.benchmark_kind == DEFAULT_SMOKE_KIND
         and settings.benchmark_source == DEFAULT_SMOKE_SOURCE
     )
+
+
+def _is_setup_smoke(settings: KaggleSmokeSettings) -> bool:
+    return (
+        settings.benchmark_kind == SETUP_SMOKE_KIND
+        and settings.benchmark_source == SETUP_SMOKE_SOURCE
+    )
+
+
+def _artifact_filename(settings: KaggleSmokeSettings) -> str:
+    if _is_setup_smoke(settings):
+        return "kaggle_setup_smoke.json"
+    return "kaggle_smoke.json"
+
+
+def _status_scope(settings: KaggleSmokeSettings) -> str:
+    if _is_setup_smoke(settings):
+        return "non_promotable_setup_smoke"
+    return "non_promotable_debug"
 
 
 def _optimizer_config(config: JsonObject) -> SpecAdamWConfig:

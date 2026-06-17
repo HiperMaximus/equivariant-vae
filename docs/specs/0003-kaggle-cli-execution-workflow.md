@@ -1,10 +1,11 @@
 # Spec 0003: Kaggle CLI Execution Workflow
 
 Status: draft active workflow scaffold
-Implementation readiness: narrow capped smoke push path ready after permission;
-full benchmark/full-run launchers are not Kaggle-push-ready
+Implementation readiness: synthetic setup-smoke push path ready after
+permission; real-data capped smoke needs embedded packaging before rerun; full
+benchmark/full-run launchers are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
-Last updated: 2026-06-06
+Last updated: 2026-06-17
 
 ## Purpose
 
@@ -22,8 +23,10 @@ scaffolded script kernels through the Kaggle API.
 - Do not edit the historical FSQ notebooks as the new baseline source.
 - Do not push a full training or runtime-benchmark kernel before the spec 0001
   launcher is implemented and locally verified. The only current exception is
-  the capped `kaggle_smoke_ready` debug script, which runs at most three train
-  steps and one clean-validation batch and writes non-promotable smoke evidence.
+  the synthetic `kaggle_setup_smoke_ready` setup script, which attaches no real
+  dataset and writes non-promotable setup evidence. The capped
+  `kaggle_smoke_ready` real-data debug script remains non-promotable, but must
+  not be rerun remotely until its source delivery is fixed.
 - Do not commit Kaggle credentials, API tokens, output datasets, checkpoints, or
   run artifacts.
 
@@ -42,8 +45,9 @@ Local commands must go through:
 ./scripts/kaggle_kernel.sh
 ```
 
-Spec 0001 implementation must add a build step that copies the repo code/config
-payload needed by Kaggle into the kernel folder:
+Spec 0001 implementation must build the repo code/config payload needed by
+Kaggle before remote pushes. The real-data debug scaffold still has a legacy
+local sibling-payload build:
 
 ```bash
 ./scripts/kaggle_kernel.sh build
@@ -51,9 +55,21 @@ payload needed by Kaggle into the kernel folder:
 
 The generated `kaggle/kernels/*/payload/` directory is ignored and must not be
 committed. It is rebuilt from `src/eqvae`, `configs/spec0001`, `pyproject.toml`,
-and `uv.lock`. Kaggle kernels must not resolve/install dependencies from that
-metadata unless a later spec explicitly introduces an offline wheel/bootstrap
-path.
+and `uv.lock`. The 2026-06-13 remote failure proved this sibling payload is not
+available to Kaggle script execution through the current CLI path, so it is not
+sufficient for rerunning real-data smoke.
+
+The synthetic setup smoke uses a generated single-file launcher instead:
+
+```bash
+./scripts/kaggle_kernel.sh build kaggle/kernels/setup_smoke
+```
+
+That command uses `scripts/build_kaggle_embedded_kernel.py` to embed a zipped
+payload into ignored `kaggle/kernels/setup_smoke/run.py`. The push guard decodes
+that file and verifies the embedded manifest against current source. Kaggle
+kernels must not resolve/install dependencies from project metadata unless a
+later spec explicitly introduces an offline wheel/bootstrap path.
 
 Remote writes require explicit user permission plus:
 
@@ -81,9 +97,23 @@ kaggle/kernels/non_eq_vae_debug
 ```
 
 It now contains the narrow capped smoke launcher only. It is push-ready only for
-the `kaggle_smoke_ready` debug smoke after explicit user permission,
-`KAGGLE_PUSH_CONFIRMED=1`, and a rebuilt payload. It is not a full benchmark or
-full-run launcher.
+local validation of the `kaggle_smoke_ready` debug smoke; the first remote push
+failed at import because the sibling payload was not uploaded. Do not rerun it
+remotely until the real-data launcher uses embedded single-file packaging or
+another source-delivery mechanism proved by upload simulation. It is not a full
+benchmark or full-run launcher.
+
+The setup-smoke kernel is:
+
+```text
+kaggle/kernels/setup_smoke
+```
+
+It is push-ready only for the `kaggle_setup_smoke_ready` setup check after
+explicit user permission and `KAGGLE_PUSH_CONFIRMED=1`. It requests no GPU,
+attaches no dataset, generates tiny synthetic UBC-format shards under the output
+directory, and writes `benchmark/kaggle_setup_smoke.json` as non-promotable
+packaging/API/import/artifact evidence.
 
 ## Kaggle Authentication Contract
 
@@ -143,27 +173,42 @@ This workflow scaffold is complete when:
 6. `runs/` is ignored for downloaded Kaggle outputs;
 7. `CURRENT.md` records that the scaffold exists but is not push-ready.
 
-This workflow becomes Kaggle-push-ready for the narrow capped smoke only after:
+This workflow becomes Kaggle-push-ready for the synthetic setup smoke only
+after:
+
+1. spec 0001 and the spec index contain `kaggle_setup_smoke_ready`;
+2. the generated setup script has `KAGGLE_SETUP_SMOKE_READY = True`;
+3. `./scripts/kaggle_kernel.sh build kaggle/kernels/setup_smoke` has embedded
+   the current `src/eqvae`, `configs/spec0001`, `pyproject.toml`, and `uv.lock`;
+4. the push guard verifies metadata with empty source lists, no GPU, no internet,
+   and a fresh embedded payload manifest;
+5. local smoke tests, the upload-simulation test, and the production Python
+   quality gate pass;
+6. the user explicitly approves the remote write/run.
+
+The real-data capped smoke workflow becomes Kaggle-push-ready only after:
 
 1. spec 0001 and the spec index contain `kaggle_smoke_ready`;
 2. the smoke script kernel has `KAGGLE_SMOKE_READY = True`;
-3. `./scripts/kaggle_kernel.sh build` has copied the current `src/eqvae`,
-   `configs/spec0001`, `pyproject.toml`, and `uv.lock` into the ignored payload;
-4. the ignored payload has a fresh manifest whose git commit and file hashes
-   match the current source, and the push guard validates the target kernel ID
-   plus capped smoke settings;
+3. the launcher source-delivery mechanism is embedded single-file packaging or
+   another mechanism proven by upload simulation, not an unuploaded sibling
+   payload directory;
+4. the payload has a fresh manifest whose git commit and file hashes match the
+   current source, and the push guard validates the target kernel ID plus capped
+   smoke settings;
 5. local smoke tests and the production Python quality gate pass;
 6. `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check` passes the
    read-only checks or records only the known quota/files warnings;
 7. the user explicitly approves the remote write/run.
 
-The 2026-06-13 real-data smoke push showed that even a three-step script can
-spend substantial time in Kaggle setup when it attaches the 60 GB+
-`patches-pre-shuffled-ubc-ocean` dataset. Before the next setup-only remote
-test, add a distinct synthetic setup-smoke path: no `dataset_sources`, no real
-dataset attachment, tiny synthetic UBC-format shards generated under
-`/kaggle/working`, and a separate non-promotable status/source. Keep the
-current dataset-source guard for real-data smoke and benchmark kernels.
+The 2026-06-13 real-data smoke push first spent substantial time in Kaggle setup
+while attaching the 60 GB+ `patches-pre-shuffled-ubc-ocean` dataset, then ended
+with `ModuleNotFoundError: No module named 'eqvae'` because the sibling payload
+was not available remotely. The synthetic setup-smoke path now covers setup-only
+remote tests: no `dataset_sources`, no real dataset attachment, tiny synthetic
+UBC-format shards generated under the output directory, and a separate
+non-promotable status/source. Keep the real-data dataset-source guard for
+real-data smoke and benchmark kernels.
 
 The full benchmark/full-run workflow becomes Kaggle-push-ready only after:
 
@@ -195,14 +240,20 @@ Spec 0001 post-implementation payload check:
 
 ```bash
 ./scripts/kaggle_kernel.sh build
+./scripts/kaggle_kernel.sh build kaggle/kernels/setup_smoke
+PYTHONPATH=src CUDA_VISIBLE_DEVICES="" .venv/bin/pytest \
+  tests/test_kaggle_smoke.py tests/test_kaggle_embedded_kernel.py
 ```
 
 Remote commands, only after explicit permission:
 
 ```bash
 KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push
+KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/setup_smoke
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-setup
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-setup
 ```
 
 ## Known Risks

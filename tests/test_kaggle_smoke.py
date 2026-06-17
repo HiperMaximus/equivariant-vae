@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
@@ -11,6 +12,11 @@ import pytest
 from torch.utils.data import DataLoader
 
 from eqvae.benchmarking.kaggle_smoke import (
+    EXPECTED_REAL_DATASET_SLUG,
+    SETUP_CORRUPTION_VIEW,
+    SETUP_DATA_KIND,
+    SETUP_SMOKE_KIND,
+    SETUP_SMOKE_SOURCE,
     KaggleSmokeRequest,
     write_kaggle_smoke,
 )
@@ -26,6 +32,23 @@ _IMAGE_SIZE = 64
 _TINY_SHARD_COUNT = 4
 _EXPECTED_SMOKE_STEPS = 3
 _EXPECTED_APPLIED_COUNTS = [0, 0, 1]
+_EXPECTED_SETUP_APPLIED_COUNT = 2
+
+
+@dataclass(frozen=True)
+class SmokeConfigOptions:
+    """Options for synthetic smoke config fixtures."""
+
+    max_train_steps: int = 3
+    benchmark_kind: str = "local_synthetic_kaggle_smoke"
+    benchmark_source: str = "local_cpu_synthetic_kaggle_smoke"
+    data_kind: str = "synthetic-ubc-local-smoke"
+    dataset_slug: str = ""
+    validate_crc: bool = False
+    corruption_view: str = "train_corrupted_local_smoke"
+
+
+DEFAULT_SMOKE_CONFIG_OPTIONS = SmokeConfigOptions()
 
 
 def test_patch_training_dataset_collates_semantic_metadata(tmp_path: Path) -> None:
@@ -93,16 +116,108 @@ def test_kaggle_smoke_writes_non_promotable_artifact(tmp_path: Path) -> None:
     assert validation["finite_outputs"] == [True]
 
 
+def test_setup_smoke_writes_distinct_non_promotable_artifact(
+    tmp_path: Path,
+) -> None:
+    """Synthetic setup smoke cannot be confused with real-data smoke evidence."""
+    data_root = _write_tiny_shards(tmp_path)
+    config_path = _write_smoke_config(
+        tmp_path,
+        data_root=data_root,
+        options=SmokeConfigOptions(
+            benchmark_kind=SETUP_SMOKE_KIND,
+            benchmark_source=SETUP_SMOKE_SOURCE,
+            data_kind=SETUP_DATA_KIND,
+            validate_crc=True,
+            corruption_view=SETUP_CORRUPTION_VIEW,
+        ),
+    )
+
+    output_path = write_kaggle_smoke(
+        KaggleSmokeRequest(
+            config_path=config_path,
+            output_dir=tmp_path / "run",
+        ),
+    )
+
+    payload = _load_json(output_path)
+    data = cast("dict[str, object]", payload["data"])
+    runtime = cast("dict[str, object]", payload["runtime"])
+    train = cast("dict[str, object]", payload["train"])
+    assert output_path == tmp_path / "run" / "benchmark" / "kaggle_setup_smoke.json"
+    assert payload["status"] == "smoke_pass"
+    assert payload["status_scope"] == "non_promotable_setup_smoke"
+    assert payload["benchmark_kind"] == SETUP_SMOKE_KIND
+    assert payload["benchmark_source"] == SETUP_SMOKE_SOURCE
+    assert payload["full_run_eligible"] is False
+    assert data["kind"] == SETUP_DATA_KIND
+    assert not data["dataset_slug"]
+    assert data["origin"] == "synthetic_or_ephemeral_path"
+    assert data["data_integrity_status"] == "crc_checked"
+    assert runtime["requires_cuda_t4"] is False
+    assert train["total_applied_count"] == _EXPECTED_SETUP_APPLIED_COUNT
+
+
 def test_kaggle_smoke_rejects_uncapped_config(tmp_path: Path) -> None:
     """The capped smoke cannot be converted into a longer run by config drift."""
     data_root = _write_tiny_shards(tmp_path)
     config_path = _write_smoke_config(
         tmp_path,
         data_root=data_root,
-        max_train_steps=4,
+        options=SmokeConfigOptions(max_train_steps=4),
     )
 
     with pytest.raises(ValueError, match="max_train_steps"):
+        write_kaggle_smoke(
+            KaggleSmokeRequest(
+                config_path=config_path,
+                output_dir=tmp_path / "run",
+            ),
+        )
+
+
+def test_setup_smoke_rejects_real_dataset_slug(tmp_path: Path) -> None:
+    """The synthetic setup path must never attach or claim the real dataset."""
+    data_root = _write_tiny_shards(tmp_path)
+    config_path = _write_smoke_config(
+        tmp_path,
+        data_root=data_root,
+        options=SmokeConfigOptions(
+            benchmark_kind=SETUP_SMOKE_KIND,
+            benchmark_source=SETUP_SMOKE_SOURCE,
+            data_kind=SETUP_DATA_KIND,
+            dataset_slug=EXPECTED_REAL_DATASET_SLUG,
+            validate_crc=True,
+            corruption_view=SETUP_CORRUPTION_VIEW,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="dataset slug"):
+        write_kaggle_smoke(
+            KaggleSmokeRequest(
+                config_path=config_path,
+                output_dir=tmp_path / "run",
+            ),
+        )
+
+
+def test_real_data_kind_cannot_use_setup_smoke_source(tmp_path: Path) -> None:
+    """Real-data contracts cannot bypass T4 checks with setup source strings."""
+    data_root = _write_tiny_shards(tmp_path)
+    config_path = _write_smoke_config(
+        tmp_path,
+        data_root=data_root,
+        options=SmokeConfigOptions(
+            benchmark_kind=SETUP_SMOKE_KIND,
+            benchmark_source=SETUP_SMOKE_SOURCE,
+            data_kind="ubc-pre-shuffled",
+            dataset_slug=EXPECTED_REAL_DATASET_SLUG,
+            validate_crc=True,
+            corruption_view=SETUP_CORRUPTION_VIEW,
+        ),
+    )
+
+    with pytest.raises(ValueError, match=r"Setup smoke data\.kind"):
         write_kaggle_smoke(
             KaggleSmokeRequest(
                 config_path=config_path,
@@ -132,7 +247,7 @@ def _write_smoke_config(
     tmp_path: Path,
     *,
     data_root: Path,
-    max_train_steps: int = 3,
+    options: SmokeConfigOptions = DEFAULT_SMOKE_CONFIG_OPTIONS,
 ) -> Path:
     config_path = tmp_path / "kaggle_smoke_config.json"
     payload = {
@@ -140,21 +255,22 @@ def _write_smoke_config(
             Path("configs/spec0001/non_eq_vae_debug_cpu.json").resolve(),
         ),
         "data": {
-            "kind": "ubc-pre-shuffled",
+            "kind": options.data_kind,
+            "dataset_slug": options.dataset_slug,
             "data_root": str(data_root),
             "image_size": _IMAGE_SIZE,
             "channels": 3,
         },
         "kaggle_smoke": {
-            "benchmark_kind": "local_synthetic_kaggle_smoke",
-            "benchmark_source": "local_cpu_synthetic_kaggle_smoke",
+            "benchmark_kind": options.benchmark_kind,
+            "benchmark_source": options.benchmark_source,
             "full_run_eligible": False,
             "batch_size": 1,
-            "max_train_steps": max_train_steps,
+            "max_train_steps": options.max_train_steps,
             "max_validation_batches": 1,
             "num_workers": 0,
-            "validate_crc": False,
-            "corruption_view": "train_corrupted_local_smoke",
+            "validate_crc": options.validate_crc,
+            "corruption_view": options.corruption_view,
         },
     }
     config_path.write_text(
