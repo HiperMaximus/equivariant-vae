@@ -3,10 +3,12 @@
 Status: draft active workflow scaffold
 Implementation readiness: synthetic setup-smoke remote v1 passed as
 non-promotable setup evidence; real-data capped smoke has local embedded
-packaging/upload-simulation proof but needs a fresh remote rerun; full
-benchmark/full-run launchers are not Kaggle-push-ready
+packaging/upload-simulation proof and Kaggle source attachments now require
+`KAGGLE_FULL_DATASET_CONFIRMED=1`; no-dataset synthetic binary timing pretest
+contract is ready for implementation; full benchmark/full-run launchers are not
+Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
-Last updated: 2026-06-17
+Last updated: 2026-06-18
 
 ## Purpose
 
@@ -28,7 +30,11 @@ scaffolded script kernels through the Kaggle API.
   dataset and writes non-promotable setup evidence. The capped
   `kaggle_smoke_ready` real-data debug script remains non-promotable, but must
   not be treated as accepted smoke evidence; its source delivery has since been
-  migrated locally, but a fresh remote rerun is still required.
+  migrated locally, and a fresh remote rerun is allowed only when intentionally
+  accepting the real dataset attachment/setup cost.
+- Do not treat no-dataset synthetic timing output as selected runtime evidence.
+  It may screen and order candidates for the later real-data benchmark, but it
+  must not write `benchmark/selected_runtime.json`.
 - Do not commit Kaggle credentials, API tokens, output datasets, checkpoints, or
   run artifacts.
 
@@ -123,6 +129,20 @@ payload import, synthetic shard generation, artifact writing, and output
 download path. It does not prove real dataset attachment, T4 runtime, loader
 throughput, runtime selection, or convergence.
 
+The future synthetic timing kernel is:
+
+```text
+kaggle/kernels/synthetic_timing
+```
+
+It is not implemented yet. When implemented, it must request T4 GPU runtime,
+attach no Kaggle sources, generate deterministic UBC-format binary+CSV shards
+under `/kaggle/working`, and write only non-promotable synthetic timing
+artifacts. It exists to screen and order candidate rows for the real-data
+runtime benchmark, including both `single_visible_t4` and `dual_t4_ddp`, while
+keeping final runtime selection blocked until real train/validation shards are
+measured.
+
 ## Kaggle Authentication Contract
 
 Kaggle credentials are local user secrets. They must never be printed, stored in
@@ -207,7 +227,10 @@ The real-data capped smoke workflow becomes Kaggle-push-ready only after:
 5. local smoke tests and the production Python quality gate pass;
 6. `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check` passes the
    read-only checks or records only the known quota/files warnings;
-7. the user explicitly approves the remote write/run.
+7. the user explicitly approves the remote write/run and the 60 GB+ dataset
+   attachment/setup cost;
+8. the push command includes `KAGGLE_FULL_DATASET_CONFIRMED=1` in addition to
+   `KAGGLE_PUSH_CONFIRMED=1`.
 
 The 2026-06-13 real-data smoke push first spent substantial time in Kaggle setup
 while attaching the 60 GB+ `patches-pre-shuffled-ubc-ocean` dataset, then ended
@@ -215,8 +238,54 @@ with `ModuleNotFoundError: No module named 'eqvae'` because the sibling payload
 was not available remotely. The synthetic setup-smoke path now covers setup-only
 remote tests: no `dataset_sources`, no real dataset attachment, tiny synthetic
 UBC-format shards generated under the output directory, and a separate
-non-promotable status/source. Keep the real-data dataset-source guard for
-real-data smoke and benchmark kernels.
+non-promotable status/source. Keep the real-data source-attachment guard for
+real-data smoke and benchmark kernels. The 2026-06-17 remote-control/timing
+planning pass also established that synthetic/random training-time benchmarks
+must not attach this real dataset or any other Kaggle source; any kernel
+metadata with nonempty `dataset_sources`, `competition_sources`,
+`kernel_sources`, or `model_sources` now requires the separate
+`KAGGLE_FULL_DATASET_CONFIRMED=1` guard before upload. Real-data spec 0001
+debug kernels must use only the known patch dataset source unless a later spec
+explicitly authorizes additional sources.
+
+The synthetic binary timing pretest workflow becomes Kaggle-push-ready only
+after:
+
+1. spec 0001 and the spec index contain
+   `kaggle_synthetic_timing_contract_ready`;
+2. the generated script has `KAGGLE_SYNTHETIC_TIMING_READY = True`;
+3. `kernel-metadata.json` declares `enable_gpu = "true"`,
+   `machine_shape = "NvidiaTeslaT4"`, `enable_internet = "false"`, and empty
+   `dataset_sources`, `competition_sources`, `kernel_sources`, and
+   `model_sources`;
+4. the generated single-file launcher embeds a fresh payload manifest and
+   verifies `eqvae` imports from the extracted payload;
+5. runtime code clears `EQVAE_DATA_ROOT`, refuses `data_root = "auto"`, writes
+   generated shards only under `/kaggle/working`, and asserts resolved
+   train/validation paths are under `/kaggle/working`;
+6. the streaming synthetic shard writer records profile, seed, byte counts,
+   CRCs, file hashes, generation time, free disk, cache state, a pre-timing
+   `validate_crc = true` pass for both splits, parsed headers, row counts,
+   file sizes, semantic-key uniqueness, sample-id/hash proof from
+   `PatchTrainingDataset`, and collate/normalization proof before any measured
+   timing row;
+7. the pretest writes only
+   `benchmark/synthetic_timing_manifest.json`,
+   `benchmark/synthetic_timing_runtime_proof.json`,
+   `benchmark/synthetic_timing_matrix.csv`, and
+   `benchmark/synthetic_timing_recommendations.json` with
+   `full_run_eligible = false` and
+   `status_scope = "non_promotable_synthetic_timing"` plus a required
+   `blocked_claims` object covering final batch size, precision, corruption
+   strategy, dataloader settings, single-vs-dual T4 selection, convergence,
+   paper evidence, and full-run readiness;
+8. the push guard rejects any synthetic timing kernel that attaches Kaggle
+   sources or can write `benchmark/selected_runtime.json`;
+9. local upload-simulation/import tests and the production Python quality gate
+   pass;
+10. the user explicitly approves the remote write/run with
+    `KAGGLE_PUSH_CONFIRMED=1`. `KAGGLE_FULL_DATASET_CONFIRMED=1` must not be
+    required or used for this no-dataset kernel.
 
 The full benchmark/full-run workflow becomes Kaggle-push-ready only after:
 
@@ -231,7 +300,10 @@ The full benchmark/full-run workflow becomes Kaggle-push-ready only after:
    required read-only auth/list/status/logs/dataset checks; if the quota
    endpoint warns, GPU quota is verified in the Kaggle web UI and recorded in
    the run notes;
-7. the user confirms Kaggle authentication and remote push permission.
+7. the user confirms Kaggle authentication and remote push permission;
+8. if metadata includes any nonempty Kaggle source list, the user explicitly
+   accepts source attachment/setup cost and the command includes
+   `KAGGLE_FULL_DATASET_CONFIRMED=1`.
 
 ## Verification Commands
 
@@ -256,12 +328,20 @@ PYTHONPATH=src CUDA_VISIBLE_DEVICES="" .venv/bin/pytest \
 Remote commands, only after explicit permission:
 
 ```bash
-KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push
+KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push
 KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/setup_smoke
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-setup
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-setup
+```
+
+Future synthetic timing remote command, only after the kernel exists, its guard
+branch and upload-simulation tests pass, and the user explicitly approves the
+remote write:
+
+```bash
+KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/synthetic_timing
 ```
 
 ## Known Risks

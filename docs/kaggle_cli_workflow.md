@@ -1,7 +1,9 @@
 # Kaggle CLI Workflow
 
-Status: draft workflow scaffold; synthetic setup-smoke path ready after permission
-Last updated: 2026-06-17
+Status: draft workflow scaffold; synthetic setup-smoke path ready after
+permission; synthetic binary timing pretest contract ready; Kaggle source
+attachments require a separate confirmation guard
+Last updated: 2026-06-18
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
 source of truth for experiment code, specs, configs, and paper-facing claims.
@@ -36,8 +38,24 @@ kernel upload serialized the declared `code_file`, so the sibling
 The first remote version ended in `KernelWorkerStatus.ERROR` with
 `ModuleNotFoundError: No module named 'eqvae'` and produced no benchmark
 artifact. The real-data smoke launcher has since been migrated locally to
-embedded single-file packaging with an upload-simulation import test; a fresh
-remote real-data rerun is still pending after clean commit/rebuild.
+embedded single-file packaging with an upload-simulation import test. A fresh
+remote real-data rerun is allowed only when intentionally accepting real dataset
+attachment/setup cost; it is not the next step for synthetic/random
+training-time benchmarking.
+
+Important correction from the 2026-06-17 remote-control testing pass: the
+real-data smoke path is the wrong tool for synthetic/random timing-plumbing
+benchmarks because its metadata attaches the 60 GB+
+`maximusshtefan/patches-pre-shuffled-ubc-ocean` dataset. It should be used only
+when intentionally testing real dataset attachment plus UBC shard resolution.
+`scripts/kaggle_kernel.sh push` now requires both `KAGGLE_PUSH_CONFIRMED=1` and
+`KAGGLE_FULL_DATASET_CONFIRMED=1` before any metadata with nonempty Kaggle
+source attachments can be uploaded. The guarded source fields are
+`dataset_sources`, `competition_sources`, `kernel_sources`, and
+`model_sources`. The current real-data smoke guard additionally requires the
+known patch dataset as the only source attachment. The next training-time
+efficiency benchmark should use a separate no-dataset synthetic/random kernel,
+not the real-data smoke.
 
 The setup-only script-kernel scaffold lives in:
 
@@ -60,6 +78,44 @@ completed successfully. The downloaded ignored artifact at
 data origin, CPU runtime, `requires_cuda_t4 = false`, 3 train steps, 1
 clean-validation batch, 2 deterministic applied corruptions, and clean embedded
 payload provenance for commit `3162bec`.
+
+The next planned no-dataset GPU timing scaffold is:
+
+```text
+kaggle/kernels/synthetic_timing
+```
+
+It is not implemented yet. Its contract is to request T4 GPU runtime, attach no
+Kaggle datasets or other sources, generate deterministic UBC-format binary+CSV
+shards under `/kaggle/working`, and write only non-promotable synthetic timing
+artifacts. The default profile is
+`synthetic_binary_0p81gb_histology_like_v1`: 4,096 total `3x256x256` CHW
+`uint8` patches, split 2,048 train / 2,048 validation, about 805,306,368
+payload bytes before CSV/artifacts. This stays below 1 GB while allowing
+non-wrapping 30-batch throughput rows up to global batch 64.
+
+The generated synthetic root must mirror the real shard contract exactly enough
+to exercise the same loader path: write
+`dataset/ubc_train_shuffled.bin`, `dataset/ubc_train_shuffled.csv`,
+`dataset/ubc_ocean_valid.bin`, and `dataset/ubc_ocean_valid.csv`; use the same
+64-byte header, CHW `uint8` payload order, CRC32, and CSV metadata semantics;
+omit `idx` from the train CSV and include `idx` in the validation CSV. Timed
+reads must resolve this explicit `/kaggle/working/...` root through
+`resolve_patch_data_paths` and use the active `PatchTensorDataset` /
+`PatchTrainingDataset` code, not a synthetic-only loader.
+
+This pretest must attempt both `single_visible_t4` and `dual_t4_ddp` so batch
+size and VRAM differences are visible. Compare rows by feasible global
+throughput and projected epoch time, not by equal per-device batch size. The
+ranked non-wrapping eligibility budget is
+`global_batch_size * non_wrapping_eligibility_steps <= split_patch_count`, with
+`non_wrapping_eligibility_steps = 30` for the default profile. An initial
+shorter fit pass may still run larger rows, but rows that exceed the 30-step
+budget are fit/VRAM probes only; for the default 0.81 GB profile, dual-T4
+per-device batch 48/64 rows are probe-only unless a larger synthetic profile is
+accepted later. The output may recommend rows to carry into the real-data
+benchmark, but must not write `benchmark/selected_runtime.json` or claim final
+runtime selection.
 
 Spec 0001 runtime benchmarking requires two accelerator modes:
 
@@ -183,13 +239,14 @@ remote sequence is:
 ```bash
 ./scripts/kaggle_kernel.sh build
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check
-KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push
+KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output
 ```
 
-Run those remote commands only after explicit user permission. A successful
-smoke should produce `benchmark/kaggle_smoke.json` with
+Run those remote commands only after explicit user permission that includes
+accepting Kaggle dataset attachment/setup cost. A successful smoke should
+produce `benchmark/kaggle_smoke.json` with
 `status = "smoke_pass"`, `status_scope = "non_promotable_debug"`,
 `full_run_eligible = false`, at least one applied corruption, nonzero
 input-target delta, nonzero optimizer updates, visible T4 CUDA runtime for the
@@ -201,9 +258,30 @@ Use the real-data smoke only when intentionally testing Kaggle dataset
 attachment plus UBC shard resolution. The `patches-pre-shuffled-ubc-ocean`
 source is larger than 60 GB, so Kaggle may spend a long time preparing the
 environment before a capped script starts. For setup-only tests of the API,
-script-kernel payload, imports, and artifact writing, use the separate synthetic
-setup smoke with empty `dataset_sources`. It has a distinct status/source and
-must never be promoted to real-data benchmark evidence.
+script-kernel payload, imports, artifact writing, or synthetic/random
+training-time plumbing, use a no-dataset kernel with empty `dataset_sources`.
+The existing setup smoke has a distinct status/source and must never be promoted
+to real-data benchmark evidence.
+
+For the synthetic binary timing pretest after implementation, the intended
+remote sequence is:
+
+```bash
+./scripts/kaggle_kernel.sh build kaggle/kernels/synthetic_timing
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check
+KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/synthetic_timing
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status <synthetic-kernel-id>
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output <synthetic-kernel-id> runs/kaggle/synthetic_timing
+```
+
+Until `api-check` grows a no-dataset kernel mode, the command above is only a
+read-only auth/status/quota preflight and still lists the real patch dataset.
+It must not be interpreted as synthetic dataset attachment.
+
+Do not set `KAGGLE_FULL_DATASET_CONFIRMED=1` for this no-dataset kernel. The
+push guard must instead prove all Kaggle source lists are empty, GPU/T4 metadata
+is present, the generated payload is fresh, and the launcher cannot write
+promotable runtime-selection artifacts.
 
 Check whether the Kaggle CLI is installed and whether local metadata is valid:
 
@@ -278,19 +356,28 @@ shard. Final evaluation needs a separate sealed test dataset/source from the
 UBC-OCEAN WSIs with supplemental masks. Those masks are non-exhaustive and should
 not be interpreted as full-WSI negative/positive coverage.
 
-For the current real-data smoke and future real-data benchmark kernels, the
-push wrapper refuses remote writes while `dataset_sources` is empty, while the
-placeholder guard remains, while the bundled payload is missing, while the
-dataset slug differs from `maximusshtefan/patches-pre-shuffled-ubc-ocean`, or
+For the current real-data smoke kernel, the push wrapper refuses remote writes
+while `dataset_sources` is empty, while the bundled payload is missing or stale,
+while the dataset slug differs from
+`maximusshtefan/patches-pre-shuffled-ubc-ocean`, while any of
+`competition_sources`, `kernel_sources`, or `model_sources` is nonempty, or
 while spec 0001 and the spec index are not marked with the appropriate
-readiness label. The synthetic setup-smoke guard is a separate branch: it
-requires empty source lists, no GPU, no internet, a generated embedded payload,
-and setup-specific readiness docs, so this real-data dataset requirement is not
+readiness label. In addition, any push whose metadata has any nonempty Kaggle
+source list fails unless `KAGGLE_FULL_DATASET_CONFIRMED=1` is set for that one
+command. The synthetic setup-smoke guard is a separate branch: it requires empty
+source lists, no GPU, no internet, a generated embedded payload, and
+setup-specific readiness docs, so this real-data dataset requirement is not
 weakened.
 
 For spec 0001 benchmark kernels, the wrapper or metadata validation must require
 `machine_shape == "NvidiaTeslaT4"` and the single-visible versus dual-DDP launch
 mode recorded above.
+
+For the synthetic timing kernel, metadata validation must require the same T4
+machine shape but empty source lists. `benchmark/synthetic_timing_runtime_proof.json`
+must record visible CUDA device count, T4 device names, `world_size`,
+`nproc_per_node`, per-rank device assignment, and whether `dual_t4_ddp` was
+measured or failed with `wrong_accelerator`/`skipped_unsupported`.
 
 ## GitHub Linking
 

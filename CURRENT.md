@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-06-17
+Last updated: 2026-06-18
 
 ## Active Workstream
 
@@ -20,9 +20,11 @@ FSQ-successor spatial-coherence goal, that the historical HED corruptor must not
 be copied as-is, and that the benchmark specs were directionally right but not
 implementation-ready until launch topology, schemas, thresholds, dataloader
 throughput, paired numerical checks, selected-runtime debug, and tiny-overfit
-    gates were made explicit. A local Kaggle CLI execution scaffold now exists; it
-    is not broad/full-run Kaggle-push-ready, though a narrow capped real-data smoke
-    version was pushed on 2026-06-13 and is still awaiting final remote output.
+gates were made explicit. A local Kaggle CLI execution scaffold now exists; it
+is not broad/full-run Kaggle-push-ready. The no-dataset setup smoke passed on
+Kaggle, while real-data smoke paths attach the 60 GB+ dataset and are guarded by
+`KAGGLE_FULL_DATASET_CONFIRMED=1`. The next Kaggle step is a separate
+no-dataset synthetic binary timing pretest, not a real-data smoke.
 
 Spec-driven development is now an active repo workflow. The first active spec is
 `docs/specs/0001-translatable-normal-vae-baseline.md`, now reopened as
@@ -65,6 +67,19 @@ focused `tests/test_stain_corruptor.py` and
 dev/test oracle, not a runtime import in active `src/eqvae` corruption code. The
 canonical short decision note is
 `docs/decisions/0007-stain-corruptor-convention.md`.
+The 2026-06-17 synthetic Kaggle timing spec pass added
+`kaggle_synthetic_timing_contract_ready`: implement a separate no-dataset GPU
+kernel at `kaggle/kernels/synthetic_timing` that generates a streaming
+UBC-format 0.81 GB synthetic binary profile under `/kaggle/working`, attempts
+both `single_visible_t4` and `dual_t4_ddp`, compares feasible global throughput
+and projected epoch time, and writes only non-promotable synthetic timing
+artifacts. The generated root must mirror the real shard filenames and format
+and timed reads must use the active `resolve_patch_data_paths`,
+`PatchTensorDataset`, and `PatchTrainingDataset` code paths. It may screen/order
+rows for the real-data benchmark but cannot write `benchmark/selected_runtime.json`
+or unlock selected-runtime debug/full runs.
+The canonical short decision note is
+`docs/decisions/0008-kaggle-synthetic-timing-pretest.md`.
 Strict Python quality is also an active workflow via
 `docs/specs/0002-strict-python-quality-gate.md`.
 Kaggle CLI execution is scaffolded via
@@ -195,24 +210,38 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: finish full local verification for the real-data smoke
-embedded-packaging migration, commit it, rebuild the generated real-data
-`run.py` from a clean HEAD, then push the capped real-data smoke only when ready
-to attach the 60 GB+ dataset. The synthetic setup-smoke remote test passed on
-Kaggle as version 1 of `maximusshtefan/eqvae-setup-smoke`; downloaded ignored
-evidence is at `runs/kaggle/setup_smoke/benchmark/kaggle_setup_smoke.json` with
-`status = "smoke_pass"`, `status_scope = "non_promotable_setup_smoke"`,
+Immediate next action: implement and locally verify the no-dataset synthetic
+binary Kaggle timing pretest before any more real-data Kaggle smoke work.
+Spec-locked target: `kaggle/kernels/synthetic_timing`, empty Kaggle source
+lists, T4 GPU metadata, `KAGGLE_SYNTHETIC_TIMING_READY = True`, generated
+`synthetic_binary_0p81gb_histology_like_v1` shards under `/kaggle/working`,
+single-T4 plus dual-T4/DDP attempts, projected epoch-time comparison by feasible
+global batch, separate non-promotable artifacts, and no
+`benchmark/selected_runtime.json`. Format-parity acceptance requires
+`dataset/ubc_train_shuffled.*` and `dataset/ubc_ocean_valid.*` filenames, the
+same 64-byte header/CRC/CHW `uint8` payload contract, train CSV without `idx`,
+validation CSV with `idx`, and no synthetic-only loader shortcut.
+The synthetic setup-smoke remote test passed on Kaggle as version 1 of
+`maximusshtefan/eqvae-setup-smoke`; downloaded ignored evidence is at
+`runs/kaggle/setup_smoke/benchmark/kaggle_setup_smoke.json`. The setup artifact
+records `status = "smoke_pass"`,
+`status_scope = "non_promotable_setup_smoke"`,
 `benchmark_kind = "synthetic_kaggle_setup_smoke"`, no dataset slug,
-`data.origin = "synthetic_or_ephemeral_path"`, `runtime.requires_cuda_t4 =
-false`, `train.applied_counts = [1, 1, 0]`, and payload
-`git_commit = 3162bececdf40b5270b06654603f1a018d5ada05` /
-`git_dirty = false`. The real-data source delivery is now migrated locally to
-embedded single-file packaging with an import-only upload-simulation test, but
-there is not yet fresh remote real-data smoke evidence. Do not attach the real
-60 GB+ dataset for setup-only checks. Do not start Overleaf work, broad real
-training/resume, runtime selection, or paper claims. The
-data/metrics, selector/dataloader, and local benchmark pre-test contracts are
-recorded in spec 0001, and the local benchmark pre-test is now
+`data.origin = "synthetic_or_ephemeral_path"`,
+`runtime.requires_cuda_t4 = false`, `train.applied_counts = [1, 1, 0]`, and
+payload provenance for clean commit `3162bececdf40b5270b06654603f1a018d5ada05`.
+The real-data source delivery is migrated locally to embedded single-file
+packaging with an import-only upload-simulation test, but it must be used only
+when intentionally testing Kaggle dataset attachment plus UBC shard resolution.
+Any future push whose metadata has nonempty `dataset_sources`,
+`competition_sources`, `kernel_sources`, or `model_sources` must include both
+`KAGGLE_PUSH_CONFIRMED=1` and `KAGGLE_FULL_DATASET_CONFIRMED=1` after explicit
+user acceptance of source attachment/setup cost. The real-data smoke guard also
+requires the known patch dataset as the only source attachment. Do not attach
+the real 60 GB+ dataset for setup-only or synthetic/random timing checks. Do not
+start Overleaf work, broad real training/resume, runtime selection, or paper
+claims. The data/metrics, selector/dataloader, and local benchmark pre-test
+contracts are recorded in spec 0001, and the local benchmark pre-test is now
 `local_benchmark_pretest_ready`. The local implementation already exists under
 `src/eqvae/data`, `src/eqvae/metrics`, `src/eqvae/benchmarking`, and
 `src/eqvae/cli`: deterministic synthetic UBC-format patch shards, exact
@@ -348,14 +377,16 @@ Local scaffold status from 2026-06-12:
   `uv.lock`. Historical `src/nn` remains as excluded reference material and is
   forbidden as an import source for active `src/eqvae` code.
 
-Kaggle-specific handoff: `scripts/kaggle_kernel.sh validate` and
-`scripts/kaggle_kernel.sh check` worked locally on 2026-06-06 with Kaggle CLI
-2.2.1, but Kaggle authentication is a user-local secret and must be treated as
-permission-gated. Do not run
-`KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push` until the placeholder
-guard is removed from `kaggle/kernels/non_eq_vae_debug/run.py`, the real spec
-0001 launcher exists, local verification passes, and the user explicitly
-approves the remote write.
+Kaggle-specific handoff: Kaggle authentication is a user-local secret and must
+remain permission-gated. Do not push the default real-data
+`kaggle/kernels/non_eq_vae_debug` kernel unless intentionally testing the 60 GB+
+patch dataset attachment plus UBC shard resolution, with explicit user approval
+and both `KAGGLE_PUSH_CONFIRMED=1` and `KAGGLE_FULL_DATASET_CONFIRMED=1`. The
+next Kaggle implementation target is local-only work for
+`kaggle/kernels/synthetic_timing`: no Kaggle source attachments, generated
+UBC-format shards under `/kaggle/working`, T4 GPU metadata, a dedicated
+`KAGGLE_SYNTHETIC_TIMING_READY = True` guard, upload-simulation proof, and no
+remote write until the user explicitly approves it.
 
 ## Settled Decisions
 
@@ -382,59 +413,58 @@ The review process lives in `docs/agentic_review_workflow.md`.
 
 ## Next Concrete Steps
 
-1. Spec-lock the next narrow local slice before coding, likely corrected
-   HED/stain corruption or trainer/checkpoint acceptance. Ask the user for any
-   decisions that affect benchmark validity before implementation.
-2. Continue the spec 0001 relock: future `SO(2)` count ceiling, Kaggle
-   `NvidiaTeslaT4` metadata validation plus single/dual launch-mode checks,
-   real fixed validation/tiny-overfit selector generation, remaining artifact
-   protocol, and final clean-context adversarial spec review.
-3. Mark spec 0001 `locked / implementation-ready` only after those relock
-   blockers are resolved.
-4. Implement corrected stain corruption, then optimizer/scheduler, train,
-   resume, evaluate, and artifact CLIs only when their spec slices authorize
-   them.
-5. Replace the placeholder Kaggle debug kernel with the real launcher only after
-   local spec 0001 verification passes.
-6. Run the short Kaggle runtime benchmark after explicit user permission and
-   record the selected single/dual T4, per-device/global batch, AMP, compile,
-   precision-policy, and corruption-strategy config before the first 10-epoch
-   baseline run; include dataloader throughput, paired numerical checks,
-   gate-health telemetry, selected-runtime debug, checkpoint/resume, and
-   tiny-overfit gates.
-7. Implement the shared evaluation harness for metrics, boxplots, fixed
-   25-patch artifacts, rotated-input artifacts, and latent visualizations.
-8. Add targeted equivalence/equivariance tests for operations before full
-   continuous `SO(2)` training runs.
-9. Only then implement the steerable model path and run matched experiments.
+1. Implement the synthetic timing kernel and local guard/upload-simulation path
+   before any more real-data Kaggle smoke. The kernel must live at
+   `kaggle/kernels/synthetic_timing`, attach no Kaggle sources, request
+   `machine_shape = "NvidiaTeslaT4"`, and expose
+   `KAGGLE_SYNTHETIC_TIMING_READY = True`.
+2. Add the dedicated synthetic timing branch to `scripts/kaggle_kernel.sh`: it
+   must require empty source lists, T4 GPU metadata, a fresh embedded payload,
+   generated `/kaggle/working` data provenance, non-promotable artifact names,
+   and absence of `benchmark/selected_runtime.json`.
+3. Implement the streaming synthetic UBC-format writer, CRC/header integrity
+   pass, active `PatchTensorDataset` / `PatchTrainingDataset` timing paths,
+   collate/normalization proof, semantic-key/sample-id proof, and fresh
+   child-process row runner with `CUDA_VISIBLE_DEVICES` set before importing
+   torch.
+4. Run local upload-simulation tests, relevant focused tests, and
+   `./scripts/python_quality.sh` for Python changes. Run
+   `./scripts/agent_preflight.sh` before handoff after substantial docs/code
+   edits.
+5. Only after local proof passes, ask permission for a no-dataset Kaggle
+   synthetic timing push. Do not set `KAGGLE_FULL_DATASET_CONFIRMED=1` for that
+   kernel.
+6. Use synthetic timing only to screen/order candidate rows for the later
+   real-data benchmark. Real runtime selection still requires the real-data
+   benchmark, selected-runtime debug, checkpoint/resume, tiny-overfit, and
+   fixed real visual QA gates.
+7. Continue the shared evaluation harness, future `SO(2)` count ceiling, and
+   steerable model work only after the benchmark plumbing gates are no longer
+   blocking the first real baseline run.
 
 ## Current Blockers
 
 - Spec 0001 is reopened and not implementation-ready for broad work. Narrow
-  local scaffold, topology-count, data/metrics, selector/dataloader, and local
-  benchmark pre-test contracts now exist; the model/loss train-step slice is
-  locally implemented as `model_loss_train_step_ready`. Remaining
-  implementation-relock blockers are listed in
-  `docs/specs/0001-translatable-normal-vae-baseline.md` and include future
-  `SO(2)` count ceiling, Kaggle `NvidiaTeslaT4` metadata validation with runtime
-  two-T4 proof, real fixed validation/tiny-overfit selector generation,
-  remaining artifact protocol, and final adversarial spec review. The
-  analytic Conv2d baseline target is recorded in spec 0001 and verified by the
-  instantiated local `model_count` slice.
-- The first full Kaggle run remains blocked after implementation until the short
-  runtime benchmark selects single/dual T4, per-device/global batch, AMP,
-  compile, precision policy, and corruption strategy settings, and the
-  dataloader throughput, paired numerical checks, gate-health summary,
-  selected-runtime debug, checkpoint/resume, and tiny-overfit gates pass.
+  local scaffold, topology-count, data/metrics, selector/dataloader, local
+  benchmark pre-test, model/loss train-step, HED/stain corruption, Kaggle setup
+  smoke, and Kaggle capped-smoke source-delivery contracts now exist. The next
+  blocking implementation slice is the no-dataset synthetic timing kernel and
+  guard. Remaining implementation-relock blockers include future `SO(2)` count
+  ceiling, real fixed validation/tiny-overfit selector generation,
+  selected-runtime debug, checkpoint/resume, full evaluation/artifact writers,
+  and final adversarial spec review after those routes are integrated.
+- The first full Kaggle run remains blocked until synthetic timing screens the
+  candidate rows, the real-data runtime benchmark selects single/dual T4,
+  per-device/global batch, AMP, compile, precision policy, dataloader settings,
+  and corruption strategy, and the dataloader throughput, paired numerical
+  checks, gate-health summary, selected-runtime debug, checkpoint/resume,
+  tiny-overfit, and fixed real visual QA gates pass.
 - The exact held-out masked-WSI test shard must be generated, uploaded, and
   locked before final paper claims. The 152-image candidate pool is documented in
   `docs/data/ubc_ocean_masked_holdout_ids.csv`, and train/validation are
   available in the confirmed pre-shuffled patch dataset. Supplemental masks are
   non-exhaustive, so test generation and later supervised experiments must not
   treat unmasked regions as exhaustive negative labels.
-- The Kaggle debug kernel still has a `NOT_IMPLEMENTATION_READY` placeholder and
-  must not be pushed until the real spec 0001 launcher is implemented and
-  verified.
 - Strict Python quality now has a production boundary: `src/eqvae` and tests are
   strict, while historical `src/nn` is excluded as reference-only. New work must
   not add debt or import from `src.nn`.
@@ -715,7 +745,7 @@ The review process lives in `docs/agentic_review_workflow.md`.
   spend a long time preparing the 60 GB+ dataset before a capped script starts.
   The follow-up setup smoke must use empty `dataset_sources`, generate tiny
   synthetic UBC-format shards under the output directory, write distinct
-  non-promotable setup evidence, and leave the real-data dataset-source guard
+  non-promotable setup evidence, and leave the real-data source-attachment guard
   intact for real-data smoke/benchmark kernels.
 - 2026-06-13 adversarial smoke hardening: clean-context subagent passes found
   that the first capped smoke could report `smoke_pass` without an applied
@@ -771,8 +801,31 @@ The review process lives in `docs/agentic_review_workflow.md`.
   tests/test_kaggle_embedded_kernel.py` passed with 2 tests. Full
   `./scripts/python_quality.sh` passed with 80 tests and 0 BasedPyright errors.
   `./scripts/agent_preflight.sh` passed after staging the generated-file
-  tracking change. Clean commit/rebuild and fresh remote real-data smoke are
-  still pending.
+  tracking change.
+- 2026-06-18 Kaggle source-attachment push guard: after an accidental real-data
+  smoke push during remote-control/timing planning, `scripts/kaggle_kernel.sh`
+  now rejects any push whose metadata has nonempty `dataset_sources`,
+  `competition_sources`, `kernel_sources`, or `model_sources` unless the
+  command includes `KAGGLE_FULL_DATASET_CONFIRMED=1` in addition to
+  `KAGGLE_PUSH_CONFIRMED=1`. The real-data smoke guard also rejects extra
+  competition/kernel/model sources and allows only
+  `maximusshtefan/patches-pre-shuffled-ubc-ocean` as the dataset source.
+- 2026-06-18 synthetic timing adversarial check: a four-agent swarm reviewed
+  the synthetic timing contract from spec/evidence, Kaggle runtime, benchmark
+  design, and data-format angles. The follow-up edits fixed the all-source
+  attachment guard, stale handoff text, the 30-step non-wrapping eligibility
+  contract, projected real epoch-time formula, structural-only pruning language,
+  required `blocked_claims`, CRC/header/file/hash integrity proof,
+  active collate/normalization proof, semantic-key/sample-id proof, and fresh
+  child-process row isolation requirement. The synthetic timing evidence can
+  screen/order candidates but cannot select the real runtime.
+- Verification for the 2026-06-18 adversarial corrections: `bash -n
+  scripts/kaggle_kernel.sh`, `git diff --check`, a no-network dummy-`kaggle`
+  dry push guard test, and `./scripts/agent_preflight.sh` all passed. The dummy
+  guard test confirmed the default real-data kernel fails before the Kaggle CLI
+  is reached unless `KAGGLE_FULL_DATASET_CONFIRMED=1` is set for its source
+  attachment. `./scripts/python_quality.sh` was not rerun in this slice because
+  no production Python or test files changed.
 
 ## Update Rule
 

@@ -10,7 +10,9 @@ narrow local CPU dataloader pre-test is `local_benchmark_pretest_ready`;
 narrow model/loss local train-step pre-test is `model_loss_train_step_ready`;
 the HED/stain corruption local correctness/QA slice is `corruption_ready`;
 the narrow capped Kaggle smoke is `kaggle_smoke_ready`; the synthetic
-no-dataset Kaggle setup smoke is `kaggle_setup_smoke_ready`
+no-dataset Kaggle setup smoke is `kaggle_setup_smoke_ready`; the no-dataset
+synthetic binary Kaggle timing pretest contract is
+`kaggle_synthetic_timing_contract_ready`
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-17
 
@@ -153,6 +155,7 @@ from `configs/spec0001/non_eq_vae_kaggle_debug.json`. The smoke writes
 `full_run_eligible = false`; it is not runtime selection, not convergence
 evidence, not a full training run, and not paper evidence. Remote execution
 still requires explicit user permission, `KAGGLE_PUSH_CONFIRMED=1` for the push,
+`KAGGLE_FULL_DATASET_CONFIRMED=1` for any push that attaches Kaggle sources,
 and the read-only Kaggle API preflight before/after as appropriate.
 Adversarial hardening requires `smoke_pass` to prove: hard caps were enforced
 (`batch_size = 1`, `1 <= max_train_steps <= 3`, `max_validation_batches = 1`,
@@ -164,10 +167,11 @@ status. The first remote version pushed on 2026-06-13 predates this hardening an
 is preliminary only if it returns.
 This real-data smoke intentionally attaches
 `maximusshtefan/patches-pre-shuffled-ubc-ocean`; it is therefore not the right
-tool for setup-only Kaggle plumbing tests. A future setup-only smoke should use
-empty `dataset_sources`, generate tiny synthetic UBC-format shards inside
-`/kaggle/working`, record a distinct synthetic/setup-only status and source, and
-remain non-promotable.
+tool for setup-only Kaggle plumbing tests or synthetic/random training-time
+efficiency benchmarks. Those should use empty Kaggle source lists, generate
+tiny synthetic UBC-format shards or random batches inside `/kaggle/working`,
+record a distinct synthetic/setup-only status and source, and remain
+non-promotable until a benchmark spec explicitly promotes them.
 
 Synthetic Kaggle setup-smoke implementation, 2026-06-17: the first remote
 real-data smoke version ended with `ModuleNotFoundError: No module named
@@ -194,6 +198,46 @@ evidence, or paper evidence. The real-data smoke and future benchmarks must not
 reuse the setup source strings to bypass T4 or dataset checks. Remote
 setup-smoke v1 completed on 2026-06-17 with this non-promotable setup artifact
 contract and clean embedded payload provenance for commit `3162bec`.
+
+Synthetic binary Kaggle timing pretest contract, 2026-06-17: this spec now
+authorizes a future no-dataset GPU timing pretest contract only, not its
+implementation. The pretest exists to screen and order candidate real-data
+runtime benchmark rows before paying the 60 GB+ dataset attachment cost. It must
+not write `benchmark/selected_runtime.json`, must not set
+`full_run_eligible = true`, and must not claim final batch size, precision
+policy, corruption strategy, dataloader settings, single-vs-dual T4 selection,
+convergence, paper evidence, or full-run readiness. The pretest must use a
+separate Kaggle script kernel with `dataset_sources = []`, all other Kaggle
+source lists empty, `enable_gpu = "true"`, `machine_shape = "NvidiaTeslaT4"`,
+`enable_internet = "false"`, and a distinct push guard marker such as
+`KAGGLE_SYNTHETIC_TIMING_READY = True`. It must generate deterministic
+UBC-format binary+CSV shards under `/kaggle/working` through a streaming writer,
+not by materializing the whole shard in RAM. The default synthetic profile is
+`synthetic_binary_0p81gb_histology_like_v1`: 4,096 total patches, split as
+2,048 train and 2,048 validation, with `3x256x256` CHW `uint8` payloads,
+the standard 64-byte `<8sIQiiii3s25x` header, CRC32, and metadata CSVs. The
+generated root must contain the same relative filenames as the real dataset:
+`dataset/ubc_train_shuffled.bin`, `dataset/ubc_train_shuffled.csv`,
+`dataset/ubc_ocean_valid.bin`, and `dataset/ubc_ocean_valid.csv`. Its train CSV
+must mimic the real train CSV by omitting `idx`; its validation CSV must mimic
+the real validation CSV by including `idx`. Timed reads must use the active
+`resolve_patch_data_paths`, `PatchTensorDataset`, and `PatchTrainingDataset`
+paths with an explicit `/kaggle/working/...` data root; a synthetic-only loader
+or alternate binary parser is not allowed. The payload is about 805,306,368
+bytes before CSV and artifacts, stays below 1 GB, and supports non-wrapping
+30-batch timing rows up to global batch 64. The pretest must attempt both
+`single_visible_t4` and `dual_t4_ddp`, and must compare candidates by feasible
+global throughput and projected epoch time, not by equal per-device batch size
+alone. For the 0.81 GB profile, batch-size rows whose
+`global_batch_size * non_wrapping_eligibility_steps` exceeds the available split
+size are fit/VRAM probes only and cannot rank throughput recommendations. The
+default `non_wrapping_eligibility_steps` is 30, independent of the shorter
+initial fit pass; this makes dual-T4 per-device batch 48/64 probe-only unless a
+larger synthetic profile is explicitly added later. Generated `/kaggle/working`
+data is hot-cache-biased by construction, so dataloader timing from this pretest
+is format/path/H2D plumbing evidence only; real dataloader settings remain
+blocked until the real-data Kaggle benchmark writes real train/validation loader
+rows.
 
 ## Purpose
 
@@ -268,6 +312,14 @@ First-run input contract:
   `dataset/ubc_train_shuffled.csv`;
 - required validation files: `dataset/ubc_ocean_valid.bin` and
   `dataset/ubc_ocean_valid.csv`;
+- synthetic Kaggle timing shards must use the same relative filenames, binary
+  header, payload order, CSV column semantics, `idx` asymmetry, and active
+  loader APIs as the real shards. They may change only the data root and pixel
+  generator. A synthetic timing artifact must prove that the generated root was
+  resolved by `resolve_patch_data_paths`, that each split passed
+  `PatchShardSpec` validation with CRC coverage recorded in the manifest, and
+  that measured train/validation batches came from the same dataset classes used
+  for real UBC shards;
 - `data_root = "auto"` is deterministic and offline: explicit `--data-root`
   always wins; auto mode checks nonblank `EQVAE_DATA_ROOT`, then known Kaggle
   input mounts, then repo-root local paths such as
@@ -1274,6 +1326,13 @@ Runtime benchmark requirement before the first full Kaggle run:
     and valid only when the artifact records its non-promotable scope, source,
     caps, data origin, integrity status, payload provenance, and linked smoke
     assertions;
+  - `synthetic_timing_pass`: permission-gated Kaggle no-dataset synthetic
+    binary timing pretest evidence; never full-run eligible, never runtime
+    selection evidence, and valid only when the artifact records
+    `status_scope = "non_promotable_synthetic_timing"`, empty Kaggle source
+    lists, generated UBC-format data provenance, accelerator proof,
+    fit-versus-throughput row eligibility, and explicit blocked real-data
+    claims;
   - `pass`: verified on the required real runtime/data path and eligible for the
     next gate if all linked artifacts also pass;
   - `warn`: completed, but blocked from automatic promotion until inspected and
@@ -1330,6 +1389,12 @@ Runtime benchmark requirement before the first full Kaggle run:
     attachments, setup-specific push guards, an upload-simulation test proving
     it works without a sibling payload directory, and a non-promotable
     `benchmark/kaggle_setup_smoke.json` artifact contract;
+  - `kaggle_synthetic_timing_contract_ready`: the no-dataset synthetic binary
+    Kaggle timing pretest contract is locked for implementation. It may screen
+    and order candidate rows for the later real-data benchmark, but it cannot
+    write `benchmark/selected_runtime.json`, cannot mark
+    `full_run_eligible = true`, and cannot unlock selected-runtime debug,
+    tiny-overfit, full training, or paper claims;
   - `benchmark_cli_implementation_ready`: local benchmark CLIs instantiate real
     code, `benchmark/model_count.json` has `status = "pass"` from an
     instantiated model, the `data_metrics_ready`, selector/dataloader,
@@ -1353,6 +1418,53 @@ Runtime benchmark requirement before the first full Kaggle run:
   `accelerator_mode = "local_cpu"`, and `machine_shape = "local_cpu"`.
   Training, selected-runtime debug, tiny-overfit, and full-run CLIs must reject
   any `--runtime-config` whose `full_run_eligible` is not `true`;
+- Kaggle synthetic timing pretest artifacts must use separate names from the
+  real runtime-selection artifacts:
+  `benchmark/synthetic_timing_manifest.json`,
+  `benchmark/synthetic_timing_runtime_proof.json`,
+  `benchmark/synthetic_timing_matrix.csv`, and
+  `benchmark/synthetic_timing_recommendations.json`. They must set
+  `benchmark_kind = "kaggle_synthetic_timing_pretest"`,
+  `benchmark_source = "kaggle_no_dataset_generated_ubc_shards"`,
+  `status = "synthetic_timing_pass"` when successful,
+  `status_scope = "non_promotable_synthetic_timing"`,
+  `full_run_eligible = false`, `dataset_sources = []`,
+  `competition_sources = []`, `kernel_sources = []`, `model_sources = []`,
+  `data.origin = "/kaggle/working_generated_synthetic"`, and
+  `generation_excluded_from_timing = true`. They must include
+  `blocked_claims` with at least these true-valued keys:
+  `final_batch_size`, `final_precision_policy`, `final_corruption_strategy`,
+  `final_dataloader_settings`, `final_single_vs_dual_t4`,
+  `real_data_loader_throughput`, `convergence`, `paper_evidence`, and
+  `full_run_readiness`. They must never overwrite or masquerade as
+  `benchmark/runtime_proof.json`, `benchmark/runtime_matrix.csv`,
+  `benchmark/dataloader_matrix.csv`, `benchmark/numerical_checks.csv`, or
+  `benchmark/selected_runtime.json`;
+- the synthetic timing manifest must record at least: profile name, seed,
+  train/validation patch counts, exact byte counts, binary paths, CSV paths,
+  file SHA256 hashes, CRC32 values, generation seconds, write throughput,
+  free disk before/after, cache state, data generator version,
+  `crc_validated = true` from a pre-timing `validate_crc = true` integrity pass
+  for both splits, parsed header fields, row counts, file sizes, per-split
+  semantic-key uniqueness checks for `{split}:{wsi_id}:{label}:{x}:{y}`,
+  first/last `row_index`, `file_index`, `sample_id`, semantic-key hashes from
+  `PatchTrainingDataset` batches, and whether any row reused samples or
+  exceeded the non-wrapping split budget;
+- the default synthetic pixel profile is `histology_like_rgb_v1`, a
+  deterministic non-real H&E-like RGB mixture suitable for exercising HED/OD
+  corruption and image-domain losses better than uniform noise. It remains
+  synthetic evidence only. A `uniform_rgb_v1` control profile may be added
+  later, but it must not replace the default profile unless this spec is
+  updated;
+- synthetic timing recommendation rows may only classify candidates as
+  `carry_to_real_benchmark`, `prune_obvious_failure`, `fit_probe_only`, or
+  `needs_real_data_confirmation`. They must not classify any row as selected
+  for the real run. `prune_obvious_failure` is allowed only for structural
+  failures: wrong accelerator, OOM, DDP failure, compile failure, non-finite
+  loss or gradients, AMP skipped steps, invalid or missing artifact proof, or
+  source/loader format violations. Performance-only differences must be
+  `carry_to_real_benchmark` or `needs_real_data_confirmation` unless a later
+  spec adds a conservative dominance rule;
 - benchmark two accelerator modes:
   `single_visible_t4` and `dual_t4_ddp`;
 - `single_visible_t4` may run inside the dual-T4 Kaggle machine by setting
@@ -1360,6 +1472,15 @@ Runtime benchmark requirement before the first full Kaggle run:
 - `dual_t4_ddp` must launch with two ranks, restore the historical
   `torchrun --standalone --nproc_per_node=2` behavior or an equivalent
   self-spawn implementation, and record `world_size = 2`;
+- synthetic timing rows must run each accelerator mode and row in a fresh
+  Python child process with `CUDA_VISIBLE_DEVICES` set before importing `torch`.
+  Record launch command, environment mask, row order, subprocess exit status,
+  and per-rank device assignment;
+- the synthetic timing pretest must attempt both `single_visible_t4` and
+  `dual_t4_ddp`. If Kaggle exposes fewer than two visible T4 devices, the
+  synthetic proof must still be written and dual rows must be marked
+  `wrong_accelerator` or `skipped_unsupported`; silently dropping dual rows is
+  not allowed;
 - the Kaggle kernel metadata must request `machine_shape = "NvidiaTeslaT4"`
   before the remote benchmark is pushed. This value was verified on 2026-06-11
   by pulling metadata for the existing `maximusshtefan/non-eq-vae` notebook that
@@ -1386,6 +1507,19 @@ Runtime benchmark requirement before the first full Kaggle run:
   failure;
 - batch size is selected from VRAM and throughput evidence for each runtime
   configuration, not hard-coded from the historical FSQ run.
+- single-vs-dual comparisons must use feasible global throughput and projected
+  real train-epoch time, not equal per-device batch size alone. The projection
+  must record `real_train_patch_count = 300000`,
+  `global_batch_size = per_device_batch_size * world_size`,
+  `drop_last = false`,
+  `steps_per_epoch = ceil(real_train_patch_count / global_batch_size)`,
+  `effective_samples_per_epoch = real_train_patch_count`,
+  `remainder_samples = real_train_patch_count % global_batch_size`,
+  steady-state step-time statistics, and `estimated_epoch_minutes =
+  steps_per_epoch * steady_step_ms_p50 / 60000`. Compile/startup time is
+  excluded from this steady-state projection and recorded separately. This
+  projection is a synthetic shortlist metric until repeated on real
+  train/validation shards;
 - row IDs must be stable and machine-readable:
   `{accelerator_mode}__bs{per_device_batch_size}__{precision_policy}__compile_{on|off}__{corruption_strategy}`.
   Repeated measurements of the same row may add `__repeat{n}` but must still
@@ -1436,10 +1570,21 @@ Benchmark budget and reset rules:
 
 - default candidate per-device batch sizes:
   `[4, 8, 12, 16, 24, 32, 48, 64]`;
+- synthetic timing pretest rows using the 0.81 GB profile may attempt all
+  default candidate batch sizes, but only rows satisfying
+  `global_batch_size * non_wrapping_eligibility_steps <= split_patch_count` for
+  both train and validation are ranked throughput rows. The default
+  `non_wrapping_eligibility_steps` is 30, independent of the initial 3-warmup /
+  12-measured fit pass. Other rows are fit/VRAM probes only and must not rank
+  throughput recommendations. Synthetic timing rows must record
+  `eligibility_steps`, `non_wrapping_eligible`, `sample_reuse_count`, and
+  `fit_probe_only`. Under the default profile, global batch 64 is the largest
+  non-wrapping ranked-throughput candidate, while larger global batches are
+  probe-only unless a later larger synthetic profile is explicitly accepted;
 - each row starts from identical model weights, optimizer state, scaler state,
   beta/LR scheduler state, data order, and RNG seeds;
 - each row uses `warmup_steps = 3`, `measured_steps = 12`, and `repeats = 1`;
-  after a row is selected as a top candidate, rerun it with
+  after a row is shortlisted for carry-forward, rerun it with
   `warmup_steps = 5`, `measured_steps = 25`, and `repeats = 1`;
 - if `torch.compile` needs compilation, report compile/startup time separately
   from steady-state step time;
@@ -1456,7 +1601,7 @@ Benchmark budget and reset rules:
   setting, or else `branchless_all` remains selected;
 - a faster AMP/compile/precision row must pass paired numerical checks against
   `amp_off_fp32` eager on the same fixed batches before it is eligible.
-- select the runtime by filtering to eligible rows, then sorting by:
+- real-data runtime selection filters to eligible real-data rows, then sorts by:
   1. highest `samples_sec`;
   2. lower `steady_step_ms_p95`;
   3. higher `vram_headroom_fraction`;
@@ -1467,6 +1612,10 @@ Benchmark budget and reset rules:
      `indexed_masked` clears its 5 percent speedup rule;
   5. `single_visible_t4` before `dual_t4_ddp` when global throughput differs by
      less than 5 percent, because the extra DDP complexity is not justified.
+  Synthetic timing recommendations instead sort ranked-throughput rows by
+  lower `estimated_epoch_minutes`, then by lower `steady_step_ms_p95`, then by
+  higher VRAM headroom, and may only choose carry-forward/prune/probe labels.
+  Synthetic timing must not select a runtime.
 
 Paired numerical checks:
 
@@ -1501,6 +1650,17 @@ Dataloader benchmark requirement:
   the separate fixed-selector rail;
 - before selecting a runtime, write `benchmark/dataloader_matrix.csv` for train
   and validation shards on real Kaggle data;
+- the no-dataset Kaggle synthetic timing pretest may measure the same mmap and
+  H2D code paths on generated `/kaggle/working` shards, but these measurements
+  are not real dataloader evidence. They must be labeled as post-generation
+  hot-cache-biased synthetic plumbing rows and cannot select `num_workers`,
+  `prefetch_factor`, `pin_memory`, `persistent_workers`, or
+  `non_blocking_h2d` for the real run without confirmation on real Kaggle input
+  shards;
+- synthetic timing train-step rows must prove they use
+  `DataLoader(PatchTrainingDataset, collate_fn=collate_patch_training_samples)`
+  and `normalize_uint8_batch`, with pre/post dtype and range checks. Tensor-only
+  loader rows must prove they use `PatchTensorDataset`;
 - before remote Kaggle execution, a local CPU/laptop pre-test may write the same
   matrix schema on tiny synthetic UBC-format shards to validate the benchmark
   mechanics and candidate expansion. These rows use `status = "local_pass"`
@@ -1569,17 +1729,21 @@ Benchmark artifact dependency graph:
 1. `benchmark/model_count.json` must pass before runtime rows are eligible.
 2. `benchmark/runtime_proof.json` must pass before any Kaggle runtime row is
    eligible.
-3. `benchmark/runtime_matrix.csv` can mark candidate rows as completed, but no
+3. Synthetic timing artifacts may recommend candidate rows to carry into the
+   real-data benchmark, but they cannot satisfy `runtime_proof`,
+   `runtime_matrix`, `dataloader_matrix`, `numerical_checks`, gate-health, or
+   selected-runtime dependencies.
+4. `benchmark/runtime_matrix.csv` can mark candidate rows as completed, but no
    row may be selected until matching `benchmark/dataloader_matrix.csv`,
    `benchmark/numerical_checks.csv`, `metrics/gate_health.csv`, and
    `benchmark/gate_health_summary.json` entries exist.
-4. `benchmark/selected_runtime.json` may be written with `status = "pass"` only
+5. `benchmark/selected_runtime.json` may be written with `status = "pass"` only
    when it references one row from `runtime_matrix.csv` whose row status is
    `pass`, whose linked artifacts have `pass`, and whose accelerator proof
    matches the selected mode.
-5. selected-runtime debug must consume that selected runtime and write a resume
+6. selected-runtime debug must consume that selected runtime and write a resume
    proof before tiny-overfit may run.
-6. `benchmark/tiny_overfit_summary.json` must pass before
+7. `benchmark/tiny_overfit_summary.json` must pass before
    `non_eq_vae_baseline.json` can be used for a first 10-epoch run.
 
 `benchmark/model_count.json` required shape:
@@ -3042,8 +3206,14 @@ authorized slices have been implemented and:
 22. `scripts/kaggle_kernel.sh push` rejects wrong dataset slugs, historical FSQ
     output sources, internet-enabled metadata, missing payloads or stale
     embedded payloads, placeholder launchers, missing or wrong benchmark
-    `machine_shape`, setup-smoke kernels with any Kaggle source attachment, and
-    missing single-visible versus dual-DDP launch-mode validation hooks;
+    `machine_shape`, setup-smoke kernels with any Kaggle source attachment,
+    any nonempty Kaggle source list without `KAGGLE_FULL_DATASET_CONFIRMED=1`,
+    and real-data spec 0001 debug kernels with nonempty `competition_sources`,
+    `kernel_sources`, or `model_sources`. The future synthetic timing kernel has
+    its own guard branch: it must require empty source lists, GPU/T4 metadata,
+    `KAGGLE_SYNTHETIC_TIMING_READY = True`, generated `/kaggle/working`
+    synthetic data provenance, non-promotable synthetic artifact names, and
+    absence of `benchmark/selected_runtime.json`;
 23. runs without the sealed masked-WSI test shard are labeled
     train/validation-only and excluded from final paper claims;
 24. `CURRENT.md`, `docs/specs/README.md`, and relevant workflow docs are updated
@@ -3110,8 +3280,9 @@ Implementation-relock blockers:
    for a tiny real-data smoke only, but the first remote version failed before
    import because the sibling payload directory was not uploaded. The real-data
    launcher has since been migrated locally to embedded single-file packaging
-   and an upload-simulation import test, but still needs a fresh remote rerun
-   before accepted smoke evidence exists. The narrow
+   and an upload-simulation import test, but accepted real-data smoke evidence
+   still requires an intentional source-attachment push guarded by
+   `KAGGLE_FULL_DATASET_CONFIRMED=1`. The narrow
    `kaggle_setup_smoke_ready` launcher is implemented for setup-only
    packaging/API/artifact checks with no dataset attachment. Both paths may be
    pushed/run only after explicit user permission and read-only API preflight;
@@ -3125,19 +3296,25 @@ Implementation-relock blockers:
    implementation must enforce that metadata value before remote push and fail
    `dual_t4_ddp` benchmark rows unless runtime CUDA/DDP telemetry proves two T4
    devices and two ranks.
-6. Final clean-context adversarial spec review must pass after the edits and
+6. Synthetic timing pretest status: the no-dataset 0.81 GB generated-binary
+   Kaggle pretest contract is locked for implementation only. It may rank and
+   prune candidate rows for the real-data benchmark, including single-vs-dual
+   T4 comparisons by projected epoch time, but cannot satisfy runtime
+   selection, real dataloader, numerical-check, selected-runtime debug,
+   tiny-overfit, full-run, or paper-evidence gates.
+7. Final clean-context adversarial spec review must pass after the edits and
    implementation count, metadata, import, and quality routes are integrated.
-7. Strict quality route must follow spec 0002's production-boundary decision:
+8. Strict quality route must follow spec 0002's production-boundary decision:
    extract any needed behavior into `src/eqvae`, keep the removed
    `pytorch-msssim` dependency out of active dependency truth, exclude
    historical `src/nn` from production Ruff/BasedPyright scopes, and forbid
    active code from importing `src.nn`. Keep global Ruff/BasedPyright strictness
    intact.
-8. JSON config/dependency policy must remain locked, or a later spec must
+9. JSON config/dependency policy must remain locked, or a later spec must
    explicitly justify changing config format and dependencies.
-8. Package/import policy must be locked enough that the verification commands
+10. Package/import policy must be locked enough that the verification commands
    import `eqvae` without dependency sync.
-9. Fixed selector schema/dataloader semantics are locked and locally verified
+11. Fixed selector schema/dataloader semantics are locked and locally verified
    by `fixed_selectors_dataloader_ready`; the real fixed-25 and fixed-32 JSON
    generation remains a data-access step that must be run against the real
    Kaggle train/validation shards before Kaggle debug/tiny/full runs.

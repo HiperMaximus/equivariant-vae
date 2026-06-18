@@ -24,6 +24,8 @@ Usage:
   ./scripts/kaggle_kernel.sh pull [kernel_id] [kernel_dir]
 
 Remote writes require KAGGLE_PUSH_CONFIRMED=1.
+Remote writes with Kaggle source attachments also require
+KAGGLE_FULL_DATASET_CONFIRMED=1.
 Remote reads/downloads require KAGGLE_REMOTE_CONFIRMED=1.
 Remote pulls require KAGGLE_PULL_CONFIRMED=1.
 EOF
@@ -44,6 +46,50 @@ EOF
 require_remote_confirmed() {
   if [[ "${KAGGLE_REMOTE_CONFIRMED:-}" != "1" ]]; then
     echo "error: set KAGGLE_REMOTE_CONFIRMED=1 after explicit user permission" >&2
+    exit 1
+  fi
+}
+
+require_kaggle_sources_confirmed() {
+  local metadata="$1"
+  local source_summary
+  source_summary="$(python3 - "$metadata" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+source_fields = (
+    "dataset_sources",
+    "competition_sources",
+    "kernel_sources",
+    "model_sources",
+)
+nonempty = {}
+for field in source_fields:
+    sources = data.get(field)
+    if sources is None:
+        continue
+    if not isinstance(sources, list):
+        print(f"error: {field} must be a list", file=sys.stderr)
+        raise SystemExit(2)
+    if sources:
+        nonempty[field] = sources
+if nonempty:
+    print(json.dumps(nonempty, sort_keys=True))
+PY
+)"
+
+  if [[ -n "$source_summary" && "${KAGGLE_FULL_DATASET_CONFIRMED:-}" != "1" ]]; then
+    cat >&2 <<EOF
+error: $metadata declares Kaggle source attachments: $source_summary
+
+Kaggle source attachments can make Kaggle prepare external datasets, kernels,
+models, or competition inputs before the script starts. Set
+KAGGLE_FULL_DATASET_CONFIRMED=1 only after explicitly deciding to attach those
+sources for this push. Use a no-dataset
+synthetic/random benchmark kernel for setup or timing-plumbing tests.
+EOF
     exit 1
   fi
 }
@@ -357,6 +403,10 @@ if dataset_sources != expected_dataset_sources:
         f"{expected_dataset_sources!r} for the spec 0001 debug kernel"
     )
 
+for source_field in ("competition_sources", "kernel_sources", "model_sources"):
+    if data.get(source_field) != []:
+        errors.append(f"{source_field} must be an empty list for the spec 0001 debug kernel")
+
 for source_group in (
     data.get("dataset_sources"),
     data.get("competition_sources"),
@@ -667,6 +717,7 @@ case "$action" in
       exit 1
     fi
     validate_kernel_dir "$kernel_dir"
+    require_kaggle_sources_confirmed "$(metadata_path "$kernel_dir")"
     guard_push_ready "$kernel_dir"
     require_kaggle_cli
     kaggle kernels push -p "$kernel_dir" "$@"
