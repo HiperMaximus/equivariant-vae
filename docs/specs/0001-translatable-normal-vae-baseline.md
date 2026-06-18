@@ -13,7 +13,7 @@ the narrow capped Kaggle smoke is `kaggle_smoke_ready`; the synthetic
 no-dataset Kaggle setup smoke is `kaggle_setup_smoke_ready`; the no-dataset
 synthetic binary Kaggle timing pretest contract is
 `kaggle_synthetic_timing_contract_ready` with local implementation and
-remote v1/v2/v3 non-promotable evidence
+remote v1/v2/v3/v4 non-promotable evidence
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-18
 
@@ -1590,6 +1590,9 @@ Benchmark budget and reset rules:
 - each row uses `warmup_steps = 3`, `measured_steps = 12`, and `repeats = 1`;
   after a row is explicitly shortlisted for operational carry-forward, rerun it with
   `warmup_steps = 5`, `measured_steps = 25`, and `repeats = 1`;
+  remote synthetic timing v4 completed that repeat for the v3 top-four
+  shortlist, but this remains non-promotable loader/H2D screening evidence and
+  does not select a runtime;
 - if `torch.compile` needs compilation, report compile/startup time separately
   from steady-state step time;
 - OOM rows are valid failure rows: record the attempted per-device batch size,

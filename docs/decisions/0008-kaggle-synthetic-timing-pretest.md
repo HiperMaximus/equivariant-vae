@@ -56,3 +56,11 @@ must not claim final batch size, precision policy, corruption strategy,
 dataloader settings, single-vs-dual T4 selection, convergence, paper evidence,
 or full-run readiness. The artifact must include an explicit `blocked_claims`
 object with those claims marked blocked.
+
+2026-06-18 amendment: remote v4 completed the v3 top-four shortlist repeat
+with `warmup_steps = 5` and `measured_steps = 25`. The repeated shortlist is
+`dual_t4_ddp` bs8, `single_visible_t4` bs32, `single_visible_t4` bs12, and
+`single_visible_t4` bs4. All four rows passed, and downloaded ignored evidence
+lives under `runs/kaggle/synthetic_timing_repeat_2gib_v4/benchmark`. This
+completes the synthetic repeat gate but remains non-promotable loader/H2D
+screening evidence only.
