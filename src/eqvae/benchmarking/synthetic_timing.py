@@ -25,7 +25,7 @@ import torch
 from torch import Tensor
 from torch.utils.data import DataLoader, Subset
 
-from eqvae.benchmarking.io import CsvRow, JsonObject, write_csv, write_json
+from eqvae.benchmarking.io import CsvRow, JsonObject, JsonValue, write_csv, write_json
 from eqvae.data.dataloaders import (
     PatchTensorDataset,
     PatchTensorDatasetSpec,
@@ -105,6 +105,7 @@ SYNTHETIC_TIMING_MATRIX_COLUMNS = (
     "status_scope",
     "full_run_eligible",
     "row_id",
+    "row_order",
     "timing_scope",
     "accelerator_mode",
     "machine_shape",
@@ -114,6 +115,11 @@ SYNTHETIC_TIMING_MATRIX_COLUMNS = (
     "ddp_backend",
     "world_size",
     "nproc_per_node",
+    "child_returncode",
+    "ddp_torchrun_returncode",
+    "ddp_rank_count",
+    "ddp_rank_order",
+    "ddp_rank_assignments_json",
     "per_device_batch_size",
     "global_batch_size",
     "split_patch_count",
@@ -360,7 +366,7 @@ def write_synthetic_timing_pretest(  # noqa: PLR0914
         free_disk_after=free_after,
         rows=matrix_rows,
     )
-    runtime_proof_payload = _runtime_proof_payload(
+    runtime_proof_payload = build_synthetic_timing_runtime_proof_payload(
         request=request,
         rows=matrix_rows,
     )
@@ -899,7 +905,9 @@ def _run_timing_rows(
                 channels=profile.channels,
                 cuda_visible_devices=cuda_mask,
             )
-            rows.append(_run_row_child(config))
+            row = dict(_run_row_child(config))
+            row["row_order"] = str(len(rows))
+            rows.append(row)
     return rows
 
 
@@ -925,33 +933,46 @@ def _run_row_child(config: ChildRowConfig) -> CsvRow:
             timeout=900,
         )
     except subprocess.TimeoutExpired as error:
-        return _failure_row(
-            config=config,
-            status="runtime_error",
-            failure_kind="child_timeout",
-            failure_message=_exception_message(error),
-            launch_command_hash=launch_hash,
+        row = dict(
+            _failure_row(
+                config=config,
+                status="runtime_error",
+                failure_kind="child_timeout",
+                failure_message=_exception_message(error),
+                launch_command_hash=launch_hash,
+            ),
         )
+        row["child_returncode"] = "timeout"
+        return row
     if completed.returncode != 0:
-        return _failure_row(
-            config=config,
-            status="runtime_error",
-            failure_kind="child_process_error",
-            failure_message=completed.stderr[-1000:],
-            launch_command_hash=launch_hash,
+        row = dict(
+            _failure_row(
+                config=config,
+                status="runtime_error",
+                failure_kind="child_process_error",
+                failure_message=completed.stderr[-1000:],
+                launch_command_hash=launch_hash,
+            ),
         )
+        row["child_returncode"] = str(completed.returncode)
+        return row
     try:
         row = cast("CsvRow", json.loads(completed.stdout))
     except json.JSONDecodeError:
-        return _failure_row(
-            config=config,
-            status="runtime_error",
-            failure_kind="child_output_decode_error",
-            failure_message=completed.stdout[-1000:],
-            launch_command_hash=launch_hash,
+        row = dict(
+            _failure_row(
+                config=config,
+                status="runtime_error",
+                failure_kind="child_output_decode_error",
+                failure_message=completed.stdout[-1000:],
+                launch_command_hash=launch_hash,
+            ),
         )
+        row["child_returncode"] = str(completed.returncode)
+        return row
     mutable = dict(row)
     mutable["launch_command_hash"] = launch_hash
+    mutable["child_returncode"] = str(completed.returncode)
     return mutable
 
 
@@ -1013,9 +1034,13 @@ def _run_dual_row_with_torchrun(
                 failure_kind="torchrun_failed",
                 failure_message=completed.stderr[-1000:],
                 accelerator=accelerator,
+                ddp_torchrun_returncode=str(completed.returncode),
             )
         rank_payloads = _load_rank_measurements(rank_dir=rank_dir, world_size=2)
-        measurement = _aggregate_rank_measurements(rank_payloads)
+        measurement = _aggregate_rank_measurements(
+            rank_payloads=rank_payloads,
+            torchrun_returncode=completed.returncode,
+        )
     return _success_row(config=config, measurement=measurement, accelerator=accelerator)
 
 
@@ -1038,6 +1063,7 @@ def _run_ddp_rank_row(config: ChildRowConfig) -> None:
         payload = {
             "rank": rank,
             "local_rank": local_rank,
+            "world_size": world_size,
             "measurement": measurement,
             "device_name": torch.cuda.get_device_name(local_rank),
         }
@@ -1172,6 +1198,20 @@ def _success_row(
         "failure_kind": "",
         "failure_message_hash": "",
     })
+    if "ddp_rank_assignments" in measurement:
+        row.update({
+            "ddp_torchrun_returncode": str(
+                _json_int(measurement, "ddp_torchrun_returncode"),
+            ),
+            "ddp_rank_count": str(_json_int(measurement, "ddp_rank_count")),
+            "ddp_rank_order": json.dumps(
+                _json_int_list(measurement, "ddp_rank_order"),
+            ),
+            "ddp_rank_assignments_json": json.dumps(
+                _json_object_list(measurement, "ddp_rank_assignments"),
+                sort_keys=True,
+            ),
+        })
     return row
 
 
@@ -1183,6 +1223,7 @@ def _failure_row(  # noqa: PLR0913
     failure_message: str,
     accelerator: JsonObject | None = None,
     launch_command_hash: str = "",
+    ddp_torchrun_returncode: str = "",
 ) -> CsvRow:
     observed_accelerator = accelerator or {
         "visible_device_count": 0,
@@ -1206,6 +1247,7 @@ def _failure_row(  # noqa: PLR0913
         "failure_kind": failure_kind,
         "failure_message_hash": _hash_text(failure_message),
         "launch_command_hash": launch_command_hash,
+        "ddp_torchrun_returncode": ddp_torchrun_returncode,
     })
     return row
 
@@ -1223,7 +1265,6 @@ def _base_row(*, config: ChildRowConfig, accelerator: JsonObject) -> CsvRow:
     )
     steps_per_epoch = math.ceil(config.real_train_patch_count / global_batch_size)
     remainder_samples = config.real_train_patch_count % global_batch_size
-    effective_samples_per_epoch = steps_per_epoch * global_batch_size
     return {
         "run_name": config.run_name,
         "benchmark_kind": SYNTHETIC_TIMING_KIND,
@@ -1231,6 +1272,7 @@ def _base_row(*, config: ChildRowConfig, accelerator: JsonObject) -> CsvRow:
         "status_scope": SYNTHETIC_TIMING_SCOPE,
         "full_run_eligible": "false",
         "row_id": config.row_id,
+        "row_order": "",
         "timing_scope": "loader_collate_normalize_h2d_only",
         "accelerator_mode": config.accelerator_mode,
         "machine_shape": "NvidiaTeslaT4",
@@ -1240,6 +1282,11 @@ def _base_row(*, config: ChildRowConfig, accelerator: JsonObject) -> CsvRow:
         "ddp_backend": "nccl" if config.accelerator_mode == "dual_t4_ddp" else "",
         "world_size": str(config.world_size),
         "nproc_per_node": str(config.nproc_per_node),
+        "child_returncode": "",
+        "ddp_torchrun_returncode": "",
+        "ddp_rank_count": "",
+        "ddp_rank_order": "",
+        "ddp_rank_assignments_json": "",
         "per_device_batch_size": str(config.per_device_batch_size),
         "global_batch_size": str(global_batch_size),
         "split_patch_count": str(config.split_patch_count),
@@ -1255,7 +1302,7 @@ def _base_row(*, config: ChildRowConfig, accelerator: JsonObject) -> CsvRow:
         "real_train_patch_count": str(config.real_train_patch_count),
         "drop_last": "false",
         "steps_per_epoch": str(steps_per_epoch),
-        "effective_samples_per_epoch": str(effective_samples_per_epoch),
+        "effective_samples_per_epoch": str(config.real_train_patch_count),
         "remainder_samples": str(remainder_samples),
         "generation_excluded_from_timing": "true",
         "precision_policy": config.precision_policy,
@@ -1309,11 +1356,17 @@ def _accelerator_failure(
     return None
 
 
-def _runtime_proof_payload(
+def build_synthetic_timing_runtime_proof_payload(
     *,
     request: SyntheticTimingRequest,
     rows: Sequence[CsvRow],
 ) -> JsonObject:
+    """Build non-promotable runtime proof from synthetic timing matrix rows.
+
+    Returns:
+        JSON payload for `synthetic_timing_runtime_proof.json`.
+
+    """
     single_rows = [
         row for row in rows if row["accelerator_mode"] == "single_visible_t4"
     ]
@@ -1403,6 +1456,13 @@ def build_synthetic_timing_recommendations_payload(
                 "mark fit probes, or request real-data confirmation; it never "
                 "selects a runtime."
             ),
+            "repeat_shortlist_policy": {
+                "required_before_operational_shortlist": True,
+                "warmup_steps": 5,
+                "measured_steps": 25,
+                "repeats": 1,
+                "selection_requires_user_decision": True,
+            },
             "interpretation_warning": (
                 "Projected real epoch minutes are derived only from "
                 "loader/collate/normalization/H2D timing. They do not measure "
@@ -1441,6 +1501,9 @@ def _recommendation_for_row(*, row: CsvRow, rank: int) -> JsonObject:
         "fit_probe_only": fit_probe_only,
         "status": status,
         "recommendation": recommendation,
+        "repeat_required_before_operational_shortlist": (
+            recommendation == "carry_to_real_benchmark"
+        ),
         "estimated_epoch_minutes": row["estimated_epoch_minutes"],
         "steady_step_ms_p95": row["steady_step_ms_p95"],
         "vram_headroom_fraction": row["vram_headroom_fraction"],
@@ -1504,10 +1567,21 @@ def _mode_summary(rows: Sequence[CsvRow]) -> JsonObject:
             "attempted": bool(rows),
             "row_count": len(rows),
             "statuses": sorted({row["status"] for row in rows}),
+            "row_ids_in_matrix_order": [row["row_id"] for row in rows],
+            "child_returncodes": [
+                {
+                    "row_id": row["row_id"],
+                    "row_order": _csv_int_or_none(row, "row_order"),
+                    "status": row["status"],
+                    "child_returncode": row["child_returncode"],
+                }
+                for row in rows
+            ],
             "gpu_names": rows[0]["gpu_names"] if rows else "[]",
             "world_size": int(rows[0]["world_size"]) if rows else 0,
             "nproc_per_node": int(rows[0]["nproc_per_node"]) if rows else 0,
             "cuda_visible_devices": rows[0]["cuda_visible_devices"] if rows else "",
+            "rank_assignment_rows": _rank_assignment_rows(rows),
         },
     )
 
@@ -1526,9 +1600,17 @@ def _load_rank_measurements(
     return tuple(payloads)
 
 
-def _aggregate_rank_measurements(rank_payloads: Sequence[JsonObject]) -> JsonObject:
+def _aggregate_rank_measurements(
+    *,
+    rank_payloads: Sequence[JsonObject],
+    torchrun_returncode: int,
+) -> JsonObject:
+    ordered_payloads = sorted(
+        rank_payloads,
+        key=lambda payload: _json_int(payload, "rank"),
+    )
     measurements = [
-        _required_object(payload, "measurement") for payload in rank_payloads
+        _required_object(payload, "measurement") for payload in ordered_payloads
     ]
     step_lists = [_float_list(measurement, "step_ms") for measurement in measurements]
     h2d_lists = [_float_list(measurement, "h2d_ms") for measurement in measurements]
@@ -1557,8 +1639,49 @@ def _aggregate_rank_measurements(rank_payloads: Sequence[JsonObject]) -> JsonObj
                 _json_float(measurement, "vram_headroom_fraction")
                 for measurement in measurements
             ),
+            "ddp_torchrun_returncode": torchrun_returncode,
+            "ddp_rank_count": len(ordered_payloads),
+            "ddp_rank_order": [
+                _json_int(payload, "rank") for payload in ordered_payloads
+            ],
+            "ddp_rank_assignments": [
+                _rank_assignment(payload) for payload in ordered_payloads
+            ],
         },
     )
+
+
+def _rank_assignment(payload: JsonObject) -> JsonObject:
+    measurement = _required_object(payload, "measurement")
+    return {
+        "rank": _json_int(payload, "rank"),
+        "local_rank": _json_int(payload, "local_rank"),
+        "world_size": _json_int(payload, "world_size"),
+        "device_name": _required_str(payload, "device_name"),
+        "samples": _json_int(measurement, "samples"),
+        "measured_batches": len(_float_list(measurement, "step_ms")),
+    }
+
+
+def _rank_assignment_rows(rows: Sequence[CsvRow]) -> list[JsonObject]:
+    proofs: list[JsonObject] = []
+    for row in rows:
+        assignments_json = row["ddp_rank_assignments_json"]
+        if not assignments_json:
+            continue
+        proofs.append({
+            "row_id": row["row_id"],
+            "row_order": _csv_int_or_none(row, "row_order"),
+            "status": row["status"],
+            "torchrun_returncode": _csv_int_or_none(
+                row,
+                "ddp_torchrun_returncode",
+            ),
+            "rank_count": _csv_int_or_none(row, "ddp_rank_count"),
+            "rank_order": _json_load_list(row["ddp_rank_order"]),
+            "rank_assignments": _json_load_list(assignments_json),
+        })
+    return proofs
 
 
 def _parse_args(argv: Sequence[str] | None) -> ChildProcessArgs:
@@ -1707,6 +1830,21 @@ def _csv_float_or_inf(
     return float(value)
 
 
+def _csv_int_or_none(row: CsvRow, key: str) -> int | None:
+    value = row[key]
+    if not value:
+        return None
+    return int(value)
+
+
+def _json_load_list(value: str) -> list[JsonValue]:
+    loaded = cast("object", json.loads(value))
+    if isinstance(loaded, list):
+        return cast("list[JsonValue]", loaded)
+    msg = "Expected JSON list encoded in CSV field"
+    raise TypeError(msg)
+
+
 def _elapsed_seconds(start_ns: int) -> float:
     return (time.perf_counter_ns() - start_ns) / 1_000_000_000.0
 
@@ -1806,6 +1944,24 @@ def _json_str_list(payload: JsonObject, key: str) -> list[str]:
     raise TypeError(msg)
 
 
+def _json_int_list(payload: JsonObject, key: str) -> list[int]:
+    value = payload.get(key)
+    if isinstance(value, list) and all(
+        isinstance(item, int) and not isinstance(item, bool) for item in value
+    ):
+        return [cast("int", item) for item in value]
+    msg = f"Expected integer-list field {key!r}"
+    raise TypeError(msg)
+
+
+def _json_object_list(payload: JsonObject, key: str) -> list[JsonObject]:
+    value = payload.get(key)
+    if isinstance(value, list) and all(isinstance(item, dict) for item in value):
+        return [cast("JsonObject", item) for item in value]
+    msg = f"Expected object-list field {key!r}"
+    raise TypeError(msg)
+
+
 def _required_object(payload: JsonObject, key: str) -> JsonObject:
     value = payload.get(key)
     if isinstance(value, dict):
@@ -1859,6 +2015,7 @@ __all__ = [
     "SyntheticTimingProfile",
     "SyntheticTimingRequest",
     "build_synthetic_timing_recommendations_payload",
+    "build_synthetic_timing_runtime_proof_payload",
     "compact_synthetic_timing_profile",
     "default_synthetic_timing_profile",
     "tiny_upload_simulation_profile",

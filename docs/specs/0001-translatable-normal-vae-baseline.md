@@ -12,9 +12,10 @@ the HED/stain corruption local correctness/QA slice is `corruption_ready`;
 the narrow capped Kaggle smoke is `kaggle_smoke_ready`; the synthetic
 no-dataset Kaggle setup smoke is `kaggle_setup_smoke_ready`; the no-dataset
 synthetic binary Kaggle timing pretest contract is
-`kaggle_synthetic_timing_contract_ready`
+`kaggle_synthetic_timing_contract_ready` with local implementation and
+remote v1/v2 non-promotable evidence
 Owner/workstream: comparable non-equivariant VAE baseline
-Last updated: 2026-06-17
+Last updated: 2026-06-18
 
 Local scaffold exception, 2026-06-12: the user-authorized local
 benchmark-unblock slice may create `src/eqvae`, `configs/spec0001`, the
@@ -199,11 +200,11 @@ reuse the setup source strings to bypass T4 or dataset checks. Remote
 setup-smoke v1 completed on 2026-06-17 with this non-promotable setup artifact
 contract and clean embedded payload provenance for commit `3162bec`.
 
-Synthetic binary Kaggle timing pretest contract, 2026-06-17: this spec now
-authorizes a future no-dataset GPU timing pretest contract only, not its
-implementation. The pretest exists to screen and order candidate real-data
-runtime benchmark rows before paying the 60 GB+ dataset attachment cost. It must
-not write `benchmark/selected_runtime.json`, must not set
+Synthetic binary Kaggle timing pretest contract and implementation, 2026-06-18:
+this spec authorizes the no-dataset GPU timing pretest as non-promotable
+screening evidence only. The pretest exists to screen and order candidate
+real-data runtime benchmark rows before paying the 60 GB+ dataset attachment
+cost. It must not write `benchmark/selected_runtime.json`, must not set
 `full_run_eligible = true`, and must not claim final batch size, precision
 policy, corruption strategy, dataloader settings, single-vs-dual T4 selection,
 convergence, paper evidence, or full-run readiness. The pretest must use a
@@ -1587,7 +1588,7 @@ Benchmark budget and reset rules:
 - each row starts from identical model weights, optimizer state, scaler state,
   beta/LR scheduler state, data order, and RNG seeds;
 - each row uses `warmup_steps = 3`, `measured_steps = 12`, and `repeats = 1`;
-  after a row is shortlisted for carry-forward, rerun it with
+  after a row is explicitly shortlisted for operational carry-forward, rerun it with
   `warmup_steps = 5`, `measured_steps = 25`, and `repeats = 1`;
 - if `torch.compile` needs compilation, report compile/startup time separately
   from steady-state step time;

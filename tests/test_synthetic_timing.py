@@ -25,6 +25,7 @@ from eqvae.benchmarking.synthetic_timing import (
     SyntheticTimingProfile,
     SyntheticTimingRequest,
     build_synthetic_timing_recommendations_payload,
+    build_synthetic_timing_runtime_proof_payload,
     compact_synthetic_timing_profile,
     default_synthetic_timing_profile,
     write_synthetic_timing_pretest,
@@ -76,6 +77,9 @@ _COMPACT_TOTAL_PATCHES = 4_096
 _COMPACT_PAYLOAD_BYTES = 805_306_368
 _PATCH_PAYLOAD_BYTES = 196_608
 _GLOBAL_BATCH_128_ELIGIBILITY_PATCHES = 128 * 30
+_REPEAT_SHORTLIST_WARMUP_STEPS = 5
+_REPEAT_SHORTLIST_MEASURED_STEPS = 25
+_DDP_RANK_COUNT = 2
 
 
 def test_default_synthetic_timing_profile_is_two_gib_scale() -> None:
@@ -307,6 +311,8 @@ def test_synthetic_timing_marks_large_dual_rows_probe_only(tmp_path: Path) -> No
     assert dual["non_wrapping_eligible"] == "false"
     assert dual["fit_probe_only"] == "true"
     assert dual["sample_reuse_count"] == str((128 * 30) - 2048)
+    assert single["effective_samples_per_epoch"] == "300000"
+    assert dual["effective_samples_per_epoch"] == "300000"
 
 
 def test_synthetic_timing_recommendations_order_ranked_rows(tmp_path: Path) -> None:
@@ -355,6 +361,10 @@ def test_synthetic_timing_recommendations_order_ranked_rows(tmp_path: Path) -> N
     assert measured_components["model_forward_backward"] is False
     assert measured_components["corruption"] is False
     assert measured_components["precision_policy"] is False
+    repeat_policy = cast("dict[str, object]", payload["repeat_shortlist_policy"])
+    assert repeat_policy["required_before_operational_shortlist"] is True
+    assert repeat_policy["warmup_steps"] == _REPEAT_SHORTLIST_WARMUP_STEPS
+    assert repeat_policy["measured_steps"] == _REPEAT_SHORTLIST_MEASURED_STEPS
     recommendations = cast("list[dict[str, object]]", payload["recommendations"])
     assert [row["row_id"] for row in recommendations] == [
         "fast",
@@ -363,6 +373,91 @@ def test_synthetic_timing_recommendations_order_ranked_rows(tmp_path: Path) -> N
         "wrong",
     ]
     assert [row["recommendation_rank"] for row in recommendations] == [1, 2, 3, 4]
+    assert recommendations[0]["repeat_required_before_operational_shortlist"] is True
+    assert recommendations[2]["repeat_required_before_operational_shortlist"] is False
+
+
+def test_synthetic_timing_runtime_proof_preserves_ddp_rank_assignments(
+    tmp_path: Path,
+) -> None:
+    """Runtime proof keeps rank/device assignment evidence for dual DDP rows."""
+    rows = cast(
+        "list[CsvRow]",
+        [
+            _runtime_proof_row(
+                row_id="single_visible_t4__bs8__amp_off_fp32__compile_off",
+                row_order="0",
+                accelerator_mode="single_visible_t4",
+                gpu_names=json.dumps(["Tesla T4"]),
+                world_size="1",
+                nproc_per_node="1",
+                cuda_visible_devices="0",
+            ),
+            _runtime_proof_row(
+                row_id="dual_t4_ddp__bs8__amp_off_fp32__compile_off",
+                row_order="1",
+                accelerator_mode="dual_t4_ddp",
+                gpu_names=json.dumps(["Tesla T4", "Tesla T4"]),
+                world_size="2",
+                nproc_per_node="2",
+                cuda_visible_devices="0,1",
+                ddp_torchrun_returncode="0",
+                ddp_rank_count="2",
+                ddp_rank_order=json.dumps([0, 1]),
+                ddp_rank_assignments_json=json.dumps([
+                    {
+                        "rank": 0,
+                        "local_rank": 0,
+                        "world_size": 2,
+                        "device_name": "Tesla T4",
+                        "samples": 96,
+                        "measured_batches": 12,
+                    },
+                    {
+                        "rank": 1,
+                        "local_rank": 1,
+                        "world_size": 2,
+                        "device_name": "Tesla T4",
+                        "samples": 96,
+                        "measured_batches": 12,
+                    },
+                ]),
+            ),
+        ],
+    )
+    payload = build_synthetic_timing_runtime_proof_payload(
+        request=SyntheticTimingRequest(output_dir=tmp_path),
+        rows=rows,
+    )
+
+    dual_summary = cast("dict[str, object]", payload["dual_t4_ddp"])
+    assert dual_summary["row_ids_in_matrix_order"] == [
+        "dual_t4_ddp__bs8__amp_off_fp32__compile_off",
+    ]
+    child_returncodes = cast(
+        "list[dict[str, object]]",
+        dual_summary["child_returncodes"],
+    )
+    assert child_returncodes == [
+        {
+            "row_id": "dual_t4_ddp__bs8__amp_off_fp32__compile_off",
+            "row_order": 1,
+            "status": "pass",
+            "child_returncode": "0",
+        },
+    ]
+    rank_rows = cast("list[dict[str, object]]", dual_summary["rank_assignment_rows"])
+    assert len(rank_rows) == 1
+    rank_row = rank_rows[0]
+    assert rank_row["torchrun_returncode"] == 0
+    assert rank_row["rank_count"] == _DDP_RANK_COUNT
+    assert rank_row["rank_order"] == [0, 1]
+    rank_assignments = cast("list[dict[str, object]]", rank_row["rank_assignments"])
+    assert [item["local_rank"] for item in rank_assignments] == [0, 1]
+    assert [item["device_name"] for item in rank_assignments] == [
+        "Tesla T4",
+        "Tesla T4",
+    ]
 
 
 def test_synthetic_timing_push_guard_rejects_source_attachments(
@@ -522,6 +617,26 @@ def _recommendation_row(
         "steady_step_ms_p95": steady_step_ms_p95,
         "vram_headroom_fraction": vram_headroom_fraction,
     }
+
+
+def _runtime_proof_row(**overrides: str) -> dict[str, str]:
+    row = {
+        "row_id": "row",
+        "row_order": "",
+        "accelerator_mode": "single_visible_t4",
+        "status": "pass",
+        "gpu_names": "[]",
+        "world_size": "1",
+        "nproc_per_node": "1",
+        "cuda_visible_devices": "0",
+        "child_returncode": "0",
+        "ddp_torchrun_returncode": "",
+        "ddp_rank_count": "",
+        "ddp_rank_order": "",
+        "ddp_rank_assignments_json": "",
+    }
+    row.update(overrides)
+    return row
 
 
 def _assert_non_promotable_payload(payload: dict[str, object]) -> None:

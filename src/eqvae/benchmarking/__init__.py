@@ -23,6 +23,7 @@ from eqvae.benchmarking.runtime_schema import (
 from eqvae.benchmarking.synthetic_timing import (
     SyntheticTimingRequest,
     build_synthetic_timing_recommendations_payload,
+    build_synthetic_timing_runtime_proof_payload,
     compact_synthetic_timing_profile,
     default_synthetic_timing_profile,
     tiny_upload_simulation_profile,
@@ -37,6 +38,7 @@ __all__ = [
     "SyntheticTimingRequest",
     "build_model_count_payload",
     "build_synthetic_timing_recommendations_payload",
+    "build_synthetic_timing_runtime_proof_payload",
     "compact_synthetic_timing_profile",
     "default_synthetic_timing_profile",
     "tiny_upload_simulation_profile",
