@@ -1498,7 +1498,13 @@ Runtime benchmark requirement before the first full Kaggle run:
   proof file still must be written with `status = "fail"` and
   `failure_kind = "wrong_accelerator"`;
 - for each GPU configuration, benchmark `torch.compile` off/on where the runtime
-  supports it;
+  supports it. Compiled rows must not enter the timed warmup or measured window
+  until an explicit unmeasured compile-settling phase has exercised every code
+  path included in that row, including train vs clean validation, corruption
+  strategy, precision policy, DDP rank path, and any fixed-shape or final
+  partial-batch path that the benchmark will measure. The exact
+  `compile_settle_steps` policy is a benchmark-design parameter and must be
+  locked before implementing compiled comparisons;
 - within the AMP/precision axis, compare the named precision policies
   `amp_off_fp32`, `amp_conservative`, and `amp_scalar_gate_relaxed`;
 - compare the corruption execution strategies `branchless_all` and
@@ -1594,7 +1600,11 @@ Benchmark budget and reset rules:
   shortlist, but this remains non-promotable loader/H2D screening evidence and
   does not select a runtime;
 - if `torch.compile` needs compilation, report compile/startup time separately
-  from steady-state step time;
+  from steady-state step time. Compiled rows must record
+  `compile_settle_steps`, the code paths exercised before timing, graph break
+  counts, and recompile counts. A row is ineligible if a new graph break or
+  recompile happens after the compile-settling phase or inside the measured
+  window;
 - OOM rows are valid failure rows: record the attempted per-device batch size,
   the exception class/message hash, max allocated/reserved memory if available,
   and continue with the next smaller candidate;

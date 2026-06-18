@@ -234,8 +234,10 @@ implementation planning; before an actual remote benchmark push, rerun
 
 Immediate next action: design the next non-promotable benchmark slice that adds
 real training-step components and/or real-data loader confirmation without
-treating synthetic timing as selected-runtime evidence. The v4 repeated
-shortlist artifacts live under
+treating synthetic timing as selected-runtime evidence. Before any compiled
+runtime comparison is implemented, lock a compile-settling policy that exercises
+all measured code paths before the timed warmup/measured window and records
+graph-break/recompile counts. The v4 repeated shortlist artifacts live under
 `runs/kaggle/synthetic_timing_repeat_2gib_v4/benchmark`. Top v4 synthetic
 repeat recommendations were
 `dual_t4_ddp__bs8__amp_off_fp32__compile_off__branchless_all`
