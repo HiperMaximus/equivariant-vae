@@ -11,8 +11,9 @@ Build the repo toward a fair SIPAIM 2026 comparison between:
 2. a continuous `SO(2)` steerable denoising VAE using a repo-owned,
    compile-compatible implementation, with `escnn` as a reference.
 
-The current task is the local benchmark-unblock scaffold for the translatable
-normal VAE baseline, not Kaggle remote execution. Clean-context adversarial
+The current task is the Kaggle no-dataset synthetic timing handoff for the
+translatable normal VAE baseline. The local implementation is committed and
+pushed to GitHub; no Kaggle remote execution has been run. Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, and a focused
 scaffold-readiness check on 2026-06-12. The 2026-06-11 passes
 confirmed that the previous `4x4` latent target was inconsistent with the
@@ -23,9 +24,9 @@ throughput, paired numerical checks, selected-runtime debug, and tiny-overfit
 gates were made explicit. A local Kaggle CLI execution scaffold now exists; it
 is not broad/full-run Kaggle-push-ready. The no-dataset setup smoke passed on
 Kaggle, while real-data smoke paths attach the 60 GB+ dataset and are guarded by
-`KAGGLE_FULL_DATASET_CONFIRMED=1`. The local no-dataset synthetic binary timing
-kernel/guard path now exists and remains local-only until the user explicitly
-approves a Kaggle push.
+`KAGGLE_FULL_DATASET_CONFIRMED=1`. The no-dataset synthetic binary timing
+kernel/guard path now exists on GitHub and remains unrun on Kaggle until the
+user explicitly approves a Kaggle push.
 
 Spec-driven development is now an active repo workflow. The first active spec is
 `docs/specs/0001-translatable-normal-vae-baseline.md`, now reopened as
@@ -209,8 +210,8 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: review the local synthetic timing diff and ask before
-any remote Kaggle push. The implemented local target is
+Immediate next action: decide whether to run the no-dataset synthetic timing
+kernel on Kaggle. The implemented and pushed GitHub target is
 `kaggle/kernels/synthetic_timing`, with empty Kaggle source lists, T4 GPU
 metadata,
 `KAGGLE_SYNTHETIC_TIMING_READY = True`, generated
@@ -414,10 +415,10 @@ The review process lives in `docs/agentic_review_workflow.md`.
 
 ## Next Concrete Steps
 
-1. Review the local synthetic timing implementation diff and decide whether to
-   approve a no-dataset Kaggle push.
-2. Only after explicit user approval, push the no-dataset Kaggle synthetic
-   timing kernel with `KAGGLE_PUSH_CONFIRMED=1`. Do not set
+1. Decide whether to approve a no-dataset Kaggle synthetic timing push.
+2. If approved, optionally run the read-only Kaggle API preflight first, then
+   push the no-dataset Kaggle synthetic timing kernel with
+   `KAGGLE_PUSH_CONFIRMED=1`. Do not set
    `KAGGLE_FULL_DATASET_CONFIRMED=1` for that kernel.
 3. After any remote run, retrieve and inspect only the non-promotable synthetic
    timing artifacts before using them to choose real-data benchmark candidates.
@@ -434,10 +435,11 @@ The review process lives in `docs/agentic_review_workflow.md`.
 - Spec 0001 is reopened and not implementation-ready for broad work. Narrow
   local scaffold, topology-count, data/metrics, selector/dataloader, local
   benchmark pre-test, model/loss train-step, HED/stain corruption, Kaggle setup
-  smoke, and Kaggle capped-smoke source-delivery contracts now exist. The next
-  blocking implementation slice is the no-dataset synthetic timing kernel and
-  guard. Remaining implementation-relock blockers include future `SO(2)` count
-  ceiling, real fixed validation/tiny-overfit selector generation,
+  smoke, Kaggle capped-smoke source-delivery contracts, and the no-dataset
+  synthetic timing kernel/guard now exist. The next blocking evidence slice is
+  the no-dataset synthetic timing Kaggle run, if the user approves it. Remaining
+  implementation-relock blockers include future `SO(2)` count ceiling, real
+  fixed validation/tiny-overfit selector generation,
   selected-runtime debug, checkpoint/resume, full evaluation/artifact writers,
   and final adversarial spec review after those routes are integrated.
 - The first full Kaggle run remains blocked until synthetic timing screens the
@@ -845,9 +847,17 @@ The review process lives in `docs/agentic_review_workflow.md`.
   kaggle/kernels/synthetic_timing` refreshed the ignored generated launcher,
   `./scripts/kaggle_kernel.sh validate kaggle/kernels/synthetic_timing` passed,
   `git diff --check` passed, and `./scripts/python_quality.sh` passed with 87
-  tests and 0 BasedPyright errors. `./scripts/agent_preflight.sh` was run and
-  currently fails only because the new synthetic timing files are untracked in
-  the working tree; no remote Kaggle or Overleaf command was run.
+  tests and 0 BasedPyright errors.
+- 2026-06-18 GitHub handoff: committed the synthetic timing implementation as
+  `c28632c Implement synthetic timing pretest` and pushed `main` to GitHub
+  origin. The push also published the preceding contract commit `dcc375d Lock
+  synthetic timing pretest contract`. After staging/committing the new files,
+  `./scripts/agent_preflight.sh` passed cleanly,
+  `./scripts/kaggle_kernel.sh validate kaggle/kernels/synthetic_timing` passed,
+  and focused synthetic timing/upload-simulation pytest passed with 9 tests.
+  Local `HEAD` and `origin/main` both resolve to
+  `c28632cf074548c79e827bce5399dd68f6ecdf2d`. No Kaggle push/read/output and no
+  Overleaf action were run.
 
 ## Update Rule
 

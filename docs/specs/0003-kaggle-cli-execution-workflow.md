@@ -5,7 +5,8 @@ Implementation readiness: synthetic setup-smoke remote v1 passed as
 non-promotable setup evidence; real-data capped smoke has local embedded
 packaging/upload-simulation proof and Kaggle source attachments now require
 `KAGGLE_FULL_DATASET_CONFIRMED=1`; no-dataset synthetic binary timing pretest
-has a local kernel/guard implementation and remains unpushed; full
+has a committed local kernel/guard implementation and remains unpushed to
+Kaggle; full
 benchmark/full-run launchers are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-18
