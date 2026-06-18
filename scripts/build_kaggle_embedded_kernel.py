@@ -77,7 +77,7 @@ def build_run_text(args: BuildArgs) -> str:
         Python source text containing the embedded payload.
 
     """
-    manifest = _payload_manifest(args.repo_root)
+    manifest = _payload_manifest(args.repo_root, args.template_path)
     manifest_bytes = _canonical_manifest_bytes(manifest)
     zip_bytes = _payload_zip_bytes(args.repo_root, manifest_bytes)
     payload_b64 = "\n".join(
@@ -124,9 +124,15 @@ def verify_run_file(args: BuildArgs) -> None:
         message = "embedded payload manifest SHA-256 does not match generated constant"
         raise RuntimeError(message)
 
+    template_path = _template_path_for_verify(
+        manifest=manifest,
+        repo_root=args.repo_root,
+        fallback_template_path=args.template_path,
+    )
     _validate_manifest_against_source(
         manifest=manifest,
         repo_root=args.repo_root,
+        template_path=template_path,
         allow_dirty=args.allow_dirty,
     )
 
@@ -192,11 +198,15 @@ def _metadata_code_file(kernel_dir: Path) -> str:
     return code_file
 
 
-def _payload_manifest(repo_root: Path) -> dict[str, object]:
+def _payload_manifest(repo_root: Path, template_path: Path) -> dict[str, object]:
     return {
         "schema_version": PAYLOAD_SCHEMA_VERSION,
         "git_commit": _git_output(repo_root, "rev-parse", "HEAD"),
         "git_dirty": bool(_git_output(repo_root, "status", "--short")),
+        "template": {
+            "path": _manifest_path(repo_root=repo_root, path=template_path),
+            "sha256": _digest_file(template_path),
+        },
         "entries": {
             "src/eqvae": _digest_tree(repo_root / "src" / "eqvae"),
             "configs/spec0001": _digest_tree(repo_root / "configs" / "spec0001"),
@@ -242,10 +252,40 @@ def _is_ignored_payload_file(path: Path) -> bool:
     return "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"}
 
 
+def _manifest_path(*, repo_root: Path, path: Path) -> str:
+    resolved_root = repo_root.resolve()
+    resolved_path = path.resolve()
+    try:
+        return resolved_path.relative_to(resolved_root).as_posix()
+    except ValueError:
+        return str(resolved_path)
+
+
+def _template_path_for_verify(
+    *,
+    manifest: dict[str, object],
+    repo_root: Path,
+    fallback_template_path: Path,
+) -> Path:
+    if fallback_template_path.exists():
+        return fallback_template_path
+    template = manifest.get("template")
+    if not isinstance(template, dict):
+        return fallback_template_path
+    template_path = template.get("path")
+    if not isinstance(template_path, str) or not template_path:
+        return fallback_template_path
+    path = Path(template_path)
+    if path.is_absolute():
+        return path
+    return repo_root / path
+
+
 def _validate_manifest_against_source(
     *,
     manifest: dict[str, object],
     repo_root: Path,
+    template_path: Path,
     allow_dirty: bool,
 ) -> None:
     errors: list[str] = []
@@ -260,6 +300,14 @@ def _validate_manifest_against_source(
         errors.append("payload git_dirty does not match current worktree state")
     if not allow_dirty and current_dirty:
         errors.append("payload was built from a dirty git worktree")
+
+    template_error = _manifest_template_error(
+        manifest=manifest,
+        repo_root=repo_root,
+        template_path=template_path,
+    )
+    if template_error is not None:
+        errors.append(template_error)
 
     expected_entries = {
         "src/eqvae": _digest_tree(repo_root / "src" / "eqvae"),
@@ -277,6 +325,24 @@ def _validate_manifest_against_source(
 
     if errors:
         raise RuntimeError("\n".join(errors))
+
+
+def _manifest_template_error(
+    *,
+    manifest: dict[str, object],
+    repo_root: Path,
+    template_path: Path,
+) -> str | None:
+    expected_template = {
+        "path": _manifest_path(repo_root=repo_root, path=template_path),
+        "sha256": _digest_file(template_path),
+    }
+    template = manifest.get("template")
+    if not isinstance(template, dict):
+        return "payload manifest template must be an object"
+    if template != expected_template:
+        return "payload template does not match current run_template.py"
+    return None
 
 
 def _embedded_zip_bytes(run_text: str) -> bytes:

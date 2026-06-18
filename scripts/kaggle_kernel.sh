@@ -683,6 +683,9 @@ required_source_text = (
     "COMPACT_TOTAL_PATCHES = 4_096",
     "COMPACT_SPLIT_PATCHES = 2_048",
     "def compact_synthetic_timing_profile()",
+    "REPEAT_SHORTLIST_WARMUP_STEPS = 5",
+    "REPEAT_SHORTLIST_MEASURED_STEPS = 25",
+    "def repeat_shortlist_row_specs()",
 )
 missing = [text for text in required_source_text if text not in source]
 if missing:
@@ -711,6 +714,9 @@ PY
     "/kaggle/working" \
     "single_visible_t4" \
     "dual_t4_ddp" \
+    "eqvae_synthetic_timing_repeat_shortlist" \
+    "repeat_shortlist_row_specs" \
+    "SYNTHETIC_TIMING_PHASE_REPEAT_SHORTLIST" \
     "wrong_accelerator"; do
     if ! grep -q "$required_text" "$run_file"; then
       echo "error: synthetic timing run.py missing required text: $required_text" >&2

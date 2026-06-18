@@ -20,14 +20,17 @@ from eqvae.benchmarking.synthetic_timing import (
     RECOMMENDATIONS_FILENAME,
     RUNTIME_PROOF_FILENAME,
     SYNTHETIC_TIMING_KIND,
+    SYNTHETIC_TIMING_PHASE_REPEAT_SHORTLIST,
     SYNTHETIC_TIMING_SCOPE,
     SYNTHETIC_TIMING_SOURCE,
+    SYNTHETIC_TIMING_STATUS_PARTIAL,
     SyntheticTimingProfile,
     SyntheticTimingRequest,
     build_synthetic_timing_recommendations_payload,
     build_synthetic_timing_runtime_proof_payload,
     compact_synthetic_timing_profile,
     default_synthetic_timing_profile,
+    repeat_shortlist_row_specs,
     write_synthetic_timing_pretest,
 )
 from eqvae.data.dataloaders import (
@@ -79,6 +82,16 @@ _PATCH_PAYLOAD_BYTES = 196_608
 _GLOBAL_BATCH_128_ELIGIBILITY_PATCHES = 128 * 30
 _REPEAT_SHORTLIST_WARMUP_STEPS = 5
 _REPEAT_SHORTLIST_MEASURED_STEPS = 25
+_EXPECTED_REPEAT_SHORTLIST_ROWS = (
+    ("dual_t4_ddp", 8),
+    ("single_visible_t4", 32),
+    ("single_visible_t4", 12),
+    ("single_visible_t4", 4),
+)
+_EXPECTED_REPEAT_SHORTLIST_ROW_IDS = [
+    f"{mode}__bs{batch_size}__amp_off_fp32__compile_off__branchless_all"
+    for mode, batch_size in _EXPECTED_REPEAT_SHORTLIST_ROWS
+]
 _DDP_RANK_COUNT = 2
 
 
@@ -106,6 +119,16 @@ def test_compact_synthetic_timing_profile_preserves_remote_v1_contract() -> None
     assert profile.patch_payload_bytes == _PATCH_PAYLOAD_BYTES
     assert profile.total_payload_bytes == _COMPACT_PAYLOAD_BYTES
     assert profile.train_patches < _GLOBAL_BATCH_128_ELIGIBILITY_PATCHES
+
+
+def test_repeat_shortlist_row_specs_pin_v3_candidate_order() -> None:
+    """Repeat-shortlist rows stay tied to the reviewed v3 broad-screen result."""
+    specs = repeat_shortlist_row_specs()
+
+    assert (
+        tuple((spec.accelerator_mode, spec.per_device_batch_size) for spec in specs)
+        == _EXPECTED_REPEAT_SHORTLIST_ROWS
+    )
 
 
 def test_synthetic_timing_writes_only_non_promotable_artifacts(
@@ -197,6 +220,43 @@ def test_synthetic_timing_writes_only_non_promotable_artifacts(
     summary = cast("dict[str, object]", manifest["timing_row_summary"])
     assert summary["statuses"] == ["wrong_accelerator"]
     assert summary["pass_row_count"] == 0
+
+
+def test_synthetic_timing_explicit_repeat_shortlist_rows_are_proven(
+    tmp_path: Path,
+) -> None:
+    """Explicit shortlist mode writes only the reviewed repeat rows."""
+    artifacts = write_synthetic_timing_pretest(
+        SyntheticTimingRequest(
+            output_dir=tmp_path,
+            run_name="synthetic_timing_repeat_shortlist_test",
+            profile=_TINY_PROFILE,
+            local_upload_simulation=True,
+            batch_sizes=(),
+            row_specs=repeat_shortlist_row_specs(),
+            warmup_steps=1,
+            measured_steps=1,
+            timing_phase=SYNTHETIC_TIMING_PHASE_REPEAT_SHORTLIST,
+        ),
+    )
+
+    manifest = _load_json(artifacts.manifest)
+    runtime_proof = _load_json(artifacts.runtime_proof)
+    recommendations = _load_json(artifacts.recommendations)
+    rows = _load_csv(artifacts.matrix)
+    assert [row["row_id"] for row in rows] == _EXPECTED_REPEAT_SHORTLIST_ROW_IDS
+    assert [row["row_order"] for row in rows] == ["0", "1", "2", "3"]
+    assert {row["status"] for row in rows} == {"wrong_accelerator"}
+    for payload in (manifest, runtime_proof, recommendations):
+        timing_plan = cast("dict[str, object]", payload["timing_plan"])
+        assert timing_plan["timing_phase"] == SYNTHETIC_TIMING_PHASE_REPEAT_SHORTLIST
+        assert timing_plan["explicit_row_specs"] is True
+        assert timing_plan["batch_sizes"] == []
+        assert timing_plan["row_count"] == len(_EXPECTED_REPEAT_SHORTLIST_ROWS)
+        planned_rows = cast("list[dict[str, object]]", timing_plan["rows"])
+        assert [row["row_id"] for row in planned_rows] == (
+            _EXPECTED_REPEAT_SHORTLIST_ROW_IDS
+        )
 
 
 def test_synthetic_timing_generated_root_uses_active_loader_paths(
@@ -375,6 +435,68 @@ def test_synthetic_timing_recommendations_order_ranked_rows(tmp_path: Path) -> N
     assert [row["recommendation_rank"] for row in recommendations] == [1, 2, 3, 4]
     assert recommendations[0]["repeat_required_before_operational_shortlist"] is True
     assert recommendations[2]["repeat_required_before_operational_shortlist"] is False
+
+
+def test_synthetic_timing_recommendations_clear_repeat_gate_after_repeat_phase(
+    tmp_path: Path,
+) -> None:
+    """Repeat-shortlist recommendations do not keep asking for the same repeat."""
+    rows = cast(
+        "list[CsvRow]",
+        [
+            _recommendation_row(
+                row_id="repeated",
+                status="pass",
+                fit_probe_only=False,
+                metrics=("12.0", "15.0", "0.8"),
+            ),
+        ],
+    )
+    payload = build_synthetic_timing_recommendations_payload(
+        request=SyntheticTimingRequest(
+            output_dir=tmp_path,
+            timing_phase=SYNTHETIC_TIMING_PHASE_REPEAT_SHORTLIST,
+        ),
+        profile=_TINY_PROFILE,
+        rows=rows,
+    )
+
+    repeat_policy = cast("dict[str, object]", payload["repeat_shortlist_policy"])
+    assert repeat_policy["required_before_operational_shortlist"] is False
+    assert repeat_policy["completed"] is True
+    recommendations = cast("list[dict[str, object]]", payload["recommendations"])
+    assert recommendations[0]["recommendation"] == "carry_to_real_benchmark"
+    assert recommendations[0]["repeat_required_before_operational_shortlist"] is False
+
+
+def test_synthetic_timing_recommendations_mark_mixed_rows_partial(
+    tmp_path: Path,
+) -> None:
+    """Top-level status does not hide failed rows behind any passing row."""
+    rows = cast(
+        "list[CsvRow]",
+        [
+            _recommendation_row(
+                row_id="pass",
+                status="pass",
+                fit_probe_only=False,
+                metrics=("12.0", "15.0", "0.8"),
+            ),
+            _recommendation_row(
+                row_id="wrong",
+                status="wrong_accelerator",
+                fit_probe_only=False,
+                metrics=("", "", ""),
+            ),
+        ],
+    )
+    payload = build_synthetic_timing_recommendations_payload(
+        request=SyntheticTimingRequest(output_dir=tmp_path),
+        profile=_TINY_PROFILE,
+        rows=rows,
+    )
+
+    assert payload["status"] == SYNTHETIC_TIMING_STATUS_PARTIAL
 
 
 def test_synthetic_timing_runtime_proof_preserves_ddp_rank_assignments(

@@ -92,7 +92,11 @@ def _run_synthetic_timing(output_dir: Path) -> int:
 
     import eqvae  # noqa: PLC0415
     from eqvae.benchmarking.synthetic_timing import (  # noqa: PLC0415
+        REPEAT_SHORTLIST_MEASURED_STEPS,
+        REPEAT_SHORTLIST_WARMUP_STEPS,
+        SYNTHETIC_TIMING_PHASE_REPEAT_SHORTLIST,
         SyntheticTimingRequest,
+        repeat_shortlist_row_specs,
         tiny_upload_simulation_profile,
         write_synthetic_timing_pretest,
     )
@@ -102,19 +106,32 @@ def _run_synthetic_timing(output_dir: Path) -> int:
         payload_src=payload_src,
     )
     profile = tiny_upload_simulation_profile() if local_upload_simulation else None
-    batch_sizes = (2,) if local_upload_simulation else (4, 8, 12, 16, 24, 32, 48, 64)
-    steps = 1 if local_upload_simulation else 12
-    warmup_steps = 1 if local_upload_simulation else 3
+    batch_sizes = (2,) if local_upload_simulation else ()
+    row_specs = None if local_upload_simulation else repeat_shortlist_row_specs()
+    steps = 1 if local_upload_simulation else REPEAT_SHORTLIST_MEASURED_STEPS
+    warmup_steps = 1 if local_upload_simulation else REPEAT_SHORTLIST_WARMUP_STEPS
+    timing_phase = (
+        "local_upload_simulation"
+        if local_upload_simulation
+        else SYNTHETIC_TIMING_PHASE_REPEAT_SHORTLIST
+    )
+    run_name = (
+        "eqvae_synthetic_timing_local_upload_simulation"
+        if local_upload_simulation
+        else "eqvae_synthetic_timing_repeat_shortlist"
+    )
     manifest_path = payload_dir / "payload_manifest.json"
     artifacts = write_synthetic_timing_pretest(
         SyntheticTimingRequest(
             output_dir=output_dir,
-            run_name="eqvae_synthetic_timing",
+            run_name=run_name,
             profile=profile,
             local_upload_simulation=local_upload_simulation,
             batch_sizes=batch_sizes,
+            row_specs=row_specs,
             warmup_steps=warmup_steps,
             measured_steps=steps,
+            timing_phase=timing_phase,
             payload_manifest=json.loads(manifest_path.read_text(encoding="utf-8")),
             kernel_metadata=KERNEL_METADATA,
         ),

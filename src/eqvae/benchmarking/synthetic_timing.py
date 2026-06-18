@@ -65,6 +65,7 @@ SYNTHETIC_TIMING_KIND = "kaggle_synthetic_timing_pretest"
 SYNTHETIC_TIMING_SOURCE = "kaggle_no_dataset_generated_ubc_shards"
 SYNTHETIC_TIMING_SCOPE = "non_promotable_synthetic_timing"
 SYNTHETIC_TIMING_STATUS_PASS = "synthetic_timing_pass"  # noqa: S105
+SYNTHETIC_TIMING_STATUS_PARTIAL = "synthetic_timing_partial"
 SYNTHETIC_TIMING_STATUS_SKIPPED = "skipped_unsupported"
 SYNTHETIC_TIMING_DATA_ORIGIN = "/kaggle/working_generated_synthetic"
 DEFAULT_PROFILE_NAME = "synthetic_binary_2gib_histology_like_v1"
@@ -87,6 +88,10 @@ DEFAULT_WARMUP_STEPS = 3
 DEFAULT_MEASURED_STEPS = 12
 DEFAULT_BATCH_SIZES = (4, 8, 12, 16, 24, 32, 48, 64)
 TEST_BATCH_SIZES = (2,)
+REPEAT_SHORTLIST_WARMUP_STEPS = 5
+REPEAT_SHORTLIST_MEASURED_STEPS = 25
+SYNTHETIC_TIMING_PHASE_BROAD_SCREEN = "broad_screening"
+SYNTHETIC_TIMING_PHASE_REPEAT_SHORTLIST = "repeat_shortlist"
 SINGLE_T4_DEVICE_COUNT = 1
 DUAL_T4_DEVICE_COUNT = 2
 MATRIX_FILENAME = "synthetic_timing_matrix.csv"
@@ -207,10 +212,20 @@ class SyntheticTimingRequest:
     profile: SyntheticTimingProfile | None = None
     local_upload_simulation: bool = False
     batch_sizes: tuple[int, ...] = DEFAULT_BATCH_SIZES
+    row_specs: tuple[SyntheticTimingRowSpec, ...] | None = None
     warmup_steps: int = DEFAULT_WARMUP_STEPS
     measured_steps: int = DEFAULT_MEASURED_STEPS
+    timing_phase: str = SYNTHETIC_TIMING_PHASE_BROAD_SCREEN
     payload_manifest: JsonObject | None = None
     kernel_metadata: JsonObject | None = None
+
+
+@dataclass(frozen=True)
+class SyntheticTimingRowSpec:
+    """One explicit timing row to run."""
+
+    accelerator_mode: str
+    per_device_batch_size: int
 
 
 @dataclass(frozen=True)
@@ -307,6 +322,48 @@ def compact_synthetic_timing_profile() -> SyntheticTimingProfile:
         channels=DEFAULT_CHANNELS,
         seed=DEFAULT_SEED,
         write_chunk_patches=DEFAULT_WRITE_CHUNK_PATCHES,
+    )
+
+
+def repeat_shortlist_row_specs() -> tuple[SyntheticTimingRowSpec, ...]:
+    """Return the explicit 5/25 repeat-shortlist candidate rows.
+
+    Returns:
+        Candidate rows chosen from the v3 broad-screening synthetic timing pass.
+
+    """
+    return (
+        SyntheticTimingRowSpec(
+            accelerator_mode="dual_t4_ddp",
+            per_device_batch_size=8,
+        ),
+        SyntheticTimingRowSpec(
+            accelerator_mode="single_visible_t4",
+            per_device_batch_size=32,
+        ),
+        SyntheticTimingRowSpec(
+            accelerator_mode="single_visible_t4",
+            per_device_batch_size=12,
+        ),
+        SyntheticTimingRowSpec(
+            accelerator_mode="single_visible_t4",
+            per_device_batch_size=4,
+        ),
+    )
+
+
+def _request_row_specs(
+    request: SyntheticTimingRequest,
+) -> tuple[SyntheticTimingRowSpec, ...]:
+    if request.row_specs is not None:
+        return request.row_specs
+    return tuple(
+        SyntheticTimingRowSpec(
+            accelerator_mode=accelerator_mode,
+            per_device_batch_size=per_device_batch_size,
+        )
+        for accelerator_mode in ("single_visible_t4", "dual_t4_ddp")
+        for per_device_batch_size in request.batch_sizes
     )
 
 
@@ -431,9 +488,17 @@ def _validate_request(
     if profile.image_size <= 0:
         msg = "synthetic timing image_size must be positive"
         raise ValueError(msg)
-    if not request.batch_sizes:
-        msg = "synthetic timing batch_sizes must not be empty"
+    if not request.batch_sizes and request.row_specs is None:
+        msg = "synthetic timing batch_sizes must not be empty without row_specs"
         raise ValueError(msg)
+    if request.row_specs is not None and not request.row_specs:
+        msg = "synthetic timing row_specs must not be empty when provided"
+        raise ValueError(msg)
+    for row_spec in request.row_specs or ():
+        _row_runtime(row_spec.accelerator_mode)
+        if row_spec.per_device_batch_size <= 0:
+            msg = "synthetic timing row_specs batch sizes must be positive"
+            raise ValueError(msg)
 
 
 def _write_synthetic_shards(
@@ -679,6 +744,7 @@ def _manifest_payload(  # noqa: PLR0913
                 "local_upload_simulation": request.local_upload_simulation,
             },
             "kaggle_metadata": request.kernel_metadata,
+            "timing_plan": _timing_plan_payload(request=request),
             "dataset_sources": [],
             "competition_sources": [],
             "kernel_sources": [],
@@ -788,6 +854,38 @@ def _profile_summary(profile: SyntheticTimingProfile) -> JsonObject:
     }
 
 
+def _timing_plan_payload(*, request: SyntheticTimingRequest) -> JsonObject:
+    row_specs = _request_row_specs(request)
+    rows: list[JsonObject] = []
+    for row_order, row_spec in enumerate(row_specs):
+        world_size, cuda_mask = _row_runtime(row_spec.accelerator_mode)
+        rows.append({
+            "row_order": row_order,
+            "row_id": _row_id(
+                accelerator_mode=row_spec.accelerator_mode,
+                per_device_batch_size=row_spec.per_device_batch_size,
+            ),
+            "accelerator_mode": row_spec.accelerator_mode,
+            "per_device_batch_size": row_spec.per_device_batch_size,
+            "world_size": world_size,
+            "global_batch_size": row_spec.per_device_batch_size * world_size,
+            "cuda_visible_devices": cuda_mask,
+        })
+    return cast(
+        "JsonObject",
+        {
+            "timing_phase": request.timing_phase,
+            "run_name": request.run_name,
+            "warmup_steps": request.warmup_steps,
+            "measured_steps": request.measured_steps,
+            "explicit_row_specs": request.row_specs is not None,
+            "batch_sizes": list(request.batch_sizes),
+            "row_count": len(row_specs),
+            "rows": rows,
+        },
+    )
+
+
 def _loader_proof(
     *,
     paths: PatchDataPaths,
@@ -878,36 +976,33 @@ def _run_timing_rows(
     output_dir: Path,
 ) -> list[CsvRow]:
     rows: list[CsvRow] = []
-    for accelerator_mode, world_size, cuda_mask in (
-        ("single_visible_t4", 1, "0"),
-        ("dual_t4_ddp", 2, "0,1"),
-    ):
-        for per_device_batch_size in request.batch_sizes:
-            row_id = _row_id(
-                accelerator_mode=accelerator_mode,
-                per_device_batch_size=per_device_batch_size,
-            )
-            config = ChildRowConfig(
-                output_dir=output_dir,
-                data_root=data_root,
-                row_id=row_id,
-                run_name=request.run_name,
-                accelerator_mode=accelerator_mode,
-                per_device_batch_size=per_device_batch_size,
-                world_size=world_size,
-                nproc_per_node=world_size,
-                warmup_steps=request.warmup_steps,
-                measured_steps=request.measured_steps,
-                split_patch_count=profile.train_patches,
-                non_wrapping_eligibility_steps=NON_WRAPPING_ELIGIBILITY_STEPS,
-                real_train_patch_count=REAL_TRAIN_PATCH_COUNT,
-                image_size=profile.image_size,
-                channels=profile.channels,
-                cuda_visible_devices=cuda_mask,
-            )
-            row = dict(_run_row_child(config))
-            row["row_order"] = str(len(rows))
-            rows.append(row)
+    for row_spec in _request_row_specs(request):
+        world_size, cuda_mask = _row_runtime(row_spec.accelerator_mode)
+        row_id = _row_id(
+            accelerator_mode=row_spec.accelerator_mode,
+            per_device_batch_size=row_spec.per_device_batch_size,
+        )
+        config = ChildRowConfig(
+            output_dir=output_dir,
+            data_root=data_root,
+            row_id=row_id,
+            run_name=request.run_name,
+            accelerator_mode=row_spec.accelerator_mode,
+            per_device_batch_size=row_spec.per_device_batch_size,
+            world_size=world_size,
+            nproc_per_node=world_size,
+            warmup_steps=request.warmup_steps,
+            measured_steps=request.measured_steps,
+            split_patch_count=profile.train_patches,
+            non_wrapping_eligibility_steps=NON_WRAPPING_ELIGIBILITY_STEPS,
+            real_train_patch_count=REAL_TRAIN_PATCH_COUNT,
+            image_size=profile.image_size,
+            channels=profile.channels,
+            cuda_visible_devices=cuda_mask,
+        )
+        row = dict(_run_row_child(config))
+        row["row_order"] = str(len(rows))
+        rows.append(row)
     return rows
 
 
@@ -1387,6 +1482,7 @@ def build_synthetic_timing_runtime_proof_payload(
             "kernel_sources": [],
             "model_sources": [],
             "machine_shape": "NvidiaTeslaT4",
+            "timing_plan": _timing_plan_payload(request=request),
             "accelerator_modes_checked": ["single_visible_t4", "dual_t4_ddp"],
             "single_visible_t4": _mode_summary(single_rows),
             "dual_t4_ddp": _mode_summary(dual_rows),
@@ -1414,8 +1510,13 @@ def build_synthetic_timing_recommendations_payload(
 
     """
     ordered_rows = sorted(rows, key=_recommendation_sort_key)
+    repeat_required = request.timing_phase != SYNTHETIC_TIMING_PHASE_REPEAT_SHORTLIST
     recommendations = [
-        _recommendation_for_row(row=row, rank=index + 1)
+        _recommendation_for_row(
+            row=row,
+            rank=index + 1,
+            repeat_required=repeat_required,
+        )
         for index, row in enumerate(ordered_rows)
     ]
     return cast(
@@ -1434,6 +1535,8 @@ def build_synthetic_timing_recommendations_payload(
             "model_sources": [],
             "profile_name": profile.name,
             "run_name": request.run_name,
+            "timing_phase": request.timing_phase,
+            "timing_plan": _timing_plan_payload(request=request),
             "recommendations": recommendations,
             "estimated_epoch_minutes_scope": (
                 "loader_collate_normalize_h2d_only_projected_to_real_train_patch_count"
@@ -1457,9 +1560,11 @@ def build_synthetic_timing_recommendations_payload(
                 "selects a runtime."
             ),
             "repeat_shortlist_policy": {
-                "required_before_operational_shortlist": True,
-                "warmup_steps": 5,
-                "measured_steps": 25,
+                "required_before_operational_shortlist": repeat_required,
+                "completed": not repeat_required,
+                "timing_phase": request.timing_phase,
+                "warmup_steps": REPEAT_SHORTLIST_WARMUP_STEPS,
+                "measured_steps": REPEAT_SHORTLIST_MEASURED_STEPS,
                 "repeats": 1,
                 "selection_requires_user_decision": True,
             },
@@ -1473,7 +1578,12 @@ def build_synthetic_timing_recommendations_payload(
     )
 
 
-def _recommendation_for_row(*, row: CsvRow, rank: int) -> JsonObject:
+def _recommendation_for_row(
+    *,
+    row: CsvRow,
+    rank: int,
+    repeat_required: bool,
+) -> JsonObject:
     status = row["status"]
     fit_probe_only = row["fit_probe_only"] == "true"
     if status in {
@@ -1502,7 +1612,7 @@ def _recommendation_for_row(*, row: CsvRow, rank: int) -> JsonObject:
         "status": status,
         "recommendation": recommendation,
         "repeat_required_before_operational_shortlist": (
-            recommendation == "carry_to_real_benchmark"
+            repeat_required and recommendation == "carry_to_real_benchmark"
         ),
         "estimated_epoch_minutes": row["estimated_epoch_minutes"],
         "steady_step_ms_p95": row["steady_step_ms_p95"],
@@ -1531,8 +1641,10 @@ def _recommendation_sort_key(row: CsvRow) -> tuple[float, float, float, float, s
 
 
 def _timing_status(rows: Sequence[CsvRow]) -> str:
-    if any(row["status"] == "pass" for row in rows):
+    if rows and all(row["status"] == "pass" for row in rows):
         return SYNTHETIC_TIMING_STATUS_PASS
+    if any(row["status"] == "pass" for row in rows):
+        return SYNTHETIC_TIMING_STATUS_PARTIAL
     return SYNTHETIC_TIMING_STATUS_SKIPPED
 
 
@@ -1764,6 +1876,15 @@ def _row_id(*, accelerator_mode: str, per_device_batch_size: int) -> str:
         f"{accelerator_mode}__bs{per_device_batch_size}"
         "__amp_off_fp32__compile_off__branchless_all"
     )
+
+
+def _row_runtime(accelerator_mode: str) -> tuple[int, str]:
+    if accelerator_mode == "single_visible_t4":
+        return SINGLE_T4_DEVICE_COUNT, "0"
+    if accelerator_mode == "dual_t4_ddp":
+        return DUAL_T4_DEVICE_COUNT, "0,1"
+    msg = f"unsupported synthetic timing accelerator_mode: {accelerator_mode}"
+    raise ValueError(msg)
 
 
 def _blocked_claims() -> JsonObject:
@@ -2005,19 +2126,26 @@ __all__ = [
     "MANIFEST_FILENAME",
     "MATRIX_FILENAME",
     "RECOMMENDATIONS_FILENAME",
+    "REPEAT_SHORTLIST_MEASURED_STEPS",
+    "REPEAT_SHORTLIST_WARMUP_STEPS",
     "RUNTIME_PROOF_FILENAME",
     "SYNTHETIC_TIMING_KIND",
     "SYNTHETIC_TIMING_MATRIX_COLUMNS",
+    "SYNTHETIC_TIMING_PHASE_BROAD_SCREEN",
+    "SYNTHETIC_TIMING_PHASE_REPEAT_SHORTLIST",
     "SYNTHETIC_TIMING_SCOPE",
     "SYNTHETIC_TIMING_SOURCE",
+    "SYNTHETIC_TIMING_STATUS_PARTIAL",
     "SYNTHETIC_TIMING_STATUS_PASS",
     "SyntheticTimingArtifacts",
     "SyntheticTimingProfile",
     "SyntheticTimingRequest",
+    "SyntheticTimingRowSpec",
     "build_synthetic_timing_recommendations_payload",
     "build_synthetic_timing_runtime_proof_payload",
     "compact_synthetic_timing_profile",
     "default_synthetic_timing_profile",
+    "repeat_shortlist_row_specs",
     "tiny_upload_simulation_profile",
     "write_synthetic_timing_pretest",
 ]

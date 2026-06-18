@@ -160,9 +160,71 @@ def test_embedded_synthetic_timing_kernel_survives_single_file_upload_simulation
         assert all(blocked_claims.values())
     profile = cast("dict[str, object]", manifest["profile"])
     data = cast("dict[str, object]", manifest["data"])
+    timing_plan = cast("dict[str, object]", manifest["timing_plan"])
     assert profile["name"] == "synthetic_binary_tiny_upload_simulation_v1"
     assert data["generation_excluded_from_timing"] is True
     assert data["local_upload_simulation"] is True
+    assert timing_plan["timing_phase"] == "local_upload_simulation"
+    assert timing_plan["explicit_row_specs"] is False
+    assert timing_plan["batch_sizes"] == [2]
+
+
+def test_embedded_kernel_verify_rejects_stale_template(tmp_path: Path) -> None:
+    """Generated run.py must prove freshness against the launcher template."""
+    repo_root = Path(__file__).resolve().parents[1]
+    source_kernel = repo_root / "kaggle" / "kernels" / "setup_smoke"
+    build_script = repo_root / "scripts" / "build_kaggle_embedded_kernel.py"
+    generated_kernel = tmp_path / "generated_setup_smoke"
+    generated_kernel.mkdir()
+    shutil.copy2(source_kernel / "kernel-metadata.json", generated_kernel)
+    template_copy = tmp_path / "run_template.py"
+    shutil.copy2(source_kernel / "run_template.py", template_copy)
+
+    subprocess.run(  # noqa: S603
+        (
+            sys.executable,
+            str(build_script),
+            "--repo-root",
+            str(repo_root),
+            "--kernel-dir",
+            str(generated_kernel),
+            "--template",
+            str(template_copy),
+            "--ready-marker",
+            "KAGGLE_SETUP_SMOKE_READY = True",
+            "--allow-dirty",
+        ),
+        cwd=repo_root,
+        check=True,
+    )
+
+    template_copy.write_text(
+        f"{template_copy.read_text(encoding='utf-8')}\n# stale-template-test\n",
+        encoding="utf-8",
+    )
+    completed = subprocess.run(  # noqa: S603
+        (
+            sys.executable,
+            str(build_script),
+            "--repo-root",
+            str(repo_root),
+            "--kernel-dir",
+            str(generated_kernel),
+            "--template",
+            str(template_copy),
+            "--ready-marker",
+            "KAGGLE_SETUP_SMOKE_READY = True",
+            "--verify-only",
+            "--allow-dirty",
+        ),
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "payload template does not match current run_template.py" in completed.stderr
 
 
 def _build_upload_simulation(
