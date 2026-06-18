@@ -644,6 +644,56 @@ PY
     --verify-only
 
   local run_file="$kernel_dir/run.py"
+  python3 - "$run_file" <<'PY'
+import base64
+import io
+import re
+import sys
+import zipfile
+from pathlib import Path
+
+run_text = Path(sys.argv[1]).read_text(encoding="utf-8")
+match = re.search(
+    r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""',
+    run_text,
+    flags=re.DOTALL,
+)
+if match is None:
+    print("error: synthetic timing run.py has no embedded payload", file=sys.stderr)
+    raise SystemExit(1)
+
+payload = base64.b64decode(match.group("payload").encode("ascii"))
+with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+    try:
+        source = archive.read(
+            "src/eqvae/benchmarking/synthetic_timing.py",
+        ).decode("utf-8")
+    except KeyError:
+        print(
+            "error: synthetic timing payload is missing synthetic_timing.py",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from None
+
+required_source_text = (
+    'DEFAULT_PROFILE_NAME = "synthetic_binary_2gib_histology_like_v1"',
+    "DEFAULT_TOTAL_PATCHES = 10_912",
+    "DEFAULT_SPLIT_PATCHES = 5_456",
+    'COMPACT_PROFILE_NAME = "synthetic_binary_0p81gb_histology_like_v1"',
+    "COMPACT_TOTAL_PATCHES = 4_096",
+    "COMPACT_SPLIT_PATCHES = 2_048",
+    "def compact_synthetic_timing_profile()",
+)
+missing = [text for text in required_source_text if text not in source]
+if missing:
+    for text in missing:
+        print(
+            f"error: synthetic timing embedded source missing required text: {text}",
+            file=sys.stderr,
+        )
+    raise SystemExit(1)
+PY
+
   if grep -q "selected_runtime" "$run_file"; then
     echo "error: synthetic timing launcher must not reference selected runtime artifacts" >&2
     exit 1

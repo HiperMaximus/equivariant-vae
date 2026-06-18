@@ -8,9 +8,16 @@ order candidate runtime rows before attaching the 60 GB+ real dataset.
 
 The pretest generates deterministic UBC-format binary+CSV shards under
 `/kaggle/working` and attaches no Kaggle sources. Its default profile is
-`synthetic_binary_0p81gb_histology_like_v1`: 4,096 total `3x256x256` CHW
-`uint8` patches, split 2,048 train / 2,048 validation, about 805 MB of binary
-payload before CSV/artifacts.
+`synthetic_binary_2gib_histology_like_v1`: 10,912 total `3x256x256` CHW
+`uint8` patches, split 5,456 train / 5,456 validation, with 2,145,386,496
+binary payload bytes before CSV/artifacts, about 1.998 GiB. This keeps
+30-step non-wrapping ranked rows eligible through global batch 128.
+
+The earlier remote v1 Kaggle evidence used the historical compact profile
+`synthetic_binary_0p81gb_histology_like_v1`: 4,096 total patches, split 2,048
+train / 2,048 validation, with 805,306,368 payload bytes. That profile remains
+named for evidence lineage, but it is no longer the default because it forces
+global batch 128 rows into fit-probe-only status.
 
 The generated root must mirror the real dataset filenames and format:
 `dataset/ubc_train_shuffled.bin`, `dataset/ubc_train_shuffled.csv`,

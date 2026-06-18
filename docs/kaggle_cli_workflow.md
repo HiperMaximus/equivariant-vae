@@ -89,11 +89,13 @@ It is implemented locally at this path, and remote version 1 completed on
 Kaggle with non-promotable `synthetic_timing_pass`. Its contract is to request
 T4 GPU runtime, attach no Kaggle datasets or other sources, generate
 deterministic UBC-format binary+CSV shards under the Kaggle working output, and
-write only non-promotable synthetic timing artifacts. The default profile is
-`synthetic_binary_0p81gb_histology_like_v1`: 4,096 total `3x256x256` CHW
-`uint8` patches, split 2,048 train / 2,048 validation, about 805,306,368
-payload bytes before CSV/artifacts. This stays below 1 GB while allowing
-non-wrapping 30-batch throughput rows up to global batch 64.
+write only non-promotable synthetic timing artifacts. The current default
+profile is `synthetic_binary_2gib_histology_like_v1`: 10,912 total
+`3x256x256` CHW `uint8` patches, split 5,456 train / 5,456 validation,
+2,145,386,496 payload bytes before CSV/artifacts, about 1.998 GiB. This keeps
+non-wrapping 30-batch throughput rows eligible through global batch 128. Remote
+v1 used the earlier 0.81 GB profile; remote v2 should refresh the evidence with
+this 2 GiB-scale default.
 
 The generated synthetic root must mirror the real shard contract exactly enough
 to exercise the same loader path: write
@@ -112,10 +114,9 @@ ranked non-wrapping eligibility budget is
 `global_batch_size * non_wrapping_eligibility_steps <= split_patch_count`, with
 `non_wrapping_eligibility_steps = 30` for the default profile. An initial
 shorter fit pass may still run larger rows, but rows that exceed the 30-step
-budget are fit/VRAM probes only; for the default 0.81 GB profile, dual-T4
-per-device batch 48/64 rows are probe-only unless a larger synthetic profile is
-accepted later. The output may recommend rows to carry into the real-data
-benchmark, but must not write `benchmark/selected_runtime.json` or claim final
+budget are fit/VRAM probes only. The output may recommend rows to carry into
+the real-data benchmark, but must not write `benchmark/selected_runtime.json`
+or claim final
 runtime selection.
 
 Spec 0001 runtime benchmarking requires two accelerator modes:

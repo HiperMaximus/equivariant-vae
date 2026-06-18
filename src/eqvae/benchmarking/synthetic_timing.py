@@ -67,11 +67,14 @@ SYNTHETIC_TIMING_SCOPE = "non_promotable_synthetic_timing"
 SYNTHETIC_TIMING_STATUS_PASS = "synthetic_timing_pass"  # noqa: S105
 SYNTHETIC_TIMING_STATUS_SKIPPED = "skipped_unsupported"
 SYNTHETIC_TIMING_DATA_ORIGIN = "/kaggle/working_generated_synthetic"
-DEFAULT_PROFILE_NAME = "synthetic_binary_0p81gb_histology_like_v1"
+DEFAULT_PROFILE_NAME = "synthetic_binary_2gib_histology_like_v1"
+COMPACT_PROFILE_NAME = "synthetic_binary_0p81gb_histology_like_v1"
 TEST_PROFILE_NAME = "synthetic_binary_tiny_upload_simulation_v1"
 PIXEL_PROFILE_NAME = "histology_like_rgb_v1"
-DEFAULT_TOTAL_PATCHES = 4096
-DEFAULT_SPLIT_PATCHES = 2048
+DEFAULT_TOTAL_PATCHES = 10_912
+DEFAULT_SPLIT_PATCHES = 5_456
+COMPACT_TOTAL_PATCHES = 4_096
+COMPACT_SPLIT_PATCHES = 2_048
 DEFAULT_IMAGE_SIZE = 256
 DEFAULT_CHANNELS = 3
 DEFAULT_SEED = 20260617
@@ -266,7 +269,7 @@ class ChildProcessArgs:
 
 
 def default_synthetic_timing_profile() -> SyntheticTimingProfile:
-    """Return the locked default 0.81 GB synthetic profile.
+    """Return the locked default roughly 2 GiB synthetic profile.
 
     Returns:
         Default synthetic timing profile.
@@ -276,6 +279,24 @@ def default_synthetic_timing_profile() -> SyntheticTimingProfile:
         name=DEFAULT_PROFILE_NAME,
         train_patches=DEFAULT_SPLIT_PATCHES,
         validation_patches=DEFAULT_SPLIT_PATCHES,
+        image_size=DEFAULT_IMAGE_SIZE,
+        channels=DEFAULT_CHANNELS,
+        seed=DEFAULT_SEED,
+        write_chunk_patches=DEFAULT_WRITE_CHUNK_PATCHES,
+    )
+
+
+def compact_synthetic_timing_profile() -> SyntheticTimingProfile:
+    """Return the historical 0.81 GB profile used by remote v1.
+
+    Returns:
+        Historical compact synthetic timing profile.
+
+    """
+    return SyntheticTimingProfile(
+        name=COMPACT_PROFILE_NAME,
+        train_patches=COMPACT_SPLIT_PATCHES,
+        validation_patches=COMPACT_SPLIT_PATCHES,
         image_size=DEFAULT_IMAGE_SIZE,
         channels=DEFAULT_CHANNELS,
         seed=DEFAULT_SEED,
@@ -616,6 +637,14 @@ def _manifest_payload(  # noqa: PLR0913
                 "payload_bytes": profile.total_payload_bytes,
                 "patch_payload_bytes": profile.patch_payload_bytes,
                 "data_generator_version": PIXEL_PROFILE_NAME,
+                "named_profiles": {
+                    "current_default": _profile_summary(
+                        default_synthetic_timing_profile(),
+                    ),
+                    "historical_remote_v1": _profile_summary(
+                        compact_synthetic_timing_profile(),
+                    ),
+                },
             },
             "data": {
                 "origin": SYNTHETIC_TIMING_DATA_ORIGIN,
@@ -737,6 +766,19 @@ def _record_proof(*, record: PatchRecord, split: PatchSplit) -> JsonObject:
         "label": record.label,
         "x": record.x,
         "y": record.y,
+    }
+
+
+def _profile_summary(profile: SyntheticTimingProfile) -> JsonObject:
+    return {
+        "name": profile.name,
+        "total_patches": profile.total_patches,
+        "train_patches": profile.train_patches,
+        "validation_patches": profile.validation_patches,
+        "channels": profile.channels,
+        "image_size": profile.image_size,
+        "payload_bytes": profile.total_payload_bytes,
+        "patch_payload_bytes": profile.patch_payload_bytes,
     }
 
 
@@ -1340,14 +1382,32 @@ def build_synthetic_timing_recommendations_payload(
             "profile_name": profile.name,
             "run_name": request.run_name,
             "recommendations": recommendations,
+            "estimated_epoch_minutes_scope": (
+                "loader_collate_normalize_h2d_only_projected_to_real_train_patch_count"
+            ),
+            "measured_components": {
+                "loader_collate_normalize_h2d": True,
+                "model_forward_backward": False,
+                "optimizer_step": False,
+                "corruption": False,
+                "precision_policy": False,
+                "torch_compile": False,
+            },
             "ordering": (
-                "Rows are ordered by promotability, lower projected real epoch "
-                "minutes, lower p95 step time, higher VRAM headroom, then row_id."
+                "Rows are ordered by promotability, lower loader/H2D-projected "
+                "real epoch minutes, lower p95 step time, higher VRAM headroom, "
+                "then row_id."
             ),
             "selection_policy": (
                 "Synthetic timing may only carry, prune structural failures, "
                 "mark fit probes, or request real-data confirmation; it never "
                 "selects a runtime."
+            ),
+            "interpretation_warning": (
+                "Projected real epoch minutes are derived only from "
+                "loader/collate/normalization/H2D timing. They do not measure "
+                "model forward/backward, optimizer, corruption, AMP, compile, "
+                "DDP gradient synchronization, convergence, or paper evidence."
             ),
         },
     )
@@ -1784,6 +1844,7 @@ def _write_stdout_json(payload: CsvRow) -> None:
 
 __all__ = [
     "BLOCKED_CLAIM_KEYS",
+    "COMPACT_PROFILE_NAME",
     "DEFAULT_PROFILE_NAME",
     "MANIFEST_FILENAME",
     "MATRIX_FILENAME",
@@ -1798,6 +1859,7 @@ __all__ = [
     "SyntheticTimingProfile",
     "SyntheticTimingRequest",
     "build_synthetic_timing_recommendations_payload",
+    "compact_synthetic_timing_profile",
     "default_synthetic_timing_profile",
     "tiny_upload_simulation_profile",
     "write_synthetic_timing_pretest",

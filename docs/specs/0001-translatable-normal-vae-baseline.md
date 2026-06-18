@@ -213,9 +213,11 @@ source lists empty, `enable_gpu = "true"`, `machine_shape = "NvidiaTeslaT4"`,
 `KAGGLE_SYNTHETIC_TIMING_READY = True`. It must generate deterministic
 UBC-format binary+CSV shards under `/kaggle/working` through a streaming writer,
 not by materializing the whole shard in RAM. The default synthetic profile is
-`synthetic_binary_0p81gb_histology_like_v1`: 4,096 total patches, split as
-2,048 train and 2,048 validation, with `3x256x256` CHW `uint8` payloads,
-the standard 64-byte `<8sIQiiii3s25x` header, CRC32, and metadata CSVs. The
+`synthetic_binary_2gib_histology_like_v1`: 10,912 total patches, split as
+5,456 train and 5,456 validation, with `3x256x256` CHW `uint8` payloads,
+the standard 64-byte `<8sIQiiii3s25x` header, CRC32, and metadata CSVs. This is
+2,145,386,496 payload bytes before CSV and artifacts, about 1.998 GiB, and
+supports non-wrapping 30-batch timing rows through global batch 128. The
 generated root must contain the same relative filenames as the real dataset:
 `dataset/ubc_train_shuffled.bin`, `dataset/ubc_train_shuffled.csv`,
 `dataset/ubc_ocean_valid.bin`, and `dataset/ubc_ocean_valid.csv`. Its train CSV
@@ -224,16 +226,16 @@ the real validation CSV by including `idx`. Timed reads must use the active
 `resolve_patch_data_paths`, `PatchTensorDataset`, and `PatchTrainingDataset`
 paths with an explicit `/kaggle/working/...` data root; a synthetic-only loader
 or alternate binary parser is not allowed. The payload is about 805,306,368
-bytes before CSV and artifacts, stays below 1 GB, and supports non-wrapping
-30-batch timing rows up to global batch 64. The pretest must attempt both
+bytes before CSV and artifacts in the historical remote-v1 0.81 GB profile; the
+current default is the 2 GiB-scale profile above. The pretest must attempt both
 `single_visible_t4` and `dual_t4_ddp`, and must compare candidates by feasible
 global throughput and projected epoch time, not by equal per-device batch size
-alone. For the 0.81 GB profile, batch-size rows whose
+alone. Batch-size rows whose
 `global_batch_size * non_wrapping_eligibility_steps` exceeds the available split
 size are fit/VRAM probes only and cannot rank throughput recommendations. The
 default `non_wrapping_eligibility_steps` is 30, independent of the shorter
-initial fit pass; this makes dual-T4 per-device batch 48/64 probe-only unless a
-larger synthetic profile is explicitly added later. Generated `/kaggle/working`
+initial fit pass; the 2 GiB-scale default keeps dual-T4 per-device batch 64
+non-wrapping eligible at global batch 128. Generated `/kaggle/working`
 data is hot-cache-biased by construction, so dataloader timing from this pretest
 is format/path/H2D plumbing evidence only; real dataloader settings remain
 blocked until the real-data Kaggle benchmark writes real train/validation loader
@@ -1570,15 +1572,16 @@ Benchmark budget and reset rules:
 
 - default candidate per-device batch sizes:
   `[4, 8, 12, 16, 24, 32, 48, 64]`;
-- synthetic timing pretest rows using the 0.81 GB profile may attempt all
+- synthetic timing pretest rows using the 2 GiB-scale default profile may attempt all
   default candidate batch sizes, but only rows satisfying
   `global_batch_size * non_wrapping_eligibility_steps <= split_patch_count` for
   both train and validation are ranked throughput rows. The default
   `non_wrapping_eligibility_steps` is 30, independent of the initial 3-warmup /
   12-measured fit pass. Other rows are fit/VRAM probes only and must not rank
   throughput recommendations. Synthetic timing rows must record
-  `eligibility_steps`, `non_wrapping_eligible`, `sample_reuse_count`, and
-  `fit_probe_only`. Under the default profile, global batch 64 is the largest
+  `non_wrapping_eligibility_steps`, `non_wrapping_eligible`,
+  `sample_reuse_count`, and `fit_probe_only`. Under the default profile, global
+  batch 128 is the largest
   non-wrapping ranked-throughput candidate, while larger global batches are
   probe-only unless a later larger synthetic profile is explicitly accepted;
 - each row starts from identical model weights, optimizer state, scaler state,
@@ -3296,7 +3299,7 @@ Implementation-relock blockers:
    implementation must enforce that metadata value before remote push and fail
    `dual_t4_ddp` benchmark rows unless runtime CUDA/DDP telemetry proves two T4
    devices and two ranks.
-6. Synthetic timing pretest status: the no-dataset 0.81 GB generated-binary
+6. Synthetic timing pretest status: the no-dataset 2 GiB-scale generated-binary
    Kaggle pretest contract is locked for implementation only. It may rank and
    prune candidate rows for the real-data benchmark, including single-vs-dual
    T4 comparisons by projected epoch time, but cannot satisfy runtime

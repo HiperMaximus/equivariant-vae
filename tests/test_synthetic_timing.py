@@ -25,6 +25,8 @@ from eqvae.benchmarking.synthetic_timing import (
     SyntheticTimingProfile,
     SyntheticTimingRequest,
     build_synthetic_timing_recommendations_payload,
+    compact_synthetic_timing_profile,
+    default_synthetic_timing_profile,
     write_synthetic_timing_pretest,
 )
 from eqvae.data.dataloaders import (
@@ -64,6 +66,42 @@ _EXPECTED_BLOCKED_CLAIM_KEYS = {
     "paper_evidence",
     "full_run_readiness",
 }
+_TWO_GIB_PROFILE_NAME = "synthetic_binary_2gib_histology_like_v1"
+_COMPACT_PROFILE_NAME = "synthetic_binary_0p81gb_histology_like_v1"
+_TWO_GIB_SPLIT_PATCHES = 5_456
+_TWO_GIB_TOTAL_PATCHES = 10_912
+_TWO_GIB_PAYLOAD_BYTES = 2_145_386_496
+_COMPACT_SPLIT_PATCHES = 2_048
+_COMPACT_TOTAL_PATCHES = 4_096
+_COMPACT_PAYLOAD_BYTES = 805_306_368
+_PATCH_PAYLOAD_BYTES = 196_608
+_GLOBAL_BATCH_128_ELIGIBILITY_PATCHES = 128 * 30
+
+
+def test_default_synthetic_timing_profile_is_two_gib_scale() -> None:
+    """Default remote profile covers dual global batch 128 without wrapping."""
+    profile = default_synthetic_timing_profile()
+
+    assert profile.name == _TWO_GIB_PROFILE_NAME
+    assert profile.train_patches == _TWO_GIB_SPLIT_PATCHES
+    assert profile.validation_patches == _TWO_GIB_SPLIT_PATCHES
+    assert profile.total_patches == _TWO_GIB_TOTAL_PATCHES
+    assert profile.patch_payload_bytes == _PATCH_PAYLOAD_BYTES
+    assert profile.total_payload_bytes == _TWO_GIB_PAYLOAD_BYTES
+    assert profile.train_patches >= _GLOBAL_BATCH_128_ELIGIBILITY_PATCHES
+
+
+def test_compact_synthetic_timing_profile_preserves_remote_v1_contract() -> None:
+    """Historical remote-v1 profile stays named and non-default."""
+    profile = compact_synthetic_timing_profile()
+
+    assert profile.name == _COMPACT_PROFILE_NAME
+    assert profile.train_patches == _COMPACT_SPLIT_PATCHES
+    assert profile.validation_patches == _COMPACT_SPLIT_PATCHES
+    assert profile.total_patches == _COMPACT_TOTAL_PATCHES
+    assert profile.patch_payload_bytes == _PATCH_PAYLOAD_BYTES
+    assert profile.total_payload_bytes == _COMPACT_PAYLOAD_BYTES
+    assert profile.train_patches < _GLOBAL_BATCH_128_ELIGIBILITY_PATCHES
 
 
 def test_synthetic_timing_writes_only_non_promotable_artifacts(
@@ -108,6 +146,8 @@ def test_synthetic_timing_writes_only_non_promotable_artifacts(
     assert manifest["competition_sources"] == []
     assert manifest["kernel_sources"] == []
     assert manifest["model_sources"] == []
+
+    _assert_named_profiles(manifest)
 
     data = cast("dict[str, object]", manifest["data"])
     assert data["generation_excluded_from_timing"] is True
@@ -306,6 +346,15 @@ def test_synthetic_timing_recommendations_order_ranked_rows(tmp_path: Path) -> N
         rows=rows,
     )
 
+    assert (
+        payload["estimated_epoch_minutes_scope"]
+        == "loader_collate_normalize_h2d_only_projected_to_real_train_patch_count"
+    )
+    measured_components = cast("dict[str, bool]", payload["measured_components"])
+    assert measured_components["loader_collate_normalize_h2d"] is True
+    assert measured_components["model_forward_backward"] is False
+    assert measured_components["corruption"] is False
+    assert measured_components["precision_policy"] is False
     recommendations = cast("list[dict[str, object]]", payload["recommendations"])
     assert [row["row_id"] for row in recommendations] == [
         "fast",
@@ -483,6 +532,20 @@ def _assert_non_promotable_payload(payload: dict[str, object]) -> None:
     blocked_claims = cast("dict[str, bool]", payload["blocked_claims"])
     assert set(blocked_claims) == _EXPECTED_BLOCKED_CLAIM_KEYS
     assert all(blocked_claims.values())
+
+
+def _assert_named_profiles(manifest: dict[str, object]) -> None:
+    profile_payload = cast("dict[str, object]", manifest["profile"])
+    named_profiles = cast("dict[str, object]", profile_payload["named_profiles"])
+    current_default = cast("dict[str, object]", named_profiles["current_default"])
+    historical_remote_v1 = cast(
+        "dict[str, object]",
+        named_profiles["historical_remote_v1"],
+    )
+    assert current_default["name"] == _TWO_GIB_PROFILE_NAME
+    assert current_default["payload_bytes"] == _TWO_GIB_PAYLOAD_BYTES
+    assert historical_remote_v1["name"] == _COMPACT_PROFILE_NAME
+    assert historical_remote_v1["payload_bytes"] == _COMPACT_PAYLOAD_BYTES
 
 
 def _row_by_mode(rows: list[dict[str, str]], accelerator_mode: str) -> dict[str, str]:
