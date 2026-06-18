@@ -13,8 +13,10 @@ Build the repo toward a fair SIPAIM 2026 comparison between:
 
 The current task is the Kaggle no-dataset synthetic timing evidence handoff for
 the translatable normal VAE baseline. The local implementation is committed and
-pushed to GitHub, and Kaggle remote version 1 completed successfully as
-non-promotable synthetic timing evidence. Clean-context adversarial
+pushed to GitHub, and Kaggle remote versions 1 and 2 completed successfully as
+non-promotable synthetic timing evidence. Version 1 used the historical compact
+0.81 GB profile; version 2 uses the current 2 GiB-scale profile.
+Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, and a focused
 scaffold-readiness check on 2026-06-12. The 2026-06-11 passes
 confirmed that the previous `4x4` latent target was inconsistent with the
@@ -26,8 +28,8 @@ gates were made explicit. A local Kaggle CLI execution scaffold now exists; it
 is not broad/full-run Kaggle-push-ready. The no-dataset setup smoke passed on
 Kaggle, while real-data smoke paths attach the 60 GB+ dataset and are guarded by
 `KAGGLE_FULL_DATASET_CONFIRMED=1`. The no-dataset synthetic binary timing
-kernel/guard path now exists on GitHub and remote Kaggle version 1 has produced
-downloaded ignored evidence at `runs/kaggle/synthetic_timing`.
+kernel/guard path now exists on GitHub and remote Kaggle version 2 has produced
+downloaded ignored benchmark evidence at `runs/kaggle/synthetic_timing_2gib`.
 
 Spec-driven development is now an active repo workflow. The first active spec is
 `docs/specs/0001-translatable-normal-vae-baseline.md`, now reopened as
@@ -78,10 +80,13 @@ shard generation, active loader/collate/normalization proof, and
 single-visible-T4 plus dual-T4/DDP child-process timing attempts. Remote
 Kaggle version 1 completed with `status = "synthetic_timing_pass"` in all three
 JSON artifacts, 16/16 matrix rows passing, and both `single_visible_t4` and
-`dual_t4_ddp` modes passing. It writes only non-promotable synthetic timing
-artifacts and did not write `benchmark/selected_runtime.json`. It may
-screen/order rows for the real-data benchmark but cannot unlock selected-runtime
-debug/full runs.
+`dual_t4_ddp` modes passing on the historical compact profile. Remote Kaggle
+version 2 completed on the current `synthetic_binary_2gib_histology_like_v1`
+profile with 10,912 total patches, 5,456 train / 5,456 validation, 16/16 matrix
+rows passing, zero fit-probe rows, and both accelerator modes passing. It writes
+only non-promotable synthetic timing artifacts and did not write
+`benchmark/selected_runtime.json`. It may screen/order rows for the real-data
+benchmark but cannot unlock selected-runtime debug/full runs.
 The canonical short decision note is
 `docs/decisions/0008-kaggle-synthetic-timing-pretest.md`.
 Strict Python quality is also an active workflow via
@@ -214,14 +219,19 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: inspect the downloaded non-promotable synthetic timing
-evidence and choose which candidate rows should move to the later real-data
-benchmark. The remote v1 artifacts live under
-`runs/kaggle/synthetic_timing/benchmark`. Top synthetic recommendation was
-`single_visible_t4__bs16__amp_off_fp32__compile_off__branchless_all` with
-estimated synthetic-projected epoch time `1.816008` minutes. Treat this only as
-screening/order evidence; real runtime selection still requires real-data
-benchmarking and the selected-runtime debug/full-run gates.
+Immediate next action: decide whether to implement and run the spec-mentioned
+5-warmup/25-measured repeated shortlist synthetic pass, or carry the v2
+screening shortlist directly into the later real-data benchmark design. The v2
+artifacts live under `runs/kaggle/synthetic_timing_2gib/benchmark`. Top v2
+synthetic recommendations were
+`single_visible_t4__bs8__amp_off_fp32__compile_off__branchless_all`
+(`estimated_epoch_minutes = 2.015909`),
+`single_visible_t4__bs12__amp_off_fp32__compile_off__branchless_all`
+(`2.052612`), and
+`single_visible_t4__bs16__amp_off_fp32__compile_off__branchless_all`
+(`2.090076`). Treat these only as loader/H2D screening/order evidence; real
+runtime selection still requires real-data benchmarking and the selected-runtime
+debug/full-run gates.
 The synthetic setup-smoke remote test passed on Kaggle as version 1 of
 `maximusshtefan/eqvae-setup-smoke`; downloaded ignored evidence is at
 `runs/kaggle/setup_smoke/benchmark/kaggle_setup_smoke.json`. The setup artifact
@@ -869,10 +879,11 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `full_run_eligible = false`, empty Kaggle source lists, and
   `status_scope = "non_promotable_synthetic_timing"`. Matrix summary: 16 rows,
   all `pass`; 8 `single_visible_t4`, 8 `dual_t4_ddp`; 2 fit-probe-only rows.
-  Generated default profile evidence: 4096 total patches, 2048 train / 2048
+  Historical compact profile evidence: 4096 total patches, 2048 train / 2048
   validation, 805306368 payload bytes, 2048 CSV rows per split, both shard
   files 402653248 bytes, CRC validated, semantic keys unique, and loader
-  normalization range proof passed. Top recommendations were
+  normalization range proof passed. This is not the current default profile.
+  Top recommendations were
   `single_visible_t4__bs16__amp_off_fp32__compile_off__branchless_all`
   (`estimated_epoch_minutes = 1.816008`),
   `dual_t4_ddp__bs24__amp_off_fp32__compile_off__branchless_all`
@@ -880,6 +891,39 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `dual_t4_ddp__bs8__amp_off_fp32__compile_off__branchless_all`
   (`2.606373`). These are screening/order evidence only, not selected runtime
   evidence.
+- 2026-06-18 Kaggle synthetic timing 2 GiB profile update and remote v2: after
+  the user clarified that this benchmark should choose where/how to run later
+  real training without attaching the 60 GB dataset, the default synthetic
+  profile was scaled to `synthetic_binary_2gib_histology_like_v1` and committed
+  as `651cc69 Scale synthetic timing profile`, then pushed to GitHub. The old
+  `synthetic_binary_0p81gb_histology_like_v1` profile remains as a named
+  historical profile for remote-v1 evidence lineage. The push guard now decodes
+  the embedded payload and asserts the 2 GiB default/compact historical profile
+  constants. The recommendation JSON explicitly records that
+  `estimated_epoch_minutes` is
+  `loader_collate_normalize_h2d_only_projected_to_real_train_patch_count`, with
+  model forward/backward, optimizer, corruption, precision policy, and
+  `torch.compile` marked unmeasured.
+  Verification before the push: focused synthetic timing/upload-simulation
+  pytest passed with 11 tests, focused BasedPyright passed with 0 errors,
+  `./scripts/kaggle_kernel.sh build kaggle/kernels/synthetic_timing` passed,
+  `./scripts/kaggle_kernel.sh validate kaggle/kernels/synthetic_timing` passed,
+  `git diff --check` passed, and `./scripts/python_quality.sh` passed with 89
+  tests and 0 BasedPyright errors. Remote Kaggle version 2 completed with
+  `status = "synthetic_timing_pass"`, downloaded ignored benchmark artifacts at
+  `runs/kaggle/synthetic_timing_2gib/benchmark`, and no
+  `benchmark/selected_runtime.json`. Manifest profile evidence: 10,912 total
+  patches, 5,456 train / 5,456 validation, 2,145,386,496 payload bytes,
+  5,456 CSV rows per split, both split payloads 1,072,693,248 bytes, both shard
+  files 1,072,693,312 bytes, CRC validated, semantic keys unique, and loader
+  normalization range proof passed. Matrix summary: 16 rows, all `pass`; 8
+  `single_visible_t4`, 8 `dual_t4_ddp`; 0 fit-probe rows and 0 sample reuse.
+  Top recommendations were single-T4 batch sizes 8, 12, and 16 with
+  estimated loader/H2D-projected epoch times `2.015909`, `2.052612`, and
+  `2.090076` minutes. The output download was interrupted only after the four
+  benchmark files were present to avoid downloading the generated 2 GiB raw
+  synthetic data directory; an ignored partial zero-byte synthetic data file may
+  remain under `runs/kaggle/synthetic_timing_2gib/synthetic_timing_data`.
 
 ## Update Rule
 

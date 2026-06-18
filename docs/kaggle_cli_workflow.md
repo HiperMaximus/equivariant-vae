@@ -85,7 +85,7 @@ The no-dataset GPU timing scaffold is:
 kaggle/kernels/synthetic_timing
 ```
 
-It is implemented locally at this path, and remote version 1 completed on
+It is implemented locally at this path, and remote versions 1 and 2 completed on
 Kaggle with non-promotable `synthetic_timing_pass`. Its contract is to request
 T4 GPU runtime, attach no Kaggle datasets or other sources, generate
 deterministic UBC-format binary+CSV shards under the Kaggle working output, and
@@ -94,8 +94,8 @@ profile is `synthetic_binary_2gib_histology_like_v1`: 10,912 total
 `3x256x256` CHW `uint8` patches, split 5,456 train / 5,456 validation,
 2,145,386,496 payload bytes before CSV/artifacts, about 1.998 GiB. This keeps
 non-wrapping 30-batch throughput rows eligible through global batch 128. Remote
-v1 used the earlier 0.81 GB profile; remote v2 should refresh the evidence with
-this 2 GiB-scale default.
+v1 used the earlier 0.81 GB profile; remote v2 refreshed the evidence with this
+2 GiB-scale default at `runs/kaggle/synthetic_timing_2gib/benchmark`.
 
 The generated synthetic root must mirror the real shard contract exactly enough
 to exercise the same loader path: write
