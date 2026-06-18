@@ -13,7 +13,7 @@ the narrow capped Kaggle smoke is `kaggle_smoke_ready`; the synthetic
 no-dataset Kaggle setup smoke is `kaggle_setup_smoke_ready`; the no-dataset
 synthetic binary Kaggle timing pretest contract is
 `kaggle_synthetic_timing_contract_ready` with local implementation and
-remote v1/v2 non-promotable evidence
+remote v1/v2/v3 non-promotable evidence
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-18
 

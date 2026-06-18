@@ -13,9 +13,11 @@ Build the repo toward a fair SIPAIM 2026 comparison between:
 
 The current task is the Kaggle no-dataset synthetic timing evidence handoff for
 the translatable normal VAE baseline. The local implementation is committed and
-pushed to GitHub, and Kaggle remote versions 1 and 2 completed successfully as
-non-promotable synthetic timing evidence. Version 1 used the historical compact
-0.81 GB profile; version 2 uses the current 2 GiB-scale profile.
+pushed to GitHub, and Kaggle remote versions 1, 2, and 3 completed successfully
+as non-promotable synthetic timing evidence. Version 1 used the historical
+compact 0.81 GB profile; versions 2 and 3 use the current 2 GiB-scale profile,
+with version 3 superseding version 2 for corrected DDP runtime proof and
+`drop_last = false` projection fields.
 Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, and a focused
 scaffold-readiness check on 2026-06-12. The 2026-06-11 passes
@@ -28,8 +30,9 @@ gates were made explicit. A local Kaggle CLI execution scaffold now exists; it
 is not broad/full-run Kaggle-push-ready. The no-dataset setup smoke passed on
 Kaggle, while real-data smoke paths attach the 60 GB+ dataset and are guarded by
 `KAGGLE_FULL_DATASET_CONFIRMED=1`. The no-dataset synthetic binary timing
-kernel/guard path now exists on GitHub and remote Kaggle version 2 has produced
-downloaded ignored benchmark evidence at `runs/kaggle/synthetic_timing_2gib`.
+kernel/guard path now exists on GitHub and remote Kaggle version 3 has produced
+downloaded ignored benchmark evidence at
+`runs/kaggle/synthetic_timing_2gib_v3`.
 
 Spec-driven development is now an active repo workflow. The first active spec is
 `docs/specs/0001-translatable-normal-vae-baseline.md`, now reopened as
@@ -83,8 +86,11 @@ JSON artifacts, 16/16 matrix rows passing, and both `single_visible_t4` and
 `dual_t4_ddp` modes passing on the historical compact profile. Remote Kaggle
 version 2 completed on the current `synthetic_binary_2gib_histology_like_v1`
 profile with 10,912 total patches, 5,456 train / 5,456 validation, 16/16 matrix
-rows passing, zero fit-probe rows, and both accelerator modes passing. It writes
-only non-promotable synthetic timing artifacts and did not write
+rows passing, zero fit-probe rows, and both accelerator modes passing. Version 3
+reran the same profile after adversarial review, preserving per-rank DDP device
+assignments, child/torchrun return codes, and exact
+`effective_samples_per_epoch = 300000` for `drop_last = false`. It writes only
+non-promotable synthetic timing artifacts and did not write
 `benchmark/selected_runtime.json`. It may screen/order rows for the real-data
 benchmark but cannot unlock selected-runtime debug/full runs.
 The canonical short decision note is
@@ -220,18 +226,19 @@ implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
 Immediate next action: decide whether to implement and run the spec-mentioned
-5-warmup/25-measured repeated shortlist synthetic pass, or carry the v2
-screening shortlist directly into the later real-data benchmark design. The v2
-artifacts live under `runs/kaggle/synthetic_timing_2gib/benchmark`. Top v2
+5-warmup/25-measured repeated shortlist synthetic pass, or carry the v3
+screening shortlist directly into the later real-data benchmark design. The v3
+artifacts live under `runs/kaggle/synthetic_timing_2gib_v3/benchmark`. Top v3
 synthetic recommendations were
-`single_visible_t4__bs8__amp_off_fp32__compile_off__branchless_all`
-(`estimated_epoch_minutes = 2.015909`),
+`dual_t4_ddp__bs8__amp_off_fp32__compile_off__branchless_all`
+(`estimated_epoch_minutes = 1.592481`),
+`single_visible_t4__bs32__amp_off_fp32__compile_off__branchless_all`
+(`2.385673`), and
 `single_visible_t4__bs12__amp_off_fp32__compile_off__branchless_all`
-(`2.052612`), and
-`single_visible_t4__bs16__amp_off_fp32__compile_off__branchless_all`
-(`2.090076`). Treat these only as loader/H2D screening/order evidence; real
-runtime selection still requires real-data benchmarking and the selected-runtime
-debug/full-run gates.
+(`2.439552`). The recommendation artifact marks a 5-warmup/25-measured repeat
+as required before an operational shortlist. Treat these only as loader/H2D
+screening/order evidence; real runtime selection still requires real-data
+benchmarking and the selected-runtime debug/full-run gates.
 The synthetic setup-smoke remote test passed on Kaggle as version 1 of
 `maximusshtefan/eqvae-setup-smoke`; downloaded ignored evidence is at
 `runs/kaggle/setup_smoke/benchmark/kaggle_setup_smoke.json`. The setup artifact
@@ -924,6 +931,38 @@ The review process lives in `docs/agentic_review_workflow.md`.
   benchmark files were present to avoid downloading the generated 2 GiB raw
   synthetic data directory; an ignored partial zero-byte synthetic data file may
   remain under `runs/kaggle/synthetic_timing_2gib/synthetic_timing_data`.
+- 2026-06-18 Kaggle synthetic timing remote v3: adversarial final review found
+  that v2 did not preserve per-rank DDP device assignment in runtime proof and
+  that rows with global batch sizes 64/128 reported padded capacity instead of
+  exact `effective_samples_per_epoch = real_train_patch_count` under
+  `drop_last = false`. The implementation was fixed in
+  `bc25862 Strengthen synthetic timing runtime proof`: matrix rows now include
+  `row_order`, child return code, DDP torchrun return code, DDP rank count/order,
+  and serialized DDP rank assignments; `synthetic_timing_runtime_proof.json`
+  summarizes row order, child return codes, and per-rank device assignments; and
+  recommendations include an explicit 5-warmup/25-measured repeat-shortlist
+  policy. Focused synthetic timing/upload-simulation pytest passed with 12
+  tests, focused BasedPyright passed with 0 errors, and
+  `./scripts/python_quality.sh` passed with 90 tests and 0 BasedPyright errors.
+  Remote Kaggle version 3 completed with `status = "synthetic_timing_pass"`,
+  downloaded ignored benchmark artifacts at
+  `runs/kaggle/synthetic_timing_2gib_v3/benchmark`, and no
+  `benchmark/selected_runtime.json`. Manifest profile evidence stayed at
+  10,912 total patches, 5,456 train / 5,456 validation, and 2,145,386,496
+  payload bytes; both splits passed CRC validation and semantic-key uniqueness.
+  Matrix summary: 16 rows, all `pass`; 8 `single_visible_t4`, 8 `dual_t4_ddp`;
+  0 fit-probe rows; all rows have `effective_samples_per_epoch = 300000` and
+  child return code `0`; all dual rows have torchrun return code `0`, rank count
+  `2`, and rank order `[0, 1]`. Top v3 recommendations were
+  `dual_t4_ddp__bs8__amp_off_fp32__compile_off__branchless_all`
+  (`estimated_epoch_minutes = 1.592481`),
+  `single_visible_t4__bs32__amp_off_fp32__compile_off__branchless_all`
+  (`2.385673`), and
+  `single_visible_t4__bs12__amp_off_fp32__compile_off__branchless_all`
+  (`2.439552`). The output download was interrupted only after the four
+  benchmark files were present to avoid downloading the generated 2 GiB raw
+  synthetic data directory; an ignored partial zero-byte synthetic data file may
+  remain under `runs/kaggle/synthetic_timing_2gib_v3/synthetic_timing_data`.
 
 ## Update Rule
 

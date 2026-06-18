@@ -5,9 +5,9 @@ Implementation readiness: synthetic setup-smoke remote v1 passed as
 non-promotable setup evidence; real-data capped smoke has local embedded
 packaging/upload-simulation proof and Kaggle source attachments now require
 `KAGGLE_FULL_DATASET_CONFIRMED=1`; no-dataset synthetic binary timing pretest
-has a committed local kernel/guard implementation and remote v1/v2 completed
-with non-promotable `synthetic_timing_pass`; v2 uses the current 2 GiB-scale
-synthetic profile; full
+has a committed local kernel/guard implementation and remote v1/v2/v3 completed
+with non-promotable `synthetic_timing_pass`; v3 is the current 2 GiB-scale
+synthetic evidence with per-rank DDP proof; full
 benchmark/full-run launchers are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-18
@@ -146,8 +146,10 @@ candidate rows for the real-data runtime benchmark, including both
 blocked until real train/validation shards are measured. Remote v1 completed on
 2026-06-18 with the historical compact 0.81 GB profile; downloaded ignored v1
 evidence lives under `runs/kaggle/synthetic_timing`. Remote v2 completed on
-2026-06-18 with the current 2 GiB-scale profile; downloaded ignored benchmark
-evidence lives under `runs/kaggle/synthetic_timing_2gib/benchmark`.
+2026-06-18 with the current 2 GiB-scale profile, but was superseded by remote
+v3 because v3 records per-rank DDP device assignment and corrected
+`drop_last = false` projection fields. Downloaded ignored v3 benchmark evidence
+lives under `runs/kaggle/synthetic_timing_2gib_v3/benchmark`.
 
 ## Kaggle Authentication Contract
 
