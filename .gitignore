@@ -209,6 +209,7 @@ runs/
 kaggle/kernels/*/payload/
 kaggle/kernels/non_eq_vae_debug/run.py
 kaggle/kernels/setup_smoke/run.py
+kaggle/kernels/synthetic_timing/run.py
 
 # Kaggle credentials
 .kaggle/

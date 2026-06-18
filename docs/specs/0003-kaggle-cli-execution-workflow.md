@@ -5,8 +5,8 @@ Implementation readiness: synthetic setup-smoke remote v1 passed as
 non-promotable setup evidence; real-data capped smoke has local embedded
 packaging/upload-simulation proof and Kaggle source attachments now require
 `KAGGLE_FULL_DATASET_CONFIRMED=1`; no-dataset synthetic binary timing pretest
-contract is ready for implementation; full benchmark/full-run launchers are not
-Kaggle-push-ready
+has a local kernel/guard implementation and remains unpushed; full
+benchmark/full-run launchers are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-18
 
@@ -129,19 +129,20 @@ payload import, synthetic shard generation, artifact writing, and output
 download path. It does not prove real dataset attachment, T4 runtime, loader
 throughput, runtime selection, or convergence.
 
-The future synthetic timing kernel is:
+The synthetic timing kernel is:
 
 ```text
 kaggle/kernels/synthetic_timing
 ```
 
-It is not implemented yet. When implemented, it must request T4 GPU runtime,
-attach no Kaggle sources, generate deterministic UBC-format binary+CSV shards
-under `/kaggle/working`, and write only non-promotable synthetic timing
-artifacts. It exists to screen and order candidate rows for the real-data
-runtime benchmark, including both `single_visible_t4` and `dual_t4_ddp`, while
-keeping final runtime selection blocked until real train/validation shards are
-measured.
+It is implemented locally as a generated single-file script kernel. It requests
+T4 GPU runtime, attaches no Kaggle sources, generates deterministic UBC-format
+binary+CSV shards under the Kaggle working output, and writes only
+non-promotable synthetic timing artifacts. It exists to screen and order
+candidate rows for the real-data runtime benchmark, including both
+`single_visible_t4` and `dual_t4_ddp`, while keeping final runtime selection
+blocked until real train/validation shards are measured. It has not been pushed
+to Kaggle.
 
 ## Kaggle Authentication Contract
 
@@ -336,9 +337,8 @@ KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-setup
 ```
 
-Future synthetic timing remote command, only after the kernel exists, its guard
-branch and upload-simulation tests pass, and the user explicitly approves the
-remote write:
+Synthetic timing remote command, only after adversarial/local verification is
+complete and the user explicitly approves the remote write:
 
 ```bash
 KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/synthetic_timing

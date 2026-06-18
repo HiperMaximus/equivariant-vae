@@ -17,8 +17,28 @@ from eqvae.benchmarking.kaggle_smoke import (
     SETUP_SMOKE_KIND,
     SETUP_SMOKE_SOURCE,
 )
+from eqvae.benchmarking.synthetic_timing import (
+    MANIFEST_FILENAME,
+    MATRIX_FILENAME,
+    RECOMMENDATIONS_FILENAME,
+    RUNTIME_PROOF_FILENAME,
+    SYNTHETIC_TIMING_KIND,
+    SYNTHETIC_TIMING_SCOPE,
+    SYNTHETIC_TIMING_SOURCE,
+)
 
 _EXPECTED_SETUP_APPLIED_COUNT = 2
+_EXPECTED_SYNTHETIC_TIMING_BLOCKED_CLAIMS = {
+    "final_batch_size",
+    "final_precision_policy",
+    "final_corruption_strategy",
+    "final_dataloader_settings",
+    "final_single_vs_dual_t4",
+    "real_data_loader_throughput",
+    "convergence",
+    "paper_evidence",
+    "full_run_readiness",
+}
 
 
 @dataclass(frozen=True)
@@ -96,6 +116,53 @@ def test_embedded_real_data_kernel_survives_single_file_upload_simulation(
     assert payload["benchmark_kind"] == "real_data_kaggle_debug_smoke_import_only"
     assert payload["config_exists"] is True
     assert manifest["schema_version"] == "spec0001.kaggle_payload_manifest.v1"
+
+
+def test_embedded_synthetic_timing_kernel_survives_single_file_upload_simulation(
+    tmp_path: Path,
+) -> None:
+    """Synthetic timing works when only metadata plus `run.py` are present."""
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="synthetic_timing",
+        ready_marker="KAGGLE_SYNTHETIC_TIMING_READY = True",
+    )
+    environment = _run_environment(simulation.output_dir)
+    environment["EQVAE_SYNTHETIC_TIMING_TINY_PROFILE"] = "1"
+
+    subprocess.run(  # noqa: S603
+        (sys.executable, str(simulation.upload_dir / "run.py")),
+        cwd=simulation.upload_dir,
+        check=True,
+        env=environment,
+    )
+
+    benchmark_dir = simulation.output_dir / "benchmark"
+    assert {path.name for path in benchmark_dir.iterdir()} == {
+        MANIFEST_FILENAME,
+        RUNTIME_PROOF_FILENAME,
+        MATRIX_FILENAME,
+        RECOMMENDATIONS_FILENAME,
+    }
+    assert not (benchmark_dir / "selected_runtime.json").exists()
+    manifest = _load_json(benchmark_dir / MANIFEST_FILENAME)
+    runtime_proof = _load_json(benchmark_dir / RUNTIME_PROOF_FILENAME)
+    recommendations = _load_json(benchmark_dir / RECOMMENDATIONS_FILENAME)
+    for payload in (manifest, runtime_proof, recommendations):
+        blocked_claims = cast("dict[str, bool]", payload["blocked_claims"])
+        assert payload["benchmark_kind"] == SYNTHETIC_TIMING_KIND
+        assert payload["benchmark_source"] == SYNTHETIC_TIMING_SOURCE
+        assert payload["status_scope"] == SYNTHETIC_TIMING_SCOPE
+        assert payload["full_run_eligible"] is False
+        assert set(blocked_claims) == _EXPECTED_SYNTHETIC_TIMING_BLOCKED_CLAIMS
+        assert all(blocked_claims.values())
+    profile = cast("dict[str, object]", manifest["profile"])
+    data = cast("dict[str, object]", manifest["data"])
+    assert profile["name"] == "synthetic_binary_tiny_upload_simulation_v1"
+    assert data["generation_excluded_from_timing"] is True
+    assert data["local_upload_simulation"] is True
 
 
 def _build_upload_simulation(

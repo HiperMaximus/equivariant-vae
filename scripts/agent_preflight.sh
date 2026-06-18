@@ -66,6 +66,9 @@ required_files=(
   "kaggle/kernels/setup_smoke/__init__.py"
   "kaggle/kernels/setup_smoke/kernel-metadata.json"
   "kaggle/kernels/setup_smoke/run_template.py"
+  "kaggle/kernels/synthetic_timing/__init__.py"
+  "kaggle/kernels/synthetic_timing/kernel-metadata.json"
+  "kaggle/kernels/synthetic_timing/run_template.py"
   "tests/.gitkeep"
   "paper/sipaim2026/main.tex"
   "paper/sipaim2026/sipaim2026.pdf"
@@ -212,6 +215,13 @@ if git check-ignore --no-index -q kaggle/kernels/setup_smoke/run.py; then
   echo "ok: generated setup-smoke run.py is ignored"
 else
   echo "error: generated setup-smoke run.py should stay ignored"
+  missing=1
+fi
+
+if git check-ignore --no-index -q kaggle/kernels/synthetic_timing/run.py; then
+  echo "ok: generated synthetic-timing run.py is ignored"
+else
+  echo "error: generated synthetic-timing run.py should stay ignored"
   missing=1
 fi
 

@@ -79,16 +79,17 @@ data origin, CPU runtime, `requires_cuda_t4 = false`, 3 train steps, 1
 clean-validation batch, 2 deterministic applied corruptions, and clean embedded
 payload provenance for commit `3162bec`.
 
-The next planned no-dataset GPU timing scaffold is:
+The no-dataset GPU timing scaffold is:
 
 ```text
 kaggle/kernels/synthetic_timing
 ```
 
-It is not implemented yet. Its contract is to request T4 GPU runtime, attach no
-Kaggle datasets or other sources, generate deterministic UBC-format binary+CSV
-shards under `/kaggle/working`, and write only non-promotable synthetic timing
-artifacts. The default profile is
+It is implemented locally at this path and has not been pushed to Kaggle. Its
+contract is to request T4 GPU runtime, attach no Kaggle datasets or other
+sources, generate deterministic UBC-format binary+CSV shards under the Kaggle
+working output, and write only non-promotable synthetic timing artifacts. The
+default profile is
 `synthetic_binary_0p81gb_histology_like_v1`: 4,096 total `3x256x256` CHW
 `uint8` patches, split 2,048 train / 2,048 validation, about 805,306,368
 payload bytes before CSV/artifacts. This stays below 1 GB while allowing
@@ -263,8 +264,8 @@ training-time plumbing, use a no-dataset kernel with empty `dataset_sources`.
 The existing setup smoke has a distinct status/source and must never be promoted
 to real-data benchmark evidence.
 
-For the synthetic binary timing pretest after implementation, the intended
-remote sequence is:
+For the synthetic binary timing pretest, the remote sequence remains permission
+gated:
 
 ```bash
 ./scripts/kaggle_kernel.sh build kaggle/kernels/synthetic_timing

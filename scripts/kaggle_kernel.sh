@@ -8,6 +8,7 @@ default_kernel_dir="kaggle/kernels/non_eq_vae_debug"
 default_output_dir="runs/kaggle/non_eq_vae_debug"
 setup_kernel_dir="kaggle/kernels/setup_smoke"
 setup_output_dir="runs/kaggle/setup_smoke"
+synthetic_timing_kernel_dir="kaggle/kernels/synthetic_timing"
 
 usage() {
   cat <<'EOF'
@@ -285,6 +286,9 @@ embedded_ready_marker() {
     maximusshtefan/eqvae-setup-smoke)
       printf '%s\n' "KAGGLE_SETUP_SMOKE_READY = True"
       ;;
+    maximusshtefan/eqvae-synthetic-timing)
+      printf '%s\n' "KAGGLE_SYNTHETIC_TIMING_READY = True"
+      ;;
     maximusshtefan/non-eq-vae-debug)
       printf '%s\n' "KAGGLE_SMOKE_READY = True"
       ;;
@@ -320,6 +324,11 @@ EOF
 
   if grep -q "KAGGLE_SETUP_SMOKE_READY = True" "$kernel_dir/$code_file"; then
     guard_setup_push_ready "$kernel_dir" "$metadata"
+    return
+  fi
+
+  if grep -q "KAGGLE_SYNTHETIC_TIMING_READY = True" "$kernel_dir/$code_file"; then
+    guard_synthetic_timing_push_ready "$kernel_dir" "$metadata"
     return
   fi
 
@@ -557,6 +566,109 @@ PY
     --verify-only
 }
 
+guard_synthetic_timing_push_ready() {
+  local kernel_dir="$1"
+  local metadata="$2"
+
+  if [[ -d "$kernel_dir/payload" ]]; then
+    echo "error: synthetic timing must be a single generated run.py, not a sibling payload" >&2
+    exit 1
+  fi
+
+  if [[ "${KAGGLE_FULL_DATASET_CONFIRMED:-}" == "1" ]]; then
+    echo "error: do not set KAGGLE_FULL_DATASET_CONFIRMED=1 for no-dataset synthetic timing" >&2
+    exit 1
+  fi
+
+  if ! grep -q 'kaggle_synthetic_timing_contract_ready' \
+    "docs/specs/0001-translatable-normal-vae-baseline.md"; then
+    echo "error: spec 0001 does not authorize the synthetic timing contract" >&2
+    exit 1
+  fi
+  if ! grep -q 'synthetic binary timing pretest contract is `kaggle_synthetic_timing_contract_ready`' \
+    "docs/specs/README.md"; then
+    echo "error: spec index does not authorize the synthetic timing contract" >&2
+    exit 1
+  fi
+  if ! grep -q 'The synthetic binary timing pretest workflow becomes Kaggle-push-ready' \
+    "docs/specs/0003-kaggle-cli-execution-workflow.md"; then
+    echo "error: spec 0003 does not describe synthetic timing push readiness" >&2
+    exit 1
+  fi
+
+  python3 - "$metadata" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+metadata = Path(sys.argv[1])
+data = json.loads(metadata.read_text(encoding="utf-8"))
+errors: list[str] = []
+
+required_values = {
+    "id": "maximusshtefan/eqvae-synthetic-timing",
+    "title": "eqvae synthetic timing",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "false",
+    "machine_shape": "NvidiaTeslaT4",
+}
+
+for key, expected in required_values.items():
+    actual = str(data.get(key, ""))
+    comparable = actual.lower() if expected in {"true", "false"} else actual
+    if comparable != expected:
+        errors.append(f"{key} must be {expected!r}")
+
+for source_field in (
+    "dataset_sources",
+    "competition_sources",
+    "kernel_sources",
+    "model_sources",
+):
+    if data.get(source_field) != []:
+        errors.append(f"{source_field} must be an empty list for synthetic timing")
+
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+
+  python3 scripts/build_kaggle_embedded_kernel.py \
+    --kernel-dir "$kernel_dir" \
+    --ready-marker "KAGGLE_SYNTHETIC_TIMING_READY = True" \
+    --verify-only
+
+  local run_file="$kernel_dir/run.py"
+  if grep -q "selected_runtime" "$run_file"; then
+    echo "error: synthetic timing launcher must not reference selected runtime artifacts" >&2
+    exit 1
+  fi
+
+  for required_text in \
+    "synthetic_timing_manifest.json" \
+    "synthetic_timing_runtime_proof.json" \
+    "synthetic_timing_matrix.csv" \
+    "synthetic_timing_recommendations.json" \
+    "non_promotable_synthetic_timing" \
+    "kaggle_synthetic_timing_pretest" \
+    "kaggle_no_dataset_generated_ubc_shards" \
+    "blocked_claims" \
+    "/kaggle/working" \
+    "single_visible_t4" \
+    "dual_t4_ddp" \
+    "wrong_accelerator"; do
+    if ! grep -q "$required_text" "$run_file"; then
+      echo "error: synthetic timing run.py missing required text: $required_text" >&2
+      exit 1
+    fi
+  done
+}
+
 validate_payload_freshness() {
   local payload_dir="$1"
   python3 - "$payload_dir" <<'PY'
@@ -717,8 +829,8 @@ case "$action" in
       exit 1
     fi
     validate_kernel_dir "$kernel_dir"
-    require_kaggle_sources_confirmed "$(metadata_path "$kernel_dir")"
     guard_push_ready "$kernel_dir"
+    require_kaggle_sources_confirmed "$(metadata_path "$kernel_dir")"
     require_kaggle_cli
     kaggle kernels push -p "$kernel_dir" "$@"
     ;;

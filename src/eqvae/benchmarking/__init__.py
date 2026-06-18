@@ -20,15 +20,27 @@ from eqvae.benchmarking.runtime_schema import (
     RUNTIME_MATRIX_COLUMNS,
     write_synthetic_benchmark_artifacts,
 )
+from eqvae.benchmarking.synthetic_timing import (
+    SyntheticTimingRequest,
+    build_synthetic_timing_recommendations_payload,
+    default_synthetic_timing_profile,
+    tiny_upload_simulation_profile,
+    write_synthetic_timing_pretest,
+)
 
 __all__ = [
     "RUNTIME_MATRIX_COLUMNS",
     "SPEC0001_MODEL_COUNT_TARGET",
     "LocalDataloaderPretestRequest",
     "LocalModelLossTrainStepRequest",
+    "SyntheticTimingRequest",
     "build_model_count_payload",
+    "build_synthetic_timing_recommendations_payload",
+    "default_synthetic_timing_profile",
+    "tiny_upload_simulation_profile",
     "write_local_dataloader_pretest",
     "write_local_model_loss_train_step",
     "write_model_count",
     "write_synthetic_benchmark_artifacts",
+    "write_synthetic_timing_pretest",
 ]
