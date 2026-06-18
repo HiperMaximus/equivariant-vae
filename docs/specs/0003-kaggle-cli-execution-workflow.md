@@ -5,8 +5,8 @@ Implementation readiness: synthetic setup-smoke remote v1 passed as
 non-promotable setup evidence; real-data capped smoke has local embedded
 packaging/upload-simulation proof and Kaggle source attachments now require
 `KAGGLE_FULL_DATASET_CONFIRMED=1`; no-dataset synthetic binary timing pretest
-has a committed local kernel/guard implementation and remains unpushed to
-Kaggle; full
+has a committed local kernel/guard implementation and remote v1 completed with
+non-promotable `synthetic_timing_pass`; full
 benchmark/full-run launchers are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-18
@@ -142,8 +142,9 @@ binary+CSV shards under the Kaggle working output, and writes only
 non-promotable synthetic timing artifacts. It exists to screen and order
 candidate rows for the real-data runtime benchmark, including both
 `single_visible_t4` and `dual_t4_ddp`, while keeping final runtime selection
-blocked until real train/validation shards are measured. It has not been pushed
-to Kaggle.
+blocked until real train/validation shards are measured. Remote v1 completed on
+2026-06-18 and downloaded ignored evidence lives under
+`runs/kaggle/synthetic_timing`.
 
 ## Kaggle Authentication Contract
 

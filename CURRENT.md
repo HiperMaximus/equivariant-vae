@@ -11,9 +11,10 @@ Build the repo toward a fair SIPAIM 2026 comparison between:
 2. a continuous `SO(2)` steerable denoising VAE using a repo-owned,
    compile-compatible implementation, with `escnn` as a reference.
 
-The current task is the Kaggle no-dataset synthetic timing handoff for the
-translatable normal VAE baseline. The local implementation is committed and
-pushed to GitHub; no Kaggle remote execution has been run. Clean-context adversarial
+The current task is the Kaggle no-dataset synthetic timing evidence handoff for
+the translatable normal VAE baseline. The local implementation is committed and
+pushed to GitHub, and Kaggle remote version 1 completed successfully as
+non-promotable synthetic timing evidence. Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, and a focused
 scaffold-readiness check on 2026-06-12. The 2026-06-11 passes
 confirmed that the previous `4x4` latent target was inconsistent with the
@@ -25,8 +26,8 @@ gates were made explicit. A local Kaggle CLI execution scaffold now exists; it
 is not broad/full-run Kaggle-push-ready. The no-dataset setup smoke passed on
 Kaggle, while real-data smoke paths attach the 60 GB+ dataset and are guarded by
 `KAGGLE_FULL_DATASET_CONFIRMED=1`. The no-dataset synthetic binary timing
-kernel/guard path now exists on GitHub and remains unrun on Kaggle until the
-user explicitly approves a Kaggle push.
+kernel/guard path now exists on GitHub and remote Kaggle version 1 has produced
+downloaded ignored evidence at `runs/kaggle/synthetic_timing`.
 
 Spec-driven development is now an active repo workflow. The first active spec is
 `docs/specs/0001-translatable-normal-vae-baseline.md`, now reopened as
@@ -70,14 +71,17 @@ dev/test oracle, not a runtime import in active `src/eqvae` corruption code. The
 canonical short decision note is
 `docs/decisions/0007-stain-corruptor-convention.md`.
 The 2026-06-17 synthetic Kaggle timing spec pass added
-`kaggle_synthetic_timing_contract_ready`. The 2026-06-18 local implementation
-now adds the no-dataset GPU kernel at `kaggle/kernels/synthetic_timing`, a
-dedicated push guard in `scripts/kaggle_kernel.sh`, deterministic streaming
-UBC-format shard generation, active loader/collate/normalization proof, and
-single-visible-T4 plus dual-T4/DDP child-process timing attempts. It writes only
-non-promotable synthetic timing artifacts and cannot write
-`benchmark/selected_runtime.json`. It may screen/order rows for the real-data
-benchmark but cannot unlock selected-runtime debug/full runs.
+`kaggle_synthetic_timing_contract_ready`. The 2026-06-18 implementation added
+the no-dataset GPU kernel at `kaggle/kernels/synthetic_timing`, a dedicated
+push guard in `scripts/kaggle_kernel.sh`, deterministic streaming UBC-format
+shard generation, active loader/collate/normalization proof, and
+single-visible-T4 plus dual-T4/DDP child-process timing attempts. Remote
+Kaggle version 1 completed with `status = "synthetic_timing_pass"` in all three
+JSON artifacts, 16/16 matrix rows passing, and both `single_visible_t4` and
+`dual_t4_ddp` modes passing. It writes only non-promotable synthetic timing
+artifacts and did not write `benchmark/selected_runtime.json`. It may
+screen/order rows for the real-data benchmark but cannot unlock selected-runtime
+debug/full runs.
 The canonical short decision note is
 `docs/decisions/0008-kaggle-synthetic-timing-pretest.md`.
 Strict Python quality is also an active workflow via
@@ -210,19 +214,14 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: decide whether to run the no-dataset synthetic timing
-kernel on Kaggle. The implemented and pushed GitHub target is
-`kaggle/kernels/synthetic_timing`, with empty Kaggle source lists, T4 GPU
-metadata,
-`KAGGLE_SYNTHETIC_TIMING_READY = True`, generated
-`synthetic_binary_0p81gb_histology_like_v1` shards under the Kaggle working
-output, single-T4 plus dual-T4/DDP attempts, projected epoch-time comparison by
-feasible global batch, separate non-promotable artifacts, and no
-`benchmark/selected_runtime.json`. Format-parity proof covers
-`dataset/ubc_train_shuffled.*` and `dataset/ubc_ocean_valid.*` filenames, the
-same 64-byte header/CRC/CHW `uint8` payload contract, train CSV without `idx`,
-validation CSV with `idx`, and the active loader path rather than a
-synthetic-only shortcut.
+Immediate next action: inspect the downloaded non-promotable synthetic timing
+evidence and choose which candidate rows should move to the later real-data
+benchmark. The remote v1 artifacts live under
+`runs/kaggle/synthetic_timing/benchmark`. Top synthetic recommendation was
+`single_visible_t4__bs16__amp_off_fp32__compile_off__branchless_all` with
+estimated synthetic-projected epoch time `1.816008` minutes. Treat this only as
+screening/order evidence; real runtime selection still requires real-data
+benchmarking and the selected-runtime debug/full-run gates.
 The synthetic setup-smoke remote test passed on Kaggle as version 1 of
 `maximusshtefan/eqvae-setup-smoke`; downloaded ignored evidence is at
 `runs/kaggle/setup_smoke/benchmark/kaggle_setup_smoke.json`. The setup artifact
@@ -415,18 +414,16 @@ The review process lives in `docs/agentic_review_workflow.md`.
 
 ## Next Concrete Steps
 
-1. Decide whether to approve a no-dataset Kaggle synthetic timing push.
-2. If approved, optionally run the read-only Kaggle API preflight first, then
-   push the no-dataset Kaggle synthetic timing kernel with
-   `KAGGLE_PUSH_CONFIRMED=1`. Do not set
-   `KAGGLE_FULL_DATASET_CONFIRMED=1` for that kernel.
-3. After any remote run, retrieve and inspect only the non-promotable synthetic
-   timing artifacts before using them to choose real-data benchmark candidates.
-4. Use synthetic timing only to screen/order candidate rows for the later
+1. Inspect `runs/kaggle/synthetic_timing/benchmark` and decide which synthetic
+   timing rows should seed the later real-data benchmark candidate set.
+2. Use synthetic timing only to screen/order candidate rows for the later
    real-data benchmark. Real runtime selection still requires the real-data
    benchmark, selected-runtime debug, checkpoint/resume, tiny-overfit, and
    fixed real visual QA gates.
-5. Continue the shared evaluation harness, future `SO(2)` count ceiling, and
+3. Decide the next narrow implementation slice for real-data benchmark
+   candidate execution; any real-data Kaggle source attachment still requires
+   explicit user approval plus `KAGGLE_FULL_DATASET_CONFIRMED=1`.
+4. Continue the shared evaluation harness, future `SO(2)` count ceiling, and
    steerable model work only after the benchmark plumbing gates are no longer
    blocking the first real baseline run.
 
@@ -436,10 +433,11 @@ The review process lives in `docs/agentic_review_workflow.md`.
   local scaffold, topology-count, data/metrics, selector/dataloader, local
   benchmark pre-test, model/loss train-step, HED/stain corruption, Kaggle setup
   smoke, Kaggle capped-smoke source-delivery contracts, and the no-dataset
-  synthetic timing kernel/guard now exist. The next blocking evidence slice is
-  the no-dataset synthetic timing Kaggle run, if the user approves it. Remaining
-  implementation-relock blockers include future `SO(2)` count ceiling, real
-  fixed validation/tiny-overfit selector generation,
+  synthetic timing kernel/guard/remote evidence now exist. The next blocking
+  implementation slice is the later real-data benchmark candidate execution,
+  after deciding how to use the non-promotable synthetic timing screen.
+  Remaining implementation-relock blockers include future `SO(2)` count
+  ceiling, real fixed validation/tiny-overfit selector generation,
   selected-runtime debug, checkpoint/resume, full evaluation/artifact writers,
   and final adversarial spec review after those routes are integrated.
 - The first full Kaggle run remains blocked until synthetic timing screens the
@@ -858,6 +856,30 @@ The review process lives in `docs/agentic_review_workflow.md`.
   Local `HEAD` and `origin/main` both resolve to
   `c28632cf074548c79e827bce5399dd68f6ecdf2d`. No Kaggle push/read/output and no
   Overleaf action were run.
+- 2026-06-18 Kaggle synthetic timing remote v1: with explicit user approval,
+  ran the read-only Kaggle API preflight, rebuilt the ignored generated
+  `kaggle/kernels/synthetic_timing/run.py` against current `HEAD`, pushed
+  `maximusshtefan/eqvae-synthetic-timing` with `KAGGLE_PUSH_CONFIRMED=1`, and
+  downloaded completed output to ignored `runs/kaggle/synthetic_timing`. Status
+  reached `KernelWorkerStatus.COMPLETE`. The benchmark directory contains
+  exactly `synthetic_timing_manifest.json`,
+  `synthetic_timing_runtime_proof.json`, `synthetic_timing_matrix.csv`, and
+  `synthetic_timing_recommendations.json`; no `selected_runtime.json` exists.
+  Manifest/runtime/recommendations all report `synthetic_timing_pass`,
+  `full_run_eligible = false`, empty Kaggle source lists, and
+  `status_scope = "non_promotable_synthetic_timing"`. Matrix summary: 16 rows,
+  all `pass`; 8 `single_visible_t4`, 8 `dual_t4_ddp`; 2 fit-probe-only rows.
+  Generated default profile evidence: 4096 total patches, 2048 train / 2048
+  validation, 805306368 payload bytes, 2048 CSV rows per split, both shard
+  files 402653248 bytes, CRC validated, semantic keys unique, and loader
+  normalization range proof passed. Top recommendations were
+  `single_visible_t4__bs16__amp_off_fp32__compile_off__branchless_all`
+  (`estimated_epoch_minutes = 1.816008`),
+  `dual_t4_ddp__bs24__amp_off_fp32__compile_off__branchless_all`
+  (`2.565038`), and
+  `dual_t4_ddp__bs8__amp_off_fp32__compile_off__branchless_all`
+  (`2.606373`). These are screening/order evidence only, not selected runtime
+  evidence.
 
 ## Update Rule
 
