@@ -232,11 +232,14 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: request explicit approval for the remote Kaggle API
-preflight and capped real-data pretest v5 push, then run it only with
-`KAGGLE_REMOTE_CONFIRMED=1` for remote reads/API checks and
-`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1` for the push. The
-local runner now
+Immediate next action: wait for capped real-data pretest v5 to reach a terminal
+Kaggle state, then download artifacts to
+`runs/kaggle/real_data_runtime_pretest_v5` with
+`KAGGLE_REMOTE_CONFIRMED=1`, inspect `runtime_proof.json`,
+`real_data_runtime_pretest_manifest.json`, `runtime_matrix.csv`,
+`dataloader_matrix.csv`, `numerical_checks.csv`, `corruption_checks.csv`, and
+`metrics/gate_health.csv`, and confirm no `benchmark/selected_runtime.json`
+exists. The local runner now
 implements measured `model_forward` compile-settle/Dynamo counter deltas, a
 real dual-rank `torchrun --standalone` DDP launch probe, candidate
 accelerator/batch dataloader throughput, candidate-batch numerical/corruption
@@ -1427,10 +1430,24 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `./agent_preflight.sh` passed. The six tracked files were committed locally,
   then the real-data runtime pretest kernel was rebuilt and revalidated from the
   clean commit; clean embedded payload verification without `--allow-dirty`
-  also passed. Next action: run the remote API preflight and capped real-data
-  pretest v5 only with explicit approval, `KAGGLE_REMOTE_CONFIRMED=1` for
-  remote reads/API checks, and
-  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1` for the push.
+  also passed. The follow-up remote v5 launch is recorded below.
+- 2026-06-19 capped real-data runtime pretest remote v5 launch:
+  after explicit user approval, ran guarded remote Kaggle preflight with
+  `KAGGLE_REMOTE_CONFIRMED=1`; auth, kernels list/status/logs, and patch-dataset
+  file listing passed, while the quota endpoint still warned and the kernels
+  files endpoint remained unavailable. Pushed
+  `kaggle/kernels/real_data_runtime_pretest` with
+  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`; Kaggle accepted
+  kernel version 5 at
+  `https://www.kaggle.com/code/maximusshtefan/eqvae-real-data-runtime-pretest`.
+  Status checks during the monitoring window continued to report
+  `KernelWorkerStatus.RUNNING`; the direct Kaggle log read returned no useful
+  lines. No artifacts were downloaded yet and no Overleaf work was touched.
+  Next action: when the worker finishes, download with
+  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output maximusshtefan/eqvae-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v5`,
+  then inspect that v5 remains non-promotable, has no
+  `benchmark/selected_runtime.json`, and only eager rows can pass while compiled
+  `model_forward` rows remain diagnostic/ineligible.
 
 ## Update Rule
 
