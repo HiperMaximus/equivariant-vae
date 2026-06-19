@@ -33,16 +33,17 @@ the local `paper/sipaim2026` subtree.
 6. try a normal push first;
 7. if the normal push is rejected and the branch is `master`, fetch the exact
    Overleaf branch commit and prove its tree is the canonical empty tree;
-8. initialize only that empty Overleaf `master` using
-   `--force-with-lease=refs/heads/master:<observed-empty-commit>`;
+8. initialize only that empty Overleaf `master` by creating a normal
+   fast-forward commit whose parent is the observed empty Overleaf commit and
+   whose tree is the checked paper subtree split tree;
 9. abort for any nonempty Overleaf branch.
 
 ## Acceptance Criteria
 
 - The first initialization over an empty-tree Overleaf `master` succeeds only
-  through the guarded script.
-- A nonempty Overleaf `master` requires pull/resolve rather than force.
-- A non-`master` branch cannot use the empty-project force-with-lease path.
+  through the guarded script and does not require force pushing.
+- A nonempty Overleaf `master` requires pull/resolve rather than overwrite.
+- A non-`master` branch cannot use the empty-project initialization path.
 - The workflow docs describe this as a one-time initialization exception.
 
 ## Verification

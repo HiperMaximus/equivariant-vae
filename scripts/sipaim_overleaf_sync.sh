@@ -27,8 +27,8 @@ Rules:
   - Pull Overleaf edits before starting local paper edits when advisor edits are possible.
   - Overleaf Git auth uses username `git` and an Overleaf Git authentication
     token as the password. Do not use the normal account password.
-  - On the first sync only, push may replace an existing empty-tree Overleaf
-    master commit using --force-with-lease against the exact observed commit.
+  - On the first sync only, push may initialize an existing empty-tree Overleaf
+    master by creating a normal fast-forward commit on top of it.
   - Commands that access or change Overleaf remote state require:
       OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh ls-remote
       OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh pull
@@ -297,8 +297,10 @@ validate_subtree_split() {
 }
 
 cmd_push() {
+  local init_commit
   local remote_oid
   local subtree_ref
+  local subtree_tree
 
   require_remote_confirmation "push"
   ensure_overleaf_remote
@@ -313,15 +315,15 @@ cmd_push() {
   fi
 
   if remote_oid="$(empty_remote_branch_oid)"; then
+    subtree_tree="$(git rev-parse "${subtree_ref}^{tree}")"
+    init_commit="$(git commit-tree "$subtree_tree" -p "$remote_oid" \
+      -m "Initialize Overleaf paper subtree")"
     cat >&2 <<EOF
 Overleaf ${REMOTE_BRANCH} exists but contains an empty tree.
-Initializing it with the ${PREFIX} subtree using --force-with-lease against:
+Initializing it with a normal fast-forward commit on top of:
   ${remote_oid}
 EOF
-    git push \
-      --force-with-lease="refs/heads/${REMOTE_BRANCH}:${remote_oid}" \
-      "$REMOTE_NAME" \
-      "${subtree_ref}:refs/heads/${REMOTE_BRANCH}"
+    git push "$REMOTE_NAME" "${init_commit}:refs/heads/${REMOTE_BRANCH}"
     return 0
   fi
 

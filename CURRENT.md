@@ -1675,13 +1675,15 @@ The review process lives in `docs/agentic_review_workflow.md`.
   common subtree history. The guarded `pull` fetched `overleaf/master` but
   failed with `fatal: can't squash-merge: 'paper/sipaim2026' was never added`,
   which is expected for a first sync over an unrelated empty remote. The safe
-  script is being updated so `push` first tries a normal subtree push and then
-  uses `--force-with-lease` only when the current Overleaf `master` branch is
-  provably an empty tree. Spec
+  first guarded empty-tree fallback tried `--force-with-lease`, but Overleaf
+  rejected all forced pushes. The script is being updated so `push` first tries
+  a normal subtree push and then, only when the current Overleaf `master` branch
+  is provably an empty tree, creates a normal fast-forward commit on top of the
+  observed empty Overleaf commit using the checked paper subtree tree. Spec
   `docs/specs/0005-overleaf-empty-project-initialization.md` records the narrow
   contract: master-only, exact observed empty commit, subtree split sanity check,
-  and no force path for nonempty Overleaf content. Do not force-push a nonempty
-  Overleaf branch.
+  and no overwrite path for nonempty Overleaf content. Do not force-push
+  Overleaf.
 
 ## Update Rule
 
