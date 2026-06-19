@@ -4,9 +4,10 @@ Status: draft workflow scaffold; synthetic setup-smoke path ready after
 permission; synthetic binary timing pretest evidence complete for screening;
 capped real-data runtime pretest has a local non-promotable runner/kernel/guard,
 upload-simulation proof, and identity/hash/CRC/window plus clean-validation
-loader proof plumbing plus local linked-evidence mechanics/contract scaffolds,
-but remote rerun and candidate-specific canonical eligibility evidence remain
-pending; Kaggle source attachments require a separate confirmation guard
+loader proof plumbing plus a candidate-linked evidence lane implementation, but
+remote canonical candidate evidence remains pending and compiled rows remain
+diagnostic-only until full compile-settle coverage exists; Kaggle source
+attachments require a separate confirmation guard
 Last updated: 2026-06-19
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
@@ -147,13 +148,19 @@ WSI/holdout overlap contracts, and a clean validation loader/collate/
 normalization proof. Tiny fixture roots can only produce `local_pass`;
 canonical real `pass` requires the exact dataset slug, 300000/30000 rows,
 322/39 WSIs, zero train/validation and masked-holdout overlap, and the locked
-8,192/2,048 spread windows. The local linked-evidence scaffolds can record
-fixed-window dataloader mechanics, one fixed eager single-rank
-branchless/indexed numerical and corruption comparison, gate-health rows, and
-compile/DDP contract checks, but they do not grant candidate-row eligibility.
-Timed rows remain ineligible until candidate-specific linked compile/DDP/real
-dataloader-throughput/numerical/corruption/gate-health evidence is measured and
-passes canonically. Remote pushing requires explicit user permission plus:
+8,192/2,048 spread windows. The candidate-linked evidence lane can record
+measured `model_forward` compile-settle/Dynamo counters, run a real
+`torchrun --standalone` dual-rank DDP launch probe when two T4s are visible,
+measure fixed-window dataloader throughput per accelerator/batch candidate, and
+attach same-batch eager-reference numerical checks, corruption checks, and
+gate-health evidence back to the exact runtime row identity. Tiny fixture roots
+still produce only local mechanics proof; remote canonical eager-row
+eligibility requires the real-data proof, real DDP launch proof, row-matching
+dataloader/numerical/corruption/gate-health status, and zero graph-break/
+recompile counts. Compiled `model_forward` rows must remain ineligible/
+diagnostic until full compile-settle coverage includes clean validation, DDP
+rank paths, final partial batches, and mask cardinalities 0/1/many/all. Remote
+pushing requires explicit user permission plus:
 
 ```bash
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check
@@ -317,8 +324,12 @@ payload issue: the embedded single-file kernel must include
 `docs/data/ubc_ocean_masked_holdout_ids.csv` for split/holdout-overlap proof.
 Remote v4 included that file and passed the canonical real-data identity,
 row-count, WSI/holdout overlap, CRC, locked-window, and clean-validation-loader
-proof lane. Commit and rebuild the real-data runtime pretest after data-root or
-payload changes before pushing a new Kaggle version.
+proof lane. The next capped real-data pretest v5 is safe only as a
+non-promotable evidence run after commit/rebuild; inspect eager-row linked
+evidence, verify compiled rows remain diagnostic/ineligible, and do not write
+or infer `benchmark/selected_runtime.json`. Commit and rebuild the real-data
+runtime pretest after data-root or payload changes before pushing a new Kaggle
+version.
 
 For the synthetic binary timing pretest, the remote sequence remains permission
 gated:

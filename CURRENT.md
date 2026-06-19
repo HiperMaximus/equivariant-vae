@@ -232,14 +232,28 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: implement the next canonical, candidate-specific linked
-evidence lane for the non-promotable capped real-data train-step pretest:
-measured compile-settle/Dynamo counter deltas, real dual-T4/DDP launch proof,
-candidate-row dataloader throughput, candidate-batch numerical/corruption
-checks, and sufficient gate-health evidence. Remote v4 of the capped real-data
-runtime pretest passed the first real-data proof lane: identity, row counts,
-WSI/holdout split contract, CRC, locked windows, and clean validation loader.
-Artifacts are downloaded under
+Immediate next action: request explicit approval for the remote Kaggle API
+preflight and capped real-data pretest v5 push, then run it only with
+`KAGGLE_REMOTE_CONFIRMED=1` for remote reads/API checks and
+`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1` for the push. The
+local runner now
+implements measured `model_forward` compile-settle/Dynamo counter deltas, a
+real dual-rank `torchrun --standalone` DDP launch probe, candidate
+accelerator/batch dataloader throughput, candidate-batch numerical/corruption
+checks, and gate-health evidence linked back to runtime row identity. Three
+clean-context adversarial reviews found and then rechecked blockers around
+dataloader thresholds, eager-reference numerical checks, fixed-batch coverage,
+gate-health thresholds, child-process Dynamo counter availability, recompile
+counter accounting, DDP rank/device binding, and overclaiming. The follow-up
+reviews found no high blocker for a capped, non-promotable v5 evidence attempt.
+Remaining v5 limits: eager rows may become eligible only if all canonical linked
+proofs pass; compiled `model_forward` rows are deliberately diagnostic-only and
+ineligible until full compile-settle coverage is implemented for clean
+validation, DDP rank paths, final partial batches, and mask cardinalities
+0/1/many/all. Remote v4
+of the capped real-data runtime pretest passed the first real-data proof lane:
+identity, row counts, WSI/holdout split contract, CRC, locked windows, and
+clean validation loader. Artifacts are downloaded under
 `runs/kaggle/real_data_runtime_pretest_v4`. Do not treat v4 as runtime
 selection: `runtime_proof.status = "pretest_incomplete"`,
 `linked_evidence_status = "skipped_unsupported"`, `selection_ready = false`,
@@ -252,11 +266,12 @@ SHA256 file
 hashes, full-payload CRC32 validation, row-count proof, split
 WSI/holdout-overlap contract proof, exact fixed spread-window proof, and a clean
 validation loader/collate/normalization proof. The follow-up linked-evidence
-implementation adds local/mechanics artifacts for fixed-window train/validation
-loader throughput, one fixed eager single-rank batch of paired
-branchless/indexed numerical and corruption equivalence, gate-health rows, plus
-compile-settle and DDP contract checks. Tiny local fixtures produce only
-`local_pass` or `skipped_unsupported`; canonical real `pass` requires the
+implementation now records measured `model_forward` compile-settle/Dynamo
+counters, a real dual-rank DDP launch probe when two T4s are visible,
+candidate accelerator/batch dataloader throughput, same-batch eager-reference
+numerical checks plus corruption checks for covered candidate paths, and
+gate-health row links. Tiny local fixtures produce only `local_pass` or
+`skipped_unsupported`; canonical real `pass` requires the
 expected Kaggle dataset slug, exact 300000/30000 train/validation row counts,
 exact 322/39 train/validation WSI counts, zero train/validation and
 masked-holdout WSI overlap, 8,192/2,048 capped window totals, and the locked
@@ -268,10 +283,11 @@ local runner/kernel/guard now exists at
 patch dataset source, `KAGGLE_FULL_DATASET_CONFIRMED=1` push guard, embedded
 payload verification, upload-simulation import proof, local wrong-accelerator
 artifact proof, and explicit selected-runtime rejection. It still must not be
-treated as runtime selection: timed rows are ineligible until measured
-compile-settle/Dynamo counter deltas, real dual-T4/DDP launch proof,
-candidate-row dataloader throughput, candidate-batch numerical/corruption
-checks, and sufficient gate-health evidence pass canonically. The first pretest
+treated as runtime selection: eager timed rows are eligible only when canonical
+real-data proof, real DDP proof, matching row-specific dataloader/numerical/
+corruption/gate-health evidence, and zero graph-break/recompile counts pass.
+Compiled `model_forward` timed rows must remain ineligible until the full
+compile-settle coverage proof passes. The first pretest
 attaches only
 `maximusshtefan/patches-pre-shuffled-ubc-ocean`, uses 8,192 train and 2,048
 validation patches from fixed spread windows, writes blocked claims, and must
@@ -1370,6 +1386,51 @@ The review process lives in `docs/agentic_review_workflow.md`.
   local/contract-only linked scaffolds with candidate-specific canonical
   compile/DDP/dataloader/numerical/corruption/gate-health evidence before any
   row can become eligible. Overleaf was untouched.
+- 2026-06-19 capped real-data runtime pretest candidate-linked evidence lane:
+  implemented the next local runner slice without touching Overleaf or making
+  remote Kaggle writes. `src/eqvae/benchmarking/real_data_runtime_pretest.py`
+  now measures `model_forward` compile rows with 5 unmeasured settle steps,
+  records per-row Dynamo counter snapshots plus post-settle graph-break and
+  recompile counts, and keeps `model_loss` / `train_step_no_optimizer` as
+  explicit implementation-pending scopes. Compiled rows are intentionally
+  diagnostic-only/ineligible until full compile-settle coverage includes clean
+  validation, DDP rank paths, final partial batches, and mask cardinalities
+  0/1/many/all. The linked evidence payload now runs
+  a real dual-rank `torch.distributed.run --standalone --nproc_per_node=2`
+  launch probe when two T4s are visible, records rank assignments, and reports
+  timeout/missing-rank-payload failures as structured proof rows. Dataloader
+  throughput is measured per accelerator/world-size/per-device-batch candidate
+  and must pass both the data-wait fraction and
+  `loader_samples_sec >= 1.25 * trainer_samples_sec` checks. Numerical rows now
+  compare each covered candidate against the same-batch eager FP32
+  `branchless_all` reference across three fixed batches, corruption rows are
+  emitted per fixed batch, and gate-health JSON row statuses apply saturation,
+  dead-channel, output/input RMS, and parameter-threshold gates. Runtime-row
+  eligibility is now decided per row from canonical data proof, DDP launch
+  proof, compile status, matching dataloader rows, matching numerical/corruption
+  rows, and gate-health status instead of a single global linked-evidence flag.
+  Tiny fixtures still produce only `local_pass`/`skipped_unsupported`, and the
+  capped pretest still never writes `benchmark/selected_runtime.json`. The first
+  and follow-up adversarial review sets both ran; follow-up verdict is safe for
+  a capped, non-promotable v5 attempt after commit/rebuild, not safe for
+  selected-runtime promotion, full dataloader selection, paper evidence, or
+  compiled-row promotion. Tests were updated for the now-implemented
+  `model_forward` compile scope. Docs updated:
+  `docs/specs/0001-translatable-normal-vae-baseline.md`,
+  `docs/specs/README.md`, and `docs/kaggle_cli_workflow.md`. Verification:
+  full `./scripts/python_quality.sh` passed with Ruff, BasedPyright, 118 tests,
+  and 0 type errors; `git diff --check` passed;
+  `./scripts/kaggle_kernel.sh build kaggle/kernels/real_data_runtime_pretest`
+  passed; `./scripts/kaggle_kernel.sh validate
+  kaggle/kernels/real_data_runtime_pretest` passed; dirty-worktree embedded
+  payload verification passed with `--allow-dirty`; workspace
+  `./agent_preflight.sh` passed. The six tracked files were committed locally,
+  then the real-data runtime pretest kernel was rebuilt and revalidated from the
+  clean commit; clean embedded payload verification without `--allow-dirty`
+  also passed. Next action: run the remote API preflight and capped real-data
+  pretest v5 only with explicit approval, `KAGGLE_REMOTE_CONFIRMED=1` for
+  remote reads/API checks, and
+  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1` for the push.
 
 ## Update Rule
 

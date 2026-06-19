@@ -17,8 +17,9 @@ remote v1/v2/v3/v4 non-promotable evidence; the capped real-data runtime
 pretest config/schema contract is `real_data_runtime_pretest_contract_ready`
 with a local non-promotable runner/kernel/guard implementation and
 identity/hash/CRC/window plus clean-validation loader proof lane and local
-linked-evidence mechanics/contract scaffolds, but remote rerun and
-candidate-specific canonical eligibility evidence remain pending
+candidate-linked evidence implementation, but the remote canonical rerun
+remains pending and compiled rows remain diagnostic-only until full
+compile-settle coverage exists
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-19
 
@@ -1669,16 +1670,20 @@ Benchmark budget and reset rules:
   spread windows. The clean validation proof may exercise only the clean
   validation loader/collate/normalization path and must not claim corruption-RNG
   instrumentation;
-- local linked-evidence scaffolds may record fixed-window loader throughput,
-  one fixed eager single-rank batch of paired branchless/indexed numerical and
-  corruption equivalence, gate-health rows, compile-settle contract/counter
-  availability, and DDP launch contracts, but those scaffolds do not make
-  candidate rows eligible. Compile-settle and DDP lanes stay
-  `skipped_unsupported` until measured compiled rows and real dual-T4 ranks
-  exist. Candidate CSV rows for numerical/corruption checks stay
-  `skipped_unsupported` unless the exact candidate batch size, accelerator
-  mode, compile scope, and precision path is covered. Corruption equivalence on
-  a training batch must not claim clean-validation RNG non-consumption;
+- the candidate-linked evidence lane may record fixed-window loader throughput,
+  measured `model_forward` compile-settle/Dynamo counters, a real dual-T4
+  `torchrun --standalone` rank-assignment probe, same-batch eager-reference
+  numerical checks, corruption equivalence, and gate-health rows tied back to
+  candidate identity. Tiny/local fallback evidence remains local mechanics
+  proof only. Eager candidate rows become eligible only when the canonical
+  real-data proof passes, the real DDP launch proof passes, the row has matching
+  dataloader/numerical/corruption/gate-health evidence, and graph-break/
+  recompile counts are zero. Compiled `model_forward` rows must stay
+  diagnostic-only/ineligible until full compile-settle coverage passes.
+  Candidate CSV rows for numerical/corruption checks stay `skipped_unsupported`
+  unless the exact candidate batch size, accelerator mode, compile scope, and
+  precision path is covered. Corruption equivalence on a training batch must
+  not claim clean-validation RNG non-consumption;
 - if `torch.compile` needs compilation, report compile/startup time separately
   from steady-state step time. Compiled rows must record
   `compile_settle_steps`, the code paths exercised before timing, graph break
@@ -1855,12 +1860,15 @@ Benchmark artifact dependency graph:
    allowed to prove embedded packaging, guard behavior, upload-simulation import,
    wrong-accelerator local rows, artifact non-promotion, real-data/local
    identity/hash/CRC/window contracts, and clean validation loader/collate/
-   normalization plumbing. It may also write local/contract-only linked
-   scaffolds for compile-settle, DDP, dataloader throughput, paired numerical,
-   corruption equivalence, and gate health, but timed rows from that
-   implementation are ineligible until matching candidate-specific compile/DDP,
-   real dataloader throughput, numerical, corruption, gate-health, graph-break,
-   and recompile evidence passes.
+   normalization plumbing. It may also write candidate-linked evidence for
+   `model_forward` compile-settle/Dynamo counters, real DDP launch proof,
+   dataloader throughput, same-batch eager-reference numerical checks,
+   corruption equivalence, and gate health. Eager timed rows from that
+   implementation are eligible only when the canonical real-data proof, real
+   DDP proof, matching row-specific dataloader/numerical/corruption/gate-health
+   evidence, graph-break, and recompile checks pass. Compiled timed rows remain
+   diagnostic-only/ineligible until the full compile-settle coverage proof
+   passes.
 5. `benchmark/runtime_matrix.csv` can mark candidate rows as completed, but no
    row may be selected until matching `benchmark/dataloader_matrix.csv`,
    `benchmark/numerical_checks.csv`, `benchmark/corruption_checks.csv`,

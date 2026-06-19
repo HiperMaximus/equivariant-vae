@@ -502,7 +502,8 @@ def _assert_tiny_runtime_proof_linked_evidence(
     assert runtime_proof["clean_validation_dataloader_status"] == "pass"
     assert runtime_proof["linked_evidence_status"] == "skipped_unsupported"
     compile_policy = cast("dict[str, object]", runtime_proof["compile_settle_policy"])
-    assert compile_policy["implemented_in_this_runner"] is False
+    assert compile_policy["implemented_in_this_runner"] is True
+    assert compile_policy["implemented_compile_scopes"] == ["model_forward"]
     assert compile_policy["contract_proof_available"] is True
     assert compile_policy["status"] == "skipped_unsupported"
     assert runtime_proof["paired_numerical_status"] == "local_pass"
