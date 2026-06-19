@@ -5,7 +5,8 @@ permission; synthetic binary timing pretest evidence complete for screening;
 capped real-data runtime pretest has a local non-promotable runner/kernel/guard,
 upload-simulation proof, and identity/hash/CRC/window plus clean-validation
 loader proof plumbing plus a candidate-linked evidence lane implementation;
-remote v5 produced two eligible eager bs4 rows and local v6 follow-up code adds
+remote v5 produced two eligible eager bs4 rows and remote v6 has been accepted
+and first observed running with follow-up code that adds
 eager-first evidence ordering, failed-evidence diagnostics, runtime-proof
 evidence counters, and phase timings; compiled rows remain diagnostic-only until
 full compile-settle coverage exists; Kaggle source attachments require a
@@ -331,7 +332,7 @@ downloaded artifacts under `runs/kaggle/real_data_runtime_pretest_v5`: two eager
 single-T4 bs4 FP32 rows became row-eligible, real-data/DDP/dataloader/gate lanes
 passed, no `benchmark/selected_runtime.json` was written, eager bs8/bs12 still
 need numerical/corruption evidence coverage, bs32 eager rows hit runtime OOM,
-and compiled rows remained diagnostic/ineligible as intended. The local v6
+and compiled rows remained diagnostic/ineligible as intended. The v6
 follow-up prioritizes eager FP32 single-T4 train-step evidence by smaller batch
 size before compiled diagnostic rows, clears CUDA cache between candidate
 evidence attempts, records failed candidate evidence with deterministic failure
@@ -339,9 +340,10 @@ hashes, mirrors candidate/failed evidence counts into `runtime_proof.json`, and
 keeps the full failed-evidence list in the paired numerical and corruption proof
 objects. The phase-timing artifact must be present in both the payload artifact
 allow-list and the launcher validation allow-list; the local generated-launcher
-full simulation covers this exact artifact set. Commit and rebuild the real-data
-runtime pretest after data-root, payload, timing, or evidence changes before
-pushing a new Kaggle version.
+full simulation covers this exact artifact set. Commit `47437a0` was rebuilt,
+validated, and pushed as Kaggle version 6 after explicit approval; the immediate
+status read reported `KernelWorkerStatus.RUNNING`. Do not infer any new runtime
+eligibility from v6 until its artifacts are downloaded and inspected.
 
 ### Remote Duration And Polling Memory
 
@@ -387,6 +389,15 @@ Current duration notes:
   `benchmark/phase_timings.json`; future reruns should use the phase timings
   artifact for more exact cadence and should inspect the runtime-proof evidence
   counters before assuming a candidate lane silently skipped work.
+- Real-data runtime pretest v6, 2026-06-19: Kaggle accepted version 6 at
+  `https://www.kaggle.com/code/maximusshtefan/eqvae-real-data-runtime-pretest`.
+  The preflight again passed OAuth, kernel list/status/logs, and patch-dataset
+  file listing while warning on quota and kernels-file introspection. The first
+  status read reported `KernelWorkerStatus.RUNNING` by
+  2026-06-19T16:37:07-05:00. Wait at least 30 minutes from that first running
+  observation before the next status read; after a terminal state, download to
+  `runs/kaggle/real_data_runtime_pretest_v6` and update this duration memory
+  from `benchmark/phase_timings.json`.
 
 For the synthetic binary timing pretest, the remote sequence remains permission
 gated:

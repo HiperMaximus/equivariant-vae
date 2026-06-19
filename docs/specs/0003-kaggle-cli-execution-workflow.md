@@ -12,9 +12,10 @@ real-data runtime pretest has a local non-promotable runner/kernel/guard and
 upload-simulation proof plus identity/hash/CRC/window and clean-validation
 loader proof plumbing plus local linked-evidence mechanics/contract scaffolds;
 remote v4 passed the canonical real-data proof lane, remote v5 produced two
-eligible eager bs4 candidate rows, and local v6 follow-up code adds
-eager-first candidate evidence ordering, failed-candidate diagnostics, and phase
-timings; full benchmark/full-run launchers are not Kaggle-push-ready
+eligible eager bs4 candidate rows, and remote v6 has been accepted and first
+observed running with eager-first candidate evidence ordering, failed-candidate
+diagnostics, and phase timings; full benchmark/full-run launchers are not
+Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-19
 
@@ -196,12 +197,15 @@ path can record fixed-window dataloader mechanics, measured `model_forward`
 compile/Dynamo counters, real DDP launch proof, candidate batch numerical and
 corruption evidence, gate-health rows, phase timings, and failed-candidate
 diagnostics, but the capped pretest still cannot select a runtime. Remote v5
-proved only two eager bs4 rows; local v6 follow-up code now prioritizes eager
+proved only two eager bs4 rows; the v6 follow-up code prioritizes eager
 single-T4 FP32 train-step evidence by smaller batch size before compiled
 diagnostic rows and mirrors candidate/failed evidence counters into
-`runtime_proof.json`. The launcher and config allow-lists must include
-`benchmark/phase_timings.json`, and generated-launcher local simulation must
-validate the full real-data pretest artifact set before any push.
+`runtime_proof.json`. Commit `47437a0` was rebuilt, validated, and pushed as
+Kaggle version 6 after explicit approval; the immediate status read reported
+`KernelWorkerStatus.RUNNING`. The launcher and config allow-lists include
+`benchmark/phase_timings.json`, and generated-launcher local simulation
+validated the full real-data pretest artifact set before the push. Do not infer
+new eligibility until v6 artifacts are downloaded and inspected.
 
 Remote v2 completed without exercising the real-data proof lane because
 `data_root = "auto"` could not resolve Kaggle input files. The local v3 fix
@@ -232,6 +236,17 @@ single-T4 bs4 FP32 rows, left eager bs8/bs12 rows blocked by missing
 numerical/corruption evidence coverage, hit runtime OOM for eager bs32 rows, and
 wrote no `benchmark/selected_runtime.json`. Compiled `model_forward` rows remain
 diagnostic-only/ineligible until full compile-settle coverage exists.
+
+Remote v6 was pushed on 2026-06-19 from commit `47437a0` after explicit user
+approval with `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`. Kaggle
+accepted version 6 at
+`https://www.kaggle.com/code/maximusshtefan/eqvae-real-data-runtime-pretest`,
+and the first status read reported `KernelWorkerStatus.RUNNING` by
+2026-06-19T16:37:07-05:00. Wait at least 30 minutes from that first running
+observation before the next approved status read. When terminal, download to
+`runs/kaggle/real_data_runtime_pretest_v6` and inspect phase timings,
+candidate/failed evidence counters, bs8/bs12 numerical/corruption coverage,
+compiled-row ineligibility, and absence of `benchmark/selected_runtime.json`.
 
 ## Kaggle Authentication Contract
 
