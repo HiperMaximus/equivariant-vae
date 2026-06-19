@@ -232,9 +232,14 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: implement canonical, candidate-specific linked evidence
-for the non-promotable capped real-data train-step pretest. The 2026-06-19
-proof-lane implementation now records real-data/local identity, SHA256 file
+Immediate next action: poll Kaggle real-data runtime pretest version 2 before
+any new remote push. Version 2 was pushed from local commit `53051e8` and was
+still `KernelWorkerStatus.RUNNING` with empty logs after the monitored polling
+window; no output artifacts have been downloaded for v2 yet. After that run
+completes or errors, inspect/download artifacts and then continue canonical,
+candidate-specific linked evidence for the non-promotable capped real-data
+train-step pretest. The 2026-06-19 proof-lane implementation now records
+real-data/local identity, SHA256 file
 hashes, full-payload CRC32 validation, row-count proof, split
 WSI/holdout-overlap contract proof, exact fixed spread-window proof, and a clean
 validation loader/collate/normalization proof. The follow-up linked-evidence
@@ -1227,6 +1232,23 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `./scripts/python_quality.sh` passed with 112 tests and 0 BasedPyright
   errors. `./scripts/agent_preflight.sh` passed and noted only the expected
   dirty worktree.
+- 2026-06-19 capped real-data runtime pretest remote v2 launch: committed the
+  linked-evidence scaffolding as `53051e8` (`Add real-data linked pretest
+  evidence scaffolds`), rebuilt
+  `kaggle/kernels/real_data_runtime_pretest/run.py` so the ignored embedded
+  payload matches that commit, and validated the kernel locally. The approved
+  remote preflight
+  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check` passed
+  OAuth, kernel list/status/logs, and dataset file listing, with the known
+  warnings for the quota and kernels-files endpoints. The approved remote write
+  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1
+  ./scripts/kaggle_kernel.sh push kaggle/kernels/real_data_runtime_pretest`
+  pushed Kaggle version 2 at
+  `https://www.kaggle.com/code/maximusshtefan/eqvae-real-data-runtime-pretest`.
+  Multiple approved status polls still reported
+  `KernelWorkerStatus.RUNNING`; approved log reads returned only the Kaggle CLI
+  version warning and no run logs. No v2 output artifacts were downloaded before
+  handoff, and Overleaf was untouched.
 
 ## Update Rule
 
