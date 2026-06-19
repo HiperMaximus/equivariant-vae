@@ -1620,6 +1620,24 @@ The review process lives in `docs/agentic_review_workflow.md`.
   submission. Final hygiene for this handoff: `git diff --check`,
   `./scripts/agent_preflight.sh`, and workspace `./agent_preflight.sh` all
   passed.
+- 2026-06-19 commit and remote-sync blocker:
+  committed the Kaggle diagnostics, SIPAIM paper scaffold, paper-local figures,
+  bibliography entries, refreshed PDF, and handoff docs as
+  `764095e` (`Scaffold SIPAIM paper and record v6 diagnostics`). Local
+  `./scripts/sipaim_overleaf_sync.sh check` passed with a clean repo and the
+  expected Overleaf remote/subtree. The user then asked to update paper-related
+  GitHub issues and send the paper to Overleaf. Two required escalated attempts
+  to run `OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh push`
+  timed out in the sandbox approval reviewer before the command started, so no
+  Overleaf remote write was performed. GitHub issue updates were not attempted
+  afterward because they also require remote write approval. Next action after
+  remote approval is available: run the guarded Overleaf push, then post Spanish
+  paper-status comments to the paper-related GitHub issues, especially #5
+  (SIPAIM writing) and any paper-figure/evaluation issues such as #3/#4 as
+  appropriate. The issue comment should mention the Overleaf web URL
+  `https://www.overleaf.com/project/69c614433cbc9e46cf226d24`, the scaffolded
+  `paper/sipaim2026` files, the refreshed PDF, and that the reused thesis method
+  figure still needs to be redrawn or relabeled before submission.
 
 ## Update Rule
 
