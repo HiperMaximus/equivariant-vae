@@ -20,7 +20,7 @@ from eqvae.benchmarking.real_data_runtime_pretest import (
 )
 from eqvae.data.synthetic import SyntheticPatchSpec, write_synthetic_patch_shard
 
-_TINY_IMAGE_SIZE = 8
+_TINY_IMAGE_SIZE = 16
 _TINY_CHANNELS = 3
 _TINY_TRAIN_PATCHES = 16
 _TINY_VALIDATION_PATCHES = 14
@@ -94,62 +94,17 @@ def test_real_data_runtime_pretest_writes_identity_crc_and_clean_validation_proo
     manifest = _load_json(benchmark_dir / "real_data_runtime_pretest_manifest.json")
     runtime_proof = _load_json(benchmark_dir / "runtime_proof.json")
     dataloader_rows = _load_csv(benchmark_dir / "dataloader_matrix.csv")
-    assert manifest["real_data_identity_proof_status"] == "local_pass"
-    assert manifest["row_count_proof_status"] == "pass"
-    assert manifest["crc_validation_status"] == "pass"
-    assert manifest["train_windows_exercised"] is True
-    assert manifest["validation_windows_exercised"] is True
-    assert (
-        len(cast("list[object]", manifest["file_hashes"])) == _EXPECTED_FILE_HASH_COUNT
+    numerical_rows = _load_csv(benchmark_dir / "numerical_checks.csv")
+    corruption_rows = _load_csv(benchmark_dir / "corruption_checks.csv")
+    gate_rows = _load_csv(tmp_path / "run" / "metrics" / "gate_health.csv")
+    _assert_tiny_manifest_linked_evidence(manifest)
+    _assert_tiny_runtime_proof_linked_evidence(runtime_proof)
+    _assert_tiny_linked_csv_rows(
+        dataloader_rows=dataloader_rows,
+        numerical_rows=numerical_rows,
+        corruption_rows=corruption_rows,
+        gate_rows=gate_rows,
     )
-
-    clean_proof = cast(
-        "dict[str, object]",
-        manifest["clean_validation_dataloader_proof"],
-    )
-    assert clean_proof["status"] == "pass"
-    assert clean_proof["dataset_class"] == "PatchTrainingDataset"
-    assert clean_proof["collate_fn"] == "collate_patch_training_samples"
-    assert clean_proof["normalizer"] == "normalize_uint8_batch"
-    assert clean_proof["corruption_called"] is False
-    assert clean_proof["proof_scope"] == "validation_loader_clean_input_only"
-    assert clean_proof["corruption_rng_instrumented"] is False
-    assert clean_proof["clean_validation_rng_status"] == (
-        "not_exercised_in_this_loader_lane"
-    )
-    assert clean_proof["clean_validation_rng_consumed"] is None
-    assert clean_proof["sample_count"] == _TINY_VALIDATION_PATCHES
-    assert clean_proof["partial_batch_observed"] is True
-
-    proof = cast("dict[str, object]", manifest["real_data_proof"])
-    splits = cast("dict[str, object]", proof["splits"])
-    train = cast("dict[str, object]", splits["train"])
-    validation = cast("dict[str, object]", splits["validation"])
-    assert train["csv_row_count"] == _TINY_TRAIN_PATCHES
-    assert validation["csv_row_count"] == _TINY_VALIDATION_PATCHES
-    assert cast("dict[str, object]", train["windows"])["selected_patch_count"] == (
-        _TINY_TRAIN_PATCHES
-    )
-    assert (
-        cast("dict[str, object]", validation["windows"])["selected_patch_count"]
-        == _TINY_VALIDATION_PATCHES
-    )
-    assert proof["status"] == "local_pass"
-    assert cast("dict[str, object]", proof["window_contract"])["status"] == (
-        "local_pass"
-    )
-    assert runtime_proof["real_data_identity_proof_status"] == "local_pass"
-    assert runtime_proof["clean_validation_dataloader_status"] == "pass"
-    assert "real-data identity" in cast("str", runtime_proof["evidence_gate"])
-
-    validation_rows = [row for row in dataloader_rows if row["split"] == "validation"]
-    assert len(validation_rows) == 1
-    assert validation_rows[0]["status"] == "ineligible"
-    assert (
-        validation_rows[0]["failure_kind"]
-        == "clean_validation_path_pass_throughput_grid_pending"
-    )
-    assert validation_rows[0]["rank_sample_count"] == str(_TINY_VALIDATION_PATCHES)
     assert not (benchmark_dir / "selected_runtime.json").exists()
 
 
@@ -450,6 +405,137 @@ def _load_json(path: Path) -> dict[str, object]:
 def _load_csv(path: Path) -> list[dict[str, str]]:
     with path.open(encoding="utf-8", newline="") as csv_file:
         return list(csv.DictReader(csv_file))
+
+
+def _assert_tiny_manifest_linked_evidence(manifest: dict[str, object]) -> None:
+    assert manifest["real_data_identity_proof_status"] == "local_pass"
+    assert manifest["row_count_proof_status"] == "pass"
+    assert manifest["crc_validation_status"] == "pass"
+    assert manifest["train_windows_exercised"] is True
+    assert manifest["validation_windows_exercised"] is True
+    assert manifest["linked_evidence_status"] == "skipped_unsupported"
+    assert _object_status(manifest, "compile_settle_proof") == "skipped_unsupported"
+    assert (
+        _object_field(manifest, "compile_settle_proof", "contract_status")
+        == "local_pass"
+    )
+    assert _object_status(manifest, "ddp_launch_proof") == "skipped_unsupported"
+    assert _object_field(manifest, "ddp_launch_proof", "contract_status") == (
+        "local_pass"
+    )
+    assert _object_status(manifest, "dataloader_throughput_proof") == "local_pass"
+    assert _object_status(manifest, "paired_numerical_proof") == "local_pass"
+    assert (
+        _object_field(manifest, "paired_numerical_proof", "candidate_row_specific")
+        is False
+    )
+    assert _object_status(manifest, "corruption_equivalence_proof") == "local_pass"
+    assert (
+        _object_field(
+            manifest,
+            "corruption_equivalence_proof",
+            "clean_validation_rng_status",
+        )
+        == "not_exercised_training_batch_only"
+    )
+    assert _object_status(manifest, "gate_health_proof") == "local_pass"
+    assert (
+        len(cast("list[object]", manifest["file_hashes"])) == _EXPECTED_FILE_HASH_COUNT
+    )
+    _assert_tiny_clean_validation_proof(
+        cast("dict[str, object]", manifest["clean_validation_dataloader_proof"]),
+    )
+    _assert_tiny_real_data_proof(
+        cast("dict[str, object]", manifest["real_data_proof"]),
+    )
+
+
+def _assert_tiny_clean_validation_proof(clean_proof: dict[str, object]) -> None:
+    assert clean_proof["status"] == "pass"
+    assert clean_proof["dataset_class"] == "PatchTrainingDataset"
+    assert clean_proof["collate_fn"] == "collate_patch_training_samples"
+    assert clean_proof["normalizer"] == "normalize_uint8_batch"
+    assert clean_proof["corruption_called"] is False
+    assert clean_proof["proof_scope"] == "validation_loader_clean_input_only"
+    assert clean_proof["corruption_rng_instrumented"] is False
+    assert clean_proof["clean_validation_rng_status"] == (
+        "not_exercised_in_this_loader_lane"
+    )
+    assert clean_proof["clean_validation_rng_consumed"] is None
+    assert clean_proof["sample_count"] == _TINY_VALIDATION_PATCHES
+    assert clean_proof["partial_batch_observed"] is True
+
+
+def _assert_tiny_real_data_proof(proof: dict[str, object]) -> None:
+    splits = cast("dict[str, object]", proof["splits"])
+    train = cast("dict[str, object]", splits["train"])
+    validation = cast("dict[str, object]", splits["validation"])
+    assert train["csv_row_count"] == _TINY_TRAIN_PATCHES
+    assert validation["csv_row_count"] == _TINY_VALIDATION_PATCHES
+    assert cast("dict[str, object]", train["windows"])["selected_patch_count"] == (
+        _TINY_TRAIN_PATCHES
+    )
+    assert (
+        cast("dict[str, object]", validation["windows"])["selected_patch_count"]
+        == _TINY_VALIDATION_PATCHES
+    )
+    assert proof["status"] == "local_pass"
+    assert cast("dict[str, object]", proof["window_contract"])["status"] == (
+        "local_pass"
+    )
+
+
+def _assert_tiny_runtime_proof_linked_evidence(
+    runtime_proof: dict[str, object],
+) -> None:
+    assert runtime_proof["real_data_identity_proof_status"] == "local_pass"
+    assert runtime_proof["clean_validation_dataloader_status"] == "pass"
+    assert runtime_proof["linked_evidence_status"] == "skipped_unsupported"
+    compile_policy = cast("dict[str, object]", runtime_proof["compile_settle_policy"])
+    assert compile_policy["implemented_in_this_runner"] is False
+    assert compile_policy["contract_proof_available"] is True
+    assert compile_policy["status"] == "skipped_unsupported"
+    assert runtime_proof["paired_numerical_status"] == "local_pass"
+    assert runtime_proof["corruption_equivalence_status"] == "local_pass"
+    assert runtime_proof["gate_health_status"] == "local_pass"
+    assert runtime_proof["ddp_launch_status"] == "skipped_unsupported"
+    assert "real-data identity" in cast("str", runtime_proof["evidence_gate"])
+
+
+def _assert_tiny_linked_csv_rows(
+    *,
+    dataloader_rows: list[dict[str, str]],
+    numerical_rows: list[dict[str, str]],
+    corruption_rows: list[dict[str, str]],
+    gate_rows: list[dict[str, str]],
+) -> None:
+    validation_rows = [row for row in dataloader_rows if row["split"] == "validation"]
+    train_rows = [row for row in dataloader_rows if row["split"] == "train"]
+    assert len(validation_rows) == 1
+    assert len(train_rows) == 1
+    assert validation_rows[0]["status"] == "local_pass"
+    assert train_rows[0]["status"] == "local_pass"
+    validation_measured = int(validation_rows[0]["rank_sample_count"])
+    assert 0 < validation_measured <= _TINY_VALIDATION_PATCHES
+    assert numerical_rows
+    assert all(row["status"] == "skipped_unsupported" for row in numerical_rows)
+    assert all(
+        row["failure_kind"] == "compile_or_ddp_numerical_pending"
+        for row in numerical_rows
+    )
+    assert corruption_rows
+    assert all(row["status"] == "skipped_unsupported" for row in corruption_rows)
+    assert all(not row["clean_validation_rng_advanced"] for row in corruption_rows)
+    assert gate_rows
+    assert all(row["gate_health_status"] == "local_pass" for row in gate_rows)
+
+
+def _object_status(payload: dict[str, object], key: str) -> object:
+    return cast("dict[str, object]", payload[key])["status"]
+
+
+def _object_field(payload: dict[str, object], key: str, field: str) -> object:
+    return cast("dict[str, object]", payload[key])[field]
 
 
 def _write_tiny_patch_root(tmp_path: Path) -> Path:

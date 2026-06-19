@@ -232,25 +232,33 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: continue the linked evidence for the non-promotable
-capped real-data train-step pretest. The 2026-06-19 proof-lane implementation
-now records real-data/local identity, SHA256 file hashes, full-payload CRC32
-validation, row-count proof, split WSI/holdout-overlap contract proof, exact
-fixed spread-window proof, and a clean validation loader/collate/normalization
-proof. Tiny local fixtures produce only `local_pass`; canonical real `pass`
-requires the expected Kaggle dataset slug, exact 300000/30000 train/validation
-row counts, exact 322/39 train/validation WSI counts, zero train/validation and
+Immediate next action: implement canonical, candidate-specific linked evidence
+for the non-promotable capped real-data train-step pretest. The 2026-06-19
+proof-lane implementation now records real-data/local identity, SHA256 file
+hashes, full-payload CRC32 validation, row-count proof, split
+WSI/holdout-overlap contract proof, exact fixed spread-window proof, and a clean
+validation loader/collate/normalization proof. The follow-up linked-evidence
+implementation adds local/mechanics artifacts for fixed-window train/validation
+loader throughput, one fixed eager single-rank batch of paired
+branchless/indexed numerical and corruption equivalence, gate-health rows, plus
+compile-settle and DDP contract checks. Tiny local fixtures produce only
+`local_pass` or `skipped_unsupported`; canonical real `pass` requires the
+expected Kaggle dataset slug, exact 300000/30000 train/validation row counts,
+exact 322/39 train/validation WSI counts, zero train/validation and
 masked-holdout WSI overlap, 8,192/2,048 capped window totals, and the locked
 train/validation spread windows. The clean-validation proof is loader-only and
-explicitly does not claim corruption-RNG instrumentation. A local
-runner/kernel/guard now exists at `kaggle/kernels/real_data_runtime_pretest`,
-with exact T4 metadata, the exact patch dataset source,
-`KAGGLE_FULL_DATASET_CONFIRMED=1` push guard, embedded payload verification,
-upload-simulation import proof, local wrong-accelerator artifact proof, and
-explicit selected-runtime rejection. It still must not be treated as runtime
-selection: timed rows are ineligible until the compile/DDP/real
-dataloader-throughput/numerical/corruption/gate-health evidence is implemented
-and passes. The first pretest attaches only
+explicitly does not claim corruption-RNG instrumentation; the corruption
+equivalence proof also does not claim clean-validation RNG non-consumption. A
+local runner/kernel/guard now exists at
+`kaggle/kernels/real_data_runtime_pretest`, with exact T4 metadata, the exact
+patch dataset source, `KAGGLE_FULL_DATASET_CONFIRMED=1` push guard, embedded
+payload verification, upload-simulation import proof, local wrong-accelerator
+artifact proof, and explicit selected-runtime rejection. It still must not be
+treated as runtime selection: timed rows are ineligible until measured
+compile-settle/Dynamo counter deltas, real dual-T4/DDP launch proof,
+candidate-row dataloader throughput, candidate-batch numerical/corruption
+checks, and sufficient gate-health evidence pass canonically. The first pretest
+attaches only
 `maximusshtefan/patches-pre-shuffled-ubc-ocean`, uses 8,192 train and 2,048
 validation patches from fixed spread windows, writes blocked claims, and must
 not write `benchmark/selected_runtime.json`. The approved first real-data
@@ -469,9 +477,12 @@ The review process lives in `docs/agentic_review_workflow.md`.
 
 ## Next Concrete Steps
 
-1. Implement the next capped real-data evidence lanes: compile-settle/Dynamo
-   accounting, DDP launch proof, real dataloader throughput matrix, paired
-   numerical checks, corruption compile-stability checks, and gate-health rows.
+1. Replace the local/contract-only linked pretest scaffolds with canonical,
+   candidate-specific evidence: measured compile-settle/Dynamo graph-break and
+   recompile deltas, real dual-T4/DDP launch proof, real dataloader throughput
+   per candidate batch/accelerator path, paired numerical checks on the required
+   fixed batches, corruption compile-stability plus clean-validation RNG
+   non-consumption proof, and gate-health evidence tied to candidate rows.
 2. Use synthetic timing v4 only as parent provenance and candidate screening for
    real-data rows. Real runtime selection still requires the real-data
    benchmark, selected-runtime debug, checkpoint/resume, tiny-overfit, and fixed
@@ -1185,6 +1196,37 @@ The review process lives in `docs/agentic_review_workflow.md`.
   errors. A focused adversarial subagent review found and the implementation
   fixed over-broad WSI pass semantics, weak window-contract enforcement,
   overclaimed clean-validation RNG proof, and tiny-fixture overclaiming.
+- 2026-06-19 capped real-data runtime pretest linked-evidence local scaffolding
+  pass: the pretest writer now attaches linked evidence objects to the manifest
+  and runtime proof for compile-settle, DDP launch, fixed-window dataloader
+  throughput, paired branchless/indexed numerical comparison, corruption
+  equivalence, and gate health. The implementation deliberately distinguishes
+  local/mechanics evidence from canonical eligibility evidence: compile-settle
+  and DDP lane `status` values remain `skipped_unsupported` with
+  `contract_status = "local_pass"` until measured compiled rows and real
+  dual-T4 ranks exist; fixed-window dataloader throughput remains
+  `local_pass` only and records that candidate-row coverage is still required;
+  paired numerical and corruption proof summaries are `local_pass` for one fixed
+  eager single-rank batch but their candidate CSV rows stay
+  `skipped_unsupported` unless the exact batch-size/accelerator/compile path is
+  covered. Corruption rows no longer claim clean-validation RNG advancement
+  proof. Runtime rows now read numerical status from row-specific numerical CSV
+  entries instead of inheriting the broad lane status, and
+  `compile_settle_policy.implemented_in_this_runner` is false until measured
+  compiled rows exist. `linked_evidence_status` remains
+  `skipped_unsupported` for local fixtures, row eligibility stays blocked, and
+  `benchmark/selected_runtime.json` is still rejected/not written. A
+  clean-context adversarial subagent review found the overclaim risks; the code
+  and tests were updated accordingly. Verification: focused Ruff format/check,
+  focused BasedPyright, and focused pytest for
+  `src/eqvae/benchmarking/real_data_runtime_pretest.py` plus
+  `tests/test_real_data_runtime_pretest.py` passed with 7 tests;
+  `./scripts/kaggle_kernel.sh build kaggle/kernels/real_data_runtime_pretest`,
+  `./scripts/kaggle_kernel.sh validate kaggle/kernels/real_data_runtime_pretest`,
+  `bash -n scripts/kaggle_kernel.sh`, and `git diff --check` passed. The full
+  `./scripts/python_quality.sh` passed with 112 tests and 0 BasedPyright
+  errors. `./scripts/agent_preflight.sh` passed and noted only the expected
+  dirty worktree.
 
 ## Update Rule
 

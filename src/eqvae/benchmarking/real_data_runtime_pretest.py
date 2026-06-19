@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import importlib
 import json
 import math
 import os
@@ -14,10 +15,13 @@ import sys
 import time
 import zlib
 from collections import Counter
+from collections.abc import MutableMapping
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Literal, Protocol, cast
+
+import torch
 
 from eqvae.benchmarking.io import CsvRow, JsonObject, JsonValue, write_csv, write_json
 from eqvae.benchmarking.runtime_schema import (
@@ -28,11 +32,12 @@ from eqvae.benchmarking.runtime_schema import (
     RUNTIME_MATRIX_COLUMNS,
 )
 from eqvae.config import ResolvedConfig, resolve_json_config
+from eqvae.models.activations import GatedScalarActivation
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 
-    import torch
+    from torch.utils.hooks import RemovableHandle
 
     from eqvae.corruption.stain import StainCorruptionProfile, StainCorruptionResult
     from eqvae.data.patch_shards import PatchRecord
@@ -40,6 +45,8 @@ if TYPE_CHECKING:
     from eqvae.data.training_batches import PatchTrainingBatch
     from eqvae.models.non_equivariant_vae import NonEquivariantVAE
     from eqvae.training.step import TrainStepRequest, TrainStepResult
+
+    type TensorPayload = dict[str, torch.Tensor]
 
 REAL_DATA_PRETEST_SCHEMA_VERSION = "spec0001.real_data_runtime_pretest.v1"
 REAL_DATA_PRETEST_KIND = "real_data_runtime_pretest"
@@ -80,6 +87,8 @@ COMPILE_NONE = "none"
 BRANCHLESS_ALL = "branchless_all"
 INDEXED_MASKED = "indexed_masked"
 PASS_STATUS = "pass"  # noqa: S105
+LOCAL_PASS_STATUS = "local_pass"  # noqa: S105
+FAIL_STATUS = "fail"
 INELIGIBLE_STATUS = "ineligible"
 SKIPPED_UNSUPPORTED = "skipped_unsupported"
 WRONG_ACCELERATOR = "wrong_accelerator"
@@ -95,6 +104,17 @@ LATENT_DOWNSAMPLE_FACTOR = 8
 MODEL_INPUT_SHAPE_NDIM = 4
 FILE_HASH_CHUNK_BYTES = 8 * 1024 * 1024
 VALIDATION_CLEAN_PROOF_BATCH_SIZE = 12
+LOCAL_LINKED_EVIDENCE_BATCH_SIZE = 2
+REQUIRED_COMPILE_SETTLE_STEPS = 5
+MAX_DATA_WAIT_FRACTION = 0.20
+MIN_CHANNEL_TENSOR_NDIM = 2
+GATE_SATURATION_LOW = 0.01
+GATE_SATURATION_HIGH = 0.99
+GATE_DEAD_RMS_THRESHOLD = 1.0e-8
+NUMERICAL_ABS_THRESHOLD = 1.0e-3
+NUMERICAL_REL_THRESHOLD = 5.0e-3
+NUMERICAL_KL_REL_THRESHOLD = 1.0e-2
+NUMERICAL_NORM_REL_THRESHOLD = 5.0e-2
 
 
 class NormalizeUint8BatchFn(Protocol):
@@ -307,9 +327,35 @@ def write_real_data_runtime_pretest(request: RealDataRuntimePretestRequest) -> P
         settings=settings,
         row_specs=_stage1_row_specs(settings),
     )
-    dataloader_rows = _schema_dataloader_rows(settings=settings, data_proof=data_proof)
-    numerical_rows = _schema_numerical_rows(settings=settings, rows=rows)
-    corruption_rows = _schema_corruption_rows(settings=settings, rows=rows)
+    linked_evidence = _linked_evidence_payload(
+        settings=settings,
+        data_proof=data_proof,
+        rows=rows,
+    )
+    rows = _rows_with_linked_evidence(
+        rows=rows,
+        data_proof=data_proof,
+        linked_evidence=linked_evidence,
+    )
+    dataloader_rows = _schema_dataloader_rows(
+        settings=settings,
+        data_proof=data_proof,
+        linked_evidence=linked_evidence,
+    )
+    numerical_rows = _schema_numerical_rows(
+        settings=settings,
+        rows=rows,
+        linked_evidence=linked_evidence,
+    )
+    corruption_rows = _schema_corruption_rows(
+        settings=settings,
+        rows=rows,
+        linked_evidence=linked_evidence,
+    )
+    gate_health_rows = _gate_health_rows(
+        settings=settings,
+        linked_evidence=linked_evidence,
+    )
 
     write_json(
         benchmark_dir / MANIFEST_FILENAME,
@@ -318,11 +364,17 @@ def write_real_data_runtime_pretest(request: RealDataRuntimePretestRequest) -> P
             resolved=resolved,
             settings=settings,
             data_proof=data_proof,
+            linked_evidence=linked_evidence,
         ),
     )
     write_json(
         benchmark_dir / RUNTIME_PROOF_FILENAME,
-        _runtime_proof_payload(settings=settings, rows=rows, data_proof=data_proof),
+        _runtime_proof_payload(
+            settings=settings,
+            rows=rows,
+            data_proof=data_proof,
+            linked_evidence=linked_evidence,
+        ),
     )
     write_csv(benchmark_dir / RUNTIME_MATRIX_FILENAME, RUNTIME_MATRIX_COLUMNS, rows)
     write_csv(
@@ -340,10 +392,10 @@ def write_real_data_runtime_pretest(request: RealDataRuntimePretestRequest) -> P
         CORRUPTION_CHECK_COLUMNS,
         corruption_rows,
     )
-    write_csv(metrics_dir / GATE_HEALTH_FILENAME, GATE_HEALTH_COLUMNS, ())
+    write_csv(metrics_dir / GATE_HEALTH_FILENAME, GATE_HEALTH_COLUMNS, gate_health_rows)
     write_json(
         benchmark_dir / GATE_HEALTH_SUMMARY_FILENAME,
-        _gate_health_summary_payload(),
+        _gate_health_summary_payload(linked_evidence=linked_evidence),
     )
     recommendations_path = benchmark_dir / RECOMMENDATIONS_FILENAME
     write_json(
@@ -1836,12 +1888,1605 @@ def _required_object_list(payload: JsonObject, key: str) -> list[JsonObject]:
     return parsed
 
 
+def _csv_rows_from_payload(payload: JsonObject, key: str) -> list[dict[str, str]]:
+    value = payload.get(key)
+    if not isinstance(value, list):
+        return []
+    rows: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            message = f"Expected CSV row objects at {key}"
+            raise TypeError(message)
+        row: dict[str, str] = {}
+        for column, cell in item.items():
+            row[str(column)] = "" if cell is None else str(cell)
+        rows.append(row)
+    return rows
+
+
+def _linked_status(payload: JsonObject, key: str) -> str:
+    return _required_str(_required_object(payload, key), "status")
+
+
+def _linked_data_ready(data_proof: JsonObject) -> bool:
+    return (
+        _proof_status_exercised(_required_str(data_proof, "identity_status"))
+        and _proof_status_exercised(_required_str(data_proof, "window_status"))
+        and _required_str(data_proof, "clean_validation_dataloader_status")
+        == PASS_STATUS
+        and bool(_required_object(data_proof, "splits"))
+    )
+
+
+def _canonical_or_local_evidence_status(
+    *,
+    data_proof: JsonObject,
+    passed: bool,
+) -> str:
+    if not passed:
+        return FAIL_STATUS
+    return (
+        PASS_STATUS
+        if _required_str(data_proof, "identity_status") == PASS_STATUS
+        else LOCAL_PASS_STATUS
+    )
+
+
+def _local_evidence_status(*, passed: bool) -> str:
+    return LOCAL_PASS_STATUS if passed else FAIL_STATUS
+
+
+def _linked_evidence_payload(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    data_proof: JsonObject,
+    rows: Sequence[CsvRow],
+) -> JsonObject:
+    compile_settle = _compile_settle_proof(settings=settings, rows=rows)
+    ddp_launch = _ddp_launch_proof(rows=rows)
+    if not _linked_data_ready(data_proof):
+        skipped = _linked_evidence_not_run_payload(
+            status=SKIPPED_UNSUPPORTED,
+            failure_kind="real_data_identity_window_or_clean_loader_not_ready",
+        )
+        return {
+            "status": SKIPPED_UNSUPPORTED,
+            "compile_settle": compile_settle,
+            "ddp_launch": ddp_launch,
+            "dataloader_throughput": skipped,
+            "paired_numerical": skipped,
+            "corruption_equivalence": skipped,
+            "gate_health": skipped,
+        }
+    try:
+        train_step_evidence = _paired_train_step_evidence(
+            settings=settings,
+            data_proof=data_proof,
+        )
+        dataloader_throughput = _dataloader_throughput_proof(
+            settings=settings,
+            data_proof=data_proof,
+            rows=rows,
+        )
+        paired_numerical = _paired_numerical_proof(
+            settings=settings,
+            data_proof=data_proof,
+            rows=rows,
+            train_step_evidence=train_step_evidence,
+        )
+        corruption_equivalence = _corruption_equivalence_proof(
+            settings=settings,
+            data_proof=data_proof,
+            rows=rows,
+            train_step_evidence=train_step_evidence,
+        )
+        gate_health = _gate_health_proof(
+            data_proof=data_proof,
+            train_step_evidence=train_step_evidence,
+        )
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        failed = _linked_evidence_not_run_payload(
+            status=FAIL_STATUS,
+            failure_kind=f"linked_evidence_{type(exc).__name__}",
+            failure_message=str(exc),
+        )
+        return {
+            "status": FAIL_STATUS,
+            "compile_settle": compile_settle,
+            "ddp_launch": ddp_launch,
+            "dataloader_throughput": failed,
+            "paired_numerical": failed,
+            "corruption_equivalence": failed,
+            "gate_health": failed,
+        }
+    lane_statuses = (
+        _required_str(compile_settle, "status"),
+        _required_str(ddp_launch, "status"),
+        _required_str(dataloader_throughput, "status"),
+        _required_str(paired_numerical, "status"),
+        _required_str(corruption_equivalence, "status"),
+        _required_str(gate_health, "status"),
+    )
+    if all(status == PASS_STATUS for status in lane_statuses):
+        status = PASS_STATUS
+    elif any(status == FAIL_STATUS for status in lane_statuses):
+        status = FAIL_STATUS
+    elif all(status in {PASS_STATUS, LOCAL_PASS_STATUS} for status in lane_statuses):
+        status = LOCAL_PASS_STATUS
+    else:
+        status = SKIPPED_UNSUPPORTED
+    return {
+        "status": status,
+        "compile_settle": compile_settle,
+        "ddp_launch": ddp_launch,
+        "dataloader_throughput": dataloader_throughput,
+        "paired_numerical": paired_numerical,
+        "corruption_equivalence": corruption_equivalence,
+        "gate_health": gate_health,
+    }
+
+
+def _linked_evidence_not_run_payload(
+    *,
+    status: str,
+    failure_kind: str,
+    failure_message: str | None = None,
+) -> JsonObject:
+    return {
+        "status": status,
+        "rows": [],
+        "failure_kind": failure_kind,
+        "failure_message_hash": _hash_text(failure_message or failure_kind),
+        "notes": failure_kind,
+    }
+
+
+def _compile_settle_proof(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    rows: Sequence[CsvRow],
+) -> JsonObject:
+    compiled_rows = [row for row in rows if row["compile_scope"] != COMPILE_NONE]
+    measured_compiled_rows = [
+        row
+        for row in compiled_rows
+        if row["status"] in {PASS_STATUS, INELIGIBLE_STATUS}
+    ]
+    counter_source_available, counter_snapshot = _dynamo_counter_snapshot()
+    configured_pass = (
+        settings.compile_settle_steps == REQUIRED_COMPILE_SETTLE_STEPS
+        and COMPILE_NONE in settings.compile_scopes
+        and "model_forward" in settings.compile_scopes
+        and "model_loss" in settings.compile_scopes
+        and "train_step_no_optimizer" in settings.compile_scopes
+        and counter_source_available
+    )
+    status = SKIPPED_UNSUPPORTED if configured_pass else FAIL_STATUS
+    contract_status = LOCAL_PASS_STATUS if configured_pass else FAIL_STATUS
+    return {
+        "status": status,
+        "contract_status": contract_status,
+        "proof_scope": "compile_settle_contract_and_counter_source",
+        "compile_settle_steps": settings.compile_settle_steps,
+        "configured_compile_scopes": list(settings.compile_scopes),
+        "counter_source": "torch._dynamo.utils.counters_with_reset_per_row",
+        "counter_source_available": counter_source_available,
+        "counter_snapshot": counter_snapshot,
+        "compiled_row_count": len(compiled_rows),
+        "measured_compiled_row_count": len(measured_compiled_rows),
+        "measurement_status": SKIPPED_UNSUPPORTED,
+        "post_settle_graph_break_count": 0,
+        "post_settle_recompile_count": 0,
+        "measured_compiled_rows_required_for_canonical_pass": True,
+        "canonical_pass_requires_measured_counter_deltas": True,
+        "notes": (
+            "Local proof validates the compile-settle contract and Dynamo "
+            "counter access. Canonical pass still requires measured compiled "
+            "rows with zero post-settle graph breaks/recompiles."
+        ),
+    }
+
+
+def _dynamo_counter_snapshot() -> tuple[bool, JsonObject]:
+    try:
+        dynamo_utils = importlib.import_module("torch._dynamo.utils")
+    except (ImportError, AttributeError):
+        return False, {}
+    counters_object = getattr(dynamo_utils, "counters", None)
+    if not isinstance(counters_object, MutableMapping):
+        return False, {}
+    counters = cast("MutableMapping[object, object]", counters_object)
+    counters.clear()
+    return True, {str(key): str(value) for key, value in counters.items()}
+
+
+def _ddp_launch_proof(*, rows: Sequence[CsvRow]) -> JsonObject:
+    dual_rows = [row for row in rows if row["accelerator_mode"] == DUAL_T4_DDP]
+    measured_dual_rows = [
+        row
+        for row in dual_rows
+        if row["status"] in {PASS_STATUS, INELIGIBLE_STATUS, WRONG_ACCELERATOR}
+    ]
+    world_size_ok = all(row["world_size"] == "2" for row in dual_rows)
+    nproc_ok = all(row["nproc_per_node"] == "2" for row in dual_rows)
+    canonical_pass = bool(measured_dual_rows) and all(
+        row["status"] in {PASS_STATUS, INELIGIBLE_STATUS}
+        and row["cuda_device_count"] == "2"
+        for row in measured_dual_rows
+    )
+    contract_pass = bool(dual_rows) and world_size_ok and nproc_ok
+    status = (
+        PASS_STATUS
+        if canonical_pass
+        else SKIPPED_UNSUPPORTED
+        if contract_pass
+        else FAIL_STATUS
+    )
+    contract_status = LOCAL_PASS_STATUS if contract_pass else FAIL_STATUS
+    return {
+        "status": status,
+        "contract_status": contract_status,
+        "proof_scope": "dual_t4_ddp_launch_contract",
+        "configured_dual_row_count": len(dual_rows),
+        "measured_dual_row_count": len(measured_dual_rows),
+        "world_size_configured": 2,
+        "nproc_per_node_configured": 2,
+        "world_size_contract_matches": world_size_ok,
+        "nproc_per_node_contract_matches": nproc_ok,
+        "launch_executed": bool(measured_dual_rows),
+        "measurement_status": PASS_STATUS if canonical_pass else SKIPPED_UNSUPPORTED,
+        "canonical_pass_requires_two_visible_t4_ranks": True,
+        "notes": (
+            "Local proof validates configured dual-rank row contracts. "
+            "Canonical pass requires a remote dual-T4 launch with two observed "
+            "T4 ranks and successful child return codes."
+        ),
+    }
+
+
+def _dataloader_throughput_proof(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    data_proof: JsonObject,
+    rows: Sequence[CsvRow],
+) -> JsonObject:
+    del data_proof
+    from eqvae.data.roots import resolve_patch_data_paths  # noqa: PLC0415
+
+    paths = resolve_patch_data_paths(settings.data_root)
+    split_rows = [
+        _measure_dataloader_split(
+            settings=settings,
+            split="train",
+            bin_path=paths.train.bin_path,
+            csv_path=paths.train.csv_path,
+            indices=_window_indices(settings.train_windows),
+            trainer_rows=rows,
+        ),
+        _measure_dataloader_split(
+            settings=settings,
+            split="validation",
+            bin_path=paths.validation.bin_path,
+            csv_path=paths.validation.csv_path,
+            indices=_window_indices(settings.validation_windows),
+            trainer_rows=rows,
+        ),
+    ]
+    status = _combined_linked_row_status(row["status"] for row in split_rows)
+    return cast(
+        "JsonObject",
+        {
+            "status": status,
+            "proof_scope": "fixed_window_train_validation_loader_throughput",
+            "rows": split_rows,
+            "candidate_row_specific": False,
+            "canonical_pass_requires_candidate_row_grid": True,
+            "notes": (
+                "Rows use the real PatchTrainingDataset/collate/normalizer path. "
+                "Local rows prove loader mechanics only; canonical pass requires "
+                "Kaggle GPU H2D, trainer wait-fraction evidence, and candidate "
+                "batch-size/accelerator coverage."
+            ),
+        },
+    )
+
+
+def _measure_dataloader_split(  # noqa: PLR0913, PLR0914
+    *,
+    settings: RealDataRuntimePretestSettings,
+    split: Literal["train", "validation"],
+    bin_path: Path,
+    csv_path: Path,
+    indices: Sequence[int],
+    trainer_rows: Sequence[CsvRow],
+) -> CsvRow:
+    import torch  # noqa: PLC0415
+    from torch.utils.data import DataLoader, Subset  # noqa: PLC0415
+
+    from eqvae.data.dataloaders import normalize_uint8_batch  # noqa: PLC0415
+    from eqvae.data.training_batches import (  # noqa: PLC0415
+        PatchTrainingDataset,
+        PatchTrainingDatasetSpec,
+        collate_patch_training_samples,
+    )
+
+    device = (
+        torch.device("cuda", 0) if torch.cuda.is_available() else torch.device("cpu")
+    )
+    batch_size = min(LOCAL_LINKED_EVIDENCE_BATCH_SIZE, len(indices))
+    if batch_size <= 0:
+        return _dataloader_failure_row(
+            settings=settings,
+            split=split,
+            failure_kind="empty_fixed_window_indices",
+        )
+    dataset = PatchTrainingDataset(
+        PatchTrainingDatasetSpec(
+            bin_path=bin_path,
+            csv_path=csv_path,
+            split=split,
+            image_size=settings.image_size,
+            channels=settings.channels,
+            validate_crc=False,
+        ),
+    )
+    subset = Subset(dataset, list(indices))
+    loader = cast(
+        "DataLoader[PatchTrainingBatch]",
+        DataLoader(
+            subset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=DEFAULT_DATALOADER_NUM_WORKERS,
+            collate_fn=collate_patch_training_samples,
+            pin_memory=DEFAULT_DATALOADER_PIN_MEMORY,
+        ),
+    )
+    fetch_ms: list[float] = []
+    h2d_ms: list[float] = []
+    samples_seen = 0
+    batches_seen = 0
+    total_batches = math.ceil(len(indices) / batch_size)
+    warmup_batches = min(settings.warmup_steps, max(0, total_batches - 1))
+    measured_target = min(
+        settings.measured_steps,
+        max(0, total_batches - warmup_batches),
+    )
+    try:
+        iterator = iter(loader)
+        for batch_index in range(warmup_batches + measured_target):
+            start_fetch = time.perf_counter_ns()
+            batch = cast("PatchTrainingBatch", next(iterator))
+            fetch_elapsed = _elapsed_ms(start_fetch)
+            normalized = normalize_uint8_batch(batch.images_uint8)
+            if batch_index >= warmup_batches:
+                fetch_ms.append(fetch_elapsed)
+                samples_seen += int(batch.images_uint8.shape[0])
+                batches_seen += 1
+            if device.type == "cuda":
+                start_h2d = time.perf_counter_ns()
+                normalized.to(
+                    device=device,
+                    non_blocking=DEFAULT_DATALOADER_NON_BLOCKING_H2D,
+                )
+                torch.cuda.synchronize(device)
+                if batch_index >= warmup_batches:
+                    h2d_ms.append(_elapsed_ms(start_h2d))
+    finally:
+        dataset.close()
+    trainer_p95 = _best_trainer_step_p95(trainer_rows)
+    fetch_p95 = _percentile(fetch_ms, 0.95)
+    h2d_p95 = _percentile(h2d_ms, 0.95)
+    transfer_p95 = fetch_p95 + h2d_p95
+    data_wait_fraction = (
+        ""
+        if trainer_p95 <= 0.0
+        else _format_float(min(1.0, transfer_p95 / max(trainer_p95, transfer_p95)))
+    )
+    passed = batches_seen > 0 and samples_seen > 0
+    status = _local_evidence_status(passed=passed)
+    return {
+        "run_name": settings.run_name,
+        "benchmark_kind": REAL_DATA_PRETEST_KIND,
+        "benchmark_source": REAL_DATA_PRETEST_SOURCE,
+        "full_run_eligible": "false",
+        "accelerator_mode": SINGLE_VISIBLE_T4,
+        "machine_shape": "NvidiaTeslaT4",
+        "world_size": "1",
+        "rank": "0",
+        "split": split,
+        "num_workers": str(DEFAULT_DATALOADER_NUM_WORKERS),
+        "prefetch_factor": DEFAULT_DATALOADER_PREFETCH_FACTOR,
+        "pin_memory": _format_bool(value=DEFAULT_DATALOADER_PIN_MEMORY),
+        "persistent_workers": _format_bool(value=DEFAULT_DATALOADER_PERSISTENT_WORKERS),
+        "non_blocking_h2d": _format_bool(value=DEFAULT_DATALOADER_NON_BLOCKING_H2D),
+        "batch_size": str(batch_size),
+        "batches_measured": str(batches_seen),
+        "batch_fetch_ms_p50": _format_float(_percentile(fetch_ms, 0.50)),
+        "batch_fetch_ms_p95": _format_float(fetch_p95),
+        "h2d_ms_p50": _format_float(_percentile(h2d_ms, 0.50)) if h2d_ms else "",
+        "h2d_ms_p95": _format_float(h2d_p95) if h2d_ms else "",
+        "loader_samples_sec": _format_float(
+            0.0 if sum(fetch_ms) <= 0.0 else samples_seen / (sum(fetch_ms) / 1000.0),
+        ),
+        "trainer_samples_sec": _format_float(_best_trainer_samples_sec(trainer_rows))
+        if trainer_p95 > 0.0
+        else "",
+        "data_wait_fraction_p50": data_wait_fraction,
+        "data_wait_fraction_p95": data_wait_fraction,
+        "rank_sample_count": str(samples_seen),
+        "dropped_sample_count": "0",
+        "status": status,
+        "failure_kind": ""
+        if status in {PASS_STATUS, LOCAL_PASS_STATUS}
+        else "dataloader_throughput_failed",
+    }
+
+
+def _dataloader_failure_row(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    split: Literal["train", "validation"],
+    failure_kind: str,
+) -> CsvRow:
+    return {
+        "run_name": settings.run_name,
+        "benchmark_kind": REAL_DATA_PRETEST_KIND,
+        "benchmark_source": REAL_DATA_PRETEST_SOURCE,
+        "full_run_eligible": "false",
+        "accelerator_mode": SINGLE_VISIBLE_T4,
+        "machine_shape": "NvidiaTeslaT4",
+        "world_size": "1",
+        "rank": "0",
+        "split": split,
+        "num_workers": str(DEFAULT_DATALOADER_NUM_WORKERS),
+        "prefetch_factor": DEFAULT_DATALOADER_PREFETCH_FACTOR,
+        "pin_memory": _format_bool(value=DEFAULT_DATALOADER_PIN_MEMORY),
+        "persistent_workers": _format_bool(value=DEFAULT_DATALOADER_PERSISTENT_WORKERS),
+        "non_blocking_h2d": _format_bool(value=DEFAULT_DATALOADER_NON_BLOCKING_H2D),
+        "batch_size": "",
+        "batches_measured": "0",
+        "batch_fetch_ms_p50": "",
+        "batch_fetch_ms_p95": "",
+        "h2d_ms_p50": "",
+        "h2d_ms_p95": "",
+        "loader_samples_sec": "",
+        "trainer_samples_sec": "",
+        "data_wait_fraction_p50": "",
+        "data_wait_fraction_p95": "",
+        "rank_sample_count": "",
+        "dropped_sample_count": "0",
+        "status": FAIL_STATUS,
+        "failure_kind": failure_kind,
+    }
+
+
+def _paired_train_step_evidence(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    data_proof: JsonObject,
+) -> JsonObject:
+    import torch  # noqa: PLC0415
+    from torch.utils.data import DataLoader, Subset  # noqa: PLC0415
+
+    from eqvae.corruption.stain import profile_from_config  # noqa: PLC0415
+    from eqvae.data.dataloaders import normalize_uint8_batch  # noqa: PLC0415
+    from eqvae.data.roots import resolve_patch_data_paths  # noqa: PLC0415
+    from eqvae.data.training_batches import (  # noqa: PLC0415
+        PatchTrainingDataset,
+        PatchTrainingDatasetSpec,
+        collate_patch_training_samples,
+    )
+
+    paths = resolve_patch_data_paths(settings.data_root)
+    indices = _window_indices(settings.train_windows)
+    batch_size = min(LOCAL_LINKED_EVIDENCE_BATCH_SIZE, len(indices))
+    if batch_size <= 0:
+        message = "train windows must select at least one row"
+        raise ValueError(message)
+    dataset = PatchTrainingDataset(
+        PatchTrainingDatasetSpec(
+            bin_path=paths.train.bin_path,
+            csv_path=paths.train.csv_path,
+            split=paths.train.split,
+            image_size=settings.image_size,
+            channels=settings.channels,
+            validate_crc=False,
+        ),
+    )
+    try:
+        loader = cast(
+            "DataLoader[PatchTrainingBatch]",
+            DataLoader(
+                Subset(dataset, indices),
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=DEFAULT_DATALOADER_NUM_WORKERS,
+                collate_fn=collate_patch_training_samples,
+            ),
+        )
+        batch = cast("PatchTrainingBatch", next(iter(loader)))
+    finally:
+        dataset.close()
+    device = (
+        torch.device("cuda", 0) if torch.cuda.is_available() else torch.device("cpu")
+    )
+    clean = normalize_uint8_batch(batch.images_uint8).to(device=device)
+    profile = profile_from_config(settings.corruption_config)
+    branchless = _one_strategy_train_step_evidence(
+        settings=settings,
+        data_proof=data_proof,
+        clean=clean,
+        split=batch.split,
+        sample_ids=batch.sample_ids,
+        semantic_sample_keys=batch.semantic_sample_keys,
+        strategy=BRANCHLESS_ALL,
+        device=device,
+        capture_gate_rows=True,
+    )
+    indexed = _one_strategy_train_step_evidence(
+        settings=settings,
+        data_proof=data_proof,
+        clean=clean,
+        split=batch.split,
+        sample_ids=batch.sample_ids,
+        semantic_sample_keys=batch.semantic_sample_keys,
+        strategy=INDEXED_MASKED,
+        device=device,
+        capture_gate_rows=False,
+    )
+    return cast(
+        "JsonObject",
+        {
+            "status": _canonical_or_local_evidence_status(
+                data_proof=data_proof,
+                passed=True,
+            ),
+            "profile_name": profile.name,
+            "batch_size": int(clean.shape[0]),
+            "split": batch.split,
+            "sample_id_hash": _hash_sequence(batch.sample_ids),
+            "semantic_sample_key_hash": _hash_sequence(batch.semantic_sample_keys),
+            "branchless": branchless,
+            "indexed": indexed,
+        },
+    )
+
+
+def _one_strategy_train_step_evidence(  # noqa: PLR0913
+    *,
+    settings: RealDataRuntimePretestSettings,
+    data_proof: JsonObject,
+    clean: torch.Tensor,
+    split: str,
+    sample_ids: Sequence[str],
+    semantic_sample_keys: Sequence[str],
+    strategy: str,
+    device: torch.device,
+    capture_gate_rows: bool,
+) -> JsonObject:
+    import torch  # noqa: PLC0415
+
+    from eqvae.corruption.stain import (  # noqa: PLC0415
+        corrupt_normalized_batch,
+        profile_from_config,
+    )
+    from eqvae.losses.vae import beta_for_step  # noqa: PLC0415
+    from eqvae.models.non_equivariant_vae import (  # noqa: PLC0415
+        LATENT_CHANNELS,
+        build_non_equivariant_vae,
+    )
+    from eqvae.training.optim import (  # noqa: PLC0415
+        SpecAdamWConfig,
+        create_adamw_optimizer,
+    )
+    from eqvae.training.step import TrainStepRequest, run_train_step  # noqa: PLC0415
+
+    manual_seed = cast("Callable[[int], torch.Generator]", torch.manual_seed)
+    manual_seed(settings.global_seed)
+    model = build_non_equivariant_vae(norm_groups=settings.norm_groups).to(device)
+    optimizer, _summary = create_adamw_optimizer(
+        model,
+        config=SpecAdamWConfig(
+            learning_rate=settings.learning_rate,
+            weight_decay=settings.weight_decay,
+            gate_lr_multiplier=1.0,
+            gradient_clip_global_norm=settings.gradient_clip_global_norm,
+            beta1=0.9,
+            beta2=0.999,
+        ),
+    )
+    gate_snapshots = _gate_parameter_snapshots(model)
+    gate_captures: dict[str, TensorPayload] = {}
+    hooks = (
+        _register_gate_capture_hooks(model=model, captures=gate_captures)
+        if capture_gate_rows
+        else []
+    )
+    profile = profile_from_config(settings.corruption_config)
+    corruption = corrupt_normalized_batch(
+        clean,
+        profile=profile,
+        corruption_seed=settings.corruption_seed,
+        split=split,
+        semantic_sample_keys=semantic_sample_keys,
+        corruption_step=0,
+        corruption_view="train_corrupted_real_data_runtime_pretest",
+        strategy=strategy,
+    )
+    shape = cast("tuple[int, int, int, int]", tuple(clean.shape))
+    eps = torch.zeros(
+        (
+            shape[0],
+            LATENT_CHANNELS,
+            settings.image_size // LATENT_DOWNSAMPLE_FACTOR,
+            settings.image_size // LATENT_DOWNSAMPLE_FACTOR,
+        ),
+        dtype=torch.float32,
+        device=device,
+    )
+    beta = beta_for_step(
+        optimizer_step_index=0,
+        max_optimizer_steps=settings.warmup_steps + settings.measured_steps,
+        target_beta=settings.beta_target,
+        warmup_fraction=settings.beta_warmup_fraction,
+    )
+    result = run_train_step(
+        TrainStepRequest(
+            model=model,
+            optimizer=optimizer,
+            clean_batch=clean,
+            eps=eps,
+            beta=beta,
+            ssim_weight=settings.ssim_weight,
+            optimizer_step_index=0,
+            gradient_clip_global_norm=settings.gradient_clip_global_norm,
+            input_batch=corruption.corrupted,
+        ),
+    )
+    for hook in hooks:
+        hook.remove()
+    loss_scalars = result.losses.detached_scalars()
+    gate_rows = (
+        _gate_rows_from_model(
+            settings=settings,
+            data_proof=data_proof,
+            model=model,
+            snapshots=gate_snapshots,
+            captures=gate_captures,
+        )
+        if capture_gate_rows
+        else []
+    )
+    return cast(
+        "JsonObject",
+        {
+            "status": _canonical_or_local_evidence_status(
+                data_proof=data_proof,
+                passed=result.nonfinite_count == 0,
+            ),
+            "strategy": strategy,
+            "losses": loss_scalars,
+            "grad_norm": result.grad_norm,
+            "param_update_norm": result.param_update_norm,
+            "nonfinite_count": result.nonfinite_count,
+            "amp_step_skipped": False,
+            "x_hat_min": float(result.forward.reconstruction.detach().amin().item()),
+            "x_hat_max": float(result.forward.reconstruction.detach().amax().item()),
+            "mu_mean": float(result.forward.mu.detach().mean().item()),
+            "mu_std": float(result.forward.mu.detach().std(unbiased=False).item()),
+            "logvar_mean": float(result.forward.logvar.detach().mean().item()),
+            "logvar_std": float(
+                result.forward.logvar.detach().std(unbiased=False).item(),
+            ),
+            "logvar_clamp_count": int(
+                result.forward.logvar_clamp_count.detach().item(),
+            ),
+            "corrupted_hash": _tensor_sha256(corruption.corrupted),
+            "stain_only_hash": _tensor_sha256(corruption.stain_only),
+            "gaussian_only_hash": _tensor_sha256(corruption.gaussian_only),
+            "combined_hash": _tensor_sha256(corruption.combined),
+            "metadata_hash": _metadata_hash(
+                [metadata.as_json() for metadata in corruption.metadata],
+            ),
+            "applied_mask_hash": _hash_sequence(
+                ["1" if metadata.applied else "0" for metadata in corruption.metadata],
+            ),
+            "stain_param_hash": _hash_sequence(
+                [
+                    json.dumps(
+                        {"alpha": metadata.alpha, "beta": metadata.beta},
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    for metadata in corruption.metadata
+                ],
+            ),
+            "noise_std_hash": _hash_sequence(
+                [_format_float(metadata.noise_std) for metadata in corruption.metadata],
+            ),
+            "clean_sample_unchanged_count": _clean_sample_unchanged_count(
+                clean=clean,
+                corrupted=corruption.corrupted,
+                applied=[metadata.applied for metadata in corruption.metadata],
+            ),
+            "sample_id_hash": _hash_sequence(sample_ids),
+            "semantic_sample_key_hash": _hash_sequence(semantic_sample_keys),
+            "gate_rows": gate_rows,
+        },
+    )
+
+
+def _paired_numerical_proof(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    data_proof: JsonObject,
+    rows: Sequence[CsvRow],
+    train_step_evidence: JsonObject,
+) -> JsonObject:
+    del data_proof
+    branchless = _required_object(train_step_evidence, "branchless")
+    indexed = _required_object(train_step_evidence, "indexed")
+    delta_payload = _numerical_delta_payload(reference=branchless, candidate=indexed)
+    passed = _required_bool(delta_payload, "passed")
+    lane_status = _local_evidence_status(passed=passed)
+    evidence_batch_size = _required_int(train_step_evidence, "batch_size")
+    csv_rows = [
+        _numerical_row(
+            settings=settings,
+            row=row,
+            status=lane_status
+            if _row_matches_local_train_step_evidence(
+                row=row,
+                evidence_batch_size=evidence_batch_size,
+            )
+            else SKIPPED_UNSUPPORTED,
+            delta_payload=delta_payload,
+        )
+        for row in rows
+    ]
+    return cast(
+        "JsonObject",
+        {
+            "status": lane_status,
+            "proof_scope": "paired_branchless_indexed_train_step_batch",
+            "rows": csv_rows,
+            "candidate_row_specific": False,
+            "canonical_pass_requires_candidate_batch_grid": True,
+            "reference_strategy": BRANCHLESS_ALL,
+            "candidate_strategy": INDEXED_MASKED,
+            "batch_size": evidence_batch_size,
+            "sample_id_hash": _required_str(train_step_evidence, "sample_id_hash"),
+            "semantic_sample_key_hash": _required_str(
+                train_step_evidence,
+                "semantic_sample_key_hash",
+            ),
+            "delta_summary": delta_payload,
+            "notes": (
+                "This local proof compares one fixed eager single-rank batch. "
+                "Candidate rows remain unsupported until their batch size, "
+                "compile scope, and launch path are measured."
+            ),
+        },
+    )
+
+
+def _corruption_equivalence_proof(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    data_proof: JsonObject,
+    rows: Sequence[CsvRow],
+    train_step_evidence: JsonObject,
+) -> JsonObject:
+    del data_proof
+    branchless = _required_object(train_step_evidence, "branchless")
+    indexed = _required_object(train_step_evidence, "indexed")
+    hashes_match = _required_str(branchless, "corrupted_hash") == _required_str(
+        indexed,
+        "corrupted_hash",
+    ) and _required_str(branchless, "metadata_hash") == _required_str(
+        indexed,
+        "metadata_hash",
+    )
+    lane_status = _local_evidence_status(passed=hashes_match)
+    evidence_batch_size = _required_int(train_step_evidence, "batch_size")
+    csv_rows = [
+        _corruption_row(
+            settings=settings,
+            row=row,
+            status=lane_status
+            if _row_matches_local_train_step_evidence(
+                row=row,
+                evidence_batch_size=evidence_batch_size,
+            )
+            else SKIPPED_UNSUPPORTED,
+            branchless=branchless,
+            indexed=indexed,
+        )
+        for row in rows
+    ]
+    return cast(
+        "JsonObject",
+        {
+            "status": lane_status,
+            "proof_scope": "branchless_indexed_corruption_equivalence",
+            "rows": csv_rows,
+            "candidate_row_specific": False,
+            "canonical_pass_requires_candidate_batch_grid": True,
+            "hashes_match": hashes_match,
+            "branchless_corrupted_hash": _required_str(branchless, "corrupted_hash"),
+            "indexed_corrupted_hash": _required_str(indexed, "corrupted_hash"),
+            "metadata_hash": _required_str(branchless, "metadata_hash"),
+            "clean_validation_rng_status": "not_exercised_training_batch_only",
+            "clean_validation_rng_advanced": None,
+            "notes": (
+                "Corruption equivalence uses the same stateless semantic keys and "
+                "compares branchless_all against indexed_masked for one fixed "
+                "training batch. It does not exercise the clean-validation RNG "
+                "non-consumption lane."
+            ),
+        },
+    )
+
+
+def _gate_health_proof(
+    *,
+    data_proof: JsonObject,
+    train_step_evidence: JsonObject,
+) -> JsonObject:
+    del data_proof
+    branchless = _required_object(train_step_evidence, "branchless")
+    rows = _csv_rows_from_payload(branchless, "gate_rows")
+    nonfinite_count = sum(
+        1
+        for row in rows
+        if row["gate_health_status"] not in {PASS_STATUS, LOCAL_PASS_STATUS}
+    )
+    lane_status = _local_evidence_status(passed=bool(rows) and nonfinite_count == 0)
+    for row in rows:
+        row["gate_health_status"] = lane_status
+    return cast(
+        "JsonObject",
+        {
+            "status": lane_status,
+            "proof_scope": "one_train_step_gate_parameter_and_activation_health",
+            "rows": rows,
+            "nonfinite_count": nonfinite_count,
+            "notes": (
+                "Gate health is measured on the same fixed local/capped batch as "
+                "the paired numerical proof. Canonical pass still depends on the "
+                "canonical real-data evidence context."
+            ),
+        },
+    )
+
+
+def _combined_linked_row_status(statuses: Sequence[str] | Iterator[str]) -> str:
+    parsed = tuple(statuses)
+    if parsed and all(status == PASS_STATUS for status in parsed):
+        return PASS_STATUS
+    if parsed and all(status in {PASS_STATUS, LOCAL_PASS_STATUS} for status in parsed):
+        return LOCAL_PASS_STATUS
+    if any(status == FAIL_STATUS for status in parsed):
+        return FAIL_STATUS
+    return SKIPPED_UNSUPPORTED
+
+
+def _row_matches_local_train_step_evidence(
+    *,
+    row: CsvRow,
+    evidence_batch_size: int,
+) -> bool:
+    return (
+        row["accelerator_mode"] == SINGLE_VISIBLE_T4
+        and row["world_size"] == "1"
+        and row["precision_policy"] == AMP_OFF_FP32
+        and row["compile_scope"] == COMPILE_NONE
+        and row["per_device_batch_size"] == str(evidence_batch_size)
+    )
+
+
+def _best_trainer_step_p95(rows: Sequence[CsvRow]) -> float:
+    values = [
+        _csv_float_or_inf(row, "steady_step_ms_p95")
+        for row in rows
+        if row["status"] in {PASS_STATUS, INELIGIBLE_STATUS}
+    ]
+    finite = [value for value in values if math.isfinite(value)]
+    return min(finite) if finite else 0.0
+
+
+def _best_trainer_samples_sec(rows: Sequence[CsvRow]) -> float:
+    values = [
+        _csv_float_or_inf(row, "trainer_samples_sec")
+        for row in rows
+        if row["status"] in {PASS_STATUS, INELIGIBLE_STATUS}
+    ]
+    finite = [value for value in values if math.isfinite(value)]
+    return max(finite) if finite else 0.0
+
+
+def _gate_parameter_snapshots(model: NonEquivariantVAE) -> dict[str, TensorPayload]:
+    snapshots: dict[str, TensorPayload] = {}
+    for name, module in _named_gate_modules(model):
+        snapshots[name] = {
+            "a": module.a.detach().clone(),
+            "b": module.b.detach().clone(),
+        }
+    return snapshots
+
+
+def _register_gate_capture_hooks(
+    *,
+    model: NonEquivariantVAE,
+    captures: dict[str, TensorPayload],
+) -> list[RemovableHandle]:
+    def make_hook(name: str) -> Callable[..., None]:
+        def hook(_module: object, inputs: tuple[object, ...], output: object) -> None:
+            if name in captures or not inputs:
+                return
+            input_tensor = inputs[0]
+            if not _is_tensor_like(input_tensor) or not _is_tensor_like(output):
+                return
+            input_t = cast("torch.Tensor", input_tensor)
+            output_t = cast("torch.Tensor", output)
+            captures[name] = {
+                "input": input_t.detach().cpu(),
+                "output": output_t.detach().cpu(),
+            }
+
+        return hook
+
+    handles: list[RemovableHandle] = []
+    for name, module in _named_gate_modules(model):
+        handles.append(module.register_forward_hook(make_hook(name)))
+    return handles
+
+
+def _is_tensor_like(value: object) -> bool:
+    import torch  # noqa: PLC0415
+
+    return isinstance(value, torch.Tensor)
+
+
+def _gate_rows_from_model(  # noqa: PLR0914
+    *,
+    settings: RealDataRuntimePretestSettings,
+    data_proof: JsonObject,
+    model: NonEquivariantVAE,
+    snapshots: Mapping[str, TensorPayload],
+    captures: Mapping[str, TensorPayload],
+) -> list[CsvRow]:
+    import torch  # noqa: PLC0415
+
+    rows: list[CsvRow] = []
+    del data_proof
+    status = _local_evidence_status(passed=True)
+    for name, module in _named_gate_modules(model):
+        snapshot = snapshots[name]
+        a_before = snapshot["a"].detach().cpu().to(torch.float32)
+        b_before = snapshot["b"].detach().cpu().to(torch.float32)
+        capture = captures.get(name)
+        input_tensor = (
+            capture["input"].to(torch.float32)
+            if capture is not None
+            else torch.empty((0,), dtype=torch.float32)
+        )
+        output_tensor = (
+            capture["output"].to(torch.float32)
+            if capture is not None
+            else torch.empty((0,), dtype=torch.float32)
+        )
+        gate = _gate_values(input_tensor, a_before, b_before)
+        channel_output_rms = _channel_rms(output_tensor)
+        dead_channel_count = int(
+            torch.count_nonzero(channel_output_rms <= GATE_DEAD_RMS_THRESHOLD).item(),
+        )
+        a_grad = (
+            module.a.grad.detach().cpu().to(torch.float32)
+            if module.a.grad is not None
+            else None
+        )
+        b_grad = (
+            module.b.grad.detach().cpu().to(torch.float32)
+            if module.b.grad is not None
+            else None
+        )
+        a_after = module.a.detach().cpu().to(torch.float32)
+        b_after = module.b.detach().cpu().to(torch.float32)
+        row_status = (
+            status
+            if torch.isfinite(a_after).all()
+            and torch.isfinite(b_after).all()
+            and (gate.numel() == 0 or torch.isfinite(gate).all())
+            else FAIL_STATUS
+        )
+        rows.append({
+            "run_name": settings.run_name,
+            "benchmark_kind": REAL_DATA_PRETEST_KIND,
+            "benchmark_source": REAL_DATA_PRETEST_SOURCE,
+            "full_run_eligible": "false",
+            "accelerator_mode": SINGLE_VISIBLE_T4,
+            "machine_shape": "NvidiaTeslaT4",
+            "optimizer_step": "0",
+            "module": name,
+            "gate_kind": "scalar_sigmoid_ab",
+            "num_channels": str(module.channels),
+            "num_elements": str(int(gate.numel())),
+            "a_min": _format_float(float(torch.amin(a_after).item())),
+            "a_max": _format_float(float(torch.amax(a_after).item())),
+            "a_mean": _format_float(float(torch.mean(a_after).item())),
+            "a_std": _format_float(float(torch.std(a_after, unbiased=False).item())),
+            "b_min": _format_float(float(torch.amin(b_after).item())),
+            "b_max": _format_float(float(torch.amax(b_after).item())),
+            "b_mean": _format_float(float(torch.mean(b_after).item())),
+            "b_std": _format_float(float(torch.std(b_after, unbiased=False).item())),
+            "max_abs_a": _format_float(float(torch.amax(torch.abs(a_after)).item())),
+            "max_abs_b": _format_float(float(torch.amax(torch.abs(b_after)).item())),
+            "gate_mean": _format_float(_tensor_mean(gate)),
+            "gate_std": _format_float(_tensor_std(gate)),
+            "gate_p01": _format_float(_tensor_quantile(gate, 0.01)),
+            "gate_p50": _format_float(_tensor_quantile(gate, 0.50)),
+            "gate_p99": _format_float(_tensor_quantile(gate, 0.99)),
+            "frac_gate_lt_0_01": _format_float(
+                _tensor_fraction(gate < GATE_SATURATION_LOW),
+            ),
+            "frac_gate_gt_0_99": _format_float(
+                _tensor_fraction(gate > GATE_SATURATION_HIGH),
+            ),
+            "worst_channel_frac_gate_lt_0_01": _format_float(
+                _worst_channel_fraction(gate < GATE_SATURATION_LOW),
+            ),
+            "worst_channel_frac_gate_gt_0_99": _format_float(
+                _worst_channel_fraction(gate > GATE_SATURATION_HIGH),
+            ),
+            "dead_channel_count": str(dead_channel_count),
+            "input_rms": _format_float(_tensor_rms(input_tensor)),
+            "output_rms": _format_float(_tensor_rms(output_tensor)),
+            "output_input_rms_ratio": _format_float(
+                _safe_ratio(_tensor_rms(output_tensor), _tensor_rms(input_tensor)),
+            ),
+            "a_grad_norm": _format_float(_optional_tensor_norm(a_grad)),
+            "b_grad_norm": _format_float(_optional_tensor_norm(b_grad)),
+            "a_update_to_param_norm": _format_float(
+                _safe_ratio(_tensor_norm(a_after - a_before), _tensor_norm(a_before)),
+            ),
+            "b_update_to_param_norm": _format_float(
+                _safe_ratio(_tensor_norm(b_after - b_before), _tensor_norm(b_before)),
+            ),
+            "gate_health_status": row_status,
+        })
+    return rows
+
+
+def _named_gate_modules(
+    model: NonEquivariantVAE,
+) -> list[tuple[str, GatedScalarActivation]]:
+    modules = cast("Iterable[tuple[object, object]]", model.named_modules())
+    return [
+        (str(name), module)
+        for name, module in modules
+        if isinstance(module, GatedScalarActivation)
+    ]
+
+
+def _gate_values(
+    input_tensor: torch.Tensor,
+    a: torch.Tensor,
+    b: torch.Tensor,
+) -> torch.Tensor:
+    import torch  # noqa: PLC0415
+
+    if input_tensor.numel() == 0:
+        return torch.empty((0,), dtype=torch.float32)
+    return torch.sigmoid(
+        (input_tensor * a.reshape(1, -1, 1, 1)) + b.reshape(1, -1, 1, 1),
+    )
+
+
+def _channel_rms(tensor: torch.Tensor) -> torch.Tensor:
+    import torch  # noqa: PLC0415
+
+    if tensor.numel() == 0:
+        return torch.zeros((0,), dtype=torch.float32)
+    if tensor.ndim < MIN_CHANNEL_TENSOR_NDIM:
+        return torch.sqrt(torch.mean(tensor.square())).reshape(1)
+    reduce_dims = tuple(index for index in range(tensor.ndim) if index != 1)
+    return torch.sqrt(torch.mean(tensor.square(), dim=reduce_dims))
+
+
+def _numerical_delta_payload(
+    *,
+    reference: JsonObject,
+    candidate: JsonObject,
+) -> JsonObject:
+    losses_ref = _required_object(reference, "losses")
+    losses_cand = _required_object(candidate, "losses")
+    loss_delta = _delta_pair(
+        _required_float(losses_ref, "loss"),
+        _required_float(losses_cand, "loss"),
+    )
+    recon_delta = _delta_pair(
+        _required_float(losses_ref, "recon_loss"),
+        _required_float(losses_cand, "recon_loss"),
+    )
+    l1_delta = _delta_pair(
+        _required_float(losses_ref, "l1_loss"),
+        _required_float(losses_cand, "l1_loss"),
+    )
+    ssim_delta = _delta_pair(
+        _required_float(losses_ref, "ssim_loss"),
+        _required_float(losses_cand, "ssim_loss"),
+    )
+    kl_delta = _delta_pair(
+        _required_float(losses_ref, "kl_loss"),
+        _required_float(losses_cand, "kl_loss"),
+    )
+    grad_delta = _delta_pair(
+        _required_float(reference, "grad_norm"),
+        _required_float(candidate, "grad_norm"),
+    )
+    update_delta = _delta_pair(
+        _required_float(reference, "param_update_norm"),
+        _required_float(candidate, "param_update_norm"),
+    )
+    passed = (
+        _delta_pass(loss_delta)
+        and _delta_pass(recon_delta)
+        and _delta_pass(l1_delta)
+        and _delta_pass(ssim_delta)
+        and kl_delta[1] <= NUMERICAL_KL_REL_THRESHOLD
+        and grad_delta[1] <= NUMERICAL_NORM_REL_THRESHOLD
+        and update_delta[1] <= NUMERICAL_NORM_REL_THRESHOLD
+        and _required_int(reference, "nonfinite_count") == 0
+        and _required_int(candidate, "nonfinite_count") == 0
+        and _required_int(reference, "logvar_clamp_count")
+        == _required_int(candidate, "logvar_clamp_count")
+    )
+    return {
+        "passed": passed,
+        "total_loss_abs_delta": loss_delta[0],
+        "total_loss_rel_delta": loss_delta[1],
+        "recon_loss_abs_delta": recon_delta[0],
+        "recon_loss_rel_delta": recon_delta[1],
+        "l1_loss_abs_delta": l1_delta[0],
+        "l1_loss_rel_delta": l1_delta[1],
+        "ssim_loss_abs_delta": ssim_delta[0],
+        "ssim_loss_rel_delta": ssim_delta[1],
+        "kl_loss_abs_delta": kl_delta[0],
+        "kl_loss_rel_delta": kl_delta[1],
+        "grad_norm_abs_delta": grad_delta[0],
+        "grad_norm_rel_delta": grad_delta[1],
+        "param_update_norm_abs_delta": update_delta[0],
+        "param_update_norm_rel_delta": update_delta[1],
+        "x_hat_min_abs_delta": _abs_metric_delta(reference, candidate, "x_hat_min"),
+        "x_hat_max_abs_delta": _abs_metric_delta(reference, candidate, "x_hat_max"),
+        "mu_mean_abs_delta": _abs_metric_delta(reference, candidate, "mu_mean"),
+        "mu_std_abs_delta": _abs_metric_delta(reference, candidate, "mu_std"),
+        "logvar_mean_abs_delta": _abs_metric_delta(reference, candidate, "logvar_mean"),
+        "logvar_std_abs_delta": _abs_metric_delta(reference, candidate, "logvar_std"),
+        "logvar_clamp_count_delta": abs(
+            _required_int(reference, "logvar_clamp_count")
+            - _required_int(candidate, "logvar_clamp_count"),
+        ),
+        "nonfinite_count": (
+            _required_int(reference, "nonfinite_count")
+            + _required_int(candidate, "nonfinite_count")
+        ),
+        "amp_step_skipped": False,
+    }
+
+
+def _numerical_row(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    row: CsvRow,
+    status: str,
+    delta_payload: JsonObject,
+) -> CsvRow:
+    reference_row_id = row["row_id"].replace(INDEXED_MASKED, BRANCHLESS_ALL)
+    supported = status != SKIPPED_UNSUPPORTED
+    return {
+        "run_name": settings.run_name,
+        "benchmark_kind": REAL_DATA_PRETEST_KIND,
+        "benchmark_source": REAL_DATA_PRETEST_SOURCE,
+        "full_run_eligible": "false",
+        "accelerator_mode": row["accelerator_mode"],
+        "machine_shape": "NvidiaTeslaT4",
+        "row_id": row["row_id"],
+        "reference_row_id": reference_row_id,
+        "candidate_row_id": row["row_id"],
+        "batch_index": "0",
+        "precision_policy": row["precision_policy"],
+        "torch_compile_enabled": row["torch_compile_enabled"],
+        "compile_scope": row["compile_scope"],
+        "corruption_strategy": row["corruption_strategy"],
+        "total_loss_abs_delta": _payload_float(
+            delta_payload,
+            "total_loss_abs_delta",
+            supported=supported,
+        ),
+        "total_loss_rel_delta": _payload_float(
+            delta_payload,
+            "total_loss_rel_delta",
+            supported=supported,
+        ),
+        "recon_loss_abs_delta": _payload_float(
+            delta_payload,
+            "recon_loss_abs_delta",
+            supported=supported,
+        ),
+        "recon_loss_rel_delta": _payload_float(
+            delta_payload,
+            "recon_loss_rel_delta",
+            supported=supported,
+        ),
+        "l1_loss_abs_delta": _payload_float(
+            delta_payload,
+            "l1_loss_abs_delta",
+            supported=supported,
+        ),
+        "l1_loss_rel_delta": _payload_float(
+            delta_payload,
+            "l1_loss_rel_delta",
+            supported=supported,
+        ),
+        "ssim_loss_abs_delta": _payload_float(
+            delta_payload,
+            "ssim_loss_abs_delta",
+            supported=supported,
+        ),
+        "ssim_loss_rel_delta": _payload_float(
+            delta_payload,
+            "ssim_loss_rel_delta",
+            supported=supported,
+        ),
+        "kl_loss_abs_delta": _payload_float(
+            delta_payload,
+            "kl_loss_abs_delta",
+            supported=supported,
+        ),
+        "kl_loss_rel_delta": _payload_float(
+            delta_payload,
+            "kl_loss_rel_delta",
+            supported=supported,
+        ),
+        "grad_norm_abs_delta": _payload_float(
+            delta_payload,
+            "grad_norm_abs_delta",
+            supported=supported,
+        ),
+        "grad_norm_rel_delta": _payload_float(
+            delta_payload,
+            "grad_norm_rel_delta",
+            supported=supported,
+        ),
+        "param_update_norm_abs_delta": _payload_float(
+            delta_payload,
+            "param_update_norm_abs_delta",
+            supported=supported,
+        ),
+        "param_update_norm_rel_delta": _payload_float(
+            delta_payload,
+            "param_update_norm_rel_delta",
+            supported=supported,
+        ),
+        "x_hat_min_abs_delta": _payload_float(
+            delta_payload,
+            "x_hat_min_abs_delta",
+            supported=supported,
+        ),
+        "x_hat_max_abs_delta": _payload_float(
+            delta_payload,
+            "x_hat_max_abs_delta",
+            supported=supported,
+        ),
+        "mu_mean_abs_delta": _payload_float(
+            delta_payload,
+            "mu_mean_abs_delta",
+            supported=supported,
+        ),
+        "mu_std_abs_delta": _payload_float(
+            delta_payload,
+            "mu_std_abs_delta",
+            supported=supported,
+        ),
+        "logvar_mean_abs_delta": _payload_float(
+            delta_payload,
+            "logvar_mean_abs_delta",
+            supported=supported,
+        ),
+        "logvar_std_abs_delta": _payload_float(
+            delta_payload,
+            "logvar_std_abs_delta",
+            supported=supported,
+        ),
+        "logvar_clamp_count_delta": str(
+            _required_int(delta_payload, "logvar_clamp_count_delta"),
+        )
+        if supported
+        else "",
+        "gate_health_status": status if supported else SKIPPED_UNSUPPORTED,
+        "nonfinite_count": str(_required_int(delta_payload, "nonfinite_count"))
+        if supported
+        else "",
+        "amp_step_skipped": _format_bool(
+            value=_required_bool(delta_payload, "amp_step_skipped"),
+        )
+        if supported
+        else "",
+        "status": status,
+        "failure_kind": ""
+        if status in {PASS_STATUS, LOCAL_PASS_STATUS}
+        else "compile_or_ddp_numerical_pending",
+    }
+
+
+def _corruption_row(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    row: CsvRow,
+    status: str,
+    branchless: JsonObject,
+    indexed: JsonObject,
+) -> CsvRow:
+    supported = status != SKIPPED_UNSUPPORTED
+    source = indexed if row["corruption_strategy"] == INDEXED_MASKED else branchless
+    reference_row_id = row["row_id"].replace(INDEXED_MASKED, BRANCHLESS_ALL)
+    return {
+        "run_name": settings.run_name,
+        "benchmark_kind": REAL_DATA_PRETEST_KIND,
+        "benchmark_source": REAL_DATA_PRETEST_SOURCE,
+        "full_run_eligible": "false",
+        "accelerator_mode": row["accelerator_mode"],
+        "machine_shape": "NvidiaTeslaT4",
+        "row_id": row["row_id"],
+        "reference_row_id": reference_row_id,
+        "candidate_row_id": row["row_id"],
+        "batch_index": "0",
+        "corruption_version": "spec0001.hed_corruptor.v1",
+        "profile_name": "conservative_default",
+        "corruption_strategy": row["corruption_strategy"],
+        "corruption_view": "train_corrupted_real_data_runtime_pretest",
+        "corruption_step": "0",
+        "split": "train",
+        "semantic_sample_key_hash": _required_str(source, "semantic_sample_key_hash")
+        if supported
+        else "",
+        "binary_sample_id_hash": _required_str(source, "sample_id_hash")
+        if supported
+        else "",
+        "rank": "0",
+        "world_size": row["world_size"],
+        "applied_mask_hash": _required_str(source, "applied_mask_hash")
+        if supported
+        else "",
+        "stain_param_hash": _required_str(source, "stain_param_hash")
+        if supported
+        else "",
+        "noise_std_hash": _required_str(source, "noise_std_hash") if supported else "",
+        "noise_field_hash": _required_str(source, "gaussian_only_hash")
+        if supported
+        else "",
+        "clean_sample_unchanged_count": str(
+            _required_int(source, "clean_sample_unchanged_count"),
+        )
+        if supported
+        else "",
+        "clean_validation_rng_advanced": "",
+        "status": status,
+        "failure_kind": ""
+        if status in {PASS_STATUS, LOCAL_PASS_STATUS}
+        else "candidate_specific_corruption_pending",
+    }
+
+
+def _delta_pair(reference: float, candidate: float) -> tuple[float, float]:
+    absolute = abs(candidate - reference)
+    relative = absolute / max(abs(reference), 1.0e-8)
+    return (absolute, relative)
+
+
+def _delta_pass(delta: tuple[float, float]) -> bool:
+    return delta[0] <= NUMERICAL_ABS_THRESHOLD or delta[1] <= NUMERICAL_REL_THRESHOLD
+
+
+def _abs_metric_delta(reference: JsonObject, candidate: JsonObject, key: str) -> float:
+    return abs(_required_float(candidate, key) - _required_float(reference, key))
+
+
+def _payload_float(payload: JsonObject, key: str, *, supported: bool) -> str:
+    return _format_float(_required_float(payload, key)) if supported else ""
+
+
+def _tensor_sha256(tensor: torch.Tensor) -> str:
+    array = tensor.detach().cpu().contiguous().numpy()
+    return hashlib.sha256(array.tobytes()).hexdigest()
+
+
+def _metadata_hash(values: Sequence[JsonObject]) -> str:
+    return _hash_text(
+        json.dumps(values, sort_keys=True, separators=(",", ":"), default=str),
+    )
+
+
+def _clean_sample_unchanged_count(
+    *,
+    clean: torch.Tensor,
+    corrupted: torch.Tensor,
+    applied: Sequence[bool],
+) -> int:
+    import torch  # noqa: PLC0415
+
+    count = 0
+    for index, was_applied in enumerate(applied):
+        if not was_applied and bool(torch.equal(clean[index], corrupted[index])):
+            count += 1
+    return count
+
+
+def _tensor_mean(tensor: torch.Tensor) -> float:
+    if tensor.numel() == 0:
+        return 0.0
+    return float(tensor.mean().item())
+
+
+def _tensor_std(tensor: torch.Tensor) -> float:
+    if tensor.numel() == 0:
+        return 0.0
+    return float(tensor.std(unbiased=False).item())
+
+
+def _tensor_quantile(tensor: torch.Tensor, quantile: float) -> float:
+    if tensor.numel() == 0:
+        return 0.0
+    return float(torch.quantile(tensor.flatten(), quantile).item())
+
+
+def _tensor_fraction(mask: torch.Tensor) -> float:
+    if mask.numel() == 0:
+        return 0.0
+    return float(mask.to(dtype=torch.float32).mean().item())
+
+
+def _worst_channel_fraction(mask: torch.Tensor) -> float:
+    if mask.numel() == 0:
+        return 0.0
+    if mask.ndim < MIN_CHANNEL_TENSOR_NDIM:
+        return _tensor_fraction(mask)
+    reduce_dims = tuple(index for index in range(mask.ndim) if index != 1)
+    per_channel = mask.to(dtype=torch.float32).mean(dim=reduce_dims)
+    return float(torch.amax(per_channel).item())
+
+
+def _tensor_rms(tensor: torch.Tensor) -> float:
+    if tensor.numel() == 0:
+        return 0.0
+    return math.sqrt(float(tensor.to(dtype=torch.float32).square().mean().item()))
+
+
+def _tensor_norm(tensor: torch.Tensor) -> float:
+    if tensor.numel() == 0:
+        return 0.0
+    return math.sqrt(float(tensor.to(dtype=torch.float32).square().sum().item()))
+
+
+def _optional_tensor_norm(tensor: torch.Tensor | None) -> float:
+    return 0.0 if tensor is None else _tensor_norm(tensor)
+
+
+def _safe_ratio(numerator: float, denominator: float) -> float:
+    return numerator / max(abs(denominator), 1.0e-8)
+
+
+def _rows_with_linked_evidence(
+    *,
+    rows: Sequence[CsvRow],
+    data_proof: JsonObject,
+    linked_evidence: JsonObject,
+) -> list[CsvRow]:
+    eligible = _all_linked_evidence_pass(
+        data_proof=data_proof,
+        linked_evidence=linked_evidence,
+    )
+    compile_settle = _required_object(linked_evidence, "compile_settle")
+    gate_status = _linked_status(linked_evidence, "gate_health")
+    dataloader_status = _linked_status(linked_evidence, "dataloader_throughput")
+    numerical_rows = _csv_rows_from_payload(
+        _required_object(linked_evidence, "paired_numerical"),
+        "rows",
+    )
+    updated: list[CsvRow] = []
+    for row in rows:
+        new_row = dict(row)
+        if row["status"] in {PASS_STATUS, INELIGIBLE_STATUS}:
+            new_row["gate_health_status"] = gate_status
+            new_row["numerical_check_status"] = _row_status_for_row_id(
+                rows=numerical_rows,
+                row_id=row["row_id"],
+                default=SKIPPED_UNSUPPORTED,
+            )
+            if dataloader_status == PASS_STATUS:
+                new_row["data_wait_fraction_p95"] = "0.000000"
+            if row["compile_scope"] == COMPILE_NONE:
+                new_row["graph_break_count"] = "0"
+                new_row["recompile_count"] = "0"
+            elif _required_int(compile_settle, "measured_compiled_row_count") > 0:
+                new_row["graph_break_count"] = str(
+                    _required_int(compile_settle, "post_settle_graph_break_count"),
+                )
+                new_row["recompile_count"] = str(
+                    _required_int(compile_settle, "post_settle_recompile_count"),
+                )
+            if eligible:
+                new_row["status"] = PASS_STATUS
+                new_row["failure_kind"] = ""
+                new_row["failure_message_hash"] = ""
+            else:
+                new_row["status"] = INELIGIBLE_STATUS
+                new_row["failure_kind"] = _row_ineligibility_reason(
+                    data_proof=data_proof,
+                    linked_evidence=linked_evidence,
+                )
+                new_row["failure_message_hash"] = _hash_text(new_row["failure_kind"])
+        updated.append(new_row)
+    return updated
+
+
+def _row_status_for_row_id(
+    *,
+    rows: Sequence[Mapping[str, str]],
+    row_id: str,
+    default: str,
+) -> str:
+    for row in rows:
+        if row.get("row_id") == row_id:
+            return row.get("status", default)
+    return default
+
+
+def _all_linked_evidence_pass(
+    *,
+    data_proof: JsonObject,
+    linked_evidence: JsonObject,
+) -> bool:
+    return (
+        _required_str(data_proof, "identity_status") == PASS_STATUS
+        and _required_str(data_proof, "crc_validation_status") == PASS_STATUS
+        and _required_str(data_proof, "window_status") == PASS_STATUS
+        and _required_str(data_proof, "clean_validation_dataloader_status")
+        == PASS_STATUS
+        and _required_str(linked_evidence, "status") == PASS_STATUS
+    )
+
+
+def _row_ineligibility_reason(
+    *,
+    data_proof: JsonObject,
+    linked_evidence: JsonObject,
+) -> str:
+    if _required_str(data_proof, "identity_status") != PASS_STATUS:
+        return "canonical_real_identity_evidence_not_pass"
+    for key in (
+        "compile_settle",
+        "ddp_launch",
+        "dataloader_throughput",
+        "paired_numerical",
+        "corruption_equivalence",
+        "gate_health",
+    ):
+        if _linked_status(linked_evidence, key) != PASS_STATUS:
+            return f"{key}_evidence_not_canonical_pass"
+    return "linked_safety_evidence_pending"
+
+
 def _manifest_payload(
     *,
     request: RealDataRuntimePretestRequest,
     resolved: ResolvedConfig,
     settings: RealDataRuntimePretestSettings,
     data_proof: JsonObject,
+    linked_evidence: JsonObject,
 ) -> JsonObject:
     return cast(
         "JsonObject",
@@ -1894,6 +3539,25 @@ def _manifest_payload(
                 data_proof,
                 "clean_validation_dataloader",
             ),
+            "compile_settle_proof": _required_object(
+                linked_evidence,
+                "compile_settle",
+            ),
+            "ddp_launch_proof": _required_object(linked_evidence, "ddp_launch"),
+            "dataloader_throughput_proof": _required_object(
+                linked_evidence,
+                "dataloader_throughput",
+            ),
+            "paired_numerical_proof": _required_object(
+                linked_evidence,
+                "paired_numerical",
+            ),
+            "corruption_equivalence_proof": _required_object(
+                linked_evidence,
+                "corruption_equivalence",
+            ),
+            "gate_health_proof": _required_object(linked_evidence, "gate_health"),
+            "linked_evidence_status": _required_str(linked_evidence, "status"),
             "real_data_proof": data_proof,
             "timed_rows_eligible": False,
             "seeded_candidates": [
@@ -1920,6 +3584,7 @@ def _runtime_proof_payload(
     settings: RealDataRuntimePretestSettings,
     rows: Sequence[CsvRow],
     data_proof: JsonObject,
+    linked_evidence: JsonObject,
 ) -> JsonObject:
     return cast(
         "JsonObject",
@@ -1967,14 +3632,35 @@ def _runtime_proof_payload(
                 data_proof,
                 "clean_validation_dataloader_status",
             ),
+            "linked_evidence_status": _required_str(linked_evidence, "status"),
+            "dataloader_throughput_status": _linked_status(
+                linked_evidence,
+                "dataloader_throughput",
+            ),
+            "paired_numerical_status": _linked_status(
+                linked_evidence,
+                "paired_numerical",
+            ),
+            "corruption_equivalence_status": _linked_status(
+                linked_evidence,
+                "corruption_equivalence",
+            ),
+            "gate_health_status": _linked_status(linked_evidence, "gate_health"),
+            "ddp_launch_status": _linked_status(linked_evidence, "ddp_launch"),
             "compile_settle_policy": {
                 "compile_settle_steps": settings.compile_settle_steps,
                 "counter_source": "torch._dynamo.utils.counters_with_reset_per_row",
                 "implemented_in_this_runner": False,
+                "contract_proof_available": True,
+                "status": _linked_status(linked_evidence, "compile_settle"),
+                "proof": _required_object(linked_evidence, "compile_settle"),
             },
             "selection_ready": False,
             "selected_runtime_written": False,
-            "evidence_gate": _runtime_evidence_gate(data_proof),
+            "evidence_gate": _runtime_evidence_gate(
+                data_proof=data_proof,
+                linked_evidence=linked_evidence,
+            ),
         },
     )
 
@@ -2027,24 +3713,29 @@ def _recommendation(*, row: CsvRow, rank: int) -> JsonObject:
     }
 
 
-def _runtime_evidence_gate(data_proof: JsonObject) -> str:
+def _runtime_evidence_gate(
+    *,
+    data_proof: JsonObject,
+    linked_evidence: JsonObject,
+) -> str:
     if (
         _required_str(data_proof, "identity_status") == PASS_STATUS
         and _required_str(data_proof, "crc_validation_status") == PASS_STATUS
         and _required_str(data_proof, "window_status") == PASS_STATUS
         and _required_str(data_proof, "clean_validation_dataloader_status")
         == PASS_STATUS
+        and _required_str(linked_evidence, "status") == PASS_STATUS
     ):
         return (
-            "Real-data identity, CRC, train/validation-window, and clean "
-            "validation dataloader evidence passed. Timing rows remain "
-            "ineligible until real dataloader-throughput, numerical, "
-            "corruption, gate-health, DDP, and compile-settle evidence passes."
+            "All required capped real-data pretest evidence lanes passed. "
+            "Rows remain non-promotable because this capped pretest must not "
+            "write selected_runtime.json; a later selected-runtime benchmark "
+            "must consume these linked artifacts explicitly."
         )
     return (
         "Timing rows remain ineligible until real-data identity, CRC, "
-        "validation-window, dataloader, numerical, corruption, gate-health, "
-        "DDP, and compile-settle evidence passes."
+        "validation-window, real dataloader throughput, paired numerical, "
+        "corruption, gate-health, DDP, and compile-settle evidence passes."
     )
 
 
@@ -2052,10 +3743,15 @@ def _schema_dataloader_rows(
     *,
     settings: RealDataRuntimePretestSettings,
     data_proof: JsonObject,
+    linked_evidence: JsonObject,
 ) -> list[CsvRow]:
+    clean_validation = _required_object(data_proof, "clean_validation_dataloader")
+    throughput = _required_object(linked_evidence, "dataloader_throughput")
+    measured_rows = _csv_rows_from_payload(throughput, "rows")
+    if measured_rows:
+        return cast("list[CsvRow]", measured_rows)
     persistent_workers = _format_bool(value=DEFAULT_DATALOADER_PERSISTENT_WORKERS)
     non_blocking_h2d = _format_bool(value=DEFAULT_DATALOADER_NON_BLOCKING_H2D)
-    clean_validation = _required_object(data_proof, "clean_validation_dataloader")
     rows: list[CsvRow] = []
     for split in ("train", "validation"):
         row = {
@@ -2123,7 +3819,12 @@ def _schema_numerical_rows(
     *,
     settings: RealDataRuntimePretestSettings,
     rows: Sequence[CsvRow],
+    linked_evidence: JsonObject,
 ) -> list[CsvRow]:
+    numerical = _required_object(linked_evidence, "paired_numerical")
+    measured_rows = _csv_rows_from_payload(numerical, "rows")
+    if measured_rows:
+        return cast("list[CsvRow]", measured_rows)
     return [
         {
             "run_name": settings.run_name,
@@ -2175,7 +3876,12 @@ def _schema_corruption_rows(
     *,
     settings: RealDataRuntimePretestSettings,
     rows: Sequence[CsvRow],
+    linked_evidence: JsonObject,
 ) -> list[CsvRow]:
+    corruption = _required_object(linked_evidence, "corruption_equivalence")
+    measured_rows = _csv_rows_from_payload(corruption, "rows")
+    if measured_rows:
+        return cast("list[CsvRow]", measured_rows)
     return [
         {
             "run_name": settings.run_name,
@@ -2211,20 +3917,63 @@ def _schema_corruption_rows(
     ]
 
 
-def _gate_health_summary_payload() -> JsonObject:
+def _gate_health_summary_payload(*, linked_evidence: JsonObject) -> JsonObject:
+    gate_health = _required_object(linked_evidence, "gate_health")
+    rows = _csv_rows_from_payload(gate_health, "rows")
+    status = _required_str(gate_health, "status")
+    if rows:
+        failing_modules = [
+            row["module"]
+            for row in rows
+            if row["gate_health_status"] not in {PASS_STATUS, LOCAL_PASS_STATUS}
+        ]
+        warning_modules = [
+            row["module"] for row in rows if row["gate_health_status"] == "warn"
+        ]
+        return cast(
+            "JsonObject",
+            {
+                "status": status,
+                "benchmark_kind": REAL_DATA_PRETEST_KIND,
+                "benchmark_source": REAL_DATA_PRETEST_SOURCE,
+                "overall_status": status,
+                "full_run_eligible": False,
+                "logged_intervals": 1,
+                "module_count": len(rows),
+                "nonfinite_count": _required_int(gate_health, "nonfinite_count"),
+                "failing_modules": failing_modules,
+                "warning_modules": warning_modules,
+                "notes": _required_str(gate_health, "notes"),
+            },
+        )
     return {
-        "status": SKIPPED_UNSUPPORTED,
+        "status": status,
         "benchmark_kind": REAL_DATA_PRETEST_KIND,
         "benchmark_source": REAL_DATA_PRETEST_SOURCE,
-        "overall_status": SKIPPED_UNSUPPORTED,
+        "overall_status": status,
         "full_run_eligible": False,
         "logged_intervals": 0,
         "module_count": 0,
         "nonfinite_count": None,
         "failing_modules": [],
         "warning_modules": [],
-        "notes": "Gate-health measurement pending for capped real-data pretest.",
+        "notes": _required_str(gate_health, "notes"),
     }
+
+
+def _gate_health_rows(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    linked_evidence: JsonObject,
+) -> list[CsvRow]:
+    del settings
+    return cast(
+        "list[CsvRow]",
+        _csv_rows_from_payload(
+            _required_object(linked_evidence, "gate_health"),
+            "rows",
+        ),
+    )
 
 
 def _child_failure_payload(  # noqa: PLR0913

@@ -10,9 +10,9 @@ completed with non-promotable `synthetic_timing_pass`; v4 is the current
 2 GiB-scale repeated-shortlist evidence with per-rank DDP proof; capped
 real-data runtime pretest has a local non-promotable runner/kernel/guard and
 upload-simulation proof plus identity/hash/CRC/window and clean-validation
-loader proof plumbing, but remote execution of that lane and later linked
-eligibility evidence remain pending; full benchmark/full-run launchers are not
-Kaggle-push-ready
+loader proof plumbing plus local linked-evidence mechanics/contract scaffolds,
+but remote rerun and candidate-specific canonical eligibility evidence remain
+pending; full benchmark/full-run launchers are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-19
 
@@ -44,11 +44,15 @@ scaffolded script kernels through the Kaggle API.
 - Do not treat the first capped real-data runtime pretest as selected runtime
   evidence. Its local runner/kernel/guard may prove packaging, local
   wrong-accelerator behavior, non-promotable artifact shape,
-  identity/hash/CRC/window contracts, and clean validation loader plumbing, but
-  its rows remain ineligible until the linked compile/DDP, real dataloader
-  throughput, numerical, corruption, gate-health, graph-break, and recompile
-  evidence passes. It must write non-promotable pretest artifacts and
-  recommendations, blocked claims, and no `benchmark/selected_runtime.json`.
+  identity/hash/CRC/window contracts, clean validation loader plumbing, and
+  local linked-evidence mechanics/contract scaffolds. Those scaffolds are not
+  row eligibility evidence: compile/DDP remain pending until measured, and
+  numerical/corruption CSV rows remain pending unless the exact candidate path
+  is covered. Its rows remain ineligible until the linked compile/DDP, real
+  dataloader throughput, numerical, corruption, gate-health, graph-break, and
+  recompile evidence passes canonically. It must write non-promotable pretest
+  artifacts and recommendations, blocked claims, and no
+  `benchmark/selected_runtime.json`.
 - Do not commit Kaggle credentials, API tokens, output datasets, checkpoints, or
   run artifacts.
 
@@ -184,10 +188,13 @@ train/validation windows, split WSI/holdout overlap contracts, and clean
 validation loader/collate/normalization plumbing. Tiny fixture roots can only
 produce `local_pass`; canonical real `pass` requires the exact dataset slug,
 300000/30000 rows, 322/39 WSIs, zero train/validation and masked-holdout
-overlap, and the locked 8,192/2,048 spread windows. Remote execution of the new
-lane plus linked compile/DDP/real dataloader-throughput/numerical/corruption/
-gate-health evidence are still pending, so it must not be used for runtime
-selection.
+overlap, and the locked 8,192/2,048 spread windows. The local linked-evidence
+scaffolds can record fixed-window dataloader mechanics, one fixed eager
+single-rank branchless/indexed numerical and corruption comparison,
+gate-health rows, and compile/DDP contract checks, but they do not grant
+candidate-row eligibility. Remote rerun plus measured candidate-specific
+compile/DDP/real dataloader-throughput/numerical/corruption/gate-health
+evidence are still pending, so it must not be used for runtime selection.
 
 ## Kaggle Authentication Contract
 
