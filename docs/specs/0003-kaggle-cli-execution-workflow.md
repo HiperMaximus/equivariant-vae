@@ -210,6 +210,14 @@ run on Kaggle. The pretest writes full
 for candidate counts and roots. Rebuild the embedded script after committing
 data-root or payload fixes before any remote push.
 
+Remote v4 embedded the masked-holdout CSV and passed the first canonical
+real-data proof lane: identity, row counts, WSI/holdout overlap, CRC, locked
+windows, and clean validation loader. Its artifacts live under
+`runs/kaggle/real_data_runtime_pretest_v4`. The pretest still must not select a
+runtime: timed rows remain ineligible until candidate-specific compile/DDP,
+real dataloader-throughput, numerical, corruption, and gate-health evidence
+passes.
+
 ## Kaggle Authentication Contract
 
 Kaggle credentials are local user secrets. They must never be printed, stored in

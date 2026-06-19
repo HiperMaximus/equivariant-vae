@@ -29,12 +29,13 @@ Read first:
 | `0002-strict-python-quality-gate.md` | active gate installed; production scope excludes historical `src/nn`; passing | Empty `main.py` was deleted and `pytorch-msssim` was removed from `pyproject.toml`/`uv.lock` on 2026-06-12. Historical exploratory `src/nn` remains as reference material by user decision, excluded from Ruff/BasedPyright production scopes, and forbidden as an import source for `src/eqvae`. The latest `./scripts/python_quality.sh` passed for production Python with 75 tests and 0 BasedPyright errors. Local `.venv` must exist before no-sync checks. | Keep new work in typed `src/eqvae`; do not import `src.nn`; keep `./scripts/python_quality.sh` passing before benchmark CLIs are implementation-ready. |
 | `0003-kaggle-cli-execution-workflow.md` | draft active workflow scaffold; synthetic setup-smoke remote v1 passed; real-data smoke has local embedded packaging proof; synthetic timing remote v4 passed; real-data runtime pretest has local runner/kernel/guard, linked local evidence proof, and local slug-scoped data-root diagnostics pending remote v3 | The setup-smoke kernel now launches a generated embedded no-dataset setup path and remote v1 completed with non-promotable `smoke_pass`. The real-data capped smoke now has embedded packaging and upload-simulation import proof, but any metadata with nonempty `dataset_sources`, `competition_sources`, `kernel_sources`, or `model_sources` is guarded by `KAGGLE_FULL_DATASET_CONFIRMED=1`, and the real-data smoke guard allows only the known patch dataset source. The synthetic timing workflow is now a separate no-dataset GPU kernel with empty source lists, fresh embedded payload plus template verification, local upload-simulation coverage, non-promotable artifacts, adversarial-review fixes, completed remote v1/v2/v3 broad-screen evidence, and completed remote v4 repeated-shortlist evidence; v4 uses the current 2 GiB-scale profile and marks the 5-warmup/25-measured repeat gate completed without selecting a runtime. The real-data runtime pretest workflow now has a local embedded kernel, exact source/T4 guard, upload-simulation import test, selected-runtime rejection, identity/hash/CRC/window and clean-validation loader proof, local/contract-only linked evidence scaffolds, and diagnostics/log probes for Kaggle input resolution after remote v2 produced `data_root_unavailable`; no current linked lane grants row eligibility or selected-runtime evidence. Full benchmark/full-run launchers are still not implemented. | Commit and rebuild the fixed real-data runtime pretest before any v3 push; remote writes still require explicit user permission and `KAGGLE_PUSH_CONFIRMED=1`, and source-attachment writes also require `KAGGLE_FULL_DATASET_CONFIRMED=1`. After v3 confirms real-data root resolution, replace the local/contract-only linked pretest scaffolds with candidate-specific canonical evidence before treating any timed row as eligible. |
 
-Latest real-data pretest update, 2026-06-19: remote v3 supersedes the
-`pending remote v3` wording above. It confirmed the expected Kaggle shard root
-and diagnostics, then failed later because the embedded single-file payload did
-not include `docs/data/ubc_ocean_masked_holdout_ids.csv`. The local follow-up
-fix embeds that CSV, adds freshness/test coverage for it, and should be rebuilt
-after commit before any explicitly approved remote v4 push.
+Latest real-data pretest update, 2026-06-19: remote v4 supersedes the
+`pending remote v3` wording above. It passed canonical real-data identity,
+row-count, WSI/holdout overlap, CRC, locked-window, and clean-validation-loader
+proofs, with artifacts under `runs/kaggle/real_data_runtime_pretest_v4`.
+Timed rows remain ineligible because candidate-specific compile/DDP,
+dataloader-throughput, numerical, corruption, and gate-health evidence is still
+pending.
 
 Keep specs current. If implementation changes the contract, update the spec in
 the same workstream.

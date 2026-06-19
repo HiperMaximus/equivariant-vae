@@ -315,8 +315,10 @@ shard roots under `/kaggle/input` are diagnostics-only and must not be selected.
 Remote v3 confirmed the expected Kaggle shard root and then exposed a separate
 payload issue: the embedded single-file kernel must include
 `docs/data/ubc_ocean_masked_holdout_ids.csv` for split/holdout-overlap proof.
-Commit and rebuild the real-data runtime pretest after data-root or payload
-changes before pushing a new Kaggle version.
+Remote v4 included that file and passed the canonical real-data identity,
+row-count, WSI/holdout overlap, CRC, locked-window, and clean-validation-loader
+proof lane. Commit and rebuild the real-data runtime pretest after data-root or
+payload changes before pushing a new Kaggle version.
 
 For the synthetic binary timing pretest, the remote sequence remains permission
 gated:

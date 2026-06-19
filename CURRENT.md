@@ -232,27 +232,23 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: commit the local embedded-payload fix for the capped
-real-data runtime pretest, rebuild the payload after that commit so embedded
-provenance matches, and only then push a new Kaggle v4 with explicit user
-approval plus `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`.
-Remote reads/downloads still require explicit approval plus
-`KAGGLE_REMOTE_CONFIRMED=1`. Version 2 completed and artifacts were downloaded,
-but `data_root = "auto"` resolved no Kaggle input files:
-`real_data_proof.failure_kind = "data_root_unavailable"`,
-`resolved_data_root = ""`, real-data identity/CRC/window/clean-loader statuses
-were `skipped_unsupported`, and the two dataloader matrix rows stayed
-`skipped_unsupported`. The local fix now adds slug-scoped `/kaggle/input`
-discovery for the expected patch dataset, full manifest diagnostics, and
-concise stderr probe lines. Remote v3 confirmed that root discovery fix: the
-diagnostics saw complete files under
-`/kaggle/input/datasets/maximusshtefan/patches-pre-shuffled-ubc-ocean/dataset`.
-It then failed later because the embedded payload omitted
-`docs/data/ubc_ocean_masked_holdout_ids.csv`, which the split/holdout-overlap
-proof needs. Do not resend v2 or v3 unchanged. After v4 confirms the data proof
-lane, continue canonical, candidate-specific linked evidence for the
-non-promotable capped real-data train-step pretest. The 2026-06-19 proof-lane
-implementation now records real-data/local identity, SHA256 file
+Immediate next action: implement the next canonical, candidate-specific linked
+evidence lane for the non-promotable capped real-data train-step pretest:
+measured compile-settle/Dynamo counter deltas, real dual-T4/DDP launch proof,
+candidate-row dataloader throughput, candidate-batch numerical/corruption
+checks, and sufficient gate-health evidence. Remote v4 of the capped real-data
+runtime pretest passed the first real-data proof lane: identity, row counts,
+WSI/holdout split contract, CRC, locked windows, and clean validation loader.
+Artifacts are downloaded under
+`runs/kaggle/real_data_runtime_pretest_v4`. Do not treat v4 as runtime
+selection: `runtime_proof.status = "pretest_incomplete"`,
+`linked_evidence_status = "skipped_unsupported"`, `selection_ready = false`,
+`selected_runtime_written = false`, and `eligible_pass_row_count = 0`. Remote
+writes still require explicit approval plus `KAGGLE_PUSH_CONFIRMED=1`; source
+attachments also require `KAGGLE_FULL_DATASET_CONFIRMED=1`, and remote
+reads/downloads require explicit approval plus `KAGGLE_REMOTE_CONFIRMED=1`.
+The 2026-06-19 proof-lane implementation now records real-data/local identity,
+SHA256 file
 hashes, full-payload CRC32 validation, row-count proof, split
 WSI/holdout-overlap contract proof, exact fixed spread-window proof, and a clean
 validation loader/collate/normalization proof. The follow-up linked-evidence
@@ -1342,6 +1338,38 @@ The review process lives in `docs/agentic_review_workflow.md`.
   passed locally. Next action: commit the payload fix, rebuild after that
   commit, then push a new Kaggle v4 only with explicit remote-write and
   dataset-source approval. Overleaf was untouched.
+- 2026-06-19 capped real-data runtime pretest remote v4 result: committed the
+  embedded masked-holdout payload fix as `b9cc977` (`Embed holdout split proof
+  data in Kaggle payload`), rebuilt and validated the real-data runtime pretest
+  kernel locally, pushed approved Kaggle version 4 with
+  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`, polled it to
+  `KernelWorkerStatus.COMPLETE`, and downloaded ignored artifacts under
+  `runs/kaggle/real_data_runtime_pretest_v4`. The run achieved the first
+  canonical real-data proof lane: `real_data_proof.status = "pass"`,
+  `identity_status = "pass"`, `row_count_status = "pass"`,
+  `wsi_count_status = "pass"`, `crc_validation_status = "pass"`,
+  `window_status = "pass"`, and `clean_validation_dataloader_status = "pass"`.
+  It resolved data at
+  `/kaggle/input/datasets/maximusshtefan/patches-pre-shuffled-ubc-ocean/dataset`,
+  confirmed train 300000 rows / 322 WSIs, validation 30000 rows / 39 WSIs,
+  zero train-validation WSI overlap, zero overlap with the 152 masked-holdout
+  IDs, exact locked windows, and a clean validation loader proof over 2048
+  samples, 171 batches, final partial batch size 8, normalized range `[-1, 1]`,
+  and `loader_samples_sec = 10271.926998`. The non-promotable runtime matrix is
+  still incomplete: `runtime_proof.status = "pretest_incomplete"`,
+  `linked_evidence_status = "skipped_unsupported"`, `selection_ready = false`,
+  `selected_runtime_written = false`, and `eligible_pass_row_count = 0`.
+  `dataloader_matrix.csv` now has two `local_pass` rows, while the 56
+  numerical rows are `skipped_unsupported` with
+  `compile_or_ddp_numerical_pending`, the 56 corruption rows are
+  `skipped_unsupported` with `candidate_specific_corruption_pending`, and the
+  timed runtime rows remain ineligible because
+  `compile_settle_evidence_not_canonical_pass`; the two single-T4 batch-32
+  eager rows still fail with `runtime_OutOfMemoryError`. No
+  `benchmark/selected_runtime.json` was written. Next action: replace the
+  local/contract-only linked scaffolds with candidate-specific canonical
+  compile/DDP/dataloader/numerical/corruption/gate-health evidence before any
+  row can become eligible. Overleaf was untouched.
 
 ## Update Rule
 
