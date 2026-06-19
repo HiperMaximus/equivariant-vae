@@ -982,6 +982,9 @@ entries = manifest.get("entries")
 expected_entries = {
     "src/eqvae": digest_tree(Path("src/eqvae")),
     "configs/spec0001": digest_tree(Path("configs/spec0001")),
+    "docs/data/ubc_ocean_masked_holdout_ids.csv": digest_file(
+        Path("docs/data/ubc_ocean_masked_holdout_ids.csv")
+    ),
     "pyproject.toml": digest_file(Path("pyproject.toml")),
     "uv.lock": digest_file(Path("uv.lock")),
 }

@@ -307,13 +307,16 @@ The existing setup smoke has a distinct status/source and must never be promoted
 to real-data benchmark evidence.
 
 After real-data runtime pretest v2 completed with `data_root_unavailable`, the
-pretest resolver now records full `real_data_proof.data_root_diagnostics` and a
+pretest resolver records full `real_data_proof.data_root_diagnostics` and a
 short stderr JSON probe for Kaggle input resolution. Auto discovery may only
 promote complete shard roots under the expected
 `maximusshtefan/patches-pre-shuffled-ubc-ocean` mount family; unrelated complete
 shard roots under `/kaggle/input` are diagnostics-only and must not be selected.
-Commit and rebuild the real-data runtime pretest after data-root changes before
-pushing a new Kaggle version.
+Remote v3 confirmed the expected Kaggle shard root and then exposed a separate
+payload issue: the embedded single-file kernel must include
+`docs/data/ubc_ocean_masked_holdout_ids.csv` for split/holdout-overlap proof.
+Commit and rebuild the real-data runtime pretest after data-root or payload
+changes before pushing a new Kaggle version.
 
 For the synthetic binary timing pretest, the remote sequence remains permission
 gated:

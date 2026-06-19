@@ -3,11 +3,15 @@
 
 from __future__ import annotations
 
+import base64
+import io
 import json
 import os
+import re
 import shutil
 import subprocess  # noqa: S404
 import sys
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -54,6 +58,11 @@ _EXPECTED_REAL_DATA_PRETEST_BLOCKED_CLAIMS = {
     "paper_evidence",
     "full_run_readiness",
 }
+_EMBEDDED_PAYLOAD_B64_PATTERN = re.compile(
+    r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""',
+    flags=re.DOTALL,
+)
+_MASKED_HOLDOUT_CSV_PAYLOAD_PATH = "docs/data/ubc_ocean_masked_holdout_ids.csv"
 
 
 @dataclass(frozen=True)
@@ -213,6 +222,7 @@ def test_embedded_real_data_runtime_pretest_kernel_import_simulation(
     payload = _load_json(benchmark_dir / "real_data_runtime_pretest_import.json")
     blocked_claims = cast("dict[str, bool]", payload["blocked_claims"])
     manifest = cast("dict[str, object]", payload["payload_manifest"])
+    entries = cast("dict[str, object]", manifest["entries"])
     assert payload["status"] == "import_smoke_pass"
     assert payload["status_scope"] == "non_promotable_local_upload_simulation"
     assert payload["benchmark_kind"] == "real_data_runtime_pretest_import_only"
@@ -223,6 +233,10 @@ def test_embedded_real_data_runtime_pretest_kernel_import_simulation(
     assert set(blocked_claims) == _EXPECTED_REAL_DATA_PRETEST_BLOCKED_CLAIMS
     assert all(blocked_claims.values())
     assert manifest["schema_version"] == "spec0001.kaggle_payload_manifest.v1"
+    assert _MASKED_HOLDOUT_CSV_PAYLOAD_PATH in entries
+    assert _MASKED_HOLDOUT_CSV_PAYLOAD_PATH in _embedded_payload_names(
+        simulation.upload_dir / "run.py",
+    )
 
 
 def test_embedded_kernel_verify_rejects_stale_template(tmp_path: Path) -> None:
@@ -334,3 +348,13 @@ def _run_environment(output_dir: Path) -> dict[str, str]:
 
 def _load_json(path: Path) -> dict[str, object]:
     return cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+
+
+def _embedded_payload_names(run_path: Path) -> set[str]:
+    match = _EMBEDDED_PAYLOAD_B64_PATTERN.search(run_path.read_text(encoding="utf-8"))
+    if match is None:
+        message = "missing embedded payload"
+        raise AssertionError(message)
+    zip_bytes = base64.b64decode(match.group("payload").encode("ascii"))
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+        return set(archive.namelist())

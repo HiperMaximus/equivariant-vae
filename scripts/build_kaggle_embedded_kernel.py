@@ -159,18 +159,20 @@ def _parse_args() -> BuildArgs:
         help="Allow verifying a payload built from the current dirty worktree.",
     )
     namespace = parser.parse_args()
-    repo_root = Path(namespace.repo_root).resolve()
-    kernel_dir = Path(namespace.kernel_dir)
+    repo_root = Path(cast("str", namespace.repo_root)).resolve()
+    kernel_dir = Path(cast("str", namespace.kernel_dir))
     if not kernel_dir.is_absolute():
         kernel_dir = (repo_root / kernel_dir).resolve()
+    template_arg = cast("str | None", namespace.template)
+    output_run_arg = cast("str | None", namespace.output_run)
     template_path = (
-        Path(cast("str", namespace.template))
-        if namespace.template is not None
+        Path(template_arg)
+        if template_arg is not None
         else kernel_dir / "run_template.py"
     )
     output_run_path = (
-        Path(cast("str", namespace.output_run))
-        if namespace.output_run is not None
+        Path(output_run_arg)
+        if output_run_arg is not None
         else kernel_dir / _metadata_code_file(kernel_dir)
     )
     if not template_path.is_absolute():
@@ -190,7 +192,10 @@ def _parse_args() -> BuildArgs:
 
 def _metadata_code_file(kernel_dir: Path) -> str:
     metadata_path = kernel_dir / "kernel-metadata.json"
-    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    payload = cast(
+        "dict[str, object]",
+        json.loads(metadata_path.read_text(encoding="utf-8")),
+    )
     code_file = payload.get("code_file")
     if not isinstance(code_file, str) or not code_file:
         message = f"{metadata_path} must declare a non-empty code_file"
@@ -210,6 +215,9 @@ def _payload_manifest(repo_root: Path, template_path: Path) -> dict[str, object]
         "entries": {
             "src/eqvae": _digest_tree(repo_root / "src" / "eqvae"),
             "configs/spec0001": _digest_tree(repo_root / "configs" / "spec0001"),
+            "docs/data/ubc_ocean_masked_holdout_ids.csv": _digest_file(
+                repo_root / "docs" / "data" / "ubc_ocean_masked_holdout_ids.csv",
+            ),
             "pyproject.toml": _digest_file(repo_root / "pyproject.toml"),
             "uv.lock": _digest_file(repo_root / "uv.lock"),
         },
@@ -243,7 +251,11 @@ def _payload_files(repo_root: Path) -> tuple[tuple[Path, str], ...]:
             files.append((path, archive_name.as_posix()))
     files.extend(
         (repo_root / relative, relative.as_posix())
-        for relative in (Path("pyproject.toml"), Path("uv.lock"))
+        for relative in (
+            Path("docs/data/ubc_ocean_masked_holdout_ids.csv"),
+            Path("pyproject.toml"),
+            Path("uv.lock"),
+        )
     )
     return tuple(files)
 
@@ -269,9 +281,10 @@ def _template_path_for_verify(
 ) -> Path:
     if fallback_template_path.exists():
         return fallback_template_path
-    template = manifest.get("template")
-    if not isinstance(template, dict):
+    raw_template = manifest.get("template")
+    if not isinstance(raw_template, dict):
         return fallback_template_path
+    template = cast("dict[str, object]", raw_template)
     template_path = template.get("path")
     if not isinstance(template_path, str) or not template_path:
         return fallback_template_path
@@ -312,13 +325,17 @@ def _validate_manifest_against_source(
     expected_entries = {
         "src/eqvae": _digest_tree(repo_root / "src" / "eqvae"),
         "configs/spec0001": _digest_tree(repo_root / "configs" / "spec0001"),
+        "docs/data/ubc_ocean_masked_holdout_ids.csv": _digest_file(
+            repo_root / "docs" / "data" / "ubc_ocean_masked_holdout_ids.csv",
+        ),
         "pyproject.toml": _digest_file(repo_root / "pyproject.toml"),
         "uv.lock": _digest_file(repo_root / "uv.lock"),
     }
-    entries = manifest.get("entries")
-    if not isinstance(entries, dict):
+    raw_entries = manifest.get("entries")
+    if not isinstance(raw_entries, dict):
         errors.append("payload manifest entries must be an object")
     else:
+        entries = cast("dict[str, object]", raw_entries)
         for key, expected in expected_entries.items():
             if entries.get(key) != expected:
                 errors.append(f"payload entry {key!r} is stale")
@@ -337,9 +354,10 @@ def _manifest_template_error(
         "path": _manifest_path(repo_root=repo_root, path=template_path),
         "sha256": _digest_file(template_path),
     }
-    template = manifest.get("template")
-    if not isinstance(template, dict):
+    raw_template = manifest.get("template")
+    if not isinstance(raw_template, dict):
         return "payload manifest template must be an object"
+    template = cast("dict[str, object]", raw_template)
     if template != expected_template:
         return "payload template does not match current run_template.py"
     return None
@@ -357,7 +375,7 @@ def _manifest_from_zip(zip_bytes: bytes) -> dict[str, object]:
             if path.is_absolute() or ".." in path.parts:
                 message = f"unsafe embedded payload path: {name}"
                 raise RuntimeError(message)
-        manifest = json.loads(archive.read("payload_manifest.json"))
+        manifest = cast("object", json.loads(archive.read("payload_manifest.json")))
     if not isinstance(manifest, dict):
         message = "embedded payload manifest must be a JSON object"
         raise TypeError(message)

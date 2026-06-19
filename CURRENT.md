@@ -232,9 +232,9 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: commit the local Kaggle real-data input-discovery fix,
-rebuild the real-data runtime pretest payload after the commit so embedded
-provenance matches, and only then push a new Kaggle v3 with explicit user
+Immediate next action: commit the local embedded-payload fix for the capped
+real-data runtime pretest, rebuild the payload after that commit so embedded
+provenance matches, and only then push a new Kaggle v4 with explicit user
 approval plus `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`.
 Remote reads/downloads still require explicit approval plus
 `KAGGLE_REMOTE_CONFIRMED=1`. Version 2 completed and artifacts were downloaded,
@@ -244,11 +244,15 @@ but `data_root = "auto"` resolved no Kaggle input files:
 were `skipped_unsupported`, and the two dataloader matrix rows stayed
 `skipped_unsupported`. The local fix now adds slug-scoped `/kaggle/input`
 discovery for the expected patch dataset, full manifest diagnostics, and
-concise stderr probe lines; do not resend the v2 payload unchanged. After the
-data-root issue is confirmed fixed remotely, continue canonical,
-candidate-specific linked evidence for the non-promotable capped real-data
-train-step pretest. The 2026-06-19 proof-lane implementation now records
-real-data/local identity, SHA256 file
+concise stderr probe lines. Remote v3 confirmed that root discovery fix: the
+diagnostics saw complete files under
+`/kaggle/input/datasets/maximusshtefan/patches-pre-shuffled-ubc-ocean/dataset`.
+It then failed later because the embedded payload omitted
+`docs/data/ubc_ocean_masked_holdout_ids.csv`, which the split/holdout-overlap
+proof needs. Do not resend v2 or v3 unchanged. After v4 confirms the data proof
+lane, continue canonical, candidate-specific linked evidence for the
+non-promotable capped real-data train-step pretest. The 2026-06-19 proof-lane
+implementation now records real-data/local identity, SHA256 file
 hashes, full-payload CRC32 validation, row-count proof, split
 WSI/holdout-overlap contract proof, exact fixed spread-window proof, and a clean
 validation loader/collate/normalization proof. The follow-up linked-evidence
@@ -1308,6 +1312,36 @@ The review process lives in `docs/agentic_review_workflow.md`.
   and `./scripts/kaggle_kernel.sh validate kaggle/kernels/real_data_runtime_pretest`
   passed locally. Next action: commit, rebuild after the commit, then push a
   new Kaggle v3 only with explicit remote-write and dataset-source approval.
+- 2026-06-19 capped real-data runtime pretest remote v3 plus payload fix:
+  committed the data-root diagnostics fix as `8d927a5` (`Fix real-data pretest
+  data-root diagnostics`), rebuilt and validated the real-data runtime pretest
+  kernel locally, ran the approved Kaggle API preflight, and pushed Kaggle
+  version 3 with `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`.
+  Version 3 completed and downloaded ignored artifacts under
+  `runs/kaggle/real_data_runtime_pretest_v3`. The v3 diagnostics confirmed the
+  intended Kaggle root was present and complete:
+  `/kaggle/input/datasets/maximusshtefan/patches-pre-shuffled-ubc-ocean/dataset`
+  had all four required shard files with the expected large file sizes, and
+  `complete_unaccepted_candidate_count = 0`. The remaining failure was no
+  longer root discovery: `real_data_proof` still reported the broad legacy
+  `failure_kind = "data_root_unavailable"` only because a later proof-lane
+  `FileNotFoundError` was caught by that handler. The actual missing payload
+  dependency is `docs/data/ubc_ocean_masked_holdout_ids.csv`, needed by
+  `_split_contract_proof` inside the embedded single-file Kaggle payload.
+  The local follow-up fix now embeds that CSV, records it in the payload
+  manifest/freshness checks, tests that generated `run.py` physically contains
+  it, and changes non-resolver `FileNotFoundError` failures to
+  `data_proof_FileNotFoundError` with a short `failure_message_excerpt`.
+  Verification for the local follow-up fix: focused Ruff format/check, direct
+  BasedPyright on touched files, and focused pytest for embedded-kernel plus
+  real-data pretest tests passed with 12 tests; full
+  `./scripts/python_quality.sh` passed with 118 tests and 0 BasedPyright
+  errors; `bash -n scripts/kaggle_kernel.sh`,
+  `./scripts/kaggle_kernel.sh build kaggle/kernels/real_data_runtime_pretest`,
+  and `./scripts/kaggle_kernel.sh validate kaggle/kernels/real_data_runtime_pretest`
+  passed locally. Next action: commit the payload fix, rebuild after that
+  commit, then push a new Kaggle v4 only with explicit remote-write and
+  dataset-source approval. Overleaf was untouched.
 
 ## Update Rule
 

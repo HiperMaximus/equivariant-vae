@@ -1110,8 +1110,8 @@ def _real_data_identity_and_clean_path_proof(
     except FileNotFoundError as exc:
         return _data_proof_failure_payload(
             settings=settings,
-            status=SKIPPED_UNSUPPORTED,
-            failure_kind="data_root_unavailable",
+            status="fail",
+            failure_kind="data_proof_FileNotFoundError",
             failure_message=str(exc),
             data_root_diagnostics=_data_root_diagnostics(settings.data_root),
         )
@@ -1352,6 +1352,7 @@ def _data_proof_failure_payload(
             "failure_kind": failure_kind,
         },
         "failure_kind": failure_kind,
+        "failure_message_excerpt": _failure_message_excerpt(failure_message),
         "failure_message_hash": _hash_text(failure_message),
     }
 
@@ -1468,6 +1469,11 @@ def _diagnostic_candidate_roots(payload: JsonObject, key: str) -> list[JsonValue
         if isinstance(candidate_root, str):
             roots.append(candidate_root)
     return roots
+
+
+def _failure_message_excerpt(message: str) -> str:
+    single_line = " ".join(message.split())
+    return single_line[:256]
 
 
 def _split_windows_pass(split_proof: JsonObject) -> bool:
