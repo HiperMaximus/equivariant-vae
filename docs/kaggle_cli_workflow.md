@@ -331,6 +331,38 @@ or infer `benchmark/selected_runtime.json`. Commit and rebuild the real-data
 runtime pretest after data-root or payload changes before pushing a new Kaggle
 version.
 
+### Remote Duration And Polling Memory
+
+Do not poll long-running Kaggle kernels continuously. Remote reads still require
+explicit approval and `KAGGLE_REMOTE_CONFIRMED=1`, and large source-attached
+runs can spend many minutes preparing the environment before the script emits
+useful artifacts.
+
+Default polling cadence:
+
+- after a push, one immediate `status` check is allowed to confirm that Kaggle
+  accepted the version and moved it into a worker state;
+- for real-data kernels that attach `patches-pre-shuffled-ubc-ocean`, wait at
+  least 30 minutes before the next status check, then poll at 30-minute or
+  slower intervals until a terminal state appears;
+- do not repeat direct log reads when logs are empty for a running worker;
+- once a run completes, download artifacts once and record the observed duration
+  before deciding future cadence.
+
+Record timing memory in `CURRENT.md` and, when stable, in this section. Capture:
+push/version acceptance time, first observed `RUNNING` time, terminal status
+time, output-download time, and artifact phase timings such as data-root
+resolution, clean-validation proof, DDP launch proof, dataloader throughput,
+numerical checks, corruption checks, and gate-health work if the artifact
+contains those fields.
+
+Current duration notes:
+
+- Real-data runtime pretest v5, 2026-06-19: Kaggle accepted version 5 and kept
+  reporting `KernelWorkerStatus.RUNNING` throughout the initial monitoring
+  window. Treat this as a long real-data run; subsequent status checks should
+  use a 30-minute or slower cadence until the terminal duration is known.
+
 For the synthetic binary timing pretest, the remote sequence remains permission
 gated:
 

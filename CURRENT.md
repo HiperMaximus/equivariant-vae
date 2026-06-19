@@ -239,7 +239,10 @@ Kaggle state, then download artifacts to
 `real_data_runtime_pretest_manifest.json`, `runtime_matrix.csv`,
 `dataloader_matrix.csv`, `numerical_checks.csv`, `corruption_checks.csv`, and
 `metrics/gate_health.csv`, and confirm no `benchmark/selected_runtime.json`
-exists. The local runner now
+exists. Do not poll continuously: v5 was still `RUNNING` after the initial
+monitoring window, so the next status check should wait until at least
+2026-06-19 15:20 -05 and then use a 30-minute or slower cadence until the
+terminal duration is known. The local runner now
 implements measured `model_forward` compile-settle/Dynamo counter deltas, a
 real dual-rank `torchrun --standalone` DDP launch probe, candidate
 accelerator/batch dataloader throughput, candidate-batch numerical/corruption
@@ -1442,8 +1445,11 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `https://www.kaggle.com/code/maximusshtefan/eqvae-real-data-runtime-pretest`.
   Status checks during the monitoring window continued to report
   `KernelWorkerStatus.RUNNING`; the direct Kaggle log read returned no useful
-  lines. No artifacts were downloaded yet and no Overleaf work was touched.
-  Next action: when the worker finishes, download with
+  lines. No artifacts were downloaded yet and no Overleaf work was touched. The
+  polling policy was updated in `docs/kaggle_cli_workflow.md`: for
+  source-attached real-data kernels, do one immediate post-push status check,
+  then poll every 30 minutes or slower and record actual terminal durations
+  after artifact download. Next action: when the worker finishes, download with
   `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output maximusshtefan/eqvae-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v5`,
   then inspect that v5 remains non-promotable, has no
   `benchmark/selected_runtime.json`, and only eager rows can pass while compiled
