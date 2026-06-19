@@ -54,6 +54,35 @@ printf 'protocol=https\nhost=git.overleaf.com\n\n' | git credential reject
 Do not paste or store Overleaf tokens in repo files, shell history, logs, or
 chat.
 
+## Persistent Local Credential Storage
+
+For this workstation, prefer Git's `libsecret` credential helper so the
+Overleaf token lives in the desktop keyring instead of a plaintext file.
+
+One-time setup:
+
+```bash
+sudo apt-get install -y libsecret-1-dev libsecret-tools pkg-config
+mkdir -p /home/maximus/Documents/Tesis/.agent-tools
+gcc -o /home/maximus/Documents/Tesis/.agent-tools/git-credential-libsecret \
+  /usr/share/doc/git/contrib/credential/libsecret/git-credential-libsecret.c \
+  $(pkg-config --cflags --libs libsecret-1)
+cd /home/maximus/Documents/Tesis/equivariant-vae
+git config --local --add credential.https://git.overleaf.com.helper ""
+git config --local --add credential.https://git.overleaf.com.helper \
+  /home/maximus/Documents/Tesis/.agent-tools/git-credential-libsecret
+git config --local credential.https://git.overleaf.com.username git
+```
+
+Then store the token without echoing it:
+
+```bash
+read -rsp "Overleaf Git token: " OVERLEAF_TOKEN
+printf '\n'
+printf 'protocol=https\nhost=git.overleaf.com\nusername=git\npassword=%s\n\n' "$OVERLEAF_TOKEN" | git credential approve
+unset OVERLEAF_TOKEN
+```
+
 Overleaf remote reads and pull/push operations require explicit user permission.
 After checking status and receiving permission, run them with:
 

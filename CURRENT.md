@@ -1657,6 +1657,17 @@ The review process lives in `docs/agentic_review_workflow.md`.
   with `printf 'protocol=https\nhost=git.overleaf.com\n\n' | git credential reject`,
   then rerun the guarded push. `docs/overleaf_sync_workflow.md` and
   `scripts/sipaim_overleaf_sync.sh` now record this token-auth rule.
+- 2026-06-19 persistent Overleaf credential helper:
+  the user installed `libsecret-1-dev`, `libsecret-tools`, and `pkg-config` so
+  the Overleaf Git token can be stored in the desktop keyring instead of a
+  plaintext ignored file. The Git `libsecret` helper was compiled to
+  `/home/maximus/Documents/Tesis/.agent-tools/git-credential-libsecret`, and
+  this repo's local Git config now resets inherited helpers for
+  `https://git.overleaf.com`, uses that helper, and defaults the username to
+  `git`. The token itself has not been stored by the agent and must never be
+  pasted in chat. The user still needs to run the no-echo
+  `git credential approve` command from `docs/overleaf_sync_workflow.md` once,
+  then the guarded Overleaf push can be retried.
 
 ## Update Rule
 
