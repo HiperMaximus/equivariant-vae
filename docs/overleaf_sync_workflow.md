@@ -116,6 +116,14 @@ Why this order:
   unsaved working-tree changes.
 - `push` exports only `paper/sipaim2026` to Overleaf.
 
+First sync edge case: a newly created Overleaf project may already have a
+`master` commit whose tree is empty, even though the web editor shows no files.
+The safe script handles that one case by first trying a normal subtree push and
+then, only if the observed Overleaf branch is an empty tree, initializing it with
+`--force-with-lease` against the exact observed empty commit. This exception is
+`master`-only, validates that the pushed split contains paper files rather than
+repo-root paths, and must not force a nonempty Overleaf branch.
+
 ## Normal Overleaf-to-Local Flow
 
 Use this after the professor edits in Overleaf.
@@ -138,6 +146,8 @@ If the pull creates merge conflicts, resolve only files under
 - Never embed Overleaf tokens in Git remote URLs.
 - Never use the normal Overleaf account password for Git; use username `git`
   and an Overleaf Git authentication token.
+- Never force-push Overleaf manually. The only force-with-lease exception is the
+  scripted first-sync initialization of an observed empty-tree `master` branch.
 - Never run Overleaf remote reads, pull, or push as an agent without asking the
   user first.
 - Never push notebooks, training code, or experiment folders to Overleaf.

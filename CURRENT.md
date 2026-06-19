@@ -1668,6 +1668,20 @@ The review process lives in `docs/agentic_review_workflow.md`.
   pasted in chat. The user still needs to run the no-echo
   `git credential approve` command from `docs/overleaf_sync_workflow.md` once,
   then the guarded Overleaf push can be retried.
+- 2026-06-19 first Overleaf push edge case:
+  after the user stored the Overleaf token in the keyring, the guarded push
+  authenticated and reached Overleaf but was rejected as non-fast-forward because
+  Overleaf `master` already had commit `95e5ec4` with an empty tree and no
+  common subtree history. The guarded `pull` fetched `overleaf/master` but
+  failed with `fatal: can't squash-merge: 'paper/sipaim2026' was never added`,
+  which is expected for a first sync over an unrelated empty remote. The safe
+  script is being updated so `push` first tries a normal subtree push and then
+  uses `--force-with-lease` only when the current Overleaf `master` branch is
+  provably an empty tree. Spec
+  `docs/specs/0005-overleaf-empty-project-initialization.md` records the narrow
+  contract: master-only, exact observed empty commit, subtree split sanity check,
+  and no force path for nonempty Overleaf content. Do not force-push a nonempty
+  Overleaf branch.
 
 ## Update Rule
 

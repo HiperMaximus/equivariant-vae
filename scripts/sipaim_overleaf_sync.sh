@@ -27,6 +27,8 @@ Rules:
   - Pull Overleaf edits before starting local paper edits when advisor edits are possible.
   - Overleaf Git auth uses username `git` and an Overleaf Git authentication
     token as the password. Do not use the normal account password.
+  - On the first sync only, push may replace an existing empty-tree Overleaf
+    master commit using --force-with-lease against the exact observed commit.
   - Commands that access or change Overleaf remote state require:
       OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh ls-remote
       OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh pull
@@ -239,13 +241,95 @@ cmd_pull() {
   git subtree pull --prefix "$PREFIX" "$REMOTE_NAME" "$REMOTE_BRANCH" --squash
 }
 
+empty_remote_branch_oid() {
+  local empty_tree
+  local remote_oid
+  local remote_tree
+
+  if [[ "$REMOTE_BRANCH" != "master" ]]; then
+    echo "Refusing empty-Overleaf initialization for non-master branch '$REMOTE_BRANCH'." >&2
+    return 1
+  fi
+
+  git fetch "$REMOTE_NAME" "$REMOTE_BRANCH" >&2
+  remote_oid="$(git rev-parse FETCH_HEAD)"
+  remote_tree="$(git rev-parse "FETCH_HEAD^{tree}")"
+  empty_tree="$(git hash-object -t tree /dev/null)"
+
+  if [[ "$remote_tree" == "$empty_tree" ]]; then
+    printf '%s\n' "$remote_oid"
+    return 0
+  fi
+
+  return 1
+}
+
+validate_subtree_split() {
+  local has_main
+  local has_pdf
+  local path
+  local split_ref="$1"
+
+  has_main=0
+  has_pdf=0
+
+  git cat-file -e "${split_ref}^{commit}"
+
+  while IFS= read -r path; do
+    case "$path" in
+      main.tex) has_main=1 ;;
+      sipaim2026.pdf) has_pdf=1 ;;
+      src/*|docs/*|kaggle/*|scripts/*|tests/*|paper/*)
+        echo "Refusing to push subtree split containing repo-root path: $path" >&2
+        return 1
+        ;;
+      AGENTS.md|CLAUDE.md|CURRENT.md|GOAL.md|pyproject.toml|uv.lock)
+        echo "Refusing to push subtree split containing repo-root file: $path" >&2
+        return 1
+        ;;
+    esac
+  done < <(git ls-tree -r --name-only "$split_ref")
+
+  if [[ "$has_main" != "1" || "$has_pdf" != "1" ]]; then
+    echo "Refusing to push subtree split missing main.tex or sipaim2026.pdf." >&2
+    return 1
+  fi
+}
+
 cmd_push() {
+  local remote_oid
+  local subtree_ref
+
   require_remote_confirmation "push"
   ensure_overleaf_remote
   cmd_compile
   require_clean_paper_subtree
   git status --short
-  git subtree push --prefix "$PREFIX" "$REMOTE_NAME" "$REMOTE_BRANCH"
+  subtree_ref="$(git subtree split --prefix "$PREFIX" HEAD)"
+  validate_subtree_split "$subtree_ref"
+
+  if git push "$REMOTE_NAME" "${subtree_ref}:refs/heads/${REMOTE_BRANCH}"; then
+    return 0
+  fi
+
+  if remote_oid="$(empty_remote_branch_oid)"; then
+    cat >&2 <<EOF
+Overleaf ${REMOTE_BRANCH} exists but contains an empty tree.
+Initializing it with the ${PREFIX} subtree using --force-with-lease against:
+  ${remote_oid}
+EOF
+    git push \
+      --force-with-lease="refs/heads/${REMOTE_BRANCH}:${remote_oid}" \
+      "$REMOTE_NAME" \
+      "${subtree_ref}:refs/heads/${REMOTE_BRANCH}"
+    return 0
+  fi
+
+  cat >&2 <<EOF
+Overleaf push failed and the remote branch is not an empty tree.
+Pull and resolve Overleaf changes before pushing again.
+EOF
+  exit 1
 }
 
 main() {
