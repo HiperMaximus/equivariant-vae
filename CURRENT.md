@@ -1664,10 +1664,9 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `/home/maximus/Documents/Tesis/.agent-tools/git-credential-libsecret`, and
   this repo's local Git config now resets inherited helpers for
   `https://git.overleaf.com`, uses that helper, and defaults the username to
-  `git`. The token itself has not been stored by the agent and must never be
-  pasted in chat. The user still needs to run the no-echo
-  `git credential approve` command from `docs/overleaf_sync_workflow.md` once,
-  then the guarded Overleaf push can be retried.
+  `git`. The token itself was entered by the user through `git credential
+  approve` and stored in the desktop keyring; it was not pasted in chat and must
+  never be printed or committed.
 - 2026-06-19 first Overleaf push edge case:
   after the user stored the Overleaf token in the keyring, the guarded push
   authenticated and reached Overleaf but was rejected as non-fast-forward because
@@ -1684,6 +1683,24 @@ The review process lives in `docs/agentic_review_workflow.md`.
   contract: master-only, exact observed empty commit, subtree split sanity check,
   and no overwrite path for nonempty Overleaf content. Do not force-push
   Overleaf.
+- 2026-06-19 Overleaf sync and issue updates complete:
+  after switching the first-sync fallback to a normal fast-forward commit on top
+  of the empty Overleaf commit, `OVERLEAF_SYNC_CONFIRMED=1
+  ./scripts/sipaim_overleaf_sync.sh push` succeeded. Overleaf `master` now points
+  at `b4a8954fc4fcaa969757ac20adf84fa0fdbac6db`, and the project should show
+  the `paper/sipaim2026` subtree at
+  `https://www.overleaf.com/project/69c614433cbc9e46cf226d24`. Spanish status
+  comments were posted without closing issues:
+  #5 `https://github.com/HiperMaximus/equivariant-vae/issues/5#issuecomment-4755517582`,
+  #1 `https://github.com/HiperMaximus/equivariant-vae/issues/1#issuecomment-4755518028`,
+  #4 `https://github.com/HiperMaximus/equivariant-vae/issues/4#issuecomment-4755518529`,
+  and #3
+  `https://github.com/HiperMaximus/equivariant-vae/issues/3#issuecomment-4755518912`.
+  The issue updates mention the Overleaf URL, the scaffolded paper files, the
+  refreshed PDF, pending final results, and that the reused thesis
+  semi-supervised figure still needs to be redrawn or relabeled before
+  submission. Local `main` is ahead of `origin/main`; push to GitHub origin if
+  the GitHub repo itself should show the latest paper scaffold/workflow commits.
 
 ## Update Rule
 
