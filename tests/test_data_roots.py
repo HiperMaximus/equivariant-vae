@@ -3,10 +3,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from eqvae.data import roots
 from eqvae.data.roots import (
     DATA_ROOT_ENV_VAR,
     TRAIN_BIN_NAME,
@@ -68,6 +69,100 @@ def test_auto_data_root_ignores_blank_env_value(
 
     with pytest.raises(FileNotFoundError, match=DATA_ROOT_ENV_VAR):
         resolve_patch_data_paths("auto")
+
+
+@pytest.mark.parametrize(
+    "relative_parts",
+    [
+        (roots.KAGGLE_DATASET_NAME,),
+        (roots.KAGGLE_DATASET_OWNER, roots.KAGGLE_DATASET_NAME),
+        ("datasets", roots.KAGGLE_DATASET_OWNER, roots.KAGGLE_DATASET_NAME),
+        (
+            "datasets",
+            roots.KAGGLE_DATASET_OWNER,
+            roots.KAGGLE_DATASET_NAME,
+            "versions",
+            "1",
+        ),
+    ],
+)
+def test_auto_data_root_scans_expected_kaggle_mount_variants(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    relative_parts: tuple[str, ...],
+) -> None:
+    """Kaggle source mounts may vary, but only expected slug paths resolve."""
+    kaggle_input = tmp_path / "kaggle" / "input"
+    mounted_root = kaggle_input.joinpath(*relative_parts)
+    _write_complete_root(mounted_root)
+    monkeypatch.setattr(roots, "KAGGLE_INPUT_ROOT", kaggle_input)
+    monkeypatch.setattr(roots, "KNOWN_AUTO_DATA_ROOTS", ())
+    monkeypatch.delenv(DATA_ROOT_ENV_VAR, raising=False)
+
+    paths = roots.resolve_patch_data_paths("auto")
+
+    assert paths.root == mounted_root / "dataset"
+
+
+def test_auto_data_root_refuses_unrelated_complete_kaggle_shards(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Complete shard filenames alone are not enough for auto resolution."""
+    kaggle_input = tmp_path / "kaggle" / "input"
+    unrelated_root = kaggle_input / "unrelated-dataset"
+    _write_complete_root(unrelated_root)
+    monkeypatch.setattr(roots, "KAGGLE_INPUT_ROOT", kaggle_input)
+    monkeypatch.setattr(roots, "KNOWN_AUTO_DATA_ROOTS", ())
+    monkeypatch.delenv(DATA_ROOT_ENV_VAR, raising=False)
+
+    with pytest.raises(FileNotFoundError, match=DATA_ROOT_ENV_VAR):
+        roots.resolve_patch_data_paths("auto")
+
+    diagnostics = roots.data_root_resolution_diagnostics("auto")
+    complete_unaccepted = cast(
+        "list[dict[str, object]]",
+        diagnostics["complete_unaccepted_candidates"],
+    )
+    assert any(
+        "unrelated-dataset" in cast("str", candidate["candidate_root"])
+        for candidate in complete_unaccepted
+    )
+
+
+def test_data_root_diagnostics_report_kaggle_input_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Diagnostics expose safe mount paths and missing files for logs/artifacts."""
+    kaggle_input = tmp_path / "kaggle" / "input"
+    mounted_root = kaggle_input / "patches-pre-shuffled-ubc-ocean"
+    _write_complete_root(mounted_root)
+    monkeypatch.setattr(roots, "KAGGLE_INPUT_ROOT", kaggle_input)
+    monkeypatch.setattr(roots, "KNOWN_AUTO_DATA_ROOTS", ())
+    monkeypatch.delenv(DATA_ROOT_ENV_VAR, raising=False)
+
+    diagnostics = roots.data_root_resolution_diagnostics("auto")
+
+    assert diagnostics["requested_data_root"] == "auto"
+    assert diagnostics["kaggle_input_exists"] is True
+    assert diagnostics["kaggle_input_scan_truncated"] is False
+    assert "env_value" not in diagnostics
+    candidates = cast("list[dict[str, object]]", diagnostics["candidates"])
+    assert any(candidate["complete"] is True for candidate in candidates)
+    accepted_candidates = cast(
+        "list[dict[str, object]]",
+        diagnostics["accepted_candidates"],
+    )
+    assert any(
+        candidate["candidate_is_expected_kaggle_mount"] is True
+        for candidate in accepted_candidates
+    )
+    assert diagnostics["complete_unaccepted_candidate_count"] == 0
+    snapshot = cast("list[dict[str, object]]", diagnostics["kaggle_input_snapshot"])
+    assert any(
+        item["relative_path"] == "patches-pre-shuffled-ubc-ocean" for item in snapshot
+    )
 
 
 def test_missing_data_root_reports_all_required_files(tmp_path: Path) -> None:

@@ -106,6 +106,8 @@ FILE_HASH_CHUNK_BYTES = 8 * 1024 * 1024
 VALIDATION_CLEAN_PROOF_BATCH_SIZE = 12
 LOCAL_LINKED_EVIDENCE_BATCH_SIZE = 2
 REQUIRED_COMPILE_SETTLE_STEPS = 5
+DATA_ROOT_RESOLUTION_ATTEMPTS = 4
+DATA_ROOT_RETRY_SLEEP_SEC = 5.0
 MAX_DATA_WAIT_FRACTION = 0.20
 MIN_CHANNEL_TENSOR_NDIM = 2
 GATE_SATURATION_LOW = 0.01
@@ -142,6 +144,17 @@ class CorruptNormalizedBatchFn(Protocol):
     ) -> StainCorruptionResult:
         """Corrupt one normalized batch."""
         ...
+
+
+class DataRootUnavailableError(FileNotFoundError):
+    """Data root resolution failed with JSON-safe diagnostics attached."""
+
+    diagnostics: JsonObject
+
+    def __init__(self, message: str, *, diagnostics: JsonObject) -> None:
+        """Initialize the resolution failure."""
+        super().__init__(message)
+        self.diagnostics = diagnostics
 
 
 class BetaForStepFn(Protocol):
@@ -1086,12 +1099,21 @@ def _real_data_identity_and_clean_path_proof(
 ) -> JsonObject:
     try:
         return _real_data_identity_and_clean_path_proof_or_raise(settings)
+    except DataRootUnavailableError as exc:
+        return _data_proof_failure_payload(
+            settings=settings,
+            status=SKIPPED_UNSUPPORTED,
+            failure_kind="data_root_unavailable",
+            failure_message=str(exc),
+            data_root_diagnostics=exc.diagnostics,
+        )
     except FileNotFoundError as exc:
         return _data_proof_failure_payload(
             settings=settings,
             status=SKIPPED_UNSUPPORTED,
             failure_kind="data_root_unavailable",
             failure_message=str(exc),
+            data_root_diagnostics=_data_root_diagnostics(settings.data_root),
         )
     except (OSError, RuntimeError, TypeError, ValueError) as exc:
         return _data_proof_failure_payload(
@@ -1099,15 +1121,14 @@ def _real_data_identity_and_clean_path_proof(
             status="fail",
             failure_kind=f"data_proof_{type(exc).__name__}",
             failure_message=str(exc),
+            data_root_diagnostics=_data_root_diagnostics(settings.data_root),
         )
 
 
 def _real_data_identity_and_clean_path_proof_or_raise(
     settings: RealDataRuntimePretestSettings,
 ) -> JsonObject:
-    from eqvae.data.roots import resolve_patch_data_paths  # noqa: PLC0415
-
-    paths = resolve_patch_data_paths(settings.data_root)
+    paths = _resolve_patch_data_paths_for_pretest(settings.data_root)
     train_proof = _split_identity_proof(
         split_paths=paths.train,
         settings=settings,
@@ -1288,6 +1309,7 @@ def _data_proof_payload(
         "dataset_slug": settings.dataset_slug,
         "data_root": settings.data_root,
         "resolved_data_root": str(paths.root),
+        "data_root_diagnostics": _data_root_diagnostics(settings.data_root),
         "canonical_real_contract": _canonical_real_contract(settings),
         "split_contract": split_contract,
         "window_contract": window_contract,
@@ -1309,6 +1331,7 @@ def _data_proof_failure_payload(
     status: str,
     failure_kind: str,
     failure_message: str,
+    data_root_diagnostics: JsonObject,
 ) -> JsonObject:
     return {
         "status": status,
@@ -1321,6 +1344,7 @@ def _data_proof_failure_payload(
         "dataset_slug": settings.dataset_slug,
         "data_root": settings.data_root,
         "resolved_data_root": "",
+        "data_root_diagnostics": data_root_diagnostics,
         "file_hashes": [],
         "splits": {},
         "clean_validation_dataloader": {
@@ -1330,6 +1354,120 @@ def _data_proof_failure_payload(
         "failure_kind": failure_kind,
         "failure_message_hash": _hash_text(failure_message),
     }
+
+
+def _resolve_patch_data_paths_for_pretest(data_root: str) -> PatchDataPaths:
+    from eqvae.data.roots import resolve_patch_data_paths  # noqa: PLC0415
+
+    attempts = (
+        DATA_ROOT_RESOLUTION_ATTEMPTS if _should_retry_data_root(data_root) else 1
+    )
+    last_message = ""
+    diagnostics = _data_root_diagnostics(data_root)
+    for attempt in range(1, attempts + 1):
+        diagnostics = _data_root_diagnostics(data_root)
+        _print_data_root_diagnostics(
+            event="data_root_probe",
+            attempt=attempt,
+            attempts=attempts,
+            diagnostics=diagnostics,
+        )
+        try:
+            return resolve_patch_data_paths(data_root)
+        except FileNotFoundError as exc:
+            last_message = str(exc)
+            if attempt >= attempts:
+                break
+            time.sleep(DATA_ROOT_RETRY_SLEEP_SEC)
+    raise DataRootUnavailableError(last_message, diagnostics=diagnostics)
+
+
+def _should_retry_data_root(data_root: str) -> bool:
+    return data_root == "auto" and Path("/kaggle/input").exists()
+
+
+def _data_root_diagnostics(data_root: str) -> JsonObject:
+    from eqvae.data.roots import data_root_resolution_diagnostics  # noqa: PLC0415
+
+    return cast("JsonObject", data_root_resolution_diagnostics(data_root))
+
+
+def _print_data_root_diagnostics(
+    *,
+    event: str,
+    attempt: int,
+    attempts: int,
+    diagnostics: JsonObject,
+) -> None:
+    if not _diagnostic_bool(diagnostics, "kaggle_input_exists"):
+        return
+    summary: JsonObject = {
+        "requested_data_root": _diagnostic_str(diagnostics, "requested_data_root"),
+        "kaggle_input_exists": True,
+        "kaggle_input_scan_truncated": _diagnostic_bool(
+            diagnostics,
+            "kaggle_input_scan_truncated",
+        ),
+        "candidate_count": _diagnostic_int(diagnostics, "candidate_count"),
+        "accepted_candidate_count": _diagnostic_int(
+            diagnostics,
+            "accepted_candidate_count",
+        ),
+        "complete_unaccepted_candidate_count": _diagnostic_int(
+            diagnostics,
+            "complete_unaccepted_candidate_count",
+        ),
+        "accepted_candidate_roots": _diagnostic_candidate_roots(
+            diagnostics,
+            "accepted_candidates",
+        ),
+        "complete_unaccepted_candidate_roots": _diagnostic_candidate_roots(
+            diagnostics,
+            "complete_unaccepted_candidates",
+        ),
+        "snapshot_entry_count": len(
+            _diagnostic_list(diagnostics, "kaggle_input_snapshot"),
+        ),
+    }
+    payload = {
+        "event": f"real_data_runtime_pretest_{event}",
+        "attempt": attempt,
+        "attempts": attempts,
+        "diagnostics": summary,
+    }
+    sys.stderr.write(f"{json.dumps(payload, sort_keys=True)}\n")
+    sys.stderr.flush()
+
+
+def _diagnostic_bool(payload: JsonObject, key: str) -> bool:
+    value = payload.get(key)
+    return value if isinstance(value, bool) else False
+
+
+def _diagnostic_int(payload: JsonObject, key: str) -> int:
+    value = payload.get(key)
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _diagnostic_str(payload: JsonObject, key: str) -> str:
+    value = payload.get(key)
+    return value if isinstance(value, str) else ""
+
+
+def _diagnostic_list(payload: JsonObject, key: str) -> list[JsonValue]:
+    value = payload.get(key)
+    return value if isinstance(value, list) else []
+
+
+def _diagnostic_candidate_roots(payload: JsonObject, key: str) -> list[JsonValue]:
+    roots: list[JsonValue] = []
+    for item in _diagnostic_list(payload, key):
+        if not isinstance(item, dict):
+            continue
+        candidate_root = item.get("candidate_root")
+        if isinstance(candidate_root, str):
+            roots.append(candidate_root)
+    return roots
 
 
 def _split_windows_pass(split_proof: JsonObject) -> bool:

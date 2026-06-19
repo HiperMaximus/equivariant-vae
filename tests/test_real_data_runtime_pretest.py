@@ -65,6 +65,16 @@ def test_real_data_runtime_pretest_local_wrong_accelerator_artifacts(
     assert manifest["real_data_identity_proof_status"] == "skipped_unsupported"
     assert manifest["validation_windows_exercised"] is False
     assert manifest["timed_rows_eligible"] is False
+    real_data_proof = cast("dict[str, object]", manifest["real_data_proof"])
+    assert real_data_proof["failure_kind"] == "data_root_unavailable"
+    assert not real_data_proof["resolved_data_root"]
+    diagnostics = cast("dict[str, object]", real_data_proof["data_root_diagnostics"])
+    assert diagnostics["requested_data_root"] == "auto"
+    assert diagnostics["kaggle_input_exists"] is False
+    assert diagnostics["candidate_count"]
+    assert diagnostics["accepted_candidates"]
+    assert diagnostics["complete_unaccepted_candidate_count"] == 0
+    assert "env_value" not in diagnostics
     wrong_accelerator_count = cast("int", runtime_proof["wrong_accelerator_row_count"])
     assert wrong_accelerator_count > 0
     assert recommendations["writes_selected_runtime"] is False

@@ -232,19 +232,23 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: fix Kaggle real-data input discovery/diagnostics before
-resending the real-data runtime pretest. Version 2 completed and artifacts were
-downloaded, but `data_root = "auto"` resolved no Kaggle input files:
+Immediate next action: commit the local Kaggle real-data input-discovery fix,
+rebuild the real-data runtime pretest payload after the commit so embedded
+provenance matches, and only then push a new Kaggle v3 with explicit user
+approval plus `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`.
+Remote reads/downloads still require explicit approval plus
+`KAGGLE_REMOTE_CONFIRMED=1`. Version 2 completed and artifacts were downloaded,
+but `data_root = "auto"` resolved no Kaggle input files:
 `real_data_proof.failure_kind = "data_root_unavailable"`,
 `resolved_data_root = ""`, real-data identity/CRC/window/clean-loader statuses
 were `skipped_unsupported`, and the two dataloader matrix rows stayed
-`skipped_unsupported`. Do not resend the same payload unchanged. First add a
-diagnostic artifact/log for `/kaggle/input` candidates and/or broaden/override
-the accepted dataset-root candidates, then rebuild, validate, and only push a
-fixed version with explicit approval. After the data-root issue is fixed,
-continue canonical, candidate-specific linked evidence for the non-promotable
-capped real-data train-step pretest. The 2026-06-19 proof-lane implementation
-now records real-data/local identity, SHA256 file
+`skipped_unsupported`. The local fix now adds slug-scoped `/kaggle/input`
+discovery for the expected patch dataset, full manifest diagnostics, and
+concise stderr probe lines; do not resend the v2 payload unchanged. After the
+data-root issue is confirmed fixed remotely, continue canonical,
+candidate-specific linked evidence for the non-promotable capped real-data
+train-step pretest. The 2026-06-19 proof-lane implementation now records
+real-data/local identity, SHA256 file
 hashes, full-payload CRC32 validation, row-count proof, split
 WSI/holdout-overlap contract proof, exact fixed spread-window proof, and a clean
 validation loader/collate/normalization proof. The follow-up linked-evidence
@@ -1273,6 +1277,37 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `runtime_OutOfMemoryError`. No `benchmark/selected_runtime.json` was present.
   The next remote attempt should not be an identical resend; first fix or
   instrument Kaggle data-root discovery. Overleaf was untouched.
+- 2026-06-19 capped real-data runtime pretest data-root diagnostics fix:
+  implemented the local fix for the v2 `data_root_unavailable` blocker without
+  touching Overleaf or pushing to Kaggle. `src/eqvae/data/roots.py` now performs
+  bounded `/kaggle/input` discovery but only promotes complete shard roots whose
+  relative path matches the expected
+  `maximusshtefan/patches-pre-shuffled-ubc-ocean` mount family, including
+  direct slug, owner/slug, `datasets/owner/slug`, versioned
+  `datasets/owner/slug/versions/N`, and their `dataset/` children. Complete
+  shard roots outside that slug family are refused for resolution and recorded
+  in diagnostics as `complete_unaccepted_candidates`; diagnostics also record
+  accepted candidates, missing paths, scan truncation, a bounded input snapshot,
+  and only `env_value_present` rather than a raw env var value.
+  `src/eqvae/benchmarking/real_data_runtime_pretest.py` now attaches
+  `real_data_proof.data_root_diagnostics` on both success and failure, retries
+  auto resolution up to four short attempts when `/kaggle/input` exists, raises
+  a diagnostic-carrying `DataRootUnavailableError`, and emits concise stderr
+  JSON probe lines with event
+  `real_data_runtime_pretest_data_root_probe` so Kaggle logs reveal candidate
+  counts and candidate roots. A clean-context adversarial subagent review found
+  and the implementation fixed an over-broad draft that would have accepted any
+  unrelated complete shard root under `/kaggle/input`. Verification: focused
+  Ruff format/check, focused BasedPyright, and focused pytest for
+  `src/eqvae/data/roots.py`,
+  `src/eqvae/benchmarking/real_data_runtime_pretest.py`,
+  `tests/test_data_roots.py`, and `tests/test_real_data_runtime_pretest.py`
+  passed with 17 tests; full `./scripts/python_quality.sh` passed with 118
+  tests and 0 BasedPyright errors; `bash -n scripts/kaggle_kernel.sh`,
+  `./scripts/kaggle_kernel.sh build kaggle/kernels/real_data_runtime_pretest`,
+  and `./scripts/kaggle_kernel.sh validate kaggle/kernels/real_data_runtime_pretest`
+  passed locally. Next action: commit, rebuild after the commit, then push a
+  new Kaggle v3 only with explicit remote-write and dataset-source approval.
 
 ## Update Rule
 

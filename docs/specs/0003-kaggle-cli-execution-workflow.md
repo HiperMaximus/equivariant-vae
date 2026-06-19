@@ -196,6 +196,16 @@ candidate-row eligibility. Remote rerun plus measured candidate-specific
 compile/DDP/real dataloader-throughput/numerical/corruption/gate-health
 evidence are still pending, so it must not be used for runtime selection.
 
+Remote v2 completed without exercising the real-data proof lane because
+`data_root = "auto"` could not resolve Kaggle input files. The local v3 fix
+keeps auto resolution slug-scoped: only complete shard roots under the expected
+`maximusshtefan/patches-pre-shuffled-ubc-ocean` Kaggle mount family can be
+selected, while unrelated complete shard roots under `/kaggle/input` are
+reported as `complete_unaccepted_candidates`. The pretest writes full
+`real_data_proof.data_root_diagnostics` and emits short stderr JSON probe lines
+for candidate counts and roots. Rebuild the embedded script after committing the
+fix before any remote v3 push.
+
 ## Kaggle Authentication Contract
 
 Kaggle credentials are local user secrets. They must never be printed, stored in
