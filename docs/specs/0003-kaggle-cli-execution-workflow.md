@@ -9,8 +9,10 @@ has a committed local kernel/guard implementation and remote v1/v2/v3/v4
 completed with non-promotable `synthetic_timing_pass`; v4 is the current
 2 GiB-scale repeated-shortlist evidence with per-rank DDP proof; capped
 real-data runtime pretest has a local non-promotable runner/kernel/guard and
-upload-simulation proof, but remote execution and linked eligibility evidence
-remain pending; full benchmark/full-run launchers are not Kaggle-push-ready
+upload-simulation proof plus identity/hash/CRC/window and clean-validation
+loader proof plumbing, but remote execution of that lane and later linked
+eligibility evidence remain pending; full benchmark/full-run launchers are not
+Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-19
 
@@ -41,11 +43,12 @@ scaffolded script kernels through the Kaggle API.
   must not write `benchmark/selected_runtime.json`.
 - Do not treat the first capped real-data runtime pretest as selected runtime
   evidence. Its local runner/kernel/guard may prove packaging, local
-  wrong-accelerator behavior, and non-promotable artifact shape, but its rows
-  remain ineligible until the linked dataloader, numerical, corruption,
-  gate-health, graph-break, and recompile evidence passes. It must write
-  non-promotable pretest artifacts and recommendations, blocked claims, and no
-  `benchmark/selected_runtime.json`.
+  wrong-accelerator behavior, non-promotable artifact shape,
+  identity/hash/CRC/window contracts, and clean validation loader plumbing, but
+  its rows remain ineligible until the linked compile/DDP, real dataloader
+  throughput, numerical, corruption, gate-health, graph-break, and recompile
+  evidence passes. It must write non-promotable pretest artifacts and
+  recommendations, blocked claims, and no `benchmark/selected_runtime.json`.
 - Do not commit Kaggle credentials, API tokens, output datasets, checkpoints, or
   run artifacts.
 
@@ -175,10 +178,16 @@ pre-shuffled UBC patch dataset. The kernel uses
 `KAGGLE_REAL_DATA_RUNTIME_PRETEST_READY = True`, requests T4 metadata, attaches
 only `maximusshtefan/patches-pre-shuffled-ubc-ocean`, requires
 `KAGGLE_FULL_DATASET_CONFIRMED=1` before push, and rejects any path that writes
-`benchmark/selected_runtime.json`. The first local implementation is still
-non-promotable: remote execution and the linked compile/DDP/dataloader/
-numerical/corruption/gate-health evidence are pending, so it must not be used
-for runtime selection.
+`benchmark/selected_runtime.json`. The local implementation is still
+non-promotable: it can prove real-data/local file identity, hashes, CRCs, locked
+train/validation windows, split WSI/holdout overlap contracts, and clean
+validation loader/collate/normalization plumbing. Tiny fixture roots can only
+produce `local_pass`; canonical real `pass` requires the exact dataset slug,
+300000/30000 rows, 322/39 WSIs, zero train/validation and masked-holdout
+overlap, and the locked 8,192/2,048 spread windows. Remote execution of the new
+lane plus linked compile/DDP/real dataloader-throughput/numerical/corruption/
+gate-health evidence are still pending, so it must not be used for runtime
+selection.
 
 ## Kaggle Authentication Contract
 

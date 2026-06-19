@@ -15,8 +15,9 @@ synthetic binary Kaggle timing pretest contract is
 `kaggle_synthetic_timing_contract_ready` with local implementation and
 remote v1/v2/v3/v4 non-promotable evidence; the capped real-data runtime
 pretest config/schema contract is `real_data_runtime_pretest_contract_ready`
-with a local non-promotable runner/kernel/guard implementation, but remote
-real-data execution and linked eligibility evidence remain pending
+with a local non-promotable runner/kernel/guard implementation and
+identity/hash/CRC/window plus clean-validation loader proof lane, but remote
+execution of the new lane and later linked eligibility evidence remain pending
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-19
 
@@ -1659,6 +1660,14 @@ Benchmark budget and reset rules:
   The pretest manifest must record row-index ranges, WSI counts, split, data
   root, file hashes, cache/warmup policy, and the fact that this is capped
   train/validation evidence only;
+- the pretest manifest may mark tiny local UBC-format fixtures as `local_pass`
+  for proof plumbing only. Canonical real-data `pass` requires the expected
+  Kaggle dataset slug, exact 300000/30000 train/validation row counts, exact
+  322/39 train/validation WSI counts, zero train/validation and masked-holdout
+  WSI overlap, CRC validation for both payloads, and the locked 8,192/2,048
+  spread windows. The clean validation proof may exercise only the clean
+  validation loader/collate/normalization path and must not claim corruption-RNG
+  instrumentation;
 - if `torch.compile` needs compilation, report compile/startup time separately
   from steady-state step time. Compiled rows must record
   `compile_settle_steps`, the code paths exercised before timing, graph break
@@ -1831,12 +1840,13 @@ Benchmark artifact dependency graph:
    `benchmark/real_data_runtime_pretest_recommendations.json`, but it must keep
    `full_run_eligible = false`, include blocked claims, and must not write
    `benchmark/selected_runtime.json`.
-   The initial local implementation under
-   `kaggle/kernels/real_data_runtime_pretest` is allowed to prove embedded
-   packaging, guard behavior, upload-simulation import, wrong-accelerator local
-   rows, and artifact non-promotion only. Timed rows from that implementation
-   are ineligible until matching dataloader, numerical, corruption, gate-health,
-   graph-break, and recompile evidence passes.
+   The local implementation under `kaggle/kernels/real_data_runtime_pretest` is
+   allowed to prove embedded packaging, guard behavior, upload-simulation import,
+   wrong-accelerator local rows, artifact non-promotion, real-data/local
+   identity/hash/CRC/window contracts, and clean validation loader/collate/
+   normalization plumbing. Timed rows from that implementation are ineligible
+   until matching compile/DDP, real dataloader throughput, numerical, corruption,
+   gate-health, graph-break, and recompile evidence passes.
 5. `benchmark/runtime_matrix.csv` can mark candidate rows as completed, but no
    row may be selected until matching `benchmark/dataloader_matrix.csv`,
    `benchmark/numerical_checks.csv`, `benchmark/corruption_checks.csv`,

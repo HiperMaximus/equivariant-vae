@@ -12,6 +12,8 @@ import os
 import subprocess  # noqa: S404
 import sys
 import time
+import zlib
+from collections import Counter
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +35,8 @@ if TYPE_CHECKING:
     import torch
 
     from eqvae.corruption.stain import StainCorruptionProfile, StainCorruptionResult
+    from eqvae.data.patch_shards import PatchRecord
+    from eqvae.data.roots import PatchDataPaths, PatchSplitPaths
     from eqvae.data.training_batches import PatchTrainingBatch
     from eqvae.models.non_equivariant_vae import NonEquivariantVAE
     from eqvae.training.step import TrainStepRequest, TrainStepResult
@@ -42,6 +46,23 @@ REAL_DATA_PRETEST_KIND = "real_data_runtime_pretest"
 REAL_DATA_PRETEST_SOURCE = "kaggle_capped_real_data_train_step_pretest"
 REAL_DATA_PRETEST_SCOPE = "non_promotable_real_data_runtime_pretest"
 EXPECTED_DATASET_SLUG = "maximusshtefan/patches-pre-shuffled-ubc-ocean"
+EXPECTED_REAL_TRAIN_PATCH_COUNT = 300_000
+EXPECTED_REAL_VALIDATION_PATCH_COUNT = 30_000
+EXPECTED_REAL_TRAIN_WSI_COUNT = 322
+EXPECTED_REAL_VALIDATION_WSI_COUNT = 39
+EXPECTED_CAP_TRAIN_PATCH_COUNT = 8_192
+EXPECTED_CAP_VALIDATION_PATCH_COUNT = 2_048
+EXPECTED_WINDOW_POLICY = "fixed_hashed_spread_windows"
+EXPECTED_TRAIN_WINDOWS = (
+    ("train_head", 0, 2_048),
+    ("train_mid_a", 98_304, 2_048),
+    ("train_mid_b", 196_608, 2_048),
+    ("train_tail", 297_952, 2_048),
+)
+EXPECTED_VALIDATION_WINDOWS = (
+    ("validation_head", 0, 1_024),
+    ("validation_tail", 28_976, 1_024),
+)
 MANIFEST_FILENAME = "real_data_runtime_pretest_manifest.json"
 RUNTIME_PROOF_FILENAME = "runtime_proof.json"
 RUNTIME_MATRIX_FILENAME = "runtime_matrix.csv"
@@ -72,6 +93,8 @@ DEFAULT_DATALOADER_NON_BLOCKING_H2D = True
 ADAM_BETA_COUNT = 2
 LATENT_DOWNSAMPLE_FACTOR = 8
 MODEL_INPUT_SHAPE_NDIM = 4
+FILE_HASH_CHUNK_BYTES = 8 * 1024 * 1024
+VALIDATION_CLEAN_PROOF_BATCH_SIZE = 12
 
 
 class NormalizeUint8BatchFn(Protocol):
@@ -176,6 +199,11 @@ class RealDataRuntimePretestSettings:
     data_root: str
     image_size: int
     channels: int
+    real_train_patch_count: int
+    real_validation_patch_count: int
+    cap_train_patch_count: int
+    cap_validation_patch_count: int
+    window_policy: str
     train_windows: tuple[WindowSpec, ...]
     validation_windows: tuple[WindowSpec, ...]
     warmup_steps: int
@@ -271,23 +299,30 @@ def write_real_data_runtime_pretest(request: RealDataRuntimePretestRequest) -> P
     settings = _settings(resolved, data_root_override=request.data_root)
     benchmark_dir = request.output_dir / "benchmark"
     metrics_dir = request.output_dir / "metrics"
+    request.output_dir.mkdir(parents=True, exist_ok=True)
     _reject_selected_runtime_artifact(request.output_dir)
+    data_proof = _real_data_identity_and_clean_path_proof(settings)
     rows = _run_stage1_rows(
         request=request,
         settings=settings,
         row_specs=_stage1_row_specs(settings),
     )
-    dataloader_rows = _schema_dataloader_rows(settings)
+    dataloader_rows = _schema_dataloader_rows(settings=settings, data_proof=data_proof)
     numerical_rows = _schema_numerical_rows(settings=settings, rows=rows)
     corruption_rows = _schema_corruption_rows(settings=settings, rows=rows)
 
     write_json(
         benchmark_dir / MANIFEST_FILENAME,
-        _manifest_payload(request=request, resolved=resolved, settings=settings),
+        _manifest_payload(
+            request=request,
+            resolved=resolved,
+            settings=settings,
+            data_proof=data_proof,
+        ),
     )
     write_json(
         benchmark_dir / RUNTIME_PROOF_FILENAME,
-        _runtime_proof_payload(settings=settings, rows=rows),
+        _runtime_proof_payload(settings=settings, rows=rows, data_proof=data_proof),
     )
     write_csv(benchmark_dir / RUNTIME_MATRIX_FILENAME, RUNTIME_MATRIX_COLUMNS, rows)
     write_csv(
@@ -730,6 +765,14 @@ def _settings(
         data_root=data_root_override or _required_str(data, "data_root"),
         image_size=_optional_int(data, "image_size") or _image_size_from_model(model),
         channels=_optional_int(data, "channels") or _channels_from_model(model),
+        real_train_patch_count=_required_int(data, "real_train_patch_count"),
+        real_validation_patch_count=_required_int(data, "real_validation_patch_count"),
+        cap_train_patch_count=_required_int(benchmark_cap, "train_patch_count"),
+        cap_validation_patch_count=_required_int(
+            benchmark_cap,
+            "validation_patch_count",
+        ),
+        window_policy=_required_str(benchmark_cap, "window_policy"),
         train_windows=_window_specs(benchmark_cap, "train_windows"),
         validation_windows=_window_specs(benchmark_cap, "validation_windows"),
         warmup_steps=_required_int(runtime, "warmup_steps"),
@@ -986,60 +1029,897 @@ def _base_row(*, settings: RealDataRuntimePretestSettings, row_spec: RowSpec) ->
     }
 
 
+def _real_data_identity_and_clean_path_proof(
+    settings: RealDataRuntimePretestSettings,
+) -> JsonObject:
+    try:
+        return _real_data_identity_and_clean_path_proof_or_raise(settings)
+    except FileNotFoundError as exc:
+        return _data_proof_failure_payload(
+            settings=settings,
+            status=SKIPPED_UNSUPPORTED,
+            failure_kind="data_root_unavailable",
+            failure_message=str(exc),
+        )
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        return _data_proof_failure_payload(
+            settings=settings,
+            status="fail",
+            failure_kind=f"data_proof_{type(exc).__name__}",
+            failure_message=str(exc),
+        )
+
+
+def _real_data_identity_and_clean_path_proof_or_raise(
+    settings: RealDataRuntimePretestSettings,
+) -> JsonObject:
+    from eqvae.data.roots import resolve_patch_data_paths  # noqa: PLC0415
+
+    paths = resolve_patch_data_paths(settings.data_root)
+    train_proof = _split_identity_proof(
+        split_paths=paths.train,
+        settings=settings,
+        windows=settings.train_windows,
+    )
+    validation_proof = _split_identity_proof(
+        split_paths=paths.validation,
+        settings=settings,
+        windows=settings.validation_windows,
+    )
+    if _split_windows_pass(train_proof) and _split_windows_pass(validation_proof):
+        clean_validation_proof = _clean_validation_dataloader_proof(
+            paths=paths,
+            settings=settings,
+        )
+    else:
+        clean_validation_proof = _clean_validation_not_run_payload(
+            failure_kind="window_proof_failed",
+        )
+    return _data_proof_payload(
+        settings=settings,
+        paths=paths,
+        train_proof=train_proof,
+        validation_proof=validation_proof,
+        clean_validation_proof=clean_validation_proof,
+    )
+
+
+def _split_identity_proof(
+    *,
+    split_paths: PatchSplitPaths,
+    settings: RealDataRuntimePretestSettings,
+    windows: Sequence[WindowSpec],
+) -> JsonObject:
+    from eqvae.data.patch_shards import (  # noqa: PLC0415
+        PATCH_SHARD_HEADER_SIZE,
+        PatchShard,
+        PatchShardSpec,
+    )
+
+    shard = PatchShard(
+        PatchShardSpec(
+            bin_path=split_paths.bin_path,
+            csv_path=split_paths.csv_path,
+            image_size=settings.image_size,
+            channels=settings.channels,
+            validate_crc=False,
+        ),
+    )
+    binary_integrity = _binary_integrity_payload(
+        bin_path=split_paths.bin_path,
+        header_size=PATCH_SHARD_HEADER_SIZE,
+        expected_crc32=shard.header.crc32,
+    )
+    csv_sha256 = _sha256_file(split_paths.csv_path)
+    expected_count = _expected_patch_count(settings=settings, split=split_paths.split)
+    records = shard.records
+    window_proof = _windows_proof(
+        split=split_paths.split,
+        records=records,
+        windows=windows,
+    )
+    row_count_pass = len(records) == expected_count and shard.header.patch_count == len(
+        records,
+    )
+    crc_pass = _required_bool(binary_integrity, "crc_matches_header")
+    window_pass = _required_str(window_proof, "status") == PASS_STATUS
+    status = PASS_STATUS if row_count_pass and crc_pass and window_pass else "fail"
+    label_counts = Counter(record.label for record in records)
+    return cast(
+        "JsonObject",
+        {
+            "status": status,
+            "split": split_paths.split,
+            "bin_path": str(split_paths.bin_path),
+            "csv_path": str(split_paths.csv_path),
+            "file_hashes": [
+                {
+                    "split": split_paths.split,
+                    "kind": "binary",
+                    "path": str(split_paths.bin_path),
+                    "sha256": _required_str(binary_integrity, "sha256"),
+                    "size_bytes": _required_int(binary_integrity, "size_bytes"),
+                },
+                {
+                    "split": split_paths.split,
+                    "kind": "csv",
+                    "path": str(split_paths.csv_path),
+                    "sha256": csv_sha256,
+                    "size_bytes": split_paths.csv_path.stat().st_size,
+                },
+            ],
+            "header": {
+                "crc32": shard.header.crc32,
+                "patch_count": shard.header.patch_count,
+                "channels": shard.header.channels,
+                "height": shard.header.height,
+                "width": shard.header.width,
+                "version": shard.header.version,
+                "layout": shard.header.layout.decode("ascii"),
+            },
+            "observed_crc32": _required_int(binary_integrity, "observed_crc32"),
+            "crc_matches_header": crc_pass,
+            "crc_validation_status": PASS_STATUS if crc_pass else "fail",
+            "csv_row_count": len(records),
+            "expected_patch_count": expected_count,
+            "row_count_matches_config": row_count_pass,
+            "row_count_status": PASS_STATUS if row_count_pass else "fail",
+            "unique_wsi_count": len({record.wsi_id for record in records}),
+            "wsi_ids": sorted({record.wsi_id for record in records}),
+            "wsi_count_status": PASS_STATUS if records else "fail",
+            "label_counts": {
+                str(label): label_counts[label] for label in sorted(label_counts)
+            },
+            "first_record": _record_identity_payload(
+                records[0],
+                split=split_paths.split,
+            ),
+            "last_record": _record_identity_payload(
+                records[-1],
+                split=split_paths.split,
+            ),
+            "windows": window_proof,
+        },
+    )
+
+
+def _data_proof_payload(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    paths: PatchDataPaths,
+    train_proof: JsonObject,
+    validation_proof: JsonObject,
+    clean_validation_proof: JsonObject,
+) -> JsonObject:
+    train_status = _required_str(train_proof, "status")
+    validation_status = _required_str(validation_proof, "status")
+    clean_status = _required_str(clean_validation_proof, "status")
+    split_contract = _split_contract_proof(
+        settings=settings,
+        train_proof=train_proof,
+        validation_proof=validation_proof,
+    )
+    window_contract = _window_contract_proof(settings)
+    technical_identity_pass = (
+        train_status == PASS_STATUS
+        and validation_status == PASS_STATUS
+        and _required_str(split_contract, "status") != "fail"
+        and _required_str(window_contract, "status") != "fail"
+    )
+    identity_status = _identity_status(
+        settings=settings,
+        technical_identity_pass=technical_identity_pass,
+        split_contract=split_contract,
+        window_contract=window_contract,
+    )
+    overall_status = (
+        PASS_STATUS
+        if identity_status == PASS_STATUS and clean_status == PASS_STATUS
+        else identity_status
+        if identity_status == "local_pass" and clean_status == PASS_STATUS
+        else "fail"
+    )
+    return {
+        "status": overall_status,
+        "identity_status": identity_status,
+        "row_count_status": _combined_status(
+            _required_str(train_proof, "row_count_status"),
+            _required_str(validation_proof, "row_count_status"),
+        ),
+        "wsi_count_status": _required_str(split_contract, "status"),
+        "crc_validation_status": _combined_status(
+            _required_str(train_proof, "crc_validation_status"),
+            _required_str(validation_proof, "crc_validation_status"),
+        ),
+        "window_status": _required_str(window_contract, "status"),
+        "clean_validation_dataloader_status": clean_status,
+        "dataset_slug": settings.dataset_slug,
+        "data_root": settings.data_root,
+        "resolved_data_root": str(paths.root),
+        "canonical_real_contract": _canonical_real_contract(settings),
+        "split_contract": split_contract,
+        "window_contract": window_contract,
+        "file_hashes": [
+            *_required_object_list(train_proof, "file_hashes"),
+            *_required_object_list(validation_proof, "file_hashes"),
+        ],
+        "splits": {
+            "train": train_proof,
+            "validation": validation_proof,
+        },
+        "clean_validation_dataloader": clean_validation_proof,
+    }
+
+
+def _data_proof_failure_payload(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    status: str,
+    failure_kind: str,
+    failure_message: str,
+) -> JsonObject:
+    return {
+        "status": status,
+        "identity_status": status,
+        "row_count_status": status,
+        "wsi_count_status": status,
+        "crc_validation_status": status,
+        "window_status": status,
+        "clean_validation_dataloader_status": status,
+        "dataset_slug": settings.dataset_slug,
+        "data_root": settings.data_root,
+        "resolved_data_root": "",
+        "file_hashes": [],
+        "splits": {},
+        "clean_validation_dataloader": {
+            "status": status,
+            "failure_kind": failure_kind,
+        },
+        "failure_kind": failure_kind,
+        "failure_message_hash": _hash_text(failure_message),
+    }
+
+
+def _split_windows_pass(split_proof: JsonObject) -> bool:
+    return (
+        _required_str(_required_object(split_proof, "windows"), "status") == PASS_STATUS
+    )
+
+
+def _clean_validation_not_run_payload(*, failure_kind: str) -> JsonObject:
+    return {
+        "status": "fail",
+        "split": "validation",
+        "proof_scope": "validation_loader_clean_input_only",
+        "failure_kind": failure_kind,
+    }
+
+
+def _identity_status(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    technical_identity_pass: bool,
+    split_contract: JsonObject,
+    window_contract: JsonObject,
+) -> str:
+    if not technical_identity_pass:
+        return "fail"
+    if (
+        _canonical_real_contract(settings)
+        and _required_str(split_contract, "status") == PASS_STATUS
+        and _required_str(window_contract, "status") == PASS_STATUS
+    ):
+        return PASS_STATUS
+    return "local_pass"
+
+
+def _split_contract_proof(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    train_proof: JsonObject,
+    validation_proof: JsonObject,
+) -> JsonObject:
+    from eqvae.data.splits import load_masked_holdout_wsi_ids  # noqa: PLC0415
+
+    train_wsi_ids = set(_required_str_list(train_proof, "wsi_ids"))
+    validation_wsi_ids = set(_required_str_list(validation_proof, "wsi_ids"))
+    holdout_wsi_ids = set(
+        load_masked_holdout_wsi_ids(
+            _repo_root() / "docs/data/ubc_ocean_masked_holdout_ids.csv",
+        ),
+    )
+    overlap = tuple(sorted(train_wsi_ids.intersection(validation_wsi_ids)))
+    masked_overlap = tuple(
+        sorted(train_wsi_ids.union(validation_wsi_ids).intersection(holdout_wsi_ids)),
+    )
+    canonical = _canonical_real_counts_and_source(settings)
+    train_wsi_count_matches = len(train_wsi_ids) == EXPECTED_REAL_TRAIN_WSI_COUNT
+    validation_wsi_count_matches = (
+        len(validation_wsi_ids) == EXPECTED_REAL_VALIDATION_WSI_COUNT
+    )
+    status = _real_or_local_contract_status(
+        canonical=canonical,
+        real_pass=(
+            train_wsi_count_matches
+            and validation_wsi_count_matches
+            and not overlap
+            and not masked_overlap
+        ),
+        local_pass=not overlap and not masked_overlap,
+    )
+    return cast(
+        "JsonObject",
+        {
+            "status": status,
+            "mode": "real" if canonical else "local",
+            "expected_train_wsi_count": (
+                EXPECTED_REAL_TRAIN_WSI_COUNT if canonical else None
+            ),
+            "expected_validation_wsi_count": (
+                EXPECTED_REAL_VALIDATION_WSI_COUNT if canonical else None
+            ),
+            "train_wsi_count": len(train_wsi_ids),
+            "validation_wsi_count": len(validation_wsi_ids),
+            "train_wsi_count_matches": train_wsi_count_matches,
+            "validation_wsi_count_matches": validation_wsi_count_matches,
+            "train_validation_overlap_count": len(overlap),
+            "train_validation_overlap_wsi_ids": list(overlap),
+            "masked_holdout_overlap_count": len(masked_overlap),
+            "masked_holdout_overlap_wsi_ids": list(masked_overlap),
+            "masked_holdout_csv": "docs/data/ubc_ocean_masked_holdout_ids.csv",
+            "masked_holdout_id_count": len(holdout_wsi_ids),
+            "non_tma_provenance_checked": canonical,
+            "non_tma_provenance_source": (
+                "docs/behavior_inventory_kaggle.md verified 2026-06-10"
+                if canonical
+                else "not_checked_for_local_fixture"
+            ),
+        },
+    )
+
+
+def _window_contract_proof(settings: RealDataRuntimePretestSettings) -> JsonObject:
+    train_window_sum = sum(window.patch_count for window in settings.train_windows)
+    validation_window_sum = sum(
+        window.patch_count for window in settings.validation_windows
+    )
+    train_cap_matches = train_window_sum == settings.cap_train_patch_count
+    validation_cap_matches = (
+        validation_window_sum == settings.cap_validation_patch_count
+    )
+    policy_matches = settings.window_policy == EXPECTED_WINDOW_POLICY
+    train_exact = _windows_match(settings.train_windows, EXPECTED_TRAIN_WINDOWS)
+    validation_exact = _windows_match(
+        settings.validation_windows,
+        EXPECTED_VALIDATION_WINDOWS,
+    )
+    canonical = _canonical_real_counts_and_source(settings)
+    status = _real_or_local_contract_status(
+        canonical=canonical,
+        real_pass=(
+            policy_matches
+            and train_cap_matches
+            and validation_cap_matches
+            and settings.cap_train_patch_count == EXPECTED_CAP_TRAIN_PATCH_COUNT
+            and settings.cap_validation_patch_count
+            == EXPECTED_CAP_VALIDATION_PATCH_COUNT
+            and train_exact
+            and validation_exact
+        ),
+        local_pass=policy_matches and train_cap_matches and validation_cap_matches,
+    )
+    return {
+        "status": status,
+        "mode": "real" if canonical else "local",
+        "window_policy": settings.window_policy,
+        "window_policy_matches": policy_matches,
+        "train_window_patch_sum": train_window_sum,
+        "validation_window_patch_sum": validation_window_sum,
+        "train_cap_patch_count": settings.cap_train_patch_count,
+        "validation_cap_patch_count": settings.cap_validation_patch_count,
+        "train_cap_matches_window_sum": train_cap_matches,
+        "validation_cap_matches_window_sum": validation_cap_matches,
+        "train_windows_match_locked_real_contract": train_exact,
+        "validation_windows_match_locked_real_contract": validation_exact,
+        "expected_train_windows": _expected_windows_payload(EXPECTED_TRAIN_WINDOWS),
+        "expected_validation_windows": _expected_windows_payload(
+            EXPECTED_VALIDATION_WINDOWS,
+        ),
+    }
+
+
+def _real_or_local_contract_status(
+    *,
+    canonical: bool,
+    real_pass: bool,
+    local_pass: bool,
+) -> str:
+    if canonical:
+        return PASS_STATUS if real_pass else "fail"
+    return "local_pass" if local_pass else "fail"
+
+
+def _canonical_real_contract(settings: RealDataRuntimePretestSettings) -> bool:
+    return _canonical_real_counts_and_source(settings) and (
+        settings.cap_train_patch_count == EXPECTED_CAP_TRAIN_PATCH_COUNT
+        and settings.cap_validation_patch_count == EXPECTED_CAP_VALIDATION_PATCH_COUNT
+        and settings.window_policy == EXPECTED_WINDOW_POLICY
+        and _windows_match(settings.train_windows, EXPECTED_TRAIN_WINDOWS)
+        and _windows_match(settings.validation_windows, EXPECTED_VALIDATION_WINDOWS)
+    )
+
+
+def _canonical_real_counts_and_source(
+    settings: RealDataRuntimePretestSettings,
+) -> bool:
+    return (
+        settings.dataset_slug == EXPECTED_DATASET_SLUG
+        and settings.real_train_patch_count == EXPECTED_REAL_TRAIN_PATCH_COUNT
+        and settings.real_validation_patch_count == EXPECTED_REAL_VALIDATION_PATCH_COUNT
+    )
+
+
+def _windows_match(
+    windows: Sequence[WindowSpec],
+    expected: Sequence[tuple[str, int, int]],
+) -> bool:
+    observed = tuple(
+        (window.name, window.start_row, window.patch_count) for window in windows
+    )
+    return observed == tuple(expected)
+
+
+def _expected_windows_payload(
+    windows: Sequence[tuple[str, int, int]],
+) -> list[JsonValue]:
+    return [
+        {
+            "name": name,
+            "start_row": start_row,
+            "patch_count": patch_count,
+            "stop_row": start_row + patch_count,
+        }
+        for name, start_row, patch_count in windows
+    ]
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _clean_validation_dataloader_proof(  # noqa: PLR0914
+    *,
+    paths: PatchDataPaths,
+    settings: RealDataRuntimePretestSettings,
+) -> JsonObject:
+    import torch  # noqa: PLC0415
+    from torch.utils.data import DataLoader, Subset  # noqa: PLC0415
+
+    from eqvae.data.dataloaders import normalize_uint8_batch  # noqa: PLC0415
+    from eqvae.data.training_batches import (  # noqa: PLC0415
+        PatchTrainingDataset,
+        PatchTrainingDatasetSpec,
+        collate_patch_training_samples,
+    )
+
+    validation_indices = _window_indices(settings.validation_windows)
+    if not validation_indices:
+        message = "validation windows must select at least one row"
+        raise ValueError(message)
+    batch_size = min(VALIDATION_CLEAN_PROOF_BATCH_SIZE, len(validation_indices))
+    dataset = PatchTrainingDataset(
+        PatchTrainingDatasetSpec(
+            bin_path=paths.validation.bin_path,
+            csv_path=paths.validation.csv_path,
+            split=paths.validation.split,
+            image_size=settings.image_size,
+            channels=settings.channels,
+            validate_crc=False,
+        ),
+    )
+    subset = Subset(dataset, validation_indices)
+    loader = cast(
+        "DataLoader[PatchTrainingBatch]",
+        DataLoader(
+            subset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=DEFAULT_DATALOADER_NUM_WORKERS,
+            collate_fn=collate_patch_training_samples,
+        ),
+    )
+    fetch_ms: list[float] = []
+    batches_seen = 0
+    samples_seen = 0
+    first_batch_hash = ""
+    last_batch_hash = ""
+    first_sample_hash = ""
+    last_sample_hash = ""
+    normalized_min = math.inf
+    normalized_max = -math.inf
+    last_batch_size = 0
+    try:
+        iterator = iter(loader)
+        while True:
+            start_ns = time.perf_counter_ns()
+            try:
+                batch = cast("PatchTrainingBatch", next(iterator))
+            except StopIteration:
+                break
+            fetch_ms.append(_elapsed_ms(start_ns))
+            normalized = normalize_uint8_batch(batch.images_uint8)
+            if batches_seen == 0:
+                first_batch_hash = _hash_sequence(batch.sample_ids)
+                first_sample_hash = _hash_text(batch.sample_ids[0])
+            last_batch_hash = _hash_sequence(batch.sample_ids)
+            last_sample_hash = _hash_text(batch.sample_ids[-1])
+            batches_seen += 1
+            batch_count = int(batch.images_uint8.shape[0])
+            samples_seen += batch_count
+            last_batch_size = batch_count
+            normalized_min = min(normalized_min, float(torch.amin(normalized).item()))
+            normalized_max = max(normalized_max, float(torch.amax(normalized).item()))
+    finally:
+        dataset.close()
+    expected_batches = math.ceil(len(validation_indices) / batch_size)
+    status = (
+        PASS_STATUS
+        if samples_seen == len(validation_indices) and batches_seen == expected_batches
+        else "fail"
+    )
+    return {
+        "status": status,
+        "split": "validation",
+        "dataset_class": "PatchTrainingDataset",
+        "collate_fn": "collate_patch_training_samples",
+        "normalizer": "normalize_uint8_batch",
+        "proof_scope": "validation_loader_clean_input_only",
+        "clean_view": "eval_clean",
+        "corruption_called": False,
+        "corruption_rng_instrumented": False,
+        "clean_validation_rng_status": "not_exercised_in_this_loader_lane",
+        "clean_validation_rng_consumed": None,
+        "num_workers": DEFAULT_DATALOADER_NUM_WORKERS,
+        "batch_size": batch_size,
+        "expected_sample_count": len(validation_indices),
+        "sample_count": samples_seen,
+        "expected_batches": expected_batches,
+        "batches_seen": batches_seen,
+        "last_batch_size": last_batch_size,
+        "partial_batch_observed": 0 < last_batch_size < batch_size,
+        "images_dtype": "torch.uint8",
+        "normalized_dtype": "torch.float32",
+        "normalized_min": _format_float(normalized_min),
+        "normalized_max": _format_float(normalized_max),
+        "normalization_range_pass": normalized_min >= -1.0 and normalized_max <= 1.0,
+        "first_batch_sample_id_hash": first_batch_hash,
+        "last_batch_sample_id_hash": last_batch_hash,
+        "first_sample_id_hash": first_sample_hash,
+        "last_sample_id_hash": last_sample_hash,
+        "batch_fetch_ms_p50": _format_float(_percentile(fetch_ms, 0.50)),
+        "batch_fetch_ms_p95": _format_float(_percentile(fetch_ms, 0.95)),
+        "loader_samples_sec": _format_float(
+            0.0 if sum(fetch_ms) <= 0.0 else samples_seen / (sum(fetch_ms) / 1000.0),
+        ),
+    }
+
+
+def _windows_proof(
+    *,
+    split: str,
+    records: Sequence[PatchRecord],
+    windows: Sequence[WindowSpec],
+) -> JsonObject:
+    window_payloads: list[JsonObject] = []
+    selected_records: list[PatchRecord] = []
+    status = PASS_STATUS
+    for window in windows:
+        in_range = 0 <= window.start_row < window.stop_row <= len(records)
+        window_records = (
+            list(records[window.start_row : window.stop_row]) if in_range else []
+        )
+        patch_count_matches = len(window_records) == window.patch_count
+        if not in_range or not patch_count_matches:
+            status = "fail"
+        selected_records.extend(window_records)
+        window_payloads.append(
+            _window_proof_payload(
+                split=split,
+                window=window,
+                records=window_records,
+                in_range=in_range,
+                patch_count_matches=patch_count_matches,
+            ),
+        )
+    duplicate_semantic_count = _duplicate_semantic_key_count(
+        split=split,
+        records=selected_records,
+    )
+    if duplicate_semantic_count:
+        status = "fail"
+    return cast(
+        "JsonObject",
+        {
+            "status": status,
+            "split": split,
+            "window_count": len(windows),
+            "selected_patch_count": len(selected_records),
+            "selected_wsi_count": len({record.wsi_id for record in selected_records}),
+            "duplicate_semantic_key_count": duplicate_semantic_count,
+            "selected_sample_id_hash": _records_hash(
+                split=split,
+                records=selected_records,
+                identity="sample_id",
+            ),
+            "selected_semantic_key_hash": _records_hash(
+                split=split,
+                records=selected_records,
+                identity="semantic_key",
+            ),
+            "windows": window_payloads,
+        },
+    )
+
+
+def _window_proof_payload(
+    *,
+    split: str,
+    window: WindowSpec,
+    records: Sequence[PatchRecord],
+    in_range: bool,
+    patch_count_matches: bool,
+) -> JsonObject:
+    label_counts = Counter(record.label for record in records)
+    payload: JsonObject = {
+        "name": window.name,
+        "split": split,
+        "start_row": window.start_row,
+        "stop_row": window.stop_row,
+        "patch_count": window.patch_count,
+        "in_range": in_range,
+        "patch_count_matches": patch_count_matches,
+        "observed_patch_count": len(records),
+        "wsi_count": len({record.wsi_id for record in records}),
+        "label_counts": {
+            str(label): label_counts[label] for label in sorted(label_counts)
+        },
+        "sample_id_hash": _records_hash(
+            split=split,
+            records=records,
+            identity="sample_id",
+        ),
+        "semantic_key_hash": _records_hash(
+            split=split,
+            records=records,
+            identity="semantic_key",
+        ),
+    }
+    if records:
+        payload["first_record"] = _record_identity_payload(records[0], split=split)
+        payload["last_record"] = _record_identity_payload(records[-1], split=split)
+    return payload
+
+
+def _record_identity_payload(record: PatchRecord, *, split: str) -> JsonObject:
+    sample_id = record.sample_id(split)
+    semantic_key = _semantic_key(record, split=split)
+    return {
+        "row_index": record.row_index,
+        "file_index": record.file_index,
+        "wsi_id": record.wsi_id,
+        "label": record.label,
+        "x": record.x,
+        "y": record.y,
+        "sample_id": sample_id,
+        "sample_id_hash": _hash_text(sample_id),
+        "semantic_sample_key": semantic_key,
+        "semantic_sample_key_hash": _hash_text(semantic_key),
+    }
+
+
+def _binary_integrity_payload(
+    *,
+    bin_path: Path,
+    header_size: int,
+    expected_crc32: int,
+) -> JsonObject:
+    hasher = hashlib.sha256()
+    checksum = 0
+    size_bytes = 0
+    with bin_path.open("rb") as binary_file:
+        header = binary_file.read(header_size)
+        if len(header) != header_size:
+            message = f"Expected {header_size}-byte binary header in {bin_path}"
+            raise ValueError(message)
+        hasher.update(header)
+        size_bytes += len(header)
+        while True:
+            chunk = binary_file.read(FILE_HASH_CHUNK_BYTES)
+            if not chunk:
+                break
+            hasher.update(chunk)
+            size_bytes += len(chunk)
+            checksum = zlib.crc32(chunk, checksum)
+    observed_crc32 = checksum & 0xFFFFFFFF
+    return {
+        "sha256": hasher.hexdigest(),
+        "size_bytes": size_bytes,
+        "observed_crc32": observed_crc32,
+        "crc_matches_header": observed_crc32 == expected_crc32,
+    }
+
+
+def _expected_patch_count(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    split: str,
+) -> int:
+    if split == "train":
+        return settings.real_train_patch_count
+    if split == "validation":
+        return settings.real_validation_patch_count
+    message = f"Unknown split {split!r}"
+    raise ValueError(message)
+
+
+def _sha256_file(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as file:
+        while True:
+            chunk = file.read(FILE_HASH_CHUNK_BYTES)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def _semantic_key(record: PatchRecord, *, split: str) -> str:
+    return f"{split}:{record.wsi_id}:{record.label}:{record.x}:{record.y}"
+
+
+def _records_hash(
+    *,
+    split: str,
+    records: Sequence[PatchRecord],
+    identity: str,
+) -> str:
+    hasher = hashlib.sha256()
+    for record in records:
+        if identity == "sample_id":
+            value = record.sample_id(split)
+        elif identity == "semantic_key":
+            value = _semantic_key(record, split=split)
+        else:
+            message = f"Unsupported identity hash kind: {identity}"
+            raise ValueError(message)
+        hasher.update(value.encode("utf-8"))
+        hasher.update(b"\n")
+    return hasher.hexdigest()
+
+
+def _hash_sequence(values: Sequence[str]) -> str:
+    hasher = hashlib.sha256()
+    for value in values:
+        hasher.update(value.encode("utf-8"))
+        hasher.update(b"\n")
+    return hasher.hexdigest()
+
+
+def _duplicate_semantic_key_count(
+    *,
+    split: str,
+    records: Sequence[PatchRecord],
+) -> int:
+    counts = Counter(_semantic_key(record, split=split) for record in records)
+    return sum(count - 1 for count in counts.values() if count > 1)
+
+
+def _combined_status(*statuses: str) -> str:
+    return PASS_STATUS if all(status == PASS_STATUS for status in statuses) else "fail"
+
+
+def _proof_status_exercised(status: str) -> bool:
+    return status in {PASS_STATUS, "local_pass"}
+
+
+def _required_object_list(payload: JsonObject, key: str) -> list[JsonObject]:
+    value = payload.get(key)
+    if not isinstance(value, list):
+        message = f"Expected list at {key}"
+        raise TypeError(message)
+    parsed: list[JsonObject] = []
+    for item in value:
+        if not isinstance(item, dict):
+            message = f"Expected object list at {key}"
+            raise TypeError(message)
+        parsed.append(cast("JsonObject", item))
+    return parsed
+
+
 def _manifest_payload(
     *,
     request: RealDataRuntimePretestRequest,
     resolved: ResolvedConfig,
     settings: RealDataRuntimePretestSettings,
+    data_proof: JsonObject,
 ) -> JsonObject:
-    return {
-        "schema_version": REAL_DATA_PRETEST_SCHEMA_VERSION,
-        "status": "pretest_manifest_ready",
-        "status_scope": REAL_DATA_PRETEST_SCOPE,
-        "benchmark_kind": REAL_DATA_PRETEST_KIND,
-        "benchmark_source": REAL_DATA_PRETEST_SOURCE,
-        "full_run_eligible": False,
-        "writes_selected_runtime": False,
-        "blocked_claims": settings.blocked_claims,
-        "config_path": str(request.config_path),
-        "config_sha256": resolved.invoked_config_hash,
-        "effective_config_sha256": resolved.effective_config_hash,
-        "dataset_slug": settings.dataset_slug,
-        "data_root": settings.data_root,
-        "train_windows": [_window_payload(window) for window in settings.train_windows],
-        "validation_windows": [
-            _window_payload(window) for window in settings.validation_windows
-        ],
-        "real_data_identity_proof_status": "pending",
-        "file_hashes": [],
-        "row_count_proof_status": "pending",
-        "wsi_count_proof_status": "pending",
-        "crc_validation_status": "pending",
-        "cache_warmup_policy": "pending",
-        "train_windows_exercised": False,
-        "validation_windows_exercised": False,
-        "timed_rows_eligible": False,
-        "seeded_candidates": [
-            _candidate_payload(candidate) for candidate in settings.seeded_candidates
-        ],
-        "artifact_allowlist": [
-            MANIFEST_FILENAME,
-            RUNTIME_PROOF_FILENAME,
-            RUNTIME_MATRIX_FILENAME,
-            DATALOADER_MATRIX_FILENAME,
-            NUMERICAL_CHECKS_FILENAME,
-            CORRUPTION_CHECKS_FILENAME,
-            GATE_HEALTH_SUMMARY_FILENAME,
-            RECOMMENDATIONS_FILENAME,
-        ],
-        "selected_runtime_written": False,
-    }
+    return cast(
+        "JsonObject",
+        {
+            "schema_version": REAL_DATA_PRETEST_SCHEMA_VERSION,
+            "status": "pretest_manifest_ready",
+            "status_scope": REAL_DATA_PRETEST_SCOPE,
+            "benchmark_kind": REAL_DATA_PRETEST_KIND,
+            "benchmark_source": REAL_DATA_PRETEST_SOURCE,
+            "full_run_eligible": False,
+            "writes_selected_runtime": False,
+            "blocked_claims": settings.blocked_claims,
+            "config_path": str(request.config_path),
+            "config_sha256": resolved.invoked_config_hash,
+            "effective_config_sha256": resolved.effective_config_hash,
+            "dataset_slug": settings.dataset_slug,
+            "data_root": settings.data_root,
+            "train_windows": [
+                _window_payload(window) for window in settings.train_windows
+            ],
+            "validation_windows": [
+                _window_payload(window) for window in settings.validation_windows
+            ],
+            "real_data_identity_proof_status": _required_str(
+                data_proof,
+                "identity_status",
+            ),
+            "file_hashes": _required_object_list(data_proof, "file_hashes"),
+            "row_count_proof_status": _required_str(data_proof, "row_count_status"),
+            "wsi_count_proof_status": _required_str(data_proof, "wsi_count_status"),
+            "crc_validation_status": _required_str(
+                data_proof,
+                "crc_validation_status",
+            ),
+            "cache_warmup_policy": (
+                "sha256_crc_window_audit_then_clean_validation_dataloader"
+                if _required_str(data_proof, "status") == PASS_STATUS
+                else "not_run"
+            ),
+            "train_windows_exercised": _proof_status_exercised(
+                _required_str(data_proof, "window_status"),
+            ),
+            "validation_windows_exercised": (
+                _proof_status_exercised(_required_str(data_proof, "window_status"))
+                and _proof_status_exercised(
+                    _required_str(data_proof, "clean_validation_dataloader_status"),
+                )
+            ),
+            "clean_validation_dataloader_proof": _required_object(
+                data_proof,
+                "clean_validation_dataloader",
+            ),
+            "real_data_proof": data_proof,
+            "timed_rows_eligible": False,
+            "seeded_candidates": [
+                _candidate_payload(candidate)
+                for candidate in settings.seeded_candidates
+            ],
+            "artifact_allowlist": [
+                MANIFEST_FILENAME,
+                RUNTIME_PROOF_FILENAME,
+                RUNTIME_MATRIX_FILENAME,
+                DATALOADER_MATRIX_FILENAME,
+                NUMERICAL_CHECKS_FILENAME,
+                CORRUPTION_CHECKS_FILENAME,
+                GATE_HEALTH_SUMMARY_FILENAME,
+                RECOMMENDATIONS_FILENAME,
+            ],
+            "selected_runtime_written": False,
+        },
+    )
 
 
 def _runtime_proof_payload(
     *,
     settings: RealDataRuntimePretestSettings,
     rows: Sequence[CsvRow],
+    data_proof: JsonObject,
 ) -> JsonObject:
     return cast(
         "JsonObject",
@@ -1074,6 +1954,19 @@ def _runtime_proof_payload(
             "wrong_accelerator_row_count": sum(
                 1 for row in rows if row["status"] == WRONG_ACCELERATOR
             ),
+            "real_data_identity_proof_status": _required_str(
+                data_proof,
+                "identity_status",
+            ),
+            "crc_validation_status": _required_str(
+                data_proof,
+                "crc_validation_status",
+            ),
+            "window_status": _required_str(data_proof, "window_status"),
+            "clean_validation_dataloader_status": _required_str(
+                data_proof,
+                "clean_validation_dataloader_status",
+            ),
             "compile_settle_policy": {
                 "compile_settle_steps": settings.compile_settle_steps,
                 "counter_source": "torch._dynamo.utils.counters_with_reset_per_row",
@@ -1081,11 +1974,7 @@ def _runtime_proof_payload(
             },
             "selection_ready": False,
             "selected_runtime_written": False,
-            "evidence_gate": (
-                "Timing rows remain ineligible until real-data identity, CRC, "
-                "validation-window, dataloader, numerical, corruption, gate-health, "
-                "DDP, and compile-settle evidence passes."
-            ),
+            "evidence_gate": _runtime_evidence_gate(data_proof),
         },
     )
 
@@ -1138,11 +2027,38 @@ def _recommendation(*, row: CsvRow, rank: int) -> JsonObject:
     }
 
 
-def _schema_dataloader_rows(settings: RealDataRuntimePretestSettings) -> list[CsvRow]:
+def _runtime_evidence_gate(data_proof: JsonObject) -> str:
+    if (
+        _required_str(data_proof, "identity_status") == PASS_STATUS
+        and _required_str(data_proof, "crc_validation_status") == PASS_STATUS
+        and _required_str(data_proof, "window_status") == PASS_STATUS
+        and _required_str(data_proof, "clean_validation_dataloader_status")
+        == PASS_STATUS
+    ):
+        return (
+            "Real-data identity, CRC, train/validation-window, and clean "
+            "validation dataloader evidence passed. Timing rows remain "
+            "ineligible until real dataloader-throughput, numerical, "
+            "corruption, gate-health, DDP, and compile-settle evidence passes."
+        )
+    return (
+        "Timing rows remain ineligible until real-data identity, CRC, "
+        "validation-window, dataloader, numerical, corruption, gate-health, "
+        "DDP, and compile-settle evidence passes."
+    )
+
+
+def _schema_dataloader_rows(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    data_proof: JsonObject,
+) -> list[CsvRow]:
     persistent_workers = _format_bool(value=DEFAULT_DATALOADER_PERSISTENT_WORKERS)
     non_blocking_h2d = _format_bool(value=DEFAULT_DATALOADER_NON_BLOCKING_H2D)
-    return [
-        {
+    clean_validation = _required_object(data_proof, "clean_validation_dataloader")
+    rows: list[CsvRow] = []
+    for split in ("train", "validation"):
+        row = {
             "run_name": settings.run_name,
             "benchmark_kind": REAL_DATA_PRETEST_KIND,
             "benchmark_source": REAL_DATA_PRETEST_SOURCE,
@@ -1172,8 +2088,35 @@ def _schema_dataloader_rows(settings: RealDataRuntimePretestSettings) -> list[Cs
             "status": SKIPPED_UNSUPPORTED,
             "failure_kind": "dataloader_grid_measurement_pending",
         }
-        for split in ("train", "validation")
-    ]
+        if (
+            split == "validation"
+            and _required_str(clean_validation, "status") == PASS_STATUS
+        ):
+            row.update({
+                "batch_size": str(_required_int(clean_validation, "batch_size")),
+                "batches_measured": str(
+                    _required_int(clean_validation, "batches_seen"),
+                ),
+                "batch_fetch_ms_p50": _required_str(
+                    clean_validation,
+                    "batch_fetch_ms_p50",
+                ),
+                "batch_fetch_ms_p95": _required_str(
+                    clean_validation,
+                    "batch_fetch_ms_p95",
+                ),
+                "loader_samples_sec": _required_str(
+                    clean_validation,
+                    "loader_samples_sec",
+                ),
+                "rank_sample_count": str(
+                    _required_int(clean_validation, "sample_count"),
+                ),
+                "status": INELIGIBLE_STATUS,
+                "failure_kind": ("clean_validation_path_pass_throughput_grid_pending"),
+            })
+        rows.append(row)
+    return rows
 
 
 def _schema_numerical_rows(

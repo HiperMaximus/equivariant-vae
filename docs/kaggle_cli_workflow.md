@@ -2,10 +2,11 @@
 
 Status: draft workflow scaffold; synthetic setup-smoke path ready after
 permission; synthetic binary timing pretest evidence complete for screening;
-capped real-data runtime pretest has a local non-promotable runner/kernel/guard
-and upload-simulation proof, but remote execution and linked eligibility
-evidence remain pending; Kaggle source attachments require a separate
-confirmation guard
+capped real-data runtime pretest has a local non-promotable runner/kernel/guard,
+upload-simulation proof, and identity/hash/CRC/window plus clean-validation
+loader proof plumbing, but remote execution of that lane and later linked
+eligibility evidence remain pending; Kaggle source attachments require a
+separate confirmation guard
 Last updated: 2026-06-19
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
@@ -140,9 +141,16 @@ implementation is non-promotable: it attaches only
 2,048-validation spread windows recorded in the config, writes blocked claims
 and pretest recommendations, and must not write
 `benchmark/selected_runtime.json`. It uses the synthetic-v4 rows only as parent
-provenance, adds sentinel rows, and currently marks timed rows ineligible until
-the linked compile/DDP/dataloader/numerical/corruption/gate-health evidence is
-implemented and passes. Remote pushing requires explicit user permission plus:
+provenance and adds sentinel rows. The local proof lane records real-data/local
+file identity, hashes, CRCs, row counts, locked train/validation windows, split
+WSI/holdout overlap contracts, and a clean validation loader/collate/
+normalization proof. Tiny fixture roots can only produce `local_pass`;
+canonical real `pass` requires the exact dataset slug, 300000/30000 rows,
+322/39 WSIs, zero train/validation and masked-holdout overlap, and the locked
+8,192/2,048 spread windows. Timed rows remain ineligible until the linked
+compile/DDP/real dataloader-throughput/numerical/corruption/gate-health
+evidence is implemented and passes. Remote pushing requires explicit user
+permission plus:
 
 ```bash
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check
