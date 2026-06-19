@@ -1505,6 +1505,23 @@ Runtime benchmark requirement before the first full Kaggle run:
   partial-batch path that the benchmark will measure. The exact
   `compile_settle_steps` policy is a benchmark-design parameter and must be
   locked before implementing compiled comparisons;
+- compiled runtime rows must declare a `compile_scope`:
+  - `none`: eager/uncompiled reference row;
+  - `model_forward`: compile only the VAE architecture forward path;
+  - `model_loss`: compile model forward plus loss computation, excluding
+    optimizer update;
+  - `train_step_no_optimizer`: compile the forward/loss/backward train-step
+    body while keeping the optimizer step outside the compiled region.
+  `full_train_step_with_optimizer` is intentionally out of scope for the first
+  real-data benchmark pass because optimizer capture adds extra graph-break and
+  attribution failure modes; add it only after the narrower compile scopes are
+  stable and this spec is updated;
+- every compile scope must time the same end-to-end benchmark step boundary:
+  data wait, host-to-device transfer, corruption, model forward, loss,
+  backward, optimizer step, scaler update when enabled, and CUDA synchronization.
+  `compile_scope` changes only which subgraph is compiled; it must not remove
+  non-compiled work such as the optimizer step from `steady_step_ms_*` or
+  `samples_sec`;
 - within the AMP/precision axis, compare the named precision policies
   `amp_off_fp32`, `amp_conservative`, and `amp_scalar_gate_relaxed`;
 - compare the corruption execution strategies `branchless_all` and
@@ -1530,26 +1547,29 @@ Runtime benchmark requirement before the first full Kaggle run:
   projection is a synthetic shortlist metric until repeated on real
   train/validation shards;
 - row IDs must be stable and machine-readable:
-  `{accelerator_mode}__bs{per_device_batch_size}__{precision_policy}__compile_{on|off}__{corruption_strategy}`.
+  `{accelerator_mode}__bs{per_device_batch_size}__{precision_policy}__compile_{compile_scope}__{corruption_strategy}`.
   Repeated measurements of the same row may add `__repeat{n}` but must still
   point to one canonical row when selecting.
 - runtime matrix coverage is one row per attempted
   `{accelerator_mode, per_device_batch_size, precision_policy,
-  torch_compile_enabled, corruption_strategy}` combination. If a row is invalid
-  by the valid-row table, do not emit it. If a row is valid but unsupported by
-  the observed runtime, emit it with `status = "skipped_unsupported"` and a
-  `failure_kind` explaining the unsupported feature.
+  torch_compile_enabled, compile_scope, corruption_strategy}` combination. If a
+  row is invalid by the valid-row table, do not emit it. If a row is valid but
+  unsupported by the observed runtime, emit it with
+  `status = "skipped_unsupported"` and a `failure_kind` explaining the
+  unsupported feature.
 
 Valid runtime matrix rows:
 
-| AMP enabled | Precision policy | Compile | Corruption strategy |
+| AMP enabled | Precision policy | Compile scope | Corruption strategy |
 | --- | --- | --- | --- |
-| false | `amp_off_fp32` | false/true | `branchless_all` / `indexed_masked` |
-| true | `amp_conservative` | false/true | `branchless_all` / `indexed_masked` |
-| true | `amp_scalar_gate_relaxed` | false/true | `branchless_all` / `indexed_masked` |
+| false | `amp_off_fp32` | `none` / `model_forward` / `model_loss` / `train_step_no_optimizer` | `branchless_all` / `indexed_masked` |
+| true | `amp_conservative` | `none` / stable compiled scopes from the FP32 pass | `branchless_all` / `indexed_masked` |
+| true | `amp_scalar_gate_relaxed` | `none` / stable compiled scopes from the FP32 pass | `branchless_all` / `indexed_masked` |
 
 Invalid rows must not be emitted, for example `amp_off_fp32` with AMP enabled or
-`amp_conservative` with AMP disabled.
+`amp_conservative` with AMP disabled. `torch_compile_enabled = false` requires
+`compile_scope = "none"`; any other compile scope requires
+`torch_compile_enabled = true`.
 
 Allowed `benchmark/runtime_matrix.csv` row statuses:
 
@@ -1599,6 +1619,17 @@ Benchmark budget and reset rules:
   remote synthetic timing v4 completed that repeat for the v3 top-four
   shortlist, but this remains non-promotable loader/H2D screening evidence and
   does not select a runtime;
+- the first real-data train-step benchmark pass must be staged to avoid an
+  uncontrolled cross product:
+  1. seed accelerator/batch candidates from the synthetic v4 shortlist;
+  2. run `amp_off_fp32` across `compile_scope = none`, `model_forward`,
+     `model_loss`, and `train_step_no_optimizer`, crossed with
+     `branchless_all` and `indexed_masked`;
+  3. carry only stable, numerically passing FP32 compile/corruption candidates
+     into `amp_conservative` and `amp_scalar_gate_relaxed`;
+  4. do not benchmark `full_train_step_with_optimizer` or a broader
+     compile/AMP/corruption grid until the narrower stage passes and this spec
+     is updated;
 - if `torch.compile` needs compilation, report compile/startup time separately
   from steady-state step time. Compiled rows must record
   `compile_settle_steps`, the code paths exercised before timing, graph break
@@ -1737,9 +1768,9 @@ Dataloader benchmark requirement:
 
 The selected baseline runtime must be recorded in the resolved config. Use
 `per_device_batch_size`, `global_batch_size`, `mixed_precision.enabled`, and
-`torch_compile.enabled`, plus explicit `precision.policy` and
-`corruption.strategy`; do not leave the batch-size, precision, or corruption
-execution meaning ambiguous.
+`torch_compile.enabled`, `torch_compile.scope`, plus explicit
+`precision.policy` and `corruption.strategy`; do not leave the batch-size,
+precision, compile region, or corruption execution meaning ambiguous.
 
 Benchmark artifact dependency graph:
 
@@ -1752,8 +1783,9 @@ Benchmark artifact dependency graph:
    selected-runtime dependencies.
 4. `benchmark/runtime_matrix.csv` can mark candidate rows as completed, but no
    row may be selected until matching `benchmark/dataloader_matrix.csv`,
-   `benchmark/numerical_checks.csv`, `metrics/gate_health.csv`, and
-   `benchmark/gate_health_summary.json` entries exist.
+   `benchmark/numerical_checks.csv`, `benchmark/corruption_checks.csv`,
+   `metrics/gate_health.csv`, and `benchmark/gate_health_summary.json` entries
+   exist and pass.
 5. `benchmark/selected_runtime.json` may be written with `status = "pass"` only
    when it references one row from `runtime_matrix.csv` whose row status is
    `pass`, whose linked artifacts have `pass`, and whose accelerator proof
@@ -1888,12 +1920,13 @@ must set it to `0`.
 `benchmark/runtime_matrix.csv` required columns:
 
 ```text
-run_name,benchmark_kind,benchmark_source,full_run_eligible,row_id,accelerator_mode,machine_shape,visible_device_count,cuda_device_count,gpu_names,ddp_backend,world_size,nproc_per_node,precision_policy,amp_enabled,torch_compile_enabled,corruption_strategy,per_device_batch_size,global_batch_size,gradient_accumulation_steps,warmup_steps,measured_steps,repeats,compile_startup_sec,steady_step_ms_p50,steady_step_ms_p95,samples_sec,trainer_samples_sec,max_vram_allocated_mb,max_vram_reserved_mb,vram_headroom_fraction,amp_step_skipped_count,gate_health_status,gate_health_warning_count,numerical_check_status,data_wait_fraction_p95,oom,status,failure_kind,failure_message_hash
+run_name,benchmark_kind,benchmark_source,full_run_eligible,row_id,accelerator_mode,machine_shape,visible_device_count,cuda_device_count,gpu_names,ddp_backend,world_size,nproc_per_node,precision_policy,amp_enabled,torch_compile_enabled,compile_scope,corruption_strategy,per_device_batch_size,global_batch_size,gradient_accumulation_steps,warmup_steps,measured_steps,repeats,compile_startup_sec,compile_settle_steps,steady_step_ms_p50,steady_step_ms_p95,samples_sec,trainer_samples_sec,max_vram_allocated_mb,max_vram_reserved_mb,vram_headroom_fraction,amp_step_skipped_count,gate_health_status,gate_health_warning_count,numerical_check_status,data_wait_fraction_p95,graph_break_count,recompile_count,oom,status,failure_kind,failure_message_hash
 ```
 
 `gpu_names` is encoded as a compact JSON array string. `amp_enabled`,
 `torch_compile_enabled`, and `oom` are lowercase `true|false` strings in CSV.
-Timing fields use milliseconds except `compile_startup_sec`.
+`compile_scope` is one of the named scope strings above. Timing fields use
+milliseconds except `compile_startup_sec`.
 
 `benchmark/selected_runtime.json` required shape:
 
@@ -1916,7 +1949,11 @@ Timing fields use milliseconds except `compile_startup_sec`.
   "lr_warmup_steps": 0,
   "beta_warmup_steps": 0,
   "mixed_precision": {"enabled": false, "policy": "amp_off_fp32"},
-  "torch_compile": {"enabled": false, "backend": "eager-or-inductor"},
+  "torch_compile": {
+    "enabled": false,
+    "backend": "eager-or-inductor",
+    "scope": "none"
+  },
   "corruption": {"strategy": "branchless_all"},
   "dataloader": {
     "num_workers": 1,
@@ -1933,6 +1970,7 @@ Timing fields use milliseconds except `compile_startup_sec`.
   },
   "safety": {
     "numerical_check_status": "pass",
+    "corruption_check_status": "pass",
     "gate_health_status": "pass",
     "dataloader_status": "pass",
     "amp_step_skipped_count": 0
@@ -2252,7 +2290,7 @@ run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,mach
 `benchmark/numerical_checks.csv` required columns:
 
 ```text
-run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,row_id,reference_row_id,candidate_row_id,batch_index,precision_policy,torch_compile_enabled,corruption_strategy,total_loss_abs_delta,total_loss_rel_delta,recon_loss_abs_delta,recon_loss_rel_delta,l1_loss_abs_delta,l1_loss_rel_delta,ssim_loss_abs_delta,ssim_loss_rel_delta,kl_loss_abs_delta,kl_loss_rel_delta,grad_norm_abs_delta,grad_norm_rel_delta,param_update_norm_abs_delta,param_update_norm_rel_delta,x_hat_min_abs_delta,x_hat_max_abs_delta,mu_mean_abs_delta,mu_std_abs_delta,logvar_mean_abs_delta,logvar_std_abs_delta,logvar_clamp_count_delta,gate_health_status,nonfinite_count,amp_step_skipped,status,failure_kind
+run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,row_id,reference_row_id,candidate_row_id,batch_index,precision_policy,torch_compile_enabled,compile_scope,corruption_strategy,total_loss_abs_delta,total_loss_rel_delta,recon_loss_abs_delta,recon_loss_rel_delta,l1_loss_abs_delta,l1_loss_rel_delta,ssim_loss_abs_delta,ssim_loss_rel_delta,kl_loss_abs_delta,kl_loss_rel_delta,grad_norm_abs_delta,grad_norm_rel_delta,param_update_norm_abs_delta,param_update_norm_rel_delta,x_hat_min_abs_delta,x_hat_max_abs_delta,mu_mean_abs_delta,mu_std_abs_delta,logvar_mean_abs_delta,logvar_std_abs_delta,logvar_clamp_count_delta,gate_health_status,nonfinite_count,amp_step_skipped,status,failure_kind
 ```
 
 `metrics/gate_health.csv` required columns:
@@ -2362,7 +2400,7 @@ Required output schemas:
 
 - `config_resolved.json`: full config after CLI overrides;
 - `metrics/train_steps.csv`: one row per logged train step with at least
-  `run_name,event_id,batch_attempt,optimizer_step,split,loss,recon_loss,l1_loss,ssim_loss,ssim_metric,mae_norm,mse_norm,psnr_img,ssim_img,kl_loss,beta,lr,grad_norm,batch_size,precision_policy,amp_enabled,torch_compile_enabled,corruption_strategy,amp_step_skipped,mu_mean,mu_std,mu_min,mu_max,logvar_mean,logvar_std,logvar_min,logvar_max,logvar_clamp_count,x_hat_min,x_hat_max,frac_x_hat_lt_minus1,frac_x_hat_gt_1`;
+  `run_name,event_id,batch_attempt,optimizer_step,split,loss,recon_loss,l1_loss,ssim_loss,ssim_metric,mae_norm,mse_norm,psnr_img,ssim_img,kl_loss,beta,lr,grad_norm,batch_size,precision_policy,amp_enabled,torch_compile_enabled,compile_scope,corruption_strategy,amp_step_skipped,mu_mean,mu_std,mu_min,mu_max,logvar_mean,logvar_std,logvar_min,logvar_max,logvar_clamp_count,x_hat_min,x_hat_max,frac_x_hat_lt_minus1,frac_x_hat_gt_1`;
 - skipped AMP rows are logged as batch-attempt events with
   `amp_step_skipped = 1`; they do not increment `optimizer_step` and do not
   trigger optimizer-step-based schedules, validation, or checkpointing;
@@ -3250,9 +3288,9 @@ The first 10-epoch Kaggle baseline is not ready until:
 4. the model-count command writes `benchmark/model_count.json` with status
    `pass` before runtime selection;
 5. the short Kaggle runtime benchmark writes `benchmark/runtime_matrix.csv` and
-   `benchmark/selected_runtime.json`, including AMP off/on, compile off/on,
-   named precision-policy, and branchless-versus-indexed corruption evidence
-   for single and dual T4;
+   `benchmark/selected_runtime.json`, including AMP off/on, named compile
+   scopes, named precision-policy, and branchless-versus-indexed corruption
+   evidence for single and dual T4;
 6. the benchmark writes `benchmark/dataloader_matrix.csv` and
    `benchmark/numerical_checks.csv`; the selected row must have dataloader,
    numerical-check, and gate-health status `pass`;

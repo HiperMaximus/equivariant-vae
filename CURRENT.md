@@ -237,7 +237,12 @@ real training-step components and/or real-data loader confirmation without
 treating synthetic timing as selected-runtime evidence. Before any compiled
 runtime comparison is implemented, lock a compile-settling policy that exercises
 all measured code paths before the timed warmup/measured window and records
-graph-break/recompile counts. The v4 repeated shortlist artifacts live under
+graph-break/recompile counts. The approved first real-data train-step benchmark
+axis now includes `compile_scope = none`, `model_forward`, `model_loss`, and
+`train_step_no_optimizer`, crossed first with `amp_off_fp32` and both
+`branchless_all` / `indexed_masked` corruption strategies; AMP policies should
+only be carried onto stable FP32 compile/corruption candidates. The v4 repeated
+shortlist artifacts live under
 `runs/kaggle/synthetic_timing_repeat_2gib_v4/benchmark`. Top v4 synthetic
 repeat recommendations were
 `dual_t4_ddp__bs8__amp_off_fp32__compile_off__branchless_all`
