@@ -1100,21 +1100,49 @@ The review process lives in `docs/agentic_review_workflow.md`.
   and `./scripts/kaggle_kernel.sh validate
   kaggle/kernels/real_data_runtime_pretest` passed; `python3 -m json.tool
   configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json` and
-  `git diff --check` passed. `./scripts/agent_preflight.sh` ran and failed only
-  because the newly required real-data pretest files are still untracked until
-  this work is staged/committed:
-  `kaggle/kernels/real_data_runtime_pretest/__init__.py`,
-  `kaggle/kernels/real_data_runtime_pretest/kernel-metadata.json`, and
-  `kaggle/kernels/real_data_runtime_pretest/run_template.py`. Two adversarial
-  subagents reviewed the implementation; real findings around brittle
-  spec-index guard text, contradictory config status, stale selected-runtime
-  rejection, and safe-looking skipped scalar placeholders were fixed. Remaining
-  real blockers: implement the actual linked evidence lanes before any row can
-  become eligible for runtime selection: real-data identity/hash/CRC and
-  train/validation window proof, validation clean path exercise,
-  compile-settle/Dynamo accounting, DDP launch proof, real dataloader matrix,
-  paired numerical checks, corruption compile-stability checks, and gate-health
-  rows. No remote Kaggle command was run in this pass; Overleaf was untouched.
+  `git diff --check` passed. The first `./scripts/agent_preflight.sh` run
+  failed only because the newly required real-data pretest files were still
+  untracked; after staging and committing, `./scripts/agent_preflight.sh`
+  passed with a clean worktree. Two adversarial subagents reviewed the
+  implementation; real findings around brittle spec-index guard text,
+  contradictory config status, stale selected-runtime rejection, and
+  safe-looking skipped scalar placeholders were fixed. Remaining real blockers:
+  implement the actual linked evidence lanes before any row can become eligible
+  for runtime selection: real-data identity/hash/CRC and train/validation window
+  proof, validation clean path exercise, compile-settle/Dynamo accounting, DDP
+  launch proof, real dataloader matrix, paired numerical checks, corruption
+  compile-stability checks, and gate-health rows. Implementation commit:
+  `fc5194b` (`Add real-data runtime pretest scaffold`) and pushed to GitHub.
+- 2026-06-19 capped real-data runtime pretest remote v1 plumbing check:
+  after `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check`
+  passed auth, kernel status/logs, and dataset file listing with the known
+  quota/files endpoint warnings, the first push attempt was correctly rejected
+  by the payload-freshness guard because ignored `run.py` was built before the
+  commit. Rebuilding with
+  `./scripts/kaggle_kernel.sh build kaggle/kernels/real_data_runtime_pretest`
+  fixed the embedded manifest, and
+  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1
+  ./scripts/kaggle_kernel.sh push kaggle/kernels/real_data_runtime_pretest`
+  pushed Kaggle version 1. Remote status reached `KernelWorkerStatus.COMPLETE`.
+  Downloaded ignored artifacts live under
+  `runs/kaggle/real_data_runtime_pretest_v1`. The remote artifact contract
+  worked as a plumbing test only: `runtime_proof.json` has
+  `status = "pretest_incomplete"`, `status_scope =
+  "non_promotable_real_data_runtime_pretest"`, `full_run_eligible = false`,
+  `selection_ready = false`, `selected_runtime_written = false`,
+  `eligible_pass_row_count = 0`, `row_count = 56`,
+  `timed_ineligible_row_count = 6`, `skipped_unsupported_row_count = 48`, and
+  no `benchmark/selected_runtime.json`. The six timed rows were single-visible
+  T4 eager/FP32/no-compile rows for batch sizes 4, 8, and 12 crossed with
+  `branchless_all` and `indexed_masked`, all marked `ineligible` with
+  `linked_safety_evidence_pending`; single-T4 batch 32 hit OOM for both
+  corruption strategies. Dual-T4/DDP rows and compile-scope rows remain
+  `skipped_unsupported`. Manifest fields still mark real-data identity, file
+  hashes, row counts, WSI counts, CRC validation, validation-window exercise,
+  cache/warmup policy, and timed-row eligibility as pending. This remote run
+  confirms Kaggle packaging, dataset attachment, artifact writing, and
+  non-promotion; it does not select a runtime or support paper/training claims.
+  Overleaf was untouched.
 
 ## Update Rule
 
