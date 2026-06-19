@@ -17,8 +17,10 @@ remote v1/v2/v3/v4 non-promotable evidence; the capped real-data runtime
 pretest config/schema contract is `real_data_runtime_pretest_contract_ready`
 with a local non-promotable runner/kernel/guard implementation and
 identity/hash/CRC/window plus clean-validation loader proof lane, downloaded
-remote v4/v5 non-promotable evidence, and remote v6 launched/running with
-candidate-evidence diagnostics pending artifact download/inspection; compiled
+remote v4/v5/v6 non-promotable evidence, with v6 downloaded and inspected;
+candidate evidence still promotes only two eager single-T4 bs4 FP32 rows, while
+bs8/bs12 failed candidate evidence remains blocked pending message-excerpt
+diagnostics; compiled
 rows remain diagnostic-only until full compile-settle coverage exists
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-19
@@ -1697,10 +1699,15 @@ Benchmark budget and reset rules:
   per-device batch size before larger ones, records candidate-evidence counts
   and failed-candidate evidence in the paired numerical and corruption proof
   objects, and mirrors quick covered/failed evidence counters into
-  `runtime_proof.json`. Remote v6 was accepted by Kaggle on 2026-06-19 and
-  first observed as `KernelWorkerStatus.RUNNING`; artifacts are still pending.
-  A missing bs8/bs12 evidence lane must be explainable from artifacts rather
-  than only inferred from skipped CSV rows;
+  `runtime_proof.json`. Remote v6 completed on Kaggle on 2026-06-19 and
+  downloaded artifacts now live under
+  `runs/kaggle/real_data_runtime_pretest_v6`. It wrote
+  `benchmark/phase_timings.json`, kept `selected_runtime_written = false`,
+  preserved two eager single-T4 bs4 FP32 eligible rows, and exposed five failed
+  candidate evidence attempts. The bs8/bs12 eager and model-forward attempts
+  failed with `candidate_train_step_RuntimeError` and the same deterministic
+  message hash; the next v7 observability fix adds bounded
+  `failure_message_excerpt` fields so the actual exception can be diagnosed;
 - if `torch.compile` needs compilation, report compile/startup time separately
   from steady-state step time. Compiled rows must record
   `compile_settle_steps`, the code paths exercised before timing, graph break
@@ -1887,6 +1894,9 @@ Benchmark artifact dependency graph:
    dataloader/numerical/corruption/gate-health evidence, graph-break, and
    recompile checks pass. Compiled timed rows remain diagnostic-only/ineligible
    until the full compile-settle coverage proof passes.
+   Failed candidate evidence entries must include both a deterministic
+   `failure_message_hash` and a bounded `failure_message_excerpt` so repeated
+   remote failures can be diagnosed without printing unbounded logs.
 5. `benchmark/runtime_matrix.csv` can mark candidate rows as completed, but no
    row may be selected until matching `benchmark/dataloader_matrix.csv`,
    `benchmark/numerical_checks.csv`, `benchmark/corruption_checks.csv`,

@@ -21,9 +21,15 @@ loader proof lane; remote v5 completed as non-promotable candidate evidence with
 two eligible eager single-T4 bs4 FP32 rows and no `selected_runtime.json`; the
 v6 follow-up adds phase timings, eager-first train-step evidence ordering,
 CUDA cache cleanup between candidate evidence attempts, failed-candidate
-diagnostics, and runtime-proof evidence counters. Remote v6 was accepted by
-Kaggle and first observed as `KernelWorkerStatus.RUNNING`; its artifacts are
-not downloaded yet, so no new row eligibility or selected-runtime claim exists.
+diagnostics, and runtime-proof evidence counters. Remote v6 completed, artifacts
+are downloaded under `runs/kaggle/real_data_runtime_pretest_v6`, and inspection
+found no new runtime selection: two eager single-T4 bs4 FP32 rows remain
+eligible, eager bs8/bs12 candidate evidence failed with hash-only
+`candidate_train_step_RuntimeError` diagnostics, bs32 eager rows remain OOM,
+compiled rows remain diagnostic/ineligible, and no `selected_runtime.json` was
+written. The current local follow-up adds bounded
+`failure_message_excerpt` fields to failed candidate evidence so a v7 artifact
+can expose the actual exception.
 Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, and a focused
 scaffold-readiness check on 2026-06-12. The 2026-06-11 passes
@@ -237,27 +243,17 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: wait at least 30 minutes from the first v6
-`KernelWorkerStatus.RUNNING` observation before the next approved status read;
-once terminal, download to `runs/kaggle/real_data_runtime_pretest_v6` and
-inspect phase timings, candidate/failed evidence counters, bs8/bs12
-numerical/corruption coverage, compiled-row ineligibility, and absence of
-`benchmark/selected_runtime.json`. Remote v5 produced two eligible eager
-single-T4 bs4 FP32 rows, but eager bs8/bs12 rows were timed and then blocked by
-`paired_numerical_evidence_not_row_pass`, while bs32 eager rows failed with
-`runtime_OutOfMemoryError`. The v6 follow-up now prioritizes eager single-T4
-FP32 train-step evidence by lower batch size before compiled diagnostic rows,
-clears CUDA cache between candidate evidence attempts, and records
-`candidate_evidence_count`, `failed_candidate_evidence_count`, and
-`failed_candidate_evidence` in the paired numerical/corruption proofs, plus
-top-level evidence counters in `runtime_proof.json`. The runner also has phase
-logging in remote v6: stderr JSON-line phase events,
-`benchmark/phase_timings.json`, and `phase_timings` objects mirrored into
-`runtime_proof.json` and `real_data_runtime_pretest_manifest.json`. It now
-implements measured `model_forward` compile-settle/Dynamo counter deltas, a
-real dual-rank `torchrun --standalone` DDP launch probe, candidate
-accelerator/batch dataloader throughput, candidate-batch numerical/corruption
-checks, and gate-health evidence linked back to runtime row identity. Three
+Immediate next action: choose the next branch. For Kaggle diagnostics, the
+local failure-excerpt observability pass is implemented and
+`./scripts/python_quality.sh` passes; before any v7 remote push, rebuild and
+validate `kaggle/kernels/real_data_runtime_pretest`, confirm the worktree state,
+rerun the Kaggle API preflight with permission, and ask for explicit push
+permission with `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`. For
+paper work, continue from `docs/specs/0004-sipaim-paper-scaffold.md` and lock
+the downstream WSI classifier protocol: frozen encoder versus fine-tuning,
+posterior-mean embedding extraction, patch-to-WSI aggregation, classifier
+capacity, labels/splits, seeds, and metric table. Remote v5/v6 capped-pretest
+outputs remain non-promotable selected-runtime evidence. Three
 clean-context adversarial reviews found and then rechecked blockers around
 dataloader thresholds, eager-reference numerical checks, fixed-batch coverage,
 gate-health thresholds, child-process Dynamo counter availability, recompile
@@ -1456,15 +1452,13 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `https://www.kaggle.com/code/maximusshtefan/eqvae-real-data-runtime-pretest`.
   Status checks during the monitoring window continued to report
   `KernelWorkerStatus.RUNNING`; the direct Kaggle log read returned no useful
-  lines. No artifacts were downloaded yet and no Overleaf work was touched. The
+  lines. At that point no artifacts had been downloaded yet and no Overleaf
+  work was touched. The
   polling policy was updated in `docs/kaggle_cli_workflow.md`: for
   source-attached real-data kernels, do one immediate post-push status check,
   then poll every 30 minutes or slower and record actual terminal durations
-  after artifact download. Next action: when the worker finishes, download with
-  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output maximusshtefan/eqvae-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v5`,
-  then inspect that v5 remains non-promotable, has no
-  `benchmark/selected_runtime.json`, and only eager rows can pass while compiled
-  `model_forward` rows remain diagnostic/ineligible.
+  after artifact download. The later v5 result and inspection are recorded in
+  the next entry.
 - 2026-06-19 capped real-data runtime pretest remote v5 result:
   a later approved status check reported `KernelWorkerStatus.COMPLETE`, and
   approved output download saved ignored artifacts under
@@ -1522,9 +1516,9 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `candidate_evidence_count`, `failed_candidate_evidence_count`, and
   `failed_candidate_evidence` through paired numerical and corruption
   equivalence proof objects, and mirrors quick evidence counters into
-  `runtime_proof.json`. This is intended to make a v6 pull show whether
-  bs8/bs12 evidence was covered or why it failed, instead of leaving those
-  rows as opaque skipped evidence. Review-found gaps were fixed: if every
+  `runtime_proof.json`. The later v6 pull did show explicit failed-candidate
+  RuntimeError hashes for the bs8/bs12 evidence attempts instead of leaving
+  those rows as opaque skipped evidence. Review-found gaps were fixed: if every
   candidate train-step evidence attempt fails, paired numerical, corruption,
   and gate-health proof objects now preserve failed-candidate diagnostics
   instead of collapsing to a generic linked-evidence failure; failure rows record
@@ -1551,16 +1545,81 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`; Kaggle accepted
   kernel version 6 at
   `https://www.kaggle.com/code/maximusshtefan/eqvae-real-data-runtime-pretest`.
-  The immediate approved status read reported
-  `KernelWorkerStatus.RUNNING`. As of 2026-06-19T16:37:07-05:00, no v6
-  artifacts have been downloaded. Do not poll continuously: wait at least
-  30 minutes from the first `RUNNING` observation before the next status read,
-  then poll every 30 minutes or slower. When a terminal state appears, download
-  with `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh
-  output-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v6`,
-  then inspect `benchmark/phase_timings.json`, `runtime_proof.json`, failed
-  candidate evidence counters, bs8/bs12 numerical/corruption coverage, compiled
-  row ineligibility, and absence of `benchmark/selected_runtime.json`.
+  The immediate approved status read reported `KernelWorkerStatus.RUNNING` by
+  2026-06-19T16:37:07-05:00. A later approved status read after the required
+  wait reported `KernelWorkerStatus.COMPLETE`, and artifacts were downloaded to
+  `runs/kaggle/real_data_runtime_pretest_v6`. Inspection found:
+  `runtime_proof.status = "pretest_incomplete"`,
+  `full_run_eligible = false`, `selection_ready = false`,
+  `selected_runtime_written = false`, `eligible_pass_row_count = 2`,
+  `paired_numerical_candidate_evidence_count = 2`,
+  `paired_numerical_failed_candidate_evidence_count = 5`,
+  `corruption_equivalence_candidate_evidence_count = 2`, and
+  `corruption_equivalence_failed_candidate_evidence_count = 5`. The only pass
+  rows are `single_visible_t4__bs4__amp_off_fp32__compile_none__branchless_all`
+  and `single_visible_t4__bs4__amp_off_fp32__compile_none__indexed_masked`.
+  Eager bs8/bs12 timed rows remain ineligible with
+  `paired_numerical_evidence_not_row_pass`; their failed candidate evidence
+  records `candidate_train_step_RuntimeError` with message hash
+  `757ab3828da1202c080e587121c92ffa9210d9ecace6cb28842a62504733fc14`.
+  Eager bs32 rows still hit `runtime_OutOfMemoryError`. Compiled
+  `model_forward` rows remain diagnostic/ineligible with
+  `compile_settle_or_dynamo_evidence_not_row_pass`; compile-settle proof is
+  still `skipped_unsupported` because clean-validation, DDP rank, final partial
+  batch, and mask-cardinality coverage are missing. Phase timings passed with
+  71 recorded phases from `2026-06-19T21:36:15Z` to
+  `2026-06-19T22:15:40Z`; longest phases were stage1 runtime rows
+  (~1185.75s), linked evidence payload (~592.19s), real-data identity/clean
+  proof (~586.85s), and linked train-step evidence (~573.67s). No
+  `benchmark/selected_runtime.json` was written.
+- 2026-06-19 post-v6 local observability follow-up:
+  `src/eqvae/benchmarking/real_data_runtime_pretest.py` now adds bounded
+  `failure_message_excerpt` fields to failed candidate train-step evidence,
+  matching the existing data-root failure excerpt style while keeping the
+  deterministic `failure_message_hash`. The focused regression in
+  `tests/test_real_data_runtime_pretest.py` asserts excerpt propagation. This
+  local change is intended to make a future v7 artifact reveal the actual
+  bs8/bs12 exception instead of another hash-only failure. Verification:
+  `PYTHONPATH=src .venv/bin/pytest tests/test_real_data_runtime_pretest.py -q`
+  passed with 10 tests in 63.18s; after restoring exact spec-index guard tokens
+  required by `scripts/kaggle_kernel.sh`, the four affected push-guard tests
+  passed; full `./scripts/python_quality.sh` passed with 122 tests and 0
+  BasedPyright errors. Kernel rebuild/validate, Kaggle API preflight, and
+  explicit push permission are still required before any v7 remote push.
+- 2026-06-19 GitHub issue status updates:
+  posted Spanish status comments to issues #1-#6 after local grounding and
+  three read-only subagent audits. Issue #2 received the substantive v6
+  real-data pretest update; issues #1, #3, #4, #5, and #6 explicitly record
+  that no final conference/paper/metric/visual/SO(2) deliverable changed this
+  week. Posted comments:
+  #1 `https://github.com/HiperMaximus/equivariant-vae/issues/1#issuecomment-4755254478`,
+  #2 `https://github.com/HiperMaximus/equivariant-vae/issues/2#issuecomment-4755254390`,
+  #3 `https://github.com/HiperMaximus/equivariant-vae/issues/3#issuecomment-4755254304`,
+  #4 `https://github.com/HiperMaximus/equivariant-vae/issues/4#issuecomment-4755254416`,
+  #5 `https://github.com/HiperMaximus/equivariant-vae/issues/5#issuecomment-4755255865`,
+  and #6
+  `https://github.com/HiperMaximus/equivariant-vae/issues/6#issuecomment-4755255877`.
+- 2026-06-19 SIPAIM paper scaffold:
+  added `docs/specs/0004-sipaim-paper-scaffold.md` and indexed it in
+  `docs/specs/README.md`; replaced the generic SIPAIM `main.tex` template with
+  a compile-safe three-page scaffold titled "Comparing Equivariant and
+  Non-Equivariant VAE Representations for Semi-Supervised Histopathology WSI
+  Classification"; added first IEEE BibTeX entries to
+  `paper/sipaim2026/references.bib`; copied thesis figures into
+  `paper/sipaim2026/figures/`; and refreshed
+  `paper/sipaim2026/sipaim2026.pdf`. The scaffold uses the user's thesis
+  framing: unsupervised VAE representation learning first, then a supervised
+  WSI classifier on encoder embeddings. It explicitly marks selected runtime,
+  full VAE runs, continuous `SO(2)` results, downstream classifier evidence,
+  and sealed masked-WSI test evidence as pending. Verification:
+  `./scripts/sipaim_overleaf_sync.sh compile` passed after regenerating the
+  stale local `main.bbl`, the final LaTeX log has no warnings/errors, `pdfinfo`
+  reports 3 pages, and rendered PDF pages were visually checked. The thesis repo
+  was read-only and its worktree stayed clean. The reused method figure still
+  contains Spanish thesis text and should be redrawn or relabeled before final
+  submission. Final hygiene for this handoff: `git diff --check`,
+  `./scripts/agent_preflight.sh`, and workspace `./agent_preflight.sh` all
+  passed.
 
 ## Update Rule
 

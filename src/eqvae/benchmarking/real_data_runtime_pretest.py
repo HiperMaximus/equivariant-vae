@@ -3460,6 +3460,7 @@ def _candidate_train_step_failure_item(  # noqa: PLR0913
             ),
             "status": FAIL_STATUS,
             "failure_kind": failure_kind,
+            "failure_message_excerpt": _failure_message_excerpt(failure_message),
             "failure_message_hash": _hash_text(failure_message),
         },
     )

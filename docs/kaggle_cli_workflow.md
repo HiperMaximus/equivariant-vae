@@ -5,10 +5,9 @@ permission; synthetic binary timing pretest evidence complete for screening;
 capped real-data runtime pretest has a local non-promotable runner/kernel/guard,
 upload-simulation proof, and identity/hash/CRC/window plus clean-validation
 loader proof plumbing plus a candidate-linked evidence lane implementation;
-remote v5 produced two eligible eager bs4 rows and remote v6 has been accepted
-and first observed running with follow-up code that adds
-eager-first evidence ordering, failed-evidence diagnostics, runtime-proof
-evidence counters, and phase timings; compiled rows remain diagnostic-only until
+remote v5 produced two eligible eager bs4 rows and remote v6 completed with
+downloaded non-promotable phase-timing plus failed-candidate hash diagnostics
+but still only two eligible bs4 rows; compiled rows remain diagnostic-only until
 full compile-settle coverage exists; Kaggle source attachments require a
 separate confirmation guard
 Last updated: 2026-06-19
@@ -341,9 +340,14 @@ keeps the full failed-evidence list in the paired numerical and corruption proof
 objects. The phase-timing artifact must be present in both the payload artifact
 allow-list and the launcher validation allow-list; the local generated-launcher
 full simulation covers this exact artifact set. Commit `47437a0` was rebuilt,
-validated, and pushed as Kaggle version 6 after explicit approval; the immediate
-status read reported `KernelWorkerStatus.RUNNING`. Do not infer any new runtime
-eligibility from v6 until its artifacts are downloaded and inspected.
+validated, and pushed as Kaggle version 6 after explicit approval; v6 completed
+and downloaded artifacts live under `runs/kaggle/real_data_runtime_pretest_v6`.
+Inspection found no new runtime selection: two eager single-T4 bs4 FP32 rows
+remain eligible, bs8/bs12 candidate evidence failed with hash-only
+`candidate_train_step_RuntimeError` diagnostics, bs32 eager rows remain OOM,
+compiled rows remain diagnostic/ineligible, and no
+`benchmark/selected_runtime.json` was written. The current local follow-up adds
+bounded `failure_message_excerpt` fields for a future v7 diagnostic run.
 
 ### Remote Duration And Polling Memory
 
@@ -394,10 +398,14 @@ Current duration notes:
   The preflight again passed OAuth, kernel list/status/logs, and patch-dataset
   file listing while warning on quota and kernels-file introspection. The first
   status read reported `KernelWorkerStatus.RUNNING` by
-  2026-06-19T16:37:07-05:00. Wait at least 30 minutes from that first running
-  observation before the next status read; after a terminal state, download to
-  `runs/kaggle/real_data_runtime_pretest_v6` and update this duration memory
-  from `benchmark/phase_timings.json`.
+  2026-06-19T16:37:07-05:00. A later approved status read after the required
+  wait reported `KernelWorkerStatus.COMPLETE`, and artifacts were downloaded to
+  `runs/kaggle/real_data_runtime_pretest_v6`. The phase-timing artifact records
+  `started_at_utc = 2026-06-19T21:36:15Z`,
+  `finished_at_utc = 2026-06-19T22:15:40Z`, and 71 passing phase records.
+  Longest phases were stage1 runtime rows at about 1185.75s, linked evidence
+  payload at about 592.19s, real-data identity/clean-path proof at about
+  586.85s, and linked train-step evidence at about 573.67s.
 
 For the synthetic binary timing pretest, the remote sequence remains permission
 gated:

@@ -481,6 +481,7 @@ def test_train_step_evidence_failure_preserves_candidate_diagnostics(
     failed = cast("list[dict[str, object]]", evidence["failed_candidate_evidence"])
     assert failed[0]["strategy_attempt"] == "indexed_masked"
     assert failed[0]["target_corruption_strategy"] == "branchless_all"
+    assert failed[0]["failure_message_excerpt"] == "synthetic candidate boom"
     assert set(cast("list[str]", failed[0]["affected_row_ids"])) == {
         "single_visible_t4__bs4__amp_off_fp32__compile_none__branchless_all",
         "single_visible_t4__bs4__amp_off_fp32__compile_none__indexed_masked",
