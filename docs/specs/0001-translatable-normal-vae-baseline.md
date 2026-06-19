@@ -16,10 +16,10 @@ synthetic binary Kaggle timing pretest contract is
 remote v1/v2/v3/v4 non-promotable evidence; the capped real-data runtime
 pretest config/schema contract is `real_data_runtime_pretest_contract_ready`
 with a local non-promotable runner/kernel/guard implementation and
-identity/hash/CRC/window plus clean-validation loader proof lane and local
-candidate-linked evidence implementation, but the remote canonical rerun
-remains pending and compiled rows remain diagnostic-only until full
-compile-settle coverage exists
+identity/hash/CRC/window plus clean-validation loader proof lane, downloaded
+remote v4/v5 non-promotable evidence, and local v6 candidate-evidence
+diagnostics pending verification/commit/rebuild/approval; compiled rows remain
+diagnostic-only until full compile-settle coverage exists
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-19
 
@@ -1684,6 +1684,21 @@ Benchmark budget and reset rules:
   unless the exact candidate batch size, accelerator mode, compile scope, and
   precision path is covered. Corruption equivalence on a training batch must
   not claim clean-validation RNG non-consumption;
+- remote v5 of the capped real-data runtime pretest completed on 2026-06-19 as
+  non-promotable evidence under `runs/kaggle/real_data_runtime_pretest_v5`.
+  It passed canonical real-data, DDP-launch, dataloader, and gate-health proof
+  lanes and produced two eligible eager single-T4 bs4 FP32 rows. It still must
+  not select a runtime: eager bs8/bs12 rows need numerical/corruption evidence
+  coverage, eager bs32 hit runtime OOM, compiled `model_forward` rows remain
+  diagnostic-only/ineligible pending full compile-settle coverage, and no
+  `benchmark/selected_runtime.json` was written;
+- the v6 candidate-evidence follow-up should prioritize single-T4 FP32 eager
+  train-step evidence before compiled diagnostic rows, then smaller
+  per-device batch size before larger ones, record candidate-evidence counts and
+  failed-candidate evidence in the paired numerical and corruption proof
+  objects, and mirror quick covered/failed evidence counters into
+  `runtime_proof.json`. A missing bs8/bs12 evidence lane must be explainable
+  from artifacts rather than only inferred from skipped CSV rows;
 - if `torch.compile` needs compilation, report compile/startup time separately
   from steady-state step time. Compiled rows must record
   `compile_settle_steps`, the code paths exercised before timing, graph break
@@ -1863,7 +1878,8 @@ Benchmark artifact dependency graph:
    normalization plumbing. It may also write candidate-linked evidence for
    `model_forward` compile-settle/Dynamo counters, real DDP launch proof,
    dataloader throughput, same-batch eager-reference numerical checks,
-   corruption equivalence, gate health, and coarse phase timings for polling
+   corruption equivalence, gate health, candidate-evidence success/failure
+   counts, failed-evidence diagnostics, and coarse phase timings for polling
    cadence. Eager timed rows from that implementation are eligible only when
    the canonical real-data proof, real DDP proof, matching row-specific
    dataloader/numerical/corruption/gate-health evidence, graph-break, and

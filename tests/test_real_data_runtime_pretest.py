@@ -10,14 +10,19 @@ import shutil
 import subprocess  # noqa: S404
 import sys
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from eqvae.benchmarking import real_data_runtime_pretest as pretest
 from eqvae.benchmarking.real_data_runtime_pretest import (
     RealDataRuntimePretestRequest,
     write_real_data_runtime_pretest,
 )
+from eqvae.config import resolve_json_config
+
+if TYPE_CHECKING:
+    from eqvae.benchmarking.io import CsvRow
 from eqvae.data.synthetic import SyntheticPatchSpec, write_synthetic_patch_shard
 
 _TINY_IMAGE_SIZE = 16
@@ -336,6 +341,156 @@ def test_real_data_pretest_push_guard_accepts_generated_kernel(
     assert "fake kaggle kernels push" in completed.stdout
 
 
+def test_kaggle_pull_guard_requires_remote_confirmation(tmp_path: Path) -> None:
+    """Pull is a remote read and refuses even pull-specific approval alone."""
+    repo_root = Path(__file__).resolve().parents[1]
+    fake_bin = _fake_bin(tmp_path=tmp_path, repo_root=repo_root)
+
+    completed = subprocess.run(  # noqa: S603
+        (
+            _required_executable("bash"),
+            str(repo_root / "scripts" / "kaggle_kernel.sh"),
+            "pull",
+            "maximusshtefan/eqvae-real-data-runtime-pretest",
+            str(tmp_path / "pulled_kernel"),
+        ),
+        cwd=repo_root,
+        env=_guard_environment(
+            fake_bin=fake_bin,
+            push_confirmed=False,
+            full_dataset_confirmed=False,
+            pull_confirmed=True,
+            remote_confirmed=False,
+        ),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "KAGGLE_REMOTE_CONFIRMED=1" in completed.stderr
+    assert "fake kaggle" not in completed.stdout
+
+
+def test_train_step_target_rows_prioritize_eager_before_compiled() -> None:
+    """Candidate evidence spends coverage on eager smaller batches first."""
+    rows = [
+        _train_step_target_row(
+            row_id="compiled_bs4",
+            batch_size=4,
+            compile_scope="model_forward",
+        ),
+        _train_step_target_row(
+            row_id="eager_bs12",
+            batch_size=12,
+            compile_scope="none",
+        ),
+        _train_step_target_row(
+            row_id="eager_bs4",
+            batch_size=4,
+            compile_scope="none",
+        ),
+        _train_step_target_row(
+            row_id="compiled_bs8",
+            batch_size=8,
+            compile_scope="model_forward",
+        ),
+        _train_step_target_row(
+            row_id="eager_bs8",
+            batch_size=8,
+            compile_scope="none",
+        ),
+    ]
+
+    ordered = pretest._unique_train_step_target_rows(rows)  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+
+    assert [row["row_id"] for row in ordered] == [
+        "eager_bs4",
+        "eager_bs8",
+        "eager_bs12",
+        "compiled_bs4",
+        "compiled_bs8",
+    ]
+
+
+def test_train_step_evidence_failure_preserves_candidate_diagnostics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """All-failed candidate evidence returns proof diagnostics instead of raising."""
+    repo_root = Path(__file__).resolve().parents[1]
+    data_root = _write_tiny_patch_root(tmp_path)
+    config_path = _write_tiny_runtime_pretest_config(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        data_root=data_root,
+    )
+    settings = pretest._settings(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        resolve_json_config(config_path),
+        data_root_override=None,
+    )
+    rows = [
+        _train_step_target_row(
+            row_id="single_visible_t4__bs4__amp_off_fp32__compile_none__branchless_all",
+            batch_size=4,
+            compile_scope="none",
+        ),
+        _train_step_target_row(
+            row_id="single_visible_t4__bs4__amp_off_fp32__compile_none__indexed_masked",
+            batch_size=4,
+            compile_scope="none",
+            corruption_strategy="indexed_masked",
+        ),
+    ]
+
+    def fail_fixed_batch(*_args: object, **kwargs: object) -> object:
+        target_row = cast("dict[str, str]", kwargs["target_row"])
+        raise pretest._CandidateTrainStepEvidenceError(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+            strategy_attempt="indexed_masked",
+            target_corruption_strategy=target_row["corruption_strategy"],
+            cause=RuntimeError("synthetic candidate boom"),
+        )
+
+    monkeypatch.setattr(
+        pretest,
+        "_paired_fixed_batch_train_step_evidence",
+        fail_fixed_batch,
+    )
+
+    evidence = pretest._paired_train_step_evidence(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        settings=settings,
+        data_proof={"identity_status": "local_pass"},
+        rows=rows,
+    )
+    numerical = pretest._paired_numerical_proof(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        settings=settings,
+        data_proof={"identity_status": "local_pass"},
+        rows=rows,
+        train_step_evidence=evidence,
+    )
+    corruption = pretest._corruption_equivalence_proof(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        settings=settings,
+        data_proof={"identity_status": "local_pass"},
+        rows=rows,
+        train_step_evidence=evidence,
+    )
+
+    assert evidence["status"] == "fail"
+    assert evidence["candidate_evidence_count"] == 0
+    assert evidence["failed_candidate_evidence_count"] == 1
+    failed = cast("list[dict[str, object]]", evidence["failed_candidate_evidence"])
+    assert failed[0]["strategy_attempt"] == "indexed_masked"
+    assert failed[0]["target_corruption_strategy"] == "branchless_all"
+    assert set(cast("list[str]", failed[0]["affected_row_ids"])) == {
+        "single_visible_t4__bs4__amp_off_fp32__compile_none__branchless_all",
+        "single_visible_t4__bs4__amp_off_fp32__compile_none__indexed_masked",
+    }
+    assert numerical["status"] == "fail"
+    assert numerical["failed_candidate_evidence_count"] == 1
+    assert corruption["status"] == "fail"
+    assert corruption["failed_candidate_evidence_count"] == 1
+
+
 def _generated_kernel_dir(
     *,
     tmp_path: Path,
@@ -414,6 +569,8 @@ def _guard_environment(
     fake_bin: Path,
     push_confirmed: bool = True,
     full_dataset_confirmed: bool = True,
+    pull_confirmed: bool = False,
+    remote_confirmed: bool = False,
 ) -> dict[str, str]:
     environment = os.environ.copy()
     environment["PATH"] = f"{fake_bin}{os.pathsep}{environment['PATH']}"
@@ -425,7 +582,34 @@ def _guard_environment(
         environment["KAGGLE_FULL_DATASET_CONFIRMED"] = "1"
     else:
         environment.pop("KAGGLE_FULL_DATASET_CONFIRMED", None)
+    if pull_confirmed:
+        environment["KAGGLE_PULL_CONFIRMED"] = "1"
+    else:
+        environment.pop("KAGGLE_PULL_CONFIRMED", None)
+    if remote_confirmed:
+        environment["KAGGLE_REMOTE_CONFIRMED"] = "1"
+    else:
+        environment.pop("KAGGLE_REMOTE_CONFIRMED", None)
     return environment
+
+
+def _train_step_target_row(
+    *,
+    row_id: str,
+    batch_size: int,
+    compile_scope: str,
+    corruption_strategy: str = "branchless_all",
+) -> CsvRow:
+    return {
+        "row_id": row_id,
+        "accelerator_mode": "single_visible_t4",
+        "world_size": "1",
+        "per_device_batch_size": str(batch_size),
+        "precision_policy": "amp_off_fp32",
+        "compile_scope": compile_scope,
+        "corruption_strategy": corruption_strategy,
+        "status": "ineligible",
+    }
 
 
 def _load_json(path: Path) -> dict[str, object]:
@@ -459,7 +643,29 @@ def _assert_tiny_manifest_linked_evidence(manifest: dict[str, object]) -> None:
         _object_field(manifest, "paired_numerical_proof", "candidate_row_specific")
         is False
     )
+    assert _object_field(manifest, "paired_numerical_proof", "candidate_evidence_count")
+    assert (
+        _object_field(
+            manifest,
+            "paired_numerical_proof",
+            "failed_candidate_evidence_count",
+        )
+        == 0
+    )
     assert _object_status(manifest, "corruption_equivalence_proof") == "local_pass"
+    assert _object_field(
+        manifest,
+        "corruption_equivalence_proof",
+        "candidate_evidence_count",
+    )
+    assert (
+        _object_field(
+            manifest,
+            "corruption_equivalence_proof",
+            "failed_candidate_evidence_count",
+        )
+        == 0
+    )
     assert (
         _object_field(
             manifest,
@@ -528,6 +734,13 @@ def _assert_tiny_runtime_proof_linked_evidence(
     assert compile_policy["status"] == "skipped_unsupported"
     assert runtime_proof["paired_numerical_status"] == "local_pass"
     assert runtime_proof["corruption_equivalence_status"] == "local_pass"
+    assert cast("int", runtime_proof["paired_numerical_candidate_evidence_count"]) >= 1
+    assert runtime_proof["paired_numerical_failed_candidate_evidence_count"] == 0
+    assert (
+        cast("int", runtime_proof["corruption_equivalence_candidate_evidence_count"])
+        >= 1
+    )
+    assert runtime_proof["corruption_equivalence_failed_candidate_evidence_count"] == 0
     assert runtime_proof["gate_health_status"] == "local_pass"
     assert runtime_proof["ddp_launch_status"] == "skipped_unsupported"
     assert "real-data identity" in cast("str", runtime_proof["evidence_gate"])

@@ -10,6 +10,7 @@ setup_kernel_dir="kaggle/kernels/setup_smoke"
 setup_output_dir="runs/kaggle/setup_smoke"
 synthetic_timing_kernel_dir="kaggle/kernels/synthetic_timing"
 real_data_runtime_pretest_kernel_dir="kaggle/kernels/real_data_runtime_pretest"
+real_data_runtime_pretest_output_dir="runs/kaggle/real_data_runtime_pretest"
 
 usage() {
   cat <<'EOF'
@@ -21,15 +22,18 @@ Usage:
   ./scripts/kaggle_kernel.sh push [kernel_dir] [extra kaggle args...]
   ./scripts/kaggle_kernel.sh status [kernel_id]
   ./scripts/kaggle_kernel.sh status-setup
+  ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest
   ./scripts/kaggle_kernel.sh output [kernel_id] [output_dir]
   ./scripts/kaggle_kernel.sh output-setup [output_dir]
+  ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest [output_dir]
   ./scripts/kaggle_kernel.sh pull [kernel_id] [kernel_dir]
 
 Remote writes require KAGGLE_PUSH_CONFIRMED=1.
 Remote writes with Kaggle source attachments also require
 KAGGLE_FULL_DATASET_CONFIRMED=1.
 Remote reads/downloads require KAGGLE_REMOTE_CONFIRMED=1.
-Remote pulls require KAGGLE_PULL_CONFIRMED=1.
+Remote pulls require both KAGGLE_REMOTE_CONFIRMED=1 and
+KAGGLE_PULL_CONFIRMED=1.
 EOF
 }
 
@@ -911,6 +915,7 @@ PY
     "corruption_checks.csv" \
     "gate_health_summary.json" \
     "real_data_runtime_pretest_recommendations.json" \
+    "phase_timings.json" \
     "non_promotable_real_data_runtime_pretest" \
     "real_data_runtime_pretest" \
     "blocked_claims" \
@@ -1105,9 +1110,23 @@ case "$action" in
     require_kaggle_cli
     kaggle kernels status "$kernel_id"
     ;;
+  status-real-data-runtime-pretest)
+    kernel_id="$(kernel_id_from_metadata "$real_data_runtime_pretest_kernel_dir")"
+    require_remote_confirmed
+    require_kaggle_cli
+    kaggle kernels status "$kernel_id"
+    ;;
   output)
     kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"
     output_dir="${3:-$default_output_dir}"
+    require_remote_confirmed
+    require_kaggle_cli
+    mkdir -p "$output_dir"
+    kaggle kernels output "$kernel_id" -p "$output_dir"
+    ;;
+  output-real-data-runtime-pretest)
+    kernel_id="$(kernel_id_from_metadata "$real_data_runtime_pretest_kernel_dir")"
+    output_dir="${2:-$real_data_runtime_pretest_output_dir}"
     require_remote_confirmed
     require_kaggle_cli
     mkdir -p "$output_dir"
@@ -1124,6 +1143,7 @@ case "$action" in
   pull)
     kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"
     kernel_dir="${3:-$default_kernel_dir}"
+    require_remote_confirmed
     if [[ "${KAGGLE_PULL_CONFIRMED:-}" != "1" ]]; then
       echo "error: set KAGGLE_PULL_CONFIRMED=1 after explicit user permission" >&2
       exit 1

@@ -334,6 +334,23 @@ class ChildProcessArgs:
     ddp_rank_row: str | None
 
 
+class _CandidateTrainStepEvidenceError(RuntimeError):
+    """Strategy-scoped train-step evidence failure without retaining tensors."""
+
+    def __init__(
+        self,
+        *,
+        strategy_attempt: str,
+        target_corruption_strategy: str,
+        cause: BaseException,
+    ) -> None:
+        self.strategy_attempt = strategy_attempt
+        self.target_corruption_strategy = target_corruption_strategy
+        self.cause_type = type(cause).__name__
+        self.cause_message = str(cause)
+        super().__init__(self.cause_message)
+
+
 class PhaseTimingRecorder:
     """Record coarse pretest phase timings and emit progress logs."""
 
@@ -514,29 +531,6 @@ def write_real_data_runtime_pretest(request: RealDataRuntimePretestRequest) -> P
         )
 
     with phase_timings.phase("write_artifacts", benchmark_dir=str(benchmark_dir)):
-        phase_payload = phase_timings.payload()
-        write_json(
-            benchmark_dir / MANIFEST_FILENAME,
-            _manifest_payload(
-                request=request,
-                resolved=resolved,
-                settings=settings,
-                rows=rows,
-                data_proof=data_proof,
-                linked_evidence=linked_evidence,
-                phase_timings=phase_payload,
-            ),
-        )
-        write_json(
-            benchmark_dir / RUNTIME_PROOF_FILENAME,
-            _runtime_proof_payload(
-                settings=settings,
-                rows=rows,
-                data_proof=data_proof,
-                linked_evidence=linked_evidence,
-                phase_timings=phase_payload,
-            ),
-        )
         write_csv(benchmark_dir / RUNTIME_MATRIX_FILENAME, RUNTIME_MATRIX_COLUMNS, rows)
         write_csv(
             benchmark_dir / DATALOADER_MATRIX_FILENAME,
@@ -567,7 +561,30 @@ def write_real_data_runtime_pretest(request: RealDataRuntimePretestRequest) -> P
             recommendations_path,
             _recommendations_payload(settings=settings, rows=rows),
         )
-    write_json(benchmark_dir / PHASE_TIMINGS_FILENAME, phase_timings.payload())
+    final_phase_payload = phase_timings.payload()
+    write_json(
+        benchmark_dir / MANIFEST_FILENAME,
+        _manifest_payload(
+            request=request,
+            resolved=resolved,
+            settings=settings,
+            rows=rows,
+            data_proof=data_proof,
+            linked_evidence=linked_evidence,
+            phase_timings=final_phase_payload,
+        ),
+    )
+    write_json(
+        benchmark_dir / RUNTIME_PROOF_FILENAME,
+        _runtime_proof_payload(
+            settings=settings,
+            rows=rows,
+            data_proof=data_proof,
+            linked_evidence=linked_evidence,
+            phase_timings=final_phase_payload,
+        ),
+    )
+    write_json(benchmark_dir / PHASE_TIMINGS_FILENAME, final_phase_payload)
     _reject_selected_runtime_artifact(request.output_dir)
     return recommendations_path
 
@@ -2464,6 +2481,9 @@ def _linked_evidence_not_run_payload(
     return {
         "status": status,
         "rows": [],
+        "candidate_evidence_count": 0,
+        "failed_candidate_evidence": [],
+        "failed_candidate_evidence_count": 0,
         "failure_kind": failure_kind,
         "failure_message_hash": _hash_text(failure_message or failure_kind),
         "notes": failure_kind,
@@ -3171,7 +3191,7 @@ def _dataloader_failure_kind(
     return "dataloader_throughput_failed"
 
 
-def _paired_train_step_evidence(  # noqa: PLR0914
+def _paired_train_step_evidence(  # noqa: C901, PLR0914
     *,
     settings: RealDataRuntimePretestSettings,
     data_proof: JsonObject,
@@ -3181,7 +3201,6 @@ def _paired_train_step_evidence(  # noqa: PLR0914
     from torch.utils.data import DataLoader, Subset  # noqa: PLC0415
 
     from eqvae.corruption.stain import profile_from_config  # noqa: PLC0415
-    from eqvae.data.dataloaders import normalize_uint8_batch  # noqa: PLC0415
     from eqvae.data.roots import resolve_patch_data_paths  # noqa: PLC0415
     from eqvae.data.training_batches import (  # noqa: PLC0415
         PatchTrainingDataset,
@@ -3232,61 +3251,48 @@ def _paired_train_step_evidence(  # noqa: PLR0914
             batch_evidence: list[JsonObject] = []
             iterator = iter(loader)
             for batch_index in range(REQUIRED_NUMERICAL_FIXED_BATCHES):
+                failure: JsonObject | None = None
                 try:
                     batch = cast("PatchTrainingBatch", next(iterator))
-                    clean = normalize_uint8_batch(batch.images_uint8).to(device=device)
-                    branchless = _one_strategy_train_step_evidence(
-                        settings=settings,
-                        data_proof=data_proof,
-                        target_row=target_row,
-                        clean=clean,
-                        split=batch.split,
-                        sample_ids=batch.sample_ids,
-                        semantic_sample_keys=batch.semantic_sample_keys,
-                        strategy=BRANCHLESS_ALL,
-                        device=device,
-                        capture_gate_rows=True,
-                        batch_index=batch_index,
+                    batch_evidence.append(
+                        _paired_fixed_batch_train_step_evidence(
+                            settings=settings,
+                            data_proof=data_proof,
+                            target_row=target_row,
+                            batch=batch,
+                            device=device,
+                            batch_index=batch_index,
+                        ),
                     )
-                    indexed = _one_strategy_train_step_evidence(
-                        settings=settings,
-                        data_proof=data_proof,
+                except _CandidateTrainStepEvidenceError as exc:
+                    failure = _candidate_train_step_failure_item(
                         target_row=target_row,
-                        clean=clean,
-                        split=batch.split,
-                        sample_ids=batch.sample_ids,
-                        semantic_sample_keys=batch.semantic_sample_keys,
-                        strategy=INDEXED_MASKED,
-                        device=device,
-                        capture_gate_rows=False,
+                        rows=rows,
+                        requested_batch_size=requested_batch_size,
+                        observed_batch_size=batch_size,
                         batch_index=batch_index,
+                        failure_kind=f"candidate_train_step_{exc.cause_type}",
+                        failure_message=exc.cause_message,
+                        strategy_attempt=exc.strategy_attempt,
+                        target_corruption_strategy=exc.target_corruption_strategy,
                     )
                 except (RuntimeError, StopIteration, TypeError, ValueError) as exc:
-                    failed_evidence_items.append({
-                        "row_id": target_row["row_id"],
-                        "accelerator_mode": target_row["accelerator_mode"],
-                        "world_size": int(target_row["world_size"]),
-                        "precision_policy": target_row["precision_policy"],
-                        "compile_scope": target_row["compile_scope"],
-                        "per_device_batch_size": requested_batch_size,
-                        "observed_batch_size": batch_size,
-                        "batch_index": batch_index,
-                        "status": FAIL_STATUS,
-                        "failure_kind": f"candidate_train_step_{type(exc).__name__}",
-                        "failure_message_hash": _hash_text(str(exc)),
-                    })
+                    failure = _candidate_train_step_failure_item(
+                        target_row=target_row,
+                        rows=rows,
+                        requested_batch_size=requested_batch_size,
+                        observed_batch_size=batch_size,
+                        batch_index=batch_index,
+                        failure_kind=f"candidate_train_step_{type(exc).__name__}",
+                        failure_message=str(exc),
+                        strategy_attempt="batch_fetch_or_candidate_setup",
+                        target_corruption_strategy=target_row["corruption_strategy"],
+                    )
+                if failure is not None:
+                    failed_evidence_items.append(failure)
+                    if device.type == "cuda":
+                        torch.cuda.empty_cache()
                     break
-                batch_evidence.append({
-                    "batch_index": batch_index,
-                    "observed_batch_size": int(clean.shape[0]),
-                    "split": batch.split,
-                    "sample_id_hash": _hash_sequence(batch.sample_ids),
-                    "semantic_sample_key_hash": _hash_sequence(
-                        batch.semantic_sample_keys,
-                    ),
-                    "branchless": branchless,
-                    "indexed": indexed,
-                })
             if len(batch_evidence) < REQUIRED_NUMERICAL_FIXED_BATCHES:
                 continue
             primary_batch = batch_evidence[0]
@@ -3323,8 +3329,10 @@ def _paired_train_step_evidence(  # noqa: PLR0914
     finally:
         dataset.close()
     if not evidence_items:
-        message = "No candidate train-step evidence rows were produced"
-        raise ValueError(message)
+        return _candidate_train_step_failure_payload(
+            profile_name=profile.name,
+            failed_evidence_items=failed_evidence_items,
+        )
     primary = evidence_items[0]
     return cast(
         "JsonObject",
@@ -3344,9 +3352,149 @@ def _paired_train_step_evidence(  # noqa: PLR0914
             "branchless": _required_object(primary, "branchless"),
             "indexed": _required_object(primary, "indexed"),
             "candidate_evidence": evidence_items,
+            "candidate_evidence_count": len(evidence_items),
             "failed_candidate_evidence": failed_evidence_items,
+            "failed_candidate_evidence_count": len(failed_evidence_items),
         },
     )
+
+
+def _paired_fixed_batch_train_step_evidence(  # noqa: PLR0913
+    *,
+    settings: RealDataRuntimePretestSettings,
+    data_proof: JsonObject,
+    target_row: CsvRow,
+    batch: PatchTrainingBatch,
+    device: torch.device,
+    batch_index: int,
+) -> JsonObject:
+    from eqvae.data.dataloaders import normalize_uint8_batch  # noqa: PLC0415
+
+    clean = normalize_uint8_batch(batch.images_uint8).to(device=device)
+    try:
+        branchless = _one_strategy_train_step_evidence(
+            settings=settings,
+            data_proof=data_proof,
+            target_row=target_row,
+            clean=clean,
+            split=batch.split,
+            sample_ids=batch.sample_ids,
+            semantic_sample_keys=batch.semantic_sample_keys,
+            strategy=BRANCHLESS_ALL,
+            device=device,
+            capture_gate_rows=True,
+            batch_index=batch_index,
+        )
+    except (RuntimeError, TypeError, ValueError) as exc:
+        raise _CandidateTrainStepEvidenceError(
+            strategy_attempt=BRANCHLESS_ALL,
+            target_corruption_strategy=target_row["corruption_strategy"],
+            cause=exc,
+        ) from None
+    try:
+        indexed = _one_strategy_train_step_evidence(
+            settings=settings,
+            data_proof=data_proof,
+            target_row=target_row,
+            clean=clean,
+            split=batch.split,
+            sample_ids=batch.sample_ids,
+            semantic_sample_keys=batch.semantic_sample_keys,
+            strategy=INDEXED_MASKED,
+            device=device,
+            capture_gate_rows=False,
+            batch_index=batch_index,
+        )
+    except (RuntimeError, TypeError, ValueError) as exc:
+        raise _CandidateTrainStepEvidenceError(
+            strategy_attempt=INDEXED_MASKED,
+            target_corruption_strategy=target_row["corruption_strategy"],
+            cause=exc,
+        ) from None
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    return cast(
+        "JsonObject",
+        {
+            "batch_index": batch_index,
+            "observed_batch_size": int(clean.shape[0]),
+            "split": batch.split,
+            "sample_id_hash": _hash_sequence(batch.sample_ids),
+            "semantic_sample_key_hash": _hash_sequence(
+                batch.semantic_sample_keys,
+            ),
+            "branchless": branchless,
+            "indexed": indexed,
+        },
+    )
+
+
+def _candidate_train_step_failure_item(  # noqa: PLR0913
+    *,
+    target_row: CsvRow,
+    rows: Sequence[CsvRow],
+    requested_batch_size: int,
+    observed_batch_size: int,
+    batch_index: int,
+    failure_kind: str,
+    failure_message: str,
+    strategy_attempt: str,
+    target_corruption_strategy: str,
+) -> JsonObject:
+    return cast(
+        "JsonObject",
+        {
+            "row_id": target_row["row_id"],
+            "accelerator_mode": target_row["accelerator_mode"],
+            "world_size": int(target_row["world_size"]),
+            "precision_policy": target_row["precision_policy"],
+            "compile_scope": target_row["compile_scope"],
+            "per_device_batch_size": requested_batch_size,
+            "observed_batch_size": observed_batch_size,
+            "batch_index": batch_index,
+            "strategy_attempt": strategy_attempt,
+            "target_corruption_strategy": target_corruption_strategy,
+            "affected_row_ids": _matching_train_step_target_row_ids(
+                rows=rows,
+                target_row=target_row,
+            ),
+            "status": FAIL_STATUS,
+            "failure_kind": failure_kind,
+            "failure_message_hash": _hash_text(failure_message),
+        },
+    )
+
+
+def _candidate_train_step_failure_payload(
+    *,
+    profile_name: str,
+    failed_evidence_items: Sequence[JsonObject],
+) -> JsonObject:
+    failure_kind = (
+        _required_str(failed_evidence_items[0], "failure_kind")
+        if failed_evidence_items
+        else "candidate_train_step_evidence_unavailable"
+    )
+    failure_message_hash = (
+        _required_str(failed_evidence_items[0], "failure_message_hash")
+        if failed_evidence_items
+        else _hash_text(failure_kind)
+    )
+    return {
+        "status": FAIL_STATUS,
+        "profile_name": profile_name,
+        "batch_size": 0,
+        "split": "",
+        "sample_id_hash": "",
+        "semantic_sample_key_hash": "",
+        "candidate_evidence": [],
+        "candidate_evidence_count": 0,
+        "failed_candidate_evidence": list(failed_evidence_items),
+        "failed_candidate_evidence_count": len(failed_evidence_items),
+        "failure_kind": "candidate_train_step_evidence_unavailable",
+        "first_failure_kind": failure_kind,
+        "failure_message_hash": failure_message_hash,
+    }
 
 
 def _one_strategy_train_step_evidence(  # noqa: PLR0913, PLR0914
@@ -3527,6 +3675,18 @@ def _paired_numerical_proof(
     rows: Sequence[CsvRow],
     train_step_evidence: JsonObject,
 ) -> JsonObject:
+    if _required_str(train_step_evidence, "status") == FAIL_STATUS:
+        return _train_step_dependency_failure_proof(
+            train_step_evidence=train_step_evidence,
+            proof_scope="paired_branchless_indexed_train_step_candidate_batches",
+            reference_strategy=BRANCHLESS_ALL,
+            candidate_strategy=INDEXED_MASKED,
+            notes=(
+                "Paired numerical checks could not run because candidate "
+                "train-step evidence failed before any full fixed-batch "
+                "candidate evidence row was produced."
+            ),
+        )
     primary_delta = _numerical_delta_payload(
         reference=_required_object(train_step_evidence, "branchless"),
         candidate=_required_object(train_step_evidence, "indexed"),
@@ -3610,6 +3770,18 @@ def _paired_numerical_proof(
             "reference_strategy": BRANCHLESS_ALL,
             "candidate_strategy": INDEXED_MASKED,
             "batch_size": _required_int(train_step_evidence, "batch_size"),
+            "candidate_evidence_count": _required_int(
+                train_step_evidence,
+                "candidate_evidence_count",
+            ),
+            "failed_candidate_evidence_count": _required_int(
+                train_step_evidence,
+                "failed_candidate_evidence_count",
+            ),
+            "failed_candidate_evidence": _required_object_list(
+                train_step_evidence,
+                "failed_candidate_evidence",
+            ),
             "sample_id_hash": _required_str(train_step_evidence, "sample_id_hash"),
             "semantic_sample_key_hash": _required_str(
                 train_step_evidence,
@@ -3633,6 +3805,20 @@ def _corruption_equivalence_proof(
     rows: Sequence[CsvRow],
     train_step_evidence: JsonObject,
 ) -> JsonObject:
+    if _required_str(train_step_evidence, "status") == FAIL_STATUS:
+        payload = _train_step_dependency_failure_proof(
+            train_step_evidence=train_step_evidence,
+            proof_scope=("branchless_indexed_corruption_equivalence_candidate_batches"),
+            notes=(
+                "Corruption equivalence could not run because candidate "
+                "train-step evidence failed before any full fixed-batch "
+                "candidate evidence row was produced."
+            ),
+        )
+        payload["hashes_match"] = False
+        payload["clean_validation_rng_status"] = "not_exercised_training_batch_only"
+        payload["clean_validation_rng_advanced"] = None
+        return payload
     primary_branchless = _required_object(train_step_evidence, "branchless")
     primary_indexed = _required_object(train_step_evidence, "indexed")
     csv_rows: list[CsvRow] = []
@@ -3702,6 +3888,18 @@ def _corruption_equivalence_proof(
             "candidate_row_specific": candidate_row_specific,
             "canonical_pass_requires_candidate_batch_grid": True,
             "required_fixed_batch_count": REQUIRED_NUMERICAL_FIXED_BATCHES,
+            "candidate_evidence_count": _required_int(
+                train_step_evidence,
+                "candidate_evidence_count",
+            ),
+            "failed_candidate_evidence_count": _required_int(
+                train_step_evidence,
+                "failed_candidate_evidence_count",
+            ),
+            "failed_candidate_evidence": _required_object_list(
+                train_step_evidence,
+                "failed_candidate_evidence",
+            ),
             "hashes_match": (
                 all(hashes_match_by_row)
                 if candidate_row_specific
@@ -3733,6 +3931,39 @@ def _gate_health_proof(
     data_proof: JsonObject,
     train_step_evidence: JsonObject,
 ) -> JsonObject:
+    if _required_str(train_step_evidence, "status") == FAIL_STATUS:
+        failed_items = _required_object_list(
+            train_step_evidence,
+            "failed_candidate_evidence",
+        )
+        return cast(
+            "JsonObject",
+            {
+                "status": FAIL_STATUS,
+                "proof_scope": "one_train_step_gate_parameter_and_activation_health",
+                "rows": [],
+                "row_statuses": [],
+                "nonfinite_count": len(failed_items),
+                "candidate_evidence_count": _required_int(
+                    train_step_evidence,
+                    "candidate_evidence_count",
+                ),
+                "failed_candidate_evidence_count": _required_int(
+                    train_step_evidence,
+                    "failed_candidate_evidence_count",
+                ),
+                "failed_candidate_evidence": failed_items,
+                "failure_kind": _required_str(
+                    train_step_evidence,
+                    "failure_kind",
+                ),
+                "notes": (
+                    "Gate health could not run because candidate train-step "
+                    "evidence failed before any full fixed-batch candidate "
+                    "evidence row was produced."
+                ),
+            },
+        )
     evidence_items = _required_object_list(train_step_evidence, "candidate_evidence")
     rows: list[CsvRow] = []
     row_statuses: list[JsonObject] = []
@@ -3784,6 +4015,60 @@ def _gate_health_proof(
             ),
         },
     )
+
+
+def _train_step_dependency_failure_proof(
+    *,
+    train_step_evidence: JsonObject,
+    proof_scope: str,
+    notes: str,
+    reference_strategy: str | None = None,
+    candidate_strategy: str | None = None,
+) -> JsonObject:
+    payload = cast(
+        "JsonObject",
+        {
+            "status": FAIL_STATUS,
+            "proof_scope": proof_scope,
+            "rows": [],
+            "candidate_row_specific": False,
+            "canonical_pass_requires_candidate_batch_grid": True,
+            "required_fixed_batch_count": REQUIRED_NUMERICAL_FIXED_BATCHES,
+            "batch_size": _required_int(train_step_evidence, "batch_size"),
+            "candidate_evidence_count": _required_int(
+                train_step_evidence,
+                "candidate_evidence_count",
+            ),
+            "failed_candidate_evidence_count": _required_int(
+                train_step_evidence,
+                "failed_candidate_evidence_count",
+            ),
+            "failed_candidate_evidence": _required_object_list(
+                train_step_evidence,
+                "failed_candidate_evidence",
+            ),
+            "failure_kind": _required_str(train_step_evidence, "failure_kind"),
+            "first_failure_kind": _required_str(
+                train_step_evidence,
+                "first_failure_kind",
+            ),
+            "failure_message_hash": _required_str(
+                train_step_evidence,
+                "failure_message_hash",
+            ),
+            "sample_id_hash": _required_str(train_step_evidence, "sample_id_hash"),
+            "semantic_sample_key_hash": _required_str(
+                train_step_evidence,
+                "semantic_sample_key_hash",
+            ),
+            "notes": notes,
+        },
+    )
+    if reference_strategy is not None:
+        payload["reference_strategy"] = reference_strategy
+    if candidate_strategy is not None:
+        payload["candidate_strategy"] = candidate_strategy
+    return payload
 
 
 def _combined_linked_row_status(statuses: Sequence[str] | Iterator[str]) -> str:
@@ -3951,7 +4236,7 @@ def _unique_train_step_target_rows(rows: Sequence[CsvRow]) -> list[CsvRow]:
         seen.add(key)
         unique.append(row)
     if unique:
-        return unique
+        return sorted(unique, key=_train_step_evidence_priority)
     return [
         row
         for row in rows
@@ -3959,6 +4244,30 @@ def _unique_train_step_target_rows(rows: Sequence[CsvRow]) -> list[CsvRow]:
         and row["precision_policy"] == AMP_OFF_FP32
         and row["compile_scope"] in {COMPILE_NONE, COMPILE_MODEL_FORWARD}
     ][:1]
+
+
+def _train_step_evidence_priority(row: CsvRow) -> tuple[int, int, str]:
+    return (
+        0 if row["compile_scope"] == COMPILE_NONE else 1,
+        int(row["per_device_batch_size"]),
+        row["row_id"],
+    )
+
+
+def _matching_train_step_target_row_ids(
+    *,
+    rows: Sequence[CsvRow],
+    target_row: CsvRow,
+) -> list[str]:
+    return [
+        row["row_id"]
+        for row in rows
+        if row["accelerator_mode"] == target_row["accelerator_mode"]
+        and row["world_size"] == target_row["world_size"]
+        and row["per_device_batch_size"] == target_row["per_device_batch_size"]
+        and row["precision_policy"] == target_row["precision_policy"]
+        and row["compile_scope"] == target_row["compile_scope"]
+    ]
 
 
 def _matching_trainer_rows(
@@ -5101,6 +5410,11 @@ def _runtime_proof_payload(
     linked_evidence: JsonObject,
     phase_timings: JsonObject,
 ) -> JsonObject:
+    paired_numerical = _required_object(linked_evidence, "paired_numerical")
+    corruption_equivalence = _required_object(
+        linked_evidence,
+        "corruption_equivalence",
+    )
     return cast(
         "JsonObject",
         {
@@ -5156,10 +5470,30 @@ def _runtime_proof_payload(
                 linked_evidence,
                 "paired_numerical",
             ),
+            "paired_numerical_candidate_evidence_count": _optional_int(
+                paired_numerical,
+                "candidate_evidence_count",
+            )
+            or 0,
+            "paired_numerical_failed_candidate_evidence_count": _optional_int(
+                paired_numerical,
+                "failed_candidate_evidence_count",
+            )
+            or 0,
             "corruption_equivalence_status": _linked_status(
                 linked_evidence,
                 "corruption_equivalence",
             ),
+            "corruption_equivalence_candidate_evidence_count": _optional_int(
+                corruption_equivalence,
+                "candidate_evidence_count",
+            )
+            or 0,
+            "corruption_equivalence_failed_candidate_evidence_count": _optional_int(
+                corruption_equivalence,
+                "failed_candidate_evidence_count",
+            )
+            or 0,
             "gate_health_status": _linked_status(linked_evidence, "gate_health"),
             "ddp_launch_status": _linked_status(linked_evidence, "ddp_launch"),
             "compile_settle_policy": {
@@ -5352,6 +5686,10 @@ def _schema_numerical_rows(
     measured_rows = _csv_rows_from_payload(numerical, "rows")
     if measured_rows:
         return cast("list[CsvRow]", measured_rows)
+    fallback_status = _required_str(numerical, "status")
+    fallback_failure_kind = _optional_str(numerical, "failure_kind") or (
+        "paired_numerical_checks_pending"
+    )
     return [
         {
             "run_name": settings.run_name,
@@ -5392,8 +5730,8 @@ def _schema_numerical_rows(
             "gate_health_status": row["gate_health_status"],
             "nonfinite_count": "",
             "amp_step_skipped": "",
-            "status": SKIPPED_UNSUPPORTED,
-            "failure_kind": "paired_numerical_checks_pending",
+            "status": fallback_status,
+            "failure_kind": fallback_failure_kind,
         }
         for row in rows
     ]
@@ -5409,6 +5747,10 @@ def _schema_corruption_rows(
     measured_rows = _csv_rows_from_payload(corruption, "rows")
     if measured_rows:
         return cast("list[CsvRow]", measured_rows)
+    fallback_status = _required_str(corruption, "status")
+    fallback_failure_kind = _optional_str(corruption, "failure_kind") or (
+        "corruption_equivalence_checks_pending"
+    )
     return [
         {
             "run_name": settings.run_name,
@@ -5437,8 +5779,8 @@ def _schema_corruption_rows(
             "noise_field_hash": "",
             "clean_sample_unchanged_count": "",
             "clean_validation_rng_advanced": "",
-            "status": SKIPPED_UNSUPPORTED,
-            "failure_kind": "corruption_equivalence_checks_pending",
+            "status": fallback_status,
+            "failure_kind": fallback_failure_kind,
         }
         for row in rows
     ]

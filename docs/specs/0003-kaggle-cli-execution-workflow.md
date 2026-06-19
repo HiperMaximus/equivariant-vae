@@ -10,9 +10,11 @@ completed with non-promotable `synthetic_timing_pass`; v4 is the current
 2 GiB-scale repeated-shortlist evidence with per-rank DDP proof; capped
 real-data runtime pretest has a local non-promotable runner/kernel/guard and
 upload-simulation proof plus identity/hash/CRC/window and clean-validation
-loader proof plumbing plus local linked-evidence mechanics/contract scaffolds,
-but remote rerun and candidate-specific canonical eligibility evidence remain
-pending; full benchmark/full-run launchers are not Kaggle-push-ready
+loader proof plumbing plus local linked-evidence mechanics/contract scaffolds;
+remote v4 passed the canonical real-data proof lane, remote v5 produced two
+eligible eager bs4 candidate rows, and local v6 follow-up code adds
+eager-first candidate evidence ordering, failed-candidate diagnostics, and phase
+timings; full benchmark/full-run launchers are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-19
 
@@ -109,10 +111,11 @@ Remote reads/downloads require explicit user permission plus:
 KAGGLE_REMOTE_CONFIRMED=1
 ```
 
-Remote pulls that can overwrite local kernel files require explicit user
-permission plus:
+Remote pulls that can overwrite local kernel files are both remote reads and
+local overwrite risks. They require explicit user permission plus both:
 
 ```bash
+KAGGLE_REMOTE_CONFIRMED=1
 KAGGLE_PULL_CONFIRMED=1
 ```
 
@@ -189,12 +192,16 @@ validation loader/collate/normalization plumbing. Tiny fixture roots can only
 produce `local_pass`; canonical real `pass` requires the exact dataset slug,
 300000/30000 rows, 322/39 WSIs, zero train/validation and masked-holdout
 overlap, and the locked 8,192/2,048 spread windows. The local linked-evidence
-scaffolds can record fixed-window dataloader mechanics, one fixed eager
-single-rank branchless/indexed numerical and corruption comparison,
-gate-health rows, and compile/DDP contract checks, but they do not grant
-candidate-row eligibility. Remote rerun plus measured candidate-specific
-compile/DDP/real dataloader-throughput/numerical/corruption/gate-health
-evidence are still pending, so it must not be used for runtime selection.
+path can record fixed-window dataloader mechanics, measured `model_forward`
+compile/Dynamo counters, real DDP launch proof, candidate batch numerical and
+corruption evidence, gate-health rows, phase timings, and failed-candidate
+diagnostics, but the capped pretest still cannot select a runtime. Remote v5
+proved only two eager bs4 rows; local v6 follow-up code now prioritizes eager
+single-T4 FP32 train-step evidence by smaller batch size before compiled
+diagnostic rows and mirrors candidate/failed evidence counters into
+`runtime_proof.json`. The launcher and config allow-lists must include
+`benchmark/phase_timings.json`, and generated-launcher local simulation must
+validate the full real-data pretest artifact set before any push.
 
 Remote v2 completed without exercising the real-data proof lane because
 `data_root = "auto"` could not resolve Kaggle input files. The local v3 fix
@@ -217,6 +224,14 @@ windows, and clean validation loader. Its artifacts live under
 runtime: timed rows remain ineligible until candidate-specific compile/DDP,
 real dataloader-throughput, numerical, corruption, and gate-health evidence
 passes.
+
+Remote v5 completed on 2026-06-19 and downloaded ignored artifacts under
+`runs/kaggle/real_data_runtime_pretest_v5`. It passed canonical real-data,
+DDP-launch, dataloader, and gate-health lanes, produced two eligible eager
+single-T4 bs4 FP32 rows, left eager bs8/bs12 rows blocked by missing
+numerical/corruption evidence coverage, hit runtime OOM for eager bs32 rows, and
+wrote no `benchmark/selected_runtime.json`. Compiled `model_forward` rows remain
+diagnostic-only/ineligible until full compile-settle coverage exists.
 
 ## Kaggle Authentication Contract
 
@@ -407,8 +422,10 @@ KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.
 KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/setup_smoke
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-setup
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-setup
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v6
 ```
 
 Synthetic timing remote command, only after adversarial/local verification is

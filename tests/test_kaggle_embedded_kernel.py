@@ -239,6 +239,45 @@ def test_embedded_real_data_runtime_pretest_kernel_import_simulation(
     )
 
 
+def test_embedded_real_data_runtime_pretest_kernel_full_local_simulation(
+    tmp_path: Path,
+) -> None:
+    """Generated real-data pretest launcher accepts its full artifact set."""
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="real_data_runtime_pretest",
+        ready_marker="KAGGLE_REAL_DATA_RUNTIME_PRETEST_READY = True",
+    )
+
+    subprocess.run(  # noqa: S603
+        (sys.executable, str(simulation.upload_dir / "run.py")),
+        cwd=simulation.upload_dir,
+        check=True,
+        env=_run_environment(simulation.output_dir),
+    )
+
+    benchmark_dir = simulation.output_dir / "benchmark"
+    assert {path.name for path in benchmark_dir.iterdir()} == {
+        "real_data_runtime_pretest_manifest.json",
+        "runtime_proof.json",
+        "runtime_matrix.csv",
+        "dataloader_matrix.csv",
+        "numerical_checks.csv",
+        "corruption_checks.csv",
+        "gate_health_summary.json",
+        "real_data_runtime_pretest_recommendations.json",
+        "phase_timings.json",
+    }
+    assert not (benchmark_dir / "selected_runtime.json").exists()
+    runtime_proof = _load_json(benchmark_dir / "runtime_proof.json")
+    manifest = _load_json(benchmark_dir / "real_data_runtime_pretest_manifest.json")
+    phase_timings = _load_json(benchmark_dir / "phase_timings.json")
+    assert runtime_proof["phase_timings"] == phase_timings
+    assert manifest["phase_timings"] == phase_timings
+
+
 def test_embedded_kernel_verify_rejects_stale_template(tmp_path: Path) -> None:
     """Generated run.py must prove freshness against the launcher template."""
     repo_root = Path(__file__).resolve().parents[1]

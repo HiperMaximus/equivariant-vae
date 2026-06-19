@@ -28,6 +28,7 @@ REAL_DATA_PRETEST_ALLOWED_BENCHMARK_ARTIFACTS = {
     "corruption_checks.csv",
     "gate_health_summary.json",
     "real_data_runtime_pretest_recommendations.json",
+    "phase_timings.json",
 }
 REAL_DATA_PRETEST_ALLOWED_METRIC_ARTIFACTS = {"gate_health.csv"}
 REAL_DATA_PRETEST_REQUIRED_BLOCKED_CLAIMS = {
@@ -115,14 +116,16 @@ def _run_real_data_runtime_pretest(output_dir: Path) -> int:
         _validate_import_only_artifacts(output_dir=output_dir)
         return 0
 
-    exit_code = pretest_main(
-        (
-            "--config",
-            str(config_path),
-            "--output-dir",
-            str(output_dir),
-        ),
-    )
+    pretest_args = [
+        "--config",
+        str(config_path),
+        "--output-dir",
+        str(output_dir),
+    ]
+    data_root_override = os.environ.get("EQVAE_REAL_DATA_RUNTIME_PRETEST_DATA_ROOT")
+    if data_root_override:
+        pretest_args.extend(("--data-root", data_root_override))
+    exit_code = pretest_main(tuple(pretest_args))
     _validate_real_data_pretest_artifacts(output_dir=output_dir)
     return exit_code
 

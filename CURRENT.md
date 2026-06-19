@@ -11,14 +11,18 @@ Build the repo toward a fair SIPAIM 2026 comparison between:
 2. a continuous `SO(2)` steerable denoising VAE using a repo-owned,
    compile-compatible implementation, with `escnn` as a reference.
 
-The current task is the Kaggle no-dataset synthetic timing evidence handoff for
-the translatable normal VAE baseline. The local implementation is committed and
-pushed to GitHub, and Kaggle remote versions 1, 2, 3, and 4 completed
-successfully as non-promotable synthetic timing evidence. Version 1 used the
-historical compact 0.81 GB profile; versions 2 through 4 use the current
-2 GiB-scale profile. Version 3 superseded version 2 for corrected DDP runtime
-proof and `drop_last = false` projection fields. Version 4 is the current
-5-warmup/25-measured repeat-shortlist evidence.
+The current task is the capped real-data runtime pretest candidate-evidence
+lane for the translatable normal VAE baseline. Synthetic timing is now
+completed provenance for screening: remote versions 1, 2, 3, and 4 completed
+successfully as non-promotable evidence, with v4 as the current
+5-warmup/25-measured repeat-shortlist run. The active real-data state is:
+remote v4 passed the canonical identity/hash/CRC/window plus clean-validation
+loader proof lane; remote v5 completed as non-promotable candidate evidence with
+two eligible eager single-T4 bs4 FP32 rows and no `selected_runtime.json`; the
+local v6 follow-up adds phase timings, eager-first train-step evidence ordering,
+CUDA cache cleanup between candidate evidence attempts, failed-candidate
+diagnostics, and runtime-proof evidence counters so bs8/bs12 coverage can be
+confirmed or explained after a permissioned rerun.
 Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, and a focused
 scaffold-readiness check on 2026-06-12. The 2026-06-11 passes
@@ -232,20 +236,20 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: wait for capped real-data pretest v5 to reach a terminal
-Kaggle state, then download artifacts to
-`runs/kaggle/real_data_runtime_pretest_v5` with
-`KAGGLE_REMOTE_CONFIRMED=1`, inspect `runtime_proof.json`,
-`real_data_runtime_pretest_manifest.json`, `runtime_matrix.csv`,
-`dataloader_matrix.csv`, `numerical_checks.csv`, `corruption_checks.csv`, and
-`metrics/gate_health.csv`, and confirm no `benchmark/selected_runtime.json`
-exists. If v5 needs a rerun, the local runner now has phase logging for the next
-kernel version: stderr JSON-line phase events, `benchmark/phase_timings.json`,
-and `phase_timings` objects mirrored into `runtime_proof.json` and
-`real_data_runtime_pretest_manifest.json`. Do not poll continuously: v5 was still `RUNNING` after the initial
-monitoring window, so the next status check should wait until at least
-2026-06-19 15:20 -05 and then use a 30-minute or slower cadence until the
-terminal duration is known. The local runner now
+Immediate next action: finish verification, adversarial review, commit, rebuild,
+and then run a permissioned v6 capped real-data pretest only if the user approves
+another Kaggle write. Remote v5 produced two eligible eager single-T4 bs4 FP32
+rows, but eager bs8/bs12 rows were timed and then blocked by
+`paired_numerical_evidence_not_row_pass`, while bs32 eager rows failed with
+`runtime_OutOfMemoryError`. The local follow-up now prioritizes eager
+single-T4 FP32 train-step evidence by lower batch size before compiled
+diagnostic rows, clears CUDA cache between candidate evidence attempts, and
+records `candidate_evidence_count`, `failed_candidate_evidence_count`, and
+`failed_candidate_evidence` in the paired numerical/corruption proofs, plus
+top-level evidence counters in `runtime_proof.json`. The local runner also has
+phase logging for the next kernel version: stderr JSON-line phase events,
+`benchmark/phase_timings.json`, and `phase_timings` objects mirrored into
+`runtime_proof.json` and `real_data_runtime_pretest_manifest.json`. It now
 implements measured `model_forward` compile-settle/Dynamo counter deltas, a
 real dual-rank `torchrun --standalone` DDP launch probe, candidate
 accelerator/batch dataloader throughput, candidate-batch numerical/corruption
@@ -549,13 +553,13 @@ The review process lives in `docs/agentic_review_workflow.md`.
   ceiling, real fixed validation/tiny-overfit selector generation,
   selected-runtime debug, checkpoint/resume, full evaluation/artifact writers,
   and final adversarial spec review after those routes are integrated.
-- The first full Kaggle run remains blocked until synthetic timing screens the
-  candidate rows, the real-data runtime benchmark selects single/dual T4,
-  per-device/global batch, AMP, compile, precision policy, dataloader settings,
-  and corruption strategy, and the real dataloader throughput, paired numerical
-  checks, corruption compile-stability, gate-health summary,
-  selected-runtime debug, checkpoint/resume, tiny-overfit, and fixed real visual
-  QA gates pass.
+- The first full Kaggle run remains blocked until real-data candidate evidence
+  covers or explicitly fails the remaining eager timed rows, the selected-runtime
+  benchmark chooses single/dual T4, per-device/global batch, AMP, compile,
+  precision policy, dataloader settings, and corruption strategy, and the real
+  dataloader throughput, paired numerical checks, corruption compile-stability,
+  gate-health summary, selected-runtime debug, checkpoint/resume, tiny-overfit,
+  and fixed real visual QA gates pass.
 - The exact held-out masked-WSI test shard must be generated, uploaded, and
   locked before final paper claims. The 152-image candidate pool is documented in
   `docs/data/ubc_ocean_masked_holdout_ids.csv`, and train/validation are
@@ -1457,25 +1461,83 @@ The review process lives in `docs/agentic_review_workflow.md`.
   then inspect that v5 remains non-promotable, has no
   `benchmark/selected_runtime.json`, and only eager rows can pass while compiled
   `model_forward` rows remain diagnostic/ineligible.
+- 2026-06-19 capped real-data runtime pretest remote v5 result:
+  a later approved status check reported `KernelWorkerStatus.COMPLETE`, and
+  approved output download saved ignored artifacts under
+  `runs/kaggle/real_data_runtime_pretest_v5`. No
+  `benchmark/selected_runtime.json` exists. The Kaggle log shows the data-root
+  probe at about 7.44 seconds and notebook result conversion around
+  2355 seconds, so this source-attached capped run took roughly 39 minutes;
+  v5 predates `benchmark/phase_timings.json`, so exact phase timings are not
+  available. `runtime_proof.json` has `status = "pretest_incomplete"`,
+  `full_run_eligible = false`, `selection_ready = false`,
+  `selected_runtime_written = false`,
+  `linked_evidence_status = "skipped_unsupported"`, and
+  `eligible_pass_row_count = 2`. Canonical real-data identity, row count, WSI
+  count, CRC, locked-window, clean-validation loader, real DDP launch,
+  dataloader throughput, and gate-health proof all pass. The two passing rows
+  are `single_visible_t4__bs4__amp_off_fp32__compile_none__branchless_all`
+  (`samples_sec = 6.181214`, `steady_step_ms_p95 = 656.454308`) and
+  `single_visible_t4__bs4__amp_off_fp32__compile_none__indexed_masked`
+  (`samples_sec = 6.210007`, `steady_step_ms_p95 = 650.498703`).
+  `dataloader_matrix.csv` has 8/8 pass rows and `metrics/gate_health.csv` has
+  68/68 pass rows. `numerical_checks.csv` and `corruption_checks.csv` each have
+  12/64 pass rows: bs4 eager and bs4 `model_forward` candidates over three
+  fixed batches. The eager bs8/bs12 rows are timed but ineligible because
+  numerical/corruption rows are still skipped for those batch sizes; bs32 eager
+  rows hit `runtime_OutOfMemoryError`; compiled rows have zero graph-break and
+  recompile counts but remain intentionally ineligible because
+  `compile_settle_coverage_pass = false` with missing clean-validation, DDP-rank,
+  final-partial-batch, and mask-cardinality coverage. Next action: before any
+  v6 push, add diagnostics or coverage so numerical/corruption evidence explains
+  and/or covers the remaining measured eager batch sizes; keep the capped
+  pretest non-promotable.
 - 2026-06-19 real-data pretest phase-timing logging:
   added coarse phase instrumentation for future real-data pretest reruns after
   the already-running remote v5. The runner now emits stderr JSON lines for
   phase start/finish events, mirrors `phase_timings` into
   `runtime_proof.json` and `real_data_runtime_pretest_manifest.json`, writes
-  `benchmark/phase_timings.json`, and allowlists that artifact. Timed phases
-  cover config resolution, output prep, real-data identity/clean-path proof,
-  each stage-1 runtime row, linked-evidence sublanes
+  `benchmark/phase_timings.json`, and allowlists that artifact in the runtime
+  manifest, config, generated Kaggle launcher template, and shell push guard.
+  Timed phases cover config resolution, output prep, real-data
+  identity/clean-path proof, each stage-1 runtime row, linked-evidence sublanes
   (compile-settle/DDP/train-step/dataloader/numerical/corruption/gate-health),
   row eligibility join, schema row materialization, and artifact writing. This
   is intended to set future Kaggle polling cadence from observed durations
-  instead of repeated status checks. Verification: focused
-  `env PYTHONPATH=src ./.venv/bin/python -m pytest
-  tests/test_real_data_runtime_pretest.py` passed with 7 tests; full
-  `./scripts/python_quality.sh` passed with Ruff, BasedPyright, 118 tests, and
-  0 type errors; `git diff --check` passed; local real-data pretest kernel
-  build/validate and dirty-worktree embedded verify with `--allow-dirty` passed.
+  instead of repeated status checks. A review-found launcher allow-list mismatch
+  was fixed: local generated-launcher full simulation now validates the complete
+  artifact set including `phase_timings.json`, not just import-only packaging.
   This has not been pushed to Kaggle; remote v5 is still the previously launched
   version without phase-timing artifacts.
+- 2026-06-19 real-data pretest candidate-evidence v6 diagnostics:
+  after refreshing the completed remote v5 output, local follow-up changes now
+  make `_paired_train_step_evidence` cover candidate targets in eager
+  `compile_none` order first, then smaller per-device batch size, then row ID.
+  The train-step evidence path now clears CUDA cache after paired
+  branchless/indexed evidence and after candidate evidence exceptions, records
+  failed candidate evidence rows with deterministic failure hashes, exposes
+  `candidate_evidence_count`, `failed_candidate_evidence_count`, and
+  `failed_candidate_evidence` through paired numerical and corruption
+  equivalence proof objects, and mirrors quick evidence counters into
+  `runtime_proof.json`. This is intended to make a v6 pull show whether
+  bs8/bs12 evidence was covered or why it failed, instead of leaving those
+  rows as opaque skipped evidence. Review-found gaps were fixed: if every
+  candidate train-step evidence attempt fails, paired numerical, corruption,
+  and gate-health proof objects now preserve failed-candidate diagnostics
+  instead of collapsing to a generic linked-evidence failure; failure rows record
+  strategy attempt, target corruption strategy, affected row ids, and a stable
+  message hash. `scripts/kaggle_kernel.sh pull` now requires both
+  `KAGGLE_REMOTE_CONFIRMED=1` and `KAGGLE_PULL_CONFIRMED=1`; real-data
+  status/output aliases were added for v6 monitoring and download. Verification
+  so far: focused `tests/test_real_data_runtime_pretest.py` and
+  `tests/test_kaggle_embedded_kernel.py` passed together with 16 tests, and
+  full `./scripts/python_quality.sh` passed with Ruff, BasedPyright, 122 tests,
+  and 0 type errors. `git diff --check`, real-data pretest kernel
+  build/validate, dirty-worktree embedded verify with `--allow-dirty`, and
+  `./scripts/agent_preflight.sh` passed. Remaining before handoff: commit, then
+  clean-worktree rebuild/validate/embedded verify. A remote v6 push still
+  requires explicit user approval plus
+  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`.
 
 ## Update Rule
 

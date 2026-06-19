@@ -188,7 +188,8 @@
       "numerical_checks": "benchmark/numerical_checks.csv",
       "corruption_checks": "benchmark/corruption_checks.csv",
       "gate_health_summary": "benchmark/gate_health_summary.json",
-      "recommendations": "benchmark/real_data_runtime_pretest_recommendations.json"
+      "recommendations": "benchmark/real_data_runtime_pretest_recommendations.json",
+      "phase_timings": "benchmark/phase_timings.json"
     }
   },
   "future_selection_safety_artifacts": {

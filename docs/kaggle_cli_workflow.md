@@ -4,10 +4,12 @@ Status: draft workflow scaffold; synthetic setup-smoke path ready after
 permission; synthetic binary timing pretest evidence complete for screening;
 capped real-data runtime pretest has a local non-promotable runner/kernel/guard,
 upload-simulation proof, and identity/hash/CRC/window plus clean-validation
-loader proof plumbing plus a candidate-linked evidence lane implementation, but
-remote canonical candidate evidence remains pending and compiled rows remain
-diagnostic-only until full compile-settle coverage exists; Kaggle source
-attachments require a separate confirmation guard
+loader proof plumbing plus a candidate-linked evidence lane implementation;
+remote v5 produced two eligible eager bs4 rows and local v6 follow-up code adds
+eager-first evidence ordering, failed-evidence diagnostics, runtime-proof
+evidence counters, and phase timings; compiled rows remain diagnostic-only until
+full compile-settle coverage exists; Kaggle source attachments require a
+separate confirmation guard
 Last updated: 2026-06-19
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
@@ -324,12 +326,22 @@ payload issue: the embedded single-file kernel must include
 `docs/data/ubc_ocean_masked_holdout_ids.csv` for split/holdout-overlap proof.
 Remote v4 included that file and passed the canonical real-data identity,
 row-count, WSI/holdout overlap, CRC, locked-window, and clean-validation-loader
-proof lane. The next capped real-data pretest v5 is safe only as a
-non-promotable evidence run after commit/rebuild; inspect eager-row linked
-evidence, verify compiled rows remain diagnostic/ineligible, and do not write
-or infer `benchmark/selected_runtime.json`. Commit and rebuild the real-data
-runtime pretest after data-root or payload changes before pushing a new Kaggle
-version.
+proof lane. Remote v5 completed as a non-promotable candidate-evidence run and
+downloaded artifacts under `runs/kaggle/real_data_runtime_pretest_v5`: two eager
+single-T4 bs4 FP32 rows became row-eligible, real-data/DDP/dataloader/gate lanes
+passed, no `benchmark/selected_runtime.json` was written, eager bs8/bs12 still
+need numerical/corruption evidence coverage, bs32 eager rows hit runtime OOM,
+and compiled rows remained diagnostic/ineligible as intended. The local v6
+follow-up prioritizes eager FP32 single-T4 train-step evidence by smaller batch
+size before compiled diagnostic rows, clears CUDA cache between candidate
+evidence attempts, records failed candidate evidence with deterministic failure
+hashes, mirrors candidate/failed evidence counts into `runtime_proof.json`, and
+keeps the full failed-evidence list in the paired numerical and corruption proof
+objects. The phase-timing artifact must be present in both the payload artifact
+allow-list and the launcher validation allow-list; the local generated-launcher
+full simulation covers this exact artifact set. Commit and rebuild the real-data
+runtime pretest after data-root, payload, timing, or evidence changes before
+pushing a new Kaggle version.
 
 ### Remote Duration And Polling Memory
 
@@ -365,10 +377,16 @@ checks.
 
 Current duration notes:
 
-- Real-data runtime pretest v5, 2026-06-19: Kaggle accepted version 5 and kept
+- Real-data runtime pretest v5, 2026-06-19: Kaggle accepted version 5, kept
   reporting `KernelWorkerStatus.RUNNING` throughout the initial monitoring
-  window. Treat this as a long real-data run; subsequent status checks should
-  use a 30-minute or slower cadence until the terminal duration is known.
+  window, and later reached `KernelWorkerStatus.COMPLETE`. Downloaded artifacts
+  live under `runs/kaggle/real_data_runtime_pretest_v5`. The Kaggle log reports
+  data-root probing at about 7.44 seconds and notebook result conversion around
+  2355 seconds, so use roughly 40 minutes as the first observed duration for
+  this capped source-attached pretest. Version 5 predates
+  `benchmark/phase_timings.json`; future reruns should use the phase timings
+  artifact for more exact cadence and should inspect the runtime-proof evidence
+  counters before assuming a candidate lane silently skipped work.
 
 For the synthetic binary timing pretest, the remote sequence remains permission
 gated:
@@ -403,28 +421,39 @@ preflight before remote benchmark pushes:
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check
 ```
 
-Push a script kernel only after explicit user permission:
+Push a no-source script kernel, such as setup smoke or synthetic timing, only
+after explicit user permission:
 
 ```bash
-KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push
+KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/setup_smoke
+KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/synthetic_timing
+```
+
+Push a source-attached real-data kernel only after explicit user permission and
+after intentionally accepting the real dataset attachment/setup cost:
+
+```bash
+KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/real_data_runtime_pretest
 ```
 
 Check remote status after explicit permission:
 
 ```bash
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest
 ```
 
 Download outputs into ignored local run artifacts after explicit permission:
 
 ```bash
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v6
 ```
 
 Pulling from Kaggle can overwrite local files and requires explicit permission:
 
 ```bash
-KAGGLE_PULL_CONFIRMED=1 ./scripts/kaggle_kernel.sh pull
+KAGGLE_REMOTE_CONFIRMED=1 KAGGLE_PULL_CONFIRMED=1 ./scripts/kaggle_kernel.sh pull
 ```
 
 ## Credentials
