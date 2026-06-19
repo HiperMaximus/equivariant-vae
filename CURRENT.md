@@ -1626,18 +1626,28 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `764095e` (`Scaffold SIPAIM paper and record v6 diagnostics`). Local
   `./scripts/sipaim_overleaf_sync.sh check` passed with a clean repo and the
   expected Overleaf remote/subtree. The user then asked to update paper-related
-  GitHub issues and send the paper to Overleaf. Two required escalated attempts
-  to run `OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh push`
-  timed out in the sandbox approval reviewer before the command started, so no
-  Overleaf remote write was performed. GitHub issue updates were not attempted
-  afterward because they also require remote write approval. Next action after
-  remote approval is available: run the guarded Overleaf push, then post Spanish
-  paper-status comments to the paper-related GitHub issues, especially #5
-  (SIPAIM writing) and any paper-figure/evaluation issues such as #3/#4 as
-  appropriate. The issue comment should mention the Overleaf web URL
-  `https://www.overleaf.com/project/69c614433cbc9e46cf226d24`, the scaffolded
-  `paper/sipaim2026` files, the refreshed PDF, and that the reused thesis method
-  figure still needs to be redrawn or relabeled before submission.
+  GitHub issues and send the paper to Overleaf. Two early escalated attempts to
+  run `OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh push` timed
+  out in the sandbox approval reviewer before the command started. A later
+  guarded push attempt did start, recompiled the paper successfully, and then
+  failed at Git HTTPS authentication with
+  `fatal: could not read Username for 'https://git.overleaf.com': No such device or address`.
+  No Overleaf remote write was performed, so the Overleaf web project can still
+  appear empty even though the local paper scaffold and tracked PDF are
+  committed. The configured credential helper is `cache --timeout=86400`, but no
+  usable Overleaf Git credential was available to the agent shell; browser login
+  does not authenticate Git HTTPS. GitHub issue updates were not attempted
+  afterward because they should not claim the professor-facing Overleaf project
+  is updated until the push succeeds. Next action: have the user prime the local
+  Git credential helper for `https://git.overleaf.com` without pasting tokens in
+  chat, or have them run the guarded push once in their own terminal:
+  `OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh push`. After the
+  push succeeds, post Spanish paper-status comments to the paper-related GitHub
+  issues, especially #5 (SIPAIM writing) and any paper-figure/evaluation issues
+  such as #3/#4 as appropriate. The issue comment should mention the Overleaf web
+  URL `https://www.overleaf.com/project/69c614433cbc9e46cf226d24`, the
+  scaffolded `paper/sipaim2026` files, the refreshed PDF, and that the reused
+  thesis method figure still needs to be redrawn or relabeled before submission.
 
 ## Update Rule
 
