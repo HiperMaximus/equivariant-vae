@@ -17,6 +17,10 @@ from eqvae.benchmarking.kaggle_smoke import (
     SETUP_SMOKE_KIND,
     SETUP_SMOKE_SOURCE,
 )
+from eqvae.benchmarking.real_data_runtime_pretest import (
+    EXPECTED_DATASET_SLUG,
+    REAL_DATA_PRETEST_SOURCE,
+)
 from eqvae.benchmarking.synthetic_timing import (
     MANIFEST_FILENAME,
     MATRIX_FILENAME,
@@ -35,6 +39,17 @@ _EXPECTED_SYNTHETIC_TIMING_BLOCKED_CLAIMS = {
     "final_dataloader_settings",
     "final_single_vs_dual_t4",
     "real_data_loader_throughput",
+    "convergence",
+    "paper_evidence",
+    "full_run_readiness",
+}
+_EXPECTED_REAL_DATA_PRETEST_BLOCKED_CLAIMS = {
+    "final_runtime_selection",
+    "final_batch_size",
+    "final_precision_policy",
+    "final_corruption_strategy",
+    "final_dataloader_settings",
+    "single_vs_dual_t4_final_choice",
     "convergence",
     "paper_evidence",
     "full_run_readiness",
@@ -167,6 +182,47 @@ def test_embedded_synthetic_timing_kernel_survives_single_file_upload_simulation
     assert timing_plan["timing_phase"] == "local_upload_simulation"
     assert timing_plan["explicit_row_specs"] is False
     assert timing_plan["batch_sizes"] == [2]
+
+
+def test_embedded_real_data_runtime_pretest_kernel_import_simulation(
+    tmp_path: Path,
+) -> None:
+    """Real-data pretest imports from generated run.py without data access."""
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="real_data_runtime_pretest",
+        ready_marker="KAGGLE_REAL_DATA_RUNTIME_PRETEST_READY = True",
+    )
+    environment = _run_environment(simulation.output_dir)
+    environment["EQVAE_REAL_DATA_RUNTIME_PRETEST_IMPORT_ONLY"] = "1"
+
+    subprocess.run(  # noqa: S603
+        (sys.executable, str(simulation.upload_dir / "run.py")),
+        cwd=simulation.upload_dir,
+        check=True,
+        env=environment,
+    )
+
+    benchmark_dir = simulation.output_dir / "benchmark"
+    assert {path.name for path in benchmark_dir.iterdir()} == {
+        "real_data_runtime_pretest_import.json",
+    }
+    assert not (benchmark_dir / "selected_runtime.json").exists()
+    payload = _load_json(benchmark_dir / "real_data_runtime_pretest_import.json")
+    blocked_claims = cast("dict[str, bool]", payload["blocked_claims"])
+    manifest = cast("dict[str, object]", payload["payload_manifest"])
+    assert payload["status"] == "import_smoke_pass"
+    assert payload["status_scope"] == "non_promotable_local_upload_simulation"
+    assert payload["benchmark_kind"] == "real_data_runtime_pretest_import_only"
+    assert payload["benchmark_source"] == REAL_DATA_PRETEST_SOURCE
+    assert payload["full_run_eligible"] is False
+    assert payload["writes_selected_runtime"] is False
+    assert payload["expected_dataset_slug"] == EXPECTED_DATASET_SLUG
+    assert set(blocked_claims) == _EXPECTED_REAL_DATA_PRETEST_BLOCKED_CLAIMS
+    assert all(blocked_claims.values())
+    assert manifest["schema_version"] == "spec0001.kaggle_payload_manifest.v1"
 
 
 def test_embedded_kernel_verify_rejects_stale_template(tmp_path: Path) -> None:

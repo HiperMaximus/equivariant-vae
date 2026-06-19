@@ -34,6 +34,7 @@ RUNTIME_MATRIX_COLUMNS: Final[tuple[str, ...]] = (
     "precision_policy",
     "amp_enabled",
     "torch_compile_enabled",
+    "compile_scope",
     "corruption_strategy",
     "per_device_batch_size",
     "global_batch_size",
@@ -42,6 +43,7 @@ RUNTIME_MATRIX_COLUMNS: Final[tuple[str, ...]] = (
     "measured_steps",
     "repeats",
     "compile_startup_sec",
+    "compile_settle_steps",
     "steady_step_ms_p50",
     "steady_step_ms_p95",
     "samples_sec",
@@ -54,6 +56,8 @@ RUNTIME_MATRIX_COLUMNS: Final[tuple[str, ...]] = (
     "gate_health_warning_count",
     "numerical_check_status",
     "data_wait_fraction_p95",
+    "graph_break_count",
+    "recompile_count",
     "oom",
     "status",
     "failure_kind",
@@ -104,6 +108,7 @@ NUMERICAL_CHECK_COLUMNS: Final[tuple[str, ...]] = (
     "batch_index",
     "precision_policy",
     "torch_compile_enabled",
+    "compile_scope",
     "corruption_strategy",
     "total_loss_abs_delta",
     "total_loss_rel_delta",
@@ -129,6 +134,37 @@ NUMERICAL_CHECK_COLUMNS: Final[tuple[str, ...]] = (
     "gate_health_status",
     "nonfinite_count",
     "amp_step_skipped",
+    "status",
+    "failure_kind",
+)
+
+CORRUPTION_CHECK_COLUMNS: Final[tuple[str, ...]] = (
+    "run_name",
+    "benchmark_kind",
+    "benchmark_source",
+    "full_run_eligible",
+    "accelerator_mode",
+    "machine_shape",
+    "row_id",
+    "reference_row_id",
+    "candidate_row_id",
+    "batch_index",
+    "corruption_version",
+    "profile_name",
+    "corruption_strategy",
+    "corruption_view",
+    "corruption_step",
+    "split",
+    "semantic_sample_key_hash",
+    "binary_sample_id_hash",
+    "rank",
+    "world_size",
+    "applied_mask_hash",
+    "stain_param_hash",
+    "noise_std_hash",
+    "noise_field_hash",
+    "clean_sample_unchanged_count",
+    "clean_validation_rng_advanced",
     "status",
     "failure_kind",
 )
@@ -181,10 +217,12 @@ class BenchmarkArtifactPaths:
     """Paths written by the local synthetic benchmark schema smoke."""
 
     model_count: Path
+    runtime_proof: Path
     runtime_matrix: Path
     selected_runtime: Path
     dataloader_matrix: Path
     numerical_checks: Path
+    corruption_checks: Path
     gate_health: Path
     gate_health_summary: Path
 
@@ -217,10 +255,12 @@ def write_synthetic_benchmark_artifacts(
     benchmark_dir = request.output_dir / "benchmark"
     metrics_dir = request.output_dir / "metrics"
     model_count_path = benchmark_dir / "model_count.json"
+    runtime_proof_path = benchmark_dir / "runtime_proof.json"
     runtime_matrix_path = benchmark_dir / "runtime_matrix.csv"
     selected_runtime_path = benchmark_dir / "selected_runtime.json"
     dataloader_matrix_path = benchmark_dir / "dataloader_matrix.csv"
     numerical_checks_path = benchmark_dir / "numerical_checks.csv"
+    corruption_checks_path = benchmark_dir / "corruption_checks.csv"
     gate_health_path = metrics_dir / "gate_health.csv"
     gate_health_summary_path = benchmark_dir / "gate_health_summary.json"
 
@@ -231,6 +271,7 @@ def write_synthetic_benchmark_artifacts(
         measured_steps=request.measured_steps,
     )
     write_model_count(config_path=request.config_path, output_path=model_count_path)
+    write_json(runtime_proof_path, _runtime_proof_payload(run_name=request.run_name))
     write_csv(runtime_matrix_path, RUNTIME_MATRIX_COLUMNS, runtime_rows)
     write_json(selected_runtime_path, _selected_runtime_payload(runtime_rows[0]))
     write_csv(
@@ -244,6 +285,11 @@ def write_synthetic_benchmark_artifacts(
         _numerical_check_rows(run_name=request.run_name, runtime_rows=runtime_rows),
     )
     write_csv(
+        corruption_checks_path,
+        CORRUPTION_CHECK_COLUMNS,
+        _corruption_check_rows(run_name=request.run_name, runtime_rows=runtime_rows),
+    )
+    write_csv(
         gate_health_path,
         GATE_HEALTH_COLUMNS,
         _gate_health_rows(request.run_name),
@@ -252,10 +298,12 @@ def write_synthetic_benchmark_artifacts(
 
     return BenchmarkArtifactPaths(
         model_count=model_count_path,
+        runtime_proof=runtime_proof_path,
         runtime_matrix=runtime_matrix_path,
         selected_runtime=selected_runtime_path,
         dataloader_matrix=dataloader_matrix_path,
         numerical_checks=numerical_checks_path,
+        corruption_checks=corruption_checks_path,
         gate_health=gate_health_path,
         gate_health_summary=gate_health_summary_path,
     )
@@ -269,13 +317,19 @@ def _runtime_rows(
     measured_steps: int,
 ) -> list[CsvRow]:
     candidates = (
-        ("amp_off_fp32", "false", "false", "branchless_all"),
-        ("amp_off_fp32", "false", "true", "branchless_all"),
-        ("amp_off_fp32", "false", "false", "indexed_masked"),
+        ("amp_off_fp32", "false", "false", "none", "branchless_all"),
+        ("amp_off_fp32", "false", "true", "model_forward", "branchless_all"),
+        ("amp_off_fp32", "false", "false", "none", "indexed_masked"),
     )
     rows: list[CsvRow] = []
     for row_index, candidate in enumerate(candidates[:max_benchmark_rows]):
-        precision_policy, amp_enabled, compile_enabled, corruption_strategy = candidate
+        (
+            precision_policy,
+            amp_enabled,
+            compile_enabled,
+            compile_scope,
+            corruption_strategy,
+        ) = candidate
         rows.append(
             {
                 "run_name": run_name,
@@ -294,6 +348,7 @@ def _runtime_rows(
                 "precision_policy": precision_policy,
                 "amp_enabled": amp_enabled,
                 "torch_compile_enabled": compile_enabled,
+                "compile_scope": compile_scope,
                 "corruption_strategy": corruption_strategy,
                 "per_device_batch_size": str(DEFAULT_LOCAL_BATCH_SIZE),
                 "global_batch_size": str(DEFAULT_LOCAL_BATCH_SIZE),
@@ -304,6 +359,7 @@ def _runtime_rows(
                 "measured_steps": str(measured_steps),
                 "repeats": "1",
                 "compile_startup_sec": "0.0",
+                "compile_settle_steps": "0",
                 "steady_step_ms_p50": str(LOCAL_SYNTHETIC_STEP_MS),
                 "steady_step_ms_p95": str(LOCAL_SYNTHETIC_STEP_MS),
                 "samples_sec": str(LOCAL_SYNTHETIC_SAMPLE_RATE),
@@ -316,6 +372,8 @@ def _runtime_rows(
                 "gate_health_warning_count": "0",
                 "numerical_check_status": "schema_pass",
                 "data_wait_fraction_p95": "0.0",
+                "graph_break_count": "0",
+                "recompile_count": "0",
                 "oom": "false",
                 "status": "schema_pass",
                 "failure_kind": "",
@@ -351,6 +409,7 @@ def _selected_runtime_payload(selected_row: CsvRow) -> JsonObject:
         "torch_compile": {
             "enabled": selected_row["torch_compile_enabled"] == "true",
             "backend": "eager",
+            "scope": selected_row["compile_scope"],
         },
         "corruption": {"strategy": selected_row["corruption_strategy"]},
         "dataloader": {
@@ -364,10 +423,12 @@ def _selected_runtime_payload(selected_row: CsvRow) -> JsonObject:
             "samples_sec": LOCAL_SYNTHETIC_SAMPLE_RATE,
             "steady_step_ms_p50": LOCAL_SYNTHETIC_STEP_MS,
             "compile_startup_sec": 0.0,
+            "compile_settle_steps": 0,
             "estimated_10_epoch_wall_time_sec": 0.0,
         },
         "safety": {
             "numerical_check_status": "schema_pass",
+            "corruption_check_status": "schema_pass",
             "gate_health_status": "schema_pass",
             "dataloader_status": "schema_pass",
             "amp_step_skipped_count": 0,
@@ -375,10 +436,45 @@ def _selected_runtime_payload(selected_row: CsvRow) -> JsonObject:
         "artifacts": {
             "runtime_matrix": "benchmark/runtime_matrix.csv",
             "model_count": "benchmark/model_count.json",
+            "runtime_proof": "benchmark/runtime_proof.json",
             "dataloader_matrix": "benchmark/dataloader_matrix.csv",
             "numerical_checks": "benchmark/numerical_checks.csv",
+            "corruption_checks": "benchmark/corruption_checks.csv",
             "gate_health_summary": "benchmark/gate_health_summary.json",
         },
+        "selected_row_snapshot": {
+            **dict(selected_row),
+            "compile_settle_protocol_sha256": "",
+            "post_settle_graph_break_count": 0,
+            "post_settle_recompile_count": 0,
+        },
+    }
+
+
+def _runtime_proof_payload(*, run_name: str) -> JsonObject:
+    return {
+        "status": "schema_pass",
+        "benchmark_kind": "local_synthetic_schema",
+        "benchmark_source": "local_synthetic_schema_smoke",
+        "full_run_eligible": False,
+        "run_name": run_name,
+        "accelerator_mode": "local_cpu",
+        "machine_shape": "local_cpu",
+        "visible_device_count": 0,
+        "cuda_device_count": 0,
+        "gpu_names": [],
+        "ddp_backend": "none",
+        "world_size": 1,
+        "nproc_per_node": 1,
+        "dataset_slug": "",
+        "launcher_command_sha256": "",
+        "kaggle_cli_version": "",
+        "compile_settle_policy": {
+            "compile_settle_steps": 0,
+            "exercised_paths": [],
+            "counter_source": "not_applicable_local_schema_smoke",
+        },
+        "notes": "Local CPU schema proof only; not Kaggle runtime evidence.",
     }
 
 
@@ -437,6 +533,7 @@ def _numerical_check_rows(*, run_name: str, runtime_rows: list[CsvRow]) -> list[
             "batch_index": "0",
             "precision_policy": row["precision_policy"],
             "torch_compile_enabled": row["torch_compile_enabled"],
+            "compile_scope": row["compile_scope"],
             "corruption_strategy": row["corruption_strategy"],
             "total_loss_abs_delta": "0.0",
             "total_loss_rel_delta": "0.0",
@@ -462,6 +559,46 @@ def _numerical_check_rows(*, run_name: str, runtime_rows: list[CsvRow]) -> list[
             "gate_health_status": "schema_pass",
             "nonfinite_count": "0",
             "amp_step_skipped": "0",
+            "status": "schema_pass",
+            "failure_kind": "",
+        }
+        for row in runtime_rows
+    ]
+
+
+def _corruption_check_rows(
+    *,
+    run_name: str,
+    runtime_rows: list[CsvRow],
+) -> list[CsvRow]:
+    return [
+        {
+            "run_name": run_name,
+            "benchmark_kind": "local_synthetic_schema",
+            "benchmark_source": "local_synthetic_schema_smoke",
+            "full_run_eligible": "false",
+            "accelerator_mode": "local_cpu",
+            "machine_shape": "local_cpu",
+            "row_id": row["row_id"],
+            "reference_row_id": "local_cpu_schema_reference",
+            "candidate_row_id": row["row_id"],
+            "batch_index": "0",
+            "corruption_version": "spec0001.hed_corruptor.v1",
+            "profile_name": "conservative_default",
+            "corruption_strategy": row["corruption_strategy"],
+            "corruption_view": "schema_smoke",
+            "corruption_step": "0",
+            "split": "train",
+            "semantic_sample_key_hash": "schema",
+            "binary_sample_id_hash": "schema",
+            "rank": "0",
+            "world_size": "1",
+            "applied_mask_hash": "schema",
+            "stain_param_hash": "schema",
+            "noise_std_hash": "schema",
+            "noise_field_hash": "schema",
+            "clean_sample_unchanged_count": "0",
+            "clean_validation_rng_advanced": "false",
             "status": "schema_pass",
             "failure_kind": "",
         }

@@ -232,17 +232,28 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: design the next non-promotable benchmark slice that adds
-real training-step components and/or real-data loader confirmation without
-treating synthetic timing as selected-runtime evidence. Before any compiled
-runtime comparison is implemented, lock a compile-settling policy that exercises
-all measured code paths before the timed warmup/measured window and records
-graph-break/recompile counts. The approved first real-data train-step benchmark
-axis now includes `compile_scope = none`, `model_forward`, `model_loss`, and
-`train_step_no_optimizer`, crossed first with `amp_off_fp32` and both
-`branchless_all` / `indexed_masked` corruption strategies; AMP policies should
-only be carried onto stable FP32 compile/corruption candidates. The v4 repeated
-shortlist artifacts live under
+Immediate next action: complete the missing linked evidence for the
+non-promotable capped real-data train-step pretest. A local runner/kernel/guard
+now exists at `kaggle/kernels/real_data_runtime_pretest`, with exact T4 metadata,
+the exact patch dataset source, `KAGGLE_FULL_DATASET_CONFIRMED=1` push guard,
+embedded payload verification, upload-simulation import proof, local
+wrong-accelerator artifact proof, and explicit selected-runtime rejection. It
+still must not be treated as runtime selection: timed rows are ineligible until
+the compile/DDP/dataloader/numerical/corruption/gate-health evidence is
+implemented and passes. The first pretest attaches only
+`maximusshtefan/patches-pre-shuffled-ubc-ocean`, uses 8,192 train and 2,048
+validation patches from fixed spread windows, writes blocked claims, and must
+not write `benchmark/selected_runtime.json`. The approved first real-data
+train-step benchmark axis includes `compile_scope = none`, `model_forward`,
+`model_loss`, and `train_step_no_optimizer`, crossed first with
+`amp_off_fp32` and both `branchless_all` / `indexed_masked` corruption
+strategies; AMP policies may be emitted only for the exact FP32 candidates whose
+runtime, dataloader, numerical, corruption, gate-health, graph-break, and
+recompile evidence passes. Compile settling is locked at 5 unmeasured steps
+using `torch._dynamo.utils.counters` reset per row, and must exercise all
+measured code paths, including clean validation, DDP rank paths, final partial
+batch path, and mask cardinalities 0/1/many/all. The v4 repeated shortlist
+artifacts live under
 `runs/kaggle/synthetic_timing_repeat_2gib_v4/benchmark`. Top v4 synthetic
 repeat recommendations were
 `dual_t4_ddp__bs8__amp_off_fp32__compile_off__branchless_all`
@@ -250,10 +261,12 @@ repeat recommendations were
 `single_visible_t4__bs4__amp_off_fp32__compile_off__branchless_all`
 (`1.964479`), and
 `single_visible_t4__bs32__amp_off_fp32__compile_off__branchless_all`
-(`2.043706`). The v4 recommendation artifact marks the repeat-shortlist gate
-as completed, but the artifacts remain non-promotable loader/H2D screening
-evidence only; real runtime selection still requires real-data benchmarking and
-the selected-runtime debug/full-run gates.
+(`2.043706`). These rows seed the capped real-data pretest together with
+sentinel rows; they are provenance, not candidate identity. The v4
+recommendation artifact marks the repeat-shortlist gate as completed, but the
+artifacts remain non-promotable loader/H2D screening evidence only; real runtime
+selection still requires real-data benchmarking and the selected-runtime
+debug/full-run gates.
 The synthetic setup-smoke remote test passed on Kaggle as version 1 of
 `maximusshtefan/eqvae-setup-smoke`; downloaded ignored evidence is at
 `runs/kaggle/setup_smoke/benchmark/kaggle_setup_smoke.json`. The setup artifact
@@ -1015,6 +1028,93 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `2`, torchrun return code `0`, and one Tesla T4 per local rank. The output
   download was interrupted only after the four benchmark files were present;
   the partial raw synthetic data download was removed.
+- 2026-06-18 capped real-data runtime pretest contract pass: two independent
+  adversarial subagents reviewed the next benchmark design and found that a
+  capped real-data run could be accidentally over-promoted, compile settling was
+  still too implicit, synthetic-v4-only candidate seeding could bias selection,
+  prefix caps could bias loader evidence, `indexed_masked` could change
+  corruption RNG semantics, and the checked-in runtime schema/config still used
+  the stale boolean compile axis. The fixes applied in this pass are
+  config/schema/docs only, not a runner: `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json`
+  now declares the non-promotable capped real-data pretest with fixed spread
+  windows, synthetic-v4 parent row provenance plus sentinel rows, staged FP32
+  first / AMP follow-up policy, named compile scopes, `compile_settle_steps = 5`,
+  Dynamo counter-source requirements, blocked claims, and
+  `writes_selected_runtime = false`. The local schema writer now includes
+  `compile_scope`, `compile_settle_steps`, `graph_break_count`,
+  `recompile_count`, `benchmark/runtime_proof.json`, and
+  `benchmark/corruption_checks.csv`, with the local `selected_runtime.json`
+  remaining `schema_pass` / `full_run_eligible = false`. Focused verification:
+  `PYTHONPATH=src .venv/bin/pytest tests/test_spec0001_benchmark_scaffold.py`
+  passed with 9 tests before Ruff split the expanded schema test; final
+  verification after formatting passed with 10 focused tests. A first pytest
+  attempt without `PYTHONPATH=src` failed
+  with `ModuleNotFoundError: No module named 'eqvae'`; this is the expected
+  import-path issue avoided by the repo quality script.
+  `./scripts/python_quality.sh` passed after Ruff formatting with 97 tests and
+  0 BasedPyright errors. `./scripts/agent_preflight.sh` passed and noted only
+  the expected dirty worktree. `python3 -m json.tool
+  configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json >/dev/null` and
+  `git diff --check` passed. Remaining implementation blockers: add
+  `indexed_masked` corruption and equivalence checks, add the capped real-data
+  train-step benchmark runner, add the dedicated Kaggle kernel and push guard
+  requiring `KAGGLE_FULL_DATASET_CONFIRMED=1`, then rerun Python quality and
+  preflight before any remote push.
+- 2026-06-19 capped real-data runtime pretest local implementation pass:
+  added the non-promotable runner/CLI/kernel/guard surface for
+  `kaggle/kernels/real_data_runtime_pretest`. The kernel metadata requests T4
+  GPU, disables internet, attaches only
+  `maximusshtefan/patches-pre-shuffled-ubc-ocean`, and leaves competition,
+  kernel, and model sources empty. The generated ignored `run.py` embeds the
+  repo payload, checks payload provenance, supports import-only upload
+  simulation, calls `eqvae.cli.real_data_runtime_pretest`, and rejects
+  `benchmark/selected_runtime.json`. The push guard now requires
+  `KAGGLE_FULL_DATASET_CONFIRMED=1`, exact metadata/source lists, fresh embedded
+  payload, config status
+  `real_data_runtime_pretest_kernel_guard_ready_non_promotable`, the locked
+  8,192/2,048 cap, `compile_settle_steps = 5`, non-promotable pretest
+  artifacts, and explicit selected-runtime rejection. The local writer emits
+  `real_data_runtime_pretest_manifest.json`, `runtime_proof.json`,
+  `runtime_matrix.csv`, `dataloader_matrix.csv`, `numerical_checks.csv`,
+  `corruption_checks.csv`, `metrics/gate_health.csv`,
+  `gate_health_summary.json`, and
+  `real_data_runtime_pretest_recommendations.json`, never
+  `selected_runtime.json`; it also rejects a stale selected-runtime file before
+  and after artifact writing. Local CPU rows are `wrong_accelerator`; any timed
+  remote single-T4 row from this first implementation is marked `ineligible`
+  with `linked_safety_evidence_pending`. Manifest/proof fields explicitly mark
+  real-data identity, file hashes, row counts, WSI counts, CRC validation,
+  validation-window exercise, cache/warmup policy, dataloader, numerical,
+  corruption, gate-health, DDP, graph-break, and recompile evidence as pending
+  rather than selection-ready. The `indexed_masked` corruptor strategy is now
+  implemented and locally equivalence-tested against `branchless_all`, but it is
+  still not accepted as a runtime choice because compile stability and real
+  throughput evidence remain pending.
+  Verification so far: focused
+  `PYTHONPATH=src .venv/bin/pytest tests/test_stain_corruptor.py
+  tests/test_real_data_runtime_pretest.py tests/test_kaggle_embedded_kernel.py
+  tests/test_spec0001_benchmark_scaffold.py -q` passed with 39 tests;
+  `./scripts/python_quality.sh` passed with 110 tests and 0 BasedPyright
+  errors after Ruff fixes; `./scripts/kaggle_kernel.sh build
+  kaggle/kernels/real_data_runtime_pretest`, `bash -n scripts/kaggle_kernel.sh`,
+  and `./scripts/kaggle_kernel.sh validate
+  kaggle/kernels/real_data_runtime_pretest` passed; `python3 -m json.tool
+  configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json` and
+  `git diff --check` passed. `./scripts/agent_preflight.sh` ran and failed only
+  because the newly required real-data pretest files are still untracked until
+  this work is staged/committed:
+  `kaggle/kernels/real_data_runtime_pretest/__init__.py`,
+  `kaggle/kernels/real_data_runtime_pretest/kernel-metadata.json`, and
+  `kaggle/kernels/real_data_runtime_pretest/run_template.py`. Two adversarial
+  subagents reviewed the implementation; real findings around brittle
+  spec-index guard text, contradictory config status, stale selected-runtime
+  rejection, and safe-looking skipped scalar placeholders were fixed. Remaining
+  real blockers: implement the actual linked evidence lanes before any row can
+  become eligible for runtime selection: real-data identity/hash/CRC and
+  train/validation window proof, validation clean path exercise,
+  compile-settle/Dynamo accounting, DDP launch proof, real dataloader matrix,
+  paired numerical checks, corruption compile-stability checks, and gate-health
+  rows. No remote Kaggle command was run in this pass; Overleaf was untouched.
 
 ## Update Rule
 

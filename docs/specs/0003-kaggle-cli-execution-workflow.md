@@ -7,10 +7,12 @@ packaging/upload-simulation proof and Kaggle source attachments now require
 `KAGGLE_FULL_DATASET_CONFIRMED=1`; no-dataset synthetic binary timing pretest
 has a committed local kernel/guard implementation and remote v1/v2/v3/v4
 completed with non-promotable `synthetic_timing_pass`; v4 is the current
-2 GiB-scale repeated-shortlist evidence with per-rank DDP proof; full
-benchmark/full-run launchers are not Kaggle-push-ready
+2 GiB-scale repeated-shortlist evidence with per-rank DDP proof; capped
+real-data runtime pretest has a local non-promotable runner/kernel/guard and
+upload-simulation proof, but remote execution and linked eligibility evidence
+remain pending; full benchmark/full-run launchers are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
-Last updated: 2026-06-18
+Last updated: 2026-06-19
 
 ## Purpose
 
@@ -37,6 +39,13 @@ scaffolded script kernels through the Kaggle API.
 - Do not treat no-dataset synthetic timing output as selected runtime evidence.
   It may screen and order candidates for the later real-data benchmark, but it
   must not write `benchmark/selected_runtime.json`.
+- Do not treat the first capped real-data runtime pretest as selected runtime
+  evidence. Its local runner/kernel/guard may prove packaging, local
+  wrong-accelerator behavior, and non-promotable artifact shape, but its rows
+  remain ineligible until the linked dataloader, numerical, corruption,
+  gate-health, graph-break, and recompile evidence passes. It must write
+  non-promotable pretest artifacts and recommendations, blocked claims, and no
+  `benchmark/selected_runtime.json`.
 - Do not commit Kaggle credentials, API tokens, output datasets, checkpoints, or
   run artifacts.
 
@@ -153,6 +162,23 @@ shortlist with `warmup_steps = 5` and `measured_steps = 25`; all four rows
 passed, the repeat policy is marked completed, and no runtime is selected.
 Downloaded ignored v4 benchmark evidence lives under
 `runs/kaggle/synthetic_timing_repeat_2gib_v4/benchmark`.
+
+The capped real-data runtime pretest scaffold lives in:
+
+```bash
+./scripts/kaggle_kernel.sh build kaggle/kernels/real_data_runtime_pretest
+```
+
+It is separate from `non_eq_vae_debug` because capped smoke is not a matrix
+benchmark, and separate from `synthetic_timing` because it attaches the real
+pre-shuffled UBC patch dataset. The kernel uses
+`KAGGLE_REAL_DATA_RUNTIME_PRETEST_READY = True`, requests T4 metadata, attaches
+only `maximusshtefan/patches-pre-shuffled-ubc-ocean`, requires
+`KAGGLE_FULL_DATASET_CONFIRMED=1` before push, and rejects any path that writes
+`benchmark/selected_runtime.json`. The first local implementation is still
+non-promotable: remote execution and the linked compile/DDP/dataloader/
+numerical/corruption/gate-health evidence are pending, so it must not be used
+for runtime selection.
 
 ## Kaggle Authentication Contract
 

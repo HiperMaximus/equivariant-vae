@@ -9,6 +9,7 @@ default_output_dir="runs/kaggle/non_eq_vae_debug"
 setup_kernel_dir="kaggle/kernels/setup_smoke"
 setup_output_dir="runs/kaggle/setup_smoke"
 synthetic_timing_kernel_dir="kaggle/kernels/synthetic_timing"
+real_data_runtime_pretest_kernel_dir="kaggle/kernels/real_data_runtime_pretest"
 
 usage() {
   cat <<'EOF'
@@ -289,6 +290,9 @@ embedded_ready_marker() {
     maximusshtefan/eqvae-synthetic-timing)
       printf '%s\n' "KAGGLE_SYNTHETIC_TIMING_READY = True"
       ;;
+    maximusshtefan/eqvae-real-data-runtime-pretest)
+      printf '%s\n' "KAGGLE_REAL_DATA_RUNTIME_PRETEST_READY = True"
+      ;;
     maximusshtefan/non-eq-vae-debug)
       printf '%s\n' "KAGGLE_SMOKE_READY = True"
       ;;
@@ -329,6 +333,11 @@ EOF
 
   if grep -q "KAGGLE_SYNTHETIC_TIMING_READY = True" "$kernel_dir/$code_file"; then
     guard_synthetic_timing_push_ready "$kernel_dir" "$metadata"
+    return
+  fi
+
+  if grep -q "KAGGLE_REAL_DATA_RUNTIME_PRETEST_READY = True" "$kernel_dir/$code_file"; then
+    guard_real_data_runtime_pretest_push_ready "$kernel_dir" "$metadata"
     return
   fi
 
@@ -720,6 +729,197 @@ PY
     "wrong_accelerator"; do
     if ! grep -q "$required_text" "$run_file"; then
       echo "error: synthetic timing run.py missing required text: $required_text" >&2
+      exit 1
+    fi
+  done
+}
+
+guard_real_data_runtime_pretest_push_ready() {
+  local kernel_dir="$1"
+  local metadata="$2"
+
+  if [[ -d "$kernel_dir/payload" ]]; then
+    echo "error: real-data runtime pretest must be a single generated run.py, not a sibling payload" >&2
+    exit 1
+  fi
+
+  if [[ "${KAGGLE_FULL_DATASET_CONFIRMED:-}" != "1" ]]; then
+    cat >&2 <<'EOF'
+error: set KAGGLE_FULL_DATASET_CONFIRMED=1 only after accepting the real
+patch dataset attachment/setup cost for the real-data runtime pretest.
+EOF
+    exit 1
+  fi
+
+  if ! grep -q 'real_data_runtime_pretest_contract_ready' \
+    "docs/specs/0001-translatable-normal-vae-baseline.md"; then
+    echo "error: spec 0001 does not authorize the real-data runtime pretest contract" >&2
+    exit 1
+  fi
+  if ! grep -q 'real_data_runtime_pretest_contract_ready' \
+    "docs/specs/README.md"; then
+    echo "error: spec index does not authorize the real-data runtime pretest contract" >&2
+    exit 1
+  fi
+
+  python3 - "$metadata" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+metadata = Path(sys.argv[1])
+data = json.loads(metadata.read_text(encoding="utf-8"))
+errors: list[str] = []
+
+required_values = {
+    "id": "maximusshtefan/eqvae-real-data-runtime-pretest",
+    "title": "eqvae real data runtime pretest",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "false",
+    "machine_shape": "NvidiaTeslaT4",
+}
+
+for key, expected in required_values.items():
+    actual = str(data.get(key, ""))
+    comparable = actual.lower() if expected in {"true", "false"} else actual
+    if comparable != expected:
+        errors.append(f"{key} must be {expected!r}")
+
+expected_dataset_sources = ["maximusshtefan/patches-pre-shuffled-ubc-ocean"]
+if data.get("dataset_sources") != expected_dataset_sources:
+    errors.append(f"dataset_sources must be exactly {expected_dataset_sources!r}")
+
+for source_field in ("competition_sources", "kernel_sources", "model_sources"):
+    if data.get(source_field) != []:
+        errors.append(f"{source_field} must be an empty list for real-data pretest")
+
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+
+  python3 scripts/build_kaggle_embedded_kernel.py \
+    --kernel-dir "$kernel_dir" \
+    --ready-marker "KAGGLE_REAL_DATA_RUNTIME_PRETEST_READY = True" \
+    --verify-only
+
+  local run_file="$kernel_dir/run.py"
+  python3 - "$run_file" <<'PY'
+import base64
+import io
+import json
+import re
+import sys
+import zipfile
+from pathlib import Path
+
+run_text = Path(sys.argv[1]).read_text(encoding="utf-8")
+match = re.search(
+    r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""',
+    run_text,
+    flags=re.DOTALL,
+)
+if match is None:
+    print("error: real-data pretest run.py has no embedded payload", file=sys.stderr)
+    raise SystemExit(1)
+
+payload = base64.b64decode(match.group("payload").encode("ascii"))
+with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+    try:
+        source = archive.read(
+            "src/eqvae/benchmarking/real_data_runtime_pretest.py",
+        ).decode("utf-8")
+        config = json.loads(
+            archive.read(
+                "configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json",
+            ),
+        )
+    except KeyError as error:
+        print(f"error: real-data pretest payload missing {error}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+errors: list[str] = []
+if "write_synthetic_benchmark_artifacts" in source:
+    errors.append("real-data pretest payload must not call schema selected-runtime writer")
+if "selected_runtime_path" in source:
+    errors.append("real-data pretest payload must not define selected_runtime_path")
+if "def _reject_selected_runtime_artifact" not in source:
+    errors.append("real-data pretest payload must reject stale selected_runtime artifacts")
+if source.count("_reject_selected_runtime_artifact(") < 3:
+    errors.append("real-data pretest payload must check selected_runtime before and after writes")
+if re.search(r"write_json\s*\([^)]*selected_runtime", source, flags=re.DOTALL):
+    errors.append("real-data pretest payload must not write selected_runtime artifacts")
+
+data = config.get("data")
+runtime = config.get("runtime_matrix")
+pretest = config.get("runtime_pretest")
+if config.get("status") != "real_data_runtime_pretest_kernel_guard_ready_non_promotable":
+    errors.append(
+        "config.status must be real_data_runtime_pretest_kernel_guard_ready_non_promotable",
+    )
+if not isinstance(data, dict):
+    errors.append("config.data must be an object")
+else:
+    if data.get("dataset_slug") != "maximusshtefan/patches-pre-shuffled-ubc-ocean":
+        errors.append("config.data.dataset_slug must be the pre-shuffled patch dataset")
+    cap = data.get("benchmark_cap")
+    if not isinstance(cap, dict):
+        errors.append("config.data.benchmark_cap must be an object")
+    else:
+        if cap.get("train_patch_count") != 8192:
+            errors.append("benchmark_cap.train_patch_count must be 8192")
+        if cap.get("validation_patch_count") != 2048:
+            errors.append("benchmark_cap.validation_patch_count must be 2048")
+        if cap.get("full_epoch_allowed") is not False:
+            errors.append("benchmark_cap.full_epoch_allowed must be false")
+if not isinstance(runtime, dict):
+    errors.append("config.runtime_matrix must be an object")
+else:
+    settle = runtime.get("compile_settle_policy")
+    if not isinstance(settle, dict) or settle.get("compile_settle_steps") != 5:
+        errors.append("compile_settle_steps must be 5")
+if not isinstance(pretest, dict):
+    errors.append("config.runtime_pretest must be an object")
+else:
+    if pretest.get("full_run_eligible") is not False:
+        errors.append("runtime_pretest.full_run_eligible must be false")
+    if pretest.get("writes_selected_runtime") is not False:
+        errors.append("runtime_pretest.writes_selected_runtime must be false")
+    artifacts = pretest.get("artifacts")
+    if not isinstance(artifacts, dict):
+        errors.append("runtime_pretest.artifacts must be an object")
+    elif "selected_runtime" in artifacts:
+        errors.append("runtime_pretest.artifacts must not include selected_runtime")
+
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+
+  for required_text in \
+    "real_data_runtime_pretest_manifest.json" \
+    "runtime_proof.json" \
+    "runtime_matrix.csv" \
+    "dataloader_matrix.csv" \
+    "numerical_checks.csv" \
+    "corruption_checks.csv" \
+    "gate_health_summary.json" \
+    "real_data_runtime_pretest_recommendations.json" \
+    "non_promotable_real_data_runtime_pretest" \
+    "real_data_runtime_pretest" \
+    "blocked_claims" \
+    "selected_runtime.json" \
+    "single_visible_t4" \
+    "dual_t4_ddp" \
+    "wrong_accelerator"; do
+    if ! grep -q "$required_text" "$run_file"; then
+      echo "error: real-data runtime pretest run.py missing required text: $required_text" >&2
       exit 1
     fi
   done

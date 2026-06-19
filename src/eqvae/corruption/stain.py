@@ -36,6 +36,12 @@ HED_FROM_RGB: tuple[tuple[float, float, float], ...] = (
 
 CONSERVATIVE_DEFAULT_PROFILE = "conservative_default"
 FSQ_LEGACY_WIDE_PROFILE = "fsq_legacy_wide"
+BRANCHLESS_ALL_STRATEGY = "branchless_all"
+INDEXED_MASKED_STRATEGY = "indexed_masked"
+CORRUPTION_STRATEGIES: tuple[str, ...] = (
+    BRANCHLESS_ALL_STRATEGY,
+    INDEXED_MASKED_STRATEGY,
+)
 SEMANTIC_SEED_FIELDS: tuple[str, ...] = (
     "corruption_seed",
     "split",
@@ -180,18 +186,21 @@ class StainCorruptor(nn.Module):
         matrix = cast("Tensor", self.rgb_from_hed)
         return hed_to_rgb(hed, rgb_from_hed=matrix)
 
-    def apply_with_parameters(  # noqa: PLR0914
+    def apply_with_parameters(
         self,
         images: Tensor,
         parameters: StainCorruptionParameters,
         *,
         semantic_sample_keys: Sequence[str],
         profile_name: str,
+        strategy: str = BRANCHLESS_ALL_STRATEGY,
     ) -> StainCorruptionResult:
-        """Apply pre-sampled branchless-all stain/noise parameters.
+        """Apply pre-sampled stain/noise parameters.
 
-        The branch tensors are computed for the full batch and the Bernoulli mask
-        selects the public corrupted output only at the end.
+        `branchless_all` computes stain/noise branches for the full batch and
+        selects the public corrupted output at the end. `indexed_masked` uses the
+        same sampled parameters but applies the expensive HED path only to rows
+        whose Bernoulli mask is true.
 
         Returns:
             Corrupted batch, diagnostic branches, and per-sample metadata.
@@ -205,7 +214,37 @@ class StainCorruptor(nn.Module):
         if len(semantic_sample_keys) != images.shape[0]:
             message = "semantic_sample_keys length must equal batch size"
             raise ValueError(message)
+        if strategy == BRANCHLESS_ALL_STRATEGY:
+            return self._apply_branchless_all(
+                images,
+                parameters,
+                semantic_sample_keys=semantic_sample_keys,
+                profile_name=profile_name,
+            )
+        if strategy == INDEXED_MASKED_STRATEGY:
+            return self._apply_indexed_masked(
+                images,
+                parameters,
+                semantic_sample_keys=semantic_sample_keys,
+                profile_name=profile_name,
+            )
+        message = f"Unknown corruption strategy: {strategy}"
+        raise ValueError(message)
 
+    def _apply_branchless_all(  # noqa: PLR0914
+        self,
+        images: Tensor,
+        parameters: StainCorruptionParameters,
+        *,
+        semantic_sample_keys: Sequence[str],
+        profile_name: str,
+    ) -> StainCorruptionResult:
+        """Apply the full-batch branchless corruption strategy.
+
+        Returns:
+            Corrupted batch, diagnostic branches, and per-sample metadata.
+
+        """
         input_dtype = images.dtype
         work = images.detach().to(dtype=torch.float32)
         alpha = parameters.alpha.to(device=work.device, dtype=torch.float32)
@@ -224,6 +263,65 @@ class StainCorruptor(nn.Module):
         gaussian_only = gaussian_pre_clamp.clamp(-1.0, 1.0).to(dtype=input_dtype)
         combined = combined_pre_clamp.clamp(-1.0, 1.0).to(dtype=input_dtype)
         selected_pre_clamp = torch.where(applied_mask, combined_pre_clamp, work)
+        corrupted = selected_pre_clamp.clamp(-1.0, 1.0).to(dtype=input_dtype)
+        metadata = _metadata_from_tensors(
+            selected_pre_clamp=selected_pre_clamp,
+            final=corrupted.to(dtype=torch.float32),
+            parameters=parameters,
+            semantic_sample_keys=semantic_sample_keys,
+            profile_name=profile_name,
+        )
+        return StainCorruptionResult(
+            corrupted=corrupted,
+            stain_only=stain_only,
+            gaussian_only=gaussian_only,
+            combined=combined,
+            metadata=metadata,
+        )
+
+    def _apply_indexed_masked(  # noqa: PLR0914
+        self,
+        images: Tensor,
+        parameters: StainCorruptionParameters,
+        *,
+        semantic_sample_keys: Sequence[str],
+        profile_name: str,
+    ) -> StainCorruptionResult:
+        """Apply the indexed masked corruption strategy.
+
+        Returns:
+            Corrupted batch, diagnostic branches, and per-sample metadata.
+
+        """
+        input_dtype = images.dtype
+        work = images.detach().to(dtype=torch.float32)
+        alpha = parameters.alpha.to(device=work.device, dtype=torch.float32)
+        beta = parameters.beta.to(device=work.device, dtype=torch.float32)
+        noise = parameters.noise.to(device=work.device, dtype=torch.float32)
+        mask_flat = parameters.applied_mask.to(device=work.device).view(-1)
+
+        stain_pre_clamp = work.clone()
+        gaussian_pre_clamp = work.clone()
+        combined_pre_clamp = work.clone()
+        selected_pre_clamp = work.clone()
+        if bool(mask_flat.any().item()):
+            masked_work = work[mask_flat]
+            masked_noise = noise[mask_flat]
+            rgb = normalized_to_rgb01(masked_work)
+            hed = self.rgb_to_hed(rgb)
+            jittered_rgb = self.hed_to_rgb((hed * alpha[mask_flat]) + beta[mask_flat])
+            masked_stain_pre_clamp = rgb01_to_normalized(jittered_rgb)
+            masked_gaussian_pre_clamp = masked_work + masked_noise
+            masked_combined_pre_clamp = masked_stain_pre_clamp + masked_noise
+
+            stain_pre_clamp[mask_flat] = masked_stain_pre_clamp
+            gaussian_pre_clamp[mask_flat] = masked_gaussian_pre_clamp
+            combined_pre_clamp[mask_flat] = masked_combined_pre_clamp
+            selected_pre_clamp[mask_flat] = masked_combined_pre_clamp
+
+        stain_only = stain_pre_clamp.clamp(-1.0, 1.0).to(dtype=input_dtype)
+        gaussian_only = gaussian_pre_clamp.clamp(-1.0, 1.0).to(dtype=input_dtype)
+        combined = combined_pre_clamp.clamp(-1.0, 1.0).to(dtype=input_dtype)
         corrupted = selected_pre_clamp.clamp(-1.0, 1.0).to(dtype=input_dtype)
         metadata = _metadata_from_tensors(
             selected_pre_clamp=selected_pre_clamp,
@@ -504,8 +602,9 @@ def corrupt_normalized_batch(  # noqa: PLR0913
     corruption_step: int,
     corruption_view: str,
     corruptor: StainCorruptor | None = None,
+    strategy: str = BRANCHLESS_ALL_STRATEGY,
 ) -> StainCorruptionResult:
-    """Sample and apply the branchless-all HED corruption to a normalized batch.
+    """Sample and apply HED corruption to a normalized batch.
 
     Returns:
         Corrupted batch, diagnostic branches, and per-sample metadata.
@@ -535,6 +634,7 @@ def corrupt_normalized_batch(  # noqa: PLR0913
             parameters,
             semantic_sample_keys=semantic_sample_keys,
             profile_name=profile.name,
+            strategy=strategy,
         )
 
 
@@ -744,10 +844,13 @@ def _required_float_pair(payload: JsonObject, key: str) -> tuple[float, float]:
 
 
 __all__ = [
+    "BRANCHLESS_ALL_STRATEGY",
     "CONSERVATIVE_DEFAULT_PROFILE",
+    "CORRUPTION_STRATEGIES",
     "CORRUPTION_VERSION",
     "FSQ_LEGACY_WIDE_PROFILE",
     "HED_FROM_RGB",
+    "INDEXED_MASKED_STRATEGY",
     "OD_EPSILON",
     "RGB_FROM_HED",
     "SCIKIT_IMAGE_ORACLE_VERSION",

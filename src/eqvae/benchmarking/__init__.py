@@ -16,6 +16,10 @@ from eqvae.benchmarking.model_loss_train_step import (
     LocalModelLossTrainStepRequest,
     write_local_model_loss_train_step,
 )
+from eqvae.benchmarking.real_data_runtime_pretest import (
+    RealDataRuntimePretestRequest,
+    write_real_data_runtime_pretest,
+)
 from eqvae.benchmarking.runtime_schema import (
     RUNTIME_MATRIX_COLUMNS,
     write_synthetic_benchmark_artifacts,
@@ -43,6 +47,7 @@ __all__ = [
     "SYNTHETIC_TIMING_PHASE_REPEAT_SHORTLIST",
     "LocalDataloaderPretestRequest",
     "LocalModelLossTrainStepRequest",
+    "RealDataRuntimePretestRequest",
     "SyntheticTimingRequest",
     "SyntheticTimingRowSpec",
     "build_model_count_payload",
@@ -55,6 +60,7 @@ __all__ = [
     "write_local_dataloader_pretest",
     "write_local_model_loss_train_step",
     "write_model_count",
+    "write_real_data_runtime_pretest",
     "write_synthetic_benchmark_artifacts",
     "write_synthetic_timing_pretest",
 ]

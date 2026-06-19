@@ -16,9 +16,12 @@ from eqvae.benchmarking.stain_corruptor_qa import (
     write_local_stain_corruptor_qa,
 )
 from eqvae.corruption.stain import (
+    BRANCHLESS_ALL_STRATEGY,
     CONSERVATIVE_DEFAULT_PROFILE,
     CORRUPTION_VERSION,
     FSQ_LEGACY_WIDE_PROFILE,
+    INDEXED_MASKED_STRATEGY,
+    StainCorruptionParameters,
     StainCorruptionProfile,
     StainCorruptor,
     clean_validation_passthrough,
@@ -40,6 +43,8 @@ if TYPE_CHECKING:
     from eqvae.config import JsonObject
 
 EXPECTED_QA_COUNT = 25
+MASK_CARDINALITY_BATCH_SIZE = 4
+HELPER_STRATEGY_BATCH_SIZE = 2
 
 
 def test_rgb_to_hed_matches_scikit_oracle_channel_first() -> None:
@@ -254,6 +259,163 @@ def test_zero_probability_corruption_keeps_clean_samples_unchanged() -> None:
     assert not any(item.applied for item in result.metadata)
 
 
+@pytest.mark.parametrize(
+    "applied_mask",
+    [
+        (False, False, False, False),
+        (True, False, False, False),
+        (True, False, True, False),
+        (True, True, True, True),
+    ],
+)
+def test_indexed_masked_matches_branchless_public_contract(
+    applied_mask: tuple[bool, ...],
+) -> None:
+    """Indexed corruption preserves branchless RNG and public outputs."""
+    inputs = torch.linspace(
+        -0.9,
+        0.9,
+        steps=MASK_CARDINALITY_BATCH_SIZE * 3 * 8 * 8,
+    ).reshape(MASK_CARDINALITY_BATCH_SIZE, 3, 8, 8)
+    keys = tuple(
+        f"train:wsi_{index}:1:{10 + index}:{20 + index}"
+        for index in range(MASK_CARDINALITY_BATCH_SIZE)
+    )
+    profile = profile_from_name(CONSERVATIVE_DEFAULT_PROFILE)
+    module = StainCorruptor()
+    batch_shape = cast("tuple[int, int, int, int]", tuple(inputs.shape))
+    sampled = sample_corruption_parameters(
+        batch_shape=batch_shape,
+        profile=profile,
+        corruption_seed=20260611,
+        split="train",
+        semantic_sample_keys=keys,
+        corruption_step=0,
+        corruption_view="train_corrupted",
+    )
+    parameters = _parameters_with_mask(sampled, applied_mask=applied_mask)
+
+    branchless = module.apply_with_parameters(
+        inputs,
+        parameters,
+        semantic_sample_keys=keys,
+        profile_name=profile.name,
+        strategy=BRANCHLESS_ALL_STRATEGY,
+    )
+    indexed = module.apply_with_parameters(
+        inputs,
+        parameters,
+        semantic_sample_keys=keys,
+        profile_name=profile.name,
+        strategy=INDEXED_MASKED_STRATEGY,
+    )
+
+    torch.testing.assert_close(indexed.corrupted, branchless.corrupted)
+    assert [item.applied for item in indexed.metadata] == list(applied_mask)
+    assert [item.as_json() for item in indexed.metadata] == [
+        item.as_json() for item in branchless.metadata
+    ]
+    for sample_index, applied in enumerate(applied_mask):
+        if applied:
+            torch.testing.assert_close(
+                indexed.combined[sample_index],
+                branchless.combined[sample_index],
+            )
+        else:
+            torch.testing.assert_close(
+                indexed.corrupted[sample_index],
+                inputs[sample_index],
+                atol=0.0,
+                rtol=0.0,
+            )
+            torch.testing.assert_close(
+                indexed.combined[sample_index],
+                inputs[sample_index],
+                atol=0.0,
+                rtol=0.0,
+            )
+
+
+def test_public_helper_strategies_preserve_semantic_outputs_and_rng() -> None:
+    """Public strategy dispatch preserves semantic RNG and final outputs."""
+    inputs = torch.linspace(-0.9, 0.9, steps=4 * 3 * 8 * 8).reshape(4, 3, 8, 8)
+    keys = (
+        "train:wsi_a:1:10:20",
+        "train:wsi_b:2:30:40",
+        "train:wsi_c:3:50:60",
+        "train:wsi_d:4:70:80",
+    )
+    profile = profile_from_name(CONSERVATIVE_DEFAULT_PROFILE)
+    state = torch.get_rng_state()
+
+    branchless = corrupt_normalized_batch(
+        inputs,
+        profile=profile,
+        corruption_seed=20260611,
+        split="train",
+        semantic_sample_keys=keys,
+        corruption_step=3,
+        corruption_view="train_corrupted",
+        strategy=BRANCHLESS_ALL_STRATEGY,
+    )
+    after_branchless = torch.get_rng_state()
+    indexed = corrupt_normalized_batch(
+        inputs,
+        profile=profile,
+        corruption_seed=20260611,
+        split="train",
+        semantic_sample_keys=keys,
+        corruption_step=3,
+        corruption_view="train_corrupted",
+        strategy=INDEXED_MASKED_STRATEGY,
+    )
+
+    torch.testing.assert_close(indexed.corrupted, branchless.corrupted)
+    assert [item.as_json() for item in indexed.metadata] == [
+        item.as_json() for item in branchless.metadata
+    ]
+    assert torch.equal(state, after_branchless)
+    assert torch.equal(state, torch.get_rng_state())
+
+
+def test_corrupt_normalized_batch_accepts_indexed_masked_strategy() -> None:
+    """Public corruption helper can run the indexed strategy."""
+    inputs = torch.linspace(-0.8, 0.8, steps=2 * 3 * 8 * 8).reshape(2, 3, 8, 8)
+    profile = profile_from_name(CONSERVATIVE_DEFAULT_PROFILE)
+
+    result = corrupt_normalized_batch(
+        inputs,
+        profile=profile,
+        corruption_seed=20260611,
+        split="train",
+        semantic_sample_keys=("train:wsi_a:1:10:20", "train:wsi_b:2:30:40"),
+        corruption_step=0,
+        corruption_view="train_corrupted",
+        strategy=INDEXED_MASKED_STRATEGY,
+    )
+
+    assert result.corrupted.shape == inputs.shape
+    assert len(result.metadata) == HELPER_STRATEGY_BATCH_SIZE
+
+
+def test_corrupt_normalized_batch_rejects_unknown_strategy() -> None:
+    """Unknown corruption strategy names fail before benchmark selection."""
+    inputs = torch.linspace(-0.8, 0.8, steps=2 * 3 * 8 * 8).reshape(2, 3, 8, 8)
+    profile = profile_from_name(CONSERVATIVE_DEFAULT_PROFILE)
+
+    with pytest.raises(ValueError, match="Unknown corruption strategy"):
+        corrupt_normalized_batch(
+            inputs,
+            profile=profile,
+            corruption_seed=20260611,
+            split="train",
+            semantic_sample_keys=("train:wsi_a:1:10:20", "train:wsi_b:2:30:40"),
+            corruption_step=0,
+            corruption_view="train_corrupted",
+            strategy="surprise_strategy",
+        )
+
+
 def test_module_apply_with_identity_parameters_round_trips_valid_rgb() -> None:
     """Identity parameters preserve valid HED-manifold RGB before noise."""
     module = StainCorruptor()
@@ -393,6 +555,26 @@ def _write_tiny_qa_config(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return config_path
+
+
+def _parameters_with_mask(
+    parameters: StainCorruptionParameters,
+    *,
+    applied_mask: tuple[bool, ...],
+) -> StainCorruptionParameters:
+    mask = torch.tensor(
+        applied_mask,
+        dtype=torch.bool,
+        device=parameters.applied_mask.device,
+    ).view(len(applied_mask), 1, 1, 1)
+    return StainCorruptionParameters(
+        applied_mask=mask,
+        alpha=parameters.alpha,
+        beta=parameters.beta,
+        noise_std=parameters.noise_std,
+        noise=parameters.noise,
+        sample_seeds=parameters.sample_seeds,
+    )
 
 
 def _load_json(path: Path) -> dict[str, object]:

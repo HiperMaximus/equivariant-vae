@@ -1,9 +1,12 @@
 # Kaggle CLI Workflow
 
 Status: draft workflow scaffold; synthetic setup-smoke path ready after
-permission; synthetic binary timing pretest contract ready; Kaggle source
-attachments require a separate confirmation guard
-Last updated: 2026-06-18
+permission; synthetic binary timing pretest evidence complete for screening;
+capped real-data runtime pretest has a local non-promotable runner/kernel/guard
+and upload-simulation proof, but remote execution and linked eligibility
+evidence remain pending; Kaggle source attachments require a separate
+confirmation guard
+Last updated: 2026-06-19
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
 source of truth for experiment code, specs, configs, and paper-facing claims.
@@ -121,6 +124,30 @@ budget are fit/VRAM probes only. The output may recommend rows to carry into
 the real-data benchmark, but must not write `benchmark/selected_runtime.json`
 or claim final
 runtime selection.
+
+The real-data benchmark surface is intentionally separate from the capped smoke
+and from synthetic timing:
+
+```bash
+./scripts/kaggle_kernel.sh build kaggle/kernels/real_data_runtime_pretest
+```
+
+Its config/schema contract lives in
+`configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json` and is
+`real_data_runtime_pretest_contract_ready`. The local runner/kernel/guard
+implementation is non-promotable: it attaches only
+`maximusshtefan/patches-pre-shuffled-ubc-ocean`, uses the fixed 8,192-train /
+2,048-validation spread windows recorded in the config, writes blocked claims
+and pretest recommendations, and must not write
+`benchmark/selected_runtime.json`. It uses the synthetic-v4 rows only as parent
+provenance, adds sentinel rows, and currently marks timed rows ineligible until
+the linked compile/DDP/dataloader/numerical/corruption/gate-health evidence is
+implemented and passes. Remote pushing requires explicit user permission plus:
+
+```bash
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check
+KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/real_data_runtime_pretest
+```
 
 Spec 0001 runtime benchmarking requires two accelerator modes:
 

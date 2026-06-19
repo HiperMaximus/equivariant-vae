@@ -69,6 +69,9 @@ required_files=(
   "kaggle/kernels/synthetic_timing/__init__.py"
   "kaggle/kernels/synthetic_timing/kernel-metadata.json"
   "kaggle/kernels/synthetic_timing/run_template.py"
+  "kaggle/kernels/real_data_runtime_pretest/__init__.py"
+  "kaggle/kernels/real_data_runtime_pretest/kernel-metadata.json"
+  "kaggle/kernels/real_data_runtime_pretest/run_template.py"
   "tests/.gitkeep"
   "paper/sipaim2026/main.tex"
   "paper/sipaim2026/sipaim2026.pdf"
@@ -222,6 +225,13 @@ if git check-ignore --no-index -q kaggle/kernels/synthetic_timing/run.py; then
   echo "ok: generated synthetic-timing run.py is ignored"
 else
   echo "error: generated synthetic-timing run.py should stay ignored"
+  missing=1
+fi
+
+if git check-ignore --no-index -q kaggle/kernels/real_data_runtime_pretest/run.py; then
+  echo "ok: generated real-data runtime pretest run.py is ignored"
+else
+  echo "error: generated real-data runtime pretest run.py should stay ignored"
   missing=1
 fi
 

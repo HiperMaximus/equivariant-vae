@@ -13,9 +13,12 @@ the narrow capped Kaggle smoke is `kaggle_smoke_ready`; the synthetic
 no-dataset Kaggle setup smoke is `kaggle_setup_smoke_ready`; the no-dataset
 synthetic binary Kaggle timing pretest contract is
 `kaggle_synthetic_timing_contract_ready` with local implementation and
-remote v1/v2/v3/v4 non-promotable evidence
+remote v1/v2/v3/v4 non-promotable evidence; the capped real-data runtime
+pretest config/schema contract is `real_data_runtime_pretest_contract_ready`
+with a local non-promotable runner/kernel/guard implementation, but remote
+real-data execution and linked eligibility evidence remain pending
 Owner/workstream: comparable non-equivariant VAE baseline
-Last updated: 2026-06-18
+Last updated: 2026-06-19
 
 Local scaffold exception, 2026-06-12: the user-authorized local
 benchmark-unblock slice may create `src/eqvae`, `configs/spec0001`, the
@@ -1621,21 +1624,54 @@ Benchmark budget and reset rules:
   does not select a runtime;
 - the first real-data train-step benchmark pass must be staged to avoid an
   uncontrolled cross product:
-  1. seed accelerator/batch candidates from the synthetic v4 shortlist;
+  1. seed accelerator/batch candidates from the synthetic v4 shortlist, but
+     treat those row IDs only as `parent_synthetic_row_id` provenance rather
+     than candidate identity. The first pass must also include sentinel rows so
+     synthetic loader/H2D winners do not create hidden selection bias:
+     dual-T4 per-device batch 4 and 12 around the v4 dual-T4 batch-8 row, and
+     single-T4 per-device batch 8 as a non-shortlisted baseline row;
   2. run `amp_off_fp32` across `compile_scope = none`, `model_forward`,
      `model_loss`, and `train_step_no_optimizer`, crossed with
      `branchless_all` and `indexed_masked`;
   3. carry only stable, numerically passing FP32 compile/corruption candidates
-     into `amp_conservative` and `amp_scalar_gate_relaxed`;
+     into `amp_conservative` and `amp_scalar_gate_relaxed`. Stable means the
+     exact `{accelerator_mode, per_device_batch_size, dataloader settings,
+     corruption_strategy, compile_scope}` candidate has passing runtime,
+     dataloader, numerical, corruption, gate-health, graph-break, and recompile
+     evidence in FP32;
   4. do not benchmark `full_train_step_with_optimizer` or a broader
      compile/AMP/corruption grid until the narrower stage passes and this spec
      is updated;
+- the first capped real-data train-step benchmark pass is a non-promotable
+  pretest, not runtime selection. It must use `benchmark_kind =
+  "real_data_runtime_pretest"`, `benchmark_source =
+  "kaggle_capped_real_data_train_step_pretest"`, `status_scope =
+  "non_promotable_real_data_runtime_pretest"`, `full_run_eligible = false`,
+  and a `blocked_claims` object blocking final runtime selection, final batch
+  size, final precision policy, final corruption strategy, final dataloader
+  settings, single-vs-dual T4 final choice, convergence, paper evidence, and
+  full-run readiness. It must not write `benchmark/selected_runtime.json`;
+- the first capped real-data pretest uses 8,192 train patches and 2,048
+  validation patches, not a full epoch. The cap must be composed of fixed,
+  hashed, spread row windows rather than a prefix-only slice: train windows
+  `[0, 2048)`, `[98304, 100352)`, `[196608, 198656)`, and
+  `[297952, 300000)`; validation windows `[0, 1024)` and `[28976, 30000)`.
+  The pretest manifest must record row-index ranges, WSI counts, split, data
+  root, file hashes, cache/warmup policy, and the fact that this is capped
+  train/validation evidence only;
 - if `torch.compile` needs compilation, report compile/startup time separately
   from steady-state step time. Compiled rows must record
   `compile_settle_steps`, the code paths exercised before timing, graph break
   counts, and recompile counts. A row is ineligible if a new graph break or
   recompile happens after the compile-settling phase or inside the measured
-  window;
+  window. The first real-data pretest locks `compile_settle_steps = 5`;
+  compile settling is excluded from timed warmup/measured rows and must exercise
+  train-corrupted step, clean-validation step, corruption strategy,
+  precision-policy path, DDP rank path, fixed full-batch path, final partial
+  batch path, and corruption mask cardinalities 0, 1, many, and all. The first
+  counter source is `torch._dynamo.utils.counters` reset per row; if this is
+  unavailable or semantically changes in the Kaggle PyTorch build, the row must
+  be `skipped_unsupported` or the spec must be updated before selection;
 - OOM rows are valid failure rows: record the attempted per-device batch size,
   the exception class/message hash, max allocated/reserved memory if available,
   and continue with the next smaller candidate;
@@ -1740,7 +1776,12 @@ Dataloader benchmark requirement:
 - `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json` must declare
   those candidates under `dataloader.candidates` and must identify the hot path
   as `mmap_tensor_only_v1` plus selector provenance as
-  `fixed_selector_json_v1`;
+  `fixed_selector_json_v1`. The same config must declare the capped real-data
+  pretest contract: 8,192 train patches, 2,048 validation patches, fixed spread
+  windows, synthetic-v4 parent row provenance plus sentinel rows, named
+  `compile_scope` values, `compile_settle_steps = 5`, the Dynamo counter source,
+  non-promotable status scope, blocked claims, and
+  `writes_selected_runtime = false`;
 - record at least
   `run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,world_size,rank,split,num_workers,prefetch_factor,pin_memory,persistent_workers,non_blocking_h2d,batch_size,batches_measured,batch_fetch_ms_p50,batch_fetch_ms_p95,h2d_ms_p50,h2d_ms_p95,loader_samples_sec,trainer_samples_sec,data_wait_fraction_p50,data_wait_fraction_p95,rank_sample_count,dropped_sample_count,status,failure_kind`;
 - local CPU pre-test rows must leave `h2d_ms_p50` and `h2d_ms_p95` empty
@@ -1781,18 +1822,33 @@ Benchmark artifact dependency graph:
    real-data benchmark, but they cannot satisfy `runtime_proof`,
    `runtime_matrix`, `dataloader_matrix`, `numerical_checks`, gate-health, or
    selected-runtime dependencies.
-4. `benchmark/runtime_matrix.csv` can mark candidate rows as completed, but no
+4. A capped real-data runtime pretest may write
+   `benchmark/real_data_runtime_pretest_manifest.json`,
+   `benchmark/runtime_proof.json`, `benchmark/runtime_matrix.csv`,
+   `benchmark/dataloader_matrix.csv`, `benchmark/numerical_checks.csv`,
+   `benchmark/corruption_checks.csv`,
+   `benchmark/gate_health_summary.json`, and
+   `benchmark/real_data_runtime_pretest_recommendations.json`, but it must keep
+   `full_run_eligible = false`, include blocked claims, and must not write
+   `benchmark/selected_runtime.json`.
+   The initial local implementation under
+   `kaggle/kernels/real_data_runtime_pretest` is allowed to prove embedded
+   packaging, guard behavior, upload-simulation import, wrong-accelerator local
+   rows, and artifact non-promotion only. Timed rows from that implementation
+   are ineligible until matching dataloader, numerical, corruption, gate-health,
+   graph-break, and recompile evidence passes.
+5. `benchmark/runtime_matrix.csv` can mark candidate rows as completed, but no
    row may be selected until matching `benchmark/dataloader_matrix.csv`,
    `benchmark/numerical_checks.csv`, `benchmark/corruption_checks.csv`,
    `metrics/gate_health.csv`, and `benchmark/gate_health_summary.json` entries
    exist and pass.
-5. `benchmark/selected_runtime.json` may be written with `status = "pass"` only
+6. `benchmark/selected_runtime.json` may be written with `status = "pass"` only
    when it references one row from `runtime_matrix.csv` whose row status is
    `pass`, whose linked artifacts have `pass`, and whose accelerator proof
    matches the selected mode.
-6. selected-runtime debug must consume that selected runtime and write a resume
+7. selected-runtime debug must consume that selected runtime and write a resume
    proof before tiny-overfit may run.
-7. `benchmark/tiny_overfit_summary.json` must pass before
+8. `benchmark/tiny_overfit_summary.json` must pass before
    `non_eq_vae_baseline.json` can be used for a first 10-epoch run.
 
 `benchmark/model_count.json` required shape:
@@ -1993,7 +2049,16 @@ milliseconds except `compile_startup_sec`.
     "gate_health_summary": "benchmark/gate_health_summary.json",
     "gate_health_summary_sha256": "sha256 hex"
   },
-  "selected_row_snapshot": {"row_id": "same as selected_row_id"},
+  "selected_row_snapshot": {
+    "row_id": "same as selected_row_id",
+    "compile_scope": "none",
+    "compile_settle_steps": 0,
+    "compile_settle_protocol_sha256": "sha256 hex",
+    "graph_break_count": 0,
+    "recompile_count": 0,
+    "post_settle_graph_break_count": 0,
+    "post_settle_recompile_count": 0
+  },
   "resolved_full_run_config_path": "configs/spec0001/non_eq_vae_baseline.resolved.json",
   "resolved_full_run_config_sha256": "sha256 hex"
 }

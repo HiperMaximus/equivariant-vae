@@ -1,6 +1,6 @@
 {
   "schema_version": "spec0001.v0",
-  "status": "scaffold_not_remote_push_ready",
+  "status": "real_data_runtime_pretest_kernel_guard_ready_non_promotable",
   "run": {
     "name": "non_eq_vae_spec0001_runtime_benchmark",
     "mode": "kaggle_runtime_benchmark"
@@ -9,7 +9,27 @@
   "data": {
     "kind": "ubc-pre-shuffled",
     "dataset_slug": "maximusshtefan/patches-pre-shuffled-ubc-ocean",
-    "data_root": "auto"
+    "data_root": "auto",
+    "real_train_patch_count": 300000,
+    "real_validation_patch_count": 30000,
+    "benchmark_cap": {
+      "enabled": true,
+      "train_patch_count": 8192,
+      "validation_patch_count": 2048,
+      "window_policy": "fixed_hashed_spread_windows",
+      "train_windows": [
+        {"name": "train_head", "start_row": 0, "patch_count": 2048},
+        {"name": "train_mid_a", "start_row": 98304, "patch_count": 2048},
+        {"name": "train_mid_b", "start_row": 196608, "patch_count": 2048},
+        {"name": "train_tail", "start_row": 297952, "patch_count": 2048}
+      ],
+      "validation_windows": [
+        {"name": "validation_head", "start_row": 0, "patch_count": 1024},
+        {"name": "validation_tail", "start_row": 28976, "patch_count": 1024}
+      ],
+      "full_epoch_allowed": false,
+      "purpose": "runtime_selection_without_full_epoch_cost"
+    }
   },
   "dataloader": {
     "hot_path": "mmap_tensor_only_v1",
@@ -27,17 +47,165 @@
   "runtime_matrix": {
     "machine_shape": "NvidiaTeslaT4",
     "accelerator_modes": ["single_visible_t4", "dual_t4_ddp"],
-    "precision_policies": [
-      "amp_off_fp32",
-      "amp_conservative",
-      "amp_scalar_gate_relaxed"
+    "seeded_candidates": [
+      {
+        "accelerator_mode": "dual_t4_ddp",
+        "per_device_batch_size": 8,
+        "synthetic_v4_rank": 1,
+        "synthetic_v4_row_id": "dual_t4_ddp__bs8__amp_off_fp32__compile_off__branchless_all",
+        "candidate_role": "synthetic_v4_seed"
+      },
+      {
+        "accelerator_mode": "single_visible_t4",
+        "per_device_batch_size": 4,
+        "synthetic_v4_rank": 2,
+        "synthetic_v4_row_id": "single_visible_t4__bs4__amp_off_fp32__compile_off__branchless_all",
+        "candidate_role": "synthetic_v4_seed"
+      },
+      {
+        "accelerator_mode": "single_visible_t4",
+        "per_device_batch_size": 32,
+        "synthetic_v4_rank": 3,
+        "synthetic_v4_row_id": "single_visible_t4__bs32__amp_off_fp32__compile_off__branchless_all",
+        "candidate_role": "synthetic_v4_seed"
+      },
+      {
+        "accelerator_mode": "single_visible_t4",
+        "per_device_batch_size": 12,
+        "synthetic_v4_rank": 4,
+        "synthetic_v4_row_id": "single_visible_t4__bs12__amp_off_fp32__compile_off__branchless_all",
+        "candidate_role": "synthetic_v4_seed"
+      },
+      {
+        "accelerator_mode": "dual_t4_ddp",
+        "per_device_batch_size": 4,
+        "synthetic_v4_rank": null,
+        "synthetic_v4_row_id": null,
+        "candidate_role": "sentinel_adjacent_lower_batch"
+      },
+      {
+        "accelerator_mode": "dual_t4_ddp",
+        "per_device_batch_size": 12,
+        "synthetic_v4_rank": null,
+        "synthetic_v4_row_id": null,
+        "candidate_role": "sentinel_adjacent_higher_batch"
+      },
+      {
+        "accelerator_mode": "single_visible_t4",
+        "per_device_batch_size": 8,
+        "synthetic_v4_rank": null,
+        "synthetic_v4_row_id": null,
+        "candidate_role": "sentinel_non_shortlisted_baseline"
+      }
     ],
-    "compile_options": [false, true],
+    "stages": [
+      {
+        "name": "fp32_compile_corruption_screen",
+        "candidate_source": "synthetic_timing_v4_repeat_shortlist",
+        "precision_policies": ["amp_off_fp32"],
+        "compile_scopes": [
+          "none",
+          "model_forward",
+          "model_loss",
+          "train_step_no_optimizer"
+        ],
+        "corruption_strategies": ["branchless_all", "indexed_masked"],
+        "output": "stable_fp32_compile_corruption_candidates"
+      },
+      {
+        "name": "amp_followup_on_stable_fp32_candidates",
+        "candidate_source": "stable_fp32_compile_corruption_candidates",
+        "precision_policies": ["amp_conservative", "amp_scalar_gate_relaxed"],
+        "compile_scopes": ["none", "stable_fp32_compiled_scopes_only"],
+        "corruption_strategies": ["stable_fp32_corruption_strategies_only"],
+        "output": "runtime_selection_candidates"
+      }
+    ],
+    "compile_scopes": [
+      "none",
+      "model_forward",
+      "model_loss",
+      "train_step_no_optimizer"
+    ],
+    "full_train_step_with_optimizer": "out_of_scope_until_spec_update",
+    "precision_policies": {
+      "stage_1": ["amp_off_fp32"],
+      "stage_2": ["amp_conservative", "amp_scalar_gate_relaxed"]
+    },
     "corruption_strategies": ["branchless_all", "indexed_masked"],
-    "candidate_per_device_batch_sizes": [4, 8, 12, 16, 24, 32, 48, 64],
-    "warmup_steps": 3,
-    "measured_steps": 12,
+    "candidate_per_device_batch_sizes": [4, 8, 12, 32],
+    "drop_last": false,
+    "compile_settle_policy": {
+      "compile_settle_steps": 5,
+      "excluded_from_timing": true,
+      "must_exercise": [
+        "train_corrupted_step",
+        "clean_validation_step",
+        "corruption_strategy",
+        "precision_policy",
+        "ddp_rank_path",
+        "fixed_shape_batch",
+        "final_partial_batch_path",
+        "mask_cardinality_0",
+        "mask_cardinality_1",
+        "mask_cardinality_many",
+        "mask_cardinality_all"
+      ],
+      "counter_source": "torch._dynamo.utils.counters_with_reset_per_row",
+      "post_settle_required_zero_fields": [
+        "graph_break_count",
+        "recompile_count"
+      ],
+      "ineligible_on_measured_graph_break_or_recompile": true
+    },
+    "warmup_steps": 5,
+    "measured_steps": 25,
     "repeats": 1,
     "remote_execution_requires_permission": true
+  },
+  "runtime_pretest": {
+    "benchmark_kind": "real_data_runtime_pretest",
+    "benchmark_source": "kaggle_capped_real_data_train_step_pretest",
+    "status_scope": "non_promotable_real_data_runtime_pretest",
+    "full_run_eligible": false,
+    "writes_selected_runtime": false,
+    "blocked_claims": {
+      "final_runtime_selection": true,
+      "final_batch_size": true,
+      "final_precision_policy": true,
+      "final_corruption_strategy": true,
+      "final_dataloader_settings": true,
+      "convergence": true,
+      "paper_evidence": true,
+      "full_run_readiness": true,
+      "single_vs_dual_t4_final_choice": true
+    },
+    "artifacts": {
+      "manifest": "benchmark/real_data_runtime_pretest_manifest.json",
+      "runtime_proof": "benchmark/runtime_proof.json",
+      "runtime_matrix": "benchmark/runtime_matrix.csv",
+      "dataloader_matrix": "benchmark/dataloader_matrix.csv",
+      "numerical_checks": "benchmark/numerical_checks.csv",
+      "corruption_checks": "benchmark/corruption_checks.csv",
+      "gate_health_summary": "benchmark/gate_health_summary.json",
+      "recommendations": "benchmark/real_data_runtime_pretest_recommendations.json"
+    }
+  },
+  "future_selection_safety_artifacts": {
+    "runtime_proof": "benchmark/runtime_proof.json",
+    "runtime_matrix": "benchmark/runtime_matrix.csv",
+    "dataloader_matrix": "benchmark/dataloader_matrix.csv",
+    "numerical_checks": "benchmark/numerical_checks.csv",
+    "corruption_checks": "benchmark/corruption_checks.csv",
+    "gate_health_summary": "benchmark/gate_health_summary.json",
+    "selected_runtime": "benchmark/selected_runtime.json",
+    "selected_runtime_requires": [
+      "runtime_proof:pass",
+      "runtime_matrix:selected_row_pass",
+      "dataloader_matrix:pass",
+      "numerical_checks:pass",
+      "corruption_checks:pass",
+      "gate_health_summary:pass"
+    ]
   }
 }

@@ -18,10 +18,12 @@ from eqvae.benchmarking.model_count import (
     write_model_count,
 )
 from eqvae.benchmarking.runtime_schema import (
+    CORRUPTION_CHECK_COLUMNS,
     DATALOADER_MATRIX_COLUMNS,
     GATE_HEALTH_COLUMNS,
     NUMERICAL_CHECK_COLUMNS,
     RUNTIME_MATRIX_COLUMNS,
+    BenchmarkArtifactPaths,
     SyntheticBenchmarkRequest,
     write_synthetic_benchmark_artifacts,
 )
@@ -36,6 +38,10 @@ if TYPE_CHECKING:
 EXPECTED_GATE_ROWS = 1
 EXPECTED_MODEL_INVENTORY_ROWS = 129
 EXPECTED_RUNTIME_ROWS = 2
+EXPECTED_REAL_PRETEST_MEASURED_STEPS = 25
+EXPECTED_REAL_PRETEST_TRAIN_PATCHES = 8192
+EXPECTED_REAL_PRETEST_VALIDATION_PATCHES = 2048
+EXPECTED_REAL_PRETEST_WARMUP_STEPS = 5
 SPEC_TOTAL_LEARNED_PARAMETERS = 3_958_435
 
 
@@ -115,9 +121,101 @@ def test_kaggle_runtime_config_does_not_inherit_local_pretest_fields() -> None:
     runtime = effective["runtime_matrix"]
     assert isinstance(runtime, dict)
     assert runtime["machine_shape"] == "NvidiaTeslaT4"
+    assert "compile_options" not in runtime
+    assert runtime["compile_scopes"] == [
+        "none",
+        "model_forward",
+        "model_loss",
+        "train_step_no_optimizer",
+    ]
+    assert runtime["candidate_per_device_batch_sizes"] == [4, 8, 12, 32]
+    assert runtime["warmup_steps"] == EXPECTED_REAL_PRETEST_WARMUP_STEPS
+    assert runtime["measured_steps"] == EXPECTED_REAL_PRETEST_MEASURED_STEPS
+    compile_settle_policy = runtime["compile_settle_policy"]
+    assert isinstance(compile_settle_policy, dict)
+    assert (
+        compile_settle_policy["compile_settle_steps"]
+        == EXPECTED_REAL_PRETEST_WARMUP_STEPS
+    )
+    assert compile_settle_policy["excluded_from_timing"] is True
+    assert compile_settle_policy["counter_source"] == (
+        "torch._dynamo.utils.counters_with_reset_per_row"
+    )
+    assert compile_settle_policy["post_settle_required_zero_fields"] == [
+        "graph_break_count",
+        "recompile_count",
+    ]
+    must_exercise = compile_settle_policy["must_exercise"]
+    assert isinstance(must_exercise, list)
+    assert "mask_cardinality_all" in must_exercise
     data = effective["data"]
     assert isinstance(data, dict)
     assert data["kind"] == "ubc-pre-shuffled"
+    benchmark_cap = data["benchmark_cap"]
+    assert isinstance(benchmark_cap, dict)
+    assert benchmark_cap["enabled"] is True
+    assert benchmark_cap["train_patch_count"] == EXPECTED_REAL_PRETEST_TRAIN_PATCHES
+    assert (
+        benchmark_cap["validation_patch_count"]
+        == EXPECTED_REAL_PRETEST_VALIDATION_PATCHES
+    )
+    assert benchmark_cap["window_policy"] == "fixed_hashed_spread_windows"
+    runtime_pretest = effective["runtime_pretest"]
+    assert isinstance(runtime_pretest, dict)
+    assert runtime_pretest["benchmark_kind"] == "real_data_runtime_pretest"
+    assert runtime_pretest["full_run_eligible"] is False
+    assert runtime_pretest["writes_selected_runtime"] is False
+    blocked_claims = runtime_pretest["blocked_claims"]
+    assert isinstance(blocked_claims, dict)
+    assert all(blocked_claims.values())
+
+
+def test_runtime_config_stage_order_and_shortlist_provenance() -> None:
+    """Runtime benchmark config keeps FP32-first staging and v4 provenance."""
+    effective = resolve_json_config(
+        Path("configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json"),
+    ).effective_config
+    runtime = effective["runtime_matrix"]
+    assert isinstance(runtime, dict)
+
+    stages = runtime["stages"]
+    assert isinstance(stages, list)
+    assert [stage["name"] for stage in stages if isinstance(stage, dict)] == [
+        "fp32_compile_corruption_screen",
+        "amp_followup_on_stable_fp32_candidates",
+    ]
+    fp32_stage = stages[0]
+    amp_stage = stages[1]
+    assert isinstance(fp32_stage, dict)
+    assert isinstance(amp_stage, dict)
+    assert fp32_stage["precision_policies"] == ["amp_off_fp32"]
+    assert fp32_stage["compile_scopes"] == [
+        "none",
+        "model_forward",
+        "model_loss",
+        "train_step_no_optimizer",
+    ]
+    assert amp_stage["candidate_source"] == "stable_fp32_compile_corruption_candidates"
+
+    candidates = runtime["seeded_candidates"]
+    assert isinstance(candidates, list)
+    assert any(
+        isinstance(candidate, dict)
+        and candidate["candidate_role"] == "sentinel_non_shortlisted_baseline"
+        for candidate in candidates
+    )
+    parent_rows = [
+        candidate["synthetic_v4_row_id"]
+        for candidate in candidates
+        if isinstance(candidate, dict)
+        and candidate["candidate_role"] == "synthetic_v4_seed"
+    ]
+    assert parent_rows == [
+        "dual_t4_ddp__bs8__amp_off_fp32__compile_off__branchless_all",
+        "single_visible_t4__bs4__amp_off_fp32__compile_off__branchless_all",
+        "single_visible_t4__bs32__amp_off_fp32__compile_off__branchless_all",
+        "single_visible_t4__bs12__amp_off_fp32__compile_off__branchless_all",
+    ]
 
 
 def test_model_count_resolves_source_config_without_repo_cwd(
@@ -195,25 +293,12 @@ def test_gated_scalar_activation_fp16_input_is_finite() -> None:
     assert torch.isfinite(outputs).all()
 
 
-def test_synthetic_benchmark_schema_outputs(tmp_path: Path) -> None:
-    """Synthetic benchmark smoke writes every local schema artifact."""
-    artifacts = write_synthetic_benchmark_artifacts(
-        SyntheticBenchmarkRequest(
-            config_path=Path("configs/spec0001/non_eq_vae_debug_cpu.json"),
-            output_dir=tmp_path,
-            run_name="spec0001_cpu_runtime_benchmark",
-            max_benchmark_rows=EXPECTED_RUNTIME_ROWS,
-            warmup_steps=1,
-            measured_steps=2,
-        ),
-    )
-
+def test_synthetic_benchmark_schema_core_outputs(tmp_path: Path) -> None:
+    """Synthetic benchmark smoke writes core local schema artifacts."""
+    artifacts = _write_schema_artifacts(tmp_path)
     runtime_rows = _load_csv(artifacts.runtime_matrix)
     selected_runtime = _load_json(artifacts.selected_runtime)
     dataloader_rows = _load_csv(artifacts.dataloader_matrix)
-    numerical_rows = _load_csv(artifacts.numerical_checks)
-    gate_rows = _load_csv(artifacts.gate_health)
-    gate_summary = _load_json(artifacts.gate_health_summary)
     model_count = _load_json(artifacts.model_count)
 
     assert model_count["status"] == "pass"
@@ -228,6 +313,13 @@ def test_synthetic_benchmark_schema_outputs(tmp_path: Path) -> None:
     assert {row["numerical_check_status"] for row in runtime_rows} == {
         "schema_pass",
     }
+    assert {row["compile_scope"] for row in runtime_rows} == {
+        "none",
+        "model_forward",
+    }
+    assert {row["compile_settle_steps"] for row in runtime_rows} == {"0"}
+    assert {row["graph_break_count"] for row in runtime_rows} == {"0"}
+    assert {row["recompile_count"] for row in runtime_rows} == {"0"}
     assert selected_runtime["status"] == "schema_pass"
     assert selected_runtime["benchmark_kind"] == "local_synthetic_schema"
     assert selected_runtime["benchmark_source"] == "local_synthetic_schema_smoke"
@@ -236,6 +328,17 @@ def test_synthetic_benchmark_schema_outputs(tmp_path: Path) -> None:
     assert isinstance(selected_dataloader, dict)
     assert selected_dataloader["prefetch_factor"] is None
     assert selected_dataloader["non_blocking_h2d"] is False
+    selected_compile = selected_runtime["torch_compile"]
+    assert isinstance(selected_compile, dict)
+    assert selected_compile["scope"] == "none"
+    selected_safety = selected_runtime["safety"]
+    assert isinstance(selected_safety, dict)
+    assert selected_safety["corruption_check_status"] == "schema_pass"
+    selected_snapshot = selected_runtime["selected_row_snapshot"]
+    assert isinstance(selected_snapshot, dict)
+    assert selected_snapshot["compile_scope"] == "none"
+    assert selected_snapshot["post_settle_graph_break_count"] == 0
+    assert selected_snapshot["post_settle_recompile_count"] == 0
     assert tuple(dataloader_rows[0]) == DATALOADER_MATRIX_COLUMNS
     assert {row["split"] for row in dataloader_rows} == {"train", "validation"}
     assert {row["benchmark_kind"] for row in dataloader_rows} == {
@@ -245,16 +348,50 @@ def test_synthetic_benchmark_schema_outputs(tmp_path: Path) -> None:
     assert {row["machine_shape"] for row in dataloader_rows} == {"local_cpu"}
     assert {row["non_blocking_h2d"] for row in dataloader_rows} == {"false"}
     assert {row["h2d_ms_p50"] for row in dataloader_rows} == {""}
+
+
+def test_synthetic_benchmark_schema_dependency_outputs(tmp_path: Path) -> None:
+    """Synthetic benchmark smoke writes dependency artifact schemas."""
+    artifacts = _write_schema_artifacts(tmp_path)
+    numerical_rows = _load_csv(artifacts.numerical_checks)
+    corruption_rows = _load_csv(artifacts.corruption_checks)
+    gate_rows = _load_csv(artifacts.gate_health)
+    gate_summary = _load_json(artifacts.gate_health_summary)
+    runtime_proof = _load_json(artifacts.runtime_proof)
+
+    assert runtime_proof["status"] == "schema_pass"
+    assert runtime_proof["full_run_eligible"] is False
     assert len(numerical_rows) == EXPECTED_RUNTIME_ROWS
     assert tuple(numerical_rows[0]) == NUMERICAL_CHECK_COLUMNS
     assert {row["full_run_eligible"] for row in numerical_rows} == {"false"}
     assert {row["gate_health_status"] for row in numerical_rows} == {"schema_pass"}
+    assert {row["compile_scope"] for row in numerical_rows} == {
+        "none",
+        "model_forward",
+    }
+    assert len(corruption_rows) == EXPECTED_RUNTIME_ROWS
+    assert tuple(corruption_rows[0]) == CORRUPTION_CHECK_COLUMNS
+    assert {row["full_run_eligible"] for row in corruption_rows} == {"false"}
+    assert {row["status"] for row in corruption_rows} == {"schema_pass"}
     assert len(gate_rows) == EXPECTED_GATE_ROWS
     assert tuple(gate_rows[0]) == GATE_HEALTH_COLUMNS
     assert {row["full_run_eligible"] for row in gate_rows} == {"false"}
     assert {row["gate_health_status"] for row in gate_rows} == {"schema_pass"}
     assert gate_summary["benchmark_source"] == "local_synthetic_schema_smoke"
     assert gate_summary["overall_status"] == "schema_pass"
+
+
+def _write_schema_artifacts(tmp_path: Path) -> BenchmarkArtifactPaths:
+    return write_synthetic_benchmark_artifacts(
+        SyntheticBenchmarkRequest(
+            config_path=Path("configs/spec0001/non_eq_vae_debug_cpu.json"),
+            output_dir=tmp_path,
+            run_name="spec0001_cpu_runtime_benchmark",
+            max_benchmark_rows=EXPECTED_RUNTIME_ROWS,
+            warmup_steps=1,
+            measured_steps=2,
+        ),
+    )
 
 
 def _load_json(path: Path) -> dict[str, object]:
