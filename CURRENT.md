@@ -232,14 +232,19 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: poll Kaggle real-data runtime pretest version 2 before
-any new remote push. Version 2 was pushed from local commit `53051e8` and was
-still `KernelWorkerStatus.RUNNING` with empty logs after the monitored polling
-window; no output artifacts have been downloaded for v2 yet. After that run
-completes or errors, inspect/download artifacts and then continue canonical,
-candidate-specific linked evidence for the non-promotable capped real-data
-train-step pretest. The 2026-06-19 proof-lane implementation now records
-real-data/local identity, SHA256 file
+Immediate next action: fix Kaggle real-data input discovery/diagnostics before
+resending the real-data runtime pretest. Version 2 completed and artifacts were
+downloaded, but `data_root = "auto"` resolved no Kaggle input files:
+`real_data_proof.failure_kind = "data_root_unavailable"`,
+`resolved_data_root = ""`, real-data identity/CRC/window/clean-loader statuses
+were `skipped_unsupported`, and the two dataloader matrix rows stayed
+`skipped_unsupported`. Do not resend the same payload unchanged. First add a
+diagnostic artifact/log for `/kaggle/input` candidates and/or broaden/override
+the accepted dataset-root candidates, then rebuild, validate, and only push a
+fixed version with explicit approval. After the data-root issue is fixed,
+continue canonical, candidate-specific linked evidence for the non-promotable
+capped real-data train-step pretest. The 2026-06-19 proof-lane implementation
+now records real-data/local identity, SHA256 file
 hashes, full-payload CRC32 validation, row-count proof, split
 WSI/holdout-overlap contract proof, exact fixed spread-window proof, and a clean
 validation loader/collate/normalization proof. The follow-up linked-evidence
@@ -1232,7 +1237,7 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `./scripts/python_quality.sh` passed with 112 tests and 0 BasedPyright
   errors. `./scripts/agent_preflight.sh` passed and noted only the expected
   dirty worktree.
-- 2026-06-19 capped real-data runtime pretest remote v2 launch: committed the
+- 2026-06-19 capped real-data runtime pretest remote v2 result: committed the
   linked-evidence scaffolding as `53051e8` (`Add real-data linked pretest
   evidence scaffolds`), rebuilt
   `kaggle/kernels/real_data_runtime_pretest/run.py` so the ignored embedded
@@ -1245,10 +1250,29 @@ The review process lives in `docs/agentic_review_workflow.md`.
   ./scripts/kaggle_kernel.sh push kaggle/kernels/real_data_runtime_pretest`
   pushed Kaggle version 2 at
   `https://www.kaggle.com/code/maximusshtefan/eqvae-real-data-runtime-pretest`.
-  Multiple approved status polls still reported
-  `KernelWorkerStatus.RUNNING`; approved log reads returned only the Kaggle CLI
-  version warning and no run logs. No v2 output artifacts were downloaded before
-  handoff, and Overleaf was untouched.
+  Multiple approved status polls initially reported
+  `KernelWorkerStatus.RUNNING`; a later approved status check reported
+  `KernelWorkerStatus.COMPLETE`, and approved output download saved artifacts
+  under `runs/kaggle/real_data_runtime_pretest_v2`. The run completed but did
+  not exercise the new real-data proof lane: `runtime_proof.json` has
+  `status = "pretest_incomplete"`, `linked_evidence_status =
+  "skipped_unsupported"`, `eligible_pass_row_count = 0`,
+  `timed_ineligible_row_count = 6`, `skipped_unsupported_row_count = 48`,
+  `selection_ready = false`, and `selected_runtime_written = false`.
+  `real_data_runtime_pretest_manifest.json` reports
+  `real_data_proof.failure_kind = "data_root_unavailable"`, `data_root =
+  "auto"`, and `resolved_data_root = ""`, so real-data identity, CRC, window,
+  clean-validation dataloader, dataloader-throughput, paired numerical,
+  corruption, and gate-health statuses are all `skipped_unsupported`.
+  `dataloader_matrix.csv` contains only train/validation pending rows,
+  `numerical_checks.csv` and `corruption_checks.csv` contain 56
+  `skipped_unsupported` rows each, and `metrics/gate_health.csv` contains only
+  the header. Runtime matrix behavior otherwise matches v1: six eager
+  single-visible-T4 rows reached timed/ineligible shape, 48 rows were
+  skipped-unsupported, and the two single-T4 batch-32 rows failed with
+  `runtime_OutOfMemoryError`. No `benchmark/selected_runtime.json` was present.
+  The next remote attempt should not be an identical resend; first fix or
+  instrument Kaggle data-root discovery. Overleaf was untouched.
 
 ## Update Rule
 
