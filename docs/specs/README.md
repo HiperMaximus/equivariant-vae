@@ -37,7 +37,9 @@ The local runner now implements the candidate-linked compile/DDP/dataloader/
 numerical/corruption/gate-health lane; a new permissioned remote capped
 pretest is still needed before eager timed rows can gain canonical eligibility.
 Compiled `model_forward` rows must remain diagnostic-only/ineligible until full
-compile-settle coverage is implemented.
+compile-settle coverage is implemented. Local code after the v5 launch also
+adds phase-timing JSON-line logs and `benchmark/phase_timings.json` for future
+reruns so polling cadence can be based on measured durations.
 
 Keep specs current. If implementation changes the contract, update the spec in
 the same workstream.

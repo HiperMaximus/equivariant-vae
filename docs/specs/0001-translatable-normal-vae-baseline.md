@@ -1853,9 +1853,9 @@ Benchmark artifact dependency graph:
    `benchmark/dataloader_matrix.csv`, `benchmark/numerical_checks.csv`,
    `benchmark/corruption_checks.csv`,
    `benchmark/gate_health_summary.json`, and
-   `benchmark/real_data_runtime_pretest_recommendations.json`, but it must keep
-   `full_run_eligible = false`, include blocked claims, and must not write
-   `benchmark/selected_runtime.json`.
+   `benchmark/real_data_runtime_pretest_recommendations.json`, and
+   `benchmark/phase_timings.json`, but it must keep `full_run_eligible = false`,
+   include blocked claims, and must not write `benchmark/selected_runtime.json`.
    The local implementation under `kaggle/kernels/real_data_runtime_pretest` is
    allowed to prove embedded packaging, guard behavior, upload-simulation import,
    wrong-accelerator local rows, artifact non-promotion, real-data/local
@@ -1863,12 +1863,12 @@ Benchmark artifact dependency graph:
    normalization plumbing. It may also write candidate-linked evidence for
    `model_forward` compile-settle/Dynamo counters, real DDP launch proof,
    dataloader throughput, same-batch eager-reference numerical checks,
-   corruption equivalence, and gate health. Eager timed rows from that
-   implementation are eligible only when the canonical real-data proof, real
-   DDP proof, matching row-specific dataloader/numerical/corruption/gate-health
-   evidence, graph-break, and recompile checks pass. Compiled timed rows remain
-   diagnostic-only/ineligible until the full compile-settle coverage proof
-   passes.
+   corruption equivalence, gate health, and coarse phase timings for polling
+   cadence. Eager timed rows from that implementation are eligible only when
+   the canonical real-data proof, real DDP proof, matching row-specific
+   dataloader/numerical/corruption/gate-health evidence, graph-break, and
+   recompile checks pass. Compiled timed rows remain diagnostic-only/ineligible
+   until the full compile-settle coverage proof passes.
 5. `benchmark/runtime_matrix.csv` can mark candidate rows as completed, but no
    row may be selected until matching `benchmark/dataloader_matrix.csv`,
    `benchmark/numerical_checks.csv`, `benchmark/corruption_checks.csv`,

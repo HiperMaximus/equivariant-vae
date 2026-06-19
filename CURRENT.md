@@ -239,7 +239,10 @@ Kaggle state, then download artifacts to
 `real_data_runtime_pretest_manifest.json`, `runtime_matrix.csv`,
 `dataloader_matrix.csv`, `numerical_checks.csv`, `corruption_checks.csv`, and
 `metrics/gate_health.csv`, and confirm no `benchmark/selected_runtime.json`
-exists. Do not poll continuously: v5 was still `RUNNING` after the initial
+exists. If v5 needs a rerun, the local runner now has phase logging for the next
+kernel version: stderr JSON-line phase events, `benchmark/phase_timings.json`,
+and `phase_timings` objects mirrored into `runtime_proof.json` and
+`real_data_runtime_pretest_manifest.json`. Do not poll continuously: v5 was still `RUNNING` after the initial
 monitoring window, so the next status check should wait until at least
 2026-06-19 15:20 -05 and then use a 30-minute or slower cadence until the
 terminal duration is known. The local runner now
@@ -1454,6 +1457,25 @@ The review process lives in `docs/agentic_review_workflow.md`.
   then inspect that v5 remains non-promotable, has no
   `benchmark/selected_runtime.json`, and only eager rows can pass while compiled
   `model_forward` rows remain diagnostic/ineligible.
+- 2026-06-19 real-data pretest phase-timing logging:
+  added coarse phase instrumentation for future real-data pretest reruns after
+  the already-running remote v5. The runner now emits stderr JSON lines for
+  phase start/finish events, mirrors `phase_timings` into
+  `runtime_proof.json` and `real_data_runtime_pretest_manifest.json`, writes
+  `benchmark/phase_timings.json`, and allowlists that artifact. Timed phases
+  cover config resolution, output prep, real-data identity/clean-path proof,
+  each stage-1 runtime row, linked-evidence sublanes
+  (compile-settle/DDP/train-step/dataloader/numerical/corruption/gate-health),
+  row eligibility join, schema row materialization, and artifact writing. This
+  is intended to set future Kaggle polling cadence from observed durations
+  instead of repeated status checks. Verification: focused
+  `env PYTHONPATH=src ./.venv/bin/python -m pytest
+  tests/test_real_data_runtime_pretest.py` passed with 7 tests; full
+  `./scripts/python_quality.sh` passed with Ruff, BasedPyright, 118 tests, and
+  0 type errors; `git diff --check` passed; local real-data pretest kernel
+  build/validate and dirty-worktree embedded verify with `--allow-dirty` passed.
+  This has not been pushed to Kaggle; remote v5 is still the previously launched
+  version without phase-timing artifacts.
 
 ## Update Rule
 

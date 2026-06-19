@@ -356,6 +356,13 @@ resolution, clean-validation proof, DDP launch proof, dataloader throughput,
 numerical checks, corruption checks, and gate-health work if the artifact
 contains those fields.
 
+The real-data runtime pretest runner writes coarse JSON-line phase events to
+stderr and, for versions built after this logging slice, writes
+`benchmark/phase_timings.json` plus matching `phase_timings` objects in
+`runtime_proof.json` and `real_data_runtime_pretest_manifest.json`. Use those
+durations to update future polling cadence instead of guessing from status
+checks.
+
 Current duration notes:
 
 - Real-data runtime pretest v5, 2026-06-19: Kaggle accepted version 5 and kept

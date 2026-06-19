@@ -19,8 +19,9 @@ from collections import Counter
 from collections.abc import MutableMapping
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
 
 import torch
 
@@ -80,6 +81,7 @@ CORRUPTION_CHECKS_FILENAME = "corruption_checks.csv"
 GATE_HEALTH_FILENAME = "gate_health.csv"
 GATE_HEALTH_SUMMARY_FILENAME = "gate_health_summary.json"
 RECOMMENDATIONS_FILENAME = "real_data_runtime_pretest_recommendations.json"
+PHASE_TIMINGS_FILENAME = "phase_timings.json"
 SELECTED_RUNTIME_FILENAME = "selected_runtime.json"
 SINGLE_VISIBLE_T4 = "single_visible_t4"
 DUAL_T4_DDP = "dual_t4_ddp"
@@ -332,6 +334,113 @@ class ChildProcessArgs:
     ddp_rank_row: str | None
 
 
+class PhaseTimingRecorder:
+    """Record coarse pretest phase timings and emit progress logs."""
+
+    def __init__(self) -> None:
+        self._started_ns = time.perf_counter_ns()
+        self._started_at_utc = _utc_timestamp()
+        self._records: list[JsonObject] = []
+
+    def phase(self, name: str, **metadata: JsonValue) -> _PhaseTimingContext:
+        """Create a context manager that records one named phase.
+
+        Returns:
+            Context manager for the requested phase.
+
+        """
+        return _PhaseTimingContext(
+            recorder=self,
+            name=name,
+            metadata=dict(metadata),
+        )
+
+    def payload(self) -> JsonObject:
+        """Return the serializable phase-timing summary.
+
+        Returns:
+            JSON-ready phase timing summary.
+
+        """
+        return {
+            "schema_version": "eqvae.phase_timings.v1",
+            "started_at_utc": self._started_at_utc,
+            "finished_at_utc": _utc_timestamp(),
+            "total_elapsed_sec": _rounded_float(_elapsed_seconds(self._started_ns)),
+            "recorded_phase_count": len(self._records),
+            "polling_hint": (
+                "Use artifact phase timings to choose future polling cadence; "
+                "source-attached real-data kernels should default to 30-minute "
+                "or slower status polling until terminal durations are known."
+            ),
+            "phases": [dict(record) for record in self._records],
+        }
+
+    def record(self, record: JsonObject) -> None:
+        """Store one completed phase timing record."""
+        self._records.append(record)
+
+
+@dataclass
+class _PhaseTimingContext:
+    recorder: PhaseTimingRecorder
+    name: str
+    metadata: JsonObject
+    started_at_utc: str = ""
+    start_ns: int = 0
+
+    def __enter__(self) -> Self:
+        self.started_at_utc = _utc_timestamp()
+        self.start_ns = time.perf_counter_ns()
+        _log_phase_event(
+            _phase_log_payload(
+                event="start",
+                name=self.name,
+                metadata=self.metadata,
+            ),
+        )
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: object,
+    ) -> Literal[False]:
+        del exc
+        del traceback
+        status = FAIL_STATUS if exc_type is not None else PASS_STATUS
+        failure_type = exc_type.__name__ if exc_type is not None else ""
+        elapsed_sec = _elapsed_seconds(self.start_ns)
+        record: JsonObject = {
+            "name": self.name,
+            "status": status,
+            "started_at_utc": self.started_at_utc,
+            "finished_at_utc": _utc_timestamp(),
+            "elapsed_sec": _rounded_float(elapsed_sec),
+        }
+        if self.metadata:
+            record["metadata"] = self.metadata
+        if failure_type:
+            record["failure_type"] = failure_type
+        self.recorder.record(record)
+        extra: JsonObject = {
+            "status": status,
+            "elapsed_sec": _rounded_float(elapsed_sec),
+        }
+        if failure_type:
+            extra["failure_type"] = failure_type
+        _log_phase_event(
+            _phase_log_payload(
+                event="finish",
+                name=self.name,
+                metadata=self.metadata,
+                extra=extra,
+            ),
+        )
+        return False
+
+
 def write_real_data_runtime_pretest(request: RealDataRuntimePretestRequest) -> Path:
     """Run the capped pretest surface and write non-promotable artifacts.
 
@@ -339,95 +448,126 @@ def write_real_data_runtime_pretest(request: RealDataRuntimePretestRequest) -> P
         Path to `benchmark/real_data_runtime_pretest_recommendations.json`.
 
     """
-    resolved = resolve_json_config(request.config_path)
-    settings = _settings(resolved, data_root_override=request.data_root)
+    phase_timings = PhaseTimingRecorder()
+    with phase_timings.phase(
+        "config_resolution",
+        config_path=str(request.config_path),
+        output_dir=str(request.output_dir),
+    ):
+        resolved = resolve_json_config(request.config_path)
+        settings = _settings(resolved, data_root_override=request.data_root)
     benchmark_dir = request.output_dir / "benchmark"
     metrics_dir = request.output_dir / "metrics"
-    request.output_dir.mkdir(parents=True, exist_ok=True)
-    _reject_selected_runtime_artifact(request.output_dir)
-    data_proof = _real_data_identity_and_clean_path_proof(settings)
-    rows = _run_stage1_rows(
-        request=request,
-        settings=settings,
-        row_specs=_stage1_row_specs(settings),
-    )
-    linked_evidence = _linked_evidence_payload(
-        request=request,
-        settings=settings,
-        data_proof=data_proof,
-        rows=rows,
-    )
-    rows = _rows_with_linked_evidence(
-        rows=rows,
-        data_proof=data_proof,
-        linked_evidence=linked_evidence,
-    )
-    dataloader_rows = _schema_dataloader_rows(
-        settings=settings,
-        data_proof=data_proof,
-        linked_evidence=linked_evidence,
-    )
-    numerical_rows = _schema_numerical_rows(
-        settings=settings,
-        rows=rows,
-        linked_evidence=linked_evidence,
-    )
-    corruption_rows = _schema_corruption_rows(
-        settings=settings,
-        rows=rows,
-        linked_evidence=linked_evidence,
-    )
-    gate_health_rows = _gate_health_rows(
-        settings=settings,
-        linked_evidence=linked_evidence,
-    )
-
-    write_json(
-        benchmark_dir / MANIFEST_FILENAME,
-        _manifest_payload(
+    with phase_timings.phase("prepare_output_dir", output_dir=str(request.output_dir)):
+        request.output_dir.mkdir(parents=True, exist_ok=True)
+        _reject_selected_runtime_artifact(request.output_dir)
+    with phase_timings.phase(
+        "real_data_identity_and_clean_path_proof",
+        data_root=settings.data_root,
+        dataset_slug=settings.dataset_slug,
+    ):
+        data_proof = _real_data_identity_and_clean_path_proof(settings)
+    row_specs = _stage1_row_specs(settings)
+    with phase_timings.phase(
+        "stage1_runtime_rows",
+        configured_row_count=len(row_specs),
+    ):
+        rows = _run_stage1_rows(
             request=request,
-            resolved=resolved,
             settings=settings,
+            row_specs=row_specs,
+            phase_timings=phase_timings,
+        )
+    with phase_timings.phase("linked_evidence_payload", row_count=len(rows)):
+        linked_evidence = _linked_evidence_payload(
+            request=request,
+            settings=settings,
+            data_proof=data_proof,
+            rows=rows,
+            phase_timings=phase_timings,
+        )
+    with phase_timings.phase("row_linked_evidence_join", row_count=len(rows)):
+        rows = _rows_with_linked_evidence(
             rows=rows,
             data_proof=data_proof,
             linked_evidence=linked_evidence,
-        ),
-    )
-    write_json(
-        benchmark_dir / RUNTIME_PROOF_FILENAME,
-        _runtime_proof_payload(
+        )
+    with phase_timings.phase("schema_linked_rows", row_count=len(rows)):
+        dataloader_rows = _schema_dataloader_rows(
             settings=settings,
-            rows=rows,
             data_proof=data_proof,
             linked_evidence=linked_evidence,
-        ),
-    )
-    write_csv(benchmark_dir / RUNTIME_MATRIX_FILENAME, RUNTIME_MATRIX_COLUMNS, rows)
-    write_csv(
-        benchmark_dir / DATALOADER_MATRIX_FILENAME,
-        DATALOADER_MATRIX_COLUMNS,
-        dataloader_rows,
-    )
-    write_csv(
-        benchmark_dir / NUMERICAL_CHECKS_FILENAME,
-        NUMERICAL_CHECK_COLUMNS,
-        numerical_rows,
-    )
-    write_csv(
-        benchmark_dir / CORRUPTION_CHECKS_FILENAME,
-        CORRUPTION_CHECK_COLUMNS,
-        corruption_rows,
-    )
-    write_csv(metrics_dir / GATE_HEALTH_FILENAME, GATE_HEALTH_COLUMNS, gate_health_rows)
-    write_json(
-        benchmark_dir / GATE_HEALTH_SUMMARY_FILENAME,
-        _gate_health_summary_payload(linked_evidence=linked_evidence),
-    )
-    recommendations_path = benchmark_dir / RECOMMENDATIONS_FILENAME
-    write_json(
-        recommendations_path,
-        _recommendations_payload(settings=settings, rows=rows),
-    )
+        )
+        numerical_rows = _schema_numerical_rows(
+            settings=settings,
+            rows=rows,
+            linked_evidence=linked_evidence,
+        )
+        corruption_rows = _schema_corruption_rows(
+            settings=settings,
+            rows=rows,
+            linked_evidence=linked_evidence,
+        )
+        gate_health_rows = _gate_health_rows(
+            settings=settings,
+            linked_evidence=linked_evidence,
+        )
+
+    with phase_timings.phase("write_artifacts", benchmark_dir=str(benchmark_dir)):
+        phase_payload = phase_timings.payload()
+        write_json(
+            benchmark_dir / MANIFEST_FILENAME,
+            _manifest_payload(
+                request=request,
+                resolved=resolved,
+                settings=settings,
+                rows=rows,
+                data_proof=data_proof,
+                linked_evidence=linked_evidence,
+                phase_timings=phase_payload,
+            ),
+        )
+        write_json(
+            benchmark_dir / RUNTIME_PROOF_FILENAME,
+            _runtime_proof_payload(
+                settings=settings,
+                rows=rows,
+                data_proof=data_proof,
+                linked_evidence=linked_evidence,
+                phase_timings=phase_payload,
+            ),
+        )
+        write_csv(benchmark_dir / RUNTIME_MATRIX_FILENAME, RUNTIME_MATRIX_COLUMNS, rows)
+        write_csv(
+            benchmark_dir / DATALOADER_MATRIX_FILENAME,
+            DATALOADER_MATRIX_COLUMNS,
+            dataloader_rows,
+        )
+        write_csv(
+            benchmark_dir / NUMERICAL_CHECKS_FILENAME,
+            NUMERICAL_CHECK_COLUMNS,
+            numerical_rows,
+        )
+        write_csv(
+            benchmark_dir / CORRUPTION_CHECKS_FILENAME,
+            CORRUPTION_CHECK_COLUMNS,
+            corruption_rows,
+        )
+        write_csv(
+            metrics_dir / GATE_HEALTH_FILENAME,
+            GATE_HEALTH_COLUMNS,
+            gate_health_rows,
+        )
+        write_json(
+            benchmark_dir / GATE_HEALTH_SUMMARY_FILENAME,
+            _gate_health_summary_payload(linked_evidence=linked_evidence),
+        )
+        recommendations_path = benchmark_dir / RECOMMENDATIONS_FILENAME
+        write_json(
+            recommendations_path,
+            _recommendations_payload(settings=settings, rows=rows),
+        )
+    write_json(benchmark_dir / PHASE_TIMINGS_FILENAME, phase_timings.payload())
     _reject_selected_runtime_artifact(request.output_dir)
     return recommendations_path
 
@@ -501,47 +641,56 @@ def _run_stage1_rows(
     request: RealDataRuntimePretestRequest,
     settings: RealDataRuntimePretestSettings,
     row_specs: Sequence[RowSpec],
+    phase_timings: PhaseTimingRecorder,
 ) -> list[CsvRow]:
     rows: list[CsvRow] = []
     for row_spec in row_specs:
-        if row_spec.precision_policy != AMP_OFF_FP32:
+        with phase_timings.phase(
+            "stage1_runtime_row",
+            row_id=row_spec.row_id,
+            accelerator_mode=row_spec.accelerator_mode,
+            compile_scope=row_spec.compile_scope,
+            precision_policy=row_spec.precision_policy,
+            per_device_batch_size=row_spec.per_device_batch_size,
+        ):
+            if row_spec.precision_policy != AMP_OFF_FP32:
+                rows.append(
+                    _unsupported_row(
+                        settings=settings,
+                        row_spec=row_spec,
+                        failure_kind="amp_followup_requires_stable_fp32_candidates",
+                    ),
+                )
+                continue
+            if row_spec.compile_scope not in {COMPILE_NONE, COMPILE_MODEL_FORWARD}:
+                rows.append(
+                    _unsupported_row(
+                        settings=settings,
+                        row_spec=row_spec,
+                        failure_kind="compile_scope_implementation_pending",
+                    ),
+                )
+                continue
+            if row_spec.accelerator_mode != SINGLE_VISIBLE_T4:
+                rows.append(
+                    _unsupported_row(
+                        settings=settings,
+                        row_spec=row_spec,
+                        failure_kind="dual_t4_ddp_train_step_measurement_pending",
+                    ),
+                )
+                continue
             rows.append(
-                _unsupported_row(
-                    settings=settings,
-                    row_spec=row_spec,
-                    failure_kind="amp_followup_requires_stable_fp32_candidates",
+                _run_single_child_row(
+                    ChildRowConfig(
+                        config_path=request.config_path,
+                        output_dir=request.output_dir,
+                        data_root=settings.data_root,
+                        row_spec=row_spec,
+                        settings=settings,
+                    ),
                 ),
             )
-            continue
-        if row_spec.compile_scope not in {COMPILE_NONE, COMPILE_MODEL_FORWARD}:
-            rows.append(
-                _unsupported_row(
-                    settings=settings,
-                    row_spec=row_spec,
-                    failure_kind="compile_scope_implementation_pending",
-                ),
-            )
-            continue
-        if row_spec.accelerator_mode != SINGLE_VISIBLE_T4:
-            rows.append(
-                _unsupported_row(
-                    settings=settings,
-                    row_spec=row_spec,
-                    failure_kind="dual_t4_ddp_train_step_measurement_pending",
-                ),
-            )
-            continue
-        rows.append(
-            _run_single_child_row(
-                ChildRowConfig(
-                    config_path=request.config_path,
-                    output_dir=request.output_dir,
-                    data_root=settings.data_root,
-                    row_spec=row_spec,
-                    settings=settings,
-                ),
-            ),
-        )
     return rows
 
 
@@ -2191,9 +2340,12 @@ def _linked_evidence_payload(
     settings: RealDataRuntimePretestSettings,
     data_proof: JsonObject,
     rows: Sequence[CsvRow],
+    phase_timings: PhaseTimingRecorder,
 ) -> JsonObject:
-    compile_settle = _compile_settle_proof(settings=settings, rows=rows)
-    ddp_launch = _ddp_launch_proof(request=request, settings=settings, rows=rows)
+    with phase_timings.phase("linked_compile_settle", row_count=len(rows)):
+        compile_settle = _compile_settle_proof(settings=settings, rows=rows)
+    with phase_timings.phase("linked_ddp_launch", row_count=len(rows)):
+        ddp_launch = _ddp_launch_proof(request=request, settings=settings, rows=rows)
     if not _linked_data_ready(data_proof):
         skipped = _linked_evidence_not_run_payload(
             status=SKIPPED_UNSUPPORTED,
@@ -2209,31 +2361,16 @@ def _linked_evidence_payload(
             "gate_health": skipped,
         }
     try:
-        train_step_evidence = _paired_train_step_evidence(
+        (
+            dataloader_throughput,
+            paired_numerical,
+            corruption_equivalence,
+            gate_health,
+        ) = _run_linked_evidence_lanes(
             settings=settings,
             data_proof=data_proof,
             rows=rows,
-        )
-        dataloader_throughput = _dataloader_throughput_proof(
-            settings=settings,
-            data_proof=data_proof,
-            rows=rows,
-        )
-        paired_numerical = _paired_numerical_proof(
-            settings=settings,
-            data_proof=data_proof,
-            rows=rows,
-            train_step_evidence=train_step_evidence,
-        )
-        corruption_equivalence = _corruption_equivalence_proof(
-            settings=settings,
-            data_proof=data_proof,
-            rows=rows,
-            train_step_evidence=train_step_evidence,
-        )
-        gate_health = _gate_health_proof(
-            data_proof=data_proof,
-            train_step_evidence=train_step_evidence,
+            phase_timings=phase_timings,
         )
     except (OSError, RuntimeError, TypeError, ValueError) as exc:
         failed = _linked_evidence_not_run_payload(
@@ -2275,6 +2412,47 @@ def _linked_evidence_payload(
         "corruption_equivalence": corruption_equivalence,
         "gate_health": gate_health,
     }
+
+
+def _run_linked_evidence_lanes(
+    *,
+    settings: RealDataRuntimePretestSettings,
+    data_proof: JsonObject,
+    rows: Sequence[CsvRow],
+    phase_timings: PhaseTimingRecorder,
+) -> tuple[JsonObject, JsonObject, JsonObject, JsonObject]:
+    with phase_timings.phase("linked_train_step_evidence", row_count=len(rows)):
+        train_step_evidence = _paired_train_step_evidence(
+            settings=settings,
+            data_proof=data_proof,
+            rows=rows,
+        )
+    with phase_timings.phase("linked_dataloader_throughput", row_count=len(rows)):
+        dataloader_throughput = _dataloader_throughput_proof(
+            settings=settings,
+            data_proof=data_proof,
+            rows=rows,
+        )
+    with phase_timings.phase("linked_paired_numerical", row_count=len(rows)):
+        paired_numerical = _paired_numerical_proof(
+            settings=settings,
+            data_proof=data_proof,
+            rows=rows,
+            train_step_evidence=train_step_evidence,
+        )
+    with phase_timings.phase("linked_corruption_equivalence", row_count=len(rows)):
+        corruption_equivalence = _corruption_equivalence_proof(
+            settings=settings,
+            data_proof=data_proof,
+            rows=rows,
+            train_step_evidence=train_step_evidence,
+        )
+    with phase_timings.phase("linked_gate_health", row_count=len(rows)):
+        gate_health = _gate_health_proof(
+            data_proof=data_proof,
+            train_step_evidence=train_step_evidence,
+        )
+    return dataloader_throughput, paired_numerical, corruption_equivalence, gate_health
 
 
 def _linked_evidence_not_run_payload(
@@ -4820,6 +4998,7 @@ def _manifest_payload(  # noqa: PLR0913
     rows: Sequence[CsvRow],
     data_proof: JsonObject,
     linked_evidence: JsonObject,
+    phase_timings: JsonObject,
 ) -> JsonObject:
     return cast(
         "JsonObject",
@@ -4892,6 +5071,7 @@ def _manifest_payload(  # noqa: PLR0913
             "gate_health_proof": _required_object(linked_evidence, "gate_health"),
             "linked_evidence_status": _required_str(linked_evidence, "status"),
             "real_data_proof": data_proof,
+            "phase_timings": phase_timings,
             "timed_rows_eligible": any(row["status"] == PASS_STATUS for row in rows),
             "seeded_candidates": [
                 _candidate_payload(candidate)
@@ -4906,6 +5086,7 @@ def _manifest_payload(  # noqa: PLR0913
                 CORRUPTION_CHECKS_FILENAME,
                 GATE_HEALTH_SUMMARY_FILENAME,
                 RECOMMENDATIONS_FILENAME,
+                PHASE_TIMINGS_FILENAME,
             ],
             "selected_runtime_written": False,
         },
@@ -4918,6 +5099,7 @@ def _runtime_proof_payload(
     rows: Sequence[CsvRow],
     data_proof: JsonObject,
     linked_evidence: JsonObject,
+    phase_timings: JsonObject,
 ) -> JsonObject:
     return cast(
         "JsonObject",
@@ -4991,6 +5173,7 @@ def _runtime_proof_payload(
             },
             "selection_ready": False,
             "selected_runtime_written": False,
+            "phase_timings": phase_timings,
             "evidence_gate": _runtime_evidence_gate(
                 rows=rows,
                 data_proof=data_proof,
@@ -5649,6 +5832,35 @@ def _elapsed_seconds(start_ns: int) -> float:
     return (time.perf_counter_ns() - start_ns) / 1_000_000_000.0
 
 
+def _utc_timestamp() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _phase_log_payload(
+    *,
+    event: str,
+    name: str,
+    metadata: JsonObject,
+    extra: JsonObject | None = None,
+) -> JsonObject:
+    payload: JsonObject = {
+        "event": "eqvae_real_data_pretest_phase",
+        "phase_event": event,
+        "phase": name,
+        "timestamp_utc": _utc_timestamp(),
+    }
+    if metadata:
+        payload["metadata"] = metadata
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+def _log_phase_event(payload: JsonObject) -> None:
+    sys.stderr.write(f"{json.dumps(payload, sort_keys=True)}\n")
+    sys.stderr.flush()
+
+
 def _percentile(values: Sequence[float], fraction: float) -> float:
     if not values:
         return 0.0
@@ -5712,6 +5924,10 @@ def _csv_has_int(row: CsvRow, key: str) -> bool:
 
 def _format_float(value: float) -> str:
     return f"{value:.6f}"
+
+
+def _rounded_float(value: float) -> float:
+    return float(_format_float(value))
 
 
 def _format_bool(*, value: bool) -> str:

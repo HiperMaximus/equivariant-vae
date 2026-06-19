@@ -62,6 +62,26 @@ def test_real_data_runtime_pretest_local_wrong_accelerator_artifacts(
     assert runtime_proof["eligible_pass_row_count"] == 0
     assert "real-data identity" in cast("str", runtime_proof["evidence_gate"])
     manifest = _load_json(benchmark_dir / "real_data_runtime_pretest_manifest.json")
+    phase_timings = _load_json(benchmark_dir / "phase_timings.json")
+    _assert_phase_timings(
+        phase_timings,
+        required_names={
+            "config_resolution",
+            "real_data_identity_and_clean_path_proof",
+            "stage1_runtime_rows",
+            "linked_evidence_payload",
+            "write_artifacts",
+        },
+    )
+    assert (
+        cast("dict[str, object]", manifest["phase_timings"])["schema_version"]
+        == "eqvae.phase_timings.v1"
+    )
+    assert (
+        cast("dict[str, object]", runtime_proof["phase_timings"])["schema_version"]
+        == "eqvae.phase_timings.v1"
+    )
+    assert "phase_timings.json" in cast("list[str]", manifest["artifact_allowlist"])
     assert manifest["real_data_identity_proof_status"] == "skipped_unsupported"
     assert manifest["validation_windows_exercised"] is False
     assert manifest["timed_rows_eligible"] is False
@@ -511,6 +531,29 @@ def _assert_tiny_runtime_proof_linked_evidence(
     assert runtime_proof["gate_health_status"] == "local_pass"
     assert runtime_proof["ddp_launch_status"] == "skipped_unsupported"
     assert "real-data identity" in cast("str", runtime_proof["evidence_gate"])
+
+
+def _assert_phase_timings(
+    payload: dict[str, object],
+    *,
+    required_names: set[str],
+) -> None:
+    assert payload["schema_version"] == "eqvae.phase_timings.v1"
+    assert payload["recorded_phase_count"] == len(
+        cast("list[object]", payload["phases"]),
+    )
+    assert cast("float", payload["total_elapsed_sec"]) >= 0.0
+    phases = [
+        cast("dict[str, object]", item)
+        for item in cast("list[object]", payload["phases"])
+    ]
+    names = {cast("str", phase["name"]) for phase in phases}
+    assert required_names.issubset(names)
+    for phase in phases:
+        assert phase["status"] in {"pass", "fail"}
+        assert cast("float", phase["elapsed_sec"]) >= 0.0
+        assert phase["started_at_utc"]
+        assert phase["finished_at_utc"]
 
 
 def _assert_tiny_linked_csv_rows(
