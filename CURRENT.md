@@ -1648,6 +1648,15 @@ The review process lives in `docs/agentic_review_workflow.md`.
   URL `https://www.overleaf.com/project/69c614433cbc9e46cf226d24`, the
   scaffolded `paper/sipaim2026` files, the refreshed PDF, and that the reused
   thesis method figure still needs to be redrawn or relabeled before submission.
+- 2026-06-19 Overleaf token-auth correction:
+  the user retried the guarded push and Overleaf returned HTTP 403 with the
+  message that Git now supports only authentication tokens. Overleaf Git must
+  use username `git` and an Overleaf Git authentication token as the password;
+  the normal Overleaf account password/email login will fail. If a wrong
+  credential was cached, clear only the `git.overleaf.com` cached credential
+  with `printf 'protocol=https\nhost=git.overleaf.com\n\n' | git credential reject`,
+  then rerun the guarded push. `docs/overleaf_sync_workflow.md` and
+  `scripts/sipaim_overleaf_sync.sh` now record this token-auth rule.
 
 ## Update Rule
 

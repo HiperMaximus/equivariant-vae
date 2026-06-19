@@ -38,6 +38,22 @@ This configures a local Git remote named `overleaf`.
 The script refuses embedded credentials in remote URLs. Use a Git credential
 helper for Overleaf tokens.
 
+Overleaf Git authentication is token-only. When Git prompts:
+
+- username: `git`
+- password: your Overleaf Git authentication token, not your normal Overleaf
+  password
+
+If a wrong username/password was cached, clear the cached `git.overleaf.com`
+credential before retrying:
+
+```bash
+printf 'protocol=https\nhost=git.overleaf.com\n\n' | git credential reject
+```
+
+Do not paste or store Overleaf tokens in repo files, shell history, logs, or
+chat.
+
 Overleaf remote reads and pull/push operations require explicit user permission.
 After checking status and receiving permission, run them with:
 
@@ -91,6 +107,8 @@ If the pull creates merge conflicts, resolve only files under
 - Never run `git push overleaf` from this repo.
 - Never set `overleaf` as `origin`.
 - Never embed Overleaf tokens in Git remote URLs.
+- Never use the normal Overleaf account password for Git; use username `git`
+  and an Overleaf Git authentication token.
 - Never run Overleaf remote reads, pull, or push as an agent without asking the
   user first.
 - Never push notebooks, training code, or experiment folders to Overleaf.

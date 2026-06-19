@@ -25,6 +25,8 @@ Rules:
   - Commit local paper changes before `push`.
   - Run `compile` before committing paper changes.
   - Pull Overleaf edits before starting local paper edits when advisor edits are possible.
+  - Overleaf Git auth uses username `git` and an Overleaf Git authentication
+    token as the password. Do not use the normal account password.
   - Commands that access or change Overleaf remote state require:
       OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh ls-remote
       OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh pull
