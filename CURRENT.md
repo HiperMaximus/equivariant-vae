@@ -1628,6 +1628,22 @@ The review process lives in `docs/agentic_review_workflow.md`.
   approved guarded push with
   `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1
   ./scripts/kaggle_kernel.sh push kaggle/kernels/real_data_runtime_pretest`.
+- 2026-06-20 v7 Kaggle push:
+  the user confirmed GPU quota was still available in the Kaggle web UI after
+  the CLI quota endpoint warning. Local status was clean and
+  `./scripts/kaggle_kernel.sh validate kaggle/kernels/real_data_runtime_pretest`
+  passed immediately before the push. The guarded remote write
+  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1
+  ./scripts/kaggle_kernel.sh push kaggle/kernels/real_data_runtime_pretest`
+  succeeded, and Kaggle accepted kernel version 7 at
+  `https://www.kaggle.com/code/maximusshtefan/eqvae-real-data-runtime-pretest`.
+  The pushed embedded payload was built from the clean local commit `fea4140`
+  and should expose bounded `failure_message_excerpt` fields for failed
+  candidate evidence. No post-push status read or output download has been run
+  yet. Next action: with explicit remote-read approval, run
+  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh
+  status-real-data-runtime-pretest` once immediately, then follow the 30-minute
+  polling cadence for the source-attached real-data kernel.
 - 2026-06-19 GitHub issue status updates:
   posted Spanish status comments to issues #1-#6 after local grounding and
   three read-only subagent audits. Issue #2 received the substantive v6
