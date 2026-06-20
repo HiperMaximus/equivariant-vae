@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-06-19
+Last updated: 2026-06-20
 
 ## Active Workstream
 
@@ -25,11 +25,12 @@ diagnostics, and runtime-proof evidence counters. Remote v6 completed, artifacts
 are downloaded under `runs/kaggle/real_data_runtime_pretest_v6`, and inspection
 found no new runtime selection: two eager single-T4 bs4 FP32 rows remain
 eligible, eager bs8/bs12 candidate evidence failed with hash-only
-`candidate_train_step_RuntimeError` diagnostics, bs32 eager rows remain OOM,
-compiled rows remain diagnostic/ineligible, and no `selected_runtime.json` was
-written. The current local follow-up adds bounded
-`failure_message_excerpt` fields to failed candidate evidence so a v7 artifact
-can expose the actual exception.
+`candidate_train_step_RuntimeError` diagnostics, eager bs32 rows are recorded
+as `runtime_OutOfMemoryError`, compiled rows remain diagnostic/ineligible, and
+no `selected_runtime.json` was written. The local v7 diagnostics follow-up adds
+bounded `failure_message_excerpt` fields to failed candidate evidence so the
+next artifact can expose the actual exception; the local v7 diagnostics kernel
+is rebuilt and validated, but no Kaggle API preflight or push has been run yet.
 Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, and a focused
 scaffold-readiness check on 2026-06-12. The 2026-06-11 passes
@@ -1584,8 +1585,36 @@ The review process lives in `docs/agentic_review_workflow.md`.
   passed with 10 tests in 63.18s; after restoring exact spec-index guard tokens
   required by `scripts/kaggle_kernel.sh`, the four affected push-guard tests
   passed; full `./scripts/python_quality.sh` passed with 122 tests and 0
-  BasedPyright errors. Kernel rebuild/validate, Kaggle API preflight, and
-  explicit push permission are still required before any v7 remote push.
+  BasedPyright errors. This entry is superseded by the 2026-06-20 local
+  readiness entry below: kernel rebuild/validate now passes, while Kaggle API
+  preflight and explicit push permission are still required before any v7
+  remote push.
+- 2026-06-20 v7 diagnostics local readiness:
+  after full repo grounding, three read-only adversarial subagents rechecked
+  the v6 artifacts, failure-excerpt code path, and Kaggle kernel guard. They
+  confirmed v6 remains non-promotable, has no
+  `benchmark/selected_runtime.json`, has only two capped-pretest eligible eager
+  single-T4 bs4 FP32 rows, and needs v7 only to expose bounded failed-candidate
+  message excerpts. Follow-up hardening in commit `cabeb89` (`Harden
+  real-data pretest v7 diagnostics`) strengthens excerpt propagation tests,
+  lists `metrics/gate_health.csv` in the real-data pretest manifest
+  self-description, and makes
+  `./scripts/kaggle_kernel.sh validate kaggle/kernels/real_data_runtime_pretest`
+  verify embedded payload freshness. Verification passed:
+  `PYTHONPATH=src .venv/bin/pytest tests/test_real_data_runtime_pretest.py
+  tests/test_kaggle_embedded_kernel.py -q` with 16 tests;
+  `./scripts/python_quality.sh` with Ruff, 122 pytest tests, and BasedPyright;
+  `bash -n scripts/kaggle_kernel.sh`; `git diff --check`;
+  `./scripts/kaggle_kernel.sh build kaggle/kernels/real_data_runtime_pretest`;
+  `./scripts/kaggle_kernel.sh validate kaggle/kernels/real_data_runtime_pretest`;
+  repo `./scripts/agent_preflight.sh`; and workspace `./agent_preflight.sh`.
+  Local `main` is at `cabeb89` and ahead of local `origin/main`; the rebuilt
+  generated Kaggle `run.py` is ignored and fresh. Next action is to ask before
+  any Kaggle remote read or write: first
+  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check`, then, only
+  with explicit approval and available quota,
+  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1
+  ./scripts/kaggle_kernel.sh push kaggle/kernels/real_data_runtime_pretest`.
 - 2026-06-19 GitHub issue status updates:
   posted Spanish status comments to issues #1-#6 after local grounding and
   three read-only subagent audits. Issue #2 received the substantive v6

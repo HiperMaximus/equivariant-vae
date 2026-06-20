@@ -10,7 +10,7 @@ downloaded non-promotable phase-timing plus failed-candidate hash diagnostics
 but still only two eligible bs4 rows; compiled rows remain diagnostic-only until
 full compile-settle coverage exists; Kaggle source attachments require a
 separate confirmation guard
-Last updated: 2026-06-19
+Last updated: 2026-06-20
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
 source of truth for experiment code, specs, configs, and paper-facing claims.
@@ -330,8 +330,9 @@ proof lane. Remote v5 completed as a non-promotable candidate-evidence run and
 downloaded artifacts under `runs/kaggle/real_data_runtime_pretest_v5`: two eager
 single-T4 bs4 FP32 rows became row-eligible, real-data/DDP/dataloader/gate lanes
 passed, no `benchmark/selected_runtime.json` was written, eager bs8/bs12 still
-need numerical/corruption evidence coverage, bs32 eager rows hit runtime OOM,
-and compiled rows remained diagnostic/ineligible as intended. The v6
+need numerical/corruption evidence coverage, eager bs32 rows record
+`runtime_OutOfMemoryError`, and compiled rows remained diagnostic/ineligible as
+intended. The v6
 follow-up prioritizes eager FP32 single-T4 train-step evidence by smaller batch
 size before compiled diagnostic rows, clears CUDA cache between candidate
 evidence attempts, records failed candidate evidence with deterministic failure
@@ -344,10 +345,12 @@ validated, and pushed as Kaggle version 6 after explicit approval; v6 completed
 and downloaded artifacts live under `runs/kaggle/real_data_runtime_pretest_v6`.
 Inspection found no new runtime selection: two eager single-T4 bs4 FP32 rows
 remain eligible, bs8/bs12 candidate evidence failed with hash-only
-`candidate_train_step_RuntimeError` diagnostics, bs32 eager rows remain OOM,
-compiled rows remain diagnostic/ineligible, and no
-`benchmark/selected_runtime.json` was written. The current local follow-up adds
-bounded `failure_message_excerpt` fields for a future v7 diagnostic run.
+`candidate_train_step_RuntimeError` diagnostics, eager bs32 rows record
+`runtime_OutOfMemoryError`, compiled rows remain diagnostic/ineligible, and no
+`benchmark/selected_runtime.json` was written. The local v7 diagnostics
+follow-up adds bounded `failure_message_excerpt` fields for a future v7
+diagnostic run. Local v7 readiness is committed, rebuilt, and validated; the
+read-only API preflight and push remain permission-gated.
 
 ### Remote Duration And Polling Memory
 

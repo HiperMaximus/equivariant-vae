@@ -19,11 +19,11 @@ with a local non-promotable runner/kernel/guard implementation and
 identity/hash/CRC/window plus clean-validation loader proof lane, downloaded
 remote v4/v5/v6 non-promotable evidence, with v6 downloaded and inspected;
 candidate evidence still promotes only two eager single-T4 bs4 FP32 rows, while
-bs8/bs12 failed candidate evidence remains blocked pending message-excerpt
-diagnostics; compiled
-rows remain diagnostic-only until full compile-settle coverage exists
+bs8/bs12 failed candidate evidence remains blocked pending remote v7
+message-excerpt diagnostics; local v7 diagnostic code is rebuilt and validated;
+compiled rows remain diagnostic-only until full compile-settle coverage exists
 Owner/workstream: comparable non-equivariant VAE baseline
-Last updated: 2026-06-19
+Last updated: 2026-06-20
 
 Local scaffold exception, 2026-06-12: the user-authorized local
 benchmark-unblock slice may create `src/eqvae`, `configs/spec0001`, the

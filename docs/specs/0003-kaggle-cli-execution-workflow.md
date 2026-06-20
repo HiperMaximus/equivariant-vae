@@ -17,7 +17,7 @@ phase timings plus failed-candidate hash diagnostics but still only two eligible
 bs4 rows; full benchmark/full-run launchers are not
 Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
-Last updated: 2026-06-19
+Last updated: 2026-06-20
 
 ## Purpose
 
@@ -251,9 +251,11 @@ an approved status read after the required wait reported
 `benchmark/phase_timings.json`, two eligible eager single-T4 bs4 FP32 rows,
 five failed candidate evidence attempts with
 `candidate_train_step_RuntimeError`, no `benchmark/selected_runtime.json`, and
-compiled rows still diagnostic/ineligible. The current local follow-up adds
-bounded `failure_message_excerpt` fields to failed candidate evidence so a v7
-artifact can expose the actual bs8/bs12 exception.
+compiled rows still diagnostic/ineligible. The local v7 diagnostics follow-up
+adds bounded `failure_message_excerpt` fields to failed candidate evidence so a
+v7 artifact can expose the actual bs8/bs12 exception. Local v7 readiness is now
+committed, rebuilt, and validated; the v7 API preflight and remote push remain
+permission-gated and have not been run.
 
 ## Kaggle Authentication Contract
 
