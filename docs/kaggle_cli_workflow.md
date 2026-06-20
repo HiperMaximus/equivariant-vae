@@ -9,8 +9,9 @@ remote v5 produced two eligible eager bs4 rows and remote v6 completed with
 downloaded non-promotable phase-timing plus failed-candidate hash diagnostics
 but still only two eligible bs4 rows; remote v7 completed/downloaded and exposed
 the repeated failed-candidate exception as `quantile() input tensor is too
-large`; local v8 bounded gate-health quantiles and row-specific gate-health
-evidence coverage are implemented and locally rebuilt/validated; compiled rows
+large`; remote v8 completed/downloaded, fixed that quantile evidence-plumbing
+failure, and produced six eligible eager single-visible-T4 bs4/bs8/bs12 FP32
+rows while remaining non-promotable with no selected runtime; compiled rows
 remain diagnostic-only until full compile-settle coverage exists; Kaggle source
 attachments require a separate confirmation guard
 Last updated: 2026-06-20
@@ -359,22 +360,30 @@ bs8/bs12 and compiled candidate evidence are now diagnosed as failing in
 gate-health quantile telemetry with `quantile() input tensor is too large`,
 eager bs32 rows record `runtime_OutOfMemoryError`, compiled rows remain
 diagnostic/ineligible, and no `benchmark/selected_runtime.json` was written.
-The local v8 slice implements a deterministic bounded/sampled gate-health
-quantile path for `gate_p01/gate_p50/gate_p99`, preserves exact full-tensor
-finite/saturation/worst-channel/dead-channel pass/fail checks, and prevents
+The local v8 slice implemented a deterministic bounded/sampled gate-health
+quantile path for `gate_p01/gate_p50/gate_p99`, preserved exact full-tensor
+finite/saturation/worst-channel/dead-channel pass/fail checks, and prevented
 lane-level gate-health success from covering rows without matching
-row-specific evidence. The local real-data pretest kernel has been rebuilt and
-validated. Any v8 read, preflight, push, status poll, or output download remains
-permission-gated.
+row-specific evidence. It was committed as `614cd95`, rebuilt and validated from
+a clean source state, pushed as Kaggle version 8 after explicit approval and the
+required guards, completed, and downloaded to
+`runs/kaggle/real_data_runtime_pretest_v8`. Inspection found the v7 quantile
+failure is fixed: paired-numerical and corruption failed-candidate evidence
+counts are both zero. Six eager single-visible-T4 FP32 rows are eligible in the
+capped pretest: bs4/bs8/bs12 crossed with `branchless_all` and
+`indexed_masked`. The run still wrote no `benchmark/selected_runtime.json`,
+still has `runtime_proof.status = pretest_incomplete`, and remains
+non-promotable. Eager bs32 remains `runtime_OutOfMemoryError`, dual-T4
+train-step measurement remains pending, and compiled rows remain
+diagnostic/ineligible until full compile-settle evidence exists.
 
 Local `build`/`validate` may verify the generated real-data pretest payload
 against the current dirty worktree so agents can validate local patches before
 commit. Remote push safety is stricter: the real-data pretest push guard still
-rejects a generated manifest with `git_dirty = true`, so a possible v8 push
-requires a clean committed source state and a fresh rebuild/validate first.
-
-Guarded v8 remote sequence, only after explicit user approval for each remote
-phase:
+rejects a generated manifest with `git_dirty = true`, so future pushes require a
+clean committed source state and a fresh rebuild/validate first. The exact
+guarded sequence used for v8, and required again for any rerun or successor
+remote slice, is:
 
 ```bash
 git status --short
@@ -387,10 +396,8 @@ KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-real-data-runtime-pr
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v8
 ```
 
-Do not run any of the `KAGGLE_REMOTE_CONFIRMED=1` or
-`KAGGLE_PUSH_CONFIRMED=1` commands without explicit permission. The v8 capped
-pretest remains non-promotable and must not write
-`benchmark/selected_runtime.json`.
+Do not run any `KAGGLE_REMOTE_CONFIRMED=1` or `KAGGLE_PUSH_CONFIRMED=1`
+command without explicit permission.
 
 ### Remote Duration And Polling Memory
 

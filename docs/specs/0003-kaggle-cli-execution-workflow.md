@@ -16,10 +16,10 @@ eligible eager bs4 candidate rows, and remote v6 completed/downloaded with
 phase timings plus failed-candidate hash diagnostics but still only two eligible
 bs4 rows; remote v7 completed/downloaded, exposed the repeated
 failed-candidate exception as `quantile() input tensor is too large`, and
-remains non-promotable with no selected runtime. The local v8 fix for bounded
-gate-health quantiles and row-specific gate-health evidence coverage is
-implemented and locally rebuilt/validated, but no v8 remote run has been pushed
-or downloaded. Full benchmark/full-run launchers are not Kaggle-push-ready
+remains non-promotable with no selected runtime. Remote v8 completed/downloaded,
+fixed the quantile evidence-plumbing failure, produced six eligible eager
+single-visible-T4 bs4/bs8/bs12 FP32 rows, and remains non-promotable with no
+selected runtime. Full benchmark/full-run launchers are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-20
 
@@ -271,22 +271,24 @@ pretest remains non-promotable with no `benchmark/selected_runtime.json`, two
 eligible eager single-T4 bs4 FP32 rows, and five failed candidate evidence
 attempts now diagnosed as `quantile() input tensor is too large`. The reviewed
 local v8 gate-health quantile/evidence-coverage fix is implemented and verified:
-the generated real-data pretest kernel rebuilds and validates locally, and any
-v8 remote preflight/read/push/download remains permission-gated.
-
-A possible v8 remote sequence must still be guarded exactly: first reach a clean
-committed source state, rebuild and validate
-`kaggle/kernels/real_data_runtime_pretest`, run
-`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check` only after
-explicit permission, confirm Kaggle web UI GPU quota if the CLI quota endpoint
-still warns, then push only after explicit push permission with
-`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/real_data_runtime_pretest`.
-Monitor with approved
-`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest`
-at the documented cadence and download once with approved
+it was committed as `614cd95`, rebuilt and validated from a clean source state,
+pushed as remote version 8 after explicit approval, completed, and downloaded to
+`runs/kaggle/real_data_runtime_pretest_v8`. Inspection confirmed the capped
+pretest remains non-promotable with no `benchmark/selected_runtime.json`, zero
+failed candidate evidence entries, six eligible eager single-visible-T4 FP32
+rows (bs4/bs8/bs12 crossed with `branchless_all` and `indexed_masked`), pending
+dual-T4 train-step measurement, and compiled rows still diagnostic/ineligible.
+Future remote reads/writes remain permission-gated. The v8 guarded sequence was:
+clean committed source state, rebuild, validate, approved
+`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check`, quota UI
+confirmation if the CLI quota endpoint warns, approved
+`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/real_data_runtime_pretest`,
+approved
+`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest`,
+and approved
 `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v8`.
-The capped pretest remains non-promotable and must not write
-`benchmark/selected_runtime.json`.
+Use the same guards for any rerun or successor remote slice; do not run them
+without explicit permission.
 
 ## Kaggle Authentication Contract
 

@@ -261,20 +261,27 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: optional remote v8 real-data runtime pretest only after
-explicit user approval, a clean committed source state, local rebuild/validate,
-read-only API preflight, and the required Kaggle guards. The local v8
-evidence-plumbing fix is implemented: gate-health quantile telemetry now uses a
-deterministic bounded sample for large tensors, exact finite/saturation/
-worst-channel/dead-channel pass/fail checks still use the full tensors, and
-runtime rows no longer inherit `gate_health_status = pass` from a lane-level
-gate-health pass unless row-specific coverage exists. The v8 local kernel was
-rebuilt and validated, but no Kaggle remote read, Kaggle push, GitHub push, or
-Overleaf command was run. For paper work, continue from
+Immediate next action: inspect whether remote v8's six eligible eager
+single-visible-T4 rows are enough to plan the next selected-runtime benchmark
+slice, while still treating the capped pretest as non-promotable evidence. The
+local v8 evidence-plumbing fix was committed as `614cd95`, rebuilt from a clean
+source state, API-preflighted, pushed as Kaggle version 8 after explicit
+approval, completed, downloaded to
+`runs/kaggle/real_data_runtime_pretest_v8`, and inspected. It fixed the v7
+evidence-plumbing blocker: failed candidate evidence count is now zero,
+`quantile() input tensor is too large` is absent from the v8 artifacts, and
+row-specific evidence covers eager single-visible-T4 bs4, bs8, and bs12 rows
+for both `branchless_all` and `indexed_masked`. The run remains
+non-promotable: `runtime_proof.status = pretest_incomplete`,
+`selection_ready = false`, `full_run_eligible = false`, no
+`benchmark/selected_runtime.json` exists, dual-T4 train-step measurement remains
+pending, and compiled `model_forward` rows remain ineligible on
+`compile_settle_or_dynamo_evidence_not_row_pass`. No GitHub push or Overleaf
+command was run. For paper work, continue from
 `docs/specs/0004-sipaim-paper-scaffold.md` and lock the downstream WSI
 classifier protocol: frozen encoder versus fine-tuning, posterior-mean
 embedding extraction, patch-to-WSI aggregation, classifier capacity,
-labels/splits, seeds, and metric table. Remote v5/v6/v7 capped-pretest outputs
+labels/splits, seeds, and metric table. Remote v5/v6/v7/v8 capped-pretest outputs
 remain non-promotable selected-runtime evidence. Three clean-context
 adversarial reviews found and then rechecked blockers around dataloader
 thresholds, eager-reference numerical checks, fixed-batch coverage,
@@ -1731,7 +1738,8 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `./scripts/kaggle_kernel.sh build kaggle/kernels/real_data_runtime_pretest`,
   `./scripts/kaggle_kernel.sh validate kaggle/kernels/real_data_runtime_pretest`,
   `./scripts/agent_preflight.sh`, and workspace `./agent_preflight.sh`.
-  The exact guarded remote sequence for a possible v8 is:
+  The exact guarded remote sequence used for v8, and required again for any
+  rerun or successor remote slice, is:
   `git status --short` and clean/commit local changes first; rebuild and
   validate locally; after explicit permission run
   `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check`; confirm
@@ -1741,9 +1749,40 @@ The review process lives in `docs/agentic_review_workflow.md`.
   monitor only with approved
   `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest`
   at the documented cadence; download once with
-  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v8`.
+  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v8`
+  or the matching new output directory.
   Do not run any Kaggle remote action without explicit permission and required
   guards. v8 remains non-promotable unless a later spec explicitly changes that.
+- 2026-06-20 v8 Kaggle push, download, and inspection:
+  committed the local fix as `614cd95` (`Fix real-data pretest gate quantile
+  evidence`), rebuilt/validated `kaggle/kernels/real_data_runtime_pretest` from
+  a clean source state, ran the approved `KAGGLE_REMOTE_CONFIRMED=1
+  ./scripts/kaggle_kernel.sh api-check` preflight, and pushed with approved
+  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`. Kaggle accepted
+  version 8 at
+  `https://www.kaggle.com/code/maximusshtefan/eqvae-real-data-runtime-pretest`.
+  Approved status reads showed `KernelWorkerStatus.RUNNING`, then
+  `KernelWorkerStatus.COMPLETE`; outputs were downloaded to
+  `runs/kaggle/real_data_runtime_pretest_v8`. Artifact inspection:
+  `benchmark/selected_runtime.json` is absent, `runtime_proof.status =
+  pretest_incomplete`, `selection_ready = false`, `selected_runtime_written =
+  false`, `full_run_eligible = false`, `eligible_pass_row_count = 6`,
+  `paired_numerical_candidate_evidence_count = 7`,
+  `paired_numerical_failed_candidate_evidence_count = 0`,
+  `corruption_equivalence_candidate_evidence_count = 7`,
+  `corruption_equivalence_failed_candidate_evidence_count = 0`, and
+  `gate_health_status = pass`. Passing rows are eager single-visible-T4 FP32
+  `compile_none` bs4/bs8/bs12 for both `branchless_all` and
+  `indexed_masked`; bs12 is fastest among passing rows in this capped pretest
+  (`~7.39 samples/s` for indexed, `~7.35 samples/s` for branchless). Compiled
+  `model_forward` bs4/bs8/bs12 rows now have numerical/corruption/gate-health
+  evidence but remain ineligible because compile-settle/Dynamo evidence is not
+  row-pass; compiled bs32 remains ineligible and eager bs32 remains
+  `runtime_OutOfMemoryError`. Dual-T4 rows remain
+  `dual_t4_ddp_train_step_measurement_pending`. `phase_timings.json` records
+  `71` phases and `2761.447838` seconds of script elapsed time. v8 fixed the
+  v7 quantile evidence-plumbing failure but is still not selected-runtime
+  evidence.
 - 2026-06-19 GitHub issue status updates:
   posted Spanish status comments to issues #1-#6 after local grounding and
   three read-only subagent audits. Issue #2 received the substantive v6

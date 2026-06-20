@@ -17,14 +17,13 @@ remote v1/v2/v3/v4 non-promotable evidence; the capped real-data runtime
 pretest config/schema contract is `real_data_runtime_pretest_contract_ready`
 with a local non-promotable runner/kernel/guard implementation and
 identity/hash/CRC/window plus clean-validation loader proof lane, downloaded
-remote v4/v5/v6/v7 non-promotable evidence, with v7 downloaded and inspected;
-candidate evidence still promotes only two eager single-T4 bs4 FP32 rows. v7
-exposed the bs8/bs12 and compiled failed-candidate exception as
-`quantile() input tensor is too large`; the local v8 evidence-plumbing fix now
-makes gate-health quantile telemetry Kaggle-safe for large tensors and
-row-specific before another remote push. Compiled rows remain diagnostic-only
-until full compile-settle coverage exists, and v8 remains non-promotable unless
-a later spec explicitly changes that
+remote v4/v5/v6/v7/v8 non-promotable evidence, with v8 downloaded and
+inspected; v8 fixed the v7 `quantile() input tensor is too large` evidence
+plumbing failure and marks six capped-pretest rows eligible for eager
+single-visible-T4 FP32 rows: bs4/bs8/bs12 crossed with `branchless_all` and
+`indexed_masked`. Compiled rows remain diagnostic-only until full
+compile-settle coverage exists, and v8 remains non-promotable unless a later
+spec explicitly changes that
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-20
 
@@ -1713,12 +1712,14 @@ Benchmark budget and reset rules:
   under `runs/kaggle/real_data_runtime_pretest_v7`; it kept the pretest
   non-promotable, still wrote no `benchmark/selected_runtime.json`, still
   preserved only two eligible eager single-T4 bs4 FP32 rows, and exposed the
-  failed-candidate exception as `quantile() input tensor is too large`. The
-  local v8 fix replaces unbounded gate-health quantile telemetry with a
-  deterministic bounded/sampled path, preserves exact gate-health pass/fail
-  checks, and avoids claiming row-specific gate-health coverage for candidates
-  whose evidence failed or was not covered. It is implemented and verified
-  locally, but no v8 remote run has been pushed or downloaded;
+  failed-candidate exception as `quantile() input tensor is too large`. Remote
+  v8 completed on 2026-06-20 and downloaded artifacts live under
+  `runs/kaggle/real_data_runtime_pretest_v8`; it fixed the quantile
+  evidence-plumbing failure, produced zero failed candidate evidence entries,
+  kept `benchmark/selected_runtime.json` absent, and marked six
+  capped-pretest eligible eager single-visible-T4 FP32 rows for bs4/bs8/bs12
+  across both corruption strategies. It remains non-promotable selected-runtime
+  evidence;
 - if `torch.compile` needs compilation, report compile/startup time separately
   from steady-state step time. Compiled rows must record
   `compile_settle_steps`, the code paths exercised before timing, graph break
