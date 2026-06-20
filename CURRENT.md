@@ -1811,6 +1811,43 @@ The review process lives in `docs/agentic_review_workflow.md`.
   hash-linked. Compiled rows remain diagnostic-only until full compile-settle
   coverage passes. No selected runtime may be written while
   `missing_real_dual_t4_train_step_timing` remains a blocker.
+- Next-session implementation prompt, 2026-06-20:
+  "Work in `/home/maximus/Documents/Tesis/equivariant-vae`. First read
+  `AGENTS.md`, `CURRENT.md`, `GOAL.md`, `docs/spec_driven_development.md`,
+  `docs/specs/README.md`,
+  `docs/specs/0001-translatable-normal-vae-baseline.md`,
+  `docs/specs/0003-kaggle-cli-execution-workflow.md`,
+  `docs/kaggle_cli_workflow.md`, and relevant runtime benchmark/pretest code.
+  Do not run any network command, Kaggle remote read, Kaggle push, GitHub push,
+  or Overleaf command unless explicitly approved later. Implement the local
+  selected-runtime benchmark slice `v8_shortlist_eager_amp_then_dual_gate`.
+  v8 artifacts under `runs/kaggle/real_data_runtime_pretest_v8` are
+  shortlist/provenance only and must not be promoted. Build a separate
+  runtime-selection benchmark path that records v8 artifact hashes, revalidates
+  or writes its own `runtime_proof`, `runtime_matrix`, `dataloader_matrix`,
+  `numerical_checks`, `corruption_checks`, `gate_health_summary`, and
+  `model_count` evidence, confirms eager single-visible-T4 bs8/bs12 FP32
+  `compile_none` branchless/indexed rows with bs4 fallback, runs AMP follow-up
+  only on confirmed eager rows, and implements the required real dual-T4 DDP
+  train-step timing gate. The dual gate must prove two visible T4s,
+  `world_size = 2`, `nproc_per_node = 2`, per-rank device assignment, emitted
+  bs4/bs8/bs12 FP32 eager dual rows, linked safety evidence, and global
+  throughput projection. Refuse to write `benchmark/selected_runtime.json` if
+  dual timing or any linked proof is missing, failed, or skipped. Keep compiled
+  rows diagnostic-only. Add focused tests for v8-shortlist provenance, dual-gate
+  blocking, selected-runtime write refusal, and successful local schema/proof
+  plumbing. Run local gates only: targeted pytest for the new tests,
+  `./scripts/python_quality.sh`, `git diff --check`,
+  `./scripts/agent_preflight.sh`, and workspace `./agent_preflight.sh`. Update
+  `CURRENT.md` and active specs/docs with implementation and verification
+  status. Do not push or run Kaggle remote actions without explicit permission."
+  Implementation plan for that session: first identify whether to extend
+  `src/eqvae/benchmarking/runtime_schema.py`/`eqvae.cli.benchmark_runtime` or
+  add a new real-data runtime-selection module; second implement local
+  fail-closed artifact writing and validation before any remote launcher; third
+  add dual-T4 gate row/status semantics and selected-runtime write guards;
+  fourth add tests and local validation; fifth only then prepare a guarded
+  Kaggle kernel build/validate and ask for remote approval.
 - 2026-06-19 GitHub issue status updates:
   posted Spanish status comments to issues #1-#6 after local grounding and
   three read-only subagent audits. Issue #2 received the substantive v6
