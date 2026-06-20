@@ -10,10 +10,14 @@ downloaded non-promotable phase-timing plus failed-candidate hash diagnostics
 but still only two eligible bs4 rows; remote v7 completed/downloaded and exposed
 the repeated failed-candidate exception as `quantile() input tensor is too
 large`; remote v8 completed/downloaded, fixed that quantile evidence-plumbing
-failure, and produced six capped-pretest-passing eager single-visible-T4 bs4/bs8/bs12 FP32
-rows while remaining non-promotable with no selected runtime; compiled rows
-remain diagnostic-only until full compile-settle coverage exists; Kaggle source
-attachments require a separate confirmation guard
+failure, and produced six capped-pretest-passing eager single-visible-T4
+bs4/bs8/bs12 FP32 rows while remaining non-promotable with no selected runtime;
+compiled rows remain diagnostic-only until full compile-settle coverage exists;
+selected-runtime proof plumbing and the Kaggle executor/kernel for
+`v8_shortlist_eager_amp_then_dual_gate` now exist and are fail-closed until real
+dual-T4 timing plus linked evidence pass; the runtime-selection kernel guard is
+`runtime_selection_kernel_ready`; Kaggle source attachments require a separate
+confirmation guard
 Last updated: 2026-06-20
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
@@ -132,6 +136,59 @@ budget are fit/VRAM probes only. The output may recommend rows to carry into
 the real-data benchmark, but must not write `benchmark/selected_runtime.json`
 or claim final
 runtime selection.
+
+The selected-runtime benchmark slice is separate from both synthetic timing and
+the capped real-data pretest. Local fail-closed proof plumbing lives in:
+
+```bash
+python -m eqvae.cli.runtime_selection_benchmark \
+  --config configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json \
+  --output-dir /tmp/eqvae-runtime-selection-local \
+  --v8-artifact-dir runs/kaggle/real_data_runtime_pretest_v8
+```
+
+That local invocation records v8 artifact hashes as shortlist-only provenance
+and writes its own runtime proof/matrix/linked safety/model-count artifact
+graph, but it must remain blocked and write no
+`benchmark/selected_runtime.json` without real dual-T4 DDP train-step timing
+evidence.
+
+The Kaggle executor and single-file script kernel now live in:
+
+```bash
+python -m eqvae.cli.runtime_selection_executor \
+  --config configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json \
+  --output-dir /tmp/eqvae-runtime-selection-executor \
+  --v8-artifact-dir runs/kaggle/real_data_runtime_pretest_v8
+
+./scripts/kaggle_kernel.sh build kaggle/kernels/runtime_selection
+./scripts/kaggle_kernel.sh validate kaggle/kernels/runtime_selection
+```
+
+The generated runtime-selection kernel embeds only the required v8 provenance
+files under `runs/kaggle/real_data_runtime_pretest_v8`; those files remain
+shortlist/provenance-only and are never promoted as selected-runtime proof. The
+executor must still prove two visible T4s, `world_size = 2`,
+`nproc_per_node = 2`, per-rank device assignment, child-process
+`torchrun --standalone --nproc_per_node=2` command proof, emitted bs4/bs8/bs12
+FP32 eager dual rows, train and validation dataloader rank coverage, scoped
+numerical/corruption rows, gate-health evidence bound to candidate row ids, a
+hash-linked `benchmark/stain_corruptor_qa.json`, and global throughput
+projection before selected-runtime writing is allowed. The strict writer now
+also enforces 25 measured dataloader batches with wait/throughput thresholds,
+three fixed numerical batch indices, train plus validation clean-RNG corruption
+rows, per-candidate gate-health rows, candidate-scoped stain QA, and exact
+embedded v8 payload membership. Missing, failed, or skipped dual timing or
+linked evidence refuses `benchmark/selected_runtime.json`.
+
+The user approved the selected-runtime Kaggle push on 2026-06-20. After local
+gates and a clean commit/rebuild, the guarded remote sequence is:
+
+```bash
+KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/runtime_selection
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-runtime-selection
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-runtime-selection runs/kaggle/runtime_selection_v1
+```
 
 The real-data benchmark surface is intentionally separate from the capped smoke
 and from synthetic timing:
@@ -380,15 +437,19 @@ diagnostic/ineligible until full compile-settle evidence exists.
 The next selected-runtime benchmark/debug slice is
 `v8_shortlist_eager_amp_then_dual_gate` in
 `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json`. It treats v8 only
-as shortlist provenance. A separate runtime-selection benchmark must revalidate
-or write its own linked proofs, confirm the eager single-visible-T4 bs8/bs12
-FP32 `compile_none` branchless/indexed rows with bs4 as fallback, run AMP
-follow-up only on confirmed eager rows, add the blocking real dual-T4 train-step
-timing gate, and write `benchmark/selected_runtime.json` only after its own full
-linked proof passes. The dual-T4 gate must time real DDP train-step rows,
-record two visible T4s, `world_size = 2`, `nproc_per_node = 2`, per-rank device
-assignment, linked safety evidence, and global throughput projection; if that
-gate is missing, failed, or skipped, selected-runtime writing stays blocked.
+as shortlist provenance. Local fail-closed runtime-selection proof plumbing and
+the guarded Kaggle executor/kernel now exist. The executor must revalidate or
+write its own linked proofs, confirm the eager single-visible-T4 bs8/bs12 FP32
+`compile_none` branchless/indexed rows with bs4 as fallback, run AMP follow-up only on
+confirmed eager rows, add the blocking real dual-T4 train-step timing gate, and
+write `benchmark/selected_runtime.json` only after its own full linked proof
+passes. The dual-T4 gate must time real DDP train-step rows, record two visible
+T4s, `world_size = 2`, `nproc_per_node = 2`, per-rank device assignment,
+child-process launch command proof, train and validation dataloader rank
+coverage, scoped numerical/corruption rows, gate-health evidence bound to
+candidate row ids, a hash-linked `benchmark/stain_corruptor_qa.json`, and
+global throughput projection; if that gate is missing, failed, or skipped,
+selected-runtime writing stays blocked.
 
 Local `build`/`validate` may verify the generated real-data pretest payload
 against the current dirty worktree so agents can validate local patches before

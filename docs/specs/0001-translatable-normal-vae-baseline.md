@@ -22,13 +22,16 @@ inspected; v8 fixed the v7 `quantile() input tensor is too large` evidence
 plumbing failure and marks six capped-pretest-passing eager single-visible-T4
 FP32 rows: bs4/bs8/bs12 crossed with `branchless_all` and `indexed_masked`. The
 next selected-runtime benchmark/debug slice is encoded as
-`v8_shortlist_eager_amp_then_dual_gate`: v8 is shortlist-only, the separate
-benchmark must run its own linked proofs, and `selected_runtime.json` remains
-blocked until real dual-T4 train-step timing exists. That timing must prove two
-visible T4s, `world_size = 2`, `nproc_per_node = 2`, per-rank device binding,
-linked safety evidence, and global throughput projection. Compiled rows remain
-diagnostic-only until full compile-settle coverage exists, and v8 remains
-non-promotable unless a later spec explicitly changes that
+`v8_shortlist_eager_amp_then_dual_gate`; local proof plumbing for that separate
+selected-runtime benchmark plus its Kaggle executor/kernel are now implemented
+and fail-closed. v8 remains shortlist-only, the separate benchmark writes its
+own linked proofs, and `selected_runtime.json` remains blocked until real
+dual-T4 train-step timing exists. That timing must prove two visible T4s,
+`world_size = 2`,
+`nproc_per_node = 2`, per-rank device binding, linked safety evidence, and
+global throughput projection. Compiled rows remain diagnostic-only until full
+compile-settle coverage exists, and v8 remains non-promotable unless a later
+spec explicitly changes that.
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-20
 
@@ -1676,7 +1679,17 @@ Benchmark budget and reset rules:
   pass statuses as selected-runtime pass evidence. It must record v8 artifact
   hashes as provenance, then revalidate or write its own runtime proof, runtime
   matrix, dataloader, numerical, corruption, gate-health, and model-count
-  evidence. It first confirms eager single-visible-T4 bs8/bs12 FP32
+  evidence. The local proof-plumbing writer now exists at
+  `src/eqvae/benchmarking/runtime_selection.py` with CLI
+  `src/eqvae/cli/runtime_selection_benchmark.py`; without injected real
+  dual-T4 evidence it deliberately writes a failed proof and no selected
+  runtime. The Kaggle executor and single-file script-kernel wrapper now live
+  at `src/eqvae/benchmarking/runtime_selection_executor.py`,
+  `src/eqvae/cli/runtime_selection_executor.py`, and
+  `kaggle/kernels/runtime_selection`, guarded by
+  `runtime_selection_kernel_ready`; the generated kernel embeds only the
+  required v8 provenance files and build/verify rejects extra v8 files. The
+  selected-runtime benchmark first confirms eager single-visible-T4 bs8/bs12 FP32
   `compile_none` branchless/indexed rows, with bs4 as fallback, then runs AMP
   follow-up only for confirmed eager FP32 candidates. A real dual-T4 train-step
   timing gate is required before `benchmark/selected_runtime.json` may be
@@ -1684,8 +1697,12 @@ Benchmark budget and reset rules:
   `branchless_all` and `indexed_masked`, prove two visible T4s,
   `world_size = 2`, `nproc_per_node = 2`, per-rank device assignment, linked
   dataloader/numerical/corruption/gate evidence, and global throughput
-  projection. Missing, failed, or skipped dual timing blocks selected-runtime
-  writing. Compiled rows remain diagnostic-only until full compile-settle
+  projection. Linked evidence must include 25 measured dataloader batches per
+  split/rank with wait/throughput thresholds, three fixed numerical batches,
+  train-corruption plus validation-clean no-RNG-advance corruption rows,
+  gate-health rows carrying `candidate_row_id`, and strict candidate-scoped
+  `benchmark/stain_corruptor_qa.json`. Missing, failed, or skipped dual timing
+  blocks selected-runtime writing. Compiled rows remain diagnostic-only until full compile-settle
   coverage passes;
 - the pretest manifest may mark tiny local UBC-format fixtures as `local_pass`
   for proof plumbing only. Canonical real-data `pass` requires the expected
@@ -1941,13 +1958,45 @@ Benchmark artifact dependency graph:
    `benchmark/numerical_checks.csv`, `benchmark/corruption_checks.csv`,
    `metrics/gate_health.csv`, and `benchmark/gate_health_summary.json` entries
    exist and pass.
-6. `benchmark/selected_runtime.json` may be written with `status = "pass"` only
+6. The separate selected-runtime benchmark path for
+   `v8_shortlist_eager_amp_then_dual_gate` must treat v8 artifacts under
+   `runs/kaggle/real_data_runtime_pretest_v8` as hash/provenance-only
+   shortlist inputs. It must write or revalidate its own
+   `runtime_proof.json`, `runtime_matrix.csv`, `dataloader_matrix.csv`,
+   `numerical_checks.csv`, `corruption_checks.csv`,
+   `gate_health_summary.json`, `metrics/gate_health.csv`, and
+   `model_count.json`. The local implementation is
+   `src/eqvae/benchmarking/runtime_selection.py`; its default local path is
+   fail-closed and writes a failed `runtime_proof.json` rather than
+   `benchmark/selected_runtime.json` when real dual-T4 evidence is absent.
+   The Kaggle executor path is
+   `src/eqvae/benchmarking/runtime_selection_executor.py` with CLI
+   `src/eqvae/cli/runtime_selection_executor.py`, and the guarded script kernel
+   is `kaggle/kernels/runtime_selection` with readiness marker
+   `runtime_selection_kernel_ready`.
+   It must require eager single-visible-T4 bs8/bs12 FP32 `compile_none`
+   branchless/indexed confirmation with bs4 fallback before AMP follow-up,
+   rewrite compiled pass rows to diagnostic `ineligible`, and require the
+   real dual-T4 DDP train-step gate to prove two visible T4s,
+   `world_size = 2`, `nproc_per_node = 2`, per-rank device assignment,
+   child-process launch command proof, emitted bs4/bs8/bs12 FP32 eager dual
+   rows, train and validation dataloader rank coverage, scoped
+   numerical/corruption rows, gate-health evidence bound to candidate row ids,
+   a hash-linked `benchmark/stain_corruptor_qa.json`, and global throughput
+   projection before selected-runtime writing is allowed. The writer also
+   requires 25 measured dataloader batches per split/rank, `data_wait_fraction_p95
+   <= 0.20`, loader throughput at least `1.25 * trainer_samples_sec`, three
+   fixed numerical batch indices, train and validation corruption-check rows
+   with `clean_validation_rng_advanced = false`, gate-health rows bound by
+   `candidate_row_id`, and strict candidate coverage in
+   `benchmark/stain_corruptor_qa.json`.
+7. `benchmark/selected_runtime.json` may be written with `status = "pass"` only
    when it references one row from `runtime_matrix.csv` whose row status is
    `pass`, whose linked artifacts have `pass`, and whose accelerator proof
    matches the selected mode.
-7. selected-runtime debug must consume that selected runtime and write a resume
+8. selected-runtime debug must consume that selected runtime and write a resume
    proof before tiny-overfit may run.
-8. `benchmark/tiny_overfit_summary.json` must pass before
+9. `benchmark/tiny_overfit_summary.json` must pass before
    `non_eq_vae_baseline.json` can be used for a first 10-epoch run.
 
 `benchmark/model_count.json` required shape:
@@ -2460,7 +2509,7 @@ run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,mach
 `metrics/gate_health.csv` required columns:
 
 ```text
-run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,optimizer_step,module,gate_kind,num_channels,num_elements,a_min,a_max,a_mean,a_std,b_min,b_max,b_mean,b_std,max_abs_a,max_abs_b,gate_mean,gate_std,gate_p01,gate_p50,gate_p99,frac_gate_lt_0_01,frac_gate_gt_0_99,worst_channel_frac_gate_lt_0_01,worst_channel_frac_gate_gt_0_99,dead_channel_count,input_rms,output_rms,output_input_rms_ratio,a_grad_norm,b_grad_norm,a_update_to_param_norm,b_update_to_param_norm,gate_health_status
+run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,row_id,candidate_row_id,optimizer_step,module,gate_kind,num_channels,num_elements,a_min,a_max,a_mean,a_std,b_min,b_max,b_mean,b_std,max_abs_a,max_abs_b,gate_mean,gate_std,gate_p01,gate_p50,gate_p99,frac_gate_lt_0_01,frac_gate_gt_0_99,worst_channel_frac_gate_lt_0_01,worst_channel_frac_gate_gt_0_99,dead_channel_count,input_rms,output_rms,output_input_rms_ratio,a_grad_norm,b_grad_norm,a_update_to_param_norm,b_update_to_param_norm,gate_health_status
 ```
 
 `benchmark/gate_health_summary.json` required shape:

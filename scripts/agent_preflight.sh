@@ -72,6 +72,9 @@ required_files=(
   "kaggle/kernels/real_data_runtime_pretest/__init__.py"
   "kaggle/kernels/real_data_runtime_pretest/kernel-metadata.json"
   "kaggle/kernels/real_data_runtime_pretest/run_template.py"
+  "kaggle/kernels/runtime_selection/__init__.py"
+  "kaggle/kernels/runtime_selection/kernel-metadata.json"
+  "kaggle/kernels/runtime_selection/run_template.py"
   "tests/.gitkeep"
   "paper/sipaim2026/main.tex"
   "paper/sipaim2026/sipaim2026.pdf"
@@ -232,6 +235,13 @@ if git check-ignore --no-index -q kaggle/kernels/real_data_runtime_pretest/run.p
   echo "ok: generated real-data runtime pretest run.py is ignored"
 else
   echo "error: generated real-data runtime pretest run.py should stay ignored"
+  missing=1
+fi
+
+if git check-ignore --no-index -q kaggle/kernels/runtime_selection/run.py; then
+  echo "ok: generated runtime-selection run.py is ignored"
+else
+  echo "error: generated runtime-selection run.py should stay ignored"
   missing=1
 fi
 

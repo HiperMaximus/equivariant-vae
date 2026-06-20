@@ -11,8 +11,9 @@ Build the repo toward a fair SIPAIM 2026 comparison between:
 2. a continuous `SO(2)` steerable denoising VAE using a repo-owned,
    compile-compatible implementation, with `escnn` as a reference.
 
-The current task is the capped real-data runtime pretest candidate-evidence
-lane for the translatable normal VAE baseline. Synthetic timing is now
+The current task is the selected-runtime benchmark slice for the translatable
+normal VAE baseline, using capped real-data runtime pretest v8 only as
+shortlist provenance. Synthetic timing is now
 completed provenance for screening: remote versions 1, 2, 3, and 4 completed
 successfully as non-promotable evidence, with v4 as the current
 5-warmup/25-measured repeat-shortlist run. The active real-data state is:
@@ -46,6 +47,30 @@ the manifest now exposes
 `failure_message_excerpt = "quantile() input tensor is too large"` for the repeated
 `candidate_train_step_RuntimeError` hash
 `757ab3828da1202c080e587121c92ffa9210d9ecace6cb28842a62504733fc14`.
+The 2026-06-20 local selected-runtime slice now exists under
+`src/eqvae/benchmarking/runtime_selection.py`, with a local CLI at
+`src/eqvae/cli/runtime_selection_benchmark.py` and focused tests in
+`tests/test_runtime_selection_benchmark.py`. It records v8 artifact hashes as
+`candidate_shortlist_only` provenance, writes its own model-count,
+runtime-proof, runtime-matrix, dataloader, numerical, corruption, gate-health,
+and linked evidence paths, enforces eager single-visible-T4 bs8/bs12 FP32
+confirmation with bs4 fallback before AMP follow-up, keeps compiled rows
+diagnostic-only, and refuses `benchmark/selected_runtime.json` unless the
+separate benchmark has passing dual-T4 DDP train-step timing plus linked safety
+proofs. The selected-runtime gate now requires train and validation dataloader
+rank coverage, candidate-bound gate-health row ids, child-process
+`torchrun --nproc_per_node=2` proof, and a hash-linked
+`benchmark/stain_corruptor_qa.json`. The local default path is intentionally
+fail-closed and writes a failed
+`runtime_proof.json` rather than a selected runtime when real dual timing is not
+provided. The selected-runtime Kaggle executor/kernel path now exists at
+`src/eqvae/benchmarking/runtime_selection_executor.py`,
+`src/eqvae/cli/runtime_selection_executor.py`, and
+`kaggle/kernels/runtime_selection`. The generated script kernel embeds only the
+required v8 provenance files, re-runs the selected-runtime benchmark on Kaggle,
+and is guarded by `runtime_selection_kernel_ready`; user-approved commit and
+Kaggle push/status/output are in progress on 2026-06-20, with no GitHub or
+Overleaf push approved.
 Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, a focused
 scaffold-readiness check on 2026-06-12, and a focused v7 handoff/guard audit on
@@ -1796,58 +1821,42 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `v8_shortlist_eager_amp_then_dual_gate` and added regression coverage in
   `tests/test_spec0001_benchmark_scaffold.py`. The slice treats v8 artifacts as
   `candidate_shortlist_only`: v8 remains `pretest_incomplete`,
-  `full_run_eligible = false`, and `writes_selected_runtime = false`. The next
-  implementation target is a separate Kaggle runtime-selection benchmark that
-  revalidates/writes its own runtime proof, runtime matrix, dataloader,
-  numerical, corruption, gate-health, and model-count evidence. Stage 1
-  confirms eager single-visible-T4 bs8/bs12 FP32 `compile_none` branchless and
-  indexed rows, with bs4 as fallback; stage 2 runs AMP follow-up only on
-  confirmed eager FP32 candidates; stage 3 is the blocking dual-T4 train-step
-  timing gate. The dual gate must prove two visible T4s, `world_size = 2`,
-  `nproc_per_node = 2`, per-rank device assignment, emitted dual rows for
-  per-device bs4/bs8/bs12 FP32 eager branchless/indexed candidates, linked
-  safety evidence, and global throughput projection. Stage 4 may write
-  `selected_runtime.json` only after all gates pass and required artifacts are
-  hash-linked. Compiled rows remain diagnostic-only until full compile-settle
-  coverage passes. No selected runtime may be written while
-  `missing_real_dual_t4_train_step_timing` remains a blocker.
-- Next-session implementation prompt, 2026-06-20:
-  "Work in `/home/maximus/Documents/Tesis/equivariant-vae`. First read
-  `AGENTS.md`, `CURRENT.md`, `GOAL.md`, `docs/spec_driven_development.md`,
-  `docs/specs/README.md`,
-  `docs/specs/0001-translatable-normal-vae-baseline.md`,
-  `docs/specs/0003-kaggle-cli-execution-workflow.md`,
-  `docs/kaggle_cli_workflow.md`, and relevant runtime benchmark/pretest code.
-  Do not run any network command, Kaggle remote read, Kaggle push, GitHub push,
-  or Overleaf command unless explicitly approved later. Implement the local
-  selected-runtime benchmark slice `v8_shortlist_eager_amp_then_dual_gate`.
-  v8 artifacts under `runs/kaggle/real_data_runtime_pretest_v8` are
-  shortlist/provenance only and must not be promoted. Build a separate
-  runtime-selection benchmark path that records v8 artifact hashes, revalidates
-  or writes its own `runtime_proof`, `runtime_matrix`, `dataloader_matrix`,
-  `numerical_checks`, `corruption_checks`, `gate_health_summary`, and
-  `model_count` evidence, confirms eager single-visible-T4 bs8/bs12 FP32
-  `compile_none` branchless/indexed rows with bs4 fallback, runs AMP follow-up
-  only on confirmed eager rows, and implements the required real dual-T4 DDP
-  train-step timing gate. The dual gate must prove two visible T4s,
-  `world_size = 2`, `nproc_per_node = 2`, per-rank device assignment, emitted
-  bs4/bs8/bs12 FP32 eager dual rows, linked safety evidence, and global
-  throughput projection. Refuse to write `benchmark/selected_runtime.json` if
-  dual timing or any linked proof is missing, failed, or skipped. Keep compiled
-  rows diagnostic-only. Add focused tests for v8-shortlist provenance, dual-gate
-  blocking, selected-runtime write refusal, and successful local schema/proof
-  plumbing. Run local gates only: targeted pytest for the new tests,
-  `./scripts/python_quality.sh`, `git diff --check`,
-  `./scripts/agent_preflight.sh`, and workspace `./agent_preflight.sh`. Update
-  `CURRENT.md` and active specs/docs with implementation and verification
-  status. Do not push or run Kaggle remote actions without explicit permission."
-  Implementation plan for that session: first identify whether to extend
-  `src/eqvae/benchmarking/runtime_schema.py`/`eqvae.cli.benchmark_runtime` or
-  add a new real-data runtime-selection module; second implement local
-  fail-closed artifact writing and validation before any remote launcher; third
-  add dual-T4 gate row/status semantics and selected-runtime write guards;
-  fourth add tests and local validation; fifth only then prepare a guarded
-  Kaggle kernel build/validate and ask for remote approval.
+  `full_run_eligible = false`, and `writes_selected_runtime = false`.
+- 2026-06-20 selected-runtime benchmark local implementation:
+  added `src/eqvae/benchmarking/runtime_selection.py`,
+  `src/eqvae/cli/runtime_selection_benchmark.py`, and
+  `tests/test_runtime_selection_benchmark.py`. The local writer records v8
+  artifact hashes as provenance only, writes its own runtime proof, runtime
+  matrix, dataloader matrix, numerical checks, corruption checks, gate-health
+  summary/rows, and model-count evidence, rewrites compiled pass rows to
+  diagnostic `ineligible`, and refuses `benchmark/selected_runtime.json` unless
+  dual timing and all linked proof gates pass. After adversarial review, the
+  local proof gate now also requires train and validation dataloader rank
+  coverage, candidate-bound gate-health row ids, child-process
+  `torchrun --nproc_per_node=2` proof, scoped numerical/corruption rows, and a
+  hash-linked `benchmark/stain_corruptor_qa.json`. The adversarial follow-up
+  hardening now requires 25 measured dataloader batches plus wait/throughput
+  thresholds, three numerical batch indices, train and validation
+  corruption-check rows with clean-validation RNG unchanged, gate-health
+  `candidate_row_id` binding, strict stain-QA candidate coverage, and exact
+  embedded v8 payload membership. The default local CLI run is intentionally
+  fail-closed because no real dual-T4 train-step evidence has been supplied.
+- 2026-06-20 selected-runtime Kaggle executor/kernel implementation:
+  added `src/eqvae/benchmarking/runtime_selection_executor.py`,
+  `src/eqvae/cli/runtime_selection_executor.py`, and
+  `kaggle/kernels/runtime_selection`. The executor reuses the v8 shortlist only
+  as hashed provenance, collects its own single-visible-T4 eager FP32/AMP
+  follow-up evidence, runs the real dual-T4 DDP train-step timing gate through
+  a `torch.distributed.run --nproc_per_node=2` child process, and feeds the
+  strict local writer so `benchmark/selected_runtime.json` remains refused if
+  any linked proof is missing, failed, or skipped. The Kaggle wrapper embeds
+  the required v8 provenance files, validates the output set fail-closed, and
+  `scripts/kaggle_kernel.sh` now has guarded `status-runtime-selection` and
+  `output-runtime-selection` actions plus exact v8 payload and specs-index
+  guard checks. User approved commit plus selected-runtime
+  Kaggle push/status/output on 2026-06-20; adversarial review, final local
+  gates, commit, clean rebuild/validate, and the guarded Kaggle push are the
+  active next steps.
 - 2026-06-19 GitHub issue status updates:
   posted Spanish status comments to issues #1-#6 after local grounding and
   three read-only subagent audits. Issue #2 received the substantive v6

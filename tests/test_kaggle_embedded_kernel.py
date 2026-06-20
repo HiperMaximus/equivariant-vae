@@ -58,6 +58,15 @@ _EXPECTED_REAL_DATA_PRETEST_BLOCKED_CLAIMS = {
     "paper_evidence",
     "full_run_readiness",
 }
+_RUNTIME_SELECTION_V8_PAYLOAD_FILES = {
+    "runs/kaggle/real_data_runtime_pretest_v8/benchmark/runtime_proof.json",
+    "runs/kaggle/real_data_runtime_pretest_v8/benchmark/runtime_matrix.csv",
+    "runs/kaggle/real_data_runtime_pretest_v8/benchmark/dataloader_matrix.csv",
+    "runs/kaggle/real_data_runtime_pretest_v8/benchmark/numerical_checks.csv",
+    "runs/kaggle/real_data_runtime_pretest_v8/benchmark/corruption_checks.csv",
+    "runs/kaggle/real_data_runtime_pretest_v8/benchmark/gate_health_summary.json",
+    "runs/kaggle/real_data_runtime_pretest_v8/metrics/gate_health.csv",
+}
 _EMBEDDED_PAYLOAD_B64_PATTERN = re.compile(
     r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""',
     flags=re.DOTALL,
@@ -276,6 +285,49 @@ def test_embedded_real_data_runtime_pretest_kernel_full_local_simulation(
     phase_timings = _load_json(benchmark_dir / "phase_timings.json")
     assert runtime_proof["phase_timings"] == phase_timings
     assert manifest["phase_timings"] == phase_timings
+
+
+def test_embedded_runtime_selection_kernel_import_simulation(
+    tmp_path: Path,
+) -> None:
+    """Runtime-selection kernel imports and carries v8 provenance payload files."""
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="runtime_selection",
+        ready_marker="KAGGLE_RUNTIME_SELECTION_READY = True",
+    )
+    environment = _run_environment(simulation.output_dir)
+    environment["EQVAE_RUNTIME_SELECTION_IMPORT_ONLY"] = "1"
+
+    subprocess.run(  # noqa: S603
+        (sys.executable, str(simulation.upload_dir / "run.py")),
+        cwd=simulation.upload_dir,
+        check=True,
+        env=environment,
+    )
+
+    benchmark_dir = simulation.output_dir / "benchmark"
+    assert {path.name for path in benchmark_dir.iterdir()} == {
+        "runtime_selection_import.json",
+    }
+    assert not (benchmark_dir / "selected_runtime.json").exists()
+    payload = _load_json(benchmark_dir / "runtime_selection_import.json")
+    manifest = cast("dict[str, object]", payload["payload_manifest"])
+    entries = cast("dict[str, object]", manifest["entries"])
+    assert payload["status"] == "import_smoke_pass"
+    assert payload["status_scope"] == "non_promotable_local_upload_simulation"
+    assert payload["benchmark_kind"] == "runtime_selection_import_only"
+    assert payload["benchmark_source"] == "kaggle_runtime_benchmark"
+    assert payload["full_run_eligible"] is False
+    assert payload["writes_selected_runtime"] is False
+    assert payload["selection_slice"] == "v8_shortlist_eager_amp_then_dual_gate"
+    assert manifest["schema_version"] == "spec0001.kaggle_payload_manifest.v1"
+    assert _RUNTIME_SELECTION_V8_PAYLOAD_FILES.issubset(entries)
+    assert _RUNTIME_SELECTION_V8_PAYLOAD_FILES.issubset(
+        _embedded_payload_names(simulation.upload_dir / "run.py"),
+    )
 
 
 def test_embedded_kernel_verify_rejects_stale_template(tmp_path: Path) -> None:

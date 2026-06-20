@@ -11,6 +11,8 @@ setup_output_dir="runs/kaggle/setup_smoke"
 synthetic_timing_kernel_dir="kaggle/kernels/synthetic_timing"
 real_data_runtime_pretest_kernel_dir="kaggle/kernels/real_data_runtime_pretest"
 real_data_runtime_pretest_output_dir="runs/kaggle/real_data_runtime_pretest"
+runtime_selection_kernel_dir="kaggle/kernels/runtime_selection"
+runtime_selection_output_dir="runs/kaggle/runtime_selection"
 
 usage() {
   cat <<'EOF'
@@ -23,9 +25,11 @@ Usage:
   ./scripts/kaggle_kernel.sh status [kernel_id]
   ./scripts/kaggle_kernel.sh status-setup
   ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest
+  ./scripts/kaggle_kernel.sh status-runtime-selection
   ./scripts/kaggle_kernel.sh output [kernel_id] [output_dir]
   ./scripts/kaggle_kernel.sh output-setup [output_dir]
   ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest [output_dir]
+  ./scripts/kaggle_kernel.sh output-runtime-selection [output_dir]
   ./scripts/kaggle_kernel.sh pull [kernel_id] [kernel_dir]
 
 Remote writes require KAGGLE_PUSH_CONFIRMED=1.
@@ -161,6 +165,15 @@ validate_kernel_dir() {
       --verify-only \
       --allow-dirty
     echo "ok: real-data runtime pretest embedded payload matches current worktree"
+  fi
+
+  if [[ "$kernel_dir" == "$runtime_selection_kernel_dir" ]]; then
+    python3 scripts/build_kaggle_embedded_kernel.py \
+      --kernel-dir "$kernel_dir" \
+      --ready-marker "KAGGLE_RUNTIME_SELECTION_READY = True" \
+      --verify-only \
+      --allow-dirty
+    echo "ok: runtime-selection embedded payload matches current worktree"
   fi
 }
 
@@ -306,6 +319,9 @@ embedded_ready_marker() {
     maximusshtefan/eqvae-real-data-runtime-pretest)
       printf '%s\n' "KAGGLE_REAL_DATA_RUNTIME_PRETEST_READY = True"
       ;;
+    maximusshtefan/eqvae-runtime-selection)
+      printf '%s\n' "KAGGLE_RUNTIME_SELECTION_READY = True"
+      ;;
     maximusshtefan/non-eq-vae-debug)
       printf '%s\n' "KAGGLE_SMOKE_READY = True"
       ;;
@@ -351,6 +367,11 @@ EOF
 
   if grep -q "KAGGLE_REAL_DATA_RUNTIME_PRETEST_READY = True" "$kernel_dir/$code_file"; then
     guard_real_data_runtime_pretest_push_ready "$kernel_dir" "$metadata"
+    return
+  fi
+
+  if grep -q "KAGGLE_RUNTIME_SELECTION_READY = True" "$kernel_dir/$code_file"; then
+    guard_runtime_selection_push_ready "$kernel_dir" "$metadata"
     return
   fi
 
@@ -939,6 +960,217 @@ PY
   done
 }
 
+guard_runtime_selection_push_ready() {
+  local kernel_dir="$1"
+  local metadata="$2"
+
+  if [[ -d "$kernel_dir/payload" ]]; then
+    echo "error: runtime selection must be a single generated run.py, not a sibling payload" >&2
+    exit 1
+  fi
+
+  if [[ "${KAGGLE_FULL_DATASET_CONFIRMED:-}" != "1" ]]; then
+    cat >&2 <<'EOF'
+error: set KAGGLE_FULL_DATASET_CONFIRMED=1 only after accepting the real
+patch dataset attachment/setup cost for the selected-runtime benchmark.
+EOF
+    exit 1
+  fi
+
+  if ! grep -q 'v8_shortlist_eager_amp_then_dual_gate' \
+    "docs/specs/0001-translatable-normal-vae-baseline.md"; then
+    echo "error: spec 0001 does not describe the v8 selected-runtime slice" >&2
+    exit 1
+  fi
+  if ! grep -q 'runtime_selection_kernel_ready' \
+    "docs/specs/0003-kaggle-cli-execution-workflow.md"; then
+    echo "error: spec 0003 does not authorize runtime-selection kernel push readiness" >&2
+    exit 1
+  fi
+  if ! grep -q 'runtime_selection_kernel_ready' \
+    "docs/kaggle_cli_workflow.md"; then
+    echo "error: Kaggle workflow doc does not describe runtime-selection kernel push readiness" >&2
+    exit 1
+  fi
+  if ! grep -q 'runtime_selection_kernel_ready' \
+    "docs/specs/README.md"; then
+    echo "error: specs index does not describe runtime-selection kernel push readiness" >&2
+    exit 1
+  fi
+
+  python3 - "$metadata" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+metadata = Path(sys.argv[1])
+data = json.loads(metadata.read_text(encoding="utf-8"))
+errors: list[str] = []
+
+required_values = {
+    "id": "maximusshtefan/eqvae-runtime-selection",
+    "title": "eqvae runtime selection",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "false",
+    "machine_shape": "NvidiaTeslaT4",
+}
+
+for key, expected in required_values.items():
+    actual = str(data.get(key, ""))
+    comparable = actual.lower() if expected in {"true", "false"} else actual
+    if comparable != expected:
+        errors.append(f"{key} must be {expected!r}")
+
+expected_dataset_sources = ["maximusshtefan/patches-pre-shuffled-ubc-ocean"]
+if data.get("dataset_sources") != expected_dataset_sources:
+    errors.append(f"dataset_sources must be exactly {expected_dataset_sources!r}")
+
+for source_field in ("competition_sources", "kernel_sources", "model_sources"):
+    if data.get(source_field) != []:
+        errors.append(f"{source_field} must be an empty list for runtime selection")
+
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+
+  python3 scripts/build_kaggle_embedded_kernel.py \
+    --kernel-dir "$kernel_dir" \
+    --ready-marker "KAGGLE_RUNTIME_SELECTION_READY = True" \
+    --verify-only
+
+  local run_file="$kernel_dir/run.py"
+  python3 - "$run_file" <<'PY'
+import base64
+import io
+import json
+import re
+import sys
+import zipfile
+from pathlib import Path
+
+run_text = Path(sys.argv[1]).read_text(encoding="utf-8")
+match = re.search(
+    r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""',
+    run_text,
+    flags=re.DOTALL,
+)
+if match is None:
+    print("error: runtime-selection run.py has no embedded payload", file=sys.stderr)
+    raise SystemExit(1)
+
+payload = base64.b64decode(match.group("payload").encode("ascii"))
+with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+    names = set(archive.namelist())
+    errors: list[str] = []
+    required_files = {
+        "src/eqvae/benchmarking/runtime_selection.py",
+        "src/eqvae/benchmarking/runtime_selection_executor.py",
+        "src/eqvae/cli/runtime_selection_executor.py",
+        "configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json",
+        "runs/kaggle/real_data_runtime_pretest_v8/benchmark/runtime_proof.json",
+        "runs/kaggle/real_data_runtime_pretest_v8/benchmark/runtime_matrix.csv",
+        "runs/kaggle/real_data_runtime_pretest_v8/benchmark/dataloader_matrix.csv",
+        "runs/kaggle/real_data_runtime_pretest_v8/benchmark/numerical_checks.csv",
+        "runs/kaggle/real_data_runtime_pretest_v8/benchmark/corruption_checks.csv",
+        "runs/kaggle/real_data_runtime_pretest_v8/benchmark/gate_health_summary.json",
+        "runs/kaggle/real_data_runtime_pretest_v8/metrics/gate_health.csv",
+    }
+    missing = sorted(required_files - names)
+    if missing:
+        errors.append(f"embedded payload missing required files: {missing!r}")
+    unexpected_v8 = sorted(
+        name for name in names
+        if name.startswith("runs/kaggle/real_data_runtime_pretest_v8/")
+        and name not in required_files
+    )
+    if unexpected_v8:
+        errors.append(f"embedded payload has unexpected v8 files: {unexpected_v8!r}")
+    try:
+        executor_source = archive.read(
+            "src/eqvae/benchmarking/runtime_selection_executor.py",
+        ).decode("utf-8")
+        writer_source = archive.read(
+            "src/eqvae/benchmarking/runtime_selection.py",
+        ).decode("utf-8")
+        config = json.loads(
+            archive.read(
+                "configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json",
+            ),
+        )
+    except KeyError as error:
+        print(f"error: runtime-selection payload missing {error}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+    required_executor_text = (
+        "RuntimeSelectionEvidence",
+        "write_runtime_selection_benchmark",
+        "--nproc_per_node=2",
+        "torch.distributed.run",
+        "DistributedDataParallel",
+        "stain_corruptor_qa",
+    )
+    for text in required_executor_text:
+        if text not in executor_source:
+            errors.append(f"runtime-selection executor missing required text: {text}")
+    required_writer_text = (
+        "do_not_write_selected_runtime_if_missing_failed_or_skipped",
+        "v8_hash_provenance_not_pass",
+        "compiled_rows_diagnostic_only",
+    )
+    for text in required_writer_text:
+        if text not in writer_source:
+            errors.append(f"runtime-selection writer missing required text: {text}")
+    runtime = config.get("runtime_matrix")
+    if not isinstance(runtime, dict):
+        errors.append("config.runtime_matrix must be an object")
+    else:
+        selection = runtime.get("selection_benchmark_slice")
+        if not isinstance(selection, dict):
+            errors.append("config.runtime_matrix.selection_benchmark_slice must be an object")
+        elif selection.get("name") != "v8_shortlist_eager_amp_then_dual_gate":
+            errors.append("selection slice must be v8_shortlist_eager_amp_then_dual_gate")
+        carry = runtime.get("v8_carry_forward")
+        if not isinstance(carry, dict):
+            errors.append("config.runtime_matrix.v8_carry_forward must be an object")
+        elif carry.get("full_run_eligible") is not False:
+            errors.append("v8 carry-forward artifacts must remain non-promotable")
+
+    if errors:
+        for error in errors:
+            print(f"error: {error}", file=sys.stderr)
+        raise SystemExit(1)
+PY
+
+  for required_text in \
+    "KAGGLE_RUNTIME_SELECTION_READY = True" \
+    "v8_shortlist_eager_amp_then_dual_gate" \
+    "runtime_selection_executor" \
+    "selected_runtime.json" \
+    "stain_corruptor_qa.json" \
+    "runtime_proof.json" \
+    "runtime_matrix.csv" \
+    "dataloader_matrix.csv" \
+    "numerical_checks.csv" \
+    "corruption_checks.csv" \
+    "gate_health_summary.json" \
+    "single_visible_t4" \
+    "dual_t4_ddp" \
+    "torchrun" \
+    "--nproc_per_node=2" \
+    "wrong_accelerator"; do
+    if ! grep -q -- "$required_text" "$run_file"; then
+      echo "error: runtime-selection run.py missing required text: $required_text" >&2
+      exit 1
+    fi
+  done
+}
+
 validate_payload_freshness() {
   local payload_dir="$1"
   python3 - "$payload_dir" <<'PY'
@@ -1125,6 +1357,12 @@ case "$action" in
     require_kaggle_cli
     kaggle kernels status "$kernel_id"
     ;;
+  status-runtime-selection)
+    kernel_id="$(kernel_id_from_metadata "$runtime_selection_kernel_dir")"
+    require_remote_confirmed
+    require_kaggle_cli
+    kaggle kernels status "$kernel_id"
+    ;;
   output)
     kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"
     output_dir="${3:-$default_output_dir}"
@@ -1136,6 +1374,14 @@ case "$action" in
   output-real-data-runtime-pretest)
     kernel_id="$(kernel_id_from_metadata "$real_data_runtime_pretest_kernel_dir")"
     output_dir="${2:-$real_data_runtime_pretest_output_dir}"
+    require_remote_confirmed
+    require_kaggle_cli
+    mkdir -p "$output_dir"
+    kaggle kernels output "$kernel_id" -p "$output_dir"
+    ;;
+  output-runtime-selection)
+    kernel_id="$(kernel_id_from_metadata "$runtime_selection_kernel_dir")"
+    output_dir="${2:-$runtime_selection_output_dir}"
     require_remote_confirmed
     require_kaggle_cli
     mkdir -p "$output_dir"

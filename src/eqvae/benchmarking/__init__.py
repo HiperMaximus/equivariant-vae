@@ -24,6 +24,15 @@ from eqvae.benchmarking.runtime_schema import (
     RUNTIME_MATRIX_COLUMNS,
     write_synthetic_benchmark_artifacts,
 )
+from eqvae.benchmarking.runtime_selection import (
+    RuntimeSelectionBenchmarkRequest,
+    RuntimeSelectionEvidence,
+    write_runtime_selection_benchmark,
+)
+from eqvae.benchmarking.runtime_selection_executor import (
+    RuntimeSelectionExecutionRequest,
+    write_runtime_selection_execution,
+)
 from eqvae.benchmarking.synthetic_timing import (
     REPEAT_SHORTLIST_MEASURED_STEPS,
     REPEAT_SHORTLIST_WARMUP_STEPS,
@@ -48,6 +57,9 @@ __all__ = [
     "LocalDataloaderPretestRequest",
     "LocalModelLossTrainStepRequest",
     "RealDataRuntimePretestRequest",
+    "RuntimeSelectionBenchmarkRequest",
+    "RuntimeSelectionEvidence",
+    "RuntimeSelectionExecutionRequest",
     "SyntheticTimingRequest",
     "SyntheticTimingRowSpec",
     "build_model_count_payload",
@@ -61,6 +73,8 @@ __all__ = [
     "write_local_model_loss_train_step",
     "write_model_count",
     "write_real_data_runtime_pretest",
+    "write_runtime_selection_benchmark",
+    "write_runtime_selection_execution",
     "write_synthetic_benchmark_artifacts",
     "write_synthetic_timing_pretest",
 ]

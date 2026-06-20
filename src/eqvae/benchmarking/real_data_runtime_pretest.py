@@ -3970,6 +3970,7 @@ def _gate_health_proof(
     rows: list[CsvRow] = []
     row_statuses: list[JsonObject] = []
     for evidence in evidence_items:
+        evidence_row_id = _required_str(evidence, "row_id")
         branchless_evidence = _required_object(evidence, "branchless")
         evidence_rows = _csv_rows_from_payload(branchless_evidence, "gate_rows")
         evidence_passed = bool(evidence_rows) and all(
@@ -3981,6 +3982,8 @@ def _gate_health_proof(
             passed=evidence_passed,
         )
         for row in evidence_rows:
+            row["candidate_row_id"] = evidence_row_id
+            row["row_id"] = f"{evidence_row_id}__gate__{row['module']}"
             if row["gate_health_status"] in {PASS_STATUS, LOCAL_PASS_STATUS}:
                 row["gate_health_status"] = evidence_status
         rows.extend(evidence_rows)

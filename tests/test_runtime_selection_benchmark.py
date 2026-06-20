@@ -1,0 +1,870 @@
+# Copyright 2026 HiperMaximus
+"""Tests for the selected-runtime benchmark proof path."""
+
+from __future__ import annotations
+
+import csv
+import hashlib
+import json
+from pathlib import Path
+from typing import cast
+
+import pytest
+
+from eqvae.benchmarking.io import JsonObject, write_csv, write_json
+from eqvae.benchmarking.runtime_schema import (
+    CORRUPTION_CHECK_COLUMNS,
+    DATALOADER_MATRIX_COLUMNS,
+    GATE_HEALTH_COLUMNS,
+    NUMERICAL_CHECK_COLUMNS,
+    RUNTIME_MATRIX_COLUMNS,
+)
+from eqvae.benchmarking.runtime_selection import (
+    RuntimeSelectionBenchmarkRequest,
+    RuntimeSelectionEvidence,
+    write_runtime_selection_benchmark,
+)
+
+CONFIG_PATH = Path("configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json")
+RUN_NAME = "runtime_selection_test"
+CORRUPTION_STRATEGIES = ("branchless_all", "indexed_masked")
+EXPECTED_DUAL_RUNTIME_ROWS = 6
+EXPECTED_DUAL_WORLD_SIZE = 2
+
+
+def test_runtime_selection_records_v8_shortlist_provenance(tmp_path: Path) -> None:
+    """The selected-runtime path records v8 hashes without promoting v8 rows."""
+    v8_dir = _write_fake_v8_artifacts(tmp_path / "v8")
+    output_dir = tmp_path / "selection"
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=v8_dir,
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    provenance = cast("dict[str, object]", proof["v8_provenance"])
+    hashes = cast("dict[str, object]", provenance["artifact_hashes"])
+
+    assert provenance["status"] == "pass"
+    assert provenance["used_for"] == "candidate_shortlist_only"
+    assert provenance["v8_artifacts_are_promotable"] is False
+    assert hashes["benchmark/runtime_matrix.csv"] == _sha256_file(
+        v8_dir / "benchmark" / "runtime_matrix.csv",
+    )
+    assert proof["status"] == "fail"
+    assert proof["selected_runtime_written"] is False
+    assert artifacts.selected_runtime is None
+    assert not (output_dir / "benchmark" / "selected_runtime.json").exists()
+
+
+def test_runtime_selection_blocks_without_dual_t4_train_step_gate(
+    tmp_path: Path,
+) -> None:
+    """Local schema plumbing must not pass without real dual-T4 timing."""
+    output_dir = tmp_path / "selection"
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    dual_gate = cast("dict[str, object]", proof["dual_t4_train_step_gate"])
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+    blockers = cast("list[object]", decision["blockers"])
+    runtime_rows = _load_csv(output_dir / "benchmark" / "runtime_matrix.csv")
+    dual_rows = [
+        row
+        for row in runtime_rows
+        if row["accelerator_mode"] == "dual_t4_ddp"
+        and row["precision_policy"] == "amp_off_fp32"
+        and row["compile_scope"] == "none"
+    ]
+
+    assert dual_gate["status"] == "skipped_unsupported"
+    assert "missing_real_dual_t4_train_step_timing" in blockers
+    assert len(dual_rows) == EXPECTED_DUAL_RUNTIME_ROWS
+    assert {row["per_device_batch_size"] for row in dual_rows} == {"4", "8", "12"}
+    assert {row["corruption_strategy"] for row in dual_rows} == set(
+        CORRUPTION_STRATEGIES,
+    )
+    assert {row["status"] for row in dual_rows} == {"skipped_unsupported"}
+    assert not (output_dir / "benchmark" / "selected_runtime.json").exists()
+
+
+def test_runtime_selection_refuses_stale_selected_runtime_when_blocked(
+    tmp_path: Path,
+) -> None:
+    """A blocked run fails if a stale selected_runtime.json is already present."""
+    output_dir = tmp_path / "selection"
+    write_json(output_dir / "benchmark" / "selected_runtime.json", {"stale": True})
+
+    with pytest.raises(RuntimeError, match="selected_runtime"):
+        write_runtime_selection_benchmark(
+            RuntimeSelectionBenchmarkRequest(
+                config_path=CONFIG_PATH,
+                output_dir=output_dir,
+                v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            ),
+        )
+
+
+def test_runtime_selection_writes_selected_runtime_after_full_local_proof(
+    tmp_path: Path,
+) -> None:
+    """Successful injected evidence writes a pass selected-runtime payload."""
+    output_dir = tmp_path / "selection"
+    evidence = _passing_runtime_selection_evidence()
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=evidence,
+        ),
+    )
+
+    assert artifacts.selected_runtime is not None
+    proof = _load_json(artifacts.runtime_proof)
+    selected = _load_json(artifacts.selected_runtime)
+    runtime_rows = _load_csv(output_dir / "benchmark" / "runtime_matrix.csv")
+    compiled_row = next(
+        row for row in runtime_rows if row["compile_scope"] == "model_forward"
+    )
+
+    assert proof["status"] == "pass"
+    assert proof["selection_ready"] is True
+    assert proof["selected_runtime_written"] is True
+    assert (
+        cast("dict[str, object]", proof["dual_t4_train_step_gate"])["status"] == "pass"
+    )
+    assert selected["status"] == "pass"
+    assert selected["benchmark_kind"] == "kaggle_runtime_selection"
+    assert selected["world_size"] == EXPECTED_DUAL_WORLD_SIZE
+    assert selected["nproc_per_node"] == EXPECTED_DUAL_WORLD_SIZE
+    assert selected["selected_row_id"] == (
+        "dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked"
+    )
+    artifacts_payload = cast("dict[str, object]", selected["artifacts"])
+    assert artifacts_payload["stain_corruptor_qa"] == (
+        "benchmark/stain_corruptor_qa.json"
+    )
+    assert artifacts_payload["runtime_proof_sha256"] == _sha256_file(
+        artifacts.runtime_proof,
+    )
+    assert compiled_row["status"] == "ineligible"
+    assert compiled_row["failure_kind"] == "compiled_rows_diagnostic_only"
+
+
+def test_runtime_selection_blocks_train_only_dataloader_proof(
+    tmp_path: Path,
+) -> None:
+    """Train-only dataloader proof cannot unlock selected runtime."""
+    output_dir = tmp_path / "selection"
+    evidence = _passing_runtime_selection_evidence()
+    _write_stain_qa(output_dir, evidence)
+    train_only_rows = tuple(
+        row for row in evidence.dataloader_rows if row["split"] == "train"
+    )
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=RuntimeSelectionEvidence(
+                runtime_rows=evidence.runtime_rows,
+                dataloader_rows=train_only_rows,
+                numerical_rows=evidence.numerical_rows,
+                corruption_rows=evidence.corruption_rows,
+                gate_health_rows=evidence.gate_health_rows,
+                gate_health_summary=evidence.gate_health_summary,
+                runtime_environment=evidence.runtime_environment,
+            ),
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+
+    assert artifacts.selected_runtime is None
+    assert "runtime_pass_rows_linked_proof_not_pass" in cast(
+        "list[object]",
+        decision["blockers"],
+    )
+    assert not (output_dir / "benchmark" / "selected_runtime.json").exists()
+
+
+def test_runtime_selection_blocks_missing_child_launch_proof(tmp_path: Path) -> None:
+    """Dual timing proof must include the configured child-process launch."""
+    output_dir = tmp_path / "selection"
+    evidence = _passing_runtime_selection_evidence()
+    _write_stain_qa(output_dir, evidence)
+    runtime_environment = dict(evidence.runtime_environment)
+    runtime_environment.pop("child_process_launch_command")
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=RuntimeSelectionEvidence(
+                runtime_rows=evidence.runtime_rows,
+                dataloader_rows=evidence.dataloader_rows,
+                numerical_rows=evidence.numerical_rows,
+                corruption_rows=evidence.corruption_rows,
+                gate_health_rows=evidence.gate_health_rows,
+                gate_health_summary=evidence.gate_health_summary,
+                runtime_environment=runtime_environment,
+            ),
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    dual_gate = cast("dict[str, object]", proof["dual_t4_train_step_gate"])
+
+    assert artifacts.selected_runtime is None
+    assert dual_gate["child_process_launch_status"] == "skipped_unsupported"
+    assert not (output_dir / "benchmark" / "selected_runtime.json").exists()
+
+
+def test_runtime_selection_blocks_unbound_gate_health_rows(tmp_path: Path) -> None:
+    """Gate health must be bound to each candidate runtime row."""
+    output_dir = tmp_path / "selection"
+    evidence = _passing_runtime_selection_evidence()
+    _write_stain_qa(output_dir, evidence)
+    gate_rows = tuple(
+        {
+            **row,
+            "candidate_row_id": "",
+        }
+        for row in evidence.gate_health_rows
+    )
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=RuntimeSelectionEvidence(
+                runtime_rows=evidence.runtime_rows,
+                dataloader_rows=evidence.dataloader_rows,
+                numerical_rows=evidence.numerical_rows,
+                corruption_rows=evidence.corruption_rows,
+                gate_health_rows=gate_rows,
+                gate_health_summary=evidence.gate_health_summary,
+                runtime_environment=evidence.runtime_environment,
+            ),
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+
+    assert artifacts.selected_runtime is None
+    assert "selected_row_gate_health_not_pass" in cast(
+        "list[object]",
+        decision["blockers"],
+    )
+
+
+def test_runtime_selection_blocks_shallow_dataloader_measurement(
+    tmp_path: Path,
+) -> None:
+    """Dataloader rows must meet the configured measurement depth."""
+    output_dir = tmp_path / "selection"
+    evidence = _passing_runtime_selection_evidence()
+    _write_stain_qa(output_dir, evidence)
+    shallow_rows = tuple(
+        {
+            **row,
+            "batches_measured": "3",
+        }
+        for row in evidence.dataloader_rows
+    )
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=RuntimeSelectionEvidence(
+                runtime_rows=evidence.runtime_rows,
+                dataloader_rows=shallow_rows,
+                numerical_rows=evidence.numerical_rows,
+                corruption_rows=evidence.corruption_rows,
+                gate_health_rows=evidence.gate_health_rows,
+                gate_health_summary=evidence.gate_health_summary,
+                runtime_environment=evidence.runtime_environment,
+            ),
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+
+    assert artifacts.selected_runtime is None
+    assert "selected_row_dataloader_not_pass" in cast(
+        "list[object]",
+        decision["blockers"],
+    )
+
+
+def test_runtime_selection_blocks_train_only_corruption_proof(
+    tmp_path: Path,
+) -> None:
+    """Validation clean-RNG corruption rows are required."""
+    output_dir = tmp_path / "selection"
+    evidence = _passing_runtime_selection_evidence()
+    _write_stain_qa(output_dir, evidence)
+    train_only_corruption = tuple(
+        row for row in evidence.corruption_rows if row["split"] == "train"
+    )
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=RuntimeSelectionEvidence(
+                runtime_rows=evidence.runtime_rows,
+                dataloader_rows=evidence.dataloader_rows,
+                numerical_rows=evidence.numerical_rows,
+                corruption_rows=train_only_corruption,
+                gate_health_rows=evidence.gate_health_rows,
+                gate_health_summary=evidence.gate_health_summary,
+                runtime_environment=evidence.runtime_environment,
+            ),
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+
+    assert artifacts.selected_runtime is None
+    assert "selected_row_corruption_not_pass" in cast(
+        "list[object]",
+        decision["blockers"],
+    )
+
+
+def test_runtime_selection_blocks_shallow_numerical_proof(tmp_path: Path) -> None:
+    """Numerical checks must cover the fixed three-batch grid."""
+    output_dir = tmp_path / "selection"
+    evidence = _passing_runtime_selection_evidence()
+    _write_stain_qa(output_dir, evidence)
+    batch_zero_only = tuple(
+        row for row in evidence.numerical_rows if row["batch_index"] == "0"
+    )
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=RuntimeSelectionEvidence(
+                runtime_rows=evidence.runtime_rows,
+                dataloader_rows=evidence.dataloader_rows,
+                numerical_rows=batch_zero_only,
+                corruption_rows=evidence.corruption_rows,
+                gate_health_rows=evidence.gate_health_rows,
+                gate_health_summary=evidence.gate_health_summary,
+                runtime_environment=evidence.runtime_environment,
+            ),
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+
+    assert artifacts.selected_runtime is None
+    assert "selected_row_numerical_not_pass" in cast(
+        "list[object]",
+        decision["blockers"],
+    )
+
+
+def test_runtime_selection_blocks_missing_stain_qa_link(tmp_path: Path) -> None:
+    """A selected-runtime payload must include the required stain QA hash."""
+    output_dir = tmp_path / "selection"
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=_passing_runtime_selection_evidence(),
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+
+    assert artifacts.selected_runtime is None
+    assert "stain_corruptor_qa_not_pass" in cast(
+        "list[object]",
+        decision["blockers"],
+    )
+    assert not (output_dir / "benchmark" / "selected_runtime.json").exists()
+
+
+def _write_fake_v8_artifacts(root: Path) -> Path:
+    rows = [
+        _runtime_row(
+            accelerator_mode="single_visible_t4",
+            per_device_batch_size=batch_size,
+            precision_policy="amp_off_fp32",
+            compile_scope="none",
+            corruption_strategy=corruption_strategy,
+            world_size=1,
+            samples_sec=120.0 + batch_size,
+        )
+        for batch_size in (4, 8, 12)
+        for corruption_strategy in CORRUPTION_STRATEGIES
+    ]
+    write_json(
+        root / "benchmark" / "runtime_proof.json",
+        {
+            "status": "pretest_incomplete",
+            "full_run_eligible": False,
+            "selected_runtime_written": False,
+            "eligible_pass_row_count": len(rows),
+        },
+    )
+    write_csv(root / "benchmark" / "runtime_matrix.csv", RUNTIME_MATRIX_COLUMNS, rows)
+    write_csv(
+        root / "benchmark" / "dataloader_matrix.csv",
+        DATALOADER_MATRIX_COLUMNS,
+        (),
+    )
+    write_csv(root / "benchmark" / "numerical_checks.csv", NUMERICAL_CHECK_COLUMNS, ())
+    write_csv(
+        root / "benchmark" / "corruption_checks.csv",
+        CORRUPTION_CHECK_COLUMNS,
+        (),
+    )
+    write_json(root / "benchmark" / "gate_health_summary.json", {"status": "fail"})
+    write_csv(root / "metrics" / "gate_health.csv", GATE_HEALTH_COLUMNS, ())
+    return root
+
+
+def _passing_runtime_selection_evidence() -> RuntimeSelectionEvidence:
+    runtime_rows = tuple(_passing_runtime_rows())
+    pass_row_ids = [row["row_id"] for row in runtime_rows if row["status"] == "pass"]
+    return RuntimeSelectionEvidence(
+        runtime_rows=runtime_rows,
+        dataloader_rows=tuple(_dataloader_rows(runtime_rows)),
+        numerical_rows=tuple(
+            _candidate_rows(
+                runtime_rows=runtime_rows,
+                columns=NUMERICAL_CHECK_COLUMNS,
+                row_prefix="numerical",
+            ),
+        ),
+        corruption_rows=tuple(
+            _candidate_rows(
+                runtime_rows=runtime_rows,
+                columns=CORRUPTION_CHECK_COLUMNS,
+                row_prefix="corruption",
+            ),
+        ),
+        gate_health_rows=tuple(_gate_health_rows(runtime_rows)),
+        gate_health_summary=cast(
+            "JsonObject",
+            {
+                "status": "pass",
+                "benchmark_kind": "kaggle_runtime_selection",
+                "benchmark_source": "kaggle_runtime_benchmark",
+                "overall_status": "pass",
+                "full_run_eligible": True,
+                "logged_intervals": 1,
+                "module_count": 34,
+                "nonfinite_count": 0,
+                "candidate_row_ids": pass_row_ids,
+                "failing_modules": [],
+                "warning_modules": [],
+            },
+        ),
+        runtime_environment={
+            "status": "pass",
+            "machine_shape": "NvidiaTeslaT4",
+            "visible_device_count": EXPECTED_DUAL_WORLD_SIZE,
+            "cuda_device_count": EXPECTED_DUAL_WORLD_SIZE,
+            "gpu_names": ["Tesla T4", "Tesla T4"],
+            "world_size": EXPECTED_DUAL_WORLD_SIZE,
+            "nproc_per_node": EXPECTED_DUAL_WORLD_SIZE,
+            "rank_assignments": [
+                {"rank": 0, "local_rank": 0, "cuda_device": "cuda:0"},
+                {"rank": 1, "local_rank": 1, "cuda_device": "cuda:1"},
+            ],
+            "child_process_launch_command": "torchrun --nproc_per_node=2",
+        },
+    )
+
+
+def _passing_runtime_rows() -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    rows.extend(
+        _runtime_row(
+            accelerator_mode="single_visible_t4",
+            per_device_batch_size=batch_size,
+            precision_policy="amp_off_fp32",
+            compile_scope="none",
+            corruption_strategy=corruption_strategy,
+            world_size=1,
+            samples_sec=150.0 + batch_size,
+        )
+        for batch_size in (4, 8, 12)
+        for corruption_strategy in CORRUPTION_STRATEGIES
+    )
+    rows.extend(
+        _runtime_row(
+            accelerator_mode="single_visible_t4",
+            per_device_batch_size=batch_size,
+            precision_policy="amp_conservative",
+            compile_scope="none",
+            corruption_strategy=corruption_strategy,
+            world_size=1,
+            samples_sec=175.0 + batch_size,
+        )
+        for batch_size in (8, 12)
+        for corruption_strategy in CORRUPTION_STRATEGIES
+    )
+    for batch_size in (4, 8, 12):
+        for index, corruption_strategy in enumerate(CORRUPTION_STRATEGIES):
+            rows.append(
+                _runtime_row(
+                    accelerator_mode="dual_t4_ddp",
+                    per_device_batch_size=batch_size,
+                    precision_policy="amp_off_fp32",
+                    compile_scope="none",
+                    corruption_strategy=corruption_strategy,
+                    world_size=EXPECTED_DUAL_WORLD_SIZE,
+                    samples_sec=250.0 + batch_size + index,
+                ),
+            )
+    rows.append(
+        _runtime_row(
+            accelerator_mode="single_visible_t4",
+            per_device_batch_size=8,
+            precision_policy="amp_off_fp32",
+            compile_scope="model_forward",
+            corruption_strategy="branchless_all",
+            world_size=1,
+            samples_sec=999.0,
+        ),
+    )
+    return rows
+
+
+def _runtime_row(  # noqa: PLR0913
+    *,
+    accelerator_mode: str,
+    per_device_batch_size: int,
+    precision_policy: str,
+    compile_scope: str,
+    corruption_strategy: str,
+    world_size: int,
+    samples_sec: float,
+    status: str = "pass",
+) -> dict[str, str]:
+    row = dict.fromkeys(RUNTIME_MATRIX_COLUMNS, "")
+    row.update({
+        "run_name": RUN_NAME,
+        "benchmark_kind": "kaggle_runtime_selection",
+        "benchmark_source": "kaggle_runtime_benchmark",
+        "full_run_eligible": "true" if status == "pass" else "false",
+        "row_id": _row_id(
+            accelerator_mode=accelerator_mode,
+            batch_size=per_device_batch_size,
+            precision_policy=precision_policy,
+            compile_scope=compile_scope,
+            corruption_strategy=corruption_strategy,
+        ),
+        "accelerator_mode": accelerator_mode,
+        "machine_shape": "NvidiaTeslaT4",
+        "visible_device_count": str(world_size),
+        "cuda_device_count": str(world_size),
+        "gpu_names": json.dumps(["Tesla T4"] * world_size),
+        "ddp_backend": "nccl" if world_size == EXPECTED_DUAL_WORLD_SIZE else "",
+        "world_size": str(world_size),
+        "nproc_per_node": str(world_size),
+        "precision_policy": precision_policy,
+        "amp_enabled": "false" if precision_policy == "amp_off_fp32" else "true",
+        "torch_compile_enabled": "false" if compile_scope == "none" else "true",
+        "compile_scope": compile_scope,
+        "corruption_strategy": corruption_strategy,
+        "per_device_batch_size": str(per_device_batch_size),
+        "global_batch_size": str(per_device_batch_size * world_size),
+        "gradient_accumulation_steps": "1",
+        "warmup_steps": "5",
+        "measured_steps": "25",
+        "repeats": "3",
+        "compile_startup_sec": "0.000000",
+        "compile_settle_steps": "0" if compile_scope == "none" else "5",
+        "steady_step_ms_p50": "25.000000",
+        "steady_step_ms_p95": "30.000000",
+        "samples_sec": f"{samples_sec:.6f}",
+        "trainer_samples_sec": f"{samples_sec:.6f}",
+        "max_vram_allocated_mb": "4000.000000",
+        "max_vram_reserved_mb": "5000.000000",
+        "vram_headroom_fraction": "0.500000",
+        "amp_step_skipped_count": "0",
+        "gate_health_status": "pass",
+        "gate_health_warning_count": "0",
+        "numerical_check_status": "pass",
+        "data_wait_fraction_p95": "0.010000",
+        "graph_break_count": "0",
+        "recompile_count": "0",
+        "oom": "false",
+        "status": status,
+        "failure_kind": "",
+        "failure_message_hash": "",
+    })
+    return row
+
+
+def _dataloader_rows(runtime_rows: tuple[dict[str, str], ...]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for runtime_row in runtime_rows:
+        if runtime_row["status"] != "pass":
+            continue
+        key = (
+            runtime_row["accelerator_mode"],
+            runtime_row["machine_shape"],
+            runtime_row["world_size"],
+            runtime_row["per_device_batch_size"],
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        for rank in range(int(runtime_row["world_size"])):
+            for split in ("train", "validation"):
+                row = dict.fromkeys(DATALOADER_MATRIX_COLUMNS, "")
+                row.update({
+                    "run_name": RUN_NAME,
+                    "benchmark_kind": "kaggle_runtime_selection",
+                    "benchmark_source": "kaggle_runtime_benchmark",
+                    "full_run_eligible": "true",
+                    "accelerator_mode": runtime_row["accelerator_mode"],
+                    "machine_shape": runtime_row["machine_shape"],
+                    "world_size": runtime_row["world_size"],
+                    "rank": str(rank),
+                    "split": split,
+                    "num_workers": "1",
+                    "prefetch_factor": "2",
+                    "pin_memory": "true",
+                    "persistent_workers": "true",
+                    "non_blocking_h2d": "true",
+                    "batch_size": runtime_row["per_device_batch_size"],
+                    "batches_measured": "25",
+                    "batch_fetch_ms_p50": "1.000000",
+                    "batch_fetch_ms_p95": "2.000000",
+                    "h2d_ms_p50": "1.000000",
+                    "h2d_ms_p95": "2.000000",
+                    "loader_samples_sec": "512.000000",
+                    "trainer_samples_sec": runtime_row["trainer_samples_sec"],
+                    "data_wait_fraction_p50": "0.005000",
+                    "data_wait_fraction_p95": "0.010000",
+                    "rank_sample_count": "25",
+                    "dropped_sample_count": "0",
+                    "status": "pass",
+                    "failure_kind": "",
+                })
+                rows.append(row)
+    return rows
+
+
+def _candidate_rows(
+    *,
+    runtime_rows: tuple[dict[str, str], ...],
+    columns: tuple[str, ...],
+    row_prefix: str,
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for runtime_row in runtime_rows:
+        if runtime_row["status"] != "pass":
+            continue
+        if tuple(columns) == NUMERICAL_CHECK_COLUMNS:
+            rows.extend(
+                _candidate_row(
+                    runtime_row=runtime_row,
+                    columns=columns,
+                    row_prefix=row_prefix,
+                    batch_index=batch_index,
+                    split="train",
+                )
+                for batch_index in range(3)
+            )
+        elif tuple(columns) == CORRUPTION_CHECK_COLUMNS:
+            rows.extend(
+                _candidate_row(
+                    runtime_row=runtime_row,
+                    columns=columns,
+                    row_prefix=row_prefix,
+                    batch_index=0,
+                    split=split,
+                )
+                for split in ("train", "validation")
+            )
+        else:
+            rows.append(
+                _candidate_row(
+                    runtime_row=runtime_row,
+                    columns=columns,
+                    row_prefix=row_prefix,
+                    batch_index=0,
+                    split="train",
+                ),
+            )
+    return rows
+
+
+def _candidate_row(
+    *,
+    runtime_row: dict[str, str],
+    columns: tuple[str, ...],
+    row_prefix: str,
+    batch_index: int,
+    split: str,
+) -> dict[str, str]:
+    row = dict.fromkeys(columns, "")
+    row_id = f"{row_prefix}__{runtime_row['row_id']}__{split}__batch_{batch_index}"
+    shared = {
+        "run_name": RUN_NAME,
+        "benchmark_kind": "kaggle_runtime_selection",
+        "benchmark_source": "kaggle_runtime_benchmark",
+        "full_run_eligible": "true",
+        "accelerator_mode": runtime_row["accelerator_mode"],
+        "machine_shape": runtime_row["machine_shape"],
+        "row_id": row_id,
+        "reference_row_id": (
+            "single_visible_t4__bs4__amp_off_fp32__compile_none__branchless_all"
+        ),
+        "candidate_row_id": runtime_row["row_id"],
+        "batch_index": str(batch_index),
+        "precision_policy": runtime_row["precision_policy"],
+        "torch_compile_enabled": runtime_row["torch_compile_enabled"],
+        "compile_scope": runtime_row["compile_scope"],
+        "corruption_strategy": runtime_row["corruption_strategy"],
+        "rank": "0",
+        "world_size": runtime_row["world_size"],
+        "split": split,
+        "status": "pass",
+        "failure_kind": "",
+    }
+    for key, value in shared.items():
+        if key in row:
+            row[key] = value
+    if "nonfinite_count" in row:
+        row["nonfinite_count"] = "0"
+    if "amp_step_skipped" in row:
+        row["amp_step_skipped"] = "false"
+    if "gate_health_status" in row:
+        row["gate_health_status"] = "pass"
+    for key in tuple(row):
+        if key.endswith("_delta"):
+            row[key] = "0.000000"
+    if "corruption_version" in row:
+        row["corruption_version"] = "test"
+        row["profile_name"] = "test"
+        row["corruption_view"] = (
+            "validation_clean_no_corruption" if split == "validation" else "combined"
+        )
+        row["corruption_step"] = split
+        row["semantic_sample_key_hash"] = f"semantic_{split}"
+        row["binary_sample_id_hash"] = f"binary_{split}"
+        row["applied_mask_hash"] = f"mask_{split}"
+        row["stain_param_hash"] = f"stain_{split}"
+        row["noise_std_hash"] = f"noise_std_{split}"
+        row["noise_field_hash"] = f"noise_field_{split}"
+        row["clean_sample_unchanged_count"] = "25" if split == "validation" else "0"
+        row["clean_validation_rng_advanced"] = "false"
+    return row
+
+
+def _gate_health_rows(
+    runtime_rows: tuple[dict[str, str], ...],
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for runtime_row in runtime_rows:
+        if runtime_row["status"] != "pass":
+            continue
+        row = dict.fromkeys(GATE_HEALTH_COLUMNS, "0.000000")
+        row.update({
+            "run_name": RUN_NAME,
+            "benchmark_kind": "kaggle_runtime_selection",
+            "benchmark_source": "kaggle_runtime_benchmark",
+            "full_run_eligible": "true",
+            "accelerator_mode": runtime_row["accelerator_mode"],
+            "machine_shape": "NvidiaTeslaT4",
+            "row_id": f"{runtime_row['row_id']}__gate__encoder_0",
+            "candidate_row_id": runtime_row["row_id"],
+            "optimizer_step": "1",
+            "module": "encoder.0",
+            "gate_kind": "scalar",
+            "num_channels": "64",
+            "num_elements": "1024",
+            "gate_health_status": "pass",
+        })
+        rows.append(row)
+    return rows
+
+
+def _write_stain_qa(output_dir: Path, evidence: RuntimeSelectionEvidence) -> None:
+    pass_row_ids = [
+        row["row_id"] for row in evidence.runtime_rows if row["status"] == "pass"
+    ]
+    payload = cast(
+        "JsonObject",
+        {
+            "status": "pass",
+            "benchmark_kind": "kaggle_runtime_selection",
+            "benchmark_source": "kaggle_runtime_benchmark",
+            "full_run_eligible": True,
+            "candidate_row_ids": pass_row_ids,
+            "missing_candidate_row_ids": [],
+            "passing_corruption_row_count": len(evidence.corruption_rows),
+            "runtime_pass_row_count": len(pass_row_ids),
+            "runtime_row_count": len(evidence.runtime_rows),
+            "proof_scope": "selected_runtime_stain_corruptor_row_linked_qa",
+        },
+    )
+    write_json(output_dir / "benchmark" / "stain_corruptor_qa.json", payload)
+
+
+def _row_id(
+    *,
+    accelerator_mode: str,
+    batch_size: int,
+    precision_policy: str,
+    compile_scope: str,
+    corruption_strategy: str,
+) -> str:
+    return (
+        f"{accelerator_mode}__bs{batch_size}__{precision_policy}"
+        f"__compile_{compile_scope}__{corruption_strategy}"
+    )
+
+
+def _load_json(path: Path) -> dict[str, object]:
+    return cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+
+
+def _load_csv(path: Path) -> list[dict[str, str]]:
+    with path.open(encoding="utf-8", newline="") as csv_file:
+        reader = csv.DictReader(csv_file)
+        return [{key: value or "" for key, value in row.items()} for row in reader]
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()

@@ -19,9 +19,10 @@ failed-candidate exception as `quantile() input tensor is too large`, and
 remains non-promotable with no selected runtime. Remote v8 completed/downloaded,
 fixed the quantile evidence-plumbing failure, produced six capped-pretest-passing eager
 single-visible-T4 bs4/bs8/bs12 FP32 rows, and remains non-promotable with no
-selected runtime. The next selected-runtime benchmark/debug slice is planned as
-`v8_shortlist_eager_amp_then_dual_gate`, but full benchmark/full-run launchers
-are not Kaggle-push-ready
+selected runtime. The selected-runtime writer plus Kaggle executor/kernel for
+`v8_shortlist_eager_amp_then_dual_gate` are locally implemented and guarded as
+`runtime_selection_kernel_ready`; full training/full-run launchers are not
+Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-20
 
@@ -299,9 +300,32 @@ revalidate or write its own linked runtime/dataloader/numerical/corruption/
 gate/model-count evidence, and must not write `benchmark/selected_runtime.json`
 until real dual-T4 train-step timing and all selected-row safety proofs pass.
 The dual-T4 timing gate is required, not optional: it must prove two visible
-T4s, `world_size = 2`, `nproc_per_node = 2`, per-rank device binding, emitted
-dual-T4 train-step rows, linked safety evidence, and global throughput
-projection. Missing, failed, or skipped dual timing keeps selection blocked.
+T4s, `world_size = 2`, `nproc_per_node = 2`, per-rank device binding,
+child-process launch command proof, emitted dual-T4 train-step rows, train and
+validation dataloader rank coverage, scoped numerical/corruption rows,
+gate-health evidence bound to candidate row ids, a hash-linked
+`benchmark/stain_corruptor_qa.json`, and global throughput projection. The
+selected-runtime writer also enforces 25 measured dataloader batches with
+wait/throughput thresholds, three fixed numerical batch indices, train plus
+validation clean-RNG corruption rows, per-candidate gate-health rows,
+candidate-scoped stain QA, and exact embedded v8 payload membership. Missing,
+failed, or skipped dual timing keeps selection blocked.
+Local proof plumbing for this slice now exists in
+`src/eqvae/benchmarking/runtime_selection.py` with CLI
+`src/eqvae/cli/runtime_selection_benchmark.py`. The local default path records
+v8 hashes and writes this benchmark's own failed proof/artifact graph, but it
+still refuses `benchmark/selected_runtime.json` because no real dual-T4 timing
+evidence has been supplied locally. The selected-runtime executor and guarded
+Kaggle kernel now live in
+`src/eqvae/benchmarking/runtime_selection_executor.py`,
+`src/eqvae/cli/runtime_selection_executor.py`, and
+`kaggle/kernels/runtime_selection`. The generated runtime-selection kernel
+embeds only the required v8 provenance files, validates the
+`v8_shortlist_eager_amp_then_dual_gate` slice, runs real selected-runtime
+evidence collection on Kaggle, and remains fail-closed if dual timing or linked
+proof is missing, failed, or skipped. `runtime_selection_kernel_ready` means the
+local build/validate/push guard path is ready; remote status/output/push
+commands still require explicit permission and the normal guard variables.
 
 ## Kaggle Authentication Contract
 

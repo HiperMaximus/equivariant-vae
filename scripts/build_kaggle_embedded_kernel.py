@@ -23,6 +23,19 @@ PAYLOAD_SCHEMA_VERSION = "spec0001.kaggle_payload_manifest.v1"
 DEFAULT_KERNEL_DIR = Path("kaggle/kernels/setup_smoke")
 GIT_EXECUTABLE = shutil.which("git") or "git"
 DEFAULT_READY_MARKER = "KAGGLE_SETUP_SMOKE_READY = True"
+RUNTIME_SELECTION_KERNEL_ID = "maximusshtefan/eqvae-runtime-selection"
+RUNTIME_SELECTION_V8_ARTIFACT_ROOT = Path(
+    "runs/kaggle/real_data_runtime_pretest_v8",
+)
+RUNTIME_SELECTION_V8_ARTIFACTS = (
+    Path("benchmark/runtime_proof.json"),
+    Path("benchmark/runtime_matrix.csv"),
+    Path("benchmark/dataloader_matrix.csv"),
+    Path("benchmark/numerical_checks.csv"),
+    Path("benchmark/corruption_checks.csv"),
+    Path("benchmark/gate_health_summary.json"),
+    Path("metrics/gate_health.csv"),
+)
 EMBEDDED_B64_PATTERN = re.compile(
     r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""',
     flags=re.DOTALL,
@@ -77,9 +90,13 @@ def build_run_text(args: BuildArgs) -> str:
         Python source text containing the embedded payload.
 
     """
-    manifest = _payload_manifest(args.repo_root, args.template_path)
+    manifest = _payload_manifest(args.repo_root, args.template_path, args.kernel_dir)
     manifest_bytes = _canonical_manifest_bytes(manifest)
-    zip_bytes = _payload_zip_bytes(args.repo_root, manifest_bytes)
+    zip_bytes = _payload_zip_bytes(
+        args.repo_root,
+        manifest_bytes,
+        args.kernel_dir,
+    )
     payload_b64 = "\n".join(
         textwrap.wrap(base64.b64encode(zip_bytes).decode("ascii"), width=76),
     )
@@ -128,6 +145,11 @@ def verify_run_file(args: BuildArgs) -> None:
         manifest=manifest,
         repo_root=args.repo_root,
         fallback_template_path=args.template_path,
+    )
+    _validate_zip_members(
+        zip_bytes=zip_bytes,
+        manifest=manifest,
+        repo_root=args.repo_root,
     )
     _validate_manifest_against_source(
         manifest=manifest,
@@ -203,7 +225,22 @@ def _metadata_code_file(kernel_dir: Path) -> str:
     return code_file
 
 
-def _payload_manifest(repo_root: Path, template_path: Path) -> dict[str, object]:
+def _payload_manifest(
+    repo_root: Path,
+    template_path: Path,
+    kernel_dir: Path,
+) -> dict[str, object]:
+    entries = {
+        "src/eqvae": _digest_tree(repo_root / "src" / "eqvae"),
+        "configs/spec0001": _digest_tree(repo_root / "configs" / "spec0001"),
+        "docs/data/ubc_ocean_masked_holdout_ids.csv": _digest_file(
+            repo_root / "docs" / "data" / "ubc_ocean_masked_holdout_ids.csv",
+        ),
+        "pyproject.toml": _digest_file(repo_root / "pyproject.toml"),
+        "uv.lock": _digest_file(repo_root / "uv.lock"),
+    }
+    if _is_runtime_selection_kernel(kernel_dir):
+        entries.update(_runtime_selection_v8_entry_hashes(repo_root))
     return {
         "schema_version": PAYLOAD_SCHEMA_VERSION,
         "git_commit": _git_output(repo_root, "rev-parse", "HEAD"),
@@ -212,32 +249,31 @@ def _payload_manifest(repo_root: Path, template_path: Path) -> dict[str, object]
             "path": _manifest_path(repo_root=repo_root, path=template_path),
             "sha256": _digest_file(template_path),
         },
-        "entries": {
-            "src/eqvae": _digest_tree(repo_root / "src" / "eqvae"),
-            "configs/spec0001": _digest_tree(repo_root / "configs" / "spec0001"),
-            "docs/data/ubc_ocean_masked_holdout_ids.csv": _digest_file(
-                repo_root / "docs" / "data" / "ubc_ocean_masked_holdout_ids.csv",
-            ),
-            "pyproject.toml": _digest_file(repo_root / "pyproject.toml"),
-            "uv.lock": _digest_file(repo_root / "uv.lock"),
-        },
+        "entries": entries,
     }
 
 
-def _payload_zip_bytes(repo_root: Path, manifest_bytes: bytes) -> bytes:
+def _payload_zip_bytes(
+    repo_root: Path,
+    manifest_bytes: bytes,
+    kernel_dir: Path,
+) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(
         buffer,
         mode="w",
         compression=zipfile.ZIP_DEFLATED,
     ) as archive:
-        for path, archive_name in _payload_files(repo_root):
+        for path, archive_name in _payload_files(repo_root, kernel_dir):
             archive.write(path, archive_name)
         archive.writestr("payload_manifest.json", manifest_bytes)
     return buffer.getvalue()
 
 
-def _payload_files(repo_root: Path) -> tuple[tuple[Path, str], ...]:
+def _payload_files(
+    repo_root: Path,
+    kernel_dir: Path,
+) -> tuple[tuple[Path, str], ...]:
     roots = (
         (repo_root / "src" / "eqvae", Path("src/eqvae")),
         (repo_root / "configs" / "spec0001", Path("configs/spec0001")),
@@ -257,7 +293,41 @@ def _payload_files(repo_root: Path) -> tuple[tuple[Path, str], ...]:
             Path("uv.lock"),
         )
     )
+    if _is_runtime_selection_kernel(kernel_dir):
+        files.extend(_runtime_selection_v8_payload_files(repo_root))
     return tuple(files)
+
+
+def _is_runtime_selection_kernel(kernel_dir: Path) -> bool:
+    metadata_path = kernel_dir / "kernel-metadata.json"
+    if not metadata_path.exists():
+        return False
+    payload = cast(
+        "dict[str, object]",
+        json.loads(metadata_path.read_text(encoding="utf-8")),
+    )
+    return payload.get("id") == RUNTIME_SELECTION_KERNEL_ID
+
+
+def _runtime_selection_v8_payload_files(
+    repo_root: Path,
+) -> tuple[tuple[Path, str], ...]:
+    return tuple(
+        (
+            repo_root / RUNTIME_SELECTION_V8_ARTIFACT_ROOT / relative,
+            (RUNTIME_SELECTION_V8_ARTIFACT_ROOT / relative).as_posix(),
+        )
+        for relative in RUNTIME_SELECTION_V8_ARTIFACTS
+    )
+
+
+def _runtime_selection_v8_entry_hashes(repo_root: Path) -> dict[str, str]:
+    return {
+        (RUNTIME_SELECTION_V8_ARTIFACT_ROOT / relative).as_posix(): _digest_file(
+            repo_root / RUNTIME_SELECTION_V8_ARTIFACT_ROOT / relative,
+        )
+        for relative in RUNTIME_SELECTION_V8_ARTIFACTS
+    }
 
 
 def _is_ignored_payload_file(path: Path) -> bool:
@@ -294,7 +364,7 @@ def _template_path_for_verify(
     return repo_root / path
 
 
-def _validate_manifest_against_source(
+def _validate_manifest_against_source(  # noqa: C901
     *,
     manifest: dict[str, object],
     repo_root: Path,
@@ -331,6 +401,8 @@ def _validate_manifest_against_source(
         "pyproject.toml": _digest_file(repo_root / "pyproject.toml"),
         "uv.lock": _digest_file(repo_root / "uv.lock"),
     }
+    if _is_runtime_selection_kernel(repo_root / _metadata_kernel_dir(manifest)):
+        expected_entries.update(_runtime_selection_v8_entry_hashes(repo_root))
     raw_entries = manifest.get("entries")
     if not isinstance(raw_entries, dict):
         errors.append("payload manifest entries must be an object")
@@ -361,6 +433,47 @@ def _manifest_template_error(
     if template != expected_template:
         return "payload template does not match current run_template.py"
     return None
+
+
+def _validate_zip_members(
+    *,
+    zip_bytes: bytes,
+    manifest: dict[str, object],
+    repo_root: Path,
+) -> None:
+    kernel_dir = repo_root / _metadata_kernel_dir(manifest)
+    expected_names = {
+        archive_name for _path, archive_name in _payload_files(repo_root, kernel_dir)
+    }
+    expected_names.add("payload_manifest.json")
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+        actual_names = set(archive.namelist())
+    if actual_names != expected_names:
+        missing = sorted(expected_names - actual_names)
+        unexpected = sorted(actual_names - expected_names)
+        details: list[str] = []
+        if missing:
+            details.append(f"missing={missing!r}")
+        if unexpected:
+            details.append(f"unexpected={unexpected!r}")
+        message = "payload zip members do not match expected file set"
+        if details:
+            message = f"{message}: {', '.join(details)}"
+        raise RuntimeError(message)
+
+
+def _metadata_kernel_dir(manifest: dict[str, object]) -> Path:
+    raw_template = manifest.get("template")
+    if not isinstance(raw_template, dict):
+        return DEFAULT_KERNEL_DIR
+    template = cast("dict[str, object]", raw_template)
+    path = template.get("path")
+    if not isinstance(path, str):
+        return DEFAULT_KERNEL_DIR
+    template_path = Path(path)
+    if template_path.name != "run_template.py":
+        return template_path.parent
+    return template_path.parent
 
 
 def _embedded_zip_bytes(run_text: str) -> bytes:
