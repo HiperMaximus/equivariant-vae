@@ -36,7 +36,16 @@ accepted version 7 at
 The immediate guarded post-push status read returned
 `KernelWorkerStatus.RUNNING` at `2026-06-19T23:38:51-05:00`, and the next
 guarded poll returned `KernelWorkerStatus.COMPLETE` at
-`2026-06-20T02:21:15-05:00`; no output download has been run yet.
+`2026-06-20T02:21:15-05:00`. Outputs are downloaded under
+`runs/kaggle/real_data_runtime_pretest_v7`; artifact inspection confirmed
+`runtime_proof.status = pretest_incomplete`, `selection_ready = false`,
+`selected_runtime_written = false`, no `selected_runtime.json`, two eligible
+bs4 eager FP32 pass rows, and the expected non-promotable capped-pretest
+blocking claims. The v7 diagnostic fix worked: failed candidate evidence in
+the manifest now exposes
+`failure_message_excerpt = "quantile() input tensor is too large"` for the repeated
+`candidate_train_step_RuntimeError` hash
+`757ab3828da1202c080e587121c92ffa9210d9ecace6cb28842a62504733fc14`.
 Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, a focused
 scaffold-readiness check on 2026-06-12, and a focused v7 handoff/guard audit on
@@ -1650,11 +1659,36 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh
   status-real-data-runtime-pretest` returned `KernelWorkerStatus.RUNNING` at
   `2026-06-19T23:38:51-05:00`, and the next guarded status poll returned
-  `KernelWorkerStatus.COMPLETE` at `2026-06-20T02:21:15-05:00`; no output
-  download has been run yet. Next action: with explicit remote-read/download
-  approval, download outputs to `runs/kaggle/real_data_runtime_pretest_v7` with
-  `KAGGLE_REMOTE_CONFIRMED=1`, then inspect the runtime proof, candidate
-  evidence, and bounded `failure_message_excerpt` diagnostics.
+  `KernelWorkerStatus.COMPLETE` at `2026-06-20T02:21:15-05:00`. Output
+  download and artifact inspection are recorded in the next entry.
+- 2026-06-20 v7 output download and inspection:
+  after explicit user approval, the guarded remote download
+  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh
+  output-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v7`
+  succeeded at `2026-06-20T09:19:52-05:00`. Downloaded artifacts include
+  `benchmark/runtime_proof.json`,
+  `benchmark/real_data_runtime_pretest_manifest.json`,
+  `benchmark/real_data_runtime_pretest_recommendations.json`,
+  `benchmark/runtime_matrix.csv`, and `metrics/gate_health.csv`. Inspection
+  confirmed `runtime_proof.status = pretest_incomplete`,
+  `full_run_eligible = false`, `selection_ready = false`,
+  `selected_runtime_written = false`, and no `selected_runtime.json`. The matrix
+  still has 56 rows with statuses `pass = 2`, `ineligible = 12`,
+  `runtime_error = 2`, and `skipped_unsupported = 40`. The two pass rows are
+  still single-visible-T4, bs4, FP32 eager: `indexed_masked` ranks first at
+  `6.148994` samples/sec and `659.031199` p95 step ms; `branchless_all` ranks
+  second at `6.112694` samples/sec and `667.591992` p95 step ms. Gate health
+  passed for 68 modules, all 71 recorded phases passed, and the manifest
+  allowlist now includes `metrics/gate_health.csv`. The v7 diagnostic fix
+  worked: both paired-numerical and corruption failed-candidate evidence expose
+  bounded `failure_message_excerpt = "quantile() input tensor is too large"`
+  for the repeated `candidate_train_step_RuntimeError` hash
+  `757ab3828da1202c080e587121c92ffa9210d9ecace6cb28842a62504733fc14`.
+  Next action is local analysis/fix work: find why the candidate train-step
+  evidence path calls `quantile()` on too large a tensor for bs8/bs12 and
+  compiled candidates, then decide whether to produce a v8 diagnostics/fix
+  kernel. Do not push another Kaggle version without explicit user permission
+  and the required guards.
 - 2026-06-19 GitHub issue status updates:
   posted Spanish status comments to issues #1-#6 after local grounding and
   three read-only subagent audits. Issue #2 received the substantive v6
