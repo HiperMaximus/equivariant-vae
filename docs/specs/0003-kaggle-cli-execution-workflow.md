@@ -298,6 +298,10 @@ runtime-selection benchmark, not a v8 promotion. It may use v8 only as
 revalidate or write its own linked runtime/dataloader/numerical/corruption/
 gate/model-count evidence, and must not write `benchmark/selected_runtime.json`
 until real dual-T4 train-step timing and all selected-row safety proofs pass.
+The dual-T4 timing gate is required, not optional: it must prove two visible
+T4s, `world_size = 2`, `nproc_per_node = 2`, per-rank device binding, emitted
+dual-T4 train-step rows, linked safety evidence, and global throughput
+projection. Missing, failed, or skipped dual timing keeps selection blocked.
 
 ## Kaggle Authentication Contract
 

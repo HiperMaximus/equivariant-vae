@@ -24,7 +24,9 @@ FP32 rows: bs4/bs8/bs12 crossed with `branchless_all` and `indexed_masked`. The
 next selected-runtime benchmark/debug slice is encoded as
 `v8_shortlist_eager_amp_then_dual_gate`: v8 is shortlist-only, the separate
 benchmark must run its own linked proofs, and `selected_runtime.json` remains
-blocked until real dual-T4 train-step timing exists. Compiled rows remain
+blocked until real dual-T4 train-step timing exists. That timing must prove two
+visible T4s, `world_size = 2`, `nproc_per_node = 2`, per-rank device binding,
+linked safety evidence, and global throughput projection. Compiled rows remain
 diagnostic-only until full compile-settle coverage exists, and v8 remains
 non-promotable unless a later spec explicitly changes that
 Owner/workstream: comparable non-equivariant VAE baseline
@@ -1678,7 +1680,12 @@ Benchmark budget and reset rules:
   `compile_none` branchless/indexed rows, with bs4 as fallback, then runs AMP
   follow-up only for confirmed eager FP32 candidates. A real dual-T4 train-step
   timing gate is required before `benchmark/selected_runtime.json` may be
-  written. Compiled rows remain diagnostic-only until full compile-settle
+  written. The dual gate must emit rows for per-device bs4/bs8/bs12 FP32 eager
+  `branchless_all` and `indexed_masked`, prove two visible T4s,
+  `world_size = 2`, `nproc_per_node = 2`, per-rank device assignment, linked
+  dataloader/numerical/corruption/gate evidence, and global throughput
+  projection. Missing, failed, or skipped dual timing blocks selected-runtime
+  writing. Compiled rows remain diagnostic-only until full compile-settle
   coverage passes;
 - the pretest manifest may mark tiny local UBC-format fixtures as `local_pass`
   for proof plumbing only. Canonical real-data `pass` requires the expected

@@ -42,6 +42,7 @@ EXPECTED_REAL_PRETEST_MEASURED_STEPS = 25
 EXPECTED_REAL_PRETEST_TRAIN_PATCHES = 8192
 EXPECTED_REAL_PRETEST_VALIDATION_PATCHES = 2048
 EXPECTED_REAL_PRETEST_WARMUP_STEPS = 5
+EXPECTED_DUAL_T4_DEVICE_COUNT = 2
 SPEC_TOTAL_LEARNED_PARAMETERS = 3_958_435
 
 
@@ -273,15 +274,51 @@ def test_runtime_config_v8_carry_forward_is_shortlist_only() -> None:
     assert first_next_stage["fallback_per_device_batch_sizes"] == [4]
     assert first_next_stage["compile_scopes"] == ["none"]
     assert first_next_stage["selected_runtime_write_allowed"] is False
+
+
+def test_runtime_config_dual_t4_timing_blocks_selection() -> None:
+    """Selected runtime cannot be written before real dual-T4 timing passes."""
+    effective = resolve_json_config(
+        Path("configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json"),
+    ).effective_config
+    runtime = effective["runtime_matrix"]
+    assert isinstance(runtime, dict)
+
+    selection_slice = runtime["selection_benchmark_slice"]
+    assert isinstance(selection_slice, dict)
+    dual_requirement = selection_slice["dual_t4_timing_requirement"]
+    assert isinstance(dual_requirement, dict)
+    assert dual_requirement["status"] == "required_before_selected_runtime"
+    assert dual_requirement["accelerator_mode"] == "dual_t4_ddp"
+    assert dual_requirement["visible_device_count"] == EXPECTED_DUAL_T4_DEVICE_COUNT
+    assert dual_requirement["cuda_device_count"] == EXPECTED_DUAL_T4_DEVICE_COUNT
+    assert dual_requirement["world_size"] == EXPECTED_DUAL_T4_DEVICE_COUNT
+    assert dual_requirement["nproc_per_node"] == EXPECTED_DUAL_T4_DEVICE_COUNT
+    assert dual_requirement["gpu_name_substring"] == "T4"
+    assert dual_requirement["per_device_batch_sizes"] == [4, 8, 12]
+    assert dual_requirement["failure_policy"] == (
+        "do_not_write_selected_runtime_if_missing_failed_or_skipped"
+    )
+    required_evidence = dual_requirement["required_evidence"]
+    assert isinstance(required_evidence, list)
+    assert "per_rank_device_assignment" in required_evidence
+    assert "runtime_matrix:dual_t4_rows_emitted" in required_evidence
+    assert "global_throughput_projection" in required_evidence
+
+    next_stages = selection_slice["stages"]
+    assert isinstance(next_stages, list)
     dual_gate = next_stages[2]
     assert isinstance(dual_gate, dict)
     assert dual_gate["accelerator_modes"] == ["dual_t4_ddp"]
     assert dual_gate["required_before_selected_runtime"] is True
+    assert dual_gate["selected_runtime_write_allowed"] is False
+    assert dual_gate["must_emit_rows_even_on_failure"] is True
     final_stage = next_stages[3]
     assert isinstance(final_stage, dict)
     assert final_stage["selected_runtime_write_allowed"] is True
     assert final_stage["requires_hash_links"] is True
     assert final_stage["required_inputs"] == [
+        "dual_t4_train_step_gate:pass",
         "runtime_proof:pass",
         "runtime_matrix:selected_row_pass",
         "dataloader_matrix:pass",

@@ -132,6 +132,31 @@
       "v8_artifacts_are_promotable": false,
       "v8_artifact_hashes_required_in_runtime_proof": true,
       "selected_runtime_write_policy": "write_only_after_this_benchmark_full_linked_proof_passes",
+      "dual_t4_timing_requirement": {
+        "status": "required_before_selected_runtime",
+        "accelerator_mode": "dual_t4_ddp",
+        "visible_device_count": 2,
+        "cuda_device_count": 2,
+        "world_size": 2,
+        "nproc_per_node": 2,
+        "gpu_name_substring": "T4",
+        "per_device_batch_sizes": [4, 8, 12],
+        "precision_policies": ["amp_off_fp32"],
+        "compile_scopes": ["none"],
+        "corruption_strategies": ["branchless_all", "indexed_masked"],
+        "required_evidence": [
+          "runtime_proof:dual_t4_ddp_pass",
+          "per_rank_device_assignment",
+          "child_process_launch_command",
+          "runtime_matrix:dual_t4_rows_emitted",
+          "dataloader_matrix:dual_t4_pass",
+          "numerical_checks:dual_t4_pass",
+          "corruption_checks:dual_t4_pass",
+          "gate_health_summary:pass",
+          "global_throughput_projection"
+        ],
+        "failure_policy": "do_not_write_selected_runtime_if_missing_failed_or_skipped"
+      },
       "must_recompute_or_revalidate": [
         "runtime_proof",
         "runtime_matrix",
@@ -173,12 +198,25 @@
           "precision_policies": ["amp_off_fp32"],
           "compile_scopes": ["none"],
           "corruption_strategies": ["branchless_all", "indexed_masked"],
-          "required_before_selected_runtime": true
+          "required_before_selected_runtime": true,
+          "selected_runtime_write_allowed": false,
+          "must_emit_rows_even_on_failure": true,
+          "required_evidence": [
+            "runtime_proof:dual_t4_ddp_pass",
+            "per_rank_device_assignment",
+            "runtime_matrix:dual_t4_rows_emitted",
+            "dataloader_matrix:dual_t4_pass",
+            "numerical_checks:dual_t4_pass",
+            "corruption_checks:dual_t4_pass",
+            "gate_health_summary:pass",
+            "global_throughput_projection"
+          ]
         },
         {
           "name": "write_selected_runtime_after_all_gates",
           "candidate_source": "stage:dual_t4_train_step_gate:pass_plus_single_visible_candidates",
           "required_inputs": [
+            "dual_t4_train_step_gate:pass",
             "runtime_proof:pass",
             "runtime_matrix:selected_row_pass",
             "dataloader_matrix:pass",

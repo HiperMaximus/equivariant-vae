@@ -92,6 +92,11 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   and actually faster, and benchmark whether branchless full-batch corruption or
   indexed masked-sample corruption gives better throughput without breaking
   compile stability or RNG semantics.
+- Before writing `benchmark/selected_runtime.json`, time real dual-T4 DDP
+  train-step rows. The selection benchmark must prove two visible T4s,
+  `world_size = 2`, `nproc_per_node = 2`, per-rank device assignment, linked
+  dataloader/numerical/corruption/gate evidence, and global throughput
+  projection; missing, failed, or skipped dual timing blocks runtime selection.
 - The first full run also needs passing dataloader-throughput, paired numerical,
   selected-runtime debug, checkpoint/resume, tiny-overfit, and gate-health
   checks on the selected runtime.

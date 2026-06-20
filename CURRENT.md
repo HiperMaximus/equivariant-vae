@@ -271,8 +271,13 @@ bs8/bs12 FP32 `compile_none` branchless/indexed confirmation, with bs4 as a
 fallback, then AMP follow-up only for confirmed eager rows. The benchmark must
 write `benchmark/selected_runtime.json` only after its own full linked proof
 passes and hash-links its artifacts; it must remain blocked while real dual-T4
-train-step timing is missing. The local v8 evidence-plumbing fix was committed
-as `614cd95`, pushed as Kaggle version 8 after explicit approval, completed,
+train-step timing is missing. Dual-T4 timing is required, not optional: the
+selection benchmark must emit dual-T4 DDP train-step rows for per-device bs4,
+bs8, and bs12 FP32 eager branchless/indexed candidates, prove two visible T4s,
+`world_size = 2`, `nproc_per_node = 2`, per-rank device assignment, linked
+dataloader/numerical/corruption/gate evidence, and global throughput
+projection. The local v8 evidence-plumbing fix was committed as `614cd95`,
+pushed as Kaggle version 8 after explicit approval, completed,
 downloaded to `runs/kaggle/real_data_runtime_pretest_v8`, and inspected. It
 fixed the v7 quantile blocker and produced six capped-pretest passing eager
 rows, but `runtime_proof.status = pretest_incomplete`, `selection_ready =
@@ -1798,11 +1803,14 @@ The review process lives in `docs/agentic_review_workflow.md`.
   confirms eager single-visible-T4 bs8/bs12 FP32 `compile_none` branchless and
   indexed rows, with bs4 as fallback; stage 2 runs AMP follow-up only on
   confirmed eager FP32 candidates; stage 3 is the blocking dual-T4 train-step
-  timing gate; stage 4 may write `selected_runtime.json` only after all gates
-  pass and required artifacts are hash-linked. Compiled rows remain
-  diagnostic-only until full compile-settle coverage passes. No selected
-  runtime may be written while `missing_real_dual_t4_train_step_timing` remains
-  a blocker.
+  timing gate. The dual gate must prove two visible T4s, `world_size = 2`,
+  `nproc_per_node = 2`, per-rank device assignment, emitted dual rows for
+  per-device bs4/bs8/bs12 FP32 eager branchless/indexed candidates, linked
+  safety evidence, and global throughput projection. Stage 4 may write
+  `selected_runtime.json` only after all gates pass and required artifacts are
+  hash-linked. Compiled rows remain diagnostic-only until full compile-settle
+  coverage passes. No selected runtime may be written while
+  `missing_real_dual_t4_train_step_timing` remains a blocker.
 - 2026-06-19 GitHub issue status updates:
   posted Spanish status comments to issues #1-#6 after local grounding and
   three read-only subagent audits. Issue #2 received the substantive v6

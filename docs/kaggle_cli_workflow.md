@@ -385,7 +385,10 @@ or write its own linked proofs, confirm the eager single-visible-T4 bs8/bs12
 FP32 `compile_none` branchless/indexed rows with bs4 as fallback, run AMP
 follow-up only on confirmed eager rows, add the blocking real dual-T4 train-step
 timing gate, and write `benchmark/selected_runtime.json` only after its own full
-linked proof passes.
+linked proof passes. The dual-T4 gate must time real DDP train-step rows,
+record two visible T4s, `world_size = 2`, `nproc_per_node = 2`, per-rank device
+assignment, linked safety evidence, and global throughput projection; if that
+gate is missing, failed, or skipped, selected-runtime writing stays blocked.
 
 Local `build`/`validate` may verify the generated real-data pretest payload
 against the current dirty worktree so agents can validate local patches before
