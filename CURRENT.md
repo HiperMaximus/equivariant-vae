@@ -29,11 +29,15 @@ eligible, eager bs8/bs12 candidate evidence failed with hash-only
 as `runtime_OutOfMemoryError`, compiled rows remain diagnostic/ineligible, and
 no `selected_runtime.json` was written. The local v7 diagnostics follow-up adds
 bounded `failure_message_excerpt` fields to failed candidate evidence so the
-next artifact can expose the actual exception; the local v7 diagnostics kernel
-is rebuilt and validated, but no Kaggle API preflight or push has been run yet.
-Clean-context adversarial
-subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, and a focused
-scaffold-readiness check on 2026-06-12. The 2026-06-11 passes
+next artifact can expose the actual exception. After an approved Kaggle API
+preflight and GPU-quota confirmation, v7 was pushed successfully; Kaggle
+accepted version 7 at
+`https://www.kaggle.com/code/maximusshtefan/eqvae-real-data-runtime-pretest`.
+No post-push status read or output download has been run yet. Clean-context
+adversarial
+subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, a focused
+scaffold-readiness check on 2026-06-12, and a focused v7 handoff/guard audit on
+2026-06-20. The 2026-06-11 passes
 confirmed that the previous `4x4` latent target was inconsistent with the
 FSQ-successor spatial-coherence goal, that the historical HED corruptor must not
 be copied as-is, and that the benchmark specs were directionally right but not
