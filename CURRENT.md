@@ -1615,6 +1615,19 @@ The review process lives in `docs/agentic_review_workflow.md`.
   with explicit approval and available quota,
   `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1
   ./scripts/kaggle_kernel.sh push kaggle/kernels/real_data_runtime_pretest`.
+- 2026-06-20 v7 Kaggle preflight:
+  after explicit user approval, local status was clean at `c53252d` and
+  `./scripts/kaggle_kernel.sh validate kaggle/kernels/real_data_runtime_pretest`
+  passed with a fresh embedded payload. The guarded read-only preflight
+  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check` passed OAuth
+  token generation, kernel list/status/logs, and dataset file listing for
+  `maximusshtefan/patches-pre-shuffled-ubc-ocean`. It still warned that the
+  Kaggle accelerator quota endpoint and kernels-files endpoint failed, matching
+  the known CLI limitation. No v7 push has been run yet. Next action: the user
+  must confirm in the Kaggle web UI that GPU quota is available; then run the
+  approved guarded push with
+  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1
+  ./scripts/kaggle_kernel.sh push kaggle/kernels/real_data_runtime_pretest`.
 - 2026-06-19 GitHub issue status updates:
   posted Spanish status comments to issues #1-#6 after local grounding and
   three read-only subagent audits. Issue #2 received the substantive v6
