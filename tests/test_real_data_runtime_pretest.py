@@ -488,8 +488,18 @@ def test_train_step_evidence_failure_preserves_candidate_diagnostics(
     }
     assert numerical["status"] == "fail"
     assert numerical["failed_candidate_evidence_count"] == 1
+    numerical_failed = cast(
+        "list[dict[str, object]]",
+        numerical["failed_candidate_evidence"],
+    )
+    assert numerical_failed[0]["failure_message_excerpt"] == "synthetic candidate boom"
     assert corruption["status"] == "fail"
     assert corruption["failed_candidate_evidence_count"] == 1
+    corruption_failed = cast(
+        "list[dict[str, object]]",
+        corruption["failed_candidate_evidence"],
+    )
+    assert corruption_failed[0]["failure_message_excerpt"] == "synthetic candidate boom"
 
 
 def _generated_kernel_dir(

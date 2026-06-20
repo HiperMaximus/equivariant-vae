@@ -5394,6 +5394,7 @@ def _manifest_payload(  # noqa: PLR0913
                 DATALOADER_MATRIX_FILENAME,
                 NUMERICAL_CHECKS_FILENAME,
                 CORRUPTION_CHECKS_FILENAME,
+                f"metrics/{GATE_HEALTH_FILENAME}",
                 GATE_HEALTH_SUMMARY_FILENAME,
                 RECOMMENDATIONS_FILENAME,
                 PHASE_TIMINGS_FILENAME,

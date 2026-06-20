@@ -153,6 +153,14 @@ validate_kernel_dir() {
   echo "ok: $kernel_dir"
   echo "ok: $metadata"
   echo "ok: $kernel_dir/$code_file"
+
+  if [[ "$kernel_dir" == "$real_data_runtime_pretest_kernel_dir" ]]; then
+    python3 scripts/build_kaggle_embedded_kernel.py \
+      --kernel-dir "$kernel_dir" \
+      --ready-marker "KAGGLE_REAL_DATA_RUNTIME_PRETEST_READY = True" \
+      --verify-only
+    echo "ok: real-data runtime pretest embedded payload is fresh"
+  fi
 }
 
 build_kernel_payload() {
