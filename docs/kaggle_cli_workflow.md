@@ -16,7 +16,9 @@ compiled rows remain diagnostic-only until full compile-settle coverage exists;
 selected-runtime proof plumbing and the Kaggle executor/kernel for
 `v8_shortlist_eager_amp_then_dual_gate` now exist and are fail-closed until real
 dual-T4 timing plus linked evidence pass; the runtime-selection kernel guard is
-`runtime_selection_kernel_ready`; Kaggle source attachments require a separate
+`runtime_selection_kernel_ready`; runtime-selection version 1 was pushed to
+Kaggle on 2026-06-20 and still reported `KernelWorkerStatus.RUNNING` as of
+`2026-06-20T17:31:27-05:00`; Kaggle source attachments require a separate
 confirmation guard
 Last updated: 2026-06-20
 

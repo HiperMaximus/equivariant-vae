@@ -68,9 +68,13 @@ provided. The selected-runtime Kaggle executor/kernel path now exists at
 `src/eqvae/cli/runtime_selection_executor.py`, and
 `kaggle/kernels/runtime_selection`. The generated script kernel embeds only the
 required v8 provenance files, re-runs the selected-runtime benchmark on Kaggle,
-and is guarded by `runtime_selection_kernel_ready`; user-approved commit and
-Kaggle push/status/output are in progress on 2026-06-20, with no GitHub or
-Overleaf push approved.
+and is guarded by `runtime_selection_kernel_ready`. Commit `fba9d98`
+(`Add selected runtime Kaggle executor`) was created on 2026-06-20, Kaggle
+accepted runtime-selection version 1 at
+`https://www.kaggle.com/code/maximusshtefan/eqvae-runtime-selection`, and
+guarded status polls still reported `KernelWorkerStatus.RUNNING` as of
+`2026-06-20T17:31:27-05:00`. Output download/inspection remains pending remote
+completion; no GitHub or Overleaf push was performed or approved.
 Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, a focused
 scaffold-readiness check on 2026-06-12, and a focused v7 handoff/guard audit on
@@ -1853,10 +1857,24 @@ The review process lives in `docs/agentic_review_workflow.md`.
   the required v8 provenance files, validates the output set fail-closed, and
   `scripts/kaggle_kernel.sh` now has guarded `status-runtime-selection` and
   `output-runtime-selection` actions plus exact v8 payload and specs-index
-  guard checks. User approved commit plus selected-runtime
-  Kaggle push/status/output on 2026-06-20; adversarial review, final local
-  gates, commit, clean rebuild/validate, and the guarded Kaggle push are the
-  active next steps.
+  guard checks. Adversarial review found candidate-bound gate-health,
+  dataloader-depth, corruption-scope, stain-QA, numerical-depth, payload-set,
+  and spec-index guard gaps; these were fixed and the follow-up review found
+  only a dataloader counter shadowing bug, which was also fixed. Verification
+  passed: targeted pytest for runtime-selection/Kaggle embedding tests,
+  fail-closed local executor smoke, clean rebuild/validate of
+  `kaggle/kernels/runtime_selection`, `./scripts/python_quality.sh` with
+  `140 passed`, `git diff --check`, repo `./scripts/agent_preflight.sh`, and
+  workspace `/home/maximus/Documents/Tesis/agent_preflight.sh`. Commit
+  `fba9d98` was created, Kaggle accepted version 1 at
+  `https://www.kaggle.com/code/maximusshtefan/eqvae-runtime-selection`, and
+  guarded status polls still reported `KernelWorkerStatus.RUNNING` as of
+  `2026-06-20T17:31:27-05:00`. Next action: poll with
+  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-runtime-selection`
+  until complete, then download with
+  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-runtime-selection runs/kaggle/runtime_selection_v1`
+  and inspect whether the strict writer produced or refused
+  `benchmark/selected_runtime.json`.
 - 2026-06-19 GitHub issue status updates:
   posted Spanish status comments to issues #1-#6 after local grounding and
   three read-only subagent audits. Issue #2 received the substantive v6
