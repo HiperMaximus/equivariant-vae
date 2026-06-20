@@ -16,8 +16,10 @@ eligible eager bs4 candidate rows, and remote v6 completed/downloaded with
 phase timings plus failed-candidate hash diagnostics but still only two eligible
 bs4 rows; remote v7 completed/downloaded, exposed the repeated
 failed-candidate exception as `quantile() input tensor is too large`, and
-remains non-promotable with no selected runtime. Full benchmark/full-run
-launchers are not Kaggle-push-ready
+remains non-promotable with no selected runtime. The local v8 fix for bounded
+gate-health quantiles and row-specific gate-health evidence coverage is
+implemented and locally rebuilt/validated, but no v8 remote run has been pushed
+or downloaded. Full benchmark/full-run launchers are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-20
 
@@ -268,8 +270,23 @@ approved status reads reported `KernelWorkerStatus.RUNNING` and then
 pretest remains non-promotable with no `benchmark/selected_runtime.json`, two
 eligible eager single-T4 bs4 FP32 rows, and five failed candidate evidence
 attempts now diagnosed as `quantile() input tensor is too large`. The reviewed
-next local slice is a v8 gate-health quantile/evidence-coverage fix; any v8
-remote preflight/read/push remains permission-gated.
+local v8 gate-health quantile/evidence-coverage fix is implemented and verified:
+the generated real-data pretest kernel rebuilds and validates locally, and any
+v8 remote preflight/read/push/download remains permission-gated.
+
+A possible v8 remote sequence must still be guarded exactly: first reach a clean
+committed source state, rebuild and validate
+`kaggle/kernels/real_data_runtime_pretest`, run
+`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check` only after
+explicit permission, confirm Kaggle web UI GPU quota if the CLI quota endpoint
+still warns, then push only after explicit push permission with
+`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/real_data_runtime_pretest`.
+Monitor with approved
+`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest`
+at the documented cadence and download once with approved
+`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v8`.
+The capped pretest remains non-promotable and must not write
+`benchmark/selected_runtime.json`.
 
 ## Kaggle Authentication Contract
 

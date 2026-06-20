@@ -116,6 +116,7 @@ DATA_ROOT_RESOLUTION_ATTEMPTS = 4
 DATA_ROOT_RETRY_SLEEP_SEC = 5.0
 MAX_DATA_WAIT_FRACTION = 0.20
 MIN_CHANNEL_TENSOR_NDIM = 2
+MAX_GATE_QUANTILE_ELEMENTS = 1_000_000
 GATE_SATURATION_LOW = 0.01
 GATE_SATURATION_HIGH = 0.99
 GATE_DEAD_RMS_THRESHOLD = 1.0e-8
@@ -4929,7 +4930,26 @@ def _tensor_std(tensor: torch.Tensor) -> float:
 def _tensor_quantile(tensor: torch.Tensor, quantile: float) -> float:
     if tensor.numel() == 0:
         return 0.0
-    return float(torch.quantile(tensor.flatten(), quantile).item())
+    values = _gate_quantile_values(tensor)
+    return float(torch.quantile(values, quantile).item())
+
+
+def _gate_quantile_values(tensor: torch.Tensor) -> torch.Tensor:
+    if tensor.numel() == 0:
+        return torch.empty((0,), dtype=torch.float32, device=tensor.device)
+    if tensor.numel() <= MAX_GATE_QUANTILE_ELEMENTS:
+        return tensor.flatten()
+    values = tensor if tensor.is_contiguous() else tensor.contiguous()
+    flattened = values.view(-1)
+    sample_count = min(MAX_GATE_QUANTILE_ELEMENTS, int(flattened.numel()))
+    indices = torch.linspace(
+        0,
+        int(flattened.numel()) - 1,
+        steps=sample_count,
+        device=flattened.device,
+        dtype=torch.float64,
+    ).round()
+    return flattened.index_select(0, indices.to(dtype=torch.long))
 
 
 def _tensor_fraction(mask: torch.Tensor) -> float:
@@ -5061,8 +5081,6 @@ def _row_gate_status(
                 row=row,
             ):
                 return _required_str(row_status, "status")
-    if _required_str(gate_health, "status") == PASS_STATUS:
-        return PASS_STATUS
     return default
 
 

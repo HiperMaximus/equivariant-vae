@@ -158,8 +158,9 @@ validate_kernel_dir() {
     python3 scripts/build_kaggle_embedded_kernel.py \
       --kernel-dir "$kernel_dir" \
       --ready-marker "KAGGLE_REAL_DATA_RUNTIME_PRETEST_READY = True" \
-      --verify-only
-    echo "ok: real-data runtime pretest embedded payload is fresh"
+      --verify-only \
+      --allow-dirty
+    echo "ok: real-data runtime pretest embedded payload matches current worktree"
   fi
 }
 

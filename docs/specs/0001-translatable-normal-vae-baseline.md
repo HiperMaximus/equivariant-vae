@@ -20,10 +20,11 @@ identity/hash/CRC/window plus clean-validation loader proof lane, downloaded
 remote v4/v5/v6/v7 non-promotable evidence, with v7 downloaded and inspected;
 candidate evidence still promotes only two eager single-T4 bs4 FP32 rows. v7
 exposed the bs8/bs12 and compiled failed-candidate exception as
-`quantile() input tensor is too large`, so the next local v8 slice must make
-gate-health quantile telemetry Kaggle-safe and row-specific before another
-remote push. Compiled rows remain diagnostic-only until full compile-settle
-coverage exists
+`quantile() input tensor is too large`; the local v8 evidence-plumbing fix now
+makes gate-health quantile telemetry Kaggle-safe for large tensors and
+row-specific before another remote push. Compiled rows remain diagnostic-only
+until full compile-settle coverage exists, and v8 remains non-promotable unless
+a later spec explicitly changes that
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-20
 
@@ -1713,10 +1714,11 @@ Benchmark budget and reset rules:
   non-promotable, still wrote no `benchmark/selected_runtime.json`, still
   preserved only two eligible eager single-T4 bs4 FP32 rows, and exposed the
   failed-candidate exception as `quantile() input tensor is too large`. The
-  next local v8 fix must replace unbounded gate-health quantile telemetry with
-  a deterministic bounded/sampled path, preserve exact gate-health pass/fail
-  checks, and avoid claiming row-specific gate-health coverage for candidates
-  whose evidence failed;
+  local v8 fix replaces unbounded gate-health quantile telemetry with a
+  deterministic bounded/sampled path, preserves exact gate-health pass/fail
+  checks, and avoids claiming row-specific gate-health coverage for candidates
+  whose evidence failed or was not covered. It is implemented and verified
+  locally, but no v8 remote run has been pushed or downloaded;
 - if `torch.compile` needs compilation, report compile/startup time separately
   from steady-state step time. Compiled rows must record
   `compile_settle_steps`, the code paths exercised before timing, graph break
@@ -1909,7 +1911,9 @@ Benchmark artifact dependency graph:
    Gate-health quantile telemetry (`gate_p01`, `gate_p50`, `gate_p99`) must be
    computed with a Kaggle-safe bounded/sampled path for large tensors; the
    exact saturation fractions, worst-channel saturation fractions, finite
-   checks, and dead-channel checks remain the pass/fail evidence.
+   checks, and dead-channel checks remain the pass/fail evidence. A lane-level
+   gate-health pass must not mark runtime rows pass unless matching
+   row-specific gate-health evidence exists for that candidate identity.
 5. `benchmark/runtime_matrix.csv` can mark candidate rows as completed, but no
    row may be selected until matching `benchmark/dataloader_matrix.csv`,
    `benchmark/numerical_checks.csv`, `benchmark/corruption_checks.csv`,

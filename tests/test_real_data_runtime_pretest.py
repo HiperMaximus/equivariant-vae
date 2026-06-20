@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
+import torch
 
 from eqvae.benchmarking import real_data_runtime_pretest as pretest
 from eqvae.benchmarking.real_data_runtime_pretest import (
@@ -22,7 +23,7 @@ from eqvae.benchmarking.real_data_runtime_pretest import (
 from eqvae.config import resolve_json_config
 
 if TYPE_CHECKING:
-    from eqvae.benchmarking.io import CsvRow
+    from eqvae.benchmarking.io import CsvRow, JsonObject
 from eqvae.data.synthetic import SyntheticPatchSpec, write_synthetic_patch_shard
 
 _TINY_IMAGE_SIZE = 16
@@ -36,6 +37,8 @@ _CANONICAL_CAP_TRAIN_PATCHES = 8_192
 _CANONICAL_CAP_VALIDATION_PATCHES = 2_048
 _CANONICAL_WINDOW_PATCHES = 2_048
 _CANONICAL_VALIDATION_WINDOW_PATCHES = 1_024
+_TEST_GATE_QUANTILE_CAP = 4
+_FLOAT_TOLERANCE = 1.0e-6
 
 
 def test_real_data_runtime_pretest_local_wrong_accelerator_artifacts(
@@ -341,6 +344,41 @@ def test_real_data_pretest_push_guard_accepts_generated_kernel(
     assert "fake kaggle kernels push" in completed.stdout
 
 
+def test_real_data_pretest_validate_allows_current_worktree_payload() -> None:
+    """Local validate accepts a payload freshly built from the current worktree."""
+    repo_root = Path(__file__).resolve().parents[1]
+    kernel_dir = "kaggle/kernels/real_data_runtime_pretest"
+
+    build = subprocess.run(  # noqa: S603
+        (
+            _required_executable("bash"),
+            str(repo_root / "scripts" / "kaggle_kernel.sh"),
+            "build",
+            kernel_dir,
+        ),
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    validate = subprocess.run(  # noqa: S603
+        (
+            _required_executable("bash"),
+            str(repo_root / "scripts" / "kaggle_kernel.sh"),
+            "validate",
+            kernel_dir,
+        ),
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert build.returncode == 0, build.stderr
+    assert validate.returncode == 0, validate.stderr
+    assert "matches current worktree" in validate.stdout
+
+
 def test_kaggle_pull_guard_requires_remote_confirmation(tmp_path: Path) -> None:
     """Pull is a remote read and refuses even pull-specific approval alone."""
     repo_root = Path(__file__).resolve().parents[1]
@@ -411,6 +449,115 @@ def test_train_step_target_rows_prioritize_eager_before_compiled() -> None:
         "compiled_bs4",
         "compiled_bs8",
     ]
+
+
+def test_gate_quantiles_use_exact_small_tensor_path() -> None:
+    """Small gate tensors keep exact torch.quantile telemetry."""
+    tensor = torch.tensor([0.0, 1.0, 2.0, 4.0], dtype=torch.float32)
+
+    observed = pretest._tensor_quantile(tensor, 0.50)  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    expected = float(torch.quantile(tensor.flatten(), 0.50).item())
+
+    assert abs(observed - expected) <= _FLOAT_TOLERANCE
+
+
+def test_gate_quantiles_sample_large_tensor_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Large gate quantiles are deterministic and bounded without huge tensors."""
+    monkeypatch.setattr(
+        pretest,
+        "MAX_GATE_QUANTILE_ELEMENTS",
+        _TEST_GATE_QUANTILE_CAP,
+    )
+    tensor = torch.arange(10, dtype=torch.float32)
+
+    sampled = pretest._gate_quantile_values(tensor)  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    first = pretest._tensor_quantile(tensor, 0.50)  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    second = pretest._tensor_quantile(tensor, 0.50)  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+
+    assert sampled.numel() == _TEST_GATE_QUANTILE_CAP
+    assert torch.equal(sampled, torch.tensor([0.0, 3.0, 6.0, 9.0]))
+    assert abs(first - float(torch.quantile(sampled, 0.50).item())) <= _FLOAT_TOLERANCE
+    assert second == first
+
+
+def test_gate_health_lane_pass_does_not_cover_missing_candidate_rows() -> None:
+    """A lane-level pass cannot make uncovered runtime rows gate-health pass."""
+    covered = _train_step_target_row(
+        row_id="single_visible_t4__bs4__amp_off_fp32__compile_none__branchless_all",
+        batch_size=4,
+        compile_scope="none",
+    )
+    uncovered = _train_step_target_row(
+        row_id="single_visible_t4__bs8__amp_off_fp32__compile_none__branchless_all",
+        batch_size=8,
+        compile_scope="none",
+    )
+    rows = [covered, uncovered]
+    linked_evidence = cast(
+        "JsonObject",
+        {
+            "ddp_launch": {"status": "pass"},
+            "compile_settle": {"status": "skipped_unsupported"},
+            "dataloader_throughput": {
+                "status": "pass",
+                "rows": [
+                    _passing_dataloader_row(row=row, split=split)
+                    for row in rows
+                    for split in ("train", "validation")
+                ],
+            },
+            "paired_numerical": {
+                "status": "pass",
+                "rows": [{"row_id": row["row_id"], "status": "pass"} for row in rows],
+            },
+            "corruption_equivalence": {
+                "status": "pass",
+                "rows": [{"row_id": row["row_id"], "status": "pass"} for row in rows],
+            },
+            "gate_health": {
+                "status": "pass",
+                "rows": [],
+                "row_statuses": [
+                    {
+                        "row_id": covered["row_id"],
+                        "accelerator_mode": covered["accelerator_mode"],
+                        "world_size": int(covered["world_size"]),
+                        "per_device_batch_size": int(covered["per_device_batch_size"]),
+                        "precision_policy": covered["precision_policy"],
+                        "compile_scope": covered["compile_scope"],
+                        "status": "pass",
+                    },
+                ],
+            },
+        },
+    )
+    data_proof = cast(
+        "JsonObject",
+        {
+            "identity_status": "pass",
+            "row_count_status": "pass",
+            "crc_validation_status": "pass",
+            "window_status": "pass",
+            "clean_validation_dataloader_status": "pass",
+        },
+    )
+
+    updated = pretest._rows_with_linked_evidence(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        rows=rows,
+        data_proof=data_proof,
+        linked_evidence=linked_evidence,
+    )
+    by_id = {row["row_id"]: row for row in updated}
+
+    assert by_id[covered["row_id"]]["status"] == "pass"
+    assert by_id[covered["row_id"]]["gate_health_status"] == "pass"
+    assert by_id[uncovered["row_id"]]["status"] == "ineligible"
+    assert by_id[uncovered["row_id"]]["gate_health_status"] == "skipped_unsupported"
+    assert by_id[uncovered["row_id"]]["failure_kind"] == (
+        "gate_health_evidence_not_row_pass"
+    )
 
 
 def test_train_step_evidence_failure_preserves_candidate_diagnostics(
@@ -620,6 +767,19 @@ def _train_step_target_row(
         "compile_scope": compile_scope,
         "corruption_strategy": corruption_strategy,
         "status": "ineligible",
+    }
+
+
+def _passing_dataloader_row(*, row: CsvRow, split: str) -> CsvRow:
+    return {
+        "accelerator_mode": row["accelerator_mode"],
+        "world_size": row["world_size"],
+        "batch_size": row["per_device_batch_size"],
+        "split": split,
+        "status": "pass",
+        "data_wait_fraction_p95": "0.010000",
+        "loader_samples_sec": "100.000000",
+        "trainer_samples_sec": "10.000000",
     }
 
 

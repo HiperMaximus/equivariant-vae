@@ -9,8 +9,10 @@ remote v5 produced two eligible eager bs4 rows and remote v6 completed with
 downloaded non-promotable phase-timing plus failed-candidate hash diagnostics
 but still only two eligible bs4 rows; remote v7 completed/downloaded and exposed
 the repeated failed-candidate exception as `quantile() input tensor is too
-large`; compiled rows remain diagnostic-only until full compile-settle coverage
-exists; Kaggle source attachments require a separate confirmation guard
+large`; local v8 bounded gate-health quantiles and row-specific gate-health
+evidence coverage are implemented and locally rebuilt/validated; compiled rows
+remain diagnostic-only until full compile-settle coverage exists; Kaggle source
+attachments require a separate confirmation guard
 Last updated: 2026-06-20
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
@@ -357,9 +359,38 @@ bs8/bs12 and compiled candidate evidence are now diagnosed as failing in
 gate-health quantile telemetry with `quantile() input tensor is too large`,
 eager bs32 rows record `runtime_OutOfMemoryError`, compiled rows remain
 diagnostic/ineligible, and no `benchmark/selected_runtime.json` was written.
-The next local slice is a v8 bounded gate-health quantile and row-specific
-evidence-coverage fix. Any v8 read, preflight, push, or output download remains
+The local v8 slice implements a deterministic bounded/sampled gate-health
+quantile path for `gate_p01/gate_p50/gate_p99`, preserves exact full-tensor
+finite/saturation/worst-channel/dead-channel pass/fail checks, and prevents
+lane-level gate-health success from covering rows without matching
+row-specific evidence. The local real-data pretest kernel has been rebuilt and
+validated. Any v8 read, preflight, push, status poll, or output download remains
 permission-gated.
+
+Local `build`/`validate` may verify the generated real-data pretest payload
+against the current dirty worktree so agents can validate local patches before
+commit. Remote push safety is stricter: the real-data pretest push guard still
+rejects a generated manifest with `git_dirty = true`, so a possible v8 push
+requires a clean committed source state and a fresh rebuild/validate first.
+
+Guarded v8 remote sequence, only after explicit user approval for each remote
+phase:
+
+```bash
+git status --short
+./scripts/kaggle_kernel.sh build kaggle/kernels/real_data_runtime_pretest
+./scripts/kaggle_kernel.sh validate kaggle/kernels/real_data_runtime_pretest
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check
+# Confirm Kaggle web UI GPU quota if the CLI quota endpoint still warns.
+KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/real_data_runtime_pretest
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v8
+```
+
+Do not run any of the `KAGGLE_REMOTE_CONFIRMED=1` or
+`KAGGLE_PUSH_CONFIRMED=1` commands without explicit permission. The v8 capped
+pretest remains non-promotable and must not write
+`benchmark/selected_runtime.json`.
 
 ### Remote Duration And Polling Memory
 

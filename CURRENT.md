@@ -261,17 +261,16 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: implement the local v8 evidence-plumbing fix for
-Kaggle real-data runtime pretest before any further remote push. The v7
-diagnostic run completed and downloaded; it proved that the repeated
-`candidate_train_step_RuntimeError` is `quantile() input tensor is too large`
-inside gate-health quantile telemetry. Three adversarial reviews on
-2026-06-20 agreed this should be fixed before using the pretest to advance
-runtime selection: make gate-health quantiles Kaggle-safe for large tensors,
-avoid overstating row-specific gate-health coverage, preserve exact
-pass/fail gate-health checks, and add focused regression tests. Do not run any
-Kaggle remote read, Kaggle push, GitHub push, or Overleaf command without
-explicit permission and the required guards. For paper work, continue from
+Immediate next action: optional remote v8 real-data runtime pretest only after
+explicit user approval, a clean committed source state, local rebuild/validate,
+read-only API preflight, and the required Kaggle guards. The local v8
+evidence-plumbing fix is implemented: gate-health quantile telemetry now uses a
+deterministic bounded sample for large tensors, exact finite/saturation/
+worst-channel/dead-channel pass/fail checks still use the full tensors, and
+runtime rows no longer inherit `gate_health_status = pass` from a lane-level
+gate-health pass unless row-specific coverage exists. The v8 local kernel was
+rebuilt and validated, but no Kaggle remote read, Kaggle push, GitHub push, or
+Overleaf command was run. For paper work, continue from
 `docs/specs/0004-sipaim-paper-scaffold.md` and lock the downstream WSI
 classifier protocol: frozen encoder versus fine-tuning, posterior-mean
 embedding extraction, patch-to-WSI aggregation, classifier capacity,
@@ -1710,6 +1709,41 @@ The review process lives in `docs/agentic_review_workflow.md`.
   from overstating row-specific coverage for candidates whose evidence failed.
   v8 should prove the evidence path only; it must remain non-promotable, keep
   `full_run_eligible = false`, and never write `benchmark/selected_runtime.json`.
+- 2026-06-20 local v8 evidence-plumbing fix:
+  implemented the bounded gate-health quantile path in
+  `src/eqvae/benchmarking/real_data_runtime_pretest.py` with
+  `MAX_GATE_QUANTILE_ELEMENTS = 1_000_000`, sampled deterministically only for
+  `gate_p01/gate_p50/gate_p99` telemetry. Full-tensor finite checks,
+  saturation fractions, worst-channel saturation fractions, dead-channel
+  checks, and row evidence semantics are preserved. Removed the unsafe
+  `_row_gate_status` lane-level fallback so uncovered bs8/bs12-style rows keep
+  `gate_health_status = skipped_unsupported` and cannot become eligible via a
+  lane-level pass. Added focused tests for exact small quantiles, sampled
+  large-tensor quantiles using a tiny monkeypatched cap, bounded
+  `failure_message_excerpt` preservation, and missing row-specific gate-health
+  coverage. Updated `scripts/kaggle_kernel.sh` so local real-data pretest
+  `build`/`validate` can verify a generated payload against the current dirty
+  worktree; the push guard still rejects dirty manifests before any remote
+  write. Verification passed:
+  `PYTHONPATH=src CUDA_VISIBLE_DEVICES="" .venv/bin/pytest tests/test_real_data_runtime_pretest.py tests/test_kaggle_embedded_kernel.py -q`
+  (`20 passed`), `./scripts/python_quality.sh` (`126 passed`, BasedPyright
+  `0 errors`), `git diff --check`, `bash -n scripts/kaggle_kernel.sh`,
+  `./scripts/kaggle_kernel.sh build kaggle/kernels/real_data_runtime_pretest`,
+  `./scripts/kaggle_kernel.sh validate kaggle/kernels/real_data_runtime_pretest`,
+  `./scripts/agent_preflight.sh`, and workspace `./agent_preflight.sh`.
+  The exact guarded remote sequence for a possible v8 is:
+  `git status --short` and clean/commit local changes first; rebuild and
+  validate locally; after explicit permission run
+  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check`; confirm
+  Kaggle web UI GPU quota if the CLI quota endpoint still warns; after explicit
+  push permission run
+  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/real_data_runtime_pretest`;
+  monitor only with approved
+  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest`
+  at the documented cadence; download once with
+  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v8`.
+  Do not run any Kaggle remote action without explicit permission and required
+  guards. v8 remains non-promotable unless a later spec explicitly changes that.
 - 2026-06-19 GitHub issue status updates:
   posted Spanish status comments to issues #1-#6 after local grounding and
   three read-only subagent audits. Issue #2 received the substantive v6
