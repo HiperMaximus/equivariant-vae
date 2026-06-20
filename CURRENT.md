@@ -34,8 +34,10 @@ preflight and GPU-quota confirmation, v7 was pushed successfully; Kaggle
 accepted version 7 at
 `https://www.kaggle.com/code/maximusshtefan/eqvae-real-data-runtime-pretest`.
 The immediate guarded post-push status read returned
-`KernelWorkerStatus.RUNNING` at `2026-06-19T23:38:51-05:00`; no output download
-has been run yet. Clean-context adversarial
+`KernelWorkerStatus.RUNNING` at `2026-06-19T23:38:51-05:00`, and the next
+guarded poll returned `KernelWorkerStatus.COMPLETE` at
+`2026-06-20T02:21:15-05:00`; no output download has been run yet.
+Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, a focused
 scaffold-readiness check on 2026-06-12, and a focused v7 handoff/guard audit on
 2026-06-20. The 2026-06-11 passes
@@ -1647,12 +1649,12 @@ The review process lives in `docs/agentic_review_workflow.md`.
   candidate evidence. The immediate guarded post-push status read
   `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh
   status-real-data-runtime-pretest` returned `KernelWorkerStatus.RUNNING` at
-  `2026-06-19T23:38:51-05:00`; no output download has been run yet. Next
-  action: with explicit remote-read approval, wait until at least roughly
-  `2026-06-20T00:09:00-05:00` before polling status again, then keep the
-  30-minute cadence for the source-attached real-data kernel. After completion,
-  download outputs to `runs/kaggle/real_data_runtime_pretest_v7` with
-  `KAGGLE_REMOTE_CONFIRMED=1`.
+  `2026-06-19T23:38:51-05:00`, and the next guarded status poll returned
+  `KernelWorkerStatus.COMPLETE` at `2026-06-20T02:21:15-05:00`; no output
+  download has been run yet. Next action: with explicit remote-read/download
+  approval, download outputs to `runs/kaggle/real_data_runtime_pretest_v7` with
+  `KAGGLE_REMOTE_CONFIRMED=1`, then inspect the runtime proof, candidate
+  evidence, and bounded `failure_message_excerpt` diagnostics.
 - 2026-06-19 GitHub issue status updates:
   posted Spanish status comments to issues #1-#6 after local grounding and
   three read-only subagent audits. Issue #2 received the substantive v6
