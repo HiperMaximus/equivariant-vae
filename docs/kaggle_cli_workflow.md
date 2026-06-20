@@ -10,7 +10,7 @@ downloaded non-promotable phase-timing plus failed-candidate hash diagnostics
 but still only two eligible bs4 rows; remote v7 completed/downloaded and exposed
 the repeated failed-candidate exception as `quantile() input tensor is too
 large`; remote v8 completed/downloaded, fixed that quantile evidence-plumbing
-failure, and produced six eligible eager single-visible-T4 bs4/bs8/bs12 FP32
+failure, and produced six capped-pretest-passing eager single-visible-T4 bs4/bs8/bs12 FP32
 rows while remaining non-promotable with no selected runtime; compiled rows
 remain diagnostic-only until full compile-settle coverage exists; Kaggle source
 attachments require a separate confirmation guard
@@ -369,13 +369,23 @@ a clean source state, pushed as Kaggle version 8 after explicit approval and the
 required guards, completed, and downloaded to
 `runs/kaggle/real_data_runtime_pretest_v8`. Inspection found the v7 quantile
 failure is fixed: paired-numerical and corruption failed-candidate evidence
-counts are both zero. Six eager single-visible-T4 FP32 rows are eligible in the
-capped pretest: bs4/bs8/bs12 crossed with `branchless_all` and
+counts are both zero. Six eager single-visible-T4 FP32 rows pass in the capped
+pretest: bs4/bs8/bs12 crossed with `branchless_all` and
 `indexed_masked`. The run still wrote no `benchmark/selected_runtime.json`,
 still has `runtime_proof.status = pretest_incomplete`, and remains
 non-promotable. Eager bs32 remains `runtime_OutOfMemoryError`, dual-T4
 train-step measurement remains pending, and compiled rows remain
 diagnostic/ineligible until full compile-settle evidence exists.
+
+The next selected-runtime benchmark/debug slice is
+`v8_shortlist_eager_amp_then_dual_gate` in
+`configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json`. It treats v8 only
+as shortlist provenance. A separate runtime-selection benchmark must revalidate
+or write its own linked proofs, confirm the eager single-visible-T4 bs8/bs12
+FP32 `compile_none` branchless/indexed rows with bs4 as fallback, run AMP
+follow-up only on confirmed eager rows, add the blocking real dual-T4 train-step
+timing gate, and write `benchmark/selected_runtime.json` only after its own full
+linked proof passes.
 
 Local `build`/`validate` may verify the generated real-data pretest payload
 against the current dirty worktree so agents can validate local patches before

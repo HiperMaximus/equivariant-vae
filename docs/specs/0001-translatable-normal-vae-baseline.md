@@ -19,11 +19,14 @@ with a local non-promotable runner/kernel/guard implementation and
 identity/hash/CRC/window plus clean-validation loader proof lane, downloaded
 remote v4/v5/v6/v7/v8 non-promotable evidence, with v8 downloaded and
 inspected; v8 fixed the v7 `quantile() input tensor is too large` evidence
-plumbing failure and marks six capped-pretest rows eligible for eager
-single-visible-T4 FP32 rows: bs4/bs8/bs12 crossed with `branchless_all` and
-`indexed_masked`. Compiled rows remain diagnostic-only until full
-compile-settle coverage exists, and v8 remains non-promotable unless a later
-spec explicitly changes that
+plumbing failure and marks six capped-pretest-passing eager single-visible-T4
+FP32 rows: bs4/bs8/bs12 crossed with `branchless_all` and `indexed_masked`. The
+next selected-runtime benchmark/debug slice is encoded as
+`v8_shortlist_eager_amp_then_dual_gate`: v8 is shortlist-only, the separate
+benchmark must run its own linked proofs, and `selected_runtime.json` remains
+blocked until real dual-T4 train-step timing exists. Compiled rows remain
+diagnostic-only until full compile-settle coverage exists, and v8 remains
+non-promotable unless a later spec explicitly changes that
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-20
 
@@ -1666,6 +1669,17 @@ Benchmark budget and reset rules:
   The pretest manifest must record row-index ranges, WSI counts, split, data
   root, file hashes, cache/warmup policy, and the fact that this is capped
   train/validation evidence only;
+- remote v8 artifacts may seed only the `v8_shortlist_eager_amp_then_dual_gate`
+  selected-runtime benchmark/debug slice. That slice must not import v8 row
+  pass statuses as selected-runtime pass evidence. It must record v8 artifact
+  hashes as provenance, then revalidate or write its own runtime proof, runtime
+  matrix, dataloader, numerical, corruption, gate-health, and model-count
+  evidence. It first confirms eager single-visible-T4 bs8/bs12 FP32
+  `compile_none` branchless/indexed rows, with bs4 as fallback, then runs AMP
+  follow-up only for confirmed eager FP32 candidates. A real dual-T4 train-step
+  timing gate is required before `benchmark/selected_runtime.json` may be
+  written. Compiled rows remain diagnostic-only until full compile-settle
+  coverage passes;
 - the pretest manifest may mark tiny local UBC-format fixtures as `local_pass`
   for proof plumbing only. Canonical real-data `pass` requires the expected
   Kaggle dataset slug, exact 300000/30000 train/validation row counts, exact
@@ -1717,7 +1731,7 @@ Benchmark budget and reset rules:
   `runs/kaggle/real_data_runtime_pretest_v8`; it fixed the quantile
   evidence-plumbing failure, produced zero failed candidate evidence entries,
   kept `benchmark/selected_runtime.json` absent, and marked six
-  capped-pretest eligible eager single-visible-T4 FP32 rows for bs4/bs8/bs12
+  capped-pretest-passing eager single-visible-T4 FP32 rows for bs4/bs8/bs12
   across both corruption strategies. It remains non-promotable selected-runtime
   evidence;
 - if `torch.compile` needs compilation, report compile/startup time separately

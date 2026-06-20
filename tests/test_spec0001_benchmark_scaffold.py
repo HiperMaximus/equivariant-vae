@@ -218,6 +218,83 @@ def test_runtime_config_stage_order_and_shortlist_provenance() -> None:
     ]
 
 
+def test_runtime_config_v8_carry_forward_is_shortlist_only() -> None:
+    """The v8 pretest can seed the next slice but cannot select a runtime."""
+    effective = resolve_json_config(
+        Path("configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json"),
+    ).effective_config
+    runtime = effective["runtime_matrix"]
+    assert isinstance(runtime, dict)
+
+    v8_carry_forward = runtime["v8_carry_forward"]
+    assert isinstance(v8_carry_forward, dict)
+    assert v8_carry_forward["status"] == "pretest_incomplete"
+    assert v8_carry_forward["status_scope"] == (
+        "non_promotable_real_data_runtime_pretest"
+    )
+    assert v8_carry_forward["full_run_eligible"] is False
+    assert v8_carry_forward["writes_selected_runtime"] is False
+    assert v8_carry_forward["used_for"] == "candidate_shortlist_only"
+    assert v8_carry_forward["artifact_hashes_required_before_use"] is True
+    assert (
+        v8_carry_forward["rows_may_not_satisfy_selected_runtime_linked_proof"] is True
+    )
+    assert v8_carry_forward["pretest_passing_eager_single_visible_rows"] == [
+        "single_visible_t4__bs4__amp_off_fp32__compile_none__branchless_all",
+        "single_visible_t4__bs4__amp_off_fp32__compile_none__indexed_masked",
+        "single_visible_t4__bs8__amp_off_fp32__compile_none__branchless_all",
+        "single_visible_t4__bs8__amp_off_fp32__compile_none__indexed_masked",
+        "single_visible_t4__bs12__amp_off_fp32__compile_none__branchless_all",
+        "single_visible_t4__bs12__amp_off_fp32__compile_none__indexed_masked",
+    ]
+
+    selection_slice = runtime["selection_benchmark_slice"]
+    assert isinstance(selection_slice, dict)
+    assert selection_slice["status"] == "planned_after_v8"
+    assert selection_slice["v8_artifacts_are_promotable"] is False
+    assert selection_slice["v8_artifact_hashes_required_in_runtime_proof"] is True
+    assert selection_slice["selected_runtime_write_policy"] == (
+        "write_only_after_this_benchmark_full_linked_proof_passes"
+    )
+    assert selection_slice["compiled_rows_policy"] == (
+        "diagnostic_only_until_full_compile_settle_coverage_passes"
+    )
+    next_stages = selection_slice["stages"]
+    assert isinstance(next_stages, list)
+    assert [stage["name"] for stage in next_stages if isinstance(stage, dict)] == [
+        "v8_shortlist_fp32_eager_confirmation",
+        "amp_followup_on_confirmed_eager_fp32",
+        "dual_t4_train_step_gate",
+        "write_selected_runtime_after_all_gates",
+    ]
+    first_next_stage = next_stages[0]
+    assert isinstance(first_next_stage, dict)
+    assert first_next_stage["per_device_batch_sizes"] == [8, 12]
+    assert first_next_stage["fallback_per_device_batch_sizes"] == [4]
+    assert first_next_stage["compile_scopes"] == ["none"]
+    assert first_next_stage["selected_runtime_write_allowed"] is False
+    dual_gate = next_stages[2]
+    assert isinstance(dual_gate, dict)
+    assert dual_gate["accelerator_modes"] == ["dual_t4_ddp"]
+    assert dual_gate["required_before_selected_runtime"] is True
+    final_stage = next_stages[3]
+    assert isinstance(final_stage, dict)
+    assert final_stage["selected_runtime_write_allowed"] is True
+    assert final_stage["requires_hash_links"] is True
+    assert final_stage["required_inputs"] == [
+        "runtime_proof:pass",
+        "runtime_matrix:selected_row_pass",
+        "dataloader_matrix:pass",
+        "numerical_checks:pass",
+        "corruption_checks:pass",
+        "gate_health_summary:pass",
+        "model_count:pass",
+    ]
+    promotion_blockers = selection_slice["promotion_blockers"]
+    assert isinstance(promotion_blockers, list)
+    assert "missing_real_dual_t4_train_step_timing" in promotion_blockers
+
+
 def test_model_count_resolves_source_config_without_repo_cwd(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

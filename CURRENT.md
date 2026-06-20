@@ -261,23 +261,25 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: inspect whether remote v8's six eligible eager
-single-visible-T4 rows are enough to plan the next selected-runtime benchmark
-slice, while still treating the capped pretest as non-promotable evidence. The
-local v8 evidence-plumbing fix was committed as `614cd95`, rebuilt from a clean
-source state, API-preflighted, pushed as Kaggle version 8 after explicit
-approval, completed, downloaded to
-`runs/kaggle/real_data_runtime_pretest_v8`, and inspected. It fixed the v7
-evidence-plumbing blocker: failed candidate evidence count is now zero,
-`quantile() input tensor is too large` is absent from the v8 artifacts, and
-row-specific evidence covers eager single-visible-T4 bs4, bs8, and bs12 rows
-for both `branchless_all` and `indexed_masked`. The run remains
-non-promotable: `runtime_proof.status = pretest_incomplete`,
-`selection_ready = false`, `full_run_eligible = false`, no
-`benchmark/selected_runtime.json` exists, dual-T4 train-step measurement remains
-pending, and compiled `model_forward` rows remain ineligible on
-`compile_settle_or_dynamo_evidence_not_row_pass`. No GitHub push or Overleaf
-command was run. For paper work, continue from
+Immediate next action: implement the separate selected-runtime benchmark/debug
+slice now encoded in
+`configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json` as
+`runtime_matrix.selection_benchmark_slice.name =
+"v8_shortlist_eager_amp_then_dual_gate"`. Remote v8 is carry-forward shortlist
+evidence only, not selection evidence: it may seed eager single-visible-T4
+bs8/bs12 FP32 `compile_none` branchless/indexed confirmation, with bs4 as a
+fallback, then AMP follow-up only for confirmed eager rows. The benchmark must
+write `benchmark/selected_runtime.json` only after its own full linked proof
+passes and hash-links its artifacts; it must remain blocked while real dual-T4
+train-step timing is missing. The local v8 evidence-plumbing fix was committed
+as `614cd95`, pushed as Kaggle version 8 after explicit approval, completed,
+downloaded to `runs/kaggle/real_data_runtime_pretest_v8`, and inspected. It
+fixed the v7 quantile blocker and produced six capped-pretest passing eager
+rows, but `runtime_proof.status = pretest_incomplete`, `selection_ready =
+false`, `full_run_eligible = false`, no `benchmark/selected_runtime.json`
+exists, dual-T4 train-step measurement remains pending, and compiled rows
+remain diagnostic/ineligible. No GitHub push or Overleaf command was run. For
+paper work, continue from
 `docs/specs/0004-sipaim-paper-scaffold.md` and lock the downstream WSI
 classifier protocol: frozen encoder versus fine-tuning, posterior-mean
 embedding extraction, patch-to-WSI aggregation, classifier capacity,
@@ -1783,6 +1785,24 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `71` phases and `2761.447838` seconds of script elapsed time. v8 fixed the
   v7 quantile evidence-plumbing failure but is still not selected-runtime
   evidence.
+- 2026-06-20 selected-runtime benchmark/debug slice decision:
+  encoded the next slice in
+  `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json` as
+  `v8_shortlist_eager_amp_then_dual_gate` and added regression coverage in
+  `tests/test_spec0001_benchmark_scaffold.py`. The slice treats v8 artifacts as
+  `candidate_shortlist_only`: v8 remains `pretest_incomplete`,
+  `full_run_eligible = false`, and `writes_selected_runtime = false`. The next
+  implementation target is a separate Kaggle runtime-selection benchmark that
+  revalidates/writes its own runtime proof, runtime matrix, dataloader,
+  numerical, corruption, gate-health, and model-count evidence. Stage 1
+  confirms eager single-visible-T4 bs8/bs12 FP32 `compile_none` branchless and
+  indexed rows, with bs4 as fallback; stage 2 runs AMP follow-up only on
+  confirmed eager FP32 candidates; stage 3 is the blocking dual-T4 train-step
+  timing gate; stage 4 may write `selected_runtime.json` only after all gates
+  pass and required artifacts are hash-linked. Compiled rows remain
+  diagnostic-only until full compile-settle coverage passes. No selected
+  runtime may be written while `missing_real_dual_t4_train_step_timing` remains
+  a blocker.
 - 2026-06-19 GitHub issue status updates:
   posted Spanish status comments to issues #1-#6 after local grounding and
   three read-only subagent audits. Issue #2 received the substantive v6

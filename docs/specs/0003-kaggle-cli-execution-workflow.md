@@ -17,9 +17,11 @@ phase timings plus failed-candidate hash diagnostics but still only two eligible
 bs4 rows; remote v7 completed/downloaded, exposed the repeated
 failed-candidate exception as `quantile() input tensor is too large`, and
 remains non-promotable with no selected runtime. Remote v8 completed/downloaded,
-fixed the quantile evidence-plumbing failure, produced six eligible eager
+fixed the quantile evidence-plumbing failure, produced six capped-pretest-passing eager
 single-visible-T4 bs4/bs8/bs12 FP32 rows, and remains non-promotable with no
-selected runtime. Full benchmark/full-run launchers are not Kaggle-push-ready
+selected runtime. The next selected-runtime benchmark/debug slice is planned as
+`v8_shortlist_eager_amp_then_dual_gate`, but full benchmark/full-run launchers
+are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-20
 
@@ -275,7 +277,7 @@ it was committed as `614cd95`, rebuilt and validated from a clean source state,
 pushed as remote version 8 after explicit approval, completed, and downloaded to
 `runs/kaggle/real_data_runtime_pretest_v8`. Inspection confirmed the capped
 pretest remains non-promotable with no `benchmark/selected_runtime.json`, zero
-failed candidate evidence entries, six eligible eager single-visible-T4 FP32
+failed candidate evidence entries, six capped-pretest-passing eager single-visible-T4 FP32
 rows (bs4/bs8/bs12 crossed with `branchless_all` and `indexed_masked`), pending
 dual-T4 train-step measurement, and compiled rows still diagnostic/ineligible.
 Future remote reads/writes remain permission-gated. The v8 guarded sequence was:
@@ -289,6 +291,13 @@ and approved
 `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v8`.
 Use the same guards for any rerun or successor remote slice; do not run them
 without explicit permission.
+
+The successor selected-runtime benchmark/debug slice must be a separate Kaggle
+runtime-selection benchmark, not a v8 promotion. It may use v8 only as
+`candidate_shortlist_only` provenance, must record v8 artifact hashes, must
+revalidate or write its own linked runtime/dataloader/numerical/corruption/
+gate/model-count evidence, and must not write `benchmark/selected_runtime.json`
+until real dual-T4 train-step timing and all selected-row safety proofs pass.
 
 ## Kaggle Authentication Contract
 
