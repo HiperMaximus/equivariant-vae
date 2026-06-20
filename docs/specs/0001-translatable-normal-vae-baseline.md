@@ -17,11 +17,13 @@ remote v1/v2/v3/v4 non-promotable evidence; the capped real-data runtime
 pretest config/schema contract is `real_data_runtime_pretest_contract_ready`
 with a local non-promotable runner/kernel/guard implementation and
 identity/hash/CRC/window plus clean-validation loader proof lane, downloaded
-remote v4/v5/v6 non-promotable evidence, with v6 downloaded and inspected;
-candidate evidence still promotes only two eager single-T4 bs4 FP32 rows, while
-bs8/bs12 failed candidate evidence remains blocked pending remote v7
-message-excerpt diagnostics; local v7 diagnostic code is rebuilt and validated;
-compiled rows remain diagnostic-only until full compile-settle coverage exists
+remote v4/v5/v6/v7 non-promotable evidence, with v7 downloaded and inspected;
+candidate evidence still promotes only two eager single-T4 bs4 FP32 rows. v7
+exposed the bs8/bs12 and compiled failed-candidate exception as
+`quantile() input tensor is too large`, so the next local v8 slice must make
+gate-health quantile telemetry Kaggle-safe and row-specific before another
+remote push. Compiled rows remain diagnostic-only until full compile-settle
+coverage exists
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-20
 
@@ -1706,8 +1708,15 @@ Benchmark budget and reset rules:
   preserved two eager single-T4 bs4 FP32 eligible rows, and exposed five failed
   candidate evidence attempts. The bs8/bs12 eager and model-forward attempts
   failed with `candidate_train_step_RuntimeError` and the same deterministic
-  message hash; the next v7 observability fix adds bounded
-  `failure_message_excerpt` fields so the actual exception can be diagnosed;
+  message hash. Remote v7 completed on 2026-06-20 and downloaded artifacts live
+  under `runs/kaggle/real_data_runtime_pretest_v7`; it kept the pretest
+  non-promotable, still wrote no `benchmark/selected_runtime.json`, still
+  preserved only two eligible eager single-T4 bs4 FP32 rows, and exposed the
+  failed-candidate exception as `quantile() input tensor is too large`. The
+  next local v8 fix must replace unbounded gate-health quantile telemetry with
+  a deterministic bounded/sampled path, preserve exact gate-health pass/fail
+  checks, and avoid claiming row-specific gate-health coverage for candidates
+  whose evidence failed;
 - if `torch.compile` needs compilation, report compile/startup time separately
   from steady-state step time. Compiled rows must record
   `compile_settle_steps`, the code paths exercised before timing, graph break
@@ -1897,6 +1906,10 @@ Benchmark artifact dependency graph:
    Failed candidate evidence entries must include both a deterministic
    `failure_message_hash` and a bounded `failure_message_excerpt` so repeated
    remote failures can be diagnosed without printing unbounded logs.
+   Gate-health quantile telemetry (`gate_p01`, `gate_p50`, `gate_p99`) must be
+   computed with a Kaggle-safe bounded/sampled path for large tensors; the
+   exact saturation fractions, worst-channel saturation fractions, finite
+   checks, and dead-channel checks remain the pass/fail evidence.
 5. `benchmark/runtime_matrix.csv` can mark candidate rows as completed, but no
    row may be selected until matching `benchmark/dataloader_matrix.csv`,
    `benchmark/numerical_checks.csv`, `benchmark/corruption_checks.csv`,

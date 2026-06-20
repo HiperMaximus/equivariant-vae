@@ -49,7 +49,8 @@ the manifest now exposes
 Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, a focused
 scaffold-readiness check on 2026-06-12, and a focused v7 handoff/guard audit on
-2026-06-20. The 2026-06-11 passes
+2026-06-20 plus a focused v7 quantile/evidence review on 2026-06-20. The
+2026-06-11 passes
 confirmed that the previous `4x4` latent target was inconsistent with the
 FSQ-successor spatial-coherence goal, that the historical HED corruptor must not
 be copied as-is, and that the benchmark specs were directionally right but not
@@ -260,19 +261,24 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: choose the next branch. For Kaggle diagnostics, the
-local failure-excerpt observability pass is implemented and
-`./scripts/python_quality.sh` passes; before any v7 remote push, rebuild and
-validate `kaggle/kernels/real_data_runtime_pretest`, confirm the worktree state,
-rerun the Kaggle API preflight with permission, and ask for explicit push
-permission with `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`. For
-paper work, continue from `docs/specs/0004-sipaim-paper-scaffold.md` and lock
-the downstream WSI classifier protocol: frozen encoder versus fine-tuning,
-posterior-mean embedding extraction, patch-to-WSI aggregation, classifier
-capacity, labels/splits, seeds, and metric table. Remote v5/v6 capped-pretest
-outputs remain non-promotable selected-runtime evidence. Three
-clean-context adversarial reviews found and then rechecked blockers around
-dataloader thresholds, eager-reference numerical checks, fixed-batch coverage,
+Immediate next action: implement the local v8 evidence-plumbing fix for
+Kaggle real-data runtime pretest before any further remote push. The v7
+diagnostic run completed and downloaded; it proved that the repeated
+`candidate_train_step_RuntimeError` is `quantile() input tensor is too large`
+inside gate-health quantile telemetry. Three adversarial reviews on
+2026-06-20 agreed this should be fixed before using the pretest to advance
+runtime selection: make gate-health quantiles Kaggle-safe for large tensors,
+avoid overstating row-specific gate-health coverage, preserve exact
+pass/fail gate-health checks, and add focused regression tests. Do not run any
+Kaggle remote read, Kaggle push, GitHub push, or Overleaf command without
+explicit permission and the required guards. For paper work, continue from
+`docs/specs/0004-sipaim-paper-scaffold.md` and lock the downstream WSI
+classifier protocol: frozen encoder versus fine-tuning, posterior-mean
+embedding extraction, patch-to-WSI aggregation, classifier capacity,
+labels/splits, seeds, and metric table. Remote v5/v6/v7 capped-pretest outputs
+remain non-promotable selected-runtime evidence. Three clean-context
+adversarial reviews found and then rechecked blockers around dataloader
+thresholds, eager-reference numerical checks, fixed-batch coverage,
 gate-health thresholds, child-process Dynamo counter availability, recompile
 counter accounting, DDP rank/device binding, and overclaiming. The follow-up
 reviews found no high blocker for a capped, non-promotable v6 evidence attempt.
@@ -1689,6 +1695,21 @@ The review process lives in `docs/agentic_review_workflow.md`.
   compiled candidates, then decide whether to produce a v8 diagnostics/fix
   kernel. Do not push another Kaggle version without explicit user permission
   and the required guards.
+- 2026-06-20 v7 adversarial quantile review:
+  three read-only subagents reviewed the downloaded v7 artifacts, the runtime
+  evidence semantics, and the local code path. All agreed the surfaced
+  `quantile() input tensor is too large` exception is an evidence-plumbing bug,
+  not evidence that bs8/bs12 are invalid runtime choices. The likely direct
+  cause is unbounded `torch.quantile(tensor.flatten(), q)` in gate-health
+  `gate_p01/gate_p50/gate_p99` telemetry after full gate activations are
+  captured in the candidate train-step evidence path; bs4 early gates stay
+  below the PyTorch quantile limit, while bs8 reaches the large-tensor limit.
+  The next local v8 fix should implement deterministic bounded/sampled
+  gate-health quantiles, keep exact saturation/pass-fail checks, add tests that
+  exercise the large-tensor path, and prevent lane-level gate-health success
+  from overstating row-specific coverage for candidates whose evidence failed.
+  v8 should prove the evidence path only; it must remain non-promotable, keep
+  `full_run_eligible = false`, and never write `benchmark/selected_runtime.json`.
 - 2026-06-19 GitHub issue status updates:
   posted Spanish status comments to issues #1-#6 after local grounding and
   three read-only subagent audits. Issue #2 received the substantive v6

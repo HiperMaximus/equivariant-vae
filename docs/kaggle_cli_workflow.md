@@ -7,9 +7,10 @@ upload-simulation proof, and identity/hash/CRC/window plus clean-validation
 loader proof plumbing plus a candidate-linked evidence lane implementation;
 remote v5 produced two eligible eager bs4 rows and remote v6 completed with
 downloaded non-promotable phase-timing plus failed-candidate hash diagnostics
-but still only two eligible bs4 rows; compiled rows remain diagnostic-only until
-full compile-settle coverage exists; Kaggle source attachments require a
-separate confirmation guard
+but still only two eligible bs4 rows; remote v7 completed/downloaded and exposed
+the repeated failed-candidate exception as `quantile() input tensor is too
+large`; compiled rows remain diagnostic-only until full compile-settle coverage
+exists; Kaggle source attachments require a separate confirmation guard
 Last updated: 2026-06-20
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
@@ -348,9 +349,17 @@ remain eligible, bs8/bs12 candidate evidence failed with hash-only
 `candidate_train_step_RuntimeError` diagnostics, eager bs32 rows record
 `runtime_OutOfMemoryError`, compiled rows remain diagnostic/ineligible, and no
 `benchmark/selected_runtime.json` was written. The local v7 diagnostics
-follow-up adds bounded `failure_message_excerpt` fields for a future v7
-diagnostic run. Local v7 readiness is committed, rebuilt, and validated; the
-read-only API preflight and push remain permission-gated.
+follow-up added bounded `failure_message_excerpt` fields. It was pushed as
+Kaggle version 7 after explicit approval and the required guards, completed,
+and downloaded to `runs/kaggle/real_data_runtime_pretest_v7`. Inspection found
+no new runtime selection: two eager single-T4 bs4 FP32 rows remain eligible,
+bs8/bs12 and compiled candidate evidence are now diagnosed as failing in
+gate-health quantile telemetry with `quantile() input tensor is too large`,
+eager bs32 rows record `runtime_OutOfMemoryError`, compiled rows remain
+diagnostic/ineligible, and no `benchmark/selected_runtime.json` was written.
+The next local slice is a v8 bounded gate-health quantile and row-specific
+evidence-coverage fix. Any v8 read, preflight, push, or output download remains
+permission-gated.
 
 ### Remote Duration And Polling Memory
 
@@ -376,6 +385,15 @@ time, output-download time, and artifact phase timings such as data-root
 resolution, clean-validation proof, DDP launch proof, dataloader throughput,
 numerical checks, corruption checks, and gate-health work if the artifact
 contains those fields.
+
+Observed v7 timing memory, 2026-06-20: Kaggle accepted version 7 at
+`https://www.kaggle.com/code/maximusshtefan/eqvae-real-data-runtime-pretest`;
+the immediate guarded status read returned `KernelWorkerStatus.RUNNING` at
+`2026-06-19T23:38:51-05:00`, the next guarded poll returned
+`KernelWorkerStatus.COMPLETE` at `2026-06-20T02:21:15-05:00`, and outputs were
+downloaded to `runs/kaggle/real_data_runtime_pretest_v7` at
+`2026-06-20T09:19:52-05:00`. Artifact phase timings recorded
+`2026-06-20T05:02:18Z` to `2026-06-20T05:40:51Z` with 71 passing phases.
 
 The real-data runtime pretest runner writes coarse JSON-line phase events to
 stderr and, for versions built after this logging slice, writes

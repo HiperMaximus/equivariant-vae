@@ -14,8 +14,10 @@ loader proof plumbing plus local linked-evidence mechanics/contract scaffolds;
 remote v4 passed the canonical real-data proof lane, remote v5 produced two
 eligible eager bs4 candidate rows, and remote v6 completed/downloaded with
 phase timings plus failed-candidate hash diagnostics but still only two eligible
-bs4 rows; full benchmark/full-run launchers are not
-Kaggle-push-ready
+bs4 rows; remote v7 completed/downloaded, exposed the repeated
+failed-candidate exception as `quantile() input tensor is too large`, and
+remains non-promotable with no selected runtime. Full benchmark/full-run
+launchers are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-20
 
@@ -251,11 +253,23 @@ an approved status read after the required wait reported
 `benchmark/phase_timings.json`, two eligible eager single-T4 bs4 FP32 rows,
 five failed candidate evidence attempts with
 `candidate_train_step_RuntimeError`, no `benchmark/selected_runtime.json`, and
-compiled rows still diagnostic/ineligible. The local v7 diagnostics follow-up
-adds bounded `failure_message_excerpt` fields to failed candidate evidence so a
-v7 artifact can expose the actual bs8/bs12 exception. Local v7 readiness is now
-committed, rebuilt, and validated; the v7 API preflight and remote push remain
-permission-gated and have not been run.
+compiled rows still diagnostic/ineligible. The follow-up v7 diagnostic run
+added bounded `failure_message_excerpt` fields to failed candidate evidence so
+the actual bs8/bs12 exception could be diagnosed.
+
+Remote v7 was pushed on 2026-06-20 from clean local commit `fea4140` after
+explicit user approval and the required
+`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1` guards. Kaggle
+accepted version 7 at
+`https://www.kaggle.com/code/maximusshtefan/eqvae-real-data-runtime-pretest`;
+approved status reads reported `KernelWorkerStatus.RUNNING` and then
+`KernelWorkerStatus.COMPLETE`, and artifacts were downloaded to
+`runs/kaggle/real_data_runtime_pretest_v7`. Inspection confirmed the capped
+pretest remains non-promotable with no `benchmark/selected_runtime.json`, two
+eligible eager single-T4 bs4 FP32 rows, and five failed candidate evidence
+attempts now diagnosed as `quantile() input tensor is too large`. The reviewed
+next local slice is a v8 gate-health quantile/evidence-coverage fix; any v8
+remote preflight/read/push remains permission-gated.
 
 ## Kaggle Authentication Contract
 
