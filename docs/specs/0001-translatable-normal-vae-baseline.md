@@ -45,9 +45,14 @@ and the intended fastest clean AMP conservative row remains unpromoted because
 writer policy false negatives treated small bounded numerical drift and
 nonselected-row proof failures as global blockers. Local commit `fc5227d`
 repairs that proof policy and replayed the v4 artifacts locally to proof
-`pass`. Runtime-selection version 5 is currently running the corrected
-follow-up; prompt `continue` at or after 2026-06-21 11:15 -05 for the next
-guarded status read.
+`pass`. Runtime-selection version 5 completed, downloaded to
+`runs/kaggle/runtime_selection_v5`, passed strict local replay under current
+`main`, and selected
+`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
+with zero AMP skips, bounded selected-row numerical drift, `samples_sec =
+27.381321`, and estimated 10-epoch wall time `109563.740875` seconds. The
+selected payload remains `full_training_launch_ready = false` until
+selected-runtime debug, checkpoint/resume, and tiny-overfit proofs pass.
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-21
 

@@ -49,12 +49,14 @@ benchmark only; it completed, downloaded to
 small selected-row drift and nonselected-row proof failures as global blockers.
 Local commit `fc5227d` repairs the writer policy and local replay of v4
 artifacts passes for the intended AMP conservative row. Runtime-selection
-version 5 is now running the corrected follow-up; the first guarded status read
-returned `KernelWorkerStatus.RUNNING` at 2026-06-21 06:14 -05, with the next
-guarded read deferred until 2026-06-21 11:15 -05 or later. The successful
-historical FSQ script is runtime reference material for launch, loader, AMP,
-DDP, compile, layout, and checkpoint hypotheses only; it is not a source for
-FSQ quantization,
+version 5 completed, downloaded to `runs/kaggle/runtime_selection_v5`, passed
+strict local replay under current `main`, and selected AMP conservative
+dual-T4 bs12 indexed-mask at `27.381321` samples/sec with zero AMP skips. The
+selected payload is still not full-training-launch-ready because
+selected-runtime debug, checkpoint/resume, and tiny-overfit proofs are missing.
+The successful historical FSQ script is runtime reference material for launch,
+loader, AMP, DDP, compile, layout, and checkpoint hypotheses only; it is not a
+source for FSQ quantization,
 PixelShuffle/sub-pixel upsampling, final `tanh` bounding, the exact old
 corruptor, or `rot90`/discrete-latent equivariance artifacts.
 Owner/workstream: Kaggle GPU execution and artifact retrieval
@@ -392,8 +394,14 @@ efficiency benchmark only; the post-push status read returned
 nonselected-row linked-proof failures were treated as global blockers. Local
 commit `fc5227d` repairs that proof policy, passed full quality gates, and
 locally replayed v4 artifacts to proof `pass`. Runtime-selection v5 was pushed
-from the clean rebuilt kernel and is running; prompt `continue` at or after
-2026-06-21 11:15 -05 for the next guarded status read.
+from the clean rebuilt kernel, completed, downloaded to
+`runs/kaggle/runtime_selection_v5`, and wrote
+`benchmark/selected_runtime.json` selecting
+`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`.
+It passed strict local replay under current `main`, records zero AMP skips, and
+projects about 30.4 hours for 10 epochs. It is still not full-training-launch
+ready because selected-runtime debug, checkpoint/resume, and tiny-overfit
+proofs are missing.
 This approval is separate from approval for the first real 60h-scale training
 run: agents must not ask to launch that run until implementation, environment
 checks, efficiency decisions, selected-runtime debug/resume, artifact checks,
@@ -419,11 +427,9 @@ This preflight builds and validates the generated kernel, runs the
 runtime-selection writer tests, exercises the generated wrapper's import and
 fail-closed artifact-validation paths, and replays downloaded v4 artifacts when
 they are present locally.
-Prompt `continue` at or after 2026-06-21 11:15 -05 for the next guarded status
-read. If version 5 is complete, download outputs to
-`runs/kaggle/runtime_selection_v5` and inspect
-`benchmark/runtime_proof.json`, `benchmark/runtime_matrix.csv`, and
-`benchmark/selected_runtime.json`.
+Next work is selected-runtime debug/resume/tiny-overfit using
+`runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json`. Do not ask
+for the first long real training launch until those proof artifacts pass.
 
 For future long-running Kaggle jobs, agents must not wait in-turn after a push
 or status read shows a kernel is still `RUNNING` and likely to take more than

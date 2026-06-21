@@ -25,10 +25,14 @@ Runtime-selection v4 was pushed on 2026-06-21 for the
 `runs/kaggle/runtime_selection_v4`, and failed closed with no selected runtime
 because of writer proof-policy false negatives. Local commit `fc5227d` repairs
 that policy and replayed v4 artifacts to proof `pass`. Runtime-selection v5 was
-pushed from the clean rebuilt kernel; the one guarded post-push status read
-returned `KernelWorkerStatus.RUNNING` at 2026-06-21 06:14 -05, and the next
-status read is deferred until 2026-06-21 11:15 -05 or later; Kaggle source
-attachments require a separate confirmation guard
+pushed from the clean rebuilt kernel, completed, and downloaded to
+`runs/kaggle/runtime_selection_v5`. It wrote `benchmark/selected_runtime.json`
+for
+`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
+at `samples_sec = 27.381321`, with strict local replay pass. It is still not
+full-training-launch-ready because selected-runtime debug, checkpoint/resume,
+and tiny-overfit proofs are missing; Kaggle source attachments require a
+separate confirmation guard
 Last updated: 2026-06-21
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
@@ -523,8 +527,13 @@ and nonselected-row proof failures as global blockers. Local commit `fc5227d`
 repairs that writer policy and local replay of v4 artifacts passes. Kaggle
 accepted runtime-selection version 5 from the clean rebuilt kernel; the one
 guarded status read returned `KernelWorkerStatus.RUNNING` at 2026-06-21
-06:14:37 -05. Prompt `continue` at or after 2026-06-21 11:15 -05 for the next
-guarded status read.
+06:14:37 -05. On the next approved status read, v5 was
+`KernelWorkerStatus.COMPLETE`; outputs were downloaded to
+`runs/kaggle/runtime_selection_v5`. The proof passed and selected
+`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
+with `runtime_policy_id = amp_fp16_conservative`, `samples_sec = 27.381321`,
+estimated 10-epoch wall time `109563.740875` seconds, zero AMP skips, no OOM,
+gate-health pass, and strict local replay pass under current `main`.
 
 Local-first rule for runtime-selection pushes: before any future
 runtime-selection remote push or approval request, run the cheap semantic local
@@ -680,9 +689,15 @@ Current duration notes:
   version 5 at
   `https://www.kaggle.com/code/maximusshtefan/eqvae-runtime-selection`; the one
   guarded status read returned `KernelWorkerStatus.RUNNING` at
-  2026-06-21 06:14:37 -05. Prompt `continue` at or after 2026-06-21 11:15 -05
-  for the next guarded status read, then download to
-  `runs/kaggle/runtime_selection_v5` if complete.
+  2026-06-21 06:14:37 -05. The next approved status read returned
+  `KernelWorkerStatus.COMPLETE`, and outputs were downloaded to
+  `runs/kaggle/runtime_selection_v5`. Version 5 wrote selected runtime
+  `dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
+  with `samples_sec = 27.381321`, estimated 10-epoch wall time
+  `109563.740875` seconds, zero AMP skips, bounded selected-row numerical drift
+  with expected `dual_t4_numerical_delta_failed`, and strict local replay pass.
+  It remains blocked from full training launch until selected-runtime debug,
+  checkpoint/resume, and tiny-overfit proofs pass.
 
 For the synthetic binary timing pretest, the remote sequence remains permission
 gated:

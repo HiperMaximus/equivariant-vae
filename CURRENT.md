@@ -116,12 +116,20 @@ remote rerun writes the proof artifact. Local commit `fc5227d` relaxes only
 bounded finite numerical drift, keeps AMP skips and large drift as row
 blockers, and scopes linked proof to the selected candidate. Local replay of
 the v4 artifacts through that patch wrote the intended selected runtime with
-proof `pass`. Runtime-selection v5 has been pushed for the corrected
-efficiency follow-up and the first guarded status read returned
-`KernelWorkerStatus.RUNNING` at 2026-06-21 06:14 -05. The next guarded action
-is to prompt `continue` at or after 2026-06-21 11:15 -05, then download v5
-outputs to `runs/kaggle/runtime_selection_v5` if complete and inspect the proof
-before any selected-runtime debug or 60h-scale launch decision.
+proof `pass`. Runtime-selection v5 completed, downloaded to
+`runs/kaggle/runtime_selection_v5`, passed strict local replay under current
+`main`, and wrote `benchmark/selected_runtime.json`. The selected row is
+`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`:
+dual T4 DDP, per-device batch size 12, global batch size 24, AMP conservative
+FP16 autocast with FP32 loss, no compile, contiguous layout,
+`indexed_masked` corruption, zero AMP skips, gate-health pass, `samples_sec =
+27.381321`, and estimated 10-epoch wall time `109563.740875` seconds
+(about 30.4 hours). The selected numerical rows have no nonfinite values, no
+AMP skips, gate-health pass, and only the expected small
+`dual_t4_numerical_delta_failed` row. The selected payload still sets
+`full_training_launch_ready = false` with launch blockers for selected-runtime
+debug proof, checkpoint/resume proof, and tiny-overfit proof. Do not ask to
+launch the first real 60h-scale run until those gates pass.
 The working historical FSQ training reference is `kaggle/train_runs`: it trained
 correctly and should be used as the source for broad macro-architecture and
 runtime-efficiency ideas, while FSQ quantization/codebooks/rounding/discrete
@@ -662,29 +670,17 @@ The review process lives in `docs/agentic_review_workflow.md`.
 
 ## Next Concrete Steps
 
-1. The approved `selected_runtime_v3_efficiency_followup` is now running as
-   runtime-selection Kaggle version 5 after v4 failed closed on proof-policy
-   false negatives. This approval was only for the efficiency benchmark, not for
-   the first 60h-scale real training run. The local code tests the v3 baseline
-   remeasure plus AMP/FP16, stable `torch.compile` model-forward policies,
-   channels-last, cuDNN benchmark/non-deterministic kernels, DDP
-   `static_graph`/`gradient_as_bucket_view`, optimizer/zero-grad fast paths,
-   and TF32/matmul probes with policy-bound linked proofs. Treat the successful
-   FSQ script's launch/data/runtime choices as measured hypotheses too:
-   `torchrun --standalone --nproc_per_node=2`, `OMP_NUM_THREADS=1`,
-   `MKL_NUM_THREADS=1`, per-rank CUDA/NCCL binding, read-only mmap with
-   `MADV_SEQUENTIAL`, pinned non-blocking H2D, static-shape loader behavior, FP32
-   loss islands under AMP, and full checkpoint/resume state.
-2. Prompt `continue` at or after 2026-06-21 11:15 -05 to perform the next
-   guarded status read. If the kernel is complete, download to
-   `runs/kaggle/runtime_selection_v5` and inspect
-   `benchmark/runtime_proof.json`, `runtime_matrix.csv`, and
-   `selected_runtime.json`. A faster optimized row does not need bitwise
-   determinism, but it must beat v3 materially, avoid catastrophic failures, and
-   record the relaxed-determinism policy. In particular, do not inherit the FSQ
-   validation trap where clean validation still executes the corruptor, and do
-   not inherit partial AMP-skip behavior where schedules can advance after a
-   skipped optimizer step.
+1. Runtime-selection v5 is the current efficient selected-runtime answer. It
+   selected AMP conservative dual-T4 bs12 indexed-mask at `27.381321`
+   samples/sec and about 30.4 projected hours for 10 epochs, with strict local
+   replay pass. This approval was only for the efficiency benchmark, not for the
+   first 60h-scale real training run.
+2. Next implementation gate is selected-runtime debug/resume/tiny-overfit using
+   `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json`. Prove
+   selected-runtime debug, checkpoint/resume, artifacts, and tiny-overfit before
+   asking for any long real training launch approval. Preserve the FSQ lessons:
+   do not execute the corruptor for clean validation, and do not let schedules
+   advance after a skipped optimizer step.
 3. Run or rerun Kaggle optimization/debug jobs only after explicit user
    approval plus `KAGGLE_PUSH_CONFIRMED=1` and
    `KAGGLE_FULL_DATASET_CONFIRMED=1`; remote reads still require explicit
@@ -2201,9 +2197,22 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`. The one guarded
   post-push status read with `KAGGLE_REMOTE_CONFIRMED=1` returned
   `KernelWorkerStatus.RUNNING` at 2026-06-21 06:14:37 -05. Per the long-job
-  rule, do not poll repeatedly in-turn; prompt `continue` at or after
-  2026-06-21 11:15 -05 for the next guarded status read and, if complete,
-  download outputs to `runs/kaggle/runtime_selection_v5`.
+  rule, the agent stopped after that single poll. On the next approved status
+  read, Kaggle reported `KernelWorkerStatus.COMPLETE`; outputs were downloaded
+  to `runs/kaggle/runtime_selection_v5`. Version 5 wrote
+  `benchmark/selected_runtime.json`, `runtime_proof.status = pass`,
+  `selection_ready = true`, and `selected_runtime_written = true`. The selected
+  row is
+  `dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
+  with `runtime_policy_id = amp_fp16_conservative`, `samples_sec = 27.381321`,
+  `steady_step_ms_p50 = 876.509927`, estimated 10-epoch wall time
+  `109563.740875` seconds, zero AMP skips, no OOM, gate-health pass, and strict
+  local replay pass under current `main`. Selected numerical checks include one
+  expected bounded `dual_t4_numerical_delta_failed` row and two pass rows; all
+  selected numerical rows have `nonfinite_count = 0`, `amp_step_skipped =
+  false`, and `gate_health_status = pass`. The selected payload still has
+  `full_training_launch_ready = false` with blockers for missing
+  selected-runtime debug, checkpoint/resume, and tiny-overfit proof.
 - 2026-06-20 historical FSQ reference memory:
   the successful working FSQ Kaggle training notebook/artifact is
   `kaggle/train_runs`. It is the local reference for the broad ResNet-like
