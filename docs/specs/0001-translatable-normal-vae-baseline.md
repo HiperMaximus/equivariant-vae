@@ -24,14 +24,18 @@ FP32 rows: bs4/bs8/bs12 crossed with `branchless_all` and `indexed_masked`. The
 next selected-runtime benchmark/debug slice is encoded as
 `v8_shortlist_eager_amp_then_dual_gate`; local proof plumbing for that separate
 selected-runtime benchmark plus its Kaggle executor/kernel are now implemented
-and fail-closed. v8 remains shortlist-only, the separate benchmark writes its
-own linked proofs, and `selected_runtime.json` remains blocked until real
-dual-T4 train-step timing exists. That timing must prove two visible T4s,
-`world_size = 2`,
-`nproc_per_node = 2`, per-rank device binding, linked safety evidence, and
-global throughput projection. Compiled rows remain diagnostic-only until full
-compile-settle coverage exists, and v8 remains non-promotable unless a later
-spec explicitly changes that.
+and fail-closed. Runtime-selection v1 downloaded to
+`runs/kaggle/runtime_selection_v1`: it proved the real dual-T4 DDP timing gate
+but wrote no `selected_runtime.json` because linked single-visible proof rows
+were false-negative blocked, then the wrapper rejected `model_inventory.csv`.
+The local v2 fix updates those proof-plumbing/allow-list issues. v8 remains
+shortlist-only, the separate benchmark writes its own linked proofs, and
+`selected_runtime.json` remains blocked until real dual-T4 train-step timing
+and all linked proofs pass. That timing must prove two visible T4s,
+`world_size = 2`, `nproc_per_node = 2`, per-rank device binding, linked safety
+evidence, and global throughput projection. Compiled rows remain
+diagnostic-only until full compile-settle coverage exists, and v8 remains
+non-promotable unless a later spec explicitly changes that.
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-20
 
@@ -1987,8 +1991,8 @@ Benchmark artifact dependency graph:
    requires 25 measured dataloader batches per split/rank, `data_wait_fraction_p95
    <= 0.20`, loader throughput at least `1.25 * trainer_samples_sec`, three
    fixed numerical batch indices, train and validation corruption-check rows
-   with `clean_validation_rng_advanced = false`, gate-health rows bound by
-   `candidate_row_id`, and strict candidate coverage in
+   with `clean_validation_rng_advanced = false` required on validation rows,
+   gate-health rows bound by `candidate_row_id`, and strict candidate coverage in
    `benchmark/stain_corruptor_qa.json`.
 7. `benchmark/selected_runtime.json` may be written with `status = "pass"` only
    when it references one row from `runtime_matrix.csv` whose row status is

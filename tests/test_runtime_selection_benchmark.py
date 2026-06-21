@@ -11,6 +11,7 @@ from typing import cast
 
 import pytest
 
+from eqvae.benchmarking import runtime_selection_executor
 from eqvae.benchmarking.io import JsonObject, write_csv, write_json
 from eqvae.benchmarking.runtime_schema import (
     CORRUPTION_CHECK_COLUMNS,
@@ -163,6 +164,77 @@ def test_runtime_selection_writes_selected_runtime_after_full_local_proof(
     )
     assert compiled_row["status"] == "ineligible"
     assert compiled_row["failure_kind"] == "compiled_rows_diagnostic_only"
+
+
+def test_runtime_selection_accepts_train_corruption_without_validation_rng_flag(
+    tmp_path: Path,
+) -> None:
+    """Train corruption proof rows do not carry the validation clean-RNG flag."""
+    output_dir = tmp_path / "selection"
+    evidence = _passing_runtime_selection_evidence()
+    corruption_rows = tuple(
+        {
+            **row,
+            "clean_validation_rng_advanced": ""
+            if row["split"] == "train"
+            else row["clean_validation_rng_advanced"],
+        }
+        for row in evidence.corruption_rows
+    )
+    evidence = RuntimeSelectionEvidence(
+        runtime_rows=evidence.runtime_rows,
+        dataloader_rows=evidence.dataloader_rows,
+        numerical_rows=evidence.numerical_rows,
+        corruption_rows=corruption_rows,
+        gate_health_rows=evidence.gate_health_rows,
+        gate_health_summary=evidence.gate_health_summary,
+        runtime_environment=evidence.runtime_environment,
+    )
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=evidence,
+        ),
+    )
+
+    assert artifacts.selected_runtime is not None
+    proof = _load_json(artifacts.runtime_proof)
+    assert proof["status"] == "pass"
+    assert proof["selected_runtime_written"] is True
+
+
+def test_runtime_selection_executor_marks_local_pass_gate_rows_eligible() -> None:
+    """Executor normalization must preserve local-pass gate-health proof rows."""
+    gate_row = dict.fromkeys(GATE_HEALTH_COLUMNS, "")
+    gate_row.update({
+        "status": "",
+        "gate_health_status": "local_pass",
+        "full_run_eligible": "false",
+        "module": "encoder.0",
+        "gate_kind": "scalar",
+    })
+    failed_runtime_row = {
+        "status": "fail",
+        "gate_health_status": "local_pass",
+        "full_run_eligible": "true",
+    }
+
+    normalized = runtime_selection_executor._rows_with_selection_scope(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        (gate_row, failed_runtime_row),
+    )
+
+    assert normalized[0]["benchmark_kind"] == "kaggle_runtime_selection"
+    assert normalized[0]["benchmark_source"] == "kaggle_runtime_benchmark"
+    assert normalized[0]["gate_health_status"] == "pass"
+    assert normalized[0]["full_run_eligible"] == "true"
+    assert not normalized[0]["status"]
+    assert normalized[1]["gate_health_status"] == "pass"
+    assert normalized[1]["full_run_eligible"] == "false"
+    assert normalized[1]["status"] == "fail"
 
 
 def test_runtime_selection_blocks_train_only_dataloader_proof(

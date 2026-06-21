@@ -71,10 +71,21 @@ required v8 provenance files, re-runs the selected-runtime benchmark on Kaggle,
 and is guarded by `runtime_selection_kernel_ready`. Commit `fba9d98`
 (`Add selected runtime Kaggle executor`) was created on 2026-06-20, Kaggle
 accepted runtime-selection version 1 at
-`https://www.kaggle.com/code/maximusshtefan/eqvae-runtime-selection`, and
-guarded status polls still reported `KernelWorkerStatus.RUNNING` as of
-`2026-06-20T17:31:27-05:00`. Output download/inspection remains pending remote
-completion; no GitHub or Overleaf push was performed or approved.
+`https://www.kaggle.com/code/maximusshtefan/eqvae-runtime-selection`. A guarded
+status poll later returned `KernelWorkerStatus.ERROR`, and outputs were
+downloaded under `runs/kaggle/runtime_selection_v1`. Version 1 still produced
+the strict benchmark artifacts, including a passing real dual-T4 DDP timing
+gate, but wrote no `benchmark/selected_runtime.json`: the writer blocked on
+linked single-visible row proof because executor gate-health rows were left
+`full_run_eligible = false` and train corruption rows were incorrectly required
+to carry the validation clean-RNG flag. The wrapper then raised because
+`model_inventory.csv` was not in its expected artifact allow-list. The local v2
+fix adds `model_inventory.csv` to the allow-list, normalizes `local_pass`
+gate-health rows before eligibility computation while keeping failed non-gate
+rows ineligible, and requires `clean_validation_rng_advanced = false` only for
+validation corruption rows. Focused regression tests cover these cases and
+adversarial subagent review found no selected-runtime fail-open blocker. No
+GitHub or Overleaf push was performed or approved.
 Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, a focused
 scaffold-readiness check on 2026-06-12, and a focused v7 handoff/guard audit on
@@ -290,8 +301,10 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: implement the separate selected-runtime benchmark/debug
-slice now encoded in
+Immediate next action: finish local gates for the runtime-selection v2 proof
+plumbing fix, commit it, rebuild/validate the runtime-selection kernel from the
+clean commit, and push a new Kaggle version with the approved guards. The
+separate selected-runtime benchmark/debug slice is encoded in
 `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json` as
 `runtime_matrix.selection_benchmark_slice.name =
 "v8_shortlist_eager_amp_then_dual_gate"`. Remote v8 is carry-forward shortlist
@@ -300,12 +313,15 @@ bs8/bs12 FP32 `compile_none` branchless/indexed confirmation, with bs4 as a
 fallback, then AMP follow-up only for confirmed eager rows. The benchmark must
 write `benchmark/selected_runtime.json` only after its own full linked proof
 passes and hash-links its artifacts; it must remain blocked while real dual-T4
-train-step timing is missing. Dual-T4 timing is required, not optional: the
-selection benchmark must emit dual-T4 DDP train-step rows for per-device bs4,
-bs8, and bs12 FP32 eager branchless/indexed candidates, prove two visible T4s,
-`world_size = 2`, `nproc_per_node = 2`, per-rank device assignment, linked
-dataloader/numerical/corruption/gate evidence, and global throughput
-projection. The local v8 evidence-plumbing fix was committed as `614cd95`,
+train-step timing is missing, failed, or skipped. Dual-T4 timing is required,
+not optional: the selection benchmark must emit dual-T4 DDP train-step rows for
+per-device bs4, bs8, and bs12 FP32 eager branchless/indexed candidates, prove
+two visible T4s, `world_size = 2`, `nproc_per_node = 2`, per-rank device
+assignment, linked dataloader/numerical/corruption/gate evidence, and global
+throughput projection. Runtime-selection v1 proved the dual-T4 timing gate but
+blocked selected-runtime writing on linked-proof false negatives; the v2 local
+fix now covers those false negatives and the wrapper artifact allow-list. The
+local v8 evidence-plumbing fix was committed as `614cd95`,
 pushed as Kaggle version 8 after explicit approval, completed,
 downloaded to `runs/kaggle/real_data_runtime_pretest_v8`, and inspected. It
 fixed the v7 quantile blocker and produced six capped-pretest passing eager
@@ -1866,15 +1882,26 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `kaggle/kernels/runtime_selection`, `./scripts/python_quality.sh` with
   `140 passed`, `git diff --check`, repo `./scripts/agent_preflight.sh`, and
   workspace `/home/maximus/Documents/Tesis/agent_preflight.sh`. Commit
-  `fba9d98` was created, Kaggle accepted version 1 at
-  `https://www.kaggle.com/code/maximusshtefan/eqvae-runtime-selection`, and
-  guarded status polls still reported `KernelWorkerStatus.RUNNING` as of
-  `2026-06-20T17:31:27-05:00`. Next action: poll with
-  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-runtime-selection`
-  until complete, then download with
-  `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-runtime-selection runs/kaggle/runtime_selection_v1`
-  and inspect whether the strict writer produced or refused
-  `benchmark/selected_runtime.json`.
+  `fba9d98` was created, and Kaggle accepted version 1 at
+  `https://www.kaggle.com/code/maximusshtefan/eqvae-runtime-selection`.
+  Runtime-selection v1 later reached `KernelWorkerStatus.ERROR`; outputs were
+  downloaded to `runs/kaggle/runtime_selection_v1`. Inspection found the real
+  dual-T4 DDP timing gate passed and emitted the required bs4/bs8/bs12 FP32
+  eager dual rows with two visible T4s, `world_size = 2`,
+  `nproc_per_node = 2`, per-rank device assignment, child-process launch proof,
+  and global throughput projection. The strict writer still refused
+  `benchmark/selected_runtime.json` because linked single-visible proof rows
+  were false-negative blocked by gate-health eligibility normalization and the
+  train corruption clean-validation RNG check. The wrapper error was
+  `unexpected runtime-selection benchmark artifacts:
+  unexpected=['model_inventory.csv']`. The local v2 fix adds
+  `model_inventory.csv` to the wrapper allow-list, scopes the corruption RNG
+  requirement to validation rows, normalizes `local_pass` gate-health rows
+  before computing eligibility, and keeps failed non-gate rows ineligible even
+  if they carry a gate-health status. New focused regressions cover all three
+  v1 failures. Two clean-context adversarial subagent reviews found no
+  selected-runtime fail-open blocker; one low semantic eligibility issue was
+  fixed before the v2 push.
 - 2026-06-19 GitHub issue status updates:
   posted Spanish status comments to issues #1-#6 after local grounding and
   three read-only subagent audits. Issue #2 received the substantive v6

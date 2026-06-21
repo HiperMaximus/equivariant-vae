@@ -21,7 +21,10 @@ fixed the quantile evidence-plumbing failure, produced six capped-pretest-passin
 single-visible-T4 bs4/bs8/bs12 FP32 rows, and remains non-promotable with no
 selected runtime. The selected-runtime writer plus Kaggle executor/kernel for
 `v8_shortlist_eager_amp_then_dual_gate` are locally implemented and guarded as
-`runtime_selection_kernel_ready`; full training/full-run launchers are not
+`runtime_selection_kernel_ready`; runtime-selection v1 was downloaded to
+`runs/kaggle/runtime_selection_v1`, proved real dual-T4 DDP timing, refused
+selected-runtime writing on linked-proof false negatives, and exposed the local
+v2 proof-plumbing/allow-list fix; full training/full-run launchers are not
 Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-20
@@ -326,6 +329,16 @@ evidence collection on Kaggle, and remains fail-closed if dual timing or linked
 proof is missing, failed, or skipped. `runtime_selection_kernel_ready` means the
 local build/validate/push guard path is ready; remote status/output/push
 commands still require explicit permission and the normal guard variables.
+Runtime-selection v1 reached `KernelWorkerStatus.ERROR` after writing benchmark
+artifacts. Inspection of `runs/kaggle/runtime_selection_v1` confirmed the
+dual-T4 DDP timing gate passed and emitted the required bs4/bs8/bs12 FP32 eager
+dual rows, but the strict writer refused `benchmark/selected_runtime.json`
+because linked single-visible proof rows were false-negative blocked. The local
+v2 fix accepts `benchmark/model_inventory.csv` in the wrapper allow-list,
+normalizes `local_pass` gate-health rows before eligibility is computed while
+leaving failed non-gate rows ineligible, and requires the
+`clean_validation_rng_advanced = false` flag only on validation corruption
+rows.
 
 ## Kaggle Authentication Contract
 

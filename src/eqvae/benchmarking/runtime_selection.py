@@ -1166,7 +1166,10 @@ def _corruption_pass_for_runtime_row(
         and _nonempty_csv(row, "stain_param_hash")
         and _nonempty_csv(row, "noise_std_hash")
         and _nonempty_csv(row, "noise_field_hash")
-        and row.get("clean_validation_rng_advanced") == "false"
+        and (
+            row.get("split") == "train"
+            or row.get("clean_validation_rng_advanced") == "false"
+        )
     }
     return REQUIRED_CORRUPTION_SPLITS.issubset(passing_splits)
 

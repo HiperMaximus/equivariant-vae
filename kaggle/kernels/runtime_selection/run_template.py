@@ -30,6 +30,7 @@ REQUIRED_V8_ARTIFACTS = {
 }
 RUNTIME_SELECTION_ALLOWED_BENCHMARK_ARTIFACTS = {
     "model_count.json",
+    "model_inventory.csv",
     "runtime_proof.json",
     "runtime_matrix.csv",
     "dataloader_matrix.csv",

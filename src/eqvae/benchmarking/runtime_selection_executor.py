@@ -1374,11 +1374,17 @@ def _rows_with_selection_scope(rows: Sequence[CsvRow]) -> list[CsvRow]:
         copied = dict(row)
         copied["benchmark_kind"] = RUNTIME_SELECTION_KIND
         copied["benchmark_source"] = RUNTIME_SELECTION_SOURCE
-        copied["full_run_eligible"] = (
-            "true" if copied.get("status") == PASS_STATUS else "false"
-        )
         if copied.get("gate_health_status") == pretest.LOCAL_PASS_STATUS:
             copied["gate_health_status"] = PASS_STATUS
+        is_gate_health_row = bool(copied.get("module")) and bool(
+            copied.get("gate_kind"),
+        )
+        copied["full_run_eligible"] = (
+            "true"
+            if copied.get("status") == PASS_STATUS
+            or (is_gate_health_row and copied.get("gate_health_status") == PASS_STATUS)
+            else "false"
+        )
         normalized.append(copied)
     return normalized
 

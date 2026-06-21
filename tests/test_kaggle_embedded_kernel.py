@@ -328,6 +328,10 @@ def test_embedded_runtime_selection_kernel_import_simulation(
     assert _RUNTIME_SELECTION_V8_PAYLOAD_FILES.issubset(
         _embedded_payload_names(simulation.upload_dir / "run.py"),
     )
+    template_text = (
+        repo_root / "kaggle" / "kernels" / "runtime_selection" / "run_template.py"
+    ).read_text(encoding="utf-8")
+    assert '"model_inventory.csv"' in template_text
 
 
 def test_embedded_kernel_verify_rejects_stale_template(tmp_path: Path) -> None:

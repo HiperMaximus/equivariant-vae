@@ -17,9 +17,10 @@ selected-runtime proof plumbing and the Kaggle executor/kernel for
 `v8_shortlist_eager_amp_then_dual_gate` now exist and are fail-closed until real
 dual-T4 timing plus linked evidence pass; the runtime-selection kernel guard is
 `runtime_selection_kernel_ready`; runtime-selection version 1 was pushed to
-Kaggle on 2026-06-20 and still reported `KernelWorkerStatus.RUNNING` as of
-`2026-06-20T17:31:27-05:00`; Kaggle source attachments require a separate
-confirmation guard
+Kaggle on 2026-06-20, downloaded to `runs/kaggle/runtime_selection_v1`, proved
+real dual-T4 DDP timing, refused `selected_runtime.json` on linked-proof
+false negatives, and exposed the local v2 proof-plumbing/allow-list fix; Kaggle
+source attachments require a separate confirmation guard
 Last updated: 2026-06-20
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
@@ -183,13 +184,26 @@ rows, per-candidate gate-health rows, candidate-scoped stain QA, and exact
 embedded v8 payload membership. Missing, failed, or skipped dual timing or
 linked evidence refuses `benchmark/selected_runtime.json`.
 
-The user approved the selected-runtime Kaggle push on 2026-06-20. After local
-gates and a clean commit/rebuild, the guarded remote sequence is:
+The user approved the selected-runtime Kaggle push/status/output on 2026-06-20.
+Runtime-selection v1 reached `KernelWorkerStatus.ERROR` after writing benchmark
+artifacts. Inspection confirmed the dual-T4 DDP timing gate passed with two
+visible T4s, `world_size = 2`, `nproc_per_node = 2`, per-rank device
+assignment, child-process launch proof, emitted bs4/bs8/bs12 FP32 eager dual
+rows, and global throughput projection. The strict writer refused
+`benchmark/selected_runtime.json` because linked single-visible proof rows were
+false-negative blocked by gate-health eligibility normalization and the train
+corruption clean-validation RNG check; the wrapper then rejected
+`model_inventory.csv` as an unexpected benchmark artifact. The local v2 fix
+accepts `model_inventory.csv`, normalizes `local_pass` gate rows before
+eligibility is computed while keeping failed non-gate rows ineligible, and
+requires `clean_validation_rng_advanced = false` only on validation corruption
+rows. After local gates and a clean commit/rebuild, the guarded remote sequence
+for v2 is:
 
 ```bash
 KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/runtime_selection
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-runtime-selection
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-runtime-selection runs/kaggle/runtime_selection_v1
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-runtime-selection runs/kaggle/runtime_selection_v2
 ```
 
 The real-data benchmark surface is intentionally separate from the capped smoke
@@ -452,6 +466,10 @@ coverage, scoped numerical/corruption rows, gate-health evidence bound to
 candidate row ids, a hash-linked `benchmark/stain_corruptor_qa.json`, and
 global throughput projection; if that gate is missing, failed, or skipped,
 selected-runtime writing stays blocked.
+Runtime-selection v1 showed the dual gate can pass on Kaggle but selected
+runtime writing remained blocked by linked-proof false negatives and wrapper
+allow-list drift. The local v2 patch fixes those specific blockers while
+preserving the refusal rule for missing, failed, or skipped linked proof.
 
 Local `build`/`validate` may verify the generated real-data pretest payload
 against the current dirty worktree so agents can validate local patches before
