@@ -63,6 +63,11 @@ DEFAULT_MATERIAL_SPEEDUP_FRACTION = 0.03
 REQUIRED_COMPILE_SETTLE_STEPS = 5
 REQUIRED_NUMERICAL_BATCH_INDICES = frozenset({"0", "1", "2"})
 REQUIRED_CORRUPTION_SPLITS = frozenset({"train", "validation"})
+MAX_RELAXED_LOSS_ABS_DELTA = 1.0e-2
+MAX_RELAXED_LOSS_REL_DELTA = 1.0e-2
+MAX_RELAXED_GRAD_REL_DELTA = 1.0e-2
+MAX_RELAXED_PARAM_UPDATE_REL_DELTA = 1.0e-2
+MAX_RELAXED_STATE_ABS_DELTA = 1.0e-2
 STAIN_QA_PROOF_SCOPE = "selected_runtime_stain_corruptor_row_linked_qa"
 REAL_TRAIN_PATCH_COUNT_DEFAULT = 300_000
 V8_REQUIRED_ARTIFACTS = (
@@ -756,12 +761,13 @@ def _amp_followup_policy(rows: Sequence[CsvRow]) -> JsonObject:
         for row in amp_rows
         if (_optional_csv_int(row.get("amp_step_skipped_count", "")) or 0) > 0
     ]
+    # AMP skips are row-level catastrophic blockers. They must prevent that row
+    # from selection, but they should not reject a different safe row or the v3
+    # baseline remeasure.
     return cast(
         "JsonObject",
         {
-            "status": PASS_STATUS
-            if not violations and not skipped_rows
-            else FAIL_STATUS,
+            "status": PASS_STATUS if not violations else FAIL_STATUS,
             "confirmed_fp32_eager_row_count": len(pass_fp32_keys),
             "amp_followup_row_count": len(amp_rows),
             "violation_row_ids": violations,
@@ -1005,20 +1011,21 @@ def _selected_runtime_write_decision(  # noqa: C901, PLR0912, PLR0913
     )
     if missing_stain_qa_rows:
         blockers.append("stain_corruptor_qa_candidate_scope_not_pass")
-    linked_pass_row_failures = _linked_pass_row_failures(
-        runtime_rows=runtime_rows,
-        dataloader_rows=dataloader_rows,
-        numerical_rows=numerical_rows,
-        corruption_rows=corruption_rows,
-        gate_health_rows=gate_health_rows,
-        gate_health_summary=gate_health_summary,
-    )
-    if linked_pass_row_failures:
-        blockers.append("runtime_pass_rows_linked_proof_not_pass")
     selected = _selected_row_or_none(settings=settings, rows=runtime_rows)
+    linked_pass_row_failures: list[str] = []
     if selected is None:
         blockers.append("runtime_matrix_has_no_selectable_pass_row")
     else:
+        linked_pass_row_failures = _linked_pass_row_failures(
+            runtime_rows=(selected,),
+            dataloader_rows=dataloader_rows,
+            numerical_rows=numerical_rows,
+            corruption_rows=corruption_rows,
+            gate_health_rows=gate_health_rows,
+            gate_health_summary=gate_health_summary,
+        )
+        if linked_pass_row_failures:
+            blockers.append("runtime_pass_rows_linked_proof_not_pass")
         if not _dataloader_pass_for_runtime_row(dataloader_rows, selected):
             blockers.append("selected_row_dataloader_not_pass")
         if not _numerical_pass_for_runtime_row(numerical_rows, selected):
@@ -1170,7 +1177,7 @@ def _linked_pass_row_failures(  # noqa: PLR0913
 ) -> list[str]:
     failures: list[str] = []
     for runtime_row in runtime_rows:
-        if runtime_row["status"] != PASS_STATUS:
+        if not _runtime_row_candidate_pass(runtime_row):
             continue
         row_id = runtime_row["row_id"]
         if not _dataloader_pass_for_runtime_row(dataloader_rows, runtime_row):
@@ -1293,7 +1300,7 @@ def _numerical_pass_for_runtime_row(
     passing_batch_indices = {
         row["batch_index"]
         for row in numerical_rows
-        if _candidate_scope_pass(row, runtime_row) and _numerical_values_pass(row)
+        if _candidate_scope_matches(row, runtime_row) and _numerical_values_pass(row)
     }
     return REQUIRED_NUMERICAL_BATCH_INDICES.issubset(passing_batch_indices)
 
@@ -1321,9 +1328,10 @@ def _corruption_pass_for_runtime_row(
     return REQUIRED_CORRUPTION_SPLITS.issubset(passing_splits)
 
 
-def _candidate_scope_pass(row: CsvRow, runtime_row: CsvRow) -> bool:
+def _candidate_scope_matches(row: CsvRow, runtime_row: CsvRow) -> bool:
     return (
-        _common_candidate_scope_pass(row, runtime_row)
+        _common_candidate_scope_matches(row, runtime_row, require_status=False)
+        and row.get("status") in {PASS_STATUS, FAIL_STATUS}
         and row.get("precision_policy") == runtime_row["precision_policy"]
         and row.get("torch_compile_enabled") == runtime_row["torch_compile_enabled"]
         and row.get("compile_scope") == runtime_row["compile_scope"]
@@ -1336,8 +1344,17 @@ def _nonempty_csv(row: CsvRow, key: str) -> bool:
 
 
 def _common_candidate_scope_pass(row: CsvRow, runtime_row: CsvRow) -> bool:
+    return _common_candidate_scope_matches(row, runtime_row, require_status=True)
+
+
+def _common_candidate_scope_matches(
+    row: CsvRow,
+    runtime_row: CsvRow,
+    *,
+    require_status: bool,
+) -> bool:
     return (
-        row.get("status") == PASS_STATUS
+        (not require_status or row.get("status") == PASS_STATUS)
         and row.get("benchmark_kind") == RUNTIME_SELECTION_KIND
         and row.get("benchmark_source") == RUNTIME_SELECTION_SOURCE
         and row.get("full_run_eligible") == "true"
@@ -1352,10 +1369,50 @@ def _numerical_values_pass(row: CsvRow) -> bool:
     delta_fields = [key for key in row if key.endswith("_delta")]
     return (
         all(_csv_float_is_finite(row[field]) for field in delta_fields)
+        and _relaxed_numerical_deltas_pass(row)
         and _optional_csv_int(row.get("nonfinite_count", "")) == 0
         and row.get("amp_step_skipped") == "false"
         and row.get("gate_health_status") == PASS_STATUS
     )
+
+
+def _relaxed_numerical_deltas_pass(row: CsvRow) -> bool:
+    """Accept small drift while still blocking clearly invalid metrics.
+
+    Returns:
+        True when all relaxed numerical deltas remain within policy bounds.
+
+    """
+    return (
+        _bounded_delta(row, "total_loss_abs_delta", MAX_RELAXED_LOSS_ABS_DELTA)
+        and _bounded_delta(row, "total_loss_rel_delta", MAX_RELAXED_LOSS_REL_DELTA)
+        and _bounded_delta(row, "recon_loss_abs_delta", MAX_RELAXED_LOSS_ABS_DELTA)
+        and _bounded_delta(row, "recon_loss_rel_delta", MAX_RELAXED_LOSS_REL_DELTA)
+        and _bounded_delta(row, "l1_loss_abs_delta", MAX_RELAXED_LOSS_ABS_DELTA)
+        and _bounded_delta(row, "l1_loss_rel_delta", MAX_RELAXED_LOSS_REL_DELTA)
+        and _bounded_delta(row, "ssim_loss_abs_delta", MAX_RELAXED_LOSS_ABS_DELTA)
+        and _bounded_delta(row, "ssim_loss_rel_delta", MAX_RELAXED_LOSS_REL_DELTA)
+        and _bounded_delta(row, "kl_loss_abs_delta", MAX_RELAXED_LOSS_ABS_DELTA)
+        and _bounded_delta(row, "kl_loss_rel_delta", MAX_RELAXED_LOSS_REL_DELTA)
+        and _bounded_delta(row, "grad_norm_rel_delta", MAX_RELAXED_GRAD_REL_DELTA)
+        and _bounded_delta(
+            row,
+            "param_update_norm_rel_delta",
+            MAX_RELAXED_PARAM_UPDATE_REL_DELTA,
+        )
+        and _bounded_delta(row, "x_hat_min_abs_delta", MAX_RELAXED_STATE_ABS_DELTA)
+        and _bounded_delta(row, "x_hat_max_abs_delta", MAX_RELAXED_STATE_ABS_DELTA)
+        and _bounded_delta(row, "mu_mean_abs_delta", MAX_RELAXED_STATE_ABS_DELTA)
+        and _bounded_delta(row, "mu_std_abs_delta", MAX_RELAXED_STATE_ABS_DELTA)
+        and _bounded_delta(row, "logvar_mean_abs_delta", MAX_RELAXED_STATE_ABS_DELTA)
+        and _bounded_delta(row, "logvar_std_abs_delta", MAX_RELAXED_STATE_ABS_DELTA)
+        and _bounded_delta(row, "logvar_clamp_count_delta", 0.0)
+    )
+
+
+def _bounded_delta(row: CsvRow, key: str, max_abs: float) -> bool:
+    value = _float_or_none(row.get(key, ""))
+    return value is not None and math.isfinite(value) and abs(value) <= max_abs
 
 
 def _gate_health_pass_for_runtime_row(

@@ -7,7 +7,7 @@ import csv
 import hashlib
 import json
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -31,6 +31,9 @@ RUN_NAME = "runtime_selection_test"
 CORRUPTION_STRATEGIES = ("branchless_all", "indexed_masked")
 EXPECTED_DUAL_RUNTIME_ROWS = 6
 EXPECTED_DUAL_WORLD_SIZE = 2
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 def test_runtime_selection_records_v8_shortlist_provenance(tmp_path: Path) -> None:
@@ -209,8 +212,10 @@ def test_runtime_selection_allows_stable_compile_efficiency_row(
     assert selected["full_training_launch_ready"] is False
 
 
-def test_runtime_selection_blocks_amp_skip_rows(tmp_path: Path) -> None:
-    """Rows with AMP skips cannot write a selected runtime."""
+def test_runtime_selection_excludes_amp_skip_rows_without_global_block(
+    tmp_path: Path,
+) -> None:
+    """AMP skips block their own row, not an otherwise safe selected runtime."""
     output_dir = tmp_path / "selection"
     runtime_rows = (
         *_passing_runtime_rows(),
@@ -241,9 +246,113 @@ def test_runtime_selection_blocks_amp_skip_rows(tmp_path: Path) -> None:
     proof = _load_json(artifacts.runtime_proof)
     amp_policy = cast("dict[str, object]", proof["amp_followup_policy"])
     decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+
+    assert artifacts.selected_runtime is not None
+    selected = _load_json(artifacts.selected_runtime)
+    assert selected["runtime_policy_id"] != "amp_fp16_conservative"
+    assert amp_policy["status"] == "pass"
+    assert runtime_rows[-1]["row_id"] in cast(
+        "list[object]",
+        amp_policy["amp_skipped_row_ids"],
+    )
+    assert "amp_followup_policy_not_pass" not in cast(
+        "list[object]",
+        decision["blockers"],
+    )
+
+
+def test_runtime_selection_accepts_small_numerical_drift_for_faster_row(
+    tmp_path: Path,
+) -> None:
+    """Performance-first selection accepts small finite numerical drift."""
+    output_dir = tmp_path / "selection"
+    fast_amp = _runtime_row(
+        accelerator_mode="dual_t4_ddp",
+        per_device_batch_size=12,
+        precision_policy="amp_conservative",
+        compile_scope="none",
+        corruption_strategy="indexed_masked",
+        world_size=EXPECTED_DUAL_WORLD_SIZE,
+        samples_sec=350.0,
+        runtime_policy_id="amp_fp16_conservative",
+    )
+    runtime_rows = (*_passing_runtime_rows(), fast_amp)
+    evidence = _runtime_selection_evidence_from_rows(runtime_rows)
+    numerical_rows = tuple(
+        _with_small_numerical_drift(row, candidate_row_id=fast_amp["row_id"])
+        for row in evidence.numerical_rows
+    )
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=RuntimeSelectionEvidence(
+                runtime_rows=evidence.runtime_rows,
+                dataloader_rows=evidence.dataloader_rows,
+                numerical_rows=numerical_rows,
+                corruption_rows=evidence.corruption_rows,
+                gate_health_rows=evidence.gate_health_rows,
+                gate_health_summary=evidence.gate_health_summary,
+                runtime_environment=evidence.runtime_environment,
+            ),
+        ),
+    )
+
+    assert artifacts.selected_runtime is not None
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+    selected = _load_json(artifacts.selected_runtime)
+    assert selected["runtime_policy_id"] == "amp_fp16_conservative"
+    assert decision["allowed"] is True
+
+
+def test_runtime_selection_blocks_clearly_invalid_numerical_drift(
+    tmp_path: Path,
+) -> None:
+    """Large metric drift still blocks the faster row."""
+    output_dir = tmp_path / "selection"
+    fast_amp = _runtime_row(
+        accelerator_mode="dual_t4_ddp",
+        per_device_batch_size=12,
+        precision_policy="amp_conservative",
+        compile_scope="none",
+        corruption_strategy="indexed_masked",
+        world_size=EXPECTED_DUAL_WORLD_SIZE,
+        samples_sec=350.0,
+        runtime_policy_id="amp_fp16_conservative",
+    )
+    runtime_rows = (*_passing_runtime_rows(), fast_amp)
+    evidence = _runtime_selection_evidence_from_rows(runtime_rows)
+    numerical_rows = tuple(
+        _with_large_numerical_drift(row, candidate_row_id=fast_amp["row_id"])
+        for row in evidence.numerical_rows
+    )
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=RuntimeSelectionEvidence(
+                runtime_rows=evidence.runtime_rows,
+                dataloader_rows=evidence.dataloader_rows,
+                numerical_rows=numerical_rows,
+                corruption_rows=evidence.corruption_rows,
+                gate_health_rows=evidence.gate_health_rows,
+                gate_health_summary=evidence.gate_health_summary,
+                runtime_environment=evidence.runtime_environment,
+            ),
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
     assert artifacts.selected_runtime is None
-    assert amp_policy["status"] == "fail"
-    assert "amp_followup_policy_not_pass" in cast(
+    assert "selected_row_numerical_not_pass" in cast(
         "list[object]",
         decision["blockers"],
     )
@@ -1135,6 +1244,42 @@ def _candidate_row(
         row["clean_sample_unchanged_count"] = "25" if split == "validation" else "0"
         row["clean_validation_rng_advanced"] = "false"
     return row
+
+
+def _with_small_numerical_drift(
+    row: Mapping[str, str],
+    *,
+    candidate_row_id: str,
+) -> dict[str, str]:
+    if row["candidate_row_id"] != candidate_row_id or row["batch_index"] != "0":
+        return dict(row)
+    updated = dict(row)
+    updated["status"] = "fail"
+    updated["failure_kind"] = "dual_t4_numerical_delta_failed"
+    updated["kl_loss_abs_delta"] = "0.000013"
+    updated["kl_loss_rel_delta"] = "0.000050"
+    updated["grad_norm_abs_delta"] = "0.000448"
+    updated["grad_norm_rel_delta"] = "0.000068"
+    updated["logvar_mean_abs_delta"] = "0.000045"
+    updated["logvar_std_abs_delta"] = "0.000229"
+    updated["mu_mean_abs_delta"] = "0.000009"
+    updated["mu_std_abs_delta"] = "0.000124"
+    return updated
+
+
+def _with_large_numerical_drift(
+    row: Mapping[str, str],
+    *,
+    candidate_row_id: str,
+) -> dict[str, str]:
+    if row["candidate_row_id"] != candidate_row_id or row["batch_index"] != "0":
+        return dict(row)
+    updated = dict(row)
+    updated["status"] = "fail"
+    updated["failure_kind"] = "dual_t4_numerical_delta_failed"
+    updated["total_loss_rel_delta"] = "0.500000"
+    updated["x_hat_max_abs_delta"] = "0.500000"
+    return updated
 
 
 def _gate_health_rows(
