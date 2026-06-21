@@ -88,10 +88,22 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
 - Track learned activation gate health before full training, including `a,b`
   ranges, saturation, gradients/updates, and input/output RMS, so gate
   parameters cannot silently kill channels.
-- Before the first full Kaggle run, benchmark where FP16/AMP is numerically safe
-  and actually faster, and benchmark whether branchless full-batch corruption or
-  indexed masked-sample corruption gives better throughput without breaking
-  compile stability or RNG semantics.
+- The historical working FSQ training reference is `kaggle/train_runs`. It
+  trained correctly and is the source for the broad FSQ-successor
+  macro-architecture and Kaggle runtime-efficiency ideas, but the new baseline
+  and equivariant model remove FSQ quantization/codebooks/rounding/discrete
+  latents because they do not mix well with continuous `SO(2)` equivariance.
+- Before the first full Kaggle run, benchmark where FP16/AMP avoids catastrophic
+  failures and is actually faster, whether `torch.compile` is stable enough to
+  repay its startup cost, and whether branchless full-batch corruption or indexed
+  masked-sample corruption gives better throughput. Treat the useful historical
+  FSQ efficiency flags as measured candidates too: cuDNN
+  benchmarking/non-deterministic kernel selection, channels-last layout, DDP
+  `static_graph` and `gradient_as_bucket_view`, optimizer/zero-grad fast paths,
+  and any TF32 or matmul precision knob available in the Kaggle runtime. The
+  first expensive run is performance-first: bitwise determinism and small
+  numerical drift are acceptable if the row is materially faster and catastrophic
+  safety checks still pass.
 - Before writing `benchmark/selected_runtime.json`, time real dual-T4 DDP
   train-step rows. The selection benchmark must prove two visible T4s,
   `world_size = 2`, `nproc_per_node = 2`, per-rank device assignment, linked

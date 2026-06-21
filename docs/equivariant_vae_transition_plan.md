@@ -101,6 +101,12 @@ Lock these before implementation:
 
 Current proposal after the 2026-06-11 spec correction:
 
+- The historical working FSQ training reference is `kaggle/train_runs`. It is a
+  Kaggle notebook/artifact that trained correctly, so it remains evidence for
+  the broad autoencoder macro-architecture and runtime tactics. The replacement
+  must not keep FSQ quantization, codebooks, rounding, or discrete latent
+  telemetry because quantization is incompatible with the continuous `SO(2)`
+  equivariance target.
 - Continue the current UBC-OCEAN patch contract: 256x256 RGB patches normalized
   to `[-1, 1]`.
 - Use an FSQ-successor spatial Gaussian latent target `(B, 16, 32, 32)` for the

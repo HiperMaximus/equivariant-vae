@@ -104,7 +104,16 @@ version 3; it completed and downloaded under
 24, FP32 eager/no compile, `indexed_masked` corruption, `samples_sec =
 14.035497`, projected epoch time about 356.24 minutes, and 10-epoch wall-time
 projection about 59.37 hours. No GitHub or Overleaf push was performed or
-approved.
+approved. This is the proof-clean safety baseline, not the final efficiency
+answer for a 60h+ run. The next runtime slice should try to beat it with
+AMP/FP16, stable `torch.compile` scopes, and the useful historical FSQ
+efficiency flags; the project now accepts lost bitwise determinism and small
+numerical drift as the cost of speed when catastrophic checks still pass.
+The working historical FSQ training reference is `kaggle/train_runs`: it trained
+correctly and should be used as the source for broad macro-architecture and
+runtime-efficiency ideas, while FSQ quantization/codebooks/rounding/discrete
+latents stay out of the continuous `SO(2)` route.
+
 Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, a focused
 scaffold-readiness check on 2026-06-12, and a focused v7 handoff/guard audit on
@@ -141,13 +150,12 @@ projection outside the model forward path. The precision/autograd policy is now
 explicit: AMP may cover the main convolutional forward after benchmarking, while
 corruption runs FP32/no-grad, posterior/KL/loss/radial-gate numerics run FP32
 with gradients where needed, and clean validation must not consume corruption
-RNG. The Kaggle benchmark must now select the fastest safe precision policy
-among `amp_off_fp32`, `amp_conservative`, and `amp_scalar_gate_relaxed`, must
-measure whether `branchless_all` or `indexed_masked` corruption is faster
-without breaking compile stability or RNG semantics, must include paired
-numerical checks and dataloader throughput checks, and must include gate-health
-telemetry for learned gate `a,b` parameters so saturation/dead-channel behavior
-is caught before full training. It is not final-paper-claim-ready until the
+RNG. The Kaggle benchmark must now select the fastest practical precision,
+compile, corruption, layout, DDP, and CUDA backend policy. It should prefer
+material speedups even when bitwise determinism or small numerical agreement
+gets worse, while still blocking catastrophic failures through dataloader,
+non-finite, AMP-skip, DDP, checkpoint/resume, artifact, and gate-health
+telemetry. It is not final-paper-claim-ready until the
 sealed masked-WSI test shard is generated and locked.
 The 2026-06-13 HED/stain corruptor spec-lock pass completed a focused
 literature and historical-FSQ review plus adversarial subagent review. Spec 0001
@@ -320,10 +328,19 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: consume
-`runs/kaggle/runtime_selection_v3/benchmark/selected_runtime.json` in the next
-selected-runtime debug/full-run planning slice; do not push another Kaggle job
-without explicit user approval and the guard variables. The
+Immediate next action: use
+`runs/kaggle/runtime_selection_v3/benchmark/selected_runtime.json` as the
+proof-clean baseline for an efficiency-selection follow-up before any 60h+
+training launch. The follow-up should remeasure the v3 row and candidate
+upgrades for `amp_conservative`, `amp_scalar_gate_relaxed`, stable
+`torch.compile` scopes, channels-last layout, cuDNN benchmark/non-deterministic
+kernel selection, DDP `static_graph` and `gradient_as_bucket_view`,
+optimizer/zero-grad fast paths, and any Kaggle-supported TF32/matmul precision
+knob. A faster row can replace the v3 baseline if it is materially faster and
+does not trigger catastrophic failures: non-finite loss/gradients, repeated AMP
+step skips, DDP instability, broken checkpoint/resume, broken artifacts,
+gate-health collapse, or clearly invalid metrics. Do not push another Kaggle
+job without explicit user approval and the guard variables. The
 separate selected-runtime benchmark/debug slice is encoded in
 `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json` as
 `runtime_matrix.selection_benchmark_slice.name =
@@ -626,17 +643,19 @@ The review process lives in `docs/agentic_review_workflow.md`.
 
 ## Next Concrete Steps
 
-1. Replace the local/contract-only linked pretest scaffolds with canonical,
-   candidate-specific evidence: measured compile-settle/Dynamo graph-break and
-   recompile deltas, real dual-T4/DDP launch proof, real dataloader throughput
-   per candidate batch/accelerator path, paired numerical checks on the required
-   fixed batches, corruption compile-stability plus clean-validation RNG
-   non-consumption proof, and gate-health evidence tied to candidate rows.
-2. Use synthetic timing v4 only as parent provenance and candidate screening for
-   real-data rows. Real runtime selection still requires the real-data
-   benchmark, selected-runtime debug, checkpoint/resume, tiny-overfit, and fixed
-   real visual QA gates.
-3. Run or rerun the capped real-data pretest remotely only after explicit user
+1. Implement the efficient-selected-runtime follow-up with v3 as the baseline:
+   candidate-specific evidence must cover AMP/FP16 policies, stable
+   `torch.compile` scopes, channels-last layout, cuDNN benchmark/
+   non-deterministic kernel selection, DDP `static_graph` and
+   `gradient_as_bucket_view`, optimizer/zero-grad fast paths, optional TF32 or
+   matmul precision flags, real dual-T4/DDP launch proof, real dataloader
+   throughput, paired numerical smoke checks, and catastrophic gate-health,
+   checkpoint/resume, and artifact-writing guards.
+2. Use synthetic timing v4 and runtime-selection v3 only as provenance and
+   baselines. A faster optimized row does not need bitwise determinism, but it
+   must avoid catastrophic failure and record the relaxed-determinism policy in
+   the selected runtime artifact.
+3. Run or rerun Kaggle optimization/debug jobs only after explicit user
    approval plus `KAGGLE_PUSH_CONFIRMED=1` and
    `KAGGLE_FULL_DATASET_CONFIRMED=1`; remote reads still require explicit
    approval plus `KAGGLE_REMOTE_CONFIRMED=1`.
@@ -659,13 +678,13 @@ The review process lives in `docs/agentic_review_workflow.md`.
   ceiling, real fixed validation/tiny-overfit selector generation,
   selected-runtime debug, checkpoint/resume, full evaluation/artifact writers,
   and final adversarial spec review after those routes are integrated.
-- The first full Kaggle run remains blocked until real-data candidate evidence
-  covers or explicitly fails the remaining eager timed rows, the selected-runtime
-  benchmark chooses single/dual T4, per-device/global batch, AMP, compile,
-  precision policy, dataloader settings, and corruption strategy, and the real
-  dataloader throughput, paired numerical checks, corruption compile-stability,
-  gate-health summary, selected-runtime debug, checkpoint/resume, tiny-overfit,
-  and fixed real visual QA gates pass.
+- The first full Kaggle run remains blocked until the v3 proof-clean baseline is
+  either accepted as the fastest practical choice or replaced by an optimized
+  row with evidence for AMP/FP16, compile scope, CUDA/DDP/layout/optimizer
+  flags, dataloader settings, and corruption strategy. The optimized row may
+  relax determinism for speed, but catastrophic safety, selected-runtime debug,
+  checkpoint/resume, tiny-overfit, gate-health summary, and fixed real visual QA
+  gates still need to pass.
 - The exact held-out masked-WSI test shard must be generated, uploaded, and
   locked before final paper claims. The 152-image candidate pool is documented in
   `docs/data/ubc_ocean_masked_holdout_ids.csv`, and train/validation are
@@ -2070,6 +2089,26 @@ The review process lives in `docs/agentic_review_workflow.md`.
   semi-supervised figure still needs to be redrawn or relabeled before
   submission. Local `main` is ahead of `origin/main`; push to GitHub origin if
   the GitHub repo itself should show the latest paper scaffold/workflow commits.
+- 2026-06-20 selected-runtime efficiency clarification:
+  runtime-selection v3 is the proof-clean baseline, but not necessarily the row
+  to spend 60h+ on. Before the first expensive training launch, run an
+  efficiency-selection follow-up that tries AMP/FP16, stable `torch.compile`,
+  channels-last layout, cuDNN benchmark/non-deterministic kernel selection, DDP
+  `static_graph`/`gradient_as_bucket_view`, optimizer/zero-grad fast paths, and
+  Kaggle-supported TF32/matmul precision knobs. The user explicitly accepts lost
+  bitwise determinism and small numerical drift for material speedups; only
+  catastrophic failures such as non-finite loss/gradients, repeated AMP skips,
+  DDP instability, broken checkpoint/resume, broken artifacts, gate-health
+  collapse, or clearly invalid metrics should block a faster row.
+- 2026-06-20 historical FSQ reference memory:
+  the successful working FSQ Kaggle training notebook/artifact is
+  `kaggle/train_runs`. It is the local reference for the broad ResNet-like
+  autoencoder macro-architecture, spatial latent intuition, and runtime tactics
+  such as DDP, AMP, `torch.compile`, channels-last, and cuDNN benchmarking.
+  Do not inherit FSQ quantization, codebooks, rounding, discrete latent
+  telemetry, or the learned quantization scale into the new continuous `SO(2)`
+  equivariant VAE path; quantization does not mix well with the equivariance
+  target.
 
 ## Update Rule
 

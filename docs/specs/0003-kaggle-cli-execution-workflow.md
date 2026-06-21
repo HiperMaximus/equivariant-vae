@@ -31,7 +31,14 @@ single-visible indexed-mask pass rows lacked candidate-bound gate-health rows.
 Runtime-selection v3 was downloaded to `runs/kaggle/runtime_selection_v3` and
 wrote `benchmark/selected_runtime.json` selecting
 `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`; full
-training/full-run launchers are not Kaggle-push-ready
+training/full-run launchers are not Kaggle-push-ready. Because the v3 row
+projects to about 60 hours for 10 epochs, it is the proof-clean baseline for an
+efficiency follow-up rather than the final launch decision: AMP/FP16, stable
+`torch.compile`, channels-last layout, cuDNN benchmark/non-deterministic kernel
+selection, DDP `static_graph`/`gradient_as_bucket_view`, optimizer/zero-grad
+fast paths, and any Kaggle-supported TF32/matmul precision knobs should be
+measured against it. Faster rows may trade away bitwise determinism and small
+numerical agreement, but catastrophic failures still block selection.
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-20
 
@@ -356,6 +363,8 @@ Runtime-selection v3 completed and downloaded to
 `runs/kaggle/runtime_selection_v3`; its proof status is `pass`, dual-T4 DDP
 timing proof is `pass`, selected-runtime writing is allowed, and the selected
 row is `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`.
+Use that row as the baseline for the efficient selected-runtime follow-up before
+any 60h+ launch.
 
 For future long-running Kaggle jobs, agents must not wait in-turn after a push
 or status read shows a kernel is still `RUNNING` and likely to take more than

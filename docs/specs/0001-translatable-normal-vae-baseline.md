@@ -24,7 +24,7 @@ FP32 rows: bs4/bs8/bs12 crossed with `branchless_all` and `indexed_masked`. The
 next selected-runtime benchmark/debug slice is encoded as
 `v8_shortlist_eager_amp_then_dual_gate`; local proof plumbing for that separate
 selected-runtime benchmark plus its Kaggle executor/kernel are now implemented
-and fail-closed. Runtime-selection v2 downloaded to
+and fail-closed. Runtime-selection v3 downloaded to
 `runs/kaggle/runtime_selection_v3`: it proved the real dual-T4 DDP timing gate,
 fixed the v1/v2 proof-plumbing false negatives, and wrote
 `benchmark/selected_runtime.json`. The selected row is
@@ -32,9 +32,19 @@ fixed the v1/v2 proof-plumbing false negatives, and wrote
 per-device batch size 12, global batch size 24, FP32 eager/no compile, and
 linked safety proof pass. v8 remains shortlist-only and non-promotable; the
 separate selected-runtime benchmark owns the selected-runtime proof. Compiled
-rows remain diagnostic-only until full compile-settle coverage exists.
+rows remain diagnostic-only until full compile-settle coverage exists. Because
+the selected row projects to about 60 hours for 10 epochs, it is a safety
+baseline rather than the final efficiency answer: an efficiency follow-up must
+compare AMP/FP16, stable `torch.compile` scopes, and historical FSQ efficiency
+flags before the first expensive run.
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-20
+
+Historical working reference: `kaggle/train_runs` is the successful Kaggle FSQ
+autoencoder training notebook/artifact. It is valid evidence for the broad
+FSQ-successor macro-architecture and Kaggle runtime-efficiency tactics, but not
+for carrying forward FSQ quantization, codebooks, rounding, or discrete latent
+telemetry into the continuous `SO(2)` equivariant VAE route.
 
 Local scaffold exception, 2026-06-12: the user-authorized local
 benchmark-unblock slice may create `src/eqvae`, `configs/spec0001`, the
@@ -1112,8 +1122,9 @@ Precision and autograd policy:
   allow AMP/fp16 for the main model convolutional forward when the runtime
   benchmark selects AMP, but keep numerically sensitive islands in FP32.
 - Do not assume the conservative split is fastest or necessary. The Kaggle
-  runtime benchmark must compare safe precision placements and select the
-  fastest one that passes numerical checks.
+  runtime benchmark must compare precision placements and select the fastest
+  practical one that avoids catastrophic failure. Paired numerical checks record
+  drift against FP32 eager; small drift is acceptable for material speedups.
 - Run the corruption module under `torch.no_grad()` and compute HED/OD color
   transforms, logarithms, exponentials, and random stain/noise draws in FP32.
   Corruption is data augmentation, not a differentiable model component.
@@ -1152,12 +1163,15 @@ Precision candidates for the Kaggle runtime benchmark:
 - `amp_scalar_gate_relaxed`: same as `amp_conservative`, except the
   non-equivariant scalar gate sigmoid/multiply may run in the surrounding AMP
   dtype. This policy is eligible only for the scalar Conv2d baseline and only if
-  paired numerical checks against `amp_off_fp32` pass. Posterior sampling,
+  paired numerical checks against `amp_off_fp32` do not show catastrophic drift.
+  Posterior sampling,
   `logvar`, KL, SSIM/L1/loss, corruption, and future radial-gate norm/sigmoid
   arithmetic must remain FP32 in spec 0001.
 
-Do not relax posterior/KL/loss/corruption or radial-gate norm/sigmoid numerics
-in spec 0001. A broader precision ablation requires a later spec.
+By default, keep posterior/KL/loss/corruption and radial-gate norm/sigmoid
+numerics in FP32. The efficiency follow-up may add a more aggressive precision
+candidate only when it is explicitly named, materially faster, records the
+relaxed-precision policy, and avoids catastrophic failure.
 
 The current scalar Conv2d activation implementation keeps scalar-gate sigmoid
 arithmetic in FP32. The `model_loss_train_step_ready` slice does not introduce
@@ -1543,9 +1557,21 @@ Runtime benchmark requirement before the first full Kaggle run:
   `samples_sec`;
 - within the AMP/precision axis, compare the named precision policies
   `amp_off_fp32`, `amp_conservative`, and `amp_scalar_gate_relaxed`;
+- evaluate useful historical FSQ efficiency flags as benchmarked candidates
+  rather than assumptions: channels-last memory format, cuDNN
+  `benchmark = true` with `deterministic = false`, DDP `static_graph` and
+  `gradient_as_bucket_view`, optimizer/zero-grad fast paths such as
+  `zero_grad(set_to_none=True)`, and any Kaggle-supported TF32 or matmul
+  precision policy. These flags may relax bitwise determinism and small
+  numerical tolerances when they materially improve throughput. They remain
+  ineligible only for catastrophic failures such as non-finite loss/gradients,
+  repeated AMP step skips, DDP instability, broken checkpoint/resume, broken
+  artifacts, gate-health collapse, or clearly invalid metrics;
 - compare the corruption execution strategies `branchless_all` and
-  `indexed_masked`; keep the branchless path unless masked indexing is compile
-  stable, preserves RNG semantics, and is measurably faster;
+  `indexed_masked`; keep the branchless path unless masked indexing is
+  materially faster and avoids catastrophic failures. Exact RNG trace equality
+  is not required for the first expensive run when the selected faster path
+  records the relaxed-determinism policy;
 - for each row, record warm steady-state samples/sec, step time, compile
   overhead, max VRAM, largest stable per-device batch, global batch,
   `amp_step_skipped` count, gate-health warning count, and any compile/DDP
@@ -3596,10 +3622,14 @@ Implementation-relock blockers:
 
 Full-run blockers after implementation:
 
-1. Runtime target: after the Kaggle benchmark matrix, should the full run use
-   single GPU or dual T4 DDP, should AMP and/or `torch.compile` be enabled, and
-   what are the selected precision policy, corruption execution strategy, and
-   per-device/global batch size?
+1. Runtime target: runtime-selection v3 proved a safe dual-T4 FP32 eager
+   baseline, but the first expensive run should still use the fastest practical
+   row. An efficient selected-runtime follow-up must decide whether AMP and/or
+   `torch.compile` should be enabled, which CUDA/DDP/layout/optimizer flags are
+   allowed, and what precision policy, corruption execution strategy, and
+   per-device/global batch size should replace or confirm the v3 baseline.
+   Bitwise determinism and small numerical drift are explicitly secondary to
+   throughput, while catastrophic failures remain blockers.
 2. The selected runtime must be written to `benchmark/selected_runtime.json` and
    the resolved baseline config before the first 10-epoch Kaggle run.
 3. Gate-health target: the short benchmark/debug path must show that learned

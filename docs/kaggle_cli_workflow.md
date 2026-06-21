@@ -37,7 +37,11 @@ kaggle/generate_dataset_Classification_With_Masks
 ```
 
 They are JSON notebooks kept as historical evidence and behavior-inventory input.
-Do not edit them into the new baseline.
+Do not edit them into the new baseline. `kaggle/train_runs` is the successful
+working FSQ autoencoder training notebook/artifact; use it as reference for the
+broad macro-architecture and runtime tactics, while excluding FSQ
+quantization/codebooks/rounding/discrete latents from the continuous `SO(2)`
+route.
 
 The first CLI-managed script-kernel scaffold lives in:
 
@@ -214,6 +218,17 @@ dual T4 DDP, `world_size = 2`, `nproc_per_node = 2`, per-device batch size 12,
 global batch size 24, FP32 eager/no compile, `indexed_masked` corruption,
 `samples_sec = 14.035497`, estimated epoch time about 356.24 minutes, and
 projected 10-epoch wall time about 59.37 hours.
+
+Treat this as the proof-clean safety baseline. Before launching a 60h+ training
+run, run an efficiency-selection follow-up that can replace it if AMP/FP16,
+stable `torch.compile`, channels-last layout, cuDNN benchmark/non-deterministic
+kernel selection, DDP `static_graph`/`gradient_as_bucket_view`, optimizer/
+zero-grad fast paths, or Kaggle-supported TF32/matmul precision knobs are
+materially faster. The project accepts lost bitwise determinism and small
+numerical drift for this speedup; catastrophic failures such as non-finite
+loss/gradients, repeated AMP skips, DDP instability, broken checkpoint/resume,
+broken artifacts, gate-health collapse, or clearly invalid metrics still block
+selection.
 
 The real-data benchmark surface is intentionally separate from the capped smoke
 and from synthetic timing:

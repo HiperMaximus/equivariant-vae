@@ -12,6 +12,14 @@ This repo is the paper/research repository for the equivariant VAE work.
   `paper/sipaim2026`
 - Overleaf Git remote:
   `https://git.overleaf.com/69c614433cbc9e46cf226d24`
+- Historical working FSQ reference:
+  `kaggle/train_runs`
+  This is the successful Kaggle FSQ autoencoder training notebook/artifact.
+  Use it as architecture/runtime evidence for the broad ResNet-like
+  autoencoder shape, Kaggle DDP/AMP/compile efficiency tactics, and training
+  behavior. Do not carry forward FSQ quantization, codebooks, rounding, or
+  discrete latent telemetry into the equivariant VAE; quantization does not mix
+  well with the continuous `SO(2)` equivariance target.
 
 ## Hard Rules
 
