@@ -39,8 +39,14 @@ channels-last, cuDNN nondeterministic benchmark mode, DDP fast paths,
 optimizer/zero-grad fast paths, and Kaggle-supported TF32/matmul knobs. Because
 the selected row projects to about 60 hours for 10 epochs, it is a safety
 baseline rather than the final efficiency answer until that follow-up completes
-and is inspected. Runtime-selection version 4 is currently running that
-follow-up; prompt `continue` at or after 2026-06-21 03:45 -05 for the next
+and is inspected. Runtime-selection version 4 completed and failed closed:
+`runtime_proof.status = fail`, no `benchmark/selected_runtime.json` was written,
+and the intended fastest clean AMP conservative row remains unpromoted because
+writer policy false negatives treated small bounded numerical drift and
+nonselected-row proof failures as global blockers. Local commit `fc5227d`
+repairs that proof policy and replayed the v4 artifacts locally to proof
+`pass`. Runtime-selection version 5 is currently running the corrected
+follow-up; prompt `continue` at or after 2026-06-21 11:15 -05 for the next
 guarded status read.
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-21

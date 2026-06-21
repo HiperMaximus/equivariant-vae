@@ -105,10 +105,23 @@ version 3; it completed and downloaded under
 14.035497`, projected epoch time about 356.24 minutes, and 10-epoch wall-time
 projection about 59.37 hours. No GitHub or Overleaf push was performed or
 approved. This is the proof-clean safety baseline, not the final efficiency
-answer for a 60h+ run. The next runtime slice should try to beat it with
-AMP/FP16, stable `torch.compile` scopes, and the useful historical FSQ
-efficiency flags; the project now accepts lost bitwise determinism and small
-numerical drift as the cost of speed when catastrophic checks still pass.
+answer for a 60h+ run. Runtime-selection v4 ran the efficiency follow-up and
+failed closed: it did not write `selected_runtime.json` because the writer
+treated small selected-row numerical drift and nonselected-row linked-proof
+failures as global blockers. The fastest otherwise clean v4 row was
+`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
+at `samples_sec = 25.220604` with zero AMP skips and a projected 10-epoch wall
+time around 33.0 hours, but that result remains unpromoted until a corrected
+remote rerun writes the proof artifact. Local commit `fc5227d` relaxes only
+bounded finite numerical drift, keeps AMP skips and large drift as row
+blockers, and scopes linked proof to the selected candidate. Local replay of
+the v4 artifacts through that patch wrote the intended selected runtime with
+proof `pass`. Runtime-selection v5 has been pushed for the corrected
+efficiency follow-up and the first guarded status read returned
+`KernelWorkerStatus.RUNNING` at 2026-06-21 06:14 -05. The next guarded action
+is to prompt `continue` at or after 2026-06-21 11:15 -05, then download v5
+outputs to `runs/kaggle/runtime_selection_v5` if complete and inspect the proof
+before any selected-runtime debug or 60h-scale launch decision.
 The working historical FSQ training reference is `kaggle/train_runs`: it trained
 correctly and should be used as the source for broad macro-architecture and
 runtime-efficiency ideas, while FSQ quantization/codebooks/rounding/discrete
@@ -645,10 +658,10 @@ The review process lives in `docs/agentic_review_workflow.md`.
 ## Next Concrete Steps
 
 1. The approved `selected_runtime_v3_efficiency_followup` is now running as
-   runtime-selection Kaggle version 4. This approval was only for the efficiency
-   benchmark, not for the first 60h-scale real training run. The local code
-   tests the v3 baseline remeasure plus AMP/FP16, stable `torch.compile`
-   model-forward policies,
+   runtime-selection Kaggle version 5 after v4 failed closed on proof-policy
+   false negatives. This approval was only for the efficiency benchmark, not for
+   the first 60h-scale real training run. The local code tests the v3 baseline
+   remeasure plus AMP/FP16, stable `torch.compile` model-forward policies,
    channels-last, cuDNN benchmark/non-deterministic kernels, DDP
    `static_graph`/`gradient_as_bucket_view`, optimizer/zero-grad fast paths,
    and TF32/matmul probes with policy-bound linked proofs. Treat the successful
@@ -657,9 +670,9 @@ The review process lives in `docs/agentic_review_workflow.md`.
    `MKL_NUM_THREADS=1`, per-rank CUDA/NCCL binding, read-only mmap with
    `MADV_SEQUENTIAL`, pinned non-blocking H2D, static-shape loader behavior, FP32
    loss islands under AMP, and full checkpoint/resume state.
-2. Prompt `continue` at or after 2026-06-21 03:45 -05 to perform the next
+2. Prompt `continue` at or after 2026-06-21 11:15 -05 to perform the next
    guarded status read. If the kernel is complete, download to
-   `runs/kaggle/runtime_selection_v4` and inspect
+   `runs/kaggle/runtime_selection_v5` and inspect
    `benchmark/runtime_proof.json`, `runtime_matrix.csv`, and
    `selected_runtime.json`. A faster optimized row does not need bitwise
    determinism, but it must beat v3 materially, avoid catastrophic failures, and
@@ -2139,7 +2152,7 @@ The review process lives in `docs/agentic_review_workflow.md`.
   Kaggle approval to push/run the successor runtime-selection kernel; for a long
   run, check status once and tell the user a concrete local time to prompt
   `continue`.
-- 2026-06-21 selected-runtime efficiency follow-up Kaggle launch:
+- 2026-06-21 selected-runtime efficiency follow-up Kaggle launch and v4 result:
   after the Einstein adversarial FSQ review completed, the user approved the
   efficiency follow-up only, not the first 60h-scale real run. The first push
   attempt was blocked locally before any Kaggle write because the push guard
@@ -2153,9 +2166,39 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`. The one guarded
   post-push status read with `KAGGLE_REMOTE_CONFIRMED=1` returned
   `KernelWorkerStatus.RUNNING` at 2026-06-21 00:46:21 -05. Per the long-job
+  rule, the agent stopped and asked for a later `continue`. On resume, the
+  guarded status read returned `KernelWorkerStatus.COMPLETE`, and outputs were
+  downloaded to `runs/kaggle/runtime_selection_v4`. Version 4 failed closed:
+  `runtime_proof.status = fail`, `selected_runtime_written = false`, and no
+  `benchmark/selected_runtime.json` was written. The intended fastest clean row
+  was
+  `dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
+  with `samples_sec = 25.220604`, `amp_step_skipped_count = 0`, gate health
+  `pass`, and estimated 10-epoch wall time `118950.362625` seconds. The proof
+  blockers were writer policy false negatives: tiny bounded numerical drift on
+  the selected AMP row plus linked proof failures from nonselected rows were
+  treated as global blockers.
+- 2026-06-21 selected-runtime v4 proof repair and v5 launch:
+  Noether adversarial review agreed that v4 failed closed rather than selecting
+  an invalid row. Local commit `fc5227d`
+  (`Relax runtime selection numerical drift gate`) scopes linked proof to the
+  selected candidate, accepts only finite bounded small numerical drift, keeps
+  AMP skips and large drift as row blockers, and lets skipped AMP rows fail
+  row-local selection without globally rejecting a safe baseline or alternate
+  row. Focused tests passed (`20 passed`), the full repo gate passed
+  (`./scripts/python_quality.sh`: 149 pytest tests, 0 type
+  errors/warnings/notes), and local replay of v4 artifacts through the patched
+  writer produced `runtime_proof.status = pass` plus selected row
+  `dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`.
+  The runtime-selection kernel was rebuilt/validated from the clean commit, and
+  Kaggle accepted version 5 at
+  `https://www.kaggle.com/code/maximusshtefan/eqvae-runtime-selection` with
+  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`. The one guarded
+  post-push status read with `KAGGLE_REMOTE_CONFIRMED=1` returned
+  `KernelWorkerStatus.RUNNING` at 2026-06-21 06:14:37 -05. Per the long-job
   rule, do not poll repeatedly in-turn; prompt `continue` at or after
-  2026-06-21 03:45 -05 for the next guarded status read and, if complete,
-  download outputs to `runs/kaggle/runtime_selection_v4`.
+  2026-06-21 11:15 -05 for the next guarded status read and, if complete,
+  download outputs to `runs/kaggle/runtime_selection_v5`.
 - 2026-06-20 historical FSQ reference memory:
   the successful working FSQ Kaggle training notebook/artifact is
   `kaggle/train_runs`. It is the local reference for the broad ResNet-like

@@ -43,11 +43,18 @@ runtime-selection executor now implements that follow-up as
 `selected_runtime_v3_efficiency_followup` with policy-bound artifacts.
 Runtime-selection version 4 was pushed on 2026-06-21 for that follow-up after
 adversarial subagent review and explicit user approval for the efficiency
-benchmark only; the first guarded status read returned
-`KernelWorkerStatus.RUNNING`, with the next guarded read deferred until
-2026-06-21 03:45 -05 or later. The successful historical FSQ script is runtime
-reference material for launch, loader, AMP, DDP, compile, layout, and
-checkpoint hypotheses only; it is not a source for FSQ quantization,
+benchmark only; it completed, downloaded to
+`runs/kaggle/runtime_selection_v4`, and failed closed with no
+`benchmark/selected_runtime.json` because writer policy false negatives treated
+small selected-row drift and nonselected-row proof failures as global blockers.
+Local commit `fc5227d` repairs the writer policy and local replay of v4
+artifacts passes for the intended AMP conservative row. Runtime-selection
+version 5 is now running the corrected follow-up; the first guarded status read
+returned `KernelWorkerStatus.RUNNING` at 2026-06-21 06:14 -05, with the next
+guarded read deferred until 2026-06-21 11:15 -05 or later. The successful
+historical FSQ script is runtime reference material for launch, loader, AMP,
+DDP, compile, layout, and checkpoint hypotheses only; it is not a source for
+FSQ quantization,
 PixelShuffle/sub-pixel upsampling, final `tanh` bounding, the exact old
 corruptor, or `rot90`/discrete-latent equivariance artifacts.
 Owner/workstream: Kaggle GPU execution and artifact retrieval
@@ -378,7 +385,15 @@ Use that row as the baseline for the efficient selected-runtime follow-up before
 any 60h+ launch. The local follow-up code is implemented. Version 4 of the
 runtime-selection Kaggle kernel was pushed after explicit approval for the
 efficiency benchmark only; the post-push status read returned
-`KernelWorkerStatus.RUNNING`.
+`KernelWorkerStatus.RUNNING`, then the resumed guarded status read returned
+`KernelWorkerStatus.COMPLETE`. Outputs were downloaded to
+`runs/kaggle/runtime_selection_v4`; v4 failed closed with no
+`benchmark/selected_runtime.json` because tiny bounded selected-row drift and
+nonselected-row linked-proof failures were treated as global blockers. Local
+commit `fc5227d` repairs that proof policy, passed full quality gates, and
+locally replayed v4 artifacts to proof `pass`. Runtime-selection v5 was pushed
+from the clean rebuilt kernel and is running; prompt `continue` at or after
+2026-06-21 11:15 -05 for the next guarded status read.
 This approval is separate from approval for the first real 60h-scale training
 run: agents must not ask to launch that run until implementation, environment
 checks, efficiency decisions, selected-runtime debug/resume, artifact checks,
@@ -393,9 +408,9 @@ checkpoint/resume state. It must also preserve the newer spec corrections: clean
 validation must not execute the corruptor or consume corruption RNG, repeated
 AMP skips block the row, and schedule/checkpoint cadence is driven by successful
 optimizer updates only.
-Prompt `continue` at or after 2026-06-21 03:45 -05 for the next guarded status
-read. If version 4 is complete, download outputs to
-`runs/kaggle/runtime_selection_v4` and inspect
+Prompt `continue` at or after 2026-06-21 11:15 -05 for the next guarded status
+read. If version 5 is complete, download outputs to
+`runs/kaggle/runtime_selection_v5` and inspect
 `benchmark/runtime_proof.json`, `benchmark/runtime_matrix.csv`, and
 `benchmark/selected_runtime.json`.
 
