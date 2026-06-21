@@ -644,10 +644,9 @@ The review process lives in `docs/agentic_review_workflow.md`.
 
 ## Next Concrete Steps
 
-1. With explicit user approval, run the implemented
-   `selected_runtime_v3_efficiency_followup` through the guarded
-   runtime-selection Kaggle kernel. This approval is only for the efficiency
-   benchmark, not for the first 60h-scale real training run. The local code now
+1. The approved `selected_runtime_v3_efficiency_followup` is now running as
+   runtime-selection Kaggle version 4. This approval was only for the efficiency
+   benchmark, not for the first 60h-scale real training run. The local code
    tests the v3 baseline remeasure plus AMP/FP16, stable `torch.compile`
    model-forward policies,
    channels-last, cuDNN benchmark/non-deterministic kernels, DDP
@@ -658,7 +657,9 @@ The review process lives in `docs/agentic_review_workflow.md`.
    `MKL_NUM_THREADS=1`, per-rank CUDA/NCCL binding, read-only mmap with
    `MADV_SEQUENTIAL`, pinned non-blocking H2D, static-shape loader behavior, FP32
    loss islands under AMP, and full checkpoint/resume state.
-2. After the successor Kaggle output is downloaded, inspect
+2. Prompt `continue` at or after 2026-06-21 03:45 -05 to perform the next
+   guarded status read. If the kernel is complete, download to
+   `runs/kaggle/runtime_selection_v4` and inspect
    `benchmark/runtime_proof.json`, `runtime_matrix.csv`, and
    `selected_runtime.json`. A faster optimized row does not need bitwise
    determinism, but it must beat v3 materially, avoid catastrophic failures, and
@@ -2138,6 +2139,23 @@ The review process lives in `docs/agentic_review_workflow.md`.
   Kaggle approval to push/run the successor runtime-selection kernel; for a long
   run, check status once and tell the user a concrete local time to prompt
   `continue`.
+- 2026-06-21 selected-runtime efficiency follow-up Kaggle launch:
+  after the Einstein adversarial FSQ review completed, the user approved the
+  efficiency follow-up only, not the first 60h-scale real run. The first push
+  attempt was blocked locally before any Kaggle write because the push guard
+  rejects dirty payload manifests. The full repo quality gate then passed:
+  `./scripts/python_quality.sh` reported 147 pytest tests passed plus 0 type
+  errors/warnings/notes. Local commit `753c9db`
+  (`Add runtime selection efficiency follow-up`) was created, the
+  runtime-selection kernel was rebuilt and revalidated from the clean commit,
+  and Kaggle accepted version 4 at
+  `https://www.kaggle.com/code/maximusshtefan/eqvae-runtime-selection` with
+  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`. The one guarded
+  post-push status read with `KAGGLE_REMOTE_CONFIRMED=1` returned
+  `KernelWorkerStatus.RUNNING` at 2026-06-21 00:46:21 -05. Per the long-job
+  rule, do not poll repeatedly in-turn; prompt `continue` at or after
+  2026-06-21 03:45 -05 for the next guarded status read and, if complete,
+  download outputs to `runs/kaggle/runtime_selection_v4`.
 - 2026-06-20 historical FSQ reference memory:
   the successful working FSQ Kaggle training notebook/artifact is
   `kaggle/train_runs`. It is the local reference for the broad ResNet-like

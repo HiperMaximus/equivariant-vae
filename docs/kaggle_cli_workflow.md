@@ -19,9 +19,13 @@ dual-T4 timing plus linked evidence pass; the runtime-selection kernel guard is
 `runtime_selection_kernel_ready`; runtime-selection v3 was pushed to Kaggle on
 2026-06-20 and downloaded to `runs/kaggle/runtime_selection_v3`. Version 3
 proved real dual-T4 DDP timing, wrote `benchmark/selected_runtime.json`, and
-selected `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`;
-Kaggle source attachments require a separate confirmation guard
-Last updated: 2026-06-20
+selected `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`.
+Runtime-selection v4 was pushed on 2026-06-21 for the
+`selected_runtime_v3_efficiency_followup`; the one guarded post-push status read
+returned `KernelWorkerStatus.RUNNING`, and the next status read is deferred
+until 2026-06-21 03:45 -05 or later; Kaggle source attachments require a
+separate confirmation guard
+Last updated: 2026-06-21
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
 source of truth for experiment code, specs, configs, and paper-facing claims.
@@ -502,9 +506,12 @@ The local v3 patch binds those rows from the branchless gate-health reference
 only after the indexed runtime row has already passed linked evidence.
 Runtime-selection v3 completed and wrote the selected-runtime artifact:
 `runs/kaggle/runtime_selection_v3/benchmark/selected_runtime.json`.
-The local selected-runtime efficiency follow-up is implemented after v3; run it
-only after explicit user approval with the normal runtime-selection guard
-variables.
+The local selected-runtime efficiency follow-up is implemented after v3. After
+adversarial subagent review and explicit approval for the efficiency benchmark
+only, local commit `753c9db` was created, the runtime-selection kernel was
+rebuilt/validated from the clean commit, and Kaggle accepted version 4. The one
+guarded status read returned `KernelWorkerStatus.RUNNING`; prompt `continue` at
+or after 2026-06-21 03:45 -05 for the next guarded status read.
 
 Local `build`/`validate` may verify the generated real-data pretest payload
 against the current dirty worktree so agents can validate local patches before
@@ -612,6 +619,18 @@ Current duration notes:
   notebook conversion around 1452.74s. For similar selected-runtime kernels, do
   one immediate status check after push and then tell the user to prompt again
   about 30 minutes later instead of waiting in-turn.
+- Runtime-selection v4, 2026-06-21: after Einstein adversarial review and user
+  approval for the efficiency follow-up only, the first push attempt was blocked
+  locally because the remote push guard rejects dirty payload manifests. The
+  full repo quality gate passed (`./scripts/python_quality.sh`, 147 pytest
+  tests, 0 type errors/warnings/notes), local commit `753c9db`
+  (`Add runtime selection efficiency follow-up`) was created, and Kaggle
+  accepted version 4 at
+  `https://www.kaggle.com/code/maximusshtefan/eqvae-runtime-selection`. The one
+  guarded status read returned `KernelWorkerStatus.RUNNING` at
+  2026-06-21 00:46:21 -05. Prompt `continue` at or after
+  2026-06-21 03:45 -05 for the next guarded status read, then download to
+  `runs/kaggle/runtime_selection_v4` if complete.
 
 For the synthetic binary timing pretest, the remote sequence remains permission
 gated:

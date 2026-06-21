@@ -40,12 +40,16 @@ fast paths, and any Kaggle-supported TF32/matmul precision knobs should be
 measured against it. Faster rows may trade away bitwise determinism and small
 numerical agreement, but catastrophic failures still block selection. The local
 runtime-selection executor now implements that follow-up as
-`selected_runtime_v3_efficiency_followup` with policy-bound artifacts; no remote
-Kaggle push/status/output for that successor has been run yet. The successful
-historical FSQ script is runtime reference material for launch, loader, AMP,
-DDP, compile, layout, and checkpoint hypotheses only; it is not a source for
-FSQ quantization, PixelShuffle/sub-pixel upsampling, final `tanh` bounding, the
-exact old corruptor, or `rot90`/discrete-latent equivariance artifacts.
+`selected_runtime_v3_efficiency_followup` with policy-bound artifacts.
+Runtime-selection version 4 was pushed on 2026-06-21 for that follow-up after
+adversarial subagent review and explicit user approval for the efficiency
+benchmark only; the first guarded status read returned
+`KernelWorkerStatus.RUNNING`, with the next guarded read deferred until
+2026-06-21 03:45 -05 or later. The successful historical FSQ script is runtime
+reference material for launch, loader, AMP, DDP, compile, layout, and
+checkpoint hypotheses only; it is not a source for FSQ quantization,
+PixelShuffle/sub-pixel upsampling, final `tanh` bounding, the exact old
+corruptor, or `rot90`/discrete-latent equivariance artifacts.
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-21
 
@@ -371,9 +375,10 @@ Runtime-selection v3 completed and downloaded to
 timing proof is `pass`, selected-runtime writing is allowed, and the selected
 row is `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`.
 Use that row as the baseline for the efficient selected-runtime follow-up before
-any 60h+ launch. The local follow-up code is implemented, but the successor
-Kaggle run still requires explicit user approval and the normal
-`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1` guard.
+any 60h+ launch. The local follow-up code is implemented. Version 4 of the
+runtime-selection Kaggle kernel was pushed after explicit approval for the
+efficiency benchmark only; the post-push status read returned
+`KernelWorkerStatus.RUNNING`.
 This approval is separate from approval for the first real 60h-scale training
 run: agents must not ask to launch that run until implementation, environment
 checks, efficiency decisions, selected-runtime debug/resume, artifact checks,
@@ -388,6 +393,11 @@ checkpoint/resume state. It must also preserve the newer spec corrections: clean
 validation must not execute the corruptor or consume corruption RNG, repeated
 AMP skips block the row, and schedule/checkpoint cadence is driven by successful
 optimizer updates only.
+Prompt `continue` at or after 2026-06-21 03:45 -05 for the next guarded status
+read. If version 4 is complete, download outputs to
+`runs/kaggle/runtime_selection_v4` and inspect
+`benchmark/runtime_proof.json`, `benchmark/runtime_matrix.csv`, and
+`benchmark/selected_runtime.json`.
 
 For future long-running Kaggle jobs, agents must not wait in-turn after a push
 or status read shows a kernel is still `RUNNING` and likely to take more than

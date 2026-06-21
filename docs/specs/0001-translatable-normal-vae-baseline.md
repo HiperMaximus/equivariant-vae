@@ -38,7 +38,10 @@ runtime policies for AMP/FP16, stable `torch.compile` model-forward rows,
 channels-last, cuDNN nondeterministic benchmark mode, DDP fast paths,
 optimizer/zero-grad fast paths, and Kaggle-supported TF32/matmul knobs. Because
 the selected row projects to about 60 hours for 10 epochs, it is a safety
-baseline rather than the final efficiency answer until that follow-up is run.
+baseline rather than the final efficiency answer until that follow-up completes
+and is inspected. Runtime-selection version 4 is currently running that
+follow-up; prompt `continue` at or after 2026-06-21 03:45 -05 for the next
+guarded status read.
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-21
 
