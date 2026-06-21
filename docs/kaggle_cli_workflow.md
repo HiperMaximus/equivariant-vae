@@ -534,6 +534,11 @@ guarded status read returned `KernelWorkerStatus.RUNNING` at 2026-06-21
 with `runtime_policy_id = amp_fp16_conservative`, `samples_sec = 27.381321`,
 estimated 10-epoch wall time `109563.740875` seconds, zero AMP skips, no OOM,
 gate-health pass, and strict local replay pass under current `main`.
+Before the first long real training run, the user also wants a compact
+broader/non-conservative AMP follow-up, including `amp_scalar_gate_relaxed` or
+the closest implemented less-conservative AMP policy. v5 remains the fallback
+selected runtime unless that follow-up passes the same proof, local replay,
+debug/resume, artifact, and tiny-overfit gates without catastrophic failures.
 
 Local-first rule for runtime-selection pushes: before any future
 runtime-selection remote push or approval request, run the cheap semantic local
@@ -696,8 +701,9 @@ Current duration notes:
   with `samples_sec = 27.381321`, estimated 10-epoch wall time
   `109563.740875` seconds, zero AMP skips, bounded selected-row numerical drift
   with expected `dual_t4_numerical_delta_failed`, and strict local replay pass.
-  It remains blocked from full training launch until selected-runtime debug,
-  checkpoint/resume, and tiny-overfit proofs pass.
+  It remains blocked from full training launch until a compact broader
+  non-conservative AMP check plus selected-runtime debug, checkpoint/resume, and
+  tiny-overfit proofs pass.
 
 For the synthetic binary timing pretest, the remote sequence remains permission
 gated:

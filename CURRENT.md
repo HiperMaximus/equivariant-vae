@@ -129,7 +129,13 @@ AMP skips, gate-health pass, and only the expected small
 `dual_t4_numerical_delta_failed` row. The selected payload still sets
 `full_training_launch_ready = false` with launch blockers for selected-runtime
 debug proof, checkpoint/resume proof, and tiny-overfit proof. Do not ask to
-launch the first real 60h-scale run until those gates pass.
+launch the first real 60h-scale run until those gates pass. New user
+preference recorded 2026-06-21: before the first long real run, also run a
+small broader AMP/non-conservative follow-up to test whether a less
+conservative AMP policy such as `amp_scalar_gate_relaxed` can beat v5 without
+catastrophic failures. v5 remains the safe selected-runtime fallback unless the
+aggressive AMP follow-up passes the same local preflight, linked proof, strict
+local replay, debug/resume, and tiny-overfit gates.
 The working historical FSQ training reference is `kaggle/train_runs`: it trained
 correctly and should be used as the source for broad macro-architecture and
 runtime-efficiency ideas, while FSQ quantization/codebooks/rounding/discrete
@@ -675,17 +681,24 @@ The review process lives in `docs/agentic_review_workflow.md`.
    samples/sec and about 30.4 projected hours for 10 epochs, with strict local
    replay pass. This approval was only for the efficiency benchmark, not for the
    first 60h-scale real training run.
-2. Next implementation gate is selected-runtime debug/resume/tiny-overfit using
-   `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json`. Prove
-   selected-runtime debug, checkpoint/resume, artifacts, and tiny-overfit before
-   asking for any long real training launch approval. Preserve the FSQ lessons:
-   do not execute the corruptor for clean validation, and do not let schedules
-   advance after a skipped optimizer step.
-3. Run or rerun Kaggle optimization/debug jobs only after explicit user
+2. Before any long real training launch, add a compact aggressive-AMP follow-up
+   gate that tests whether broader/non-conservative AMP, especially
+   `amp_scalar_gate_relaxed`, works and is materially faster than v5. It should
+   be small, proof-bound, locally preflighted, and allowed to fall back to v5 if
+   it shows AMP skips, nonfinite values, invalid drift, gate-health collapse, or
+   broken artifacts.
+3. Next learning/stability gate is selected-runtime debug/resume/tiny-overfit
+   using `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json` or a
+   strictly better aggressive-AMP selected runtime if that follow-up passes.
+   Prove selected-runtime debug, checkpoint/resume, artifacts, and tiny-overfit
+   before asking for any long real training launch approval. Preserve the FSQ
+   lessons: do not execute the corruptor for clean validation, and do not let
+   schedules advance after a skipped optimizer step.
+4. Run or rerun Kaggle optimization/debug jobs only after explicit user
    approval plus `KAGGLE_PUSH_CONFIRMED=1` and
    `KAGGLE_FULL_DATASET_CONFIRMED=1`; remote reads still require explicit
    approval plus `KAGGLE_REMOTE_CONFIRMED=1`.
-4. Continue the shared evaluation harness, future `SO(2)` count ceiling, and
+5. Continue the shared evaluation harness, future `SO(2)` count ceiling, and
    steerable model work only after the benchmark plumbing gates are no longer
    blocking the first real baseline run.
 5. Ask for approval on the first 60h-scale real run only after implementation,

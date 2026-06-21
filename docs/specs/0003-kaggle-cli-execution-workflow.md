@@ -401,7 +401,11 @@ from the clean rebuilt kernel, completed, downloaded to
 It passed strict local replay under current `main`, records zero AMP skips, and
 projects about 30.4 hours for 10 epochs. It is still not full-training-launch
 ready because selected-runtime debug, checkpoint/resume, and tiny-overfit
-proofs are missing.
+proofs are missing. New 2026-06-21 preference: before the first long real
+training run, run a compact broader AMP/non-conservative follow-up, including
+`amp_scalar_gate_relaxed` or the closest implemented less-conservative AMP
+policy, and only replace v5 if it passes the same proof, replay, debug/resume,
+artifact, and tiny-overfit gates without catastrophic failures.
 This approval is separate from approval for the first real 60h-scale training
 run: agents must not ask to launch that run until implementation, environment
 checks, efficiency decisions, selected-runtime debug/resume, artifact checks,
@@ -427,9 +431,11 @@ This preflight builds and validates the generated kernel, runs the
 runtime-selection writer tests, exercises the generated wrapper's import and
 fail-closed artifact-validation paths, and replays downloaded v4 artifacts when
 they are present locally.
-Next work is selected-runtime debug/resume/tiny-overfit using
-`runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json`. Do not ask
-for the first long real training launch until those proof artifacts pass.
+Next work is the compact broader AMP follow-up plus selected-runtime
+debug/resume/tiny-overfit using
+`runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json` as the
+fallback selected runtime. Do not ask for the first long real training launch
+until those proof artifacts pass.
 
 For future long-running Kaggle jobs, agents must not wait in-turn after a push
 or status read shows a kernel is still `RUNNING` and likely to take more than

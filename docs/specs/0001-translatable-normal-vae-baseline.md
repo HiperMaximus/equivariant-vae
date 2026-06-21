@@ -52,7 +52,12 @@ repairs that proof policy and replayed the v4 artifacts locally to proof
 with zero AMP skips, bounded selected-row numerical drift, `samples_sec =
 27.381321`, and estimated 10-epoch wall time `109563.740875` seconds. The
 selected payload remains `full_training_launch_ready = false` until
-selected-runtime debug, checkpoint/resume, and tiny-overfit proofs pass.
+selected-runtime debug, checkpoint/resume, and tiny-overfit proofs pass. Before
+the first long real training run, add a compact broader AMP/non-conservative
+follow-up that tests whether a less conservative policy such as
+`amp_scalar_gate_relaxed` can beat v5 without AMP skips, nonfinite values,
+invalid drift, gate-health collapse, broken artifacts, or replay/preflight
+failure. If it does not pass, keep v5 as the selected-runtime fallback.
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-21
 
