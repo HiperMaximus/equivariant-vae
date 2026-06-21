@@ -68,6 +68,7 @@ MAX_RELAXED_LOSS_REL_DELTA = 1.0e-2
 MAX_RELAXED_GRAD_REL_DELTA = 1.0e-2
 MAX_RELAXED_PARAM_UPDATE_REL_DELTA = 1.0e-2
 MAX_RELAXED_STATE_ABS_DELTA = 1.0e-2
+RELAXED_NUMERICAL_DELTA_FAILURE_KIND = "dual_t4_numerical_delta_failed"
 STAIN_QA_PROOF_SCOPE = "selected_runtime_stain_corruptor_row_linked_qa"
 REAL_TRAIN_PATCH_COUNT_DEFAULT = 300_000
 V8_REQUIRED_ARTIFACTS = (
@@ -126,6 +127,37 @@ class RuntimeSelectionArtifactPaths:
     gate_health: Path
     gate_health_summary: Path
     selected_runtime: Path | None
+
+
+def load_runtime_selection_evidence(artifact_dir: Path) -> RuntimeSelectionEvidence:
+    """Load downloaded runtime-selection evidence for local writer replay.
+
+    Args:
+        artifact_dir: Root directory containing `benchmark/` and `metrics/`.
+
+    Returns:
+        Evidence rows and runtime environment from the downloaded artifacts.
+
+    Raises:
+        TypeError: If `runtime_proof.json` does not contain runtime environment.
+
+    """
+    benchmark_dir = artifact_dir / "benchmark"
+    metrics_dir = artifact_dir / "metrics"
+    runtime_proof = _load_json(benchmark_dir / RUNTIME_PROOF_FILENAME)
+    runtime_environment = runtime_proof.get("runtime_environment")
+    if not isinstance(runtime_environment, dict):
+        message = "runtime_proof.json must contain runtime_environment"
+        raise TypeError(message)
+    return RuntimeSelectionEvidence(
+        runtime_rows=tuple(_load_csv(benchmark_dir / RUNTIME_MATRIX_FILENAME)),
+        dataloader_rows=tuple(_load_csv(benchmark_dir / DATALOADER_MATRIX_FILENAME)),
+        numerical_rows=tuple(_load_csv(benchmark_dir / NUMERICAL_CHECKS_FILENAME)),
+        corruption_rows=tuple(_load_csv(benchmark_dir / CORRUPTION_CHECKS_FILENAME)),
+        gate_health_rows=tuple(_load_csv(metrics_dir / GATE_HEALTH_FILENAME)),
+        gate_health_summary=_load_json(benchmark_dir / GATE_HEALTH_SUMMARY_FILENAME),
+        runtime_environment=cast("JsonObject", runtime_environment),
+    )
 
 
 @dataclass(frozen=True)
@@ -1368,11 +1400,22 @@ def _common_candidate_scope_matches(
 def _numerical_values_pass(row: CsvRow) -> bool:
     delta_fields = [key for key in row if key.endswith("_delta")]
     return (
-        all(_csv_float_is_finite(row[field]) for field in delta_fields)
+        _numerical_status_policy_pass(row)
+        and all(_csv_float_is_finite(row[field]) for field in delta_fields)
         and _relaxed_numerical_deltas_pass(row)
         and _optional_csv_int(row.get("nonfinite_count", "")) == 0
         and row.get("amp_step_skipped") == "false"
         and row.get("gate_health_status") == PASS_STATUS
+    )
+
+
+def _numerical_status_policy_pass(row: CsvRow) -> bool:
+    failure_kind = row.get("failure_kind", "")
+    if row.get("status") == PASS_STATUS:
+        return not failure_kind
+    return (
+        row.get("status") == FAIL_STATUS
+        and failure_kind == RELAXED_NUMERICAL_DELTA_FAILURE_KIND
     )
 
 
@@ -2072,5 +2115,6 @@ __all__ = [
     "RuntimeSelectionArtifactPaths",
     "RuntimeSelectionBenchmarkRequest",
     "RuntimeSelectionEvidence",
+    "load_runtime_selection_evidence",
     "write_runtime_selection_benchmark",
 ]

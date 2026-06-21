@@ -645,6 +645,11 @@ remote write until the user explicitly approves it.
 - Adversarial clean-context subagent reviews should be used before substantial
   workflow, architecture, evaluation, or paper-claim changes when tooling is
   available.
+- Before any Kaggle remote push, run every cheap local check that can catch
+  writer, artifact, payload, or trivial runtime errors. For runtime-selection
+  pushes, the mandatory local semantic preflight is
+  `./scripts/kaggle_kernel.sh preflight-runtime-selection`; it must run before
+  asking for or using remote-write approval.
 
 Decision notes live in `docs/decisions/`.
 The review process lives in `docs/agentic_review_workflow.md`.

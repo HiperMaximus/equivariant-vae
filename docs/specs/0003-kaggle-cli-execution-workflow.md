@@ -408,6 +408,17 @@ checkpoint/resume state. It must also preserve the newer spec corrections: clean
 validation must not execute the corruptor or consume corruption RNG, repeated
 AMP skips block the row, and schedule/checkpoint cadence is driven by successful
 optimizer updates only.
+Before any future runtime-selection remote push or remote-write approval
+request, run the cheap local semantic preflight:
+
+```bash
+./scripts/kaggle_kernel.sh preflight-runtime-selection
+```
+
+This preflight builds and validates the generated kernel, runs the
+runtime-selection writer tests, exercises the generated wrapper's import and
+fail-closed artifact-validation paths, and replays downloaded v4 artifacts when
+they are present locally.
 Prompt `continue` at or after 2026-06-21 11:15 -05 for the next guarded status
 read. If version 5 is complete, download outputs to
 `runs/kaggle/runtime_selection_v5` and inspect
@@ -599,6 +610,12 @@ Spec 0001 post-implementation payload check:
 ./scripts/kaggle_kernel.sh build kaggle/kernels/setup_smoke
 PYTHONPATH=src CUDA_VISIBLE_DEVICES="" .venv/bin/pytest \
   tests/test_kaggle_smoke.py tests/test_kaggle_embedded_kernel.py
+```
+
+Runtime-selection local semantic preflight before any successor push:
+
+```bash
+./scripts/kaggle_kernel.sh preflight-runtime-selection
 ```
 
 Remote commands, only after explicit permission:

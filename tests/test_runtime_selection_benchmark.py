@@ -23,6 +23,7 @@ from eqvae.benchmarking.runtime_schema import (
 from eqvae.benchmarking.runtime_selection import (
     RuntimeSelectionBenchmarkRequest,
     RuntimeSelectionEvidence,
+    load_runtime_selection_evidence,
     write_runtime_selection_benchmark,
 )
 
@@ -356,6 +357,169 @@ def test_runtime_selection_blocks_clearly_invalid_numerical_drift(
         "list[object]",
         decision["blockers"],
     )
+
+
+def test_runtime_selection_blocks_bounded_unrelated_numerical_failure(
+    tmp_path: Path,
+) -> None:
+    """Only numerical-delta failures are eligible for relaxed drift handling."""
+    output_dir = tmp_path / "selection"
+    fast_amp = _runtime_row(
+        accelerator_mode="dual_t4_ddp",
+        per_device_batch_size=12,
+        precision_policy="amp_conservative",
+        compile_scope="none",
+        corruption_strategy="indexed_masked",
+        world_size=EXPECTED_DUAL_WORLD_SIZE,
+        samples_sec=350.0,
+        runtime_policy_id="amp_fp16_conservative",
+    )
+    runtime_rows = (*_passing_runtime_rows(), fast_amp)
+    evidence = _runtime_selection_evidence_from_rows(runtime_rows)
+    numerical_rows = tuple(
+        _with_small_numerical_drift(
+            row,
+            candidate_row_id=fast_amp["row_id"],
+            failure_kind="candidate_train_step_RuntimeError",
+        )
+        for row in evidence.numerical_rows
+    )
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=RuntimeSelectionEvidence(
+                runtime_rows=evidence.runtime_rows,
+                dataloader_rows=evidence.dataloader_rows,
+                numerical_rows=numerical_rows,
+                corruption_rows=evidence.corruption_rows,
+                gate_health_rows=evidence.gate_health_rows,
+                gate_health_summary=evidence.gate_health_summary,
+                runtime_environment=evidence.runtime_environment,
+            ),
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+    assert artifacts.selected_runtime is None
+    assert "selected_row_numerical_not_pass" in cast(
+        "list[object]",
+        decision["blockers"],
+    )
+
+
+def test_runtime_selection_ignores_nonselected_linked_proof_failures(
+    tmp_path: Path,
+) -> None:
+    """A bad nonselected policy row cannot veto the selected safe faster row."""
+    output_dir = tmp_path / "selection"
+    fast_amp = _runtime_row(
+        accelerator_mode="dual_t4_ddp",
+        per_device_batch_size=12,
+        precision_policy="amp_conservative",
+        compile_scope="none",
+        corruption_strategy="indexed_masked",
+        world_size=EXPECTED_DUAL_WORLD_SIZE,
+        samples_sec=350.0,
+        runtime_policy_id="amp_fp16_conservative",
+    )
+    bad_nonselected = _runtime_row(
+        accelerator_mode="dual_t4_ddp",
+        per_device_batch_size=12,
+        precision_policy="amp_off_fp32",
+        compile_scope="none",
+        corruption_strategy="indexed_masked",
+        world_size=EXPECTED_DUAL_WORLD_SIZE,
+        samples_sec=300.0,
+        runtime_policy_id="fp32_channels_last_cudnn_ddpfast",
+        memory_format="channels_last",
+    )
+    runtime_rows = (*_passing_runtime_rows(), fast_amp, bad_nonselected)
+    evidence = _runtime_selection_evidence_from_rows(runtime_rows)
+    numerical_rows = tuple(
+        row
+        for row in evidence.numerical_rows
+        if row["candidate_row_id"] != bad_nonselected["row_id"]
+    )
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=RuntimeSelectionEvidence(
+                runtime_rows=evidence.runtime_rows,
+                dataloader_rows=evidence.dataloader_rows,
+                numerical_rows=numerical_rows,
+                corruption_rows=evidence.corruption_rows,
+                gate_health_rows=evidence.gate_health_rows,
+                gate_health_summary=evidence.gate_health_summary,
+                runtime_environment=evidence.runtime_environment,
+            ),
+        ),
+    )
+
+    assert artifacts.selected_runtime is not None
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+    selected = _load_json(artifacts.selected_runtime)
+
+    assert proof["status"] == "pass"
+    assert decision["allowed"] is True
+    assert decision["linked_pass_row_failures"] == []
+    assert selected["selected_row_id"] == fast_amp["row_id"]
+    assert selected["runtime_policy_id"] == "amp_fp16_conservative"
+
+
+def test_runtime_selection_replays_downloaded_v4_artifacts_if_available(
+    tmp_path: Path,
+) -> None:
+    """Downloaded v4 artifacts are a local regression fixture when present."""
+    v4_dir = Path("runs/kaggle/runtime_selection_v4")
+    benchmark_dir = v4_dir / "benchmark"
+    gate_health_path = v4_dir / "metrics" / "gate_health.csv"
+    required_paths = (
+        benchmark_dir / "runtime_matrix.csv",
+        benchmark_dir / "dataloader_matrix.csv",
+        benchmark_dir / "numerical_checks.csv",
+        benchmark_dir / "corruption_checks.csv",
+        benchmark_dir / "gate_health_summary.json",
+        benchmark_dir / "runtime_proof.json",
+        benchmark_dir / "stain_corruptor_qa.json",
+        gate_health_path,
+    )
+    if not all(path.exists() for path in required_paths):
+        pytest.skip("Downloaded runtime-selection v4 artifacts are not present")
+    output_dir = tmp_path / "selection"
+    write_json(
+        output_dir / "benchmark" / "stain_corruptor_qa.json",
+        cast("JsonObject", _load_json(benchmark_dir / "stain_corruptor_qa.json")),
+    )
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=load_runtime_selection_evidence(v4_dir),
+        ),
+    )
+
+    assert artifacts.selected_runtime is not None
+    proof = _load_json(artifacts.runtime_proof)
+    selected = _load_json(artifacts.selected_runtime)
+    assert proof["status"] == "pass"
+    assert proof["selected_runtime_written"] is True
+    assert selected["selected_row_id"] == (
+        "dual_t4_ddp__bs12__amp_conservative__compile_none"
+        "__indexed_masked__policy_amp_fp16_conservative"
+    )
+    assert selected["runtime_policy_id"] == "amp_fp16_conservative"
 
 
 def test_runtime_selection_blocks_policy_mismatched_dataloader(
@@ -1250,12 +1414,13 @@ def _with_small_numerical_drift(
     row: Mapping[str, str],
     *,
     candidate_row_id: str,
+    failure_kind: str = "dual_t4_numerical_delta_failed",
 ) -> dict[str, str]:
     if row["candidate_row_id"] != candidate_row_id or row["batch_index"] != "0":
         return dict(row)
     updated = dict(row)
     updated["status"] = "fail"
-    updated["failure_kind"] = "dual_t4_numerical_delta_failed"
+    updated["failure_kind"] = failure_kind
     updated["kl_loss_abs_delta"] = "0.000013"
     updated["kl_loss_rel_delta"] = "0.000050"
     updated["grad_norm_abs_delta"] = "0.000448"

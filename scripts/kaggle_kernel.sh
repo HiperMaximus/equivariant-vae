@@ -20,6 +20,7 @@ Usage:
   ./scripts/kaggle_kernel.sh build [kernel_dir]
   ./scripts/kaggle_kernel.sh validate [kernel_dir]
   ./scripts/kaggle_kernel.sh check [kernel_dir]
+  ./scripts/kaggle_kernel.sh preflight-runtime-selection
   ./scripts/kaggle_kernel.sh api-check
   ./scripts/kaggle_kernel.sh push [kernel_dir] [extra kaggle args...]
   ./scripts/kaggle_kernel.sh status [kernel_id]
@@ -1299,6 +1300,23 @@ api_check() {
   fi
 }
 
+preflight_runtime_selection() {
+  local python_bin="${PYTHON:-.venv/bin/python}"
+
+  if [[ ! -x "$python_bin" ]]; then
+    echo "error: missing executable $python_bin; run repo setup before preflight" >&2
+    exit 1
+  fi
+
+  build_embedded_kernel "$runtime_selection_kernel_dir"
+  validate_kernel_dir "$runtime_selection_kernel_dir"
+  PYTHONPATH=src CUDA_VISIBLE_DEVICES="" "$python_bin" -m pytest \
+    tests/test_runtime_selection_benchmark.py \
+    tests/test_kaggle_embedded_kernel.py::test_embedded_runtime_selection_kernel_import_simulation \
+    tests/test_kaggle_embedded_kernel.py::test_embedded_runtime_selection_kernel_full_local_fail_closed_simulation \
+    -q
+}
+
 action="${1:-}"
 case "$action" in
   build)
@@ -1321,6 +1339,9 @@ case "$action" in
     ;;
   api-check)
     api_check
+    ;;
+  preflight-runtime-selection)
+    preflight_runtime_selection
     ;;
   push)
     kernel_dir="${2:-$default_kernel_dir}"

@@ -526,6 +526,23 @@ guarded status read returned `KernelWorkerStatus.RUNNING` at 2026-06-21
 06:14:37 -05. Prompt `continue` at or after 2026-06-21 11:15 -05 for the next
 guarded status read.
 
+Local-first rule for runtime-selection pushes: before any future
+runtime-selection remote push or approval request, run the cheap semantic local
+preflight that can catch writer-policy, artifact-shape, generated-wrapper, and
+downloaded-artifact replay errors:
+
+```bash
+./scripts/kaggle_kernel.sh preflight-runtime-selection
+```
+
+That command builds and validates the generated runtime-selection kernel, runs
+the runtime-selection writer suite, runs the generated-wrapper import and
+fail-closed simulations, and replays downloaded v4 artifacts when they are
+present locally. Do not rely on Kaggle exit status alone: the executor can
+legitimately return exit code 0 while writing fail-closed proof artifacts, so
+local and remote checks must inspect `benchmark/runtime_proof.json` and
+`benchmark/selected_runtime.json`.
+
 Local `build`/`validate` may verify the generated real-data pretest payload
 against the current dirty worktree so agents can validate local patches before
 commit. Remote push safety is stricter: the real-data pretest push guard still
@@ -691,6 +708,12 @@ Check whether the Kaggle CLI is installed and whether local metadata is valid:
 
 ```bash
 ./scripts/kaggle_kernel.sh check
+```
+
+Before any runtime-selection remote push, run the local semantic preflight:
+
+```bash
+./scripts/kaggle_kernel.sh preflight-runtime-selection
 ```
 
 After explicit user permission for remote reads, run the read-only API

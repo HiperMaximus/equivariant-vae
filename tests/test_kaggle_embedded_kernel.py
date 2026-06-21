@@ -334,6 +334,58 @@ def test_embedded_runtime_selection_kernel_import_simulation(
     assert '"model_inventory.csv"' in template_text
 
 
+def test_embedded_runtime_selection_kernel_full_local_fail_closed_simulation(
+    tmp_path: Path,
+) -> None:
+    """Generated runtime-selection launcher validates fail-closed artifacts."""
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="runtime_selection",
+        ready_marker="KAGGLE_RUNTIME_SELECTION_READY = True",
+    )
+    environment = _run_environment(simulation.output_dir)
+    environment["CUDA_VISIBLE_DEVICES"] = ""
+    environment["EQVAE_RUNTIME_SELECTION_DATA_ROOT"] = str(
+        tmp_path / "missing_data_root",
+    )
+
+    subprocess.run(  # noqa: S603
+        (sys.executable, str(simulation.upload_dir / "run.py")),
+        cwd=simulation.upload_dir,
+        check=True,
+        env=environment,
+    )
+
+    benchmark_dir = simulation.output_dir / "benchmark"
+    metrics_dir = simulation.output_dir / "metrics"
+    assert {path.name for path in benchmark_dir.iterdir()} == {
+        "model_count.json",
+        "model_inventory.csv",
+        "runtime_proof.json",
+        "runtime_matrix.csv",
+        "dataloader_matrix.csv",
+        "numerical_checks.csv",
+        "corruption_checks.csv",
+        "gate_health_summary.json",
+        "stain_corruptor_qa.json",
+    }
+    assert {path.name for path in metrics_dir.iterdir()} == {"gate_health.csv"}
+    assert not (benchmark_dir / "selected_runtime.json").exists()
+    runtime_proof = _load_json(benchmark_dir / "runtime_proof.json")
+    runtime_environment = cast(
+        "dict[str, object]",
+        runtime_proof["runtime_environment"],
+    )
+    assert runtime_proof["status"] == "fail"
+    assert runtime_proof["selection_ready"] is False
+    assert runtime_proof["selected_runtime_written"] is False
+    assert runtime_environment["failure_kind"] == (
+        "runtime_selection_evidence_collection_failed"
+    )
+
+
 def test_embedded_kernel_verify_rejects_stale_template(tmp_path: Path) -> None:
     """Generated run.py must prove freshness against the launcher template."""
     repo_root = Path(__file__).resolve().parents[1]
