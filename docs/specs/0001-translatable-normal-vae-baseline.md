@@ -25,19 +25,14 @@ next selected-runtime benchmark/debug slice is encoded as
 `v8_shortlist_eager_amp_then_dual_gate`; local proof plumbing for that separate
 selected-runtime benchmark plus its Kaggle executor/kernel are now implemented
 and fail-closed. Runtime-selection v2 downloaded to
-`runs/kaggle/runtime_selection_v2`: it proved the real dual-T4 DDP timing gate
-and fixed the v1 wrapper/proof-plumbing false negatives, but still wrote no
-`selected_runtime.json` because single-visible indexed-mask pass rows lacked
-candidate-bound gate-health rows. The local v3 fix binds branchless
-single-visible gate-health rows to same-shape indexed candidates only after
-those indexed rows already pass linked evidence. v8 remains shortlist-only, the
-separate benchmark writes its own linked proofs, and `selected_runtime.json`
-remains blocked until real dual-T4 train-step timing and all linked proofs pass.
-That timing must prove two visible T4s, `world_size = 2`, `nproc_per_node = 2`,
-per-rank device binding, linked safety evidence, and global throughput
-projection. Compiled rows remain diagnostic-only until full compile-settle
-coverage exists, and v8 remains non-promotable unless a later spec explicitly
-changes that.
+`runs/kaggle/runtime_selection_v3`: it proved the real dual-T4 DDP timing gate,
+fixed the v1/v2 proof-plumbing false negatives, and wrote
+`benchmark/selected_runtime.json`. The selected row is
+`dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`, with
+per-device batch size 12, global batch size 24, FP32 eager/no compile, and
+linked safety proof pass. v8 remains shortlist-only and non-promotable; the
+separate selected-runtime benchmark owns the selected-runtime proof. Compiled
+rows remain diagnostic-only until full compile-settle coverage exists.
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-20
 
@@ -1996,6 +1991,10 @@ Benchmark artifact dependency graph:
    with `clean_validation_rng_advanced = false` required on validation rows,
    gate-health rows bound by `candidate_row_id`, and strict candidate coverage in
    `benchmark/stain_corruptor_qa.json`.
+   Runtime-selection v3 satisfied this gate and selected
+   `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`; the selected
+   runtime artifact lives at
+   `runs/kaggle/runtime_selection_v3/benchmark/selected_runtime.json`.
 7. `benchmark/selected_runtime.json` may be written with `status = "pass"` only
    when it references one row from `runtime_matrix.csv` whose row status is
    `pass`, whose linked artifacts have `pass`, and whose accelerator proof

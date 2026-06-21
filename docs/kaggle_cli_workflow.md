@@ -16,13 +16,11 @@ compiled rows remain diagnostic-only until full compile-settle coverage exists;
 selected-runtime proof plumbing and the Kaggle executor/kernel for
 `v8_shortlist_eager_amp_then_dual_gate` now exist and are fail-closed until real
 dual-T4 timing plus linked evidence pass; the runtime-selection kernel guard is
-`runtime_selection_kernel_ready`; runtime-selection versions 1 and 2 were
-pushed to Kaggle on 2026-06-20, with v2 downloaded to
-`runs/kaggle/runtime_selection_v2`. Version 2 proved real dual-T4 DDP timing
-and fixed v1 wrapper/proof false negatives, but still refused
-`selected_runtime.json` because single-visible indexed-mask pass rows lacked
-candidate-bound gate-health rows; Kaggle source attachments require a separate
-confirmation guard
+`runtime_selection_kernel_ready`; runtime-selection v3 was pushed to Kaggle on
+2026-06-20 and downloaded to `runs/kaggle/runtime_selection_v3`. Version 3
+proved real dual-T4 DDP timing, wrote `benchmark/selected_runtime.json`, and
+selected `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`;
+Kaggle source attachments require a separate confirmation guard
 Last updated: 2026-06-20
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
@@ -205,14 +203,17 @@ dual gate again, but still refused `benchmark/selected_runtime.json` because
 gate-health rows were missing for the three single-visible `indexed_masked`
 pass rows. The local v3 fix expands branchless single-visible gate-health rows
 to same-shape indexed candidate ids only after the indexed runtime row has
-already passed linked evidence. After local gates and a clean commit/rebuild,
-the guarded remote sequence for v3 is:
+already passed linked evidence. Runtime-selection v3 completed and downloaded
+to `runs/kaggle/runtime_selection_v3`; `runtime_proof.status = pass`,
+`selection_ready = true`, `selected_runtime_written = true`, and the selected
+runtime artifact is
+`runs/kaggle/runtime_selection_v3/benchmark/selected_runtime.json`.
 
-```bash
-KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/runtime_selection
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-runtime-selection
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-runtime-selection runs/kaggle/runtime_selection_v3
-```
+Selected runtime: `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`;
+dual T4 DDP, `world_size = 2`, `nproc_per_node = 2`, per-device batch size 12,
+global batch size 24, FP32 eager/no compile, `indexed_masked` corruption,
+`samples_sec = 14.035497`, estimated epoch time about 356.24 minutes, and
+projected 10-epoch wall time about 59.37 hours.
 
 The real-data benchmark surface is intentionally separate from the capped smoke
 and from synthetic timing:
@@ -482,6 +483,8 @@ Runtime-selection v2 then completed without a wrapper error but still refused
 selection because single-visible indexed-mask pass rows lacked gate-health rows.
 The local v3 patch binds those rows from the branchless gate-health reference
 only after the indexed runtime row has already passed linked evidence.
+Runtime-selection v3 completed and wrote the selected-runtime artifact:
+`runs/kaggle/runtime_selection_v3/benchmark/selected_runtime.json`.
 
 Local `build`/`validate` may verify the generated real-data pretest payload
 against the current dirty worktree so agents can validate local patches before
@@ -511,6 +514,13 @@ Do not poll long-running Kaggle kernels continuously. Remote reads still require
 explicit approval and `KAGGLE_REMOTE_CONFIRMED=1`, and large source-attached
 runs can spend many minutes preparing the environment before the script emits
 useful artifacts.
+
+Agent handoff rule: if a Kaggle push or status read shows the kernel is still
+`RUNNING` and the run is likely to take more than about 5 minutes, do not keep
+waiting in the same assistant turn. Give the user a concrete local time to
+prompt with `continue`, then stop. Resume only when the user prompts again or
+explicitly asks for another poll. This avoids burning context/tokens on idle
+remote waits.
 
 Default polling cadence:
 
@@ -571,6 +581,17 @@ Current duration notes:
   Longest phases were stage1 runtime rows at about 1185.75s, linked evidence
   payload at about 592.19s, real-data identity/clean-path proof at about
   586.85s, and linked train-step evidence at about 573.67s.
+- Runtime-selection v3, 2026-06-20/21: Kaggle accepted version 3 at
+  `https://www.kaggle.com/code/maximusshtefan/eqvae-runtime-selection`; the
+  immediate guarded status read was `KernelWorkerStatus.RUNNING`, so the agent
+  stopped waiting and gave the user a concrete prompt time. On resume the
+  guarded status read was `KernelWorkerStatus.COMPLETE`, and artifacts were
+  downloaded to `runs/kaggle/runtime_selection_v3`. The log reports linked
+  train-step evidence at about 183.29s, linked dataloader throughput at about
+  5.80s, linked numerical/corruption/gate-health phases under 0.01s each, and
+  notebook conversion around 1452.74s. For similar selected-runtime kernels, do
+  one immediate status check after push and then tell the user to prompt again
+  about 30 minutes later instead of waiting in-turn.
 
 For the synthetic binary timing pretest, the remote sequence remains permission
 gated:

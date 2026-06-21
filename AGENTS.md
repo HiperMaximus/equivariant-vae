@@ -96,6 +96,11 @@ This repo is the paper/research repository for the equivariant VAE work.
     `./scripts/kaggle_kernel.sh` and `docs/kaggle_cli_workflow.md`; do not use a
     GitHub-linked Kaggle notebook as the source of truth. Kaggle remote writes
     require explicit user permission and `KAGGLE_PUSH_CONFIRMED=1`.
+27. Do not wait in-turn for long-running Kaggle kernels. After a Kaggle push or
+    status check shows a run is still `RUNNING` and it is likely to take more
+    than about 5 minutes, stop active waiting, tell the user a concrete local
+    time to prompt with `continue`, and record the suggested cadence in
+    `CURRENT.md` or `docs/kaggle_cli_workflow.md` when relevant.
 
 ## Safe Paper Workflow
 

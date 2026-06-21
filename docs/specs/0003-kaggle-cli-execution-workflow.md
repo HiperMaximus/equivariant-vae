@@ -27,8 +27,11 @@ selected-runtime writing on linked-proof false negatives, and exposed the local
 v2 proof-plumbing/allow-list fix. Runtime-selection v2 was downloaded to
 `runs/kaggle/runtime_selection_v2`, fixed those v1 blockers, proved real
 dual-T4 DDP timing, and refused selected-runtime writing because
-single-visible indexed-mask pass rows lacked candidate-bound gate-health rows;
-full training/full-run launchers are not Kaggle-push-ready
+single-visible indexed-mask pass rows lacked candidate-bound gate-health rows.
+Runtime-selection v3 was downloaded to `runs/kaggle/runtime_selection_v3` and
+wrote `benchmark/selected_runtime.json` selecting
+`dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`; full
+training/full-run launchers are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-20
 
@@ -349,6 +352,15 @@ and preserved the passing dual-T4 DDP proof, but still refused
 single-visible `indexed_masked` pass rows. The local v3 fix binds branchless
 single-visible gate-health rows to same-shape indexed candidates after the
 indexed runtime rows have already passed linked evidence.
+Runtime-selection v3 completed and downloaded to
+`runs/kaggle/runtime_selection_v3`; its proof status is `pass`, dual-T4 DDP
+timing proof is `pass`, selected-runtime writing is allowed, and the selected
+row is `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`.
+
+For future long-running Kaggle jobs, agents must not wait in-turn after a push
+or status read shows a kernel is still `RUNNING` and likely to take more than
+about 5 minutes. Give the user a concrete local time to prompt with `continue`,
+then stop until the user resumes.
 
 ## Kaggle Authentication Contract
 

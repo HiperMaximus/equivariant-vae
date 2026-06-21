@@ -93,7 +93,17 @@ passing dual-T4 timing proof, but still wrote no `benchmark/selected_runtime.jso
 because gate-health rows were missing for the three passing single-visible
 `indexed_masked` candidates. The local v3 fix expands branchless single-visible
 gate-health rows to same-shape indexed candidates only after those runtime rows
-already pass linked evidence. No GitHub or Overleaf push was performed or
+already pass linked evidence. Commit `b6b024a`
+(`Bind indexed runtime gate evidence`) was pushed as runtime-selection Kaggle
+version 3; it completed and downloaded under
+`runs/kaggle/runtime_selection_v3`. Version 3 wrote
+`benchmark/selected_runtime.json` with `status = "pass"` and
+`runtime_proof.status = "pass"`. The selected row is
+`dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`: dual T4 DDP,
+`world_size = 2`, `nproc_per_node = 2`, per-device batch size 12, global batch
+24, FP32 eager/no compile, `indexed_masked` corruption, `samples_sec =
+14.035497`, projected epoch time about 356.24 minutes, and 10-epoch wall-time
+projection about 59.37 hours. No GitHub or Overleaf push was performed or
 approved.
 Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, a focused
@@ -310,10 +320,10 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: finish local gates for the runtime-selection v3
-single-visible indexed gate-health binding fix, commit it, rebuild/validate the
-runtime-selection kernel from the clean commit, and push a new Kaggle version
-with the approved guards. The
+Immediate next action: consume
+`runs/kaggle/runtime_selection_v3/benchmark/selected_runtime.json` in the next
+selected-runtime debug/full-run planning slice; do not push another Kaggle job
+without explicit user approval and the guard variables. The
 separate selected-runtime benchmark/debug slice is encoded in
 `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json` as
 `runtime_matrix.selection_benchmark_slice.name =
@@ -334,7 +344,8 @@ wrapper artifact allow-list and those first false negatives, completed on
 Kaggle, and still blocked selection because single-visible indexed candidates
 lacked candidate-bound gate-health rows. The v3 local fix binds those rows from
 the branchless reference gate evidence only for already-passing indexed
-runtime rows. The
+runtime rows. Runtime-selection v3 completed and selected the dual-T4 bs12 FP32
+eager indexed-mask row. The
 local v8 evidence-plumbing fix was committed as `614cd95`,
 pushed as Kaggle version 8 after explicit approval, completed,
 downloaded to `runs/kaggle/real_data_runtime_pretest_v8`, and inspected. It
@@ -1926,7 +1937,24 @@ The review process lives in `docs/agentic_review_workflow.md`.
   runtime-selection executor helper that expands branchless single-visible
   gate-health rows to same-shape indexed candidate row ids only after the
   indexed runtime row has already passed linked evidence; a focused regression
-  covers that exact v2 artifact shape.
+  covers that exact v2 artifact shape. A follow-up adversarial subagent review
+  found no selected-runtime fail-open blocker and recommended explicit
+  FP32/eager/indexed guard rails plus negative tests; those were added. Commit
+  `b6b024a` was created, the runtime-selection kernel was rebuilt/validated from
+  the clean commit, and Kaggle accepted version 3. The agent stopped waiting
+  after the immediate `RUNNING` status and gave the user a prompt time rather
+  than idling in-turn. On resume, v3 was `KernelWorkerStatus.COMPLETE`; outputs
+  were downloaded to `runs/kaggle/runtime_selection_v3`. Inspection confirmed
+  `runtime_proof.status = pass`, `selection_ready = true`,
+  `selected_runtime_written = true`, no write-decision blockers, dual-T4 gate
+  `status = pass`, single-visible confirmation `status = pass`,
+  `stain_corruptor_qa_status = pass`, and `benchmark/selected_runtime.json`
+  present. The selected runtime is
+  `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`, with
+  per-device batch size 12, global batch size 24, two visible Tesla T4s,
+  `world_size = 2`, `nproc_per_node = 2`, FP32 eager/no compile,
+  `samples_sec = 14.035497`, projected epoch time about 356.24 minutes, and
+  projected 10-epoch wall time about 59.37 hours.
 - 2026-06-19 GitHub issue status updates:
   posted Spanish status comments to issues #1-#6 after local grounding and
   three read-only subagent audits. Issue #2 received the substantive v6
