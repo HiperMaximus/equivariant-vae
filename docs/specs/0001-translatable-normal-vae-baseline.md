@@ -31,20 +31,27 @@ fixed the v1/v2 proof-plumbing false negatives, and wrote
 `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`, with
 per-device batch size 12, global batch size 24, FP32 eager/no compile, and
 linked safety proof pass. v8 remains shortlist-only and non-promotable; the
-separate selected-runtime benchmark owns the selected-runtime proof. Compiled
-rows remain diagnostic-only until full compile-settle coverage exists. Because
+separate selected-runtime benchmark owns the selected-runtime proof. The
+selected-runtime executor now has an efficiency-follow-up contract,
+`selected_runtime_v3_efficiency_followup`, that remeasures the v3 row and tests
+runtime policies for AMP/FP16, stable `torch.compile` model-forward rows,
+channels-last, cuDNN nondeterministic benchmark mode, DDP fast paths,
+optimizer/zero-grad fast paths, and Kaggle-supported TF32/matmul knobs. Because
 the selected row projects to about 60 hours for 10 epochs, it is a safety
-baseline rather than the final efficiency answer: an efficiency follow-up must
-compare AMP/FP16, stable `torch.compile` scopes, and historical FSQ efficiency
-flags before the first expensive run.
+baseline rather than the final efficiency answer until that follow-up is run.
 Owner/workstream: comparable non-equivariant VAE baseline
-Last updated: 2026-06-20
+Last updated: 2026-06-21
 
 Historical working reference: `kaggle/train_runs` is the successful Kaggle FSQ
 autoencoder training notebook/artifact. It is valid evidence for the broad
-FSQ-successor macro-architecture and Kaggle runtime-efficiency tactics, but not
-for carrying forward FSQ quantization, codebooks, rounding, or discrete latent
-telemetry into the continuous `SO(2)` equivariant VAE route.
+FSQ-successor macro-architecture and Kaggle runtime-efficiency tactics: dual-T4
+`torchrun`/NCCL launch, per-rank device binding, pinned mmap-style loading,
+channels-last, AMP with FP32 objective islands, compile warmup, DDP fast paths,
+optimizer/zero-grad fast paths, and checkpoint/resume discipline. It is not
+evidence for carrying forward FSQ quantization, codebooks, rounding, discrete
+latent telemetry, PixelShuffle/sub-pixel upsampling, final `tanh` output
+bounding, the exact old HED corruptor, or `rot90`-only/discrete-latent
+equivariance artifacts into the continuous `SO(2)` equivariant VAE route.
 
 Local scaffold exception, 2026-06-12: the user-authorized local
 benchmark-unblock slice may create `src/eqvae`, `configs/spec0001`, the
@@ -294,6 +301,8 @@ a sealed masked-WSI test shard.
 
 - No FSQ, vector quantization, codebooks, discrete indices, or quantized latent
   telemetry.
+- No PixelShuffle/sub-pixel upsampling or FSQ-era discrete-latent equivariance
+  artifacts in the comparable path.
 - No FSQ bottleneck scalar scale parameter `s`, straight-through rounding, or
   tanh-bounded latent-domain trick. The Gaussian VAE bottleneck uses only `mu`,
   `logvar`, sampled `z`, and the declared KL policy.
@@ -1567,6 +1576,19 @@ Runtime benchmark requirement before the first full Kaggle run:
   ineligible only for catastrophic failures such as non-finite loss/gradients,
   repeated AMP step skips, DDP instability, broken checkpoint/resume, broken
   artifacts, gate-health collapse, or clearly invalid metrics;
+- benchmark FSQ-derived launch and input-throughput choices only as row-bound or
+  policy-bound evidence: `torchrun --standalone --nproc_per_node=2`,
+  `OMP_NUM_THREADS=1`, `MKL_NUM_THREADS=1`, per-rank CUDA/NCCL binding,
+  read-only mmap with sequential access hints, pinned dataloaders, non-blocking
+  H2D transfers, and static-shape loader behavior. These choices must not
+  override the spec's real-data projection, `drop_last = false` accounting, or
+  clean-validation no-corruption-RNG rule;
+- use the FSQ script's checkpoint/resume discipline as a training-system
+  requirement, not as a checkpoint format: save and restore model, optimizer,
+  scheduler/beta scheduler, AMP scaler when present, progress counters, config
+  hash, and Python/NumPy/Torch/CUDA RNG state; retain the final checkpoint,
+  `best_model.pt`, and the latest four interval checkpoints unless a later run
+  spec supersedes retention;
 - compare the corruption execution strategies `branchless_all` and
   `indexed_masked`; keep the branchless path unless masked indexing is
   materially faster and avoids catastrophic failures. Exact RNG trace equality
@@ -1576,6 +1598,10 @@ Runtime benchmark requirement before the first full Kaggle run:
   overhead, max VRAM, largest stable per-device batch, global batch,
   `amp_step_skipped` count, gate-health warning count, and any compile/DDP
   failure;
+- runtime fast-path settings are first-class row identity through
+  `runtime_policy_id`; dataloader, numerical, corruption, and gate-health proof
+  rows must bind to the same policy id as the candidate row. A policy-mismatched
+  proof row cannot certify a fast-path candidate;
 - batch size is selected from VRAM and throughput evidence for each runtime
   configuration, not hard-coded from the historical FSQ run.
 - single-vs-dual comparisons must use feasible global throughput and projected
@@ -1909,7 +1935,7 @@ Dataloader benchmark requirement:
   non-promotable status scope, blocked claims, and
   `writes_selected_runtime = false`;
 - record at least
-  `run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,world_size,rank,split,num_workers,prefetch_factor,pin_memory,persistent_workers,non_blocking_h2d,batch_size,batches_measured,batch_fetch_ms_p50,batch_fetch_ms_p95,h2d_ms_p50,h2d_ms_p95,loader_samples_sec,trainer_samples_sec,data_wait_fraction_p50,data_wait_fraction_p95,rank_sample_count,dropped_sample_count,status,failure_kind`;
+  `run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,world_size,runtime_policy_id,memory_format,rank,split,num_workers,prefetch_factor,pin_memory,persistent_workers,non_blocking_h2d,batch_size,batches_measured,batch_fetch_ms_p50,batch_fetch_ms_p95,h2d_ms_p50,h2d_ms_p95,loader_samples_sec,trainer_samples_sec,data_wait_fraction_p50,data_wait_fraction_p95,rank_sample_count,dropped_sample_count,status,failure_kind`;
 - local CPU pre-test rows must leave `h2d_ms_p50` and `h2d_ms_p95` empty
   because there is no host-to-device transfer to benchmark. Real Kaggle GPU
   rows must time host-to-device transfer with the declared `pin_memory` and
@@ -2021,13 +2047,20 @@ Benchmark artifact dependency graph:
    `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`; the selected
    runtime artifact lives at
    `runs/kaggle/runtime_selection_v3/benchmark/selected_runtime.json`.
-7. `benchmark/selected_runtime.json` may be written with `status = "pass"` only
+7. The efficient selected-runtime follow-up must use v3 as its baseline and may
+   replace it only when the selected policy is at least 3% faster and clears the
+   catastrophic blockers: non-finite loss/gradients, AMP skips, DDP child/rank
+   failure, missing policy-bound linked proofs, compile graph breaks/recompiles
+   after settle, broken artifacts, or gate-health collapse. If no candidate is
+   materially faster, the v3 baseline remeasure remains selected.
+8. `benchmark/selected_runtime.json` may be written with `status = "pass"` only
    when it references one row from `runtime_matrix.csv` whose row status is
    `pass`, whose linked artifacts have `pass`, and whose accelerator proof
-   matches the selected mode.
-8. selected-runtime debug must consume that selected runtime and write a resume
+   matches the selected mode. It must set `full_training_launch_ready = false`
+   until selected-runtime debug, checkpoint/resume, and tiny-overfit proofs pass.
+9. selected-runtime debug must consume that selected runtime and write a resume
    proof before tiny-overfit may run.
-9. `benchmark/tiny_overfit_summary.json` must pass before
+10. `benchmark/tiny_overfit_summary.json` must pass before
    `non_eq_vae_baseline.json` can be used for a first 10-epoch run.
 
 `benchmark/model_count.json` required shape:
@@ -2155,13 +2188,13 @@ must set it to `0`.
 `benchmark/runtime_matrix.csv` required columns:
 
 ```text
-run_name,benchmark_kind,benchmark_source,full_run_eligible,row_id,accelerator_mode,machine_shape,visible_device_count,cuda_device_count,gpu_names,ddp_backend,world_size,nproc_per_node,precision_policy,amp_enabled,torch_compile_enabled,compile_scope,corruption_strategy,per_device_batch_size,global_batch_size,gradient_accumulation_steps,warmup_steps,measured_steps,repeats,compile_startup_sec,compile_settle_steps,steady_step_ms_p50,steady_step_ms_p95,samples_sec,trainer_samples_sec,max_vram_allocated_mb,max_vram_reserved_mb,vram_headroom_fraction,amp_step_skipped_count,gate_health_status,gate_health_warning_count,numerical_check_status,data_wait_fraction_p95,graph_break_count,recompile_count,oom,status,failure_kind,failure_message_hash
+run_name,benchmark_kind,benchmark_source,full_run_eligible,row_id,accelerator_mode,machine_shape,visible_device_count,cuda_device_count,gpu_names,ddp_backend,world_size,nproc_per_node,precision_policy,amp_enabled,torch_compile_enabled,compile_scope,runtime_policy_id,memory_format,autocast_dtype,fp32_loss,grad_scaler_enabled,cudnn_benchmark,cudnn_deterministic,deterministic_algorithms,tf32_enabled,matmul_precision,ddp_static_graph,ddp_gradient_as_bucket_view,optimizer_implementation,zero_grad_set_to_none,gradient_clip_foreach,compile_dynamic,corruption_strategy,per_device_batch_size,global_batch_size,gradient_accumulation_steps,warmup_steps,measured_steps,repeats,compile_startup_sec,compile_settle_steps,steady_step_ms_p50,steady_step_ms_p95,samples_sec,trainer_samples_sec,max_vram_allocated_mb,max_vram_reserved_mb,vram_headroom_fraction,amp_step_skipped_count,gate_health_status,gate_health_warning_count,numerical_check_status,data_wait_fraction_p95,graph_break_count,recompile_count,oom,status,failure_kind,failure_message_hash
 ```
 
 `gpu_names` is encoded as a compact JSON array string. `amp_enabled`,
-`torch_compile_enabled`, and `oom` are lowercase `true|false` strings in CSV.
-`compile_scope` is one of the named scope strings above. Timing fields use
-milliseconds except `compile_startup_sec`.
+`torch_compile_enabled`, runtime-policy booleans, and `oom` are lowercase
+`true|false` strings in CSV. `compile_scope` is one of the named scope strings
+above. Timing fields use milliseconds except `compile_startup_sec`.
 
 `benchmark/selected_runtime.json` required shape:
 
@@ -2171,7 +2204,10 @@ milliseconds except `compile_startup_sec`.
   "benchmark_kind": "kaggle_runtime_selection",
   "benchmark_source": "kaggle_runtime_benchmark",
   "full_run_eligible": true,
+  "full_training_launch_ready": false,
+  "launch_blockers": ["missing_selected_runtime_debug_proof"],
   "selected_row_id": "string",
+  "runtime_policy_id": "string",
   "accelerator_mode": "single_visible_t4 or dual_t4_ddp",
   "machine_shape": "NvidiaTeslaT4",
   "world_size": 2,
@@ -2183,11 +2219,36 @@ milliseconds except `compile_startup_sec`.
   "optimizer_updates_per_epoch": 0,
   "lr_warmup_steps": 0,
   "beta_warmup_steps": 0,
-  "mixed_precision": {"enabled": false, "policy": "amp_off_fp32"},
+  "mixed_precision": {
+    "enabled": false,
+    "policy": "amp_off_fp32",
+    "autocast_dtype": "",
+    "fp32_loss": true,
+    "grad_scaler_enabled": false
+  },
   "torch_compile": {
     "enabled": false,
     "backend": "eager-or-inductor",
-    "scope": "none"
+    "scope": "none",
+    "dynamic": false
+  },
+  "runtime_policy": {
+    "memory_format": "contiguous",
+    "cudnn_benchmark": false,
+    "cudnn_deterministic": false,
+    "deterministic_algorithms": false,
+    "tf32_enabled": false,
+    "matmul_precision": "highest",
+    "ddp_static_graph": false,
+    "ddp_gradient_as_bucket_view": false,
+    "optimizer_implementation": "adamw_default",
+    "zero_grad_set_to_none": true,
+    "gradient_clip_foreach": false
+  },
+  "relaxed_determinism": {
+    "accepted": true,
+    "policy": "performance_first_accept_small_numerical_drift_block_catastrophic",
+    "bitwise_determinism_required": false
   },
   "corruption": {"strategy": "branchless_all"},
   "dataloader": {
@@ -2528,19 +2589,19 @@ provenance and must pass without changing the corruption profile.
 clean-validation RNG evidence:
 
 ```text
-run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,row_id,reference_row_id,candidate_row_id,batch_index,corruption_version,profile_name,corruption_strategy,corruption_view,corruption_step,split,semantic_sample_key_hash,binary_sample_id_hash,rank,world_size,applied_mask_hash,stain_param_hash,noise_std_hash,noise_field_hash,clean_sample_unchanged_count,clean_validation_rng_advanced,status,failure_kind
+run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,row_id,reference_row_id,candidate_row_id,runtime_policy_id,batch_index,corruption_version,profile_name,corruption_strategy,corruption_view,corruption_step,split,semantic_sample_key_hash,binary_sample_id_hash,rank,world_size,applied_mask_hash,stain_param_hash,noise_std_hash,noise_field_hash,clean_sample_unchanged_count,clean_validation_rng_advanced,status,failure_kind
 ```
 
 `benchmark/numerical_checks.csv` required columns:
 
 ```text
-run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,row_id,reference_row_id,candidate_row_id,batch_index,precision_policy,torch_compile_enabled,compile_scope,corruption_strategy,total_loss_abs_delta,total_loss_rel_delta,recon_loss_abs_delta,recon_loss_rel_delta,l1_loss_abs_delta,l1_loss_rel_delta,ssim_loss_abs_delta,ssim_loss_rel_delta,kl_loss_abs_delta,kl_loss_rel_delta,grad_norm_abs_delta,grad_norm_rel_delta,param_update_norm_abs_delta,param_update_norm_rel_delta,x_hat_min_abs_delta,x_hat_max_abs_delta,mu_mean_abs_delta,mu_std_abs_delta,logvar_mean_abs_delta,logvar_std_abs_delta,logvar_clamp_count_delta,gate_health_status,nonfinite_count,amp_step_skipped,status,failure_kind
+run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,row_id,reference_row_id,candidate_row_id,runtime_policy_id,batch_index,precision_policy,torch_compile_enabled,compile_scope,corruption_strategy,total_loss_abs_delta,total_loss_rel_delta,recon_loss_abs_delta,recon_loss_rel_delta,l1_loss_abs_delta,l1_loss_rel_delta,ssim_loss_abs_delta,ssim_loss_rel_delta,kl_loss_abs_delta,kl_loss_rel_delta,grad_norm_abs_delta,grad_norm_rel_delta,param_update_norm_abs_delta,param_update_norm_rel_delta,x_hat_min_abs_delta,x_hat_max_abs_delta,mu_mean_abs_delta,mu_std_abs_delta,logvar_mean_abs_delta,logvar_std_abs_delta,logvar_clamp_count_delta,gate_health_status,nonfinite_count,amp_step_skipped,status,failure_kind
 ```
 
 `metrics/gate_health.csv` required columns:
 
 ```text
-run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,row_id,candidate_row_id,optimizer_step,module,gate_kind,num_channels,num_elements,a_min,a_max,a_mean,a_std,b_min,b_max,b_mean,b_std,max_abs_a,max_abs_b,gate_mean,gate_std,gate_p01,gate_p50,gate_p99,frac_gate_lt_0_01,frac_gate_gt_0_99,worst_channel_frac_gate_lt_0_01,worst_channel_frac_gate_gt_0_99,dead_channel_count,input_rms,output_rms,output_input_rms_ratio,a_grad_norm,b_grad_norm,a_update_to_param_norm,b_update_to_param_norm,gate_health_status
+run_name,benchmark_kind,benchmark_source,full_run_eligible,accelerator_mode,machine_shape,row_id,candidate_row_id,runtime_policy_id,optimizer_step,module,gate_kind,num_channels,num_elements,a_min,a_max,a_mean,a_std,b_min,b_max,b_mean,b_std,max_abs_a,max_abs_b,gate_mean,gate_std,gate_p01,gate_p50,gate_p99,frac_gate_lt_0_01,frac_gate_gt_0_99,worst_channel_frac_gate_lt_0_01,worst_channel_frac_gate_gt_0_99,dead_channel_count,input_rms,output_rms,output_input_rms_ratio,a_grad_norm,b_grad_norm,a_update_to_param_norm,b_update_to_param_norm,gate_health_status
 ```
 
 `benchmark/gate_health_summary.json` required shape:

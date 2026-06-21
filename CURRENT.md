@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-06-20
+Last updated: 2026-06-21
 
 ## Active Workstream
 
@@ -112,7 +112,8 @@ numerical drift as the cost of speed when catastrophic checks still pass.
 The working historical FSQ training reference is `kaggle/train_runs`: it trained
 correctly and should be used as the source for broad macro-architecture and
 runtime-efficiency ideas, while FSQ quantization/codebooks/rounding/discrete
-latents stay out of the continuous `SO(2)` route.
+latents and sub-pixel/PixelShuffle upsampling stay out of the continuous
+`SO(2)` route.
 
 Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, a focused
@@ -643,18 +644,28 @@ The review process lives in `docs/agentic_review_workflow.md`.
 
 ## Next Concrete Steps
 
-1. Implement the efficient-selected-runtime follow-up with v3 as the baseline:
-   candidate-specific evidence must cover AMP/FP16 policies, stable
-   `torch.compile` scopes, channels-last layout, cuDNN benchmark/
-   non-deterministic kernel selection, DDP `static_graph` and
-   `gradient_as_bucket_view`, optimizer/zero-grad fast paths, optional TF32 or
-   matmul precision flags, real dual-T4/DDP launch proof, real dataloader
-   throughput, paired numerical smoke checks, and catastrophic gate-health,
-   checkpoint/resume, and artifact-writing guards.
-2. Use synthetic timing v4 and runtime-selection v3 only as provenance and
-   baselines. A faster optimized row does not need bitwise determinism, but it
-   must avoid catastrophic failure and record the relaxed-determinism policy in
-   the selected runtime artifact.
+1. With explicit user approval, run the implemented
+   `selected_runtime_v3_efficiency_followup` through the guarded
+   runtime-selection Kaggle kernel. This approval is only for the efficiency
+   benchmark, not for the first 60h-scale real training run. The local code now
+   tests the v3 baseline remeasure plus AMP/FP16, stable `torch.compile`
+   model-forward policies,
+   channels-last, cuDNN benchmark/non-deterministic kernels, DDP
+   `static_graph`/`gradient_as_bucket_view`, optimizer/zero-grad fast paths,
+   and TF32/matmul probes with policy-bound linked proofs. Treat the successful
+   FSQ script's launch/data/runtime choices as measured hypotheses too:
+   `torchrun --standalone --nproc_per_node=2`, `OMP_NUM_THREADS=1`,
+   `MKL_NUM_THREADS=1`, per-rank CUDA/NCCL binding, read-only mmap with
+   `MADV_SEQUENTIAL`, pinned non-blocking H2D, static-shape loader behavior, FP32
+   loss islands under AMP, and full checkpoint/resume state.
+2. After the successor Kaggle output is downloaded, inspect
+   `benchmark/runtime_proof.json`, `runtime_matrix.csv`, and
+   `selected_runtime.json`. A faster optimized row does not need bitwise
+   determinism, but it must beat v3 materially, avoid catastrophic failures, and
+   record the relaxed-determinism policy. In particular, do not inherit the FSQ
+   validation trap where clean validation still executes the corruptor, and do
+   not inherit partial AMP-skip behavior where schedules can advance after a
+   skipped optimizer step.
 3. Run or rerun Kaggle optimization/debug jobs only after explicit user
    approval plus `KAGGLE_PUSH_CONFIRMED=1` and
    `KAGGLE_FULL_DATASET_CONFIRMED=1`; remote reads still require explicit
@@ -662,6 +673,10 @@ The review process lives in `docs/agentic_review_workflow.md`.
 4. Continue the shared evaluation harness, future `SO(2)` count ceiling, and
    steerable model work only after the benchmark plumbing gates are no longer
    blocking the first real baseline run.
+5. Ask for approval on the first 60h-scale real run only after implementation,
+   Kaggle environment checks, efficiency-selection decisions, selected-runtime
+   debug/resume/tiny-overfit checks, artifact checks, and gate-health checks are
+   complete.
 
 ## Current Blockers
 
@@ -2100,15 +2115,44 @@ The review process lives in `docs/agentic_review_workflow.md`.
   catastrophic failures such as non-finite loss/gradients, repeated AMP skips,
   DDP instability, broken checkpoint/resume, broken artifacts, gate-health
   collapse, or clearly invalid metrics should block a faster row.
+- 2026-06-21 local selected-runtime efficiency follow-up implementation:
+  implemented `selected_runtime_v3_efficiency_followup` in
+  `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json`, the
+  runtime-selection writer, and the runtime-selection executor. Runtime rows now
+  carry first-class `runtime_policy_id` and fast-path metadata; dataloader,
+  numerical, corruption, and gate-health proof rows bind to that policy id.
+  The DDP rank path now applies channels-last, cuDNN benchmark/deterministic
+  flags, DDP `static_graph`/`gradient_as_bucket_view`, AMP/FP16 with GradScaler
+  and AMP skip telemetry, stable model-forward `torch.compile` settle counters,
+  AdamW foreach/fused probes, zero-grad/clip fast paths, and TF32/matmul knobs.
+  The writer allows stable compiled rows only with explicit policy id,
+  sufficient settle steps, and zero post-settle graph breaks/recompiles; AMP
+  skips and policy-mismatched linked proofs block selection. The selected
+  runtime payload records relaxed determinism and keeps
+  `full_training_launch_ready = false` until debug/resume/tiny-overfit proof.
+  No Kaggle/GitHub/Overleaf remote action was run. Verification:
+  `PYTHONPATH=src .venv/bin/python -m pytest tests/test_runtime_selection_benchmark.py`,
+  `PYTHONPATH=src .venv/bin/python -m pytest tests/test_kaggle_embedded_kernel.py`,
+  `./scripts/python_quality.sh`, repo `./scripts/agent_preflight.sh`, and
+  workspace `./agent_preflight.sh` all pass. Next action: ask for explicit
+  Kaggle approval to push/run the successor runtime-selection kernel; for a long
+  run, check status once and tell the user a concrete local time to prompt
+  `continue`.
 - 2026-06-20 historical FSQ reference memory:
   the successful working FSQ Kaggle training notebook/artifact is
   `kaggle/train_runs`. It is the local reference for the broad ResNet-like
   autoencoder macro-architecture, spatial latent intuition, and runtime tactics
-  such as DDP, AMP, `torch.compile`, channels-last, and cuDNN benchmarking.
+  such as DDP, AMP, `torch.compile`, channels-last, cuDNN benchmarking, pinned
+  mmap-style data loading, static-shape loader discipline, and checkpoint/resume
+  retention.
   Do not inherit FSQ quantization, codebooks, rounding, discrete latent
-  telemetry, or the learned quantization scale into the new continuous `SO(2)`
-  equivariant VAE path; quantization does not mix well with the equivariance
-  target.
+  telemetry, the learned quantization scale, PixelShuffle/sub-pixel upsampling,
+  final `tanh` output bounding, the exact old HED corruptor implementation, or
+  `rot90`-only/discrete-latent equivariance artifacts into the new continuous
+  `SO(2)` equivariant VAE path. Also do not copy the old branchless validation
+  behavior that computes corruption even for clean validation, or the partial
+  AMP-skip behavior where scheduler/warmup logic can advance after a skipped
+  optimizer step.
 
 ## Update Rule
 

@@ -92,7 +92,8 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   trained correctly and is the source for the broad FSQ-successor
   macro-architecture and Kaggle runtime-efficiency ideas, but the new baseline
   and equivariant model remove FSQ quantization/codebooks/rounding/discrete
-  latents because they do not mix well with continuous `SO(2)` equivariance.
+  latents and sub-pixel/PixelShuffle upsampling because they do not mix well
+  with continuous `SO(2)` equivariance.
 - Before the first full Kaggle run, benchmark where FP16/AMP avoids catastrophic
   failures and is actually faster, whether `torch.compile` is stable enough to
   repay its startup cost, and whether branchless full-batch corruption or indexed
@@ -103,7 +104,9 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   and any TF32 or matmul precision knob available in the Kaggle runtime. The
   first expensive run is performance-first: bitwise determinism and small
   numerical drift are acceptable if the row is materially faster and catastrophic
-  safety checks still pass.
+  safety checks still pass. The local selected-runtime efficiency follow-up
+  harness is implemented; the successor Kaggle run still requires explicit user
+  approval before any remote action.
 - Before writing `benchmark/selected_runtime.json`, time real dual-T4 DDP
   train-step rows. The selection benchmark must prove two visible T4s,
   `world_size = 2`, `nproc_per_node = 2`, per-rank device assignment, linked
@@ -112,3 +115,7 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
 - The first full run also needs passing dataloader-throughput, paired numerical,
   selected-runtime debug, checkpoint/resume, tiny-overfit, and gate-health
   checks on the selected runtime.
+- Do not ask for approval to launch the first 60h-scale real run until the
+  implementation is ready, the Kaggle environment has been checked, runtime
+  efficiency decisions are made from the selected-runtime follow-up, and
+  selected-runtime debug/resume/tiny-overfit/artifact/gate-health checks pass.

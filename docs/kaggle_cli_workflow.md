@@ -228,7 +228,9 @@ materially faster. The project accepts lost bitwise determinism and small
 numerical drift for this speedup; catastrophic failures such as non-finite
 loss/gradients, repeated AMP skips, DDP instability, broken checkpoint/resume,
 broken artifacts, gate-health collapse, or clearly invalid metrics still block
-selection.
+selection. The local runtime-selection executor now implements
+`selected_runtime_v3_efficiency_followup` with policy-bound rows and linked
+proofs, but the successor Kaggle push/status/output has not been run.
 
 The real-data benchmark surface is intentionally separate from the capped smoke
 and from synthetic timing:
@@ -500,6 +502,9 @@ The local v3 patch binds those rows from the branchless gate-health reference
 only after the indexed runtime row has already passed linked evidence.
 Runtime-selection v3 completed and wrote the selected-runtime artifact:
 `runs/kaggle/runtime_selection_v3/benchmark/selected_runtime.json`.
+The local selected-runtime efficiency follow-up is implemented after v3; run it
+only after explicit user approval with the normal runtime-selection guard
+variables.
 
 Local `build`/`validate` may verify the generated real-data pretest payload
 against the current dirty worktree so agents can validate local patches before

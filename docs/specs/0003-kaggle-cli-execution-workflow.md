@@ -38,9 +38,16 @@ efficiency follow-up rather than the final launch decision: AMP/FP16, stable
 selection, DDP `static_graph`/`gradient_as_bucket_view`, optimizer/zero-grad
 fast paths, and any Kaggle-supported TF32/matmul precision knobs should be
 measured against it. Faster rows may trade away bitwise determinism and small
-numerical agreement, but catastrophic failures still block selection.
+numerical agreement, but catastrophic failures still block selection. The local
+runtime-selection executor now implements that follow-up as
+`selected_runtime_v3_efficiency_followup` with policy-bound artifacts; no remote
+Kaggle push/status/output for that successor has been run yet. The successful
+historical FSQ script is runtime reference material for launch, loader, AMP,
+DDP, compile, layout, and checkpoint hypotheses only; it is not a source for
+FSQ quantization, PixelShuffle/sub-pixel upsampling, final `tanh` bounding, the
+exact old corruptor, or `rot90`/discrete-latent equivariance artifacts.
 Owner/workstream: Kaggle GPU execution and artifact retrieval
-Last updated: 2026-06-20
+Last updated: 2026-06-21
 
 ## Purpose
 
@@ -364,7 +371,23 @@ Runtime-selection v3 completed and downloaded to
 timing proof is `pass`, selected-runtime writing is allowed, and the selected
 row is `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`.
 Use that row as the baseline for the efficient selected-runtime follow-up before
-any 60h+ launch.
+any 60h+ launch. The local follow-up code is implemented, but the successor
+Kaggle run still requires explicit user approval and the normal
+`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1` guard.
+This approval is separate from approval for the first real 60h-scale training
+run: agents must not ask to launch that run until implementation, environment
+checks, efficiency decisions, selected-runtime debug/resume, artifact checks,
+tiny-overfit, and gate-health checks are complete.
+The follow-up should measure the FSQ-derived runtime hypotheses without copying
+the FSQ implementation: launch/env settings (`torchrun --standalone
+--nproc_per_node=2`, `OMP_NUM_THREADS=1`, `MKL_NUM_THREADS=1`), per-rank
+CUDA/NCCL binding, mmap/sequential-read and pinned non-blocking H2D behavior,
+channels-last, cuDNN nondeterministic benchmark mode, AMP with FP32 loss islands,
+stable compile warmup, DDP fast paths, optimizer/zero-grad fast paths, and
+checkpoint/resume state. It must also preserve the newer spec corrections: clean
+validation must not execute the corruptor or consume corruption RNG, repeated
+AMP skips block the row, and schedule/checkpoint cadence is driven by successful
+optimizer updates only.
 
 For future long-running Kaggle jobs, agents must not wait in-turn after a push
 or status read shows a kernel is still `RUNNING` and likely to take more than

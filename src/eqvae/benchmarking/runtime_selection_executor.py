@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-# ruff: noqa: DOC501, PERF401, PLR0913, PLR0914, PLR0915, PLW0717, RUF100, SLF001
+# ruff: noqa: C901, DOC501, PERF401, PLR0912, PLR0913, PLR0914, PLR0915, PLW0717, RUF100, SLF001
 # pyright: reportAny=false, reportArgumentType=false, reportAssignmentType=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportPrivateUsage=false, reportReturnType=false, reportUnnecessaryCast=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false
 """Kaggle executor for the selected-runtime benchmark slice.
 
@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import math
 import os
 import subprocess  # noqa: S404
 import sys
@@ -32,9 +33,13 @@ from eqvae.benchmarking.runtime_schema import (
     NUMERICAL_CHECK_COLUMNS,
 )
 from eqvae.benchmarking.runtime_selection import (
+    AMP_CONSERVATIVE,
     AMP_OFF_FP32,
+    AMP_SCALAR_GATE_RELAXED,
     BRANCHLESS_ALL,
+    COMPILE_MODEL_FORWARD,
     COMPILE_NONE,
+    DEFAULT_RUNTIME_POLICY_ID,
     DUAL_T4_DDP,
     EXPECTED_DUAL_T4_COUNT,
     EXPECTED_MACHINE_SHAPE,
@@ -56,6 +61,7 @@ from eqvae.config import ResolvedConfig, resolve_json_config
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from contextlib import AbstractContextManager
 
     import torch
 
@@ -90,6 +96,31 @@ class _SelectionStageSettings:
     fallback_batch_sizes: tuple[int, ...]
     dual_batch_sizes: tuple[int, ...]
     corruption_strategies: tuple[str, ...]
+    efficiency_batch_sizes: tuple[int, ...]
+    efficiency_corruption_strategies: tuple[str, ...]
+    efficiency_policies: tuple[_RuntimePolicy, ...]
+
+
+@dataclass(frozen=True)
+class _RuntimePolicy:
+    runtime_policy_id: str
+    precision_policy: str
+    compile_scope: str
+    memory_format: str = "contiguous"
+    autocast_dtype: str = ""
+    fp32_loss: bool = True
+    grad_scaler_enabled: bool = False
+    cudnn_benchmark: bool = False
+    cudnn_deterministic: bool = False
+    deterministic_algorithms: bool = False
+    tf32_enabled: bool = False
+    matmul_precision: str = "highest"
+    ddp_static_graph: bool = False
+    ddp_gradient_as_bucket_view: bool = False
+    optimizer_implementation: str = "adamw_default"
+    zero_grad_set_to_none: bool = True
+    gradient_clip_foreach: bool = False
+    compile_dynamic: bool = False
 
 
 @dataclass(frozen=True)
@@ -106,6 +137,16 @@ class _DdpLaunchResult:
     returncode: int
     failure_kind: str
     failure_message_hash: str
+
+
+@dataclass(frozen=True)
+class _TrainStepTelemetry:
+    forward: object
+    losses: object
+    grad_norm: float
+    param_update_norm: float
+    nonfinite_count: int
+    amp_step_skipped: bool
 
 
 def write_runtime_selection_execution(
@@ -324,11 +365,21 @@ def _selection_stage_settings(
     stages = _required_object_list(selection, "stages")
     first_stage = _stage(stages, "v8_shortlist_fp32_eager_confirmation")
     dual_stage = _stage(stages, "dual_t4_train_step_gate")
+    efficiency = _optional_object(selection, "efficiency_followup")
     return _SelectionStageSettings(
         single_batch_sizes=_int_tuple(first_stage, "per_device_batch_sizes"),
         fallback_batch_sizes=_int_tuple(first_stage, "fallback_per_device_batch_sizes"),
         dual_batch_sizes=_int_tuple(dual_stage, "per_device_batch_sizes"),
         corruption_strategies=_str_tuple(dual_stage, "corruption_strategies"),
+        efficiency_batch_sizes=()
+        if efficiency is None
+        else _int_tuple(efficiency, "per_device_batch_sizes"),
+        efficiency_corruption_strategies=()
+        if efficiency is None
+        else _str_tuple(efficiency, "corruption_strategies"),
+        efficiency_policies=()
+        if efficiency is None
+        else _runtime_policies(_required_object_list(efficiency, "policies")),
     )
 
 
@@ -338,6 +389,82 @@ def _stage(stages: Sequence[JsonObject], name: str) -> JsonObject:
             return stage
     message = f"Missing selection stage: {name}"
     raise ValueError(message)
+
+
+def _runtime_policies(items: Sequence[JsonObject]) -> tuple[_RuntimePolicy, ...]:
+    policies: list[_RuntimePolicy] = []
+    for item in items:
+        precision_policy = _required_str(item, "precision_policy")
+        compile_scope = _required_str(item, "compile_scope")
+        if precision_policy not in {
+            AMP_OFF_FP32,
+            AMP_CONSERVATIVE,
+            AMP_SCALAR_GATE_RELAXED,
+        }:
+            message = f"Unsupported precision_policy: {precision_policy}"
+            raise ValueError(message)
+        if compile_scope not in {COMPILE_NONE, COMPILE_MODEL_FORWARD}:
+            message = f"Unsupported compile_scope: {compile_scope}"
+            raise ValueError(message)
+        policies.append(
+            _RuntimePolicy(
+                runtime_policy_id=_required_str(item, "runtime_policy_id"),
+                precision_policy=precision_policy,
+                compile_scope=compile_scope,
+                memory_format=_optional_str(item, "memory_format") or "contiguous",
+                autocast_dtype=_optional_str(item, "autocast_dtype") or "",
+                fp32_loss=_optional_bool(item, "fp32_loss", default=True),
+                grad_scaler_enabled=_optional_bool(
+                    item,
+                    "grad_scaler_enabled",
+                    default=precision_policy != AMP_OFF_FP32,
+                ),
+                cudnn_benchmark=_optional_bool(
+                    item,
+                    "cudnn_benchmark",
+                    default=False,
+                ),
+                cudnn_deterministic=_optional_bool(
+                    item,
+                    "cudnn_deterministic",
+                    default=False,
+                ),
+                deterministic_algorithms=_optional_bool(
+                    item,
+                    "deterministic_algorithms",
+                    default=False,
+                ),
+                tf32_enabled=_optional_bool(item, "tf32_enabled", default=False),
+                matmul_precision=_optional_str(item, "matmul_precision") or "highest",
+                ddp_static_graph=_optional_bool(
+                    item,
+                    "ddp_static_graph",
+                    default=False,
+                ),
+                ddp_gradient_as_bucket_view=_optional_bool(
+                    item,
+                    "ddp_gradient_as_bucket_view",
+                    default=False,
+                ),
+                optimizer_implementation=_optional_str(
+                    item,
+                    "optimizer_implementation",
+                )
+                or "adamw_default",
+                zero_grad_set_to_none=_optional_bool(
+                    item,
+                    "zero_grad_set_to_none",
+                    default=True,
+                ),
+                gradient_clip_foreach=_optional_bool(
+                    item,
+                    "gradient_clip_foreach",
+                    default=False,
+                ),
+                compile_dynamic=_optional_bool(item, "compile_dynamic", default=False),
+            ),
+        )
+    return tuple(policies)
 
 
 def _single_row_specs(
@@ -364,7 +491,7 @@ def _dual_row_specs(
     settings: pretest.RealDataRuntimePretestSettings,
     stage: _SelectionStageSettings,
 ) -> tuple[pretest.RowSpec, ...]:
-    return tuple(
+    gate_specs = [
         _row_spec(
             settings=settings,
             accelerator_mode=DUAL_T4_DDP,
@@ -374,7 +501,28 @@ def _dual_row_specs(
         )
         for batch_size in stage.dual_batch_sizes
         for corruption_strategy in stage.corruption_strategies
-    )
+    ]
+    efficiency_specs = [
+        _row_spec(
+            settings=settings,
+            accelerator_mode=DUAL_T4_DDP,
+            batch_size=batch_size,
+            corruption_strategy=corruption_strategy,
+            candidate_role="selected_runtime_efficiency_followup",
+            policy=policy,
+        )
+        for batch_size in stage.efficiency_batch_sizes
+        for corruption_strategy in stage.efficiency_corruption_strategies
+        for policy in stage.efficiency_policies
+    ]
+    seen: set[str] = set()
+    unique: list[pretest.RowSpec] = []
+    for spec in (*gate_specs, *efficiency_specs):
+        if spec.row_id in seen:
+            continue
+        seen.add(spec.row_id)
+        unique.append(spec)
+    return tuple(unique)
 
 
 def _row_spec(
@@ -384,26 +532,51 @@ def _row_spec(
     batch_size: int,
     corruption_strategy: str,
     candidate_role: str,
+    policy: _RuntimePolicy | None = None,
 ) -> pretest.RowSpec:
     del settings
     world_size = EXPECTED_DUAL_T4_COUNT if accelerator_mode == DUAL_T4_DDP else 1
     cuda_visible_devices = "0,1" if accelerator_mode == DUAL_T4_DDP else "0"
+    runtime_policy = policy or _RuntimePolicy(
+        runtime_policy_id=DEFAULT_RUNTIME_POLICY_ID,
+        precision_policy=AMP_OFF_FP32,
+        compile_scope=COMPILE_NONE,
+    )
     return pretest.RowSpec(
         row_id=_row_id(
             accelerator_mode=accelerator_mode,
             batch_size=batch_size,
+            precision_policy=runtime_policy.precision_policy,
+            compile_scope=runtime_policy.compile_scope,
             corruption_strategy=corruption_strategy,
+            runtime_policy_id=runtime_policy.runtime_policy_id,
         ),
         accelerator_mode=accelerator_mode,
         per_device_batch_size=batch_size,
-        precision_policy=AMP_OFF_FP32,
-        compile_scope=COMPILE_NONE,
+        precision_policy=runtime_policy.precision_policy,
+        compile_scope=runtime_policy.compile_scope,
         corruption_strategy=corruption_strategy,
         parent_synthetic_row_id="",
         candidate_role=candidate_role,
         world_size=world_size,
         nproc_per_node=world_size,
         cuda_visible_devices=cuda_visible_devices,
+        runtime_policy_id=runtime_policy.runtime_policy_id,
+        memory_format=runtime_policy.memory_format,
+        autocast_dtype=runtime_policy.autocast_dtype,
+        fp32_loss=runtime_policy.fp32_loss,
+        grad_scaler_enabled=runtime_policy.grad_scaler_enabled,
+        cudnn_benchmark=runtime_policy.cudnn_benchmark,
+        cudnn_deterministic=runtime_policy.cudnn_deterministic,
+        deterministic_algorithms=runtime_policy.deterministic_algorithms,
+        tf32_enabled=runtime_policy.tf32_enabled,
+        matmul_precision=runtime_policy.matmul_precision,
+        ddp_static_graph=runtime_policy.ddp_static_graph,
+        ddp_gradient_as_bucket_view=runtime_policy.ddp_gradient_as_bucket_view,
+        optimizer_implementation=runtime_policy.optimizer_implementation,
+        zero_grad_set_to_none=runtime_policy.zero_grad_set_to_none,
+        gradient_clip_foreach=runtime_policy.gradient_clip_foreach,
+        compile_dynamic=runtime_policy.compile_dynamic,
     )
 
 
@@ -710,13 +883,34 @@ def _dual_row_from_rank_payloads(
                 for payload in rank_payloads
             ),  # noqa: SLF001
         ),
-        "amp_step_skipped_count": "0",
+        "compile_startup_sec": pretest._format_float(  # noqa: SLF001
+            max(
+                pretest._required_float(payload, "compile_startup_sec")
+                for payload in rank_payloads
+            ),
+        ),
+        "amp_step_skipped_count": str(
+            sum(
+                pretest._required_int(payload, "amp_step_skipped_count")  # noqa: SLF001
+                for payload in rank_payloads
+            ),
+        ),
         "gate_health_status": PASS_STATUS,
         "gate_health_warning_count": "0",
         "numerical_check_status": PASS_STATUS,
         "data_wait_fraction_p95": "0.000000",
-        "graph_break_count": "0",
-        "recompile_count": "0",
+        "graph_break_count": str(
+            max(
+                pretest._required_int(payload, "post_settle_graph_break_count")  # noqa: SLF001
+                for payload in rank_payloads
+            ),
+        ),
+        "recompile_count": str(
+            max(
+                pretest._required_int(payload, "post_settle_recompile_count")  # noqa: SLF001
+                for payload in rank_payloads
+            ),
+        ),
         "status": PASS_STATUS,
         "failure_kind": "",
         "failure_message_hash": "",
@@ -780,9 +974,45 @@ def _base_selection_row(
         "world_size": str(row_spec.world_size),
         "nproc_per_node": str(row_spec.nproc_per_node),
         "precision_policy": row_spec.precision_policy,
-        "amp_enabled": "false",
-        "torch_compile_enabled": "false",
+        "amp_enabled": pretest._format_bool(  # noqa: SLF001
+            value=row_spec.precision_policy != AMP_OFF_FP32,
+        ),
+        "torch_compile_enabled": pretest._format_bool(  # noqa: SLF001
+            value=row_spec.compile_scope != COMPILE_NONE,
+        ),
         "compile_scope": row_spec.compile_scope,
+        "runtime_policy_id": row_spec.runtime_policy_id,
+        "memory_format": row_spec.memory_format,
+        "autocast_dtype": row_spec.autocast_dtype,
+        "fp32_loss": pretest._format_bool(value=row_spec.fp32_loss),  # noqa: SLF001
+        "grad_scaler_enabled": pretest._format_bool(  # noqa: SLF001
+            value=row_spec.grad_scaler_enabled,
+        ),
+        "cudnn_benchmark": pretest._format_bool(  # noqa: SLF001
+            value=row_spec.cudnn_benchmark,
+        ),
+        "cudnn_deterministic": pretest._format_bool(  # noqa: SLF001
+            value=row_spec.cudnn_deterministic,
+        ),
+        "deterministic_algorithms": pretest._format_bool(  # noqa: SLF001
+            value=row_spec.deterministic_algorithms,
+        ),
+        "tf32_enabled": pretest._format_bool(value=row_spec.tf32_enabled),  # noqa: SLF001
+        "matmul_precision": row_spec.matmul_precision,
+        "ddp_static_graph": pretest._format_bool(  # noqa: SLF001
+            value=row_spec.ddp_static_graph,
+        ),
+        "ddp_gradient_as_bucket_view": pretest._format_bool(  # noqa: SLF001
+            value=row_spec.ddp_gradient_as_bucket_view,
+        ),
+        "optimizer_implementation": row_spec.optimizer_implementation,
+        "zero_grad_set_to_none": pretest._format_bool(  # noqa: SLF001
+            value=row_spec.zero_grad_set_to_none,
+        ),
+        "gradient_clip_foreach": pretest._format_bool(  # noqa: SLF001
+            value=row_spec.gradient_clip_foreach,
+        ),
+        "compile_dynamic": pretest._format_bool(value=row_spec.compile_dynamic),  # noqa: SLF001
         "corruption_strategy": row_spec.corruption_strategy,
         "per_device_batch_size": str(row_spec.per_device_batch_size),
         "global_batch_size": str(row_spec.per_device_batch_size * row_spec.world_size),
@@ -791,7 +1021,11 @@ def _base_selection_row(
         "measured_steps": str(settings.measured_steps),
         "repeats": str(settings.repeats),
         "compile_startup_sec": "0.000000",
-        "compile_settle_steps": "0",
+        "compile_settle_steps": (
+            "0"
+            if row_spec.compile_scope == COMPILE_NONE
+            else str(settings.compile_settle_steps)
+        ),
         "steady_step_ms_p50": "",
         "steady_step_ms_p95": "",
         "samples_sec": "",
@@ -836,6 +1070,11 @@ def _dual_dataloader_rows(
                     "accelerator_mode": DUAL_T4_DDP,
                     "machine_shape": EXPECTED_MACHINE_SHAPE,
                     "world_size": runtime_row["world_size"],
+                    "runtime_policy_id": runtime_row.get(
+                        "runtime_policy_id",
+                        DEFAULT_RUNTIME_POLICY_ID,
+                    ),
+                    "memory_format": runtime_row.get("memory_format", "contiguous"),
                     "rank": rank,
                     "split": split,
                     "num_workers": str(pretest.DEFAULT_DATALOADER_NUM_WORKERS),
@@ -960,6 +1199,10 @@ def _dual_numerical_row_from_delta(
         "row_id": f"{runtime_row['row_id']}__numerical__batch_{batch_index}",
         "reference_row_id": _reference_row_id(runtime_row),
         "candidate_row_id": runtime_row["row_id"],
+        "runtime_policy_id": runtime_row.get(
+            "runtime_policy_id",
+            DEFAULT_RUNTIME_POLICY_ID,
+        ),
         "batch_index": str(batch_index),
         "precision_policy": runtime_row["precision_policy"],
         "torch_compile_enabled": runtime_row["torch_compile_enabled"],
@@ -1056,6 +1299,10 @@ def _empty_numerical_row(
         "row_id": runtime_row["row_id"],
         "reference_row_id": _reference_row_id(runtime_row),
         "candidate_row_id": runtime_row["row_id"],
+        "runtime_policy_id": runtime_row.get(
+            "runtime_policy_id",
+            DEFAULT_RUNTIME_POLICY_ID,
+        ),
         "batch_index": "0",
         "precision_policy": runtime_row["precision_policy"],
         "torch_compile_enabled": runtime_row["torch_compile_enabled"],
@@ -1144,6 +1391,10 @@ def _dual_corruption_row_from_proof(
         "row_id": f"{runtime_row['row_id']}__corruption__train__batch_{batch_index}",
         "reference_row_id": _reference_row_id(runtime_row),
         "candidate_row_id": runtime_row["row_id"],
+        "runtime_policy_id": runtime_row.get(
+            "runtime_policy_id",
+            DEFAULT_RUNTIME_POLICY_ID,
+        ),
         "batch_index": str(batch_index),
         "corruption_version": "spec0001.hed_corruptor.v1",
         "profile_name": pretest._required_str(candidate, "profile_name"),  # noqa: SLF001
@@ -1191,6 +1442,10 @@ def _empty_corruption_row(
         "row_id": runtime_row["row_id"],
         "reference_row_id": _reference_row_id(runtime_row),
         "candidate_row_id": runtime_row["row_id"],
+        "runtime_policy_id": runtime_row.get(
+            "runtime_policy_id",
+            DEFAULT_RUNTIME_POLICY_ID,
+        ),
         "batch_index": "0",
         "corruption_strategy": runtime_row["corruption_strategy"],
         "split": "train",
@@ -1219,6 +1474,10 @@ def _dual_gate_rows(results: Sequence[_DdpLaunchResult]) -> list[CsvRow]:
             rewritten["accelerator_mode"] = DUAL_T4_DDP
             rewritten["machine_shape"] = EXPECTED_MACHINE_SHAPE
             rewritten["candidate_row_id"] = result.row["row_id"]
+            rewritten["runtime_policy_id"] = result.row.get(
+                "runtime_policy_id",
+                DEFAULT_RUNTIME_POLICY_ID,
+            )
             rewritten["row_id"] = f"{result.row['row_id']}__gate__{rewritten['module']}"
             if rewritten.get("gate_health_status") == pretest.LOCAL_PASS_STATUS:
                 rewritten["gate_health_status"] = PASS_STATUS
@@ -1360,6 +1619,8 @@ def _clean_validation_corruption_rows(
             and row.get("machine_shape") == runtime_row["machine_shape"]
             and row.get("world_size") == runtime_row["world_size"]
             and row.get("batch_size") == runtime_row["per_device_batch_size"]
+            and row.get("runtime_policy_id", DEFAULT_RUNTIME_POLICY_ID)
+            == runtime_row.get("runtime_policy_id", DEFAULT_RUNTIME_POLICY_ID)
             and row.get("split") == "validation"
         ]
         if not validation_rows:
@@ -1384,6 +1645,10 @@ def _clean_validation_corruption_rows(
             "row_id": f"{row_id}__corruption__validation_clean",
             "reference_row_id": _reference_row_id(runtime_row),
             "candidate_row_id": row_id,
+            "runtime_policy_id": runtime_row.get(
+                "runtime_policy_id",
+                DEFAULT_RUNTIME_POLICY_ID,
+            ),
             "batch_index": "0",
             "corruption_version": "spec0001.hed_corruptor.v1",
             "profile_name": "clean_validation_no_corruption",
@@ -1417,6 +1682,8 @@ def _rows_with_selection_scope(rows: Sequence[CsvRow]) -> list[CsvRow]:
         copied = dict(row)
         copied["benchmark_kind"] = RUNTIME_SELECTION_KIND
         copied["benchmark_source"] = RUNTIME_SELECTION_SOURCE
+        if "runtime_policy_id" in copied and not copied["runtime_policy_id"]:
+            copied["runtime_policy_id"] = DEFAULT_RUNTIME_POLICY_ID
         if copied.get("gate_health_status") == pretest.LOCAL_PASS_STATUS:
             copied["gate_health_status"] = PASS_STATUS
         is_gate_health_row = bool(copied.get("module")) and bool(
@@ -1471,7 +1738,10 @@ def _reference_row_id(runtime_row: CsvRow) -> str:
     return _row_id(
         accelerator_mode=runtime_row["accelerator_mode"],
         batch_size=int(runtime_row["per_device_batch_size"]),
+        precision_policy=AMP_OFF_FP32,
+        compile_scope=COMPILE_NONE,
         corruption_strategy=BRANCHLESS_ALL,
+        runtime_policy_id=DEFAULT_RUNTIME_POLICY_ID,
     )
 
 
@@ -1479,12 +1749,18 @@ def _row_id(
     *,
     accelerator_mode: str,
     batch_size: int,
+    precision_policy: str,
+    compile_scope: str,
     corruption_strategy: str,
+    runtime_policy_id: str,
 ) -> str:
-    return (
-        f"{accelerator_mode}__bs{batch_size}__{AMP_OFF_FP32}"
-        f"__compile_{COMPILE_NONE}__{corruption_strategy}"
+    base = (
+        f"{accelerator_mode}__bs{batch_size}__{precision_policy}"
+        f"__compile_{compile_scope}__{corruption_strategy}"
     )
+    if runtime_policy_id in {"", DEFAULT_RUNTIME_POLICY_ID}:
+        return base
+    return f"{base}__policy_{runtime_policy_id}"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1519,13 +1795,14 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
         PatchTrainingDatasetSpec,
         collate_patch_training_samples,
     )
-    from eqvae.losses.vae import beta_for_step  # noqa: PLC0415
+    from eqvae.losses.vae import beta_for_step, compute_vae_loss  # noqa: PLC0415
     from eqvae.models.non_equivariant_vae import (  # noqa: PLC0415
         LATENT_CHANNELS,
         build_non_equivariant_vae,
     )
     from eqvae.training.optim import (  # noqa: PLC0415
         SpecAdamWConfig,
+        build_adamw_parameter_groups,
         create_adamw_optimizer,
     )
     from eqvae.training.step import TrainStepRequest, run_train_step  # noqa: PLC0415
@@ -1540,7 +1817,12 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
         resolve_json_config(config.config_path),
         data_root_override=config.data_root,
     )
+    backend_state: JsonObject = {}
     try:
+        backend_state = _apply_backend_policy(
+            torch_module=torch,
+            row_spec=config.row_spec,
+        )
         manual_seed = cast("object", torch.manual_seed)
         cast("object", manual_seed)(settings.global_seed)
         paths = resolve_patch_data_paths(config.data_root)
@@ -1586,6 +1868,7 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                     subset_factory=Subset,
                     collate_fn=collate_patch_training_samples,
                     normalize_uint8_batch_fn=normalize_uint8_batch,
+                    row_spec=config.row_spec,
                     measured_batches=settings.measured_steps,
                 ),
                 "validation": _measure_rank_loader(
@@ -1598,6 +1881,7 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                     subset_factory=Subset,
                     collate_fn=collate_patch_training_samples,
                     normalize_uint8_batch_fn=normalize_uint8_batch,
+                    row_spec=config.row_spec,
                     measured_batches=settings.measured_steps,
                 ),
             }
@@ -1614,52 +1898,119 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
             raw_model = build_non_equivariant_vae(
                 norm_groups=settings.norm_groups,
             ).to(device)
+            if config.row_spec.memory_format == "channels_last":
+                raw_model = raw_model.to(memory_format=torch.channels_last)
             ddp_model = DistributedDataParallel(
                 raw_model,
                 device_ids=[local_rank],
                 output_device=local_rank,
+                static_graph=config.row_spec.ddp_static_graph,
+                gradient_as_bucket_view=config.row_spec.ddp_gradient_as_bucket_view,
             )
-            optimizer, _summary = create_adamw_optimizer(
-                raw_model,
-                config=SpecAdamWConfig(
-                    learning_rate=settings.learning_rate,
-                    weight_decay=settings.weight_decay,
-                    gate_lr_multiplier=1.0,
-                    gradient_clip_global_norm=settings.gradient_clip_global_norm,
-                    beta1=0.9,
-                    beta2=0.999,
-                ),
+            model = _compile_ddp_model_if_requested(
+                torch_module=torch,
+                model=cast("object", ddp_model),
+                row_spec=config.row_spec,
             )
+            optimizer_config = SpecAdamWConfig(
+                learning_rate=settings.learning_rate,
+                weight_decay=settings.weight_decay,
+                gate_lr_multiplier=1.0,
+                gradient_clip_global_norm=settings.gradient_clip_global_norm,
+                beta1=0.9,
+                beta2=0.999,
+            )
+            if config.row_spec.optimizer_implementation == "adamw_default":
+                optimizer, _summary = create_adamw_optimizer(
+                    raw_model,
+                    config=optimizer_config,
+                )
+            else:
+                parameter_groups, _summary = build_adamw_parameter_groups(
+                    raw_model,
+                    config=optimizer_config,
+                )
+                optimizer_kwargs: dict[str, object] = {}
+                if config.row_spec.optimizer_implementation == "adamw_foreach":
+                    optimizer_kwargs["foreach"] = True
+                elif config.row_spec.optimizer_implementation == "adamw_fused":
+                    optimizer_kwargs["fused"] = True
+                else:
+                    message = (
+                        "Unsupported optimizer_implementation: "
+                        f"{config.row_spec.optimizer_implementation}"
+                    )
+                    raise ValueError(message)
+                optimizer = torch.optim.AdamW(
+                    cast("list[dict[str, object]]", parameter_groups),
+                    lr=optimizer_config.learning_rate,
+                    betas=(optimizer_config.beta1, optimizer_config.beta2),
+                    eps=optimizer_config.epsilon,
+                    weight_decay=optimizer_config.weight_decay,
+                    **optimizer_kwargs,
+                )
+            scaler = _grad_scaler(torch_module=torch, row_spec=config.row_spec)
             profile = profile_from_config(settings.corruption_config)
-            iterator = iter(cast("object", train_loader))
-            proof_steps = []
-            for proof_index in range(pretest.REQUIRED_NUMERICAL_FIXED_BATCHES):
-                proof_steps.append(
-                    _run_one_ddp_batch(
-                        iterator=iterator,
-                        model=cast("object", ddp_model),
-                        raw_model=raw_model,
-                        optimizer=optimizer,
+            compile_startup_sec = 0.0
+            dynamo_counter_source_available = False
+            settle_counter_snapshot: JsonObject = {}
+            post_settle_counter_snapshot: JsonObject = {}
+            post_settle_graph_break_count = 0
+            post_settle_recompile_count = 0
+            if config.row_spec.compile_scope != COMPILE_NONE:
+                dynamo_counter_source_available = pretest._reset_dynamo_counters()  # noqa: SLF001
+                settle_start_ns = time.perf_counter_ns()
+                settle_iterator = iter(cast("object", train_loader))
+                for settle_index in range(settings.compile_settle_steps):
+                    _run_ddp_forward_settle_batch(
+                        iterator=settle_iterator,
+                        model=model,
                         device=device,
                         profile=profile,
                         normalize_uint8_batch_fn=normalize_uint8_batch,
                         corrupt_normalized_batch_fn=corrupt_normalized_batch,
                         settings=settings,
-                        step_index=proof_index,
+                        step_index=settle_index,
                         row_spec=config.row_spec,
                         latent_channels=LATENT_CHANNELS,
-                        beta_for_step_fn=beta_for_step,
-                        train_step_request_factory=TrainStepRequest,
-                        run_train_step_fn=run_train_step,
-                        capture_gate_rows=rank == 0 and proof_index == 0,
-                    ),
-                )
-            for step_index in range(settings.warmup_steps):
-                _run_one_ddp_batch(
+                    )
+                torch.cuda.synchronize(device)
+                compile_startup_sec = pretest._elapsed_seconds(settle_start_ns)  # noqa: SLF001
+                settle_counter_snapshot = pretest._dynamo_counter_summary()  # noqa: SLF001
+                pretest._reset_dynamo_counters()  # noqa: SLF001
+            iterator = iter(cast("object", train_loader))
+            proof_steps = []
+            amp_step_skipped_count = 0
+            for proof_index in range(pretest.REQUIRED_NUMERICAL_FIXED_BATCHES):
+                proof = _run_one_ddp_batch(
                     iterator=iterator,
-                    model=cast("object", ddp_model),
+                    model=model,
                     raw_model=raw_model,
                     optimizer=optimizer,
+                    scaler=scaler,
+                    device=device,
+                    profile=profile,
+                    normalize_uint8_batch_fn=normalize_uint8_batch,
+                    corrupt_normalized_batch_fn=corrupt_normalized_batch,
+                    settings=settings,
+                    step_index=proof_index,
+                    row_spec=config.row_spec,
+                    latent_channels=LATENT_CHANNELS,
+                    beta_for_step_fn=beta_for_step,
+                    train_step_request_factory=TrainStepRequest,
+                    run_train_step_fn=run_train_step,
+                    compute_vae_loss_fn=compute_vae_loss,
+                    capture_gate_rows=rank == 0 and proof_index == 0,
+                )
+                amp_step_skipped_count += int(bool(proof.get("amp_step_skipped")))
+                proof_steps.append(proof)
+            for step_index in range(settings.warmup_steps):
+                warmup = _run_one_ddp_batch(
+                    iterator=iterator,
+                    model=model,
+                    raw_model=raw_model,
+                    optimizer=optimizer,
+                    scaler=scaler,
                     device=device,
                     profile=profile,
                     normalize_uint8_batch_fn=normalize_uint8_batch,
@@ -1671,8 +2022,10 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                     beta_for_step_fn=beta_for_step,
                     train_step_request_factory=TrainStepRequest,
                     run_train_step_fn=run_train_step,
+                    compute_vae_loss_fn=compute_vae_loss,
                     capture_gate_rows=False,
                 )
+                amp_step_skipped_count += int(bool(warmup.get("amp_step_skipped")))
             torch.cuda.reset_peak_memory_stats(device)
             step_ms: list[float] = []
             samples = 0
@@ -1680,9 +2033,10 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                 start_ns = time.perf_counter_ns()
                 measured = _run_one_ddp_batch(
                     iterator=iterator,
-                    model=cast("object", ddp_model),
+                    model=model,
                     raw_model=raw_model,
                     optimizer=optimizer,
+                    scaler=scaler,
                     device=device,
                     profile=profile,
                     normalize_uint8_batch_fn=normalize_uint8_batch,
@@ -1696,11 +2050,26 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                     beta_for_step_fn=beta_for_step,
                     train_step_request_factory=TrainStepRequest,
                     run_train_step_fn=run_train_step,
+                    compute_vae_loss_fn=compute_vae_loss,
                     capture_gate_rows=False,
                 )
                 torch.cuda.synchronize(device)
                 step_ms.append(pretest._elapsed_ms(start_ns))  # noqa: SLF001
                 samples += int(measured["observed_batch_size"])
+                amp_step_skipped_count += int(bool(measured.get("amp_step_skipped")))
+            if config.row_spec.compile_scope != COMPILE_NONE:
+                post_settle_counter_snapshot = pretest._dynamo_counter_summary()  # noqa: SLF001
+                post_settle_graph_break_count = pretest._counter_total(  # noqa: SLF001
+                    post_settle_counter_snapshot,
+                    "graph_break",
+                )
+                post_settle_recompile_count = max(
+                    pretest._counter_total(post_settle_counter_snapshot, "recompil"),  # noqa: SLF001
+                    pretest._counter_total(  # noqa: SLF001
+                        post_settle_counter_snapshot,
+                        "unique_graphs",
+                    ),
+                )
             payload: JsonObject = {
                 "status": PASS_STATUS,
                 "rank": rank,
@@ -1714,6 +2083,16 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                 "proof_step": proof_steps[0],
                 "proof_steps": proof_steps,
                 "dataloader": dataloader_payload,
+                "runtime_policy_id": config.row_spec.runtime_policy_id,
+                "backend_state_before": backend_state,
+                "backend_state_after": _backend_state(torch_module=torch),
+                "compile_startup_sec": compile_startup_sec,
+                "dynamo_counter_source_available": dynamo_counter_source_available,
+                "settle_counter_snapshot": settle_counter_snapshot,
+                "post_settle_counter_snapshot": post_settle_counter_snapshot,
+                "post_settle_graph_break_count": post_settle_graph_break_count,
+                "post_settle_recompile_count": post_settle_recompile_count,
+                "amp_step_skipped_count": amp_step_skipped_count,
                 "max_vram_allocated_mb": pretest._cuda_allocated_mb(device),  # noqa: SLF001
                 "max_vram_reserved_mb": pretest._cuda_reserved_mb(device),  # noqa: SLF001
                 "vram_headroom_fraction": pretest._cuda_headroom_fraction(device),  # noqa: SLF001
@@ -1741,6 +2120,7 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
         )
         raise
     finally:
+        _restore_backend_policy(torch_module=torch, state=backend_state)
         dist.destroy_process_group()
 
 
@@ -1750,6 +2130,7 @@ def _run_one_ddp_batch(  # noqa: PLR0913
     model: object,
     raw_model: object,
     optimizer: object,
+    scaler: object,
     device: object,
     profile: object,
     normalize_uint8_batch_fn: object,
@@ -1761,13 +2142,18 @@ def _run_one_ddp_batch(  # noqa: PLR0913
     beta_for_step_fn: object,
     train_step_request_factory: object,
     run_train_step_fn: object,
+    compute_vae_loss_fn: object,
     capture_gate_rows: bool,
 ) -> JsonObject:
     import torch  # noqa: PLC0415
 
+    del train_step_request_factory, run_train_step_fn
     batch = next(cast("object", iterator))
-    clean = cast("object", normalize_uint8_batch_fn)(batch.images_uint8).to(
+    clean = _move_clean_batch_to_device(
+        torch_module=torch,
+        clean=cast("object", normalize_uint8_batch_fn)(batch.images_uint8),
         device=device,
+        row_spec=row_spec,
     )
     snapshots = (
         pretest._gate_parameter_snapshots(raw_model)  # noqa: SLF001
@@ -1805,24 +2191,33 @@ def _run_one_ddp_batch(  # noqa: PLR0913
             dtype=torch.float32,
             device=device,
         )
+        if row_spec.memory_format == "channels_last":
+            eps = eps.contiguous(memory_format=torch.channels_last)
         beta = cast("object", beta_for_step_fn)(
             optimizer_step_index=step_index,
             max_optimizer_steps=settings.warmup_steps + settings.measured_steps + 1,
             target_beta=settings.beta_target,
             warmup_fraction=settings.beta_warmup_fraction,
         )
-        result = cast("object", run_train_step_fn)(
-            cast("object", train_step_request_factory)(
-                model=model,
-                optimizer=optimizer,
-                clean_batch=clean,
-                eps=eps,
-                beta=beta,
-                ssim_weight=settings.ssim_weight,
-                optimizer_step_index=step_index,
-                gradient_clip_global_norm=settings.gradient_clip_global_norm,
-                input_batch=corruption.corrupted,
-            ),
+        model_input = _maybe_channels_last(
+            torch_module=torch,
+            tensor=corruption.corrupted,
+            row_spec=row_spec,
+        )
+        result = _run_policy_train_step(
+            torch_module=torch,
+            model=model,
+            raw_model=raw_model,
+            optimizer=optimizer,
+            scaler=scaler,
+            clean_batch=clean,
+            input_batch=model_input,
+            eps=eps,
+            beta=float(beta),
+            ssim_weight=settings.ssim_weight,
+            gradient_clip_global_norm=settings.gradient_clip_global_norm,
+            row_spec=row_spec,
+            compute_vae_loss_fn=compute_vae_loss_fn,
         )
     finally:
         for hook in hooks:
@@ -1850,7 +2245,7 @@ def _run_one_ddp_batch(  # noqa: PLR0913
         "grad_norm": result.grad_norm,
         "param_update_norm": result.param_update_norm,
         "nonfinite_count": result.nonfinite_count,
-        "amp_step_skipped": False,
+        "amp_step_skipped": result.amp_step_skipped,
         "x_hat_min": float(result.forward.reconstruction.detach().amin().item()),
         "x_hat_max": float(result.forward.reconstruction.detach().amax().item()),
         "mu_mean": float(result.forward.mu.detach().mean().item()),
@@ -1897,6 +2292,344 @@ def _run_one_ddp_batch(  # noqa: PLR0913
     }
 
 
+def _run_ddp_forward_settle_batch(  # noqa: PLR0913
+    *,
+    iterator: object,
+    model: object,
+    device: object,
+    profile: object,
+    normalize_uint8_batch_fn: object,
+    corrupt_normalized_batch_fn: object,
+    settings: pretest.RealDataRuntimePretestSettings,
+    step_index: int,
+    row_spec: pretest.RowSpec,
+    latent_channels: int,
+) -> None:
+    import torch  # noqa: PLC0415
+
+    batch = next(cast("object", iterator))
+    clean = _move_clean_batch_to_device(
+        torch_module=torch,
+        clean=cast("object", normalize_uint8_batch_fn)(batch.images_uint8),
+        device=device,
+        row_spec=row_spec,
+    )
+    corruption = cast("object", corrupt_normalized_batch_fn)(
+        clean,
+        profile=profile,
+        corruption_seed=settings.corruption_seed,
+        split=batch.split,
+        semantic_sample_keys=batch.semantic_sample_keys,
+        corruption_step=step_index,
+        corruption_view="compile_settle_runtime_selection_dual_t4",
+        strategy=row_spec.corruption_strategy,
+    )
+    shape = cast("tuple[int, int, int, int]", tuple(clean.shape))
+    eps = torch.zeros(
+        (
+            shape[0],
+            latent_channels,
+            settings.image_size // pretest.LATENT_DOWNSAMPLE_FACTOR,
+            settings.image_size // pretest.LATENT_DOWNSAMPLE_FACTOR,
+        ),
+        dtype=torch.float32,
+        device=device,
+    )
+    if row_spec.memory_format == "channels_last":
+        eps = eps.contiguous(memory_format=torch.channels_last)
+    model_input = _maybe_channels_last(
+        torch_module=torch,
+        tensor=corruption.corrupted,
+        row_spec=row_spec,
+    )
+    with torch.no_grad(), _autocast_context(torch_module=torch, row_spec=row_spec):
+        cast("object", model)(model_input, eps=eps)
+
+
+def _run_policy_train_step(  # noqa: PLR0913
+    *,
+    torch_module: object,
+    model: object,
+    raw_model: object,
+    optimizer: object,
+    scaler: object,
+    clean_batch: object,
+    input_batch: object,
+    eps: object,
+    beta: float,
+    ssim_weight: float,
+    gradient_clip_global_norm: float,
+    row_spec: pretest.RowSpec,
+    compute_vae_loss_fn: object,
+) -> _TrainStepTelemetry:
+    parameters = list(cast("object", raw_model).parameters())
+    cast("object", optimizer).zero_grad(set_to_none=row_spec.zero_grad_set_to_none)
+    with _autocast_context(torch_module=torch_module, row_spec=row_spec):
+        forward = cast("object", model)(input_batch, eps=eps)
+    losses = cast("object", compute_vae_loss_fn)(
+        forward,
+        clean_batch,
+        beta=beta,
+        ssim_weight=ssim_weight,
+    )
+    if row_spec.grad_scaler_enabled:
+        before_scale = float(cast("object", scaler).get_scale())
+        cast("object", scaler).scale(losses.loss).backward()
+        cast("object", scaler).unscale_(optimizer)
+    else:
+        cast("object", torch_module).autograd.backward(losses.loss)
+        before_scale = 1.0
+    nonfinite_count = _nonfinite_parameter_count(parameters)
+    grad_norm = _global_grad_norm(parameters)
+    _clip_grad_norm(
+        torch_module=torch_module,
+        parameters=parameters,
+        max_norm=gradient_clip_global_norm,
+        foreach=row_spec.gradient_clip_foreach,
+    )
+    before_update = _clone_trainable_parameters(parameters)
+    if row_spec.grad_scaler_enabled:
+        cast("object", scaler).step(optimizer)
+        cast("object", scaler).update()
+        after_scale = float(cast("object", scaler).get_scale())
+        amp_step_skipped = after_scale < before_scale
+    else:
+        cast("object", optimizer).step()
+        amp_step_skipped = False
+    after_parameters = _trainable_parameters(parameters)
+    update_norm = _parameter_update_norm(before=before_update, after=after_parameters)
+    return _TrainStepTelemetry(
+        forward=forward,
+        losses=losses,
+        grad_norm=grad_norm,
+        param_update_norm=update_norm,
+        nonfinite_count=nonfinite_count,
+        amp_step_skipped=amp_step_skipped,
+    )
+
+
+def _autocast_context(
+    *,
+    torch_module: object,
+    row_spec: pretest.RowSpec,
+) -> AbstractContextManager[object]:
+    enabled = row_spec.precision_policy != AMP_OFF_FP32
+    dtype = (
+        cast("object", torch_module).float16
+        if row_spec.autocast_dtype in {"", "float16", "fp16"}
+        else cast("object", torch_module).bfloat16
+    )
+    return cast(
+        "AbstractContextManager[object]",
+        cast("object", torch_module).autocast(
+            device_type="cuda",
+            dtype=dtype,
+            enabled=enabled,
+            cache_enabled=False,
+        ),
+    )
+
+
+def _grad_scaler(*, torch_module: object, row_spec: pretest.RowSpec) -> object:
+    enabled = bool(row_spec.grad_scaler_enabled)
+    cuda_amp = cast("object", torch_module).cuda.amp
+    return cuda_amp.GradScaler(enabled=enabled)
+
+
+def _move_clean_batch_to_device(
+    *,
+    torch_module: object,
+    clean: object,
+    device: object,
+    row_spec: pretest.RowSpec,
+) -> object:
+    moved = cast("object", clean).to(
+        device=device,
+        non_blocking=pretest.DEFAULT_DATALOADER_NON_BLOCKING_H2D,
+    )
+    return _maybe_channels_last(
+        torch_module=torch_module,
+        tensor=moved,
+        row_spec=row_spec,
+    )
+
+
+def _maybe_channels_last(
+    *,
+    torch_module: object,
+    tensor: object,
+    row_spec: pretest.RowSpec,
+) -> object:
+    if row_spec.memory_format != "channels_last":
+        return tensor
+    return cast("object", tensor).contiguous(
+        memory_format=cast("object", torch_module).channels_last,
+    )
+
+
+def _compile_ddp_model_if_requested(
+    *,
+    torch_module: object,
+    model: object,
+    row_spec: pretest.RowSpec,
+) -> object:
+    if row_spec.compile_scope == COMPILE_NONE:
+        return model
+    if row_spec.compile_scope != COMPILE_MODEL_FORWARD:
+        message = f"Unsupported compile_scope: {row_spec.compile_scope}"
+        raise ValueError(message)
+    compile_fn = cast("object", torch_module).compile
+    return compile_fn(model, dynamic=row_spec.compile_dynamic)
+
+
+def _backend_state(*, torch_module: object) -> JsonObject:
+    backends = cast("object", torch_module).backends
+    cuda_backend = getattr(backends, "cuda", None)
+    matmul_backend = getattr(cuda_backend, "matmul", None)
+    cudnn_backend = backends.cudnn
+    state: JsonObject = {
+        "cudnn_benchmark": bool(cudnn_backend.benchmark),
+        "cudnn_deterministic": bool(cudnn_backend.deterministic),
+        "cudnn_allow_tf32": bool(getattr(cudnn_backend, "allow_tf32", False)),
+        "matmul_allow_tf32": bool(getattr(matmul_backend, "allow_tf32", False)),
+    }
+    deterministic_enabled = getattr(
+        cast("object", torch_module),
+        "are_deterministic_algorithms_enabled",
+        None,
+    )
+    if callable(deterministic_enabled):
+        state["deterministic_algorithms"] = bool(deterministic_enabled())
+    get_precision = getattr(
+        cast("object", torch_module),
+        "get_float32_matmul_precision",
+        None,
+    )
+    if callable(get_precision):
+        state["matmul_precision"] = str(get_precision())
+    return state
+
+
+def _apply_backend_policy(
+    *,
+    torch_module: object,
+    row_spec: pretest.RowSpec,
+) -> JsonObject:
+    state = _backend_state(torch_module=torch_module)
+    backends = cast("object", torch_module).backends
+    cuda_backend = getattr(backends, "cuda", None)
+    matmul_backend = getattr(cuda_backend, "matmul", None)
+    cudnn_backend = backends.cudnn
+    cudnn_backend.benchmark = row_spec.cudnn_benchmark
+    cudnn_backend.deterministic = row_spec.cudnn_deterministic
+    if hasattr(cudnn_backend, "allow_tf32"):
+        cudnn_backend.allow_tf32 = row_spec.tf32_enabled
+    if matmul_backend is not None and hasattr(matmul_backend, "allow_tf32"):
+        matmul_backend.allow_tf32 = row_spec.tf32_enabled
+    set_precision = getattr(
+        cast("object", torch_module),
+        "set_float32_matmul_precision",
+        None,
+    )
+    if callable(set_precision):
+        set_precision(row_spec.matmul_precision)
+    cast("object", torch_module).use_deterministic_algorithms(
+        row_spec.deterministic_algorithms,
+    )
+    return state
+
+
+def _restore_backend_policy(*, torch_module: object, state: JsonObject) -> None:
+    if not state:
+        return
+    backends = cast("object", torch_module).backends
+    cuda_backend = getattr(backends, "cuda", None)
+    matmul_backend = getattr(cuda_backend, "matmul", None)
+    cudnn_backend = backends.cudnn
+    cudnn_backend.benchmark = bool(state.get("cudnn_benchmark", False))
+    cudnn_backend.deterministic = bool(state.get("cudnn_deterministic", False))
+    if hasattr(cudnn_backend, "allow_tf32"):
+        cudnn_backend.allow_tf32 = bool(state.get("cudnn_allow_tf32", False))
+    if matmul_backend is not None and hasattr(matmul_backend, "allow_tf32"):
+        matmul_backend.allow_tf32 = bool(state.get("matmul_allow_tf32", False))
+    set_precision = getattr(
+        cast("object", torch_module),
+        "set_float32_matmul_precision",
+        None,
+    )
+    if callable(set_precision):
+        set_precision(str(state.get("matmul_precision", "highest")))
+    cast("object", torch_module).use_deterministic_algorithms(
+        mode=bool(state.get("deterministic_algorithms", False)),
+    )
+
+
+def _global_grad_norm(parameters: Sequence[object]) -> float:
+    import torch  # noqa: PLC0415
+
+    squared_norm = 0.0
+    for parameter in parameters:
+        gradient = getattr(parameter, "grad", None)
+        if gradient is None:
+            continue
+        gradient_f32 = gradient.detach().to(dtype=torch.float32)
+        squared_norm += float(gradient_f32.square().sum().item())
+    return math.sqrt(squared_norm)
+
+
+def _nonfinite_parameter_count(parameters: Sequence[object]) -> int:
+    import torch  # noqa: PLC0415
+
+    count = 0
+    for parameter in parameters:
+        gradient = getattr(parameter, "grad", None)
+        if gradient is not None:
+            count += int((~torch.isfinite(gradient)).sum().item())
+        count += int((~torch.isfinite(parameter.detach())).sum().item())
+    return count
+
+
+def _clip_grad_norm(
+    *,
+    torch_module: object,
+    parameters: Sequence[object],
+    max_norm: float,
+    foreach: bool,
+) -> None:
+    try:
+        cast("object", torch_module).nn.utils.clip_grad_norm_(
+            parameters,
+            max_norm,
+            foreach=foreach,
+        )
+    except TypeError:
+        cast("object", torch_module).nn.utils.clip_grad_norm_(parameters, max_norm)
+
+
+def _trainable_parameters(parameters: Sequence[object]) -> list[object]:
+    return [parameter for parameter in parameters if bool(parameter.requires_grad)]
+
+
+def _clone_trainable_parameters(parameters: Sequence[object]) -> list[object]:
+    return [
+        parameter.detach().clone()
+        for parameter in parameters
+        if bool(parameter.requires_grad)
+    ]
+
+
+def _parameter_update_norm(*, before: list[object], after: list[object]) -> float:
+    import torch  # noqa: PLC0415
+
+    squared_norm = 0.0
+    for before_tensor, after_parameter in zip(before, after, strict=True):
+        delta = after_parameter.detach().to(dtype=torch.float32) - before_tensor.to(
+            dtype=torch.float32,
+        )
+        squared_norm += float(delta.square().sum().item())
+    return math.sqrt(squared_norm)
+
+
 def _measure_rank_loader(  # noqa: PLR0913
     *,
     dataset: object,
@@ -1908,6 +2641,7 @@ def _measure_rank_loader(  # noqa: PLR0913
     subset_factory: object,
     collate_fn: object,
     normalize_uint8_batch_fn: object,
+    row_spec: pretest.RowSpec,
     measured_batches: int,
 ) -> JsonObject:
     import torch  # noqa: PLC0415
@@ -1943,9 +2677,11 @@ def _measure_rank_loader(  # noqa: PLR0913
         fetch_ms.append(pretest._elapsed_ms(start_fetch))  # noqa: SLF001
         normalized = cast("object", normalize_uint8_batch_fn)(batch.images_uint8)
         start_h2d = time.perf_counter_ns()
-        normalized.to(
+        _move_clean_batch_to_device(
+            torch_module=torch,
+            clean=normalized,
             device=device,
-            non_blocking=pretest.DEFAULT_DATALOADER_NON_BLOCKING_H2D,
+            row_spec=row_spec,
         )
         torch.cuda.synchronize(device)
         h2d_ms.append(pretest._elapsed_ms(start_h2d))  # noqa: SLF001
@@ -2007,6 +2743,24 @@ def _encode_ddp_config(config: _DdpRowConfig) -> str:
             "world_size": config.row_spec.world_size,
             "nproc_per_node": config.row_spec.nproc_per_node,
             "cuda_visible_devices": config.row_spec.cuda_visible_devices,
+            "runtime_policy_id": config.row_spec.runtime_policy_id,
+            "memory_format": config.row_spec.memory_format,
+            "autocast_dtype": config.row_spec.autocast_dtype,
+            "fp32_loss": config.row_spec.fp32_loss,
+            "grad_scaler_enabled": config.row_spec.grad_scaler_enabled,
+            "cudnn_benchmark": config.row_spec.cudnn_benchmark,
+            "cudnn_deterministic": config.row_spec.cudnn_deterministic,
+            "deterministic_algorithms": config.row_spec.deterministic_algorithms,
+            "tf32_enabled": config.row_spec.tf32_enabled,
+            "matmul_precision": config.row_spec.matmul_precision,
+            "ddp_static_graph": config.row_spec.ddp_static_graph,
+            "ddp_gradient_as_bucket_view": (
+                config.row_spec.ddp_gradient_as_bucket_view
+            ),
+            "optimizer_implementation": config.row_spec.optimizer_implementation,
+            "zero_grad_set_to_none": config.row_spec.zero_grad_set_to_none,
+            "gradient_clip_foreach": config.row_spec.gradient_clip_foreach,
+            "compile_dynamic": config.row_spec.compile_dynamic,
         },
     }
     return base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
@@ -2046,6 +2800,16 @@ def _required_object(payload: Mapping[str, JsonValue], key: str) -> JsonObject:
     raise TypeError(message)
 
 
+def _optional_object(payload: Mapping[str, JsonValue], key: str) -> JsonObject | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return cast("JsonObject", value)
+    message = f"Expected optional object field: {key}"
+    raise TypeError(message)
+
+
 def _required_object_list(
     payload: Mapping[str, JsonValue],
     key: str,
@@ -2054,6 +2818,37 @@ def _required_object_list(
     if isinstance(value, list) and all(isinstance(item, dict) for item in value):
         return [cast("JsonObject", item) for item in value]
     message = f"Expected object-list field: {key}"
+    raise TypeError(message)
+
+
+def _required_str(payload: Mapping[str, JsonValue], key: str) -> str:
+    value = payload.get(key)
+    if isinstance(value, str):
+        return value
+    message = f"Expected string field: {key}"
+    raise TypeError(message)
+
+
+def _optional_str(payload: Mapping[str, JsonValue], key: str) -> str | None:
+    value = payload.get(key)
+    if value is None or isinstance(value, str):
+        return value
+    message = f"Expected optional string field: {key}"
+    raise TypeError(message)
+
+
+def _optional_bool(
+    payload: Mapping[str, JsonValue],
+    key: str,
+    *,
+    default: bool,
+) -> bool:
+    value = payload.get(key)
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    message = f"Expected optional boolean field: {key}"
     raise TypeError(message)
 
 

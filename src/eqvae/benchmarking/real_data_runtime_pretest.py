@@ -314,6 +314,22 @@ class RowSpec:
     world_size: int
     nproc_per_node: int
     cuda_visible_devices: str
+    runtime_policy_id: str = "fp32_eager_default"
+    memory_format: str = "contiguous"
+    autocast_dtype: str = ""
+    fp32_loss: bool = True
+    grad_scaler_enabled: bool = False
+    cudnn_benchmark: bool = False
+    cudnn_deterministic: bool = False
+    deterministic_algorithms: bool = False
+    tf32_enabled: bool = False
+    matmul_precision: str = "highest"
+    ddp_static_graph: bool = False
+    ddp_gradient_as_bucket_view: bool = False
+    optimizer_implementation: str = "adamw_default"
+    zero_grad_set_to_none: bool = True
+    gradient_clip_foreach: bool = False
+    compile_dynamic: bool = False
 
 
 @dataclass(frozen=True)
@@ -1332,6 +1348,26 @@ def _base_row(*, settings: RealDataRuntimePretestSettings, row_spec: RowSpec) ->
             value=row_spec.compile_scope != COMPILE_NONE,
         ),
         "compile_scope": row_spec.compile_scope,
+        "runtime_policy_id": row_spec.runtime_policy_id,
+        "memory_format": row_spec.memory_format,
+        "autocast_dtype": row_spec.autocast_dtype,
+        "fp32_loss": _format_bool(value=row_spec.fp32_loss),
+        "grad_scaler_enabled": _format_bool(value=row_spec.grad_scaler_enabled),
+        "cudnn_benchmark": _format_bool(value=row_spec.cudnn_benchmark),
+        "cudnn_deterministic": _format_bool(value=row_spec.cudnn_deterministic),
+        "deterministic_algorithms": _format_bool(
+            value=row_spec.deterministic_algorithms,
+        ),
+        "tf32_enabled": _format_bool(value=row_spec.tf32_enabled),
+        "matmul_precision": row_spec.matmul_precision,
+        "ddp_static_graph": _format_bool(value=row_spec.ddp_static_graph),
+        "ddp_gradient_as_bucket_view": _format_bool(
+            value=row_spec.ddp_gradient_as_bucket_view,
+        ),
+        "optimizer_implementation": row_spec.optimizer_implementation,
+        "zero_grad_set_to_none": _format_bool(value=row_spec.zero_grad_set_to_none),
+        "gradient_clip_foreach": _format_bool(value=row_spec.gradient_clip_foreach),
+        "compile_dynamic": _format_bool(value=row_spec.compile_dynamic),
         "corruption_strategy": row_spec.corruption_strategy,
         "per_device_batch_size": str(row_spec.per_device_batch_size),
         "global_batch_size": str(row_spec.per_device_batch_size * row_spec.world_size),
@@ -6118,6 +6154,22 @@ def _row_spec_payload(row_spec: RowSpec) -> JsonObject:
         "world_size": row_spec.world_size,
         "nproc_per_node": row_spec.nproc_per_node,
         "cuda_visible_devices": row_spec.cuda_visible_devices,
+        "runtime_policy_id": row_spec.runtime_policy_id,
+        "memory_format": row_spec.memory_format,
+        "autocast_dtype": row_spec.autocast_dtype,
+        "fp32_loss": row_spec.fp32_loss,
+        "grad_scaler_enabled": row_spec.grad_scaler_enabled,
+        "cudnn_benchmark": row_spec.cudnn_benchmark,
+        "cudnn_deterministic": row_spec.cudnn_deterministic,
+        "deterministic_algorithms": row_spec.deterministic_algorithms,
+        "tf32_enabled": row_spec.tf32_enabled,
+        "matmul_precision": row_spec.matmul_precision,
+        "ddp_static_graph": row_spec.ddp_static_graph,
+        "ddp_gradient_as_bucket_view": row_spec.ddp_gradient_as_bucket_view,
+        "optimizer_implementation": row_spec.optimizer_implementation,
+        "zero_grad_set_to_none": row_spec.zero_grad_set_to_none,
+        "gradient_clip_foreach": row_spec.gradient_clip_foreach,
+        "compile_dynamic": row_spec.compile_dynamic,
     }
 
 
@@ -6134,6 +6186,48 @@ def _row_spec_from_payload(payload: JsonObject) -> RowSpec:
         world_size=_required_int(payload, "world_size"),
         nproc_per_node=_required_int(payload, "nproc_per_node"),
         cuda_visible_devices=_required_str(payload, "cuda_visible_devices"),
+        runtime_policy_id=_optional_str(payload, "runtime_policy_id")
+        or "fp32_eager_default",
+        memory_format=_optional_str(payload, "memory_format") or "contiguous",
+        autocast_dtype=_optional_str(payload, "autocast_dtype") or "",
+        fp32_loss=_optional_bool(payload, "fp32_loss", default=True),
+        grad_scaler_enabled=_optional_bool(
+            payload,
+            "grad_scaler_enabled",
+            default=False,
+        ),
+        cudnn_benchmark=_optional_bool(payload, "cudnn_benchmark", default=False),
+        cudnn_deterministic=_optional_bool(
+            payload,
+            "cudnn_deterministic",
+            default=False,
+        ),
+        deterministic_algorithms=_optional_bool(
+            payload,
+            "deterministic_algorithms",
+            default=False,
+        ),
+        tf32_enabled=_optional_bool(payload, "tf32_enabled", default=False),
+        matmul_precision=_optional_str(payload, "matmul_precision") or "highest",
+        ddp_static_graph=_optional_bool(payload, "ddp_static_graph", default=False),
+        ddp_gradient_as_bucket_view=_optional_bool(
+            payload,
+            "ddp_gradient_as_bucket_view",
+            default=False,
+        ),
+        optimizer_implementation=_optional_str(payload, "optimizer_implementation")
+        or "adamw_default",
+        zero_grad_set_to_none=_optional_bool(
+            payload,
+            "zero_grad_set_to_none",
+            default=True,
+        ),
+        gradient_clip_foreach=_optional_bool(
+            payload,
+            "gradient_clip_foreach",
+            default=False,
+        ),
+        compile_dynamic=_optional_bool(payload, "compile_dynamic", default=False),
     )
 
 
@@ -6386,6 +6480,16 @@ def _required_bool(payload: JsonObject, key: str) -> bool:
     if isinstance(value, bool):
         return value
     message = f"Expected boolean at {key}"
+    raise TypeError(message)
+
+
+def _optional_bool(payload: JsonObject, key: str, *, default: bool) -> bool:
+    value = payload.get(key)
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    message = f"Expected optional boolean at {key}"
     raise TypeError(message)
 
 

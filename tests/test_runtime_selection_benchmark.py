@@ -163,7 +163,149 @@ def test_runtime_selection_writes_selected_runtime_after_full_local_proof(
         artifacts.runtime_proof,
     )
     assert compiled_row["status"] == "ineligible"
-    assert compiled_row["failure_kind"] == "compiled_rows_diagnostic_only"
+    assert compiled_row["failure_kind"] == (
+        "compiled_rows_diagnostic_only_until_stable_settle_proof"
+    )
+
+
+def test_runtime_selection_allows_stable_compile_efficiency_row(
+    tmp_path: Path,
+) -> None:
+    """A stable selected-runtime compile row may replace the v3 baseline."""
+    output_dir = tmp_path / "selection"
+    runtime_rows = (
+        *_passing_runtime_rows(),
+        _runtime_row(
+            accelerator_mode="dual_t4_ddp",
+            per_device_batch_size=12,
+            precision_policy="amp_off_fp32",
+            compile_scope="model_forward",
+            corruption_strategy="indexed_masked",
+            world_size=EXPECTED_DUAL_WORLD_SIZE,
+            samples_sec=400.0,
+            runtime_policy_id="compile_model_forward_fp32_channels_last",
+            memory_format="channels_last",
+        ),
+    )
+    evidence = _runtime_selection_evidence_from_rows(runtime_rows)
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=evidence,
+        ),
+    )
+
+    assert artifacts.selected_runtime is not None
+    selected = _load_json(artifacts.selected_runtime)
+    assert selected["runtime_policy_id"] == "compile_model_forward_fp32_channels_last"
+    assert cast("dict[str, object]", selected["torch_compile"])["enabled"] is True
+    assert cast("dict[str, object]", selected["runtime_policy"])["memory_format"] == (
+        "channels_last"
+    )
+    assert selected["full_training_launch_ready"] is False
+
+
+def test_runtime_selection_blocks_amp_skip_rows(tmp_path: Path) -> None:
+    """Rows with AMP skips cannot write a selected runtime."""
+    output_dir = tmp_path / "selection"
+    runtime_rows = (
+        *_passing_runtime_rows(),
+        _runtime_row(
+            accelerator_mode="dual_t4_ddp",
+            per_device_batch_size=12,
+            precision_policy="amp_conservative",
+            compile_scope="none",
+            corruption_strategy="indexed_masked",
+            world_size=EXPECTED_DUAL_WORLD_SIZE,
+            samples_sec=500.0,
+            runtime_policy_id="amp_fp16_conservative",
+            amp_step_skipped_count=2,
+        ),
+    )
+    evidence = _runtime_selection_evidence_from_rows(runtime_rows)
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=evidence,
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    amp_policy = cast("dict[str, object]", proof["amp_followup_policy"])
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+    assert artifacts.selected_runtime is None
+    assert amp_policy["status"] == "fail"
+    assert "amp_followup_policy_not_pass" in cast(
+        "list[object]",
+        decision["blockers"],
+    )
+
+
+def test_runtime_selection_blocks_policy_mismatched_dataloader(
+    tmp_path: Path,
+) -> None:
+    """Dataloader proof must be bound to the selected runtime policy id."""
+    output_dir = tmp_path / "selection"
+    fast_policy = "amp_fp16_channels_last_cudnn_ddpfast"
+    runtime_rows = (
+        *_passing_runtime_rows(),
+        _runtime_row(
+            accelerator_mode="dual_t4_ddp",
+            per_device_batch_size=12,
+            precision_policy="amp_conservative",
+            compile_scope="none",
+            corruption_strategy="indexed_masked",
+            world_size=EXPECTED_DUAL_WORLD_SIZE,
+            samples_sec=500.0,
+            runtime_policy_id=fast_policy,
+            memory_format="channels_last",
+        ),
+    )
+    evidence = _runtime_selection_evidence_from_rows(runtime_rows)
+    dataloader_rows = tuple(
+        {
+            **row,
+            "runtime_policy_id": "fp32_eager_default"
+            if row["runtime_policy_id"] == fast_policy
+            else row["runtime_policy_id"],
+        }
+        for row in evidence.dataloader_rows
+    )
+    evidence = RuntimeSelectionEvidence(
+        runtime_rows=evidence.runtime_rows,
+        dataloader_rows=dataloader_rows,
+        numerical_rows=evidence.numerical_rows,
+        corruption_rows=evidence.corruption_rows,
+        gate_health_rows=evidence.gate_health_rows,
+        gate_health_summary=evidence.gate_health_summary,
+        runtime_environment=evidence.runtime_environment,
+    )
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=evidence,
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+    assert artifacts.selected_runtime is None
+    assert "selected_row_dataloader_not_pass" in cast(
+        "list[object]",
+        decision["blockers"],
+    )
 
 
 def test_runtime_selection_accepts_train_corruption_without_validation_rng_flag(
@@ -629,6 +771,12 @@ def _write_fake_v8_artifacts(root: Path) -> Path:
 
 def _passing_runtime_selection_evidence() -> RuntimeSelectionEvidence:
     runtime_rows = tuple(_passing_runtime_rows())
+    return _runtime_selection_evidence_from_rows(runtime_rows)
+
+
+def _runtime_selection_evidence_from_rows(
+    runtime_rows: tuple[dict[str, str], ...],
+) -> RuntimeSelectionEvidence:
     pass_row_ids = [row["row_id"] for row in runtime_rows if row["status"] == "pass"]
     return RuntimeSelectionEvidence(
         runtime_rows=runtime_rows,
@@ -746,6 +894,9 @@ def _runtime_row(  # noqa: PLR0913
     world_size: int,
     samples_sec: float,
     status: str = "pass",
+    runtime_policy_id: str = "fp32_eager_default",
+    memory_format: str = "contiguous",
+    amp_step_skipped_count: int = 0,
 ) -> dict[str, str]:
     row = dict.fromkeys(RUNTIME_MATRIX_COLUMNS, "")
     row.update({
@@ -759,6 +910,7 @@ def _runtime_row(  # noqa: PLR0913
             precision_policy=precision_policy,
             compile_scope=compile_scope,
             corruption_strategy=corruption_strategy,
+            runtime_policy_id=runtime_policy_id,
         ),
         "accelerator_mode": accelerator_mode,
         "machine_shape": "NvidiaTeslaT4",
@@ -772,6 +924,24 @@ def _runtime_row(  # noqa: PLR0913
         "amp_enabled": "false" if precision_policy == "amp_off_fp32" else "true",
         "torch_compile_enabled": "false" if compile_scope == "none" else "true",
         "compile_scope": compile_scope,
+        "runtime_policy_id": runtime_policy_id,
+        "memory_format": memory_format,
+        "autocast_dtype": "float16" if precision_policy != "amp_off_fp32" else "",
+        "fp32_loss": "true",
+        "grad_scaler_enabled": "false"
+        if precision_policy == "amp_off_fp32"
+        else "true",
+        "cudnn_benchmark": "false",
+        "cudnn_deterministic": "false",
+        "deterministic_algorithms": "false",
+        "tf32_enabled": "false",
+        "matmul_precision": "highest",
+        "ddp_static_graph": "false",
+        "ddp_gradient_as_bucket_view": "false",
+        "optimizer_implementation": "adamw_default",
+        "zero_grad_set_to_none": "true",
+        "gradient_clip_foreach": "false",
+        "compile_dynamic": "false",
         "corruption_strategy": corruption_strategy,
         "per_device_batch_size": str(per_device_batch_size),
         "global_batch_size": str(per_device_batch_size * world_size),
@@ -788,7 +958,7 @@ def _runtime_row(  # noqa: PLR0913
         "max_vram_allocated_mb": "4000.000000",
         "max_vram_reserved_mb": "5000.000000",
         "vram_headroom_fraction": "0.500000",
-        "amp_step_skipped_count": "0",
+        "amp_step_skipped_count": str(amp_step_skipped_count),
         "gate_health_status": "pass",
         "gate_health_warning_count": "0",
         "numerical_check_status": "pass",
@@ -805,7 +975,7 @@ def _runtime_row(  # noqa: PLR0913
 
 def _dataloader_rows(runtime_rows: tuple[dict[str, str], ...]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    seen: set[tuple[str, str, str, str]] = set()
+    seen: set[tuple[str, str, str, str, str]] = set()
     for runtime_row in runtime_rows:
         if runtime_row["status"] != "pass":
             continue
@@ -814,6 +984,7 @@ def _dataloader_rows(runtime_rows: tuple[dict[str, str], ...]) -> list[dict[str,
             runtime_row["machine_shape"],
             runtime_row["world_size"],
             runtime_row["per_device_batch_size"],
+            runtime_row["runtime_policy_id"],
         )
         if key in seen:
             continue
@@ -829,6 +1000,8 @@ def _dataloader_rows(runtime_rows: tuple[dict[str, str], ...]) -> list[dict[str,
                     "accelerator_mode": runtime_row["accelerator_mode"],
                     "machine_shape": runtime_row["machine_shape"],
                     "world_size": runtime_row["world_size"],
+                    "runtime_policy_id": runtime_row["runtime_policy_id"],
+                    "memory_format": runtime_row["memory_format"],
                     "rank": str(rank),
                     "split": split,
                     "num_workers": "1",
@@ -922,6 +1095,7 @@ def _candidate_row(
             "single_visible_t4__bs4__amp_off_fp32__compile_none__branchless_all"
         ),
         "candidate_row_id": runtime_row["row_id"],
+        "runtime_policy_id": runtime_row["runtime_policy_id"],
         "batch_index": str(batch_index),
         "precision_policy": runtime_row["precision_policy"],
         "torch_compile_enabled": runtime_row["torch_compile_enabled"],
@@ -980,6 +1154,7 @@ def _gate_health_rows(
             "machine_shape": "NvidiaTeslaT4",
             "row_id": f"{runtime_row['row_id']}__gate__encoder_0",
             "candidate_row_id": runtime_row["row_id"],
+            "runtime_policy_id": runtime_row["runtime_policy_id"],
             "optimizer_step": "1",
             "module": "encoder.0",
             "gate_kind": "scalar",
@@ -1013,18 +1188,22 @@ def _write_stain_qa(output_dir: Path, evidence: RuntimeSelectionEvidence) -> Non
     write_json(output_dir / "benchmark" / "stain_corruptor_qa.json", payload)
 
 
-def _row_id(
+def _row_id(  # noqa: PLR0913
     *,
     accelerator_mode: str,
     batch_size: int,
     precision_policy: str,
     compile_scope: str,
     corruption_strategy: str,
+    runtime_policy_id: str = "fp32_eager_default",
 ) -> str:
-    return (
+    base = (
         f"{accelerator_mode}__bs{batch_size}__{precision_policy}"
         f"__compile_{compile_scope}__{corruption_strategy}"
     )
+    if runtime_policy_id in {"", "fp32_eager_default"}:
+        return base
+    return f"{base}__policy_{runtime_policy_id}"
 
 
 def _load_json(path: Path) -> dict[str, object]:
