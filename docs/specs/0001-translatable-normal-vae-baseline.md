@@ -24,18 +24,20 @@ FP32 rows: bs4/bs8/bs12 crossed with `branchless_all` and `indexed_masked`. The
 next selected-runtime benchmark/debug slice is encoded as
 `v8_shortlist_eager_amp_then_dual_gate`; local proof plumbing for that separate
 selected-runtime benchmark plus its Kaggle executor/kernel are now implemented
-and fail-closed. Runtime-selection v1 downloaded to
-`runs/kaggle/runtime_selection_v1`: it proved the real dual-T4 DDP timing gate
-but wrote no `selected_runtime.json` because linked single-visible proof rows
-were false-negative blocked, then the wrapper rejected `model_inventory.csv`.
-The local v2 fix updates those proof-plumbing/allow-list issues. v8 remains
-shortlist-only, the separate benchmark writes its own linked proofs, and
-`selected_runtime.json` remains blocked until real dual-T4 train-step timing
-and all linked proofs pass. That timing must prove two visible T4s,
-`world_size = 2`, `nproc_per_node = 2`, per-rank device binding, linked safety
-evidence, and global throughput projection. Compiled rows remain
-diagnostic-only until full compile-settle coverage exists, and v8 remains
-non-promotable unless a later spec explicitly changes that.
+and fail-closed. Runtime-selection v2 downloaded to
+`runs/kaggle/runtime_selection_v2`: it proved the real dual-T4 DDP timing gate
+and fixed the v1 wrapper/proof-plumbing false negatives, but still wrote no
+`selected_runtime.json` because single-visible indexed-mask pass rows lacked
+candidate-bound gate-health rows. The local v3 fix binds branchless
+single-visible gate-health rows to same-shape indexed candidates only after
+those indexed rows already pass linked evidence. v8 remains shortlist-only, the
+separate benchmark writes its own linked proofs, and `selected_runtime.json`
+remains blocked until real dual-T4 train-step timing and all linked proofs pass.
+That timing must prove two visible T4s, `world_size = 2`, `nproc_per_node = 2`,
+per-rank device binding, linked safety evidence, and global throughput
+projection. Compiled rows remain diagnostic-only until full compile-settle
+coverage exists, and v8 remains non-promotable unless a later spec explicitly
+changes that.
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-20
 

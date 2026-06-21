@@ -39,6 +39,7 @@ from eqvae.benchmarking.runtime_selection import (
     EXPECTED_DUAL_T4_COUNT,
     EXPECTED_MACHINE_SHAPE,
     FAIL_STATUS,
+    INDEXED_MASKED,
     PASS_STATUS,
     REQUIRED_CORRUPTION_SPLITS,
     RUNTIME_SELECTION_KIND,
@@ -216,11 +217,12 @@ def _collect_evidence(
         *_dual_corruption_rows(settings=settings, results=dual_results),
     ]
     gate_rows = [
-        *_rows_with_selection_scope(
-            pretest._gate_health_rows(  # noqa: SLF001
+        *_single_gate_rows(
+            gate_rows=pretest._gate_health_rows(  # noqa: SLF001
                 settings=settings,
                 linked_evidence=single_linked,
             ),
+            runtime_rows=single_rows,
         ),
         *_dual_gate_rows(results=dual_results),
     ]
@@ -478,6 +480,47 @@ def _rows_with_linked_status(
         rows=rows,
         data_proof=data_proof,
         linked_evidence=linked_evidence,
+    )
+
+
+def _single_gate_rows(
+    *,
+    gate_rows: Sequence[CsvRow],
+    runtime_rows: Sequence[CsvRow],
+) -> list[CsvRow]:
+    scoped_rows = _rows_with_selection_scope(gate_rows)
+    rows_by_candidate: dict[str, list[CsvRow]] = {}
+    for row in scoped_rows:
+        rows_by_candidate.setdefault(row["candidate_row_id"], []).append(row)
+
+    expanded_rows = [dict(row) for row in scoped_rows]
+    existing_candidate_ids = {row["candidate_row_id"] for row in scoped_rows}
+    for runtime_row in runtime_rows:
+        candidate_row_id = runtime_row["row_id"]
+        if candidate_row_id in existing_candidate_ids or not (
+            _can_expand_single_gate_rows(runtime_row)
+        ):
+            continue
+        reference_rows = rows_by_candidate.get(_reference_row_id(runtime_row), ())
+        for row in reference_rows:
+            cloned = dict(row)
+            cloned["candidate_row_id"] = candidate_row_id
+            cloned["row_id"] = f"{candidate_row_id}__gate__{cloned['module']}"
+            expanded_rows.append(cloned)
+        if reference_rows:
+            existing_candidate_ids.add(candidate_row_id)
+    return _rows_with_columns(expanded_rows, GATE_HEALTH_COLUMNS)
+
+
+def _can_expand_single_gate_rows(runtime_row: CsvRow) -> bool:
+    return (
+        runtime_row["status"] == PASS_STATUS
+        and runtime_row["accelerator_mode"] == SINGLE_VISIBLE_T4
+        and runtime_row["world_size"] == "1"
+        and runtime_row["precision_policy"] == AMP_OFF_FP32
+        and runtime_row["compile_scope"] == COMPILE_NONE
+        and runtime_row["torch_compile_enabled"] == "false"
+        and runtime_row["corruption_strategy"] == INDEXED_MASKED
     )
 
 

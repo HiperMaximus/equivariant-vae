@@ -24,8 +24,11 @@ selected runtime. The selected-runtime writer plus Kaggle executor/kernel for
 `runtime_selection_kernel_ready`; runtime-selection v1 was downloaded to
 `runs/kaggle/runtime_selection_v1`, proved real dual-T4 DDP timing, refused
 selected-runtime writing on linked-proof false negatives, and exposed the local
-v2 proof-plumbing/allow-list fix; full training/full-run launchers are not
-Kaggle-push-ready
+v2 proof-plumbing/allow-list fix. Runtime-selection v2 was downloaded to
+`runs/kaggle/runtime_selection_v2`, fixed those v1 blockers, proved real
+dual-T4 DDP timing, and refused selected-runtime writing because
+single-visible indexed-mask pass rows lacked candidate-bound gate-health rows;
+full training/full-run launchers are not Kaggle-push-ready
 Owner/workstream: Kaggle GPU execution and artifact retrieval
 Last updated: 2026-06-20
 
@@ -339,6 +342,13 @@ normalizes `local_pass` gate-health rows before eligibility is computed while
 leaving failed non-gate rows ineligible, and requires the
 `clean_validation_rng_advanced = false` flag only on validation corruption
 rows.
+Runtime-selection v2 completed and downloaded to
+`runs/kaggle/runtime_selection_v2`; it fixed the wrapper/proof false negatives
+and preserved the passing dual-T4 DDP proof, but still refused
+`benchmark/selected_runtime.json` because gate-health rows were missing for the
+single-visible `indexed_masked` pass rows. The local v3 fix binds branchless
+single-visible gate-health rows to same-shape indexed candidates after the
+indexed runtime rows have already passed linked evidence.
 
 ## Kaggle Authentication Contract
 

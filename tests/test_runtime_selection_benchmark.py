@@ -237,6 +237,105 @@ def test_runtime_selection_executor_marks_local_pass_gate_rows_eligible() -> Non
     assert normalized[1]["status"] == "fail"
 
 
+def test_runtime_selection_executor_expands_gate_rows_to_indexed_candidates() -> None:
+    """Single-visible indexed rows need candidate-bound gate-health rows too."""
+    branchless = _runtime_row(
+        accelerator_mode="single_visible_t4",
+        per_device_batch_size=8,
+        precision_policy="amp_off_fp32",
+        compile_scope="none",
+        corruption_strategy="branchless_all",
+        world_size=1,
+        samples_sec=7.0,
+    )
+    indexed = _runtime_row(
+        accelerator_mode="single_visible_t4",
+        per_device_batch_size=8,
+        precision_policy="amp_off_fp32",
+        compile_scope="none",
+        corruption_strategy="indexed_masked",
+        world_size=1,
+        samples_sec=7.1,
+    )
+    gate_row = dict.fromkeys(GATE_HEALTH_COLUMNS, "")
+    gate_row.update({
+        "candidate_row_id": branchless["row_id"],
+        "row_id": f"{branchless['row_id']}__gate__encoder.0",
+        "module": "encoder.0",
+        "gate_kind": "scalar",
+        "gate_health_status": "local_pass",
+    })
+
+    expanded = runtime_selection_executor._single_gate_rows(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        gate_rows=(gate_row,),
+        runtime_rows=(branchless, indexed),
+    )
+
+    rows_by_candidate = {row["candidate_row_id"]: row for row in expanded}
+    assert set(rows_by_candidate) == {branchless["row_id"], indexed["row_id"]}
+    assert rows_by_candidate[indexed["row_id"]]["row_id"] == (
+        f"{indexed['row_id']}__gate__encoder.0"
+    )
+    assert rows_by_candidate[indexed["row_id"]]["full_run_eligible"] == "true"
+    assert rows_by_candidate[indexed["row_id"]]["gate_health_status"] == "pass"
+
+
+def test_runtime_selection_executor_does_not_expand_gate_rows_to_other_rows() -> None:
+    """Gate-health expansion is limited to passing FP32 eager indexed rows."""
+    branchless = _runtime_row(
+        accelerator_mode="single_visible_t4",
+        per_device_batch_size=8,
+        precision_policy="amp_off_fp32",
+        compile_scope="none",
+        corruption_strategy="branchless_all",
+        world_size=1,
+        samples_sec=7.0,
+    )
+    failed_indexed = _runtime_row(
+        accelerator_mode="single_visible_t4",
+        per_device_batch_size=8,
+        precision_policy="amp_off_fp32",
+        compile_scope="none",
+        corruption_strategy="indexed_masked",
+        world_size=1,
+        samples_sec=7.1,
+        status="fail",
+    )
+    amp_indexed = _runtime_row(
+        accelerator_mode="single_visible_t4",
+        per_device_batch_size=8,
+        precision_policy="amp_conservative",
+        compile_scope="none",
+        corruption_strategy="indexed_masked",
+        world_size=1,
+        samples_sec=7.2,
+    )
+    compiled_indexed = _runtime_row(
+        accelerator_mode="single_visible_t4",
+        per_device_batch_size=8,
+        precision_policy="amp_off_fp32",
+        compile_scope="model_forward",
+        corruption_strategy="indexed_masked",
+        world_size=1,
+        samples_sec=7.3,
+    )
+    gate_row = dict.fromkeys(GATE_HEALTH_COLUMNS, "")
+    gate_row.update({
+        "candidate_row_id": branchless["row_id"],
+        "row_id": f"{branchless['row_id']}__gate__encoder.0",
+        "module": "encoder.0",
+        "gate_kind": "scalar",
+        "gate_health_status": "local_pass",
+    })
+
+    expanded = runtime_selection_executor._single_gate_rows(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        gate_rows=(gate_row,),
+        runtime_rows=(branchless, failed_indexed, amp_indexed, compiled_indexed),
+    )
+
+    assert {row["candidate_row_id"] for row in expanded} == {branchless["row_id"]}
+
+
 def test_runtime_selection_blocks_train_only_dataloader_proof(
     tmp_path: Path,
 ) -> None:

@@ -16,11 +16,13 @@ compiled rows remain diagnostic-only until full compile-settle coverage exists;
 selected-runtime proof plumbing and the Kaggle executor/kernel for
 `v8_shortlist_eager_amp_then_dual_gate` now exist and are fail-closed until real
 dual-T4 timing plus linked evidence pass; the runtime-selection kernel guard is
-`runtime_selection_kernel_ready`; runtime-selection version 1 was pushed to
-Kaggle on 2026-06-20, downloaded to `runs/kaggle/runtime_selection_v1`, proved
-real dual-T4 DDP timing, refused `selected_runtime.json` on linked-proof
-false negatives, and exposed the local v2 proof-plumbing/allow-list fix; Kaggle
-source attachments require a separate confirmation guard
+`runtime_selection_kernel_ready`; runtime-selection versions 1 and 2 were
+pushed to Kaggle on 2026-06-20, with v2 downloaded to
+`runs/kaggle/runtime_selection_v2`. Version 2 proved real dual-T4 DDP timing
+and fixed v1 wrapper/proof false negatives, but still refused
+`selected_runtime.json` because single-visible indexed-mask pass rows lacked
+candidate-bound gate-health rows; Kaggle source attachments require a separate
+confirmation guard
 Last updated: 2026-06-20
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
@@ -197,13 +199,19 @@ corruption clean-validation RNG check; the wrapper then rejected
 accepts `model_inventory.csv`, normalizes `local_pass` gate rows before
 eligibility is computed while keeping failed non-gate rows ineligible, and
 requires `clean_validation_rng_advanced = false` only on validation corruption
-rows. After local gates and a clean commit/rebuild, the guarded remote sequence
-for v2 is:
+rows. Runtime-selection v2 completed and downloaded to
+`runs/kaggle/runtime_selection_v2`; it fixed those v1 blockers and proved the
+dual gate again, but still refused `benchmark/selected_runtime.json` because
+gate-health rows were missing for the three single-visible `indexed_masked`
+pass rows. The local v3 fix expands branchless single-visible gate-health rows
+to same-shape indexed candidate ids only after the indexed runtime row has
+already passed linked evidence. After local gates and a clean commit/rebuild,
+the guarded remote sequence for v3 is:
 
 ```bash
 KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/runtime_selection
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-runtime-selection
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-runtime-selection runs/kaggle/runtime_selection_v2
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-runtime-selection runs/kaggle/runtime_selection_v3
 ```
 
 The real-data benchmark surface is intentionally separate from the capped smoke
@@ -470,6 +478,10 @@ Runtime-selection v1 showed the dual gate can pass on Kaggle but selected
 runtime writing remained blocked by linked-proof false negatives and wrapper
 allow-list drift. The local v2 patch fixes those specific blockers while
 preserving the refusal rule for missing, failed, or skipped linked proof.
+Runtime-selection v2 then completed without a wrapper error but still refused
+selection because single-visible indexed-mask pass rows lacked gate-health rows.
+The local v3 patch binds those rows from the branchless gate-health reference
+only after the indexed runtime row has already passed linked evidence.
 
 Local `build`/`validate` may verify the generated real-data pretest payload
 against the current dirty worktree so agents can validate local patches before

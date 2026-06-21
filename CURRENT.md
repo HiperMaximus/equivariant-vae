@@ -84,8 +84,17 @@ fix adds `model_inventory.csv` to the allow-list, normalizes `local_pass`
 gate-health rows before eligibility computation while keeping failed non-gate
 rows ineligible, and requires `clean_validation_rng_advanced = false` only for
 validation corruption rows. Focused regression tests cover these cases and
-adversarial subagent review found no selected-runtime fail-open blocker. No
-GitHub or Overleaf push was performed or approved.
+adversarial subagent review found no selected-runtime fail-open blocker. Commit
+`96e41f4` (`Fix runtime selection v1 proof plumbing`) was pushed as
+runtime-selection Kaggle version 2 after clean local gates and a clean
+rebuild/validate. Version 2 completed and downloaded under
+`runs/kaggle/runtime_selection_v2`; it fixed the wrapper error and preserved the
+passing dual-T4 timing proof, but still wrote no `benchmark/selected_runtime.json`
+because gate-health rows were missing for the three passing single-visible
+`indexed_masked` candidates. The local v3 fix expands branchless single-visible
+gate-health rows to same-shape indexed candidates only after those runtime rows
+already pass linked evidence. No GitHub or Overleaf push was performed or
+approved.
 Clean-context adversarial
 subagent reviews were run on 2026-06-05, 2026-06-10, 2026-06-11, a focused
 scaffold-readiness check on 2026-06-12, and a focused v7 handoff/guard audit on
@@ -301,9 +310,10 @@ quota shows `00:07 / 30 hrs` used. This is enough to proceed with benchmark
 implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
-Immediate next action: finish local gates for the runtime-selection v2 proof
-plumbing fix, commit it, rebuild/validate the runtime-selection kernel from the
-clean commit, and push a new Kaggle version with the approved guards. The
+Immediate next action: finish local gates for the runtime-selection v3
+single-visible indexed gate-health binding fix, commit it, rebuild/validate the
+runtime-selection kernel from the clean commit, and push a new Kaggle version
+with the approved guards. The
 separate selected-runtime benchmark/debug slice is encoded in
 `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json` as
 `runtime_matrix.selection_benchmark_slice.name =
@@ -319,8 +329,12 @@ per-device bs4, bs8, and bs12 FP32 eager branchless/indexed candidates, prove
 two visible T4s, `world_size = 2`, `nproc_per_node = 2`, per-rank device
 assignment, linked dataloader/numerical/corruption/gate evidence, and global
 throughput projection. Runtime-selection v1 proved the dual-T4 timing gate but
-blocked selected-runtime writing on linked-proof false negatives; the v2 local
-fix now covers those false negatives and the wrapper artifact allow-list. The
+blocked selected-runtime writing on linked-proof false negatives; v2 fixed the
+wrapper artifact allow-list and those first false negatives, completed on
+Kaggle, and still blocked selection because single-visible indexed candidates
+lacked candidate-bound gate-health rows. The v3 local fix binds those rows from
+the branchless reference gate evidence only for already-passing indexed
+runtime rows. The
 local v8 evidence-plumbing fix was committed as `614cd95`,
 pushed as Kaggle version 8 after explicit approval, completed,
 downloaded to `runs/kaggle/real_data_runtime_pretest_v8`, and inspected. It
@@ -1901,7 +1915,18 @@ The review process lives in `docs/agentic_review_workflow.md`.
   if they carry a gate-health status. New focused regressions cover all three
   v1 failures. Two clean-context adversarial subagent reviews found no
   selected-runtime fail-open blocker; one low semantic eligibility issue was
-  fixed before the v2 push.
+  fixed before the v2 push. Commit `96e41f4` was then created, rebuilt,
+  validated, and pushed as runtime-selection Kaggle version 2. Version 2
+  completed and downloaded to `runs/kaggle/runtime_selection_v2`. It fixed the
+  wrapper allow-list error and preserved the passing real dual-T4 DDP timing
+  proof, but the strict writer still refused `benchmark/selected_runtime.json`
+  with blocker `runtime_pass_rows_linked_proof_not_pass` because gate-health
+  rows were missing for the three single-visible `indexed_masked` pass rows:
+  bs4, bs8, and bs12 FP32 eager. The local v3 follow-up adds a
+  runtime-selection executor helper that expands branchless single-visible
+  gate-health rows to same-shape indexed candidate row ids only after the
+  indexed runtime row has already passed linked evidence; a focused regression
+  covers that exact v2 artifact shape.
 - 2026-06-19 GitHub issue status updates:
   posted Spanish status comments to issues #1-#6 after local grounding and
   three read-only subagent audits. Issue #2 received the substantive v6
