@@ -1898,6 +1898,10 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
             raw_model = build_non_equivariant_vae(
                 norm_groups=settings.norm_groups,
             ).to(device)
+            _set_scalar_gate_precision(
+                model=raw_model,
+                force_fp32=config.row_spec.precision_policy != AMP_SCALAR_GATE_RELAXED,
+            )
             if config.row_spec.memory_format == "channels_last":
                 raw_model = raw_model.to(memory_format=torch.channels_last)
             ddp_model = DistributedDataParallel(
@@ -2480,6 +2484,23 @@ def _compile_ddp_model_if_requested(
         raise ValueError(message)
     compile_fn = cast("object", torch_module).compile
     return compile_fn(model, dynamic=row_spec.compile_dynamic)
+
+
+def _set_scalar_gate_precision(*, model: object, force_fp32: bool) -> int:
+    """Set scalar gate math precision for runtime-policy rows.
+
+    Returns:
+        Number of gate modules updated.
+
+    """
+    from eqvae.models.activations import GatedScalarActivation  # noqa: PLC0415
+
+    updated = 0
+    for module in cast("object", model).modules():
+        if isinstance(module, GatedScalarActivation):
+            module.force_fp32 = force_fp32
+            updated += 1
+    return updated
 
 
 def _backend_state(*, torch_module: object) -> JsonObject:

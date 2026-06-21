@@ -161,6 +161,13 @@ def load_runtime_selection_evidence(artifact_dir: Path) -> RuntimeSelectionEvide
 
 
 @dataclass(frozen=True)
+class _EfficiencyPolicySelection:
+    runtime_policy_id: str
+    precision_policy: str
+    compile_scope: str
+
+
+@dataclass(frozen=True)
 class _SelectionSettings:
     run_name: str
     effective_config_hash: str
@@ -177,6 +184,10 @@ class _SelectionSettings:
     baseline_selected_row_id: str
     baseline_runtime_policy_id: str
     minimum_material_speedup_fraction: float
+    efficiency_accelerator_modes: tuple[str, ...]
+    efficiency_batch_sizes: tuple[int, ...]
+    efficiency_corruption_strategies: tuple[str, ...]
+    efficiency_policies: tuple[_EfficiencyPolicySelection, ...]
 
 
 def write_runtime_selection_benchmark(  # noqa: PLR0914
@@ -348,7 +359,12 @@ def _settings(
         fallback_batch_sizes=_int_tuple(first_stage, "fallback_per_device_batch_sizes"),
         dual_batch_sizes=_int_tuple(dual_stage, "per_device_batch_sizes"),
         corruption_strategies=_str_tuple(dual_stage, "corruption_strategies"),
-        baseline_selected_runtime_path=Path(baseline_path) if baseline_path else None,
+        baseline_selected_runtime_path=None
+        if not baseline_path
+        else _resolve_config_relative_path(
+            config_path=request.config_path,
+            configured_path=baseline_path,
+        ),
         baseline_selected_row_id=_optional_str(efficiency, "baseline_row_id")
         or "dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked",
         baseline_runtime_policy_id=_optional_str(
@@ -361,7 +377,51 @@ def _settings(
             "minimum_material_speedup_fraction",
         )
         or DEFAULT_MATERIAL_SPEEDUP_FRACTION,
+        efficiency_accelerator_modes=()
+        if not efficiency
+        else _str_tuple(efficiency, "accelerator_modes"),
+        efficiency_batch_sizes=()
+        if not efficiency
+        else _int_tuple(efficiency, "per_device_batch_sizes"),
+        efficiency_corruption_strategies=()
+        if not efficiency
+        else _str_tuple(efficiency, "corruption_strategies"),
+        efficiency_policies=()
+        if not efficiency
+        else _efficiency_policy_selections(
+            _required_object_list(efficiency, "policies"),
+        ),
     )
+
+
+def _efficiency_policy_selections(
+    policies: Sequence[JsonObject],
+) -> tuple[_EfficiencyPolicySelection, ...]:
+    return tuple(
+        _EfficiencyPolicySelection(
+            runtime_policy_id=_required_str(policy, "runtime_policy_id"),
+            precision_policy=_required_str(policy, "precision_policy"),
+            compile_scope=_required_str(policy, "compile_scope"),
+        )
+        for policy in policies
+    )
+
+
+def _resolve_config_relative_path(*, config_path: Path, configured_path: str) -> Path:
+    path = Path(configured_path)
+    if path.is_absolute():
+        return path
+    resolved_config = config_path.resolve()
+    for parent in resolved_config.parents:
+        candidate = parent / path
+        if candidate.exists():
+            return candidate
+    if (
+        resolved_config.parent.name == "spec0001"
+        and resolved_config.parent.parent.name == "configs"
+    ):
+        return resolved_config.parent.parent.parent / path
+    return Path.cwd() / path
 
 
 def _stage(stages: Sequence[JsonObject], name: str) -> JsonObject:
@@ -1043,10 +1103,17 @@ def _selected_runtime_write_decision(  # noqa: C901, PLR0912, PLR0913
     )
     if missing_stain_qa_rows:
         blockers.append("stain_corruptor_qa_candidate_scope_not_pass")
+    candidates = _selection_candidate_rows(settings=settings, rows=runtime_rows)
+    if settings.baseline_selected_runtime_path is not None and (
+        baseline_blocker := _baseline_snapshot_blocker(settings, candidates)
+    ):
+        blockers.append(baseline_blocker)
     selected = _selected_row_or_none(settings=settings, rows=runtime_rows)
     linked_pass_row_failures: list[str] = []
     if selected is None:
         blockers.append("runtime_matrix_has_no_selectable_pass_row")
+    elif not _row_id_present(runtime_rows, selected["row_id"]):
+        blockers.append("selected_runtime_reuses_configured_baseline_no_replacement")
     else:
         linked_pass_row_failures = _linked_pass_row_failures(
             runtime_rows=(selected,),
@@ -1109,9 +1176,10 @@ def _selected_row_or_none(
     settings: _SelectionSettings,
     rows: Sequence[CsvRow],
 ) -> CsvRow | None:
-    candidates = [row for row in rows if _runtime_row_candidate_pass(row)]
+    candidates = _selection_candidate_rows(settings=settings, rows=rows)
+    baseline = _baseline_row(settings=settings, candidates=candidates)
     if not candidates:
-        return None
+        return baseline
     ranked = sorted(
         candidates,
         key=lambda row: (
@@ -1121,8 +1189,9 @@ def _selected_row_or_none(
         ),
     )
     fastest = ranked[0]
-    baseline = _baseline_row(settings=settings, candidates=candidates)
     if baseline is None:
+        if settings.baseline_selected_runtime_path is not None:
+            return None
         return fastest
     fastest_samples = _float_or_none(fastest["samples_sec"]) or 0.0
     baseline_samples = _float_or_none(baseline["samples_sec"]) or 0.0
@@ -1133,6 +1202,42 @@ def _selected_row_or_none(
     ):
         return fastest
     return baseline
+
+
+def _selection_candidate_rows(
+    *,
+    settings: _SelectionSettings,
+    rows: Sequence[CsvRow],
+) -> list[CsvRow]:
+    return [
+        row
+        for row in rows
+        if _runtime_row_candidate_pass(row)
+        and _selection_candidate_scope_matches(settings=settings, row=row)
+    ]
+
+
+def _selection_candidate_scope_matches(
+    *,
+    settings: _SelectionSettings,
+    row: CsvRow,
+) -> bool:
+    if row["row_id"] == settings.baseline_selected_row_id:
+        return True
+    if not settings.efficiency_policies:
+        return True
+    batch_size = _optional_csv_int(row.get("per_device_batch_size", ""))
+    return (
+        row["accelerator_mode"] in settings.efficiency_accelerator_modes
+        and batch_size in settings.efficiency_batch_sizes
+        and row["corruption_strategy"] in settings.efficiency_corruption_strategies
+        and any(
+            policy.runtime_policy_id == _runtime_policy_id(row)
+            and policy.precision_policy == row["precision_policy"]
+            and policy.compile_scope == row["compile_scope"]
+            for policy in settings.efficiency_policies
+        )
+    )
 
 
 def _runtime_row_candidate_pass(row: CsvRow) -> bool:
@@ -1163,20 +1268,36 @@ def _baseline_row(
     candidates: Sequence[CsvRow],
 ) -> CsvRow | None:
     measured = [
-        row
-        for row in candidates
-        if row["row_id"] == settings.baseline_selected_row_id
-        or _runtime_policy_id(row) == settings.baseline_runtime_policy_id
+        row for row in candidates if row["row_id"] == settings.baseline_selected_row_id
     ]
     if measured:
         return max(measured, key=lambda row: _float_or_none(row["samples_sec"]) or 0.0)
-    baseline_payload = _baseline_selected_runtime_payload(settings)
-    if baseline_payload is None:
-        return None
-    snapshot = baseline_payload.get("selected_row_snapshot")
-    if isinstance(snapshot, dict):
-        return cast("CsvRow", {key: str(value) for key, value in snapshot.items()})
-    return None
+    return _baseline_snapshot_row(settings)
+
+
+def _baseline_snapshot_blocker(
+    settings: _SelectionSettings,
+    candidates: Sequence[CsvRow],
+) -> str:
+    if settings.baseline_selected_runtime_path is None:
+        return ""
+    if _measured_baseline_rows(settings=settings, candidates=candidates):
+        return ""
+    if not settings.baseline_selected_runtime_path.exists():
+        return "baseline_selected_runtime_not_available"
+    if _baseline_snapshot_row(settings) is None:
+        return "baseline_selected_runtime_identity_mismatch"
+    return ""
+
+
+def _measured_baseline_rows(
+    *,
+    settings: _SelectionSettings,
+    candidates: Sequence[CsvRow],
+) -> list[CsvRow]:
+    return [
+        row for row in candidates if row["row_id"] == settings.baseline_selected_row_id
+    ]
 
 
 def _baseline_selected_runtime_payload(
@@ -1188,6 +1309,30 @@ def _baseline_selected_runtime_payload(
     if not path.exists():
         return None
     return _load_json(path)
+
+
+def _baseline_snapshot_row(settings: _SelectionSettings) -> CsvRow | None:
+    baseline_payload = _baseline_selected_runtime_payload(settings)
+    if baseline_payload is None or baseline_payload.get("status") != PASS_STATUS:
+        return None
+    snapshot = baseline_payload.get("selected_row_snapshot")
+    if not isinstance(snapshot, dict):
+        return None
+    row = cast("CsvRow", {key: str(value) for key, value in snapshot.items()})
+    if (
+        baseline_payload.get("selected_row_id") != settings.baseline_selected_row_id
+        or baseline_payload.get("runtime_policy_id")
+        != settings.baseline_runtime_policy_id
+        or row.get("row_id") != settings.baseline_selected_row_id
+        or _runtime_policy_id(row) != settings.baseline_runtime_policy_id
+        or row.get("status") != PASS_STATUS
+    ):
+        return None
+    return row
+
+
+def _row_id_present(rows: Sequence[CsvRow], row_id: str) -> bool:
+    return any(row["row_id"] == row_id for row in rows)
 
 
 def _selected_row(settings: _SelectionSettings, rows: Sequence[CsvRow]) -> CsvRow:
@@ -1551,7 +1696,7 @@ def _efficiency_followup_payload(
     runtime_rows: Sequence[CsvRow],
     selected_row_id: JsonValue,
 ) -> JsonObject:
-    candidates = [row for row in runtime_rows if _runtime_row_candidate_pass(row)]
+    candidates = _selection_candidate_rows(settings=settings, rows=runtime_rows)
     baseline = _baseline_row(settings=settings, candidates=candidates)
     selected = next(
         (row for row in candidates if row["row_id"] == selected_row_id),
@@ -1589,13 +1734,21 @@ def _efficiency_followup_payload(
         else _runtime_policy_id(selected),
         "material_speedup_over_baseline": material_speedup,
         "candidate_row_count": len(candidates),
+        "ignored_candidate_row_count": sum(
+            1
+            for row in runtime_rows
+            if _runtime_row_candidate_pass(row)
+            and not _selection_candidate_scope_matches(settings=settings, row=row)
+        ),
         "catastrophic_blockers": [
             row["row_id"]
             for row in runtime_rows
             if row["status"] == PASS_STATUS and not _runtime_row_candidate_pass(row)
         ],
+        "baseline_available": baseline is not None,
         "selection_policy": (
-            "prefer_fastest_material_speedup_over_v3_baseline_else_keep_baseline"
+            "prefer_fastest_material_speedup_over_configured_baseline_else_keep_"
+            "baseline"
         ),
     }
 

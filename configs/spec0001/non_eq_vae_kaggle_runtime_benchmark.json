@@ -158,102 +158,23 @@
         "failure_policy": "do_not_write_selected_runtime_if_missing_failed_or_skipped"
       },
       "efficiency_followup": {
-        "name": "selected_runtime_v3_efficiency_followup",
-        "status": "implemented_local_kernel_ready",
-        "baseline_selected_runtime": "runs/kaggle/runtime_selection_v3/benchmark/selected_runtime.json",
-        "baseline_row_id": "dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked",
-        "baseline_runtime_policy_id": "v3_fp32_eager_baseline",
+        "name": "selected_runtime_v5_amp_relaxed_followup",
+        "status": "implemented_local_kernel_ready_no_remote_push",
+        "baseline_selected_runtime": "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
+        "baseline_row_id": "dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative",
+        "baseline_runtime_policy_id": "amp_fp16_conservative",
         "minimum_material_speedup_fraction": 0.03,
         "accelerator_modes": ["dual_t4_ddp"],
         "per_device_batch_sizes": [12],
         "corruption_strategies": ["indexed_masked"],
         "policies": [
           {
-            "runtime_policy_id": "v3_fp32_eager_baseline",
-            "precision_policy": "amp_off_fp32",
-            "compile_scope": "none"
-          },
-          {
-            "runtime_policy_id": "fp32_channels_last_cudnn_ddpfast",
-            "precision_policy": "amp_off_fp32",
-            "compile_scope": "none",
-            "memory_format": "channels_last",
-            "cudnn_benchmark": true,
-            "cudnn_deterministic": false,
-            "ddp_static_graph": true,
-            "ddp_gradient_as_bucket_view": true,
-            "optimizer_implementation": "adamw_foreach",
-            "zero_grad_set_to_none": true,
-            "gradient_clip_foreach": true
-          },
-          {
-            "runtime_policy_id": "amp_fp16_conservative",
-            "precision_policy": "amp_conservative",
+            "runtime_policy_id": "amp_fp16_scalar_gate_relaxed",
+            "precision_policy": "amp_scalar_gate_relaxed",
             "compile_scope": "none",
             "autocast_dtype": "float16",
             "fp32_loss": true,
             "grad_scaler_enabled": true
-          },
-          {
-            "runtime_policy_id": "amp_fp16_channels_last_cudnn_ddpfast",
-            "precision_policy": "amp_conservative",
-            "compile_scope": "none",
-            "memory_format": "channels_last",
-            "autocast_dtype": "float16",
-            "fp32_loss": true,
-            "grad_scaler_enabled": true,
-            "cudnn_benchmark": true,
-            "cudnn_deterministic": false,
-            "ddp_static_graph": true,
-            "ddp_gradient_as_bucket_view": true,
-            "optimizer_implementation": "adamw_foreach",
-            "zero_grad_set_to_none": true,
-            "gradient_clip_foreach": true
-          },
-          {
-            "runtime_policy_id": "compile_model_forward_fp32_channels_last",
-            "precision_policy": "amp_off_fp32",
-            "compile_scope": "model_forward",
-            "memory_format": "channels_last",
-            "cudnn_benchmark": true,
-            "cudnn_deterministic": false,
-            "ddp_static_graph": true,
-            "ddp_gradient_as_bucket_view": true,
-            "optimizer_implementation": "adamw_foreach",
-            "zero_grad_set_to_none": true,
-            "gradient_clip_foreach": true,
-            "compile_dynamic": false
-          },
-          {
-            "runtime_policy_id": "compile_model_forward_amp_channels_last",
-            "precision_policy": "amp_conservative",
-            "compile_scope": "model_forward",
-            "memory_format": "channels_last",
-            "autocast_dtype": "float16",
-            "fp32_loss": true,
-            "grad_scaler_enabled": true,
-            "cudnn_benchmark": true,
-            "cudnn_deterministic": false,
-            "ddp_static_graph": true,
-            "ddp_gradient_as_bucket_view": true,
-            "optimizer_implementation": "adamw_foreach",
-            "zero_grad_set_to_none": true,
-            "gradient_clip_foreach": true,
-            "compile_dynamic": false
-          },
-          {
-            "runtime_policy_id": "fp32_tf32_matmul_probe",
-            "precision_policy": "amp_off_fp32",
-            "compile_scope": "none",
-            "tf32_enabled": true,
-            "matmul_precision": "high"
-          },
-          {
-            "runtime_policy_id": "fp32_adamw_fused_probe",
-            "precision_policy": "amp_off_fp32",
-            "compile_scope": "none",
-            "optimizer_implementation": "adamw_fused",
-            "zero_grad_set_to_none": true
           }
         ]
       },

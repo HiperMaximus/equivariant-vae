@@ -135,7 +135,11 @@ small broader AMP/non-conservative follow-up to test whether a less
 conservative AMP policy such as `amp_scalar_gate_relaxed` can beat v5 without
 catastrophic failures. v5 remains the safe selected-runtime fallback unless the
 aggressive AMP follow-up passes the same local preflight, linked proof, strict
-local replay, debug/resume, and tiny-overfit gates.
+local replay, debug/resume, and tiny-overfit gates. The current local working
+slice adds a real scalar-gate relaxed precision switch, updates the
+runtime-selection efficiency follow-up to use v5 as fallback, and adds the
+`amp_fp16_scalar_gate_relaxed` policy row; no Kaggle remote action has been run
+or approved for that follow-up.
 The working historical FSQ training reference is `kaggle/train_runs`: it trained
 correctly and should be used as the source for broad macro-architecture and
 runtime-efficiency ideas, while FSQ quantization/codebooks/rounding/discrete
@@ -357,19 +361,16 @@ implementation planning; before an actual remote benchmark push, rerun
 `api-check` and confirm the UI still shows available GPU quota.
 
 Immediate next action: use
-`runs/kaggle/runtime_selection_v3/benchmark/selected_runtime.json` as the
-proof-clean baseline for an efficiency-selection follow-up before any 60h+
-training launch. The follow-up should remeasure the v3 row and candidate
-upgrades for `amp_conservative`, `amp_scalar_gate_relaxed`, stable
-`torch.compile` scopes, channels-last layout, cuDNN benchmark/non-deterministic
-kernel selection, DDP `static_graph` and `gradient_as_bucket_view`,
-optimizer/zero-grad fast paths, and any Kaggle-supported TF32/matmul precision
-knob. A faster row can replace the v3 baseline if it is materially faster and
-does not trigger catastrophic failures: non-finite loss/gradients, repeated AMP
-step skips, DDP instability, broken checkpoint/resume, broken artifacts,
-gate-health collapse, or clearly invalid metrics. Do not push another Kaggle
-job without explicit user approval and the guard variables. The
-separate selected-runtime benchmark/debug slice is encoded in
+`runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json` as the
+fallback selected runtime for a compact efficiency-selection follow-up before
+any long training launch. The follow-up should test only the
+`amp_fp16_scalar_gate_relaxed` policy against v5 and may replace v5 only if it
+is materially faster and does not trigger catastrophic failures: non-finite
+loss/gradients, repeated AMP step skips, DDP instability, broken
+checkpoint/resume, broken artifacts, gate-health collapse, missing relaxed-gate
+dtype proof, or clearly invalid metrics. Do not push another Kaggle job without
+explicit user approval and the guard variables. The separate selected-runtime
+benchmark/debug slice is encoded in
 `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json` as
 `runtime_matrix.selection_benchmark_slice.name =
 "v8_shortlist_eager_amp_then_dual_gate"`. Remote v8 is carry-forward shortlist
@@ -681,19 +682,21 @@ The review process lives in `docs/agentic_review_workflow.md`.
    samples/sec and about 30.4 projected hours for 10 epochs, with strict local
    replay pass. This approval was only for the efficiency benchmark, not for the
    first 60h-scale real training run.
-2. Before any long real training launch, add a compact aggressive-AMP follow-up
-   gate that tests whether broader/non-conservative AMP, especially
-   `amp_scalar_gate_relaxed`, works and is materially faster than v5. It should
-   be small, proof-bound, locally preflighted, and allowed to fall back to v5 if
-   it shows AMP skips, nonfinite values, invalid drift, gate-health collapse, or
-   broken artifacts.
+2. Before any long real training launch, run the compact aggressive-AMP
+   follow-up gate that now includes `amp_fp16_scalar_gate_relaxed` against v5 as
+   fallback. It must be proof-bound, locally preflighted with
+   `./scripts/kaggle_kernel.sh preflight-runtime-selection` before any future
+   approval request, and allowed to fall back to v5 if it shows AMP skips,
+   nonfinite values, invalid drift, gate-health collapse, or broken artifacts.
 3. Next learning/stability gate is selected-runtime debug/resume/tiny-overfit
    using `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json` or a
    strictly better aggressive-AMP selected runtime if that follow-up passes.
-   Prove selected-runtime debug, checkpoint/resume, artifacts, and tiny-overfit
-   before asking for any long real training launch approval. Preserve the FSQ
-   lessons: do not execute the corruptor for clean validation, and do not let
-   schedules advance after a skipped optimizer step.
+   The real train/checkpoint/resume CLI stack is still missing, including the
+   checkpoint save/load implementation. Prove selected-runtime debug,
+   checkpoint/resume, artifacts, and tiny-overfit before asking for any long
+   real training launch approval. Preserve the FSQ lessons: do not execute the
+   corruptor for clean validation, and do not let schedules advance after a
+   skipped optimizer step.
 4. Run or rerun Kaggle optimization/debug jobs only after explicit user
    approval plus `KAGGLE_PUSH_CONFIRMED=1` and
    `KAGGLE_FULL_DATASET_CONFIRMED=1`; remote reads still require explicit
@@ -701,7 +704,7 @@ The review process lives in `docs/agentic_review_workflow.md`.
 5. Continue the shared evaluation harness, future `SO(2)` count ceiling, and
    steerable model work only after the benchmark plumbing gates are no longer
    blocking the first real baseline run.
-5. Ask for approval on the first 60h-scale real run only after implementation,
+6. Ask for approval on the first 60h-scale real run only after implementation,
    Kaggle environment checks, efficiency-selection decisions, selected-runtime
    debug/resume/tiny-overfit checks, artifact checks, and gate-health checks are
    complete.
@@ -721,13 +724,12 @@ The review process lives in `docs/agentic_review_workflow.md`.
   ceiling, real fixed validation/tiny-overfit selector generation,
   selected-runtime debug, checkpoint/resume, full evaluation/artifact writers,
   and final adversarial spec review after those routes are integrated.
-- The first full Kaggle run remains blocked until the v3 proof-clean baseline is
-  either accepted as the fastest practical choice or replaced by an optimized
-  row with evidence for AMP/FP16, compile scope, CUDA/DDP/layout/optimizer
-  flags, dataloader settings, and corruption strategy. The optimized row may
-  relax determinism for speed, but catastrophic safety, selected-runtime debug,
-  checkpoint/resume, tiny-overfit, gate-health summary, and fixed real visual QA
-  gates still need to pass.
+- The first full Kaggle run remains blocked until runtime-selection v5 is either
+  kept as fallback or replaced by a compact relaxed-AMP row with evidence for
+  material speedup, scalar-gate dtype behavior, dataloader settings, and
+  corruption strategy. The selected row may relax determinism for speed, but
+  catastrophic safety, selected-runtime debug, checkpoint/resume, tiny-overfit,
+  gate-health summary, and fixed real visual QA gates still need to pass.
 - The exact held-out masked-WSI test shard must be generated, uploaded, and
   locked before final paper claims. The 152-image candidate pool is documented in
   `docs/data/ubc_ocean_masked_holdout_ids.csv`, and train/validation are
@@ -2162,10 +2164,10 @@ The review process lives in `docs/agentic_review_workflow.md`.
   `PYTHONPATH=src .venv/bin/python -m pytest tests/test_runtime_selection_benchmark.py`,
   `PYTHONPATH=src .venv/bin/python -m pytest tests/test_kaggle_embedded_kernel.py`,
   `./scripts/python_quality.sh`, repo `./scripts/agent_preflight.sh`, and
-  workspace `./agent_preflight.sh` all pass. Next action: ask for explicit
-  Kaggle approval to push/run the successor runtime-selection kernel; for a long
-  run, check status once and tell the user a concrete local time to prompt
-  `continue`.
+  workspace `./agent_preflight.sh` all pass. Superseded next action:
+  runtime-selection v5 is now the fallback selected runtime, and the active
+  local successor is the compact `amp_fp16_scalar_gate_relaxed` comparison plus
+  later debug/resume/tiny-overfit proof gates before any long run is requested.
 - 2026-06-21 selected-runtime efficiency follow-up Kaggle launch and v4 result:
   after the Einstein adversarial FSQ review completed, the user approved the
   efficiency follow-up only, not the first 60h-scale real run. The first push

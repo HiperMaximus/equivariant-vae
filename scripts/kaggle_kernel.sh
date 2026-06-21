@@ -1074,6 +1074,7 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         "src/eqvae/benchmarking/runtime_selection_executor.py",
         "src/eqvae/cli/runtime_selection_executor.py",
         "configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json",
+        "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
         "runs/kaggle/real_data_runtime_pretest_v8/benchmark/runtime_proof.json",
         "runs/kaggle/real_data_runtime_pretest_v8/benchmark/runtime_matrix.csv",
         "runs/kaggle/real_data_runtime_pretest_v8/benchmark/dataloader_matrix.csv",
@@ -1102,6 +1103,11 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         config = json.loads(
             archive.read(
                 "configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json",
+            ),
+        )
+        baseline = json.loads(
+            archive.read(
+                "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
             ),
         )
     except KeyError as error:
@@ -1136,6 +1142,25 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             errors.append("config.runtime_matrix.selection_benchmark_slice must be an object")
         elif selection.get("name") != "v8_shortlist_eager_amp_then_dual_gate":
             errors.append("selection slice must be v8_shortlist_eager_amp_then_dual_gate")
+        else:
+            efficiency = selection.get("efficiency_followup")
+            if not isinstance(efficiency, dict):
+                errors.append("selection efficiency_followup must be an object")
+            else:
+                expected_row = efficiency.get("baseline_row_id")
+                expected_policy = efficiency.get("baseline_runtime_policy_id")
+                snapshot = baseline.get("selected_row_snapshot")
+                if not isinstance(snapshot, dict):
+                    errors.append("baseline selected runtime must contain a snapshot")
+                elif (
+                    baseline.get("status") != "pass"
+                    or baseline.get("selected_row_id") != expected_row
+                    or baseline.get("runtime_policy_id") != expected_policy
+                    or snapshot.get("row_id") != expected_row
+                    or snapshot.get("runtime_policy_id") != expected_policy
+                    or snapshot.get("status") != "pass"
+                ):
+                    errors.append("baseline selected runtime does not match config")
         carry = runtime.get("v8_carry_forward")
         if not isinstance(carry, dict):
             errors.append("config.runtime_matrix.v8_carry_forward must be an object")

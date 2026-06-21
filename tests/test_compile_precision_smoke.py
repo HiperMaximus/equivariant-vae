@@ -99,6 +99,25 @@ def test_gated_scalar_activation_fp16_matches_fp32_reference() -> None:
     assert torch.allclose(outputs.to(dtype=torch.float32), reference, atol=1.0e-3)
 
 
+def test_gated_scalar_activation_relaxed_policy_uses_input_dtype() -> None:
+    """The relaxed AMP policy can run scalar gate sigmoid math in FP16."""
+    activation = GatedScalarActivation(channels=2, force_fp32=False)
+    inputs = torch.linspace(-2.0, 2.0, steps=16, dtype=torch.float16).reshape(
+        1,
+        2,
+        2,
+        4,
+    )
+
+    outputs: torch.Tensor = activation.forward(inputs)
+    reference = inputs * torch.sigmoid(inputs)
+
+    assert activation.force_fp32 is False
+    assert outputs.dtype == torch.float16
+    assert torch.isfinite(outputs).all()
+    assert torch.equal(outputs, reference)
+
+
 def _compile_eager(model: NonEquivariantVAE) -> CompiledVae:
     compile_fn = cast("Callable[..., CompiledVae]", torch.compile)
     return compile_fn(model, backend="eager")

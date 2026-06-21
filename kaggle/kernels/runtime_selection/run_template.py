@@ -61,6 +61,9 @@ KERNEL_METADATA = {
 DEFAULT_KAGGLE_OUTPUT_DIR = Path("/kaggle/working")
 LOCAL_FALLBACK_OUTPUT_DIR = Path("runs/kaggle/runtime_selection_local")
 V8_ARTIFACT_ROOT = Path("runs/kaggle/real_data_runtime_pretest_v8")
+BASELINE_SELECTED_RUNTIME = Path(
+    "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
+)
 EMBEDDED_PAYLOAD_B64 = """
 $embedded_payload_b64
 """
@@ -109,12 +112,18 @@ def _run_runtime_selection(output_dir: Path) -> int:
     payload_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     v8_artifact_dir = payload_dir / V8_ARTIFACT_ROOT
     _validate_v8_artifacts(v8_artifact_dir)
+    baseline_selected_runtime = payload_dir / BASELINE_SELECTED_RUNTIME
+    _validate_baseline_selected_runtime(
+        path=baseline_selected_runtime,
+        config_path=config_path,
+    )
     if os.environ.get("EQVAE_RUNTIME_SELECTION_IMPORT_ONLY") == "1":
         _write_import_only_artifact(
             output_dir=output_dir,
             config_path=config_path,
             payload_manifest=payload_manifest,
             v8_artifact_dir=v8_artifact_dir,
+            baseline_selected_runtime=baseline_selected_runtime,
         )
         _validate_import_only_artifacts(output_dir=output_dir)
         return 0
@@ -240,12 +249,49 @@ def _validate_v8_artifacts(v8_artifact_dir: Path) -> None:
         raise RuntimeError(message)
 
 
+def _validate_baseline_selected_runtime(*, path: Path, config_path: Path) -> None:
+    if not path.exists():
+        message = f"missing embedded baseline selected runtime: {path}"
+        raise RuntimeError(message)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    efficiency = (
+        config
+        .get("runtime_matrix", {})
+        .get("selection_benchmark_slice", {})
+        .get("efficiency_followup", {})
+    )
+    if not isinstance(efficiency, dict):
+        message = "runtime-selection config is missing efficiency_followup"
+        raise TypeError(message)
+    expected_row_id = efficiency.get("baseline_row_id")
+    expected_policy_id = efficiency.get("baseline_runtime_policy_id")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    snapshot = payload.get("selected_row_snapshot")
+    if not isinstance(snapshot, dict):
+        message = "embedded baseline selected runtime is missing selected_row_snapshot"
+        raise TypeError(message)
+    payload_matches = (
+        payload.get("status") != "pass"
+        or payload.get("selected_row_id") != expected_row_id
+        or payload.get("runtime_policy_id") != expected_policy_id
+    )
+    snapshot_matches = (
+        snapshot.get("row_id") != expected_row_id
+        or snapshot.get("runtime_policy_id") != expected_policy_id
+        or snapshot.get("status") != "pass"
+    )
+    if payload_matches or snapshot_matches:
+        message = "embedded baseline selected runtime is not a passing snapshot"
+        raise RuntimeError(message)
+
+
 def _write_import_only_artifact(
     *,
     output_dir: Path,
     config_path: Path,
     payload_manifest: dict[str, object],
     v8_artifact_dir: Path,
+    baseline_selected_runtime: Path,
 ) -> Path:
     benchmark_dir = output_dir / "benchmark"
     benchmark_dir.mkdir(parents=True, exist_ok=True)
@@ -261,6 +307,8 @@ def _write_import_only_artifact(
         "payload_manifest": payload_manifest,
         "v8_artifact_dir": str(v8_artifact_dir),
         "required_v8_artifacts": sorted(REQUIRED_V8_ARTIFACTS),
+        "baseline_selected_runtime": str(baseline_selected_runtime),
+        "baseline_selected_runtime_exists": baseline_selected_runtime.exists(),
     }
     output_path = benchmark_dir / "runtime_selection_import.json"
     output_path.write_text(

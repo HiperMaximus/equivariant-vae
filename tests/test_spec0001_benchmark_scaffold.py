@@ -332,6 +332,45 @@ def test_runtime_config_dual_t4_timing_blocks_selection() -> None:
     assert "missing_real_dual_t4_train_step_timing" in promotion_blockers
 
 
+def test_runtime_config_v5_relaxed_amp_followup_uses_v5_fallback() -> None:
+    """The compact relaxed AMP follow-up compares against the v5 fallback."""
+    effective = resolve_json_config(
+        Path("configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json"),
+    ).effective_config
+    runtime = effective["runtime_matrix"]
+    assert isinstance(runtime, dict)
+    selection_slice = runtime["selection_benchmark_slice"]
+    assert isinstance(selection_slice, dict)
+    efficiency = selection_slice["efficiency_followup"]
+    assert isinstance(efficiency, dict)
+
+    assert efficiency["name"] == "selected_runtime_v5_amp_relaxed_followup"
+    assert efficiency["baseline_selected_runtime"] == (
+        "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json"
+    )
+    assert efficiency["baseline_runtime_policy_id"] == "amp_fp16_conservative"
+    assert efficiency["baseline_row_id"] == (
+        "dual_t4_ddp__bs12__amp_conservative__compile_none"
+        "__indexed_masked__policy_amp_fp16_conservative"
+    )
+    policies = efficiency["policies"]
+    assert isinstance(policies, list)
+    assert [
+        policy["runtime_policy_id"] for policy in policies if isinstance(policy, dict)
+    ] == ["amp_fp16_scalar_gate_relaxed"]
+    policy_by_id = {
+        policy["runtime_policy_id"]: policy
+        for policy in policies
+        if isinstance(policy, dict)
+    }
+    relaxed = policy_by_id["amp_fp16_scalar_gate_relaxed"]
+    assert relaxed["precision_policy"] == "amp_scalar_gate_relaxed"
+    assert relaxed["compile_scope"] == "none"
+    assert relaxed["autocast_dtype"] == "float16"
+    assert relaxed["fp32_loss"] is True
+    assert relaxed["grad_scaler_enabled"] is True
+
+
 def test_model_count_resolves_source_config_without_repo_cwd(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

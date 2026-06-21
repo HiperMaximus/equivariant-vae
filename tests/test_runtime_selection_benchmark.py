@@ -26,6 +26,9 @@ from eqvae.benchmarking.runtime_selection import (
     load_runtime_selection_evidence,
     write_runtime_selection_benchmark,
 )
+from eqvae.config import resolve_json_config
+from eqvae.models.activations import GatedScalarActivation
+from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
 
 CONFIG_PATH = Path("configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json")
 RUN_NAME = "runtime_selection_test"
@@ -124,7 +127,7 @@ def test_runtime_selection_refuses_stale_selected_runtime_when_blocked(
 def test_runtime_selection_writes_selected_runtime_after_full_local_proof(
     tmp_path: Path,
 ) -> None:
-    """Successful injected evidence writes a pass selected-runtime payload."""
+    """Successful injected compact follow-up evidence writes a pass payload."""
     output_dir = tmp_path / "selection"
     evidence = _passing_runtime_selection_evidence()
     _write_stain_qa(output_dir, evidence)
@@ -157,7 +160,8 @@ def test_runtime_selection_writes_selected_runtime_after_full_local_proof(
     assert selected["world_size"] == EXPECTED_DUAL_WORLD_SIZE
     assert selected["nproc_per_node"] == EXPECTED_DUAL_WORLD_SIZE
     assert selected["selected_row_id"] == (
-        "dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked"
+        "dual_t4_ddp__bs12__amp_scalar_gate_relaxed__compile_none__indexed_masked__"
+        "policy_amp_fp16_scalar_gate_relaxed"
     )
     artifacts_payload = cast("dict[str, object]", selected["artifacts"])
     assert artifacts_payload["stain_corruptor_qa"] == (
@@ -175,8 +179,18 @@ def test_runtime_selection_writes_selected_runtime_after_full_local_proof(
 def test_runtime_selection_allows_stable_compile_efficiency_row(
     tmp_path: Path,
 ) -> None:
-    """A stable selected-runtime compile row may replace the v3 baseline."""
+    """A configured stable compile row may replace the fallback baseline."""
     output_dir = tmp_path / "selection"
+    config_path = _write_config_with_efficiency_policies(
+        tmp_path=tmp_path,
+        policies=(
+            {
+                "runtime_policy_id": "compile_model_forward_fp32_channels_last",
+                "precision_policy": "amp_off_fp32",
+                "compile_scope": "model_forward",
+            },
+        ),
+    )
     runtime_rows = (
         *_passing_runtime_rows(),
         _runtime_row(
@@ -196,7 +210,7 @@ def test_runtime_selection_allows_stable_compile_efficiency_row(
 
     artifacts = write_runtime_selection_benchmark(
         RuntimeSelectionBenchmarkRequest(
-            config_path=CONFIG_PATH,
+            config_path=config_path,
             output_dir=output_dir,
             v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
             evidence=evidence,
@@ -218,6 +232,16 @@ def test_runtime_selection_excludes_amp_skip_rows_without_global_block(
 ) -> None:
     """AMP skips block their own row, not an otherwise safe selected runtime."""
     output_dir = tmp_path / "selection"
+    config_path = _write_config_with_efficiency_policies(
+        tmp_path=tmp_path,
+        policies=(
+            {
+                "runtime_policy_id": "amp_fp16_conservative",
+                "precision_policy": "amp_conservative",
+                "compile_scope": "none",
+            },
+        ),
+    )
     runtime_rows = (
         *_passing_runtime_rows(),
         _runtime_row(
@@ -237,7 +261,7 @@ def test_runtime_selection_excludes_amp_skip_rows_without_global_block(
 
     artifacts = write_runtime_selection_benchmark(
         RuntimeSelectionBenchmarkRequest(
-            config_path=CONFIG_PATH,
+            config_path=config_path,
             output_dir=output_dir,
             v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
             evidence=evidence,
@@ -248,9 +272,7 @@ def test_runtime_selection_excludes_amp_skip_rows_without_global_block(
     amp_policy = cast("dict[str, object]", proof["amp_followup_policy"])
     decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
 
-    assert artifacts.selected_runtime is not None
-    selected = _load_json(artifacts.selected_runtime)
-    assert selected["runtime_policy_id"] != "amp_fp16_conservative"
+    assert artifacts.selected_runtime is None
     assert amp_policy["status"] == "pass"
     assert runtime_rows[-1]["row_id"] in cast(
         "list[object]",
@@ -267,6 +289,16 @@ def test_runtime_selection_accepts_small_numerical_drift_for_faster_row(
 ) -> None:
     """Performance-first selection accepts small finite numerical drift."""
     output_dir = tmp_path / "selection"
+    config_path = _write_config_with_efficiency_policies(
+        tmp_path=tmp_path,
+        policies=(
+            {
+                "runtime_policy_id": "amp_fp16_conservative",
+                "precision_policy": "amp_conservative",
+                "compile_scope": "none",
+            },
+        ),
+    )
     fast_amp = _runtime_row(
         accelerator_mode="dual_t4_ddp",
         per_device_batch_size=12,
@@ -281,6 +313,45 @@ def test_runtime_selection_accepts_small_numerical_drift_for_faster_row(
     evidence = _runtime_selection_evidence_from_rows(runtime_rows)
     numerical_rows = tuple(
         _with_small_numerical_drift(row, candidate_row_id=fast_amp["row_id"])
+        for row in evidence.numerical_rows
+    )
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=config_path,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=RuntimeSelectionEvidence(
+                runtime_rows=evidence.runtime_rows,
+                dataloader_rows=evidence.dataloader_rows,
+                numerical_rows=numerical_rows,
+                corruption_rows=evidence.corruption_rows,
+                gate_health_rows=evidence.gate_health_rows,
+                gate_health_summary=evidence.gate_health_summary,
+                runtime_environment=evidence.runtime_environment,
+            ),
+        ),
+    )
+
+    assert artifacts.selected_runtime is not None
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+    selected = _load_json(artifacts.selected_runtime)
+    assert selected["runtime_policy_id"] == "amp_fp16_conservative"
+    assert decision["allowed"] is True
+
+
+def test_runtime_selection_can_select_relaxed_scalar_gate_amp_policy(
+    tmp_path: Path,
+) -> None:
+    """A faster relaxed scalar-gate AMP row can replace the v5 fallback."""
+    output_dir = tmp_path / "selection"
+    runtime_rows = _runtime_rows_for_v5_followup(relaxed_samples_sec=350.0)
+    relaxed_amp = runtime_rows[-1]
+    evidence = _runtime_selection_evidence_from_rows(runtime_rows)
+    numerical_rows = tuple(
+        _with_small_numerical_drift(row, candidate_row_id=relaxed_amp["row_id"])
         for row in evidence.numerical_rows
     )
     _write_stain_qa(output_dir, evidence)
@@ -304,10 +375,205 @@ def test_runtime_selection_accepts_small_numerical_drift_for_faster_row(
 
     assert artifacts.selected_runtime is not None
     proof = _load_json(artifacts.runtime_proof)
-    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
     selected = _load_json(artifacts.selected_runtime)
-    assert selected["runtime_policy_id"] == "amp_fp16_conservative"
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+
     assert decision["allowed"] is True
+    assert selected["selected_row_id"] == relaxed_amp["row_id"]
+    assert selected["runtime_policy_id"] == "amp_fp16_scalar_gate_relaxed"
+    assert cast("dict[str, object]", selected["mixed_precision"])["policy"] == (
+        "amp_scalar_gate_relaxed"
+    )
+
+
+def test_runtime_selection_keeps_v5_fallback_when_relaxed_amp_is_not_material(
+    tmp_path: Path,
+) -> None:
+    """A slower relaxed follow-up must not write a replacement artifact."""
+    output_dir = tmp_path / "selection"
+    runtime_rows = _runtime_rows_for_v5_followup(relaxed_samples_sec=27.5)
+    evidence = _runtime_selection_evidence_from_rows(runtime_rows)
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=evidence,
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+    efficiency = cast("dict[str, object]", proof["efficiency_followup"])
+    blockers = cast("list[object]", decision["blockers"])
+
+    assert artifacts.selected_runtime is None
+    assert decision["allowed"] is False
+    assert decision["selected_row_id"] == (
+        "dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__"
+        "policy_amp_fp16_conservative"
+    )
+    assert "selected_runtime_reuses_configured_baseline_no_replacement" in blockers
+    assert efficiency["material_speedup_over_baseline"] is False
+    assert not (output_dir / "benchmark" / "selected_runtime.json").exists()
+
+
+def test_runtime_selection_ignores_fast_nonconfigured_row_for_v5_followup(
+    tmp_path: Path,
+) -> None:
+    """Only the configured compact relaxed policy may replace the v5 fallback."""
+    output_dir = tmp_path / "selection"
+    runtime_rows = (
+        *_runtime_rows_for_v5_followup(relaxed_samples_sec=27.5),
+        _runtime_row(
+            accelerator_mode="dual_t4_ddp",
+            per_device_batch_size=12,
+            precision_policy="amp_conservative",
+            compile_scope="none",
+            corruption_strategy="indexed_masked",
+            world_size=EXPECTED_DUAL_WORLD_SIZE,
+            samples_sec=350.0,
+            runtime_policy_id="amp_fp16_channels_last_cudnn_ddpfast",
+            memory_format="channels_last",
+        ),
+    )
+    evidence = _runtime_selection_evidence_from_rows(runtime_rows)
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=evidence,
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+    efficiency = cast("dict[str, object]", proof["efficiency_followup"])
+
+    assert artifacts.selected_runtime is None
+    assert decision["selected_row_id"] == (
+        "dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__"
+        "policy_amp_fp16_conservative"
+    )
+    assert efficiency["material_speedup_over_baseline"] is False
+    ignored_count = efficiency["ignored_candidate_row_count"]
+    assert isinstance(ignored_count, int)
+    assert ignored_count >= 1
+
+
+def test_runtime_selection_fails_closed_when_configured_v5_fallback_is_missing(
+    tmp_path: Path,
+) -> None:
+    """A relaxed row cannot replace v5 if the configured fallback is absent."""
+    output_dir = tmp_path / "selection"
+    config_path = _write_config_with_baseline(
+        tmp_path=tmp_path,
+        baseline_path="runs/kaggle/missing_v5/benchmark/selected_runtime.json",
+    )
+    evidence = _runtime_selection_evidence_from_rows(
+        _runtime_rows_for_v5_followup(relaxed_samples_sec=350.0),
+    )
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=config_path,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=evidence,
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+    efficiency = cast("dict[str, object]", proof["efficiency_followup"])
+    blockers = cast("list[object]", decision["blockers"])
+
+    assert artifacts.selected_runtime is None
+    assert "baseline_selected_runtime_not_available" in blockers
+    assert efficiency["baseline_available"] is False
+    assert not decision["selected_row_id"]
+
+
+def test_runtime_selection_fails_closed_when_v5_fallback_identity_mismatches(
+    tmp_path: Path,
+) -> None:
+    """The fallback selected-runtime snapshot must match the configured v5 row."""
+    output_dir = tmp_path / "selection"
+    baseline_path = "runs/kaggle/mismatched_v5/benchmark/selected_runtime.json"
+    mismatched = _load_json(
+        Path("runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json"),
+    )
+    mismatched["runtime_policy_id"] = "wrong_policy"
+    write_json(tmp_path / baseline_path, cast("JsonObject", mismatched))
+    config_path = _write_config_with_baseline(
+        tmp_path=tmp_path,
+        baseline_path=baseline_path,
+    )
+    evidence = _runtime_selection_evidence_from_rows(
+        _runtime_rows_for_v5_followup(relaxed_samples_sec=350.0),
+    )
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=config_path,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=evidence,
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+    blockers = cast("list[object]", decision["blockers"])
+
+    assert artifacts.selected_runtime is None
+    assert "baseline_selected_runtime_identity_mismatch" in blockers
+
+
+def test_runtime_selection_executor_materializes_relaxed_amp_policy() -> None:
+    """Executor policy parsing must create the compact relaxed AMP row."""
+    resolved = resolve_json_config(CONFIG_PATH)
+
+    stage = runtime_selection_executor._selection_stage_settings(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        resolved.effective_config,
+    )
+
+    policies = {
+        policy.runtime_policy_id: policy for policy in stage.efficiency_policies
+    }
+    relaxed = policies["amp_fp16_scalar_gate_relaxed"]
+    row_specs = runtime_selection_executor._dual_row_specs(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        settings=cast(
+            "runtime_selection_executor.pretest.RealDataRuntimePretestSettings",
+            object(),
+        ),
+        stage=stage,
+    )
+    relaxed_rows = [
+        row
+        for row in row_specs
+        if row.runtime_policy_id == "amp_fp16_scalar_gate_relaxed"
+    ]
+
+    assert len(stage.efficiency_policies) == 1
+    assert relaxed.precision_policy == "amp_scalar_gate_relaxed"
+    assert relaxed.compile_scope == "none"
+    assert relaxed.autocast_dtype == "float16"
+    assert relaxed.fp32_loss is True
+    assert relaxed.grad_scaler_enabled is True
+    assert [row.row_id for row in relaxed_rows] == [
+        (
+            "dual_t4_ddp__bs12__amp_scalar_gate_relaxed__compile_none__"
+            "indexed_masked__policy_amp_fp16_scalar_gate_relaxed"
+        ),
+    ]
 
 
 def test_runtime_selection_blocks_clearly_invalid_numerical_drift(
@@ -315,6 +581,16 @@ def test_runtime_selection_blocks_clearly_invalid_numerical_drift(
 ) -> None:
     """Large metric drift still blocks the faster row."""
     output_dir = tmp_path / "selection"
+    config_path = _write_config_with_efficiency_policies(
+        tmp_path=tmp_path,
+        policies=(
+            {
+                "runtime_policy_id": "amp_fp16_conservative",
+                "precision_policy": "amp_conservative",
+                "compile_scope": "none",
+            },
+        ),
+    )
     fast_amp = _runtime_row(
         accelerator_mode="dual_t4_ddp",
         per_device_batch_size=12,
@@ -335,7 +611,7 @@ def test_runtime_selection_blocks_clearly_invalid_numerical_drift(
 
     artifacts = write_runtime_selection_benchmark(
         RuntimeSelectionBenchmarkRequest(
-            config_path=CONFIG_PATH,
+            config_path=config_path,
             output_dir=output_dir,
             v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
             evidence=RuntimeSelectionEvidence(
@@ -364,6 +640,16 @@ def test_runtime_selection_blocks_bounded_unrelated_numerical_failure(
 ) -> None:
     """Only numerical-delta failures are eligible for relaxed drift handling."""
     output_dir = tmp_path / "selection"
+    config_path = _write_config_with_efficiency_policies(
+        tmp_path=tmp_path,
+        policies=(
+            {
+                "runtime_policy_id": "amp_fp16_conservative",
+                "precision_policy": "amp_conservative",
+                "compile_scope": "none",
+            },
+        ),
+    )
     fast_amp = _runtime_row(
         accelerator_mode="dual_t4_ddp",
         per_device_batch_size=12,
@@ -388,7 +674,7 @@ def test_runtime_selection_blocks_bounded_unrelated_numerical_failure(
 
     artifacts = write_runtime_selection_benchmark(
         RuntimeSelectionBenchmarkRequest(
-            config_path=CONFIG_PATH,
+            config_path=config_path,
             output_dir=output_dir,
             v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
             evidence=RuntimeSelectionEvidence(
@@ -417,6 +703,21 @@ def test_runtime_selection_ignores_nonselected_linked_proof_failures(
 ) -> None:
     """A bad nonselected policy row cannot veto the selected safe faster row."""
     output_dir = tmp_path / "selection"
+    config_path = _write_config_with_efficiency_policies(
+        tmp_path=tmp_path,
+        policies=(
+            {
+                "runtime_policy_id": "amp_fp16_conservative",
+                "precision_policy": "amp_conservative",
+                "compile_scope": "none",
+            },
+            {
+                "runtime_policy_id": "fp32_channels_last_cudnn_ddpfast",
+                "precision_policy": "amp_off_fp32",
+                "compile_scope": "none",
+            },
+        ),
+    )
     fast_amp = _runtime_row(
         accelerator_mode="dual_t4_ddp",
         per_device_batch_size=12,
@@ -449,7 +750,7 @@ def test_runtime_selection_ignores_nonselected_linked_proof_failures(
 
     artifacts = write_runtime_selection_benchmark(
         RuntimeSelectionBenchmarkRequest(
-            config_path=CONFIG_PATH,
+            config_path=config_path,
             output_dir=output_dir,
             v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
             evidence=RuntimeSelectionEvidence(
@@ -476,13 +777,13 @@ def test_runtime_selection_ignores_nonselected_linked_proof_failures(
     assert selected["runtime_policy_id"] == "amp_fp16_conservative"
 
 
-def test_runtime_selection_replays_downloaded_v4_artifacts_if_available(
+def test_runtime_selection_replays_downloaded_v5_artifacts_if_available(
     tmp_path: Path,
 ) -> None:
-    """Downloaded v4 artifacts are a local regression fixture when present."""
-    v4_dir = Path("runs/kaggle/runtime_selection_v4")
-    benchmark_dir = v4_dir / "benchmark"
-    gate_health_path = v4_dir / "metrics" / "gate_health.csv"
+    """Downloaded v5 artifacts are the fallback selected-runtime fixture."""
+    v5_dir = Path("runs/kaggle/runtime_selection_v5")
+    benchmark_dir = v5_dir / "benchmark"
+    gate_health_path = v5_dir / "metrics" / "gate_health.csv"
     required_paths = (
         benchmark_dir / "runtime_matrix.csv",
         benchmark_dir / "dataloader_matrix.csv",
@@ -494,7 +795,7 @@ def test_runtime_selection_replays_downloaded_v4_artifacts_if_available(
         gate_health_path,
     )
     if not all(path.exists() for path in required_paths):
-        pytest.skip("Downloaded runtime-selection v4 artifacts are not present")
+        pytest.skip("Downloaded runtime-selection v5 artifacts are not present")
     output_dir = tmp_path / "selection"
     write_json(
         output_dir / "benchmark" / "stain_corruptor_qa.json",
@@ -506,7 +807,7 @@ def test_runtime_selection_replays_downloaded_v4_artifacts_if_available(
             config_path=CONFIG_PATH,
             output_dir=output_dir,
             v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
-            evidence=load_runtime_selection_evidence(v4_dir),
+            evidence=load_runtime_selection_evidence(v5_dir),
         ),
     )
 
@@ -528,6 +829,16 @@ def test_runtime_selection_blocks_policy_mismatched_dataloader(
     """Dataloader proof must be bound to the selected runtime policy id."""
     output_dir = tmp_path / "selection"
     fast_policy = "amp_fp16_channels_last_cudnn_ddpfast"
+    config_path = _write_config_with_efficiency_policies(
+        tmp_path=tmp_path,
+        policies=(
+            {
+                "runtime_policy_id": fast_policy,
+                "precision_policy": "amp_conservative",
+                "compile_scope": "none",
+            },
+        ),
+    )
     runtime_rows = (
         *_passing_runtime_rows(),
         _runtime_row(
@@ -565,7 +876,7 @@ def test_runtime_selection_blocks_policy_mismatched_dataloader(
 
     artifacts = write_runtime_selection_benchmark(
         RuntimeSelectionBenchmarkRequest(
-            config_path=CONFIG_PATH,
+            config_path=config_path,
             output_dir=output_dir,
             v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
             evidence=evidence,
@@ -749,6 +1060,32 @@ def test_runtime_selection_executor_does_not_expand_gate_rows_to_other_rows() ->
     )
 
     assert {row["candidate_row_id"] for row in expanded} == {branchless["row_id"]}
+
+
+def test_runtime_selection_executor_sets_scalar_gate_precision_policy() -> None:
+    """Relaxed AMP toggles scalar gate math while conservative rows keep FP32."""
+    model = build_non_equivariant_vae()
+
+    updated = runtime_selection_executor._set_scalar_gate_precision(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        model=model,
+        force_fp32=False,
+    )
+
+    gates = [
+        module
+        for module in model.modules()
+        if isinstance(module, GatedScalarActivation)
+    ]
+    assert updated == len(gates)
+    assert gates
+    assert {gate.force_fp32 for gate in gates} == {False}
+
+    runtime_selection_executor._set_scalar_gate_precision(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        model=model,
+        force_fp32=True,
+    )
+
+    assert {gate.force_fp32 for gate in gates} == {True}
 
 
 def test_runtime_selection_blocks_train_only_dataloader_proof(
@@ -1047,6 +1384,84 @@ def _passing_runtime_selection_evidence() -> RuntimeSelectionEvidence:
     return _runtime_selection_evidence_from_rows(runtime_rows)
 
 
+def _runtime_rows_for_v5_followup(
+    *,
+    relaxed_samples_sec: float,
+) -> tuple[dict[str, str], ...]:
+    rows: list[dict[str, str]] = []
+    for batch_size in (4, 8, 12):
+        for corruption_strategy in CORRUPTION_STRATEGIES:
+            rows.extend((
+                _runtime_row(
+                    accelerator_mode="single_visible_t4",
+                    per_device_batch_size=batch_size,
+                    precision_policy="amp_off_fp32",
+                    compile_scope="none",
+                    corruption_strategy=corruption_strategy,
+                    world_size=1,
+                    samples_sec=10.0,
+                ),
+                _runtime_row(
+                    accelerator_mode="dual_t4_ddp",
+                    per_device_batch_size=batch_size,
+                    precision_policy="amp_off_fp32",
+                    compile_scope="none",
+                    corruption_strategy=corruption_strategy,
+                    world_size=EXPECTED_DUAL_WORLD_SIZE,
+                    samples_sec=10.0,
+                ),
+            ))
+    rows.append(
+        _runtime_row(
+            accelerator_mode="dual_t4_ddp",
+            per_device_batch_size=12,
+            precision_policy="amp_scalar_gate_relaxed",
+            compile_scope="none",
+            corruption_strategy="indexed_masked",
+            world_size=EXPECTED_DUAL_WORLD_SIZE,
+            samples_sec=relaxed_samples_sec,
+            runtime_policy_id="amp_fp16_scalar_gate_relaxed",
+        ),
+    )
+    return tuple(rows)
+
+
+def _write_config_with_baseline(*, tmp_path: Path, baseline_path: str) -> Path:
+    return _write_config_with_efficiency_policies(
+        tmp_path=tmp_path,
+        baseline_path=baseline_path,
+        policies=None,
+    )
+
+
+def _write_config_with_efficiency_policies(
+    *,
+    tmp_path: Path,
+    policies: tuple[JsonObject, ...] | None,
+    baseline_path: str | None = None,
+) -> Path:
+    baseline = baseline_path or str(
+        Path(
+            "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
+        ).resolve(),
+    )
+    payload = _load_json(CONFIG_PATH)
+    payload["source_config"] = str(
+        Path("configs/spec0001/non_eq_vae_model_base.json").resolve(),
+    )
+    runtime = cast("dict[str, object]", payload["runtime_matrix"])
+    selection = cast("dict[str, object]", runtime["selection_benchmark_slice"])
+    efficiency = cast("dict[str, object]", selection["efficiency_followup"])
+    efficiency["baseline_selected_runtime"] = baseline
+    if policies is not None:
+        efficiency["policies"] = [dict(policy) for policy in policies]
+    config_path = (
+        tmp_path / "configs" / "spec0001" / "non_eq_vae_kaggle_runtime_benchmark.json"
+    )
+    write_json(config_path, cast("JsonObject", payload))
+    return config_path
+
+
 def _runtime_selection_evidence_from_rows(
     runtime_rows: tuple[dict[str, str], ...],
 ) -> RuntimeSelectionEvidence:
@@ -1143,7 +1558,17 @@ def _passing_runtime_rows() -> list[dict[str, str]]:
                     samples_sec=250.0 + batch_size + index,
                 ),
             )
-    rows.append(
+    rows.extend((
+        _runtime_row(
+            accelerator_mode="dual_t4_ddp",
+            per_device_batch_size=12,
+            precision_policy="amp_scalar_gate_relaxed",
+            compile_scope="none",
+            corruption_strategy="indexed_masked",
+            world_size=EXPECTED_DUAL_WORLD_SIZE,
+            samples_sec=350.0,
+            runtime_policy_id="amp_fp16_scalar_gate_relaxed",
+        ),
         _runtime_row(
             accelerator_mode="single_visible_t4",
             per_device_batch_size=8,
@@ -1153,7 +1578,7 @@ def _passing_runtime_rows() -> list[dict[str, str]]:
             world_size=1,
             samples_sec=999.0,
         ),
-    )
+    ))
     return rows
 
 

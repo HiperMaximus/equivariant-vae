@@ -39,8 +39,12 @@ selection, DDP `static_graph`/`gradient_as_bucket_view`, optimizer/zero-grad
 fast paths, and any Kaggle-supported TF32/matmul precision knobs should be
 measured against it. Faster rows may trade away bitwise determinism and small
 numerical agreement, but catastrophic failures still block selection. The local
-runtime-selection executor now implements that follow-up as
-`selected_runtime_v3_efficiency_followup` with policy-bound artifacts.
+runtime-selection executor first implemented that follow-up as
+`selected_runtime_v3_efficiency_followup` with policy-bound artifacts. The
+current local successor policy config now uses runtime-selection v5 as fallback
+and adds only a compact `amp_fp16_scalar_gate_relaxed` row with real relaxed
+scalar-gate precision plumbing; no successor remote run has been pushed or
+approved.
 Runtime-selection version 4 was pushed on 2026-06-21 for that follow-up after
 adversarial subagent review and explicit user approval for the efficiency
 benchmark only; it completed, downloaded to
@@ -405,7 +409,10 @@ proofs are missing. New 2026-06-21 preference: before the first long real
 training run, run a compact broader AMP/non-conservative follow-up, including
 `amp_scalar_gate_relaxed` or the closest implemented less-conservative AMP
 policy, and only replace v5 if it passes the same proof, replay, debug/resume,
-artifact, and tiny-overfit gates without catastrophic failures.
+artifact, and tiny-overfit gates without catastrophic failures. The local
+runtime-selection config and executor now contain the v5-fallback
+`amp_fp16_scalar_gate_relaxed` candidate, but the remote comparison remains
+pending and permission-gated.
 This approval is separate from approval for the first real 60h-scale training
 run: agents must not ask to launch that run until implementation, environment
 checks, efficiency decisions, selected-runtime debug/resume, artifact checks,
@@ -429,13 +436,15 @@ request, run the cheap local semantic preflight:
 
 This preflight builds and validates the generated kernel, runs the
 runtime-selection writer tests, exercises the generated wrapper's import and
-fail-closed artifact-validation paths, and replays downloaded v4 artifacts when
+fail-closed artifact-validation paths, and replays downloaded v5 artifacts when
 they are present locally.
-Next work is the compact broader AMP follow-up plus selected-runtime
-debug/resume/tiny-overfit using
+Next work is to run local `preflight-runtime-selection`, then, only after
+explicit approval, run the compact broader AMP follow-up using
 `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json` as the
-fallback selected runtime. Do not ask for the first long real training launch
-until those proof artifacts pass.
+fallback selected runtime. After that, implement selected-runtime
+debug/resume/tiny-overfit; the real train/checkpoint CLI stack is still missing.
+Do not ask for the first long real training launch until those proof artifacts
+pass.
 
 For future long-running Kaggle jobs, agents must not wait in-turn after a push
 or status read shows a kernel is still `RUNNING` and likely to take more than

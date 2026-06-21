@@ -32,14 +32,12 @@ fixed the v1/v2 proof-plumbing false negatives, and wrote
 per-device batch size 12, global batch size 24, FP32 eager/no compile, and
 linked safety proof pass. v8 remains shortlist-only and non-promotable; the
 separate selected-runtime benchmark owns the selected-runtime proof. The
-selected-runtime executor now has an efficiency-follow-up contract,
-`selected_runtime_v3_efficiency_followup`, that remeasures the v3 row and tests
-runtime policies for AMP/FP16, stable `torch.compile` model-forward rows,
-channels-last, cuDNN nondeterministic benchmark mode, DDP fast paths,
-optimizer/zero-grad fast paths, and Kaggle-supported TF32/matmul knobs. Because
-the selected row projects to about 60 hours for 10 epochs, it is a safety
-baseline rather than the final efficiency answer until that follow-up completes
-and is inspected. Runtime-selection version 4 completed and failed closed:
+selected-runtime executor first added an efficiency-follow-up contract that used
+the v3 safety row to test runtime policies for AMP/FP16, stable
+`torch.compile` model-forward rows, channels-last, cuDNN nondeterministic
+benchmark mode, DDP fast paths, optimizer/zero-grad fast paths, and
+Kaggle-supported TF32/matmul knobs. Runtime-selection version 4 completed and
+failed closed:
 `runtime_proof.status = fail`, no `benchmark/selected_runtime.json` was written,
 and the intended fastest clean AMP conservative row remains unpromoted because
 writer policy false negatives treated small bounded numerical drift and
@@ -52,12 +50,14 @@ repairs that proof policy and replayed the v4 artifacts locally to proof
 with zero AMP skips, bounded selected-row numerical drift, `samples_sec =
 27.381321`, and estimated 10-epoch wall time `109563.740875` seconds. The
 selected payload remains `full_training_launch_ready = false` until
-selected-runtime debug, checkpoint/resume, and tiny-overfit proofs pass. Before
-the first long real training run, add a compact broader AMP/non-conservative
-follow-up that tests whether a less conservative policy such as
-`amp_scalar_gate_relaxed` can beat v5 without AMP skips, nonfinite values,
-invalid drift, gate-health collapse, broken artifacts, or replay/preflight
-failure. If it does not pass, keep v5 as the selected-runtime fallback.
+selected-runtime debug, checkpoint/resume, and tiny-overfit proofs pass. The
+local compact broader AMP/non-conservative follow-up now uses v5 as the
+fallback selected runtime and adds a real
+`amp_fp16_scalar_gate_relaxed` policy row whose scalar gate sigmoid/multiply
+can run in the surrounding AMP dtype. A successor remote runtime-selection run
+may replace v5 only if the relaxed policy is materially faster and clears local
+preflight, linked proof, strict local replay, and later debug/resume/tiny-overfit
+gates. If it does not pass, keep v5 as the selected-runtime fallback.
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-21
 
@@ -1201,11 +1201,15 @@ numerics in FP32. The efficiency follow-up may add a more aggressive precision
 candidate only when it is explicitly named, materially faster, records the
 relaxed-precision policy, and avoids catastrophic failure.
 
-The current scalar Conv2d activation implementation keeps scalar-gate sigmoid
-arithmetic in FP32. The `model_loss_train_step_ready` slice does not introduce
-an `amp_scalar_gate_relaxed` implementation hook; that policy becomes active
-only in the later Kaggle runtime benchmark slice after paired numerical checks
-exist.
+The default scalar Conv2d activation implementation keeps scalar-gate sigmoid
+arithmetic in FP32. The selected-runtime executor can opt into relaxed scalar
+gate arithmetic only for the named `amp_scalar_gate_relaxed` runtime policy by
+setting the gate modules to use the surrounding AMP dtype. Posterior/KL/loss,
+corruption, and future radial-gate norm/sigmoid arithmetic remain FP32 in spec
+0001. The `model_loss_train_step_ready` local slice remains conservative and
+does not use this relaxed hook; relaxed scalar gates are runtime-selection
+evidence only until selected-runtime debug/resume/tiny-overfit proves they are
+safe for launch.
 
 Corruption strategy candidates for the Kaggle runtime benchmark:
 
@@ -2066,12 +2070,14 @@ Benchmark artifact dependency graph:
    `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`; the selected
    runtime artifact lives at
    `runs/kaggle/runtime_selection_v3/benchmark/selected_runtime.json`.
-7. The efficient selected-runtime follow-up must use v3 as its baseline and may
-   replace it only when the selected policy is at least 3% faster and clears the
-   catastrophic blockers: non-finite loss/gradients, AMP skips, DDP child/rank
-   failure, missing policy-bound linked proofs, compile graph breaks/recompiles
-   after settle, broken artifacts, or gate-health collapse. If no candidate is
-   materially faster, the v3 baseline remeasure remains selected.
+7. The compact efficient selected-runtime follow-up must use runtime-selection
+   v5 as its configured fallback and may replace it only when the selected
+   policy is at least 3% faster and clears the catastrophic blockers:
+   non-finite loss/gradients, AMP skips, DDP child/rank failure, missing
+   policy-bound linked proofs, broken artifacts, gate-health collapse, or a
+   relaxed scalar-gate dtype proof showing the policy did not actually run the
+   scalar gate in the requested lower-precision path. If no candidate is
+   materially faster, keep the existing v5 selected runtime.
 8. `benchmark/selected_runtime.json` may be written with `status = "pass"` only
    when it references one row from `runtime_matrix.csv` whose row status is
    `pass`, whose linked artifacts have `pass`, and whose accelerator proof
@@ -3702,14 +3708,13 @@ Implementation-relock blockers:
 
 Full-run blockers after implementation:
 
-1. Runtime target: runtime-selection v3 proved a safe dual-T4 FP32 eager
-   baseline, but the first expensive run should still use the fastest practical
-   row. An efficient selected-runtime follow-up must decide whether AMP and/or
-   `torch.compile` should be enabled, which CUDA/DDP/layout/optimizer flags are
-   allowed, and what precision policy, corruption execution strategy, and
-   per-device/global batch size should replace or confirm the v3 baseline.
-   Bitwise determinism and small numerical drift are explicitly secondary to
-   throughput, while catastrophic failures remain blockers.
+1. Runtime target: runtime-selection v5 is the current fallback selected
+   runtime, but it is not launch-ready. A compact selected-runtime follow-up
+   must test whether `amp_fp16_scalar_gate_relaxed` materially beats v5 without
+   catastrophic failures; otherwise keep v5. Bitwise determinism and small
+   numerical drift are explicitly secondary to throughput, while catastrophic
+   failures, missing relaxed-gate dtype proof, missing debug/resume proof, and
+   missing tiny-overfit proof remain blockers.
 2. The selected runtime must be written to `benchmark/selected_runtime.json` and
    the resolved baseline config before the first 10-epoch Kaggle run.
 3. Gate-health target: the short benchmark/debug path must show that learned

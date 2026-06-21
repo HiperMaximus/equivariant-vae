@@ -67,6 +67,9 @@ _RUNTIME_SELECTION_V8_PAYLOAD_FILES = {
     "runs/kaggle/real_data_runtime_pretest_v8/benchmark/gate_health_summary.json",
     "runs/kaggle/real_data_runtime_pretest_v8/metrics/gate_health.csv",
 }
+_RUNTIME_SELECTION_BASELINE_PAYLOAD_FILES = {
+    "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
+}
 _EMBEDDED_PAYLOAD_B64_PATTERN = re.compile(
     r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""',
     flags=re.DOTALL,
@@ -325,9 +328,14 @@ def test_embedded_runtime_selection_kernel_import_simulation(
     assert payload["selection_slice"] == "v8_shortlist_eager_amp_then_dual_gate"
     assert manifest["schema_version"] == "spec0001.kaggle_payload_manifest.v1"
     assert _RUNTIME_SELECTION_V8_PAYLOAD_FILES.issubset(entries)
+    assert _RUNTIME_SELECTION_BASELINE_PAYLOAD_FILES.issubset(entries)
     assert _RUNTIME_SELECTION_V8_PAYLOAD_FILES.issubset(
         _embedded_payload_names(simulation.upload_dir / "run.py"),
     )
+    assert _RUNTIME_SELECTION_BASELINE_PAYLOAD_FILES.issubset(
+        _embedded_payload_names(simulation.upload_dir / "run.py"),
+    )
+    assert payload["baseline_selected_runtime_exists"] is True
     template_text = (
         repo_root / "kaggle" / "kernels" / "runtime_selection" / "run_template.py"
     ).read_text(encoding="utf-8")

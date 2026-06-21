@@ -36,6 +36,9 @@ RUNTIME_SELECTION_V8_ARTIFACTS = (
     Path("benchmark/gate_health_summary.json"),
     Path("metrics/gate_health.csv"),
 )
+RUNTIME_SELECTION_BASELINE_ARTIFACTS = (
+    Path("runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json"),
+)
 EMBEDDED_B64_PATTERN = re.compile(
     r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""',
     flags=re.DOTALL,
@@ -240,7 +243,7 @@ def _payload_manifest(
         "uv.lock": _digest_file(repo_root / "uv.lock"),
     }
     if _is_runtime_selection_kernel(kernel_dir):
-        entries.update(_runtime_selection_v8_entry_hashes(repo_root))
+        entries.update(_runtime_selection_entry_hashes(repo_root))
     return {
         "schema_version": PAYLOAD_SCHEMA_VERSION,
         "git_commit": _git_output(repo_root, "rev-parse", "HEAD"),
@@ -294,7 +297,7 @@ def _payload_files(
         )
     )
     if _is_runtime_selection_kernel(kernel_dir):
-        files.extend(_runtime_selection_v8_payload_files(repo_root))
+        files.extend(_runtime_selection_payload_files(repo_root))
     return tuple(files)
 
 
@@ -321,6 +324,18 @@ def _runtime_selection_v8_payload_files(
     )
 
 
+def _runtime_selection_payload_files(
+    repo_root: Path,
+) -> tuple[tuple[Path, str], ...]:
+    return (
+        *_runtime_selection_v8_payload_files(repo_root),
+        *(
+            (repo_root / relative, relative.as_posix())
+            for relative in RUNTIME_SELECTION_BASELINE_ARTIFACTS
+        ),
+    )
+
+
 def _runtime_selection_v8_entry_hashes(repo_root: Path) -> dict[str, str]:
     return {
         (RUNTIME_SELECTION_V8_ARTIFACT_ROOT / relative).as_posix(): _digest_file(
@@ -328,6 +343,15 @@ def _runtime_selection_v8_entry_hashes(repo_root: Path) -> dict[str, str]:
         )
         for relative in RUNTIME_SELECTION_V8_ARTIFACTS
     }
+
+
+def _runtime_selection_entry_hashes(repo_root: Path) -> dict[str, str]:
+    hashes = _runtime_selection_v8_entry_hashes(repo_root)
+    hashes.update({
+        relative.as_posix(): _digest_file(repo_root / relative)
+        for relative in RUNTIME_SELECTION_BASELINE_ARTIFACTS
+    })
+    return hashes
 
 
 def _is_ignored_payload_file(path: Path) -> bool:
@@ -402,7 +426,7 @@ def _validate_manifest_against_source(  # noqa: C901
         "uv.lock": _digest_file(repo_root / "uv.lock"),
     }
     if _is_runtime_selection_kernel(repo_root / _metadata_kernel_dir(manifest)):
-        expected_entries.update(_runtime_selection_v8_entry_hashes(repo_root))
+        expected_entries.update(_runtime_selection_entry_hashes(repo_root))
     raw_entries = manifest.get("entries")
     if not isinstance(raw_entries, dict):
         errors.append("payload manifest entries must be an object")

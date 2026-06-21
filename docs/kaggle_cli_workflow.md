@@ -31,8 +31,11 @@ for
 `dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
 at `samples_sec = 27.381321`, with strict local replay pass. It is still not
 full-training-launch-ready because selected-runtime debug, checkpoint/resume,
-and tiny-overfit proofs are missing; Kaggle source attachments require a
-separate confirmation guard
+and tiny-overfit proofs are missing. The local successor runtime-selection
+config now uses v5 as fallback and adds a compact
+`amp_fp16_scalar_gate_relaxed` policy row with real relaxed scalar-gate
+precision plumbing; no successor remote run has been pushed or approved.
+Kaggle source attachments require a separate confirmation guard
 Last updated: 2026-06-21
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
@@ -240,9 +243,11 @@ materially faster. The project accepts lost bitwise determinism and small
 numerical drift for this speedup; catastrophic failures such as non-finite
 loss/gradients, repeated AMP skips, DDP instability, broken checkpoint/resume,
 broken artifacts, gate-health collapse, or clearly invalid metrics still block
-selection. The local runtime-selection executor now implements
+selection. That first follow-up was implemented as
 `selected_runtime_v3_efficiency_followup` with policy-bound rows and linked
-proofs, but the successor Kaggle push/status/output has not been run.
+proofs; runtime-selection v5 now supersedes it as the fallback, and the local
+successor config only adds the compact `amp_fp16_scalar_gate_relaxed`
+comparison before any later debug/resume/tiny-overfit launch gate.
 
 The real-data benchmark surface is intentionally separate from the capped smoke
 and from synthetic timing:
@@ -539,6 +544,10 @@ broader/non-conservative AMP follow-up, including `amp_scalar_gate_relaxed` or
 the closest implemented less-conservative AMP policy. v5 remains the fallback
 selected runtime unless that follow-up passes the same proof, local replay,
 debug/resume, artifact, and tiny-overfit gates without catastrophic failures.
+The local config now compares the compact
+`amp_fp16_scalar_gate_relaxed` policy against the v5 fallback; run
+`./scripts/kaggle_kernel.sh preflight-runtime-selection` before any future
+approval request to push that runtime-selection successor.
 
 Local-first rule for runtime-selection pushes: before any future
 runtime-selection remote push or approval request, run the cheap semantic local
@@ -551,7 +560,7 @@ downloaded-artifact replay errors:
 
 That command builds and validates the generated runtime-selection kernel, runs
 the runtime-selection writer suite, runs the generated-wrapper import and
-fail-closed simulations, and replays downloaded v4 artifacts when they are
+fail-closed simulations, and replays downloaded v5 artifacts when they are
 present locally. Do not rely on Kaggle exit status alone: the executor can
 legitimately return exit code 0 while writing fail-closed proof artifacts, so
 local and remote checks must inspect `benchmark/runtime_proof.json` and
