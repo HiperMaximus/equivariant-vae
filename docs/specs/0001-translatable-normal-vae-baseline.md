@@ -50,14 +50,20 @@ repairs that proof policy and replayed the v4 artifacts locally to proof
 with zero AMP skips, bounded selected-row numerical drift, `samples_sec =
 27.381321`, and estimated 10-epoch wall time `109563.740875` seconds. The
 selected payload remains `full_training_launch_ready = false` until
-selected-runtime debug, checkpoint/resume, and tiny-overfit proofs pass. The
-local compact broader AMP/non-conservative follow-up now uses v5 as the
-fallback selected runtime and adds a real
-`amp_fp16_scalar_gate_relaxed` policy row whose scalar gate sigmoid/multiply
-can run in the surrounding AMP dtype. A successor remote runtime-selection run
-may replace v5 only if the relaxed policy is materially faster and clears local
-preflight, linked proof, strict local replay, and later debug/resume/tiny-overfit
-gates. If it does not pass, keep v5 as the selected-runtime fallback.
+selected-runtime debug, checkpoint/resume, and tiny-overfit proofs pass.
+Runtime-selection version 6 completed the compact broader
+AMP/non-conservative follow-up using v5 as the fallback selected runtime.
+Artifacts were downloaded to `runs/kaggle/runtime_selection_v6` and replayed
+locally; the real `amp_fp16_scalar_gate_relaxed` row passed runtime/gate-health
+with zero AMP skips but reached only `25.288828` samples/sec versus v5 at
+`27.381321`, had one bounded `dual_t4_numerical_delta_failed` numerical row,
+and wrote no `benchmark/selected_runtime.json`. Keep v5 as the selected-runtime
+fallback. The local selected-runtime debug/checkpoint-resume/artifact/
+tiny-overfit contract runner now exists at `python -m eqvae.cli.train`; it
+supports synthetic local proof only, writes `full_run_eligible = false`, and
+keeps the real UBC/Kaggle proof pending. Its local checkpoint schema records
+selected-runtime config hash, row id, and policy id, and validates those fields
+before restoring state on resume.
 Owner/workstream: comparable non-equivariant VAE baseline
 Last updated: 2026-06-21
 
@@ -1209,7 +1215,13 @@ corruption, and future radial-gate norm/sigmoid arithmetic remain FP32 in spec
 0001. The `model_loss_train_step_ready` local slice remains conservative and
 does not use this relaxed hook; relaxed scalar gates are runtime-selection
 evidence only until selected-runtime debug/resume/tiny-overfit proves they are
-safe for launch.
+safe for launch. A relaxed scalar-gate runtime row must also emit gate-health
+dtype proof for every full-run-eligible scalar gate row bound to that candidate:
+`precision_proof_status = pass`, `gate_force_fp32 = false`, nonempty
+input/output dtype fields, and gate math/tensor/output dtype matching the
+requested autocast dtype rather than FP32. A single missing, FP32, or
+inconsistent scalar-gate dtype proof blocks the relaxed row even if its scalar
+gate metrics are numerically healthy.
 
 Corruption strategy candidates for the Kaggle runtime benchmark:
 
@@ -1609,7 +1621,10 @@ Runtime benchmark requirement before the first full Kaggle run:
 - use the FSQ script's checkpoint/resume discipline as a training-system
   requirement, not as a checkpoint format: save and restore model, optimizer,
   scheduler/beta scheduler, AMP scaler when present, progress counters, config
-  hash, and Python/NumPy/Torch/CUDA RNG state; retain the final checkpoint,
+  hash, Python RNG, NumPy `Generator` state, global Torch CPU/CUDA RNG state,
+  any named Torch `Generator` streams, and selected-runtime config hash/row/policy
+  identity;
+  retain the final checkpoint,
   `best_model.pt`, and the latest four interval checkpoints unless a later run
   spec supersedes retention;
 - compare the corruption execution strategies `branchless_all` and
@@ -2755,6 +2770,21 @@ Required output schemas:
 - `benchmark/selected_runtime.json`: selected accelerator, compile, AMP, and
   batch-size decision for the first full run, including selected
   `precision.policy` and `corruption.strategy`;
+- `benchmark/training_summary.json`: local or Kaggle short-run training proof
+  summary, including consumed selected-runtime config, optimizer-step count,
+  finite-loss status, checkpoint hashes, and `full_run_eligible`;
+- `benchmark/selected_runtime_debug_summary.json`: selected-runtime debug
+  summary written only after a selected runtime config is consumed. Local
+  synthetic runs must set `full_run_eligible = false` and
+  `real_kaggle_debug_status = pending_permission_gated_remote_run`;
+- `benchmark/checkpoint_resume_proof.json`: resume proof for a run that starts
+  from a checkpoint. It must record restored model, optimizer, Python RNG,
+  explicit NumPy `Generator` state, global Torch CPU/CUDA RNG where available,
+  named Torch `Generator` streams where used, scheduler/beta/scaler state where
+  present, successful-optimizer-update counters, and selected-runtime config
+  hash/row/policy identity matches;
+- `benchmark/artifact_manifest.json`: hashes and existence checks for metrics,
+  checkpoints, and nonblank reconstruction artifacts from the short proof run;
 - `benchmark/dataloader_matrix.csv`: real train/validation loader, transfer,
   throughput, wait-fraction, and rank-balance measurements;
 - `benchmark/numerical_checks.csv`: paired fixed-batch deltas against
@@ -2766,9 +2796,11 @@ Required output schemas:
 - `benchmark/gate_health_summary.json`: gate-health pass/warn/fail summary used
   before the first full run;
 - `benchmark/tiny_overfit_summary.json`: selected-runtime real-patch overfit
-  sanity summary before the first full run;
+  sanity summary before the first full run. Local synthetic schema checks must
+  be clearly marked `full_run_eligible = false`;
 - `checkpoints/step_*.pt`: model, optimizer, scheduler, beta scheduler, scaler
-  if present, current step, config hash, and RNG state.
+  if present, current step, config hash, selected-runtime identity, and RNG
+  state.
 
 `logvar_clamp_count` must be logged whenever any values are clamped.
 
@@ -3433,12 +3465,18 @@ python -m eqvae.cli.benchmark_runtime \
 ```
 
 Kaggle selected-runtime debug command that must run after
-`benchmark/selected_runtime.json` is written:
+`benchmark/selected_runtime.json` is written. As of 2026-06-21, the CLI
+implements the local synthetic contract path and rejects real
+`ubc-pre-shuffled` execution until the Kaggle UBC training launcher is wired.
+The future debug/tiny kernel must explicitly embed or attach the selected
+runtime artifact, for example under
+`/kaggle/input/eqvae-runtime-selection-v5/benchmark/selected_runtime.json`;
+another kernel's `/kaggle/working` directory is not available automatically:
 
 ```bash
 python -m eqvae.cli.train \
-  --config configs/spec0001/non_eq_vae_kaggle_debug.json \
-  --runtime-config /kaggle/working/runtime_benchmark/benchmark/selected_runtime.json \
+  --config configs/spec0001/non_eq_vae_selected_runtime_debug.json \
+  --runtime-config /kaggle/input/eqvae-runtime-selection-v5/benchmark/selected_runtime.json \
   --data ubc-pre-shuffled \
   --data-root auto \
   --output-dir /kaggle/working/selected_runtime_debug \
@@ -3448,12 +3486,26 @@ python -m eqvae.cli.train \
   --save-every-steps 100
 ```
 
+Cheap local selected-runtime debug contract command:
+
+```bash
+python -m eqvae.cli.train \
+  --config configs/spec0001/non_eq_vae_selected_runtime_debug.json \
+  --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json \
+  --data synthetic \
+  --output-dir runs/local/spec0001-selected-runtime-debug-local \
+  --run-name non_eq_vae_spec0001_selected_runtime_debug_local \
+  --max-train-steps 2 \
+  --max-val-steps 1 \
+  --save-every-steps 1
+```
+
 Kaggle tiny-overfit command that must pass before the first 10-epoch run:
 
 ```bash
 python -m eqvae.cli.train \
   --config configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json \
-  --runtime-config /kaggle/working/runtime_benchmark/benchmark/selected_runtime.json \
+  --runtime-config /kaggle/input/eqvae-runtime-selection-v5/benchmark/selected_runtime.json \
   --data ubc-pre-shuffled \
   --data-root auto \
   --fixed-train-patches configs/spec0001/fixed_32_train_overfit_patches.json \
@@ -3464,10 +3516,26 @@ python -m eqvae.cli.train \
   --save-every-steps 100
 ```
 
+Cheap local tiny-overfit contract command:
+
+```bash
+python -m eqvae.cli.train \
+  --config configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json \
+  --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json \
+  --data synthetic \
+  --fixed-train-patches configs/spec0001/fixed_32_train_overfit_patches.json \
+  --output-dir runs/local/spec0001-tiny-overfit-local \
+  --run-name non_eq_vae_spec0001_tiny_overfit_local \
+  --max-train-steps 2 \
+  --max-val-steps 1 \
+  --save-every-steps 1
+```
+
 Permission-gated remote check, not required for local implementation acceptance:
 
 ```bash
-KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push
+KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 \
+  ./scripts/kaggle_kernel.sh push
 ```
 
 Only run the remote push after all local commands pass and the user explicitly
@@ -3709,20 +3777,22 @@ Implementation-relock blockers:
 Full-run blockers after implementation:
 
 1. Runtime target: runtime-selection v5 is the current fallback selected
-   runtime, but it is not launch-ready. A compact selected-runtime follow-up
-   must test whether `amp_fp16_scalar_gate_relaxed` materially beats v5 without
-   catastrophic failures; otherwise keep v5. Bitwise determinism and small
-   numerical drift are explicitly secondary to throughput, while catastrophic
-   failures, missing relaxed-gate dtype proof, missing debug/resume proof, and
-   missing tiny-overfit proof remain blockers.
+   runtime, but it is not launch-ready. The compact selected-runtime v6
+   follow-up tested `amp_fp16_scalar_gate_relaxed`, replayed locally, and kept
+   v5 because the relaxed row was slower and wrote no selected runtime. Bitwise
+   determinism and small numerical drift are explicitly secondary to throughput,
+   while catastrophic failures, missing debug/resume proof, and missing
+   tiny-overfit proof remain blockers.
 2. The selected runtime must be written to `benchmark/selected_runtime.json` and
    the resolved baseline config before the first 10-epoch Kaggle run.
 3. Gate-health target: the short benchmark/debug path must show that learned
    gate `a,b` parameters do not create non-finite values, persistent saturation,
    or hidden-block collapse before the first full run.
 4. Data/quality target: dataloader throughput, paired numerical checks,
-   selected-runtime debug, checkpoint/resume, and tiny-overfit summaries must all
-   pass before the first 10-epoch Kaggle run.
+   real selected-runtime debug, checkpoint/resume, and tiny-overfit summaries
+   must all pass before the first 10-epoch Kaggle run. Local synthetic contract
+   artifacts are useful preflight evidence but do not satisfy this full-run
+   gate.
 
 ## Known Risks
 

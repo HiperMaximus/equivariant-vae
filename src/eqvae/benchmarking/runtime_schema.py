@@ -231,6 +231,13 @@ GATE_HEALTH_COLUMNS: Final[tuple[str, ...]] = (
     "b_grad_norm",
     "a_update_to_param_norm",
     "b_update_to_param_norm",
+    "gate_force_fp32",
+    "input_dtype",
+    "gate_math_dtype",
+    "gate_tensor_dtype",
+    "output_dtype",
+    "requested_autocast_dtype",
+    "precision_proof_status",
     "gate_health_status",
 )
 
@@ -688,6 +695,13 @@ def _gate_health_rows(run_name: str) -> list[CsvRow]:
             "b_grad_norm": "0.0",
             "a_update_to_param_norm": "0.0",
             "b_update_to_param_norm": "0.0",
+            "gate_force_fp32": "true",
+            "input_dtype": "float32",
+            "gate_math_dtype": "float32",
+            "gate_tensor_dtype": "float32",
+            "output_dtype": "float32",
+            "requested_autocast_dtype": "",
+            "precision_proof_status": "schema_pass",
             "gate_health_status": "schema_pass",
         },
     ]

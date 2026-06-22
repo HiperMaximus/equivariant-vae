@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
+import torch
 
 from eqvae.benchmarking import runtime_selection_executor
 from eqvae.benchmarking.io import JsonObject, write_csv, write_json
@@ -384,6 +385,108 @@ def test_runtime_selection_can_select_relaxed_scalar_gate_amp_policy(
     assert cast("dict[str, object]", selected["mixed_precision"])["policy"] == (
         "amp_scalar_gate_relaxed"
     )
+
+
+def test_runtime_selection_blocks_relaxed_amp_without_gate_dtype_proof(
+    tmp_path: Path,
+) -> None:
+    """A faster relaxed row must prove it really used relaxed gate math."""
+    output_dir = tmp_path / "selection"
+    runtime_rows = _runtime_rows_for_v5_followup(relaxed_samples_sec=350.0)
+    relaxed_amp = runtime_rows[-1]
+    evidence = _runtime_selection_evidence_from_rows(runtime_rows)
+    gate_rows = tuple(
+        {
+            **row,
+            "precision_proof_status": "",
+            "gate_math_dtype": "float32",
+        }
+        if row["candidate_row_id"] == relaxed_amp["row_id"]
+        else row
+        for row in evidence.gate_health_rows
+    )
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=RuntimeSelectionEvidence(
+                runtime_rows=evidence.runtime_rows,
+                dataloader_rows=evidence.dataloader_rows,
+                numerical_rows=evidence.numerical_rows,
+                corruption_rows=evidence.corruption_rows,
+                gate_health_rows=gate_rows,
+                gate_health_summary=evidence.gate_health_summary,
+                runtime_environment=evidence.runtime_environment,
+            ),
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+    blockers = cast("list[object]", decision["blockers"])
+    linked_failures = cast("list[object]", decision["linked_pass_row_failures"])
+    assert artifacts.selected_runtime is None
+    assert "runtime_pass_rows_linked_proof_not_pass" in blockers
+    assert "selected_row_gate_health_not_pass" in blockers
+    assert f"gate_health:{relaxed_amp['row_id']}" in linked_failures
+
+
+def test_runtime_selection_blocks_partial_relaxed_gate_dtype_proof(
+    tmp_path: Path,
+) -> None:
+    """Every scalar gate row for a relaxed candidate must prove relaxed math."""
+    output_dir = tmp_path / "selection"
+    runtime_rows = _runtime_rows_for_v5_followup(relaxed_samples_sec=350.0)
+    relaxed_amp = runtime_rows[-1]
+    evidence = _runtime_selection_evidence_from_rows(runtime_rows)
+    relaxed_gate_rows = [
+        row
+        for row in evidence.gate_health_rows
+        if row["candidate_row_id"] == relaxed_amp["row_id"]
+    ]
+    assert len(relaxed_gate_rows) == 1
+    failing_second_gate = {
+        **relaxed_gate_rows[0],
+        "row_id": f"{relaxed_amp['row_id']}__gate__encoder_1",
+        "module": "encoder.1",
+        "gate_force_fp32": "true",
+        "gate_math_dtype": "float32",
+        "gate_tensor_dtype": "float32",
+        "precision_proof_status": "pass",
+    }
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=RuntimeSelectionEvidence(
+                runtime_rows=evidence.runtime_rows,
+                dataloader_rows=evidence.dataloader_rows,
+                numerical_rows=evidence.numerical_rows,
+                corruption_rows=evidence.corruption_rows,
+                gate_health_rows=(
+                    *evidence.gate_health_rows,
+                    failing_second_gate,
+                ),
+                gate_health_summary=evidence.gate_health_summary,
+                runtime_environment=evidence.runtime_environment,
+            ),
+        ),
+    )
+
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+    blockers = cast("list[object]", decision["blockers"])
+    linked_failures = cast("list[object]", decision["linked_pass_row_failures"])
+    assert artifacts.selected_runtime is None
+    assert "runtime_pass_rows_linked_proof_not_pass" in blockers
+    assert "selected_row_gate_health_not_pass" in blockers
+    assert f"gate_health:{relaxed_amp['row_id']}" in linked_failures
 
 
 def test_runtime_selection_keeps_v5_fallback_when_relaxed_amp_is_not_material(
@@ -1086,6 +1189,21 @@ def test_runtime_selection_executor_sets_scalar_gate_precision_policy() -> None:
     )
 
     assert {gate.force_fp32 for gate in gates} == {True}
+
+
+def test_gated_scalar_activation_records_precision_proof() -> None:
+    """Gate precision proof is captured during the actual forward path."""
+    gate = GatedScalarActivation(channels=2, force_fp32=False)
+    inputs = torch.ones((1, 2, 4, 4), dtype=torch.float16)
+
+    output = cast("torch.Tensor", gate(inputs))
+
+    assert output.dtype == torch.float16
+    assert gate.last_precision_proof_status == "pass"
+    assert gate.last_input_dtype == "float16"
+    assert gate.last_gate_math_dtype == "float16"
+    assert gate.last_gate_tensor_dtype == "float16"
+    assert gate.last_output_dtype == "float16"
 
 
 def test_runtime_selection_blocks_train_only_dataloader_proof(
@@ -1895,10 +2013,39 @@ def _gate_health_rows(
             "gate_kind": "scalar",
             "num_channels": "64",
             "num_elements": "1024",
+            **_gate_precision_proof(runtime_row),
             "gate_health_status": "pass",
         })
         rows.append(row)
     return rows
+
+
+def _gate_precision_proof(runtime_row: dict[str, str]) -> dict[str, str]:
+    if runtime_row["precision_policy"] == "amp_scalar_gate_relaxed":
+        return {
+            "gate_force_fp32": "false",
+            "input_dtype": "float16",
+            "gate_math_dtype": "float16",
+            "gate_tensor_dtype": "float16",
+            "output_dtype": "float16",
+            "requested_autocast_dtype": runtime_row["autocast_dtype"],
+            "precision_proof_status": "pass",
+        }
+    return {
+        "gate_force_fp32": "true",
+        "input_dtype": "float16"
+        if runtime_row["precision_policy"] != "amp_off_fp32"
+        else "float32",
+        "gate_math_dtype": "float32",
+        "gate_tensor_dtype": "float16"
+        if runtime_row["precision_policy"] != "amp_off_fp32"
+        else "float32",
+        "output_dtype": "float16"
+        if runtime_row["precision_policy"] != "amp_off_fp32"
+        else "float32",
+        "requested_autocast_dtype": runtime_row["autocast_dtype"],
+        "precision_proof_status": "pass",
+    }
 
 
 def _write_stain_qa(output_dir: Path, evidence: RuntimeSelectionEvidence) -> None:

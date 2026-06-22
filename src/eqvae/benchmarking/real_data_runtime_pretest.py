@@ -4504,6 +4504,13 @@ def _gate_rows_from_model(  # noqa: PLR0914
             "b_update_to_param_norm": _format_float(
                 _safe_ratio(_tensor_norm(b_after - b_before), _tensor_norm(b_before)),
             ),
+            "gate_force_fp32": _format_bool(value=module.force_fp32),
+            "input_dtype": module.last_input_dtype,
+            "gate_math_dtype": module.last_gate_math_dtype,
+            "gate_tensor_dtype": module.last_gate_tensor_dtype,
+            "output_dtype": module.last_output_dtype,
+            "requested_autocast_dtype": "",
+            "precision_proof_status": module.last_precision_proof_status,
             "gate_health_status": row_status,
         })
     return rows

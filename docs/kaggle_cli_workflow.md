@@ -14,8 +14,8 @@ failure, and produced six capped-pretest-passing eager single-visible-T4
 bs4/bs8/bs12 FP32 rows while remaining non-promotable with no selected runtime;
 compiled rows remain diagnostic-only until full compile-settle coverage exists;
 selected-runtime proof plumbing and the Kaggle executor/kernel for
-`v8_shortlist_eager_amp_then_dual_gate` now exist and are fail-closed until real
-dual-T4 timing plus linked evidence pass; the runtime-selection kernel guard is
+`v8_shortlist_eager_amp_then_dual_gate` selected a runtime after real dual-T4
+timing plus linked evidence passed; the runtime-selection kernel guard is
 `runtime_selection_kernel_ready`; runtime-selection v3 was pushed to Kaggle on
 2026-06-20 and downloaded to `runs/kaggle/runtime_selection_v3`. Version 3
 proved real dual-T4 DDP timing, wrote `benchmark/selected_runtime.json`, and
@@ -32,9 +32,15 @@ for
 at `samples_sec = 27.381321`, with strict local replay pass. It is still not
 full-training-launch-ready because selected-runtime debug, checkpoint/resume,
 and tiny-overfit proofs are missing. The local successor runtime-selection
-config now uses v5 as fallback and adds a compact
+config used v5 as fallback and added a compact
 `amp_fp16_scalar_gate_relaxed` policy row with real relaxed scalar-gate
-precision plumbing; no successor remote run has been pushed or approved.
+precision plumbing. Runtime-selection v6 completed, downloaded to
+`runs/kaggle/runtime_selection_v6`, replayed locally, and kept v5 because the
+relaxed row was slower.
+Local selected-runtime debug/checkpoint-resume/artifact/tiny-overfit proof
+plumbing now exists through `python -m eqvae.cli.train`, but it is currently a
+synthetic, fail-closed contract runner. It writes `full_run_eligible = false`
+and does not satisfy the real UBC/Kaggle selected-runtime gate.
 Kaggle source attachments require a separate confirmation guard
 Last updated: 2026-06-21
 
@@ -246,8 +252,9 @@ broken artifacts, gate-health collapse, or clearly invalid metrics still block
 selection. That first follow-up was implemented as
 `selected_runtime_v3_efficiency_followup` with policy-bound rows and linked
 proofs; runtime-selection v5 now supersedes it as the fallback, and the local
-successor config only adds the compact `amp_fp16_scalar_gate_relaxed`
-comparison before any later debug/resume/tiny-overfit launch gate.
+successor config tested the compact `amp_fp16_scalar_gate_relaxed` comparison
+in runtime-selection v6. v6 downloaded and replayed locally, wrote no selected
+runtime, and kept v5 before the later debug/resume/tiny-overfit launch gate.
 
 The real-data benchmark surface is intentionally separate from the capped smoke
 and from synthetic timing:
@@ -493,22 +500,18 @@ non-promotable. Eager bs32 remains `runtime_OutOfMemoryError`, dual-T4
 train-step measurement remains pending, and compiled rows remain
 diagnostic/ineligible until full compile-settle evidence exists.
 
-The next selected-runtime benchmark/debug slice is
+The completed selected-runtime benchmark slice
 `v8_shortlist_eager_amp_then_dual_gate` in
-`configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json`. It treats v8 only
-as shortlist provenance. Local fail-closed runtime-selection proof plumbing and
-the guarded Kaggle executor/kernel now exist. The executor must revalidate or
-write its own linked proofs, confirm the eager single-visible-T4 bs8/bs12 FP32
-`compile_none` branchless/indexed rows with bs4 as fallback, run AMP follow-up only on
-confirmed eager rows, add the blocking real dual-T4 train-step timing gate, and
-write `benchmark/selected_runtime.json` only after its own full linked proof
-passes. The dual-T4 gate must time real DDP train-step rows, record two visible
-T4s, `world_size = 2`, `nproc_per_node = 2`, per-rank device assignment,
+`configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json` treated v8 only as
+shortlist provenance. The guarded executor then revalidated linked proofs,
+confirmed the eager single-visible-T4 candidates, ran the blocking real dual-T4
+train-step timing gate, and wrote selected-runtime artifacts only after its own
+full linked proof passed. The dual-T4 gate had to record two visible T4s,
+`world_size = 2`, `nproc_per_node = 2`, per-rank device assignment,
 child-process launch command proof, train and validation dataloader rank
 coverage, scoped numerical/corruption rows, gate-health evidence bound to
 candidate row ids, a hash-linked `benchmark/stain_corruptor_qa.json`, and
-global throughput projection; if that gate is missing, failed, or skipped,
-selected-runtime writing stays blocked.
+global throughput projection.
 Runtime-selection v1 showed the dual gate can pass on Kaggle but selected
 runtime writing remained blocked by linked-proof false negatives and wrapper
 allow-list drift. The local v2 patch fixes those specific blockers while
@@ -538,16 +541,15 @@ guarded status read returned `KernelWorkerStatus.RUNNING` at 2026-06-21
 `dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
 with `runtime_policy_id = amp_fp16_conservative`, `samples_sec = 27.381321`,
 estimated 10-epoch wall time `109563.740875` seconds, zero AMP skips, no OOM,
-gate-health pass, and strict local replay pass under current `main`.
-Before the first long real training run, the user also wants a compact
-broader/non-conservative AMP follow-up, including `amp_scalar_gate_relaxed` or
-the closest implemented less-conservative AMP policy. v5 remains the fallback
-selected runtime unless that follow-up passes the same proof, local replay,
-debug/resume, artifact, and tiny-overfit gates without catastrophic failures.
-The local config now compares the compact
-`amp_fp16_scalar_gate_relaxed` policy against the v5 fallback; run
-`./scripts/kaggle_kernel.sh preflight-runtime-selection` before any future
-approval request to push that runtime-selection successor.
+gate-health pass, and strict local replay pass under current `main`. The
+2026-06-21 pre-long-run preference for a compact broader/non-conservative AMP
+follow-up, including `amp_scalar_gate_relaxed` or the closest implemented
+less-conservative AMP policy, was satisfied by runtime-selection v6. That
+comparison downloaded to
+`runs/kaggle/runtime_selection_v6`, replayed locally, and did not write
+`benchmark/selected_runtime.json`: the relaxed row passed runtime/gate-health
+with zero AMP skips but reached only `25.288828` samples/sec versus v5 at
+`27.381321`. Keep v5 as the fallback.
 
 Local-first rule for runtime-selection pushes: before any future
 runtime-selection remote push or approval request, run the cheap semantic local
@@ -710,9 +712,19 @@ Current duration notes:
   with `samples_sec = 27.381321`, estimated 10-epoch wall time
   `109563.740875` seconds, zero AMP skips, bounded selected-row numerical drift
   with expected `dual_t4_numerical_delta_failed`, and strict local replay pass.
-  It remains blocked from full training launch until a compact broader
-  non-conservative AMP check plus selected-runtime debug, checkpoint/resume, and
-  tiny-overfit proofs pass.
+  It remains blocked from full training launch until real selected-runtime
+  debug, checkpoint/resume, and tiny-overfit proofs pass.
+- Runtime-selection v6, 2026-06-21: after the compact relaxed-AMP follow-up was
+  approved, local commit `580a844` (`Add compact relaxed AMP runtime selection
+  follow-up`) passed `./scripts/kaggle_kernel.sh preflight-runtime-selection`
+  and Kaggle accepted version 6. Outputs were downloaded to
+  `runs/kaggle/runtime_selection_v6`; no `benchmark/selected_runtime.json` was
+  written, `runtime_proof.status = fail`, and local replay regenerated the same
+  fail-closed proof. The relaxed row
+  `dual_t4_ddp__bs12__amp_scalar_gate_relaxed__compile_none__indexed_masked__policy_amp_fp16_scalar_gate_relaxed`
+  passed runtime/gate-health with zero AMP skips but reached only `25.288828`
+  samples/sec against v5's `27.381321`, so v5 remains the selected-runtime
+  fallback.
 
 For the synthetic binary timing pretest, the remote sequence remains permission
 gated:
@@ -779,7 +791,7 @@ Download outputs into ignored local run artifacts after explicit permission:
 
 ```bash
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v6
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/<real_data_runtime_pretest_run>
 ```
 
 Pulling from Kaggle can overwrite local files and requires explicit permission:

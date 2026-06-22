@@ -251,7 +251,10 @@ def test_runtime_config_v8_carry_forward_is_shortlist_only() -> None:
 
     selection_slice = runtime["selection_benchmark_slice"]
     assert isinstance(selection_slice, dict)
-    assert selection_slice["status"] == "planned_after_v8"
+    assert (
+        selection_slice["status"]
+        == "runtime_selection_v6_completed_v5_kept_debug_pending"
+    )
     assert selection_slice["v8_artifacts_are_promotable"] is False
     assert selection_slice["v8_artifact_hashes_required_in_runtime_proof"] is True
     assert selection_slice["selected_runtime_write_policy"] == (
@@ -329,7 +332,11 @@ def test_runtime_config_dual_t4_timing_blocks_selection() -> None:
     ]
     promotion_blockers = selection_slice["promotion_blockers"]
     assert isinstance(promotion_blockers, list)
-    assert "missing_real_dual_t4_train_step_timing" in promotion_blockers
+    assert promotion_blockers == [
+        "missing_real_selected_runtime_debug_resume_proof",
+        "missing_real_artifact_proof",
+        "missing_tiny_overfit_proof",
+    ]
 
 
 def test_runtime_config_v5_relaxed_amp_followup_uses_v5_fallback() -> None:

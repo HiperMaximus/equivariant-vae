@@ -11,9 +11,15 @@ Build the repo toward a fair SIPAIM 2026 comparison between:
 2. a continuous `SO(2)` steerable denoising VAE using a repo-owned,
    compile-compatible implementation, with `escnn` as a reference.
 
-The current task is the selected-runtime benchmark slice for the translatable
-normal VAE baseline, using capped real-data runtime pretest v8 only as
-shortlist provenance. Synthetic timing is now
+Current short state: runtime-selection v5 is the selected fallback runtime
+(`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,
+`27.381321` samples/sec, about 30.4 hours for 10 epochs). Runtime-selection v6
+tested relaxed scalar-gate AMP, was slower (`25.288828` samples/sec), and kept
+v5 fail-closed. Local synthetic selected-runtime debug/checkpoint-resume/
+artifact/tiny-overfit proof plumbing exists, but all local artifacts are
+`full_run_eligible = false`; the real UBC/Kaggle debug/resume/tiny-overfit gate
+is the next task, and no long real training run should be requested until that
+real gate passes. Historical provenance follows. Synthetic timing is now
 completed provenance for screening: remote versions 1, 2, 3, and 4 completed
 successfully as non-promotable evidence, with v4 as the current
 5-warmup/25-measured repeat-shortlist run. The active real-data state is:
@@ -138,8 +144,22 @@ aggressive AMP follow-up passes the same local preflight, linked proof, strict
 local replay, debug/resume, and tiny-overfit gates. The current local working
 slice adds a real scalar-gate relaxed precision switch, updates the
 runtime-selection efficiency follow-up to use v5 as fallback, and adds the
-`amp_fp16_scalar_gate_relaxed` policy row; no Kaggle remote action has been run
-or approved for that follow-up.
+`amp_fp16_scalar_gate_relaxed` policy row. Local commit `580a844`
+(`Add compact relaxed AMP runtime selection follow-up`) was created because the
+Kaggle payload guard requires a clean Git commit. Kaggle accepted runtime-
+selection version 6 on 2026-06-21; the one guarded post-push status read
+returned `KernelWorkerStatus.RUNNING` at 2026-06-21 14:53:39 -05. On the next
+guarded status read, v6 was `KernelWorkerStatus.COMPLETE`; outputs were
+downloaded to `runs/kaggle/runtime_selection_v6` and replayed locally through
+the current writer at `/tmp/eqvae_runtime_selection_v6_replay`. The relaxed row
+passed runtime/gate-health with zero AMP skips but reached only `25.288828`
+samples/sec versus the v5 fallback's `27.381321`, with one bounded
+`dual_t4_numerical_delta_failed` row. The replay regenerated the same
+fail-closed decision: `runtime_proof.status = "fail"`,
+`selected_runtime_written = false`, no `benchmark/selected_runtime.json`, and
+blocker `selected_runtime_reuses_configured_baseline_no_replacement`. v5 remains
+the selected-runtime fallback; the next gate is real UBC/Kaggle selected-runtime
+debug/resume/artifact/tiny-overfit proof using v5.
 The working historical FSQ training reference is `kaggle/train_runs`: it trained
 correctly and should be used as the source for broad macro-architecture and
 runtime-efficiency ideas, while FSQ quantization/codebooks/rounding/discrete
@@ -362,14 +382,12 @@ implementation planning; before an actual remote benchmark push, rerun
 
 Immediate next action: use
 `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json` as the
-fallback selected runtime for a compact efficiency-selection follow-up before
-any long training launch. The follow-up should test only the
-`amp_fp16_scalar_gate_relaxed` policy against v5 and may replace v5 only if it
-is materially faster and does not trigger catastrophic failures: non-finite
-loss/gradients, repeated AMP step skips, DDP instability, broken
-checkpoint/resume, broken artifacts, gate-health collapse, missing relaxed-gate
-dtype proof, or clearly invalid metrics. Do not push another Kaggle job without
-explicit user approval and the guard variables. The separate selected-runtime
+fallback selected runtime for selected-runtime debug/resume/tiny-overfit before
+any long training launch. The compact v6 efficiency-selection follow-up tested
+only the `amp_fp16_scalar_gate_relaxed` policy against v5 and did not replace
+v5: the relaxed row was slower and no selected runtime was written. Do not push
+another Kaggle job without explicit user approval and the guard variables. The
+separate selected-runtime
 benchmark/debug slice is encoded in
 `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json` as
 `runtime_matrix.selection_benchmark_slice.name =
@@ -682,21 +700,26 @@ The review process lives in `docs/agentic_review_workflow.md`.
    samples/sec and about 30.4 projected hours for 10 epochs, with strict local
    replay pass. This approval was only for the efficiency benchmark, not for the
    first 60h-scale real training run.
-2. Before any long real training launch, run the compact aggressive-AMP
-   follow-up gate that now includes `amp_fp16_scalar_gate_relaxed` against v5 as
-   fallback. It must be proof-bound, locally preflighted with
-   `./scripts/kaggle_kernel.sh preflight-runtime-selection` before any future
-   approval request, and allowed to fall back to v5 if it shows AMP skips,
-   nonfinite values, invalid drift, gate-health collapse, or broken artifacts.
+2. Compact aggressive-AMP follow-up version 6 completed, downloaded to
+   `runs/kaggle/runtime_selection_v6`, and replayed locally. Its
+   `amp_fp16_scalar_gate_relaxed` row did not beat v5 (`25.288828` samples/sec
+   versus `27.381321`) and did not write `benchmark/selected_runtime.json`, so
+   keep v5 as the selected-runtime fallback.
 3. Next learning/stability gate is selected-runtime debug/resume/tiny-overfit
-   using `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json` or a
-   strictly better aggressive-AMP selected runtime if that follow-up passes.
-   The real train/checkpoint/resume CLI stack is still missing, including the
-   checkpoint save/load implementation. Prove selected-runtime debug,
-   checkpoint/resume, artifacts, and tiny-overfit before asking for any long
-   real training launch approval. Preserve the FSQ lessons: do not execute the
-   corruptor for clean validation, and do not let schedules advance after a
-   skipped optimizer step.
+   using `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json`.
+   Local synthetic proof plumbing now exists through `python -m eqvae.cli.train`:
+   it consumes the selected runtime, writes training/debug/resume/artifact/
+   tiny-overfit summaries, and saves/restores model, optimizer, Python RNG,
+   explicit NumPy `Generator` state, global Torch CPU RNG state, and named Torch
+   `Generator` states such as `train_data`. Checkpoints are bound to the
+   selected-runtime config hash, row id, and policy id, and resume metadata is
+   validated before state restore. CUDA RNG restore is recorded as not
+   applicable for the local CPU proof and remains required for the real Kaggle
+   runner. It is explicitly `full_run_eligible = false`; the real UBC/Kaggle
+   debug, resume, artifact, and tiny-overfit proof gate is still pending. Prove
+   the real gate before asking for any long real training launch approval.
+   Preserve the FSQ lessons: do not execute the corruptor for clean validation,
+   and do not let schedules advance after a skipped optimizer step.
 4. Run or rerun Kaggle optimization/debug jobs only after explicit user
    approval plus `KAGGLE_PUSH_CONFIRMED=1` and
    `KAGGLE_FULL_DATASET_CONFIRMED=1`; remote reads still require explicit
@@ -721,15 +744,17 @@ The review process lives in `docs/agentic_review_workflow.md`.
   execution evidence for compile/DDP/real throughput/numerics/corruption/
   gate-health.
   Remaining implementation-relock blockers include future `SO(2)` count
-  ceiling, real fixed validation/tiny-overfit selector generation,
-  selected-runtime debug, checkpoint/resume, full evaluation/artifact writers,
-  and final adversarial spec review after those routes are integrated.
+  ceiling, real fixed validation/tiny-overfit selector generation, real
+  selected-runtime debug, real checkpoint/resume proof, full
+  evaluation/artifact writers, and final adversarial spec review after those
+  routes are integrated.
 - The first full Kaggle run remains blocked until runtime-selection v5 is either
   kept as fallback or replaced by a compact relaxed-AMP row with evidence for
   material speedup, scalar-gate dtype behavior, dataloader settings, and
   corruption strategy. The selected row may relax determinism for speed, but
-  catastrophic safety, selected-runtime debug, checkpoint/resume, tiny-overfit,
-  gate-health summary, and fixed real visual QA gates still need to pass.
+  catastrophic safety, real selected-runtime debug, checkpoint/resume,
+  tiny-overfit, gate-health summary, and fixed real visual QA gates still need
+  to pass.
 - The exact held-out masked-WSI test shard must be generated, uploaded, and
   locked before final paper claims. The 152-image candidate pool is documented in
   `docs/data/ubc_ocean_masked_holdout_ids.csv`, and train/validation are
@@ -2228,6 +2253,62 @@ The review process lives in `docs/agentic_review_workflow.md`.
   false`, and `gate_health_status = pass`. The selected payload still has
   `full_training_launch_ready = false` with blockers for missing
   selected-runtime debug, checkpoint/resume, and tiny-overfit proof.
+- 2026-06-21 compact relaxed-AMP runtime-selection v6 result:
+  after the user approved the compact relaxed-AMP follow-up only, the first
+  guarded push attempt was blocked locally before any Kaggle write because the
+  payload manifest was dirty. The local follow-up patch was committed as
+  `580a844` (`Add compact relaxed AMP runtime selection follow-up`), the clean
+  commit passed `./scripts/kaggle_kernel.sh preflight-runtime-selection`
+  (`32 passed`), and Kaggle accepted version 6 at
+  `https://www.kaggle.com/code/maximusshtefan/eqvae-runtime-selection` with
+  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`. The one guarded
+  post-push status read with `KAGGLE_REMOTE_CONFIRMED=1` returned
+  `KernelWorkerStatus.RUNNING` at 2026-06-21 14:53:39 -05. On user `continue`,
+  a guarded status read returned `KernelWorkerStatus.COMPLETE`; outputs were
+  downloaded to `runs/kaggle/runtime_selection_v6`. Artifact inspection found
+  no `benchmark/selected_runtime.json`; `runtime_proof.status = "fail"`,
+  `selection_ready = false`, `selected_runtime_written = false`, and
+  `selected_runtime_write_decision.blockers` contains
+  `selected_runtime_reuses_configured_baseline_no_replacement`. The relaxed row
+  `dual_t4_ddp__bs12__amp_scalar_gate_relaxed__compile_none__indexed_masked__policy_amp_fp16_scalar_gate_relaxed`
+  passed runtime/gate-health with zero AMP skips but reached only `25.288828`
+  samples/sec against the embedded v5 baseline's `27.381321`, and one of its
+  three numerical batches was the expected bounded
+  `dual_t4_numerical_delta_failed`. Strict local replay to
+  `/tmp/eqvae_runtime_selection_v6_replay` regenerated the same fail-closed
+  proof and no selected runtime. Keep v5 as the fallback selected runtime; next
+  action is selected-runtime debug, checkpoint/resume, artifact, and
+  tiny-overfit implementation/proof before any long real training run.
+- 2026-06-21 selected-runtime debug/resume/tiny-overfit local contract runner:
+  `src/eqvae/cli/train.py` and `src/eqvae/training/debug.py` now provide a
+  short synthetic proof runner that consumes
+  `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json`, writes
+  `benchmark/training_summary.json`,
+  `benchmark/selected_runtime_debug_summary.json`,
+  `benchmark/checkpoint_resume_proof.json` when resuming,
+  `benchmark/tiny_overfit_summary.json` for the fixed-32 path,
+  `benchmark/artifact_manifest.json`, metrics CSVs, checkpoints, and a
+  nonblank reconstruction artifact. Checkpoints now save and restore model,
+  optimizer, Python RNG, explicit NumPy `Generator` state, global Torch CPU RNG
+  state, and named Torch `Generator` states such as `train_data`; they also
+  store selected-runtime config hash, row id, and policy id, and resume
+  validates that metadata before restoring state. CUDA RNG remains a
+  real-Kaggle-runner requirement. The runner rejects real `ubc-pre-shuffled`
+  execution for now and marks all local proof artifacts
+  `full_run_eligible = false`, so the real UBC/Kaggle debug/resume/tiny-overfit
+  gate remains pending and permission-gated. A separate
+  `configs/spec0001/non_eq_vae_selected_runtime_debug.json` now makes selected
+  runtime consumption mandatory without changing the old capped-smoke config.
+  The implementation also hardens relaxed scalar-gate AMP selection: every
+  candidate-bound scalar gate row must carry gate dtype proof showing
+  `gate_force_fp32 = false` and gate/input/output dtype matching the requested
+  autocast dtype; a single missing or FP32 proof blocks the row. After
+  adversarial review, resume is now runtime-bound before state restore, explicit
+  seed `0` is preserved, and direct RNG-stream tests cover Python, NumPy
+  `Generator`, global Torch CPU RNG, and named Torch `Generator` restore.
+  Focused tests passed (`58 passed`), full `./scripts/python_quality.sh` passed
+  (`177 passed`, 0 type errors), and
+  `./scripts/kaggle_kernel.sh preflight-runtime-selection` passed (`35 passed`).
 - 2026-06-20 historical FSQ reference memory:
   the successful working FSQ Kaggle training notebook/artifact is
   `kaggle/train_runs`. It is the local reference for the broad ResNet-like

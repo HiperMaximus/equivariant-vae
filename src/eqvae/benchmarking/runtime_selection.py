@@ -1610,10 +1610,22 @@ def _gate_health_pass_for_runtime_row(
     runtime_row: CsvRow,
 ) -> bool:
     candidate_ids = _summary_candidate_row_ids(gate_health_summary)
+    matching_rows = [
+        row
+        for row in gate_health_rows
+        if _gate_health_row_matches_runtime(row, runtime_row)
+    ]
+    if runtime_row["precision_policy"] == AMP_SCALAR_GATE_RELAXED:
+        return (
+            gate_health_summary.get("status") == PASS_STATUS
+            and runtime_row["row_id"] in candidate_ids
+            and bool(matching_rows)
+            and all(_gate_health_row_pass(row, runtime_row) for row in matching_rows)
+        )
     return (
         gate_health_summary.get("status") == PASS_STATUS
         and runtime_row["row_id"] in candidate_ids
-        and any(_gate_health_row_pass(row, runtime_row) for row in gate_health_rows)
+        and any(_gate_health_row_pass(row, runtime_row) for row in matching_rows)
     )
 
 
@@ -1628,7 +1640,14 @@ def _summary_candidate_row_ids(gate_health_summary: JsonObject) -> set[str]:
 def _gate_health_row_pass(row: CsvRow, runtime_row: CsvRow) -> bool:
     return (
         row.get("gate_health_status") == PASS_STATUS
-        and row.get("benchmark_kind") == RUNTIME_SELECTION_KIND
+        and _gate_health_row_matches_runtime(row, runtime_row)
+        and _scalar_gate_precision_proof_pass(row, runtime_row)
+    )
+
+
+def _gate_health_row_matches_runtime(row: CsvRow, runtime_row: CsvRow) -> bool:
+    return (
+        row.get("benchmark_kind") == RUNTIME_SELECTION_KIND
         and row.get("benchmark_source") == RUNTIME_SELECTION_SOURCE
         and row.get("full_run_eligible") == "true"
         and row.get("accelerator_mode") == runtime_row["accelerator_mode"]
@@ -1636,6 +1655,29 @@ def _gate_health_row_pass(row: CsvRow, runtime_row: CsvRow) -> bool:
         and row.get("candidate_row_id") == runtime_row["row_id"]
         and _runtime_policy_matches(row, runtime_row)
         and _nonempty_csv(row, "row_id")
+    )
+
+
+def _scalar_gate_precision_proof_pass(row: CsvRow, runtime_row: CsvRow) -> bool:
+    if runtime_row["precision_policy"] != AMP_SCALAR_GATE_RELAXED:
+        return True
+    input_dtype = row.get("input_dtype", "")
+    gate_math_dtype = row.get("gate_math_dtype", "")
+    gate_tensor_dtype = row.get("gate_tensor_dtype", "")
+    output_dtype = row.get("output_dtype", "")
+    requested_autocast_dtype = runtime_row.get("autocast_dtype", "") or row.get(
+        "requested_autocast_dtype",
+        "",
+    )
+    return (
+        row.get("precision_proof_status") == PASS_STATUS
+        and row.get("gate_force_fp32") == "false"
+        and requested_autocast_dtype in {"float16", "bfloat16"}
+        and input_dtype == requested_autocast_dtype
+        and gate_math_dtype == requested_autocast_dtype
+        and gate_tensor_dtype == requested_autocast_dtype
+        and output_dtype == requested_autocast_dtype
+        and gate_math_dtype != "float32"
     )
 
 

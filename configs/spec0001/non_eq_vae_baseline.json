@@ -1,6 +1,6 @@
 {
   "schema_version": "spec0001.v0",
-  "status": "scaffold_pending_runtime_selection",
+  "status": "scaffold_pending_selected_runtime_debug_tiny_overfit",
   "run": {
     "name": "non_eq_vae_spec0001_baseline",
     "mode": "kaggle_10_epoch_baseline"

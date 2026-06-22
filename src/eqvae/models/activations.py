@@ -12,6 +12,11 @@ class GatedScalarActivation(nn.Module):
 
     channels: int
     force_fp32: bool
+    last_input_dtype: str
+    last_gate_math_dtype: str
+    last_gate_tensor_dtype: str
+    last_output_dtype: str
+    last_precision_proof_status: str
     a: nn.Parameter
     b: nn.Parameter
 
@@ -27,6 +32,11 @@ class GatedScalarActivation(nn.Module):
         super().__init__()
         self.channels = channels
         self.force_fp32 = force_fp32
+        self.last_input_dtype = ""
+        self.last_gate_math_dtype = ""
+        self.last_gate_tensor_dtype = ""
+        self.last_output_dtype = ""
+        self.last_precision_proof_status = "not_run"
         self.a = nn.Parameter(torch.full((channels,), a_init))
         self.b = nn.Parameter(torch.full((channels,), b_init))
 
@@ -47,8 +57,23 @@ class GatedScalarActivation(nn.Module):
             device=inputs.device,
             dtype=gate_dtype,
         )
-        gate = torch.sigmoid((a * gate_inputs) + b).to(dtype=inputs.dtype)
-        return inputs * gate
+        if inputs.device.type in {"cpu", "cuda", "xpu"}:
+            with torch.autocast(device_type=inputs.device.type, enabled=False):
+                raw_gate = torch.sigmoid((a * gate_inputs) + b)
+        else:
+            raw_gate = torch.sigmoid((a * gate_inputs) + b)
+        gate = raw_gate.to(dtype=inputs.dtype)
+        outputs = inputs * gate
+        self.last_input_dtype = _dtype_name(inputs.dtype)
+        self.last_gate_math_dtype = _dtype_name(raw_gate.dtype)
+        self.last_gate_tensor_dtype = _dtype_name(raw_gate.dtype)
+        self.last_output_dtype = _dtype_name(outputs.dtype)
+        self.last_precision_proof_status = "pass"
+        return outputs
+
+
+def _dtype_name(dtype: torch.dtype) -> str:
+    return str(dtype).removeprefix("torch.")
 
 
 __all__ = ["GatedScalarActivation"]

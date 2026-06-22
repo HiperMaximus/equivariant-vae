@@ -126,7 +126,7 @@
     },
     "selection_benchmark_slice": {
       "name": "v8_shortlist_eager_amp_then_dual_gate",
-      "status": "planned_after_v8",
+      "status": "runtime_selection_v6_completed_v5_kept_debug_pending",
       "benchmark_kind": "kaggle_runtime_selection",
       "benchmark_source": "kaggle_runtime_benchmark",
       "v8_artifacts_are_promotable": false,
@@ -159,7 +159,7 @@
       },
       "efficiency_followup": {
         "name": "selected_runtime_v5_amp_relaxed_followup",
-        "status": "implemented_local_kernel_ready_no_remote_push",
+        "status": "remote_v6_completed_fail_closed_v5_kept",
         "baseline_selected_runtime": "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
         "baseline_row_id": "dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative",
         "baseline_runtime_policy_id": "amp_fp16_conservative",
@@ -252,8 +252,8 @@
       ],
       "compiled_rows_policy": "diagnostic_only_until_full_compile_settle_coverage_passes",
       "promotion_blockers": [
-        "missing_real_dual_t4_train_step_timing",
-        "missing_selected_runtime_debug_resume_proof",
+        "missing_real_selected_runtime_debug_resume_proof",
+        "missing_real_artifact_proof",
         "missing_tiny_overfit_proof"
       ]
     },

@@ -41,10 +41,11 @@ measured against it. Faster rows may trade away bitwise determinism and small
 numerical agreement, but catastrophic failures still block selection. The local
 runtime-selection executor first implemented that follow-up as
 `selected_runtime_v3_efficiency_followup` with policy-bound artifacts. The
-current local successor policy config now uses runtime-selection v5 as fallback
-and adds only a compact `amp_fp16_scalar_gate_relaxed` row with real relaxed
-scalar-gate precision plumbing; no successor remote run has been pushed or
-approved.
+successor policy config then used runtime-selection v5 as fallback and added
+only a compact `amp_fp16_scalar_gate_relaxed` row with real relaxed scalar-gate
+precision plumbing. Runtime-selection v6 completed, downloaded to
+`runs/kaggle/runtime_selection_v6`, replayed locally, wrote no selected runtime,
+and kept v5 because the relaxed row was slower.
 Runtime-selection version 4 was pushed on 2026-06-21 for that follow-up after
 adversarial subagent review and explicit user approval for the efficiency
 benchmark only; it completed, downloaded to
@@ -57,7 +58,17 @@ version 5 completed, downloaded to `runs/kaggle/runtime_selection_v5`, passed
 strict local replay under current `main`, and selected AMP conservative
 dual-T4 bs12 indexed-mask at `27.381321` samples/sec with zero AMP skips. The
 selected payload is still not full-training-launch-ready because
-selected-runtime debug, checkpoint/resume, and tiny-overfit proofs are missing.
+real selected-runtime debug, checkpoint/resume, and tiny-overfit proofs are
+missing.
+Runtime-selection version 6 completed the compact relaxed scalar-gate AMP
+follow-up, downloaded to `runs/kaggle/runtime_selection_v6`, and replayed
+locally. It did not write `benchmark/selected_runtime.json`; the relaxed row
+passed runtime/gate-health with zero AMP skips but reached only `25.288828`
+samples/sec, so v5 remains the selected-runtime fallback.
+Local selected-runtime debug/checkpoint-resume/artifact/tiny-overfit proof
+plumbing now exists through `python -m eqvae.cli.train`, but it is currently a
+synthetic, fail-closed contract runner. It writes `full_run_eligible = false`
+and does not satisfy the real UBC/Kaggle gate.
 The successful historical FSQ script is runtime reference material for launch,
 loader, AMP, DDP, compile, layout, and checkpoint hypotheses only; it is not a
 source for FSQ quantization,
@@ -405,20 +416,22 @@ from the clean rebuilt kernel, completed, downloaded to
 It passed strict local replay under current `main`, records zero AMP skips, and
 projects about 30.4 hours for 10 epochs. It is still not full-training-launch
 ready because selected-runtime debug, checkpoint/resume, and tiny-overfit
-proofs are missing. New 2026-06-21 preference: before the first long real
-training run, run a compact broader AMP/non-conservative follow-up, including
-`amp_scalar_gate_relaxed` or the closest implemented less-conservative AMP
-policy, and only replace v5 if it passes the same proof, replay, debug/resume,
-artifact, and tiny-overfit gates without catastrophic failures. The local
-runtime-selection config and executor now contain the v5-fallback
-`amp_fp16_scalar_gate_relaxed` candidate, but the remote comparison remains
-pending and permission-gated.
+proofs are missing. The 2026-06-21 pre-long-run preference for a compact broader
+AMP/non-conservative follow-up, including `amp_scalar_gate_relaxed` or the
+closest implemented less-conservative AMP policy, was satisfied by
+runtime-selection v6. The local runtime-selection config and executor contained
+the v5-fallback `amp_fp16_scalar_gate_relaxed` candidate, outputs were
+downloaded to `runs/kaggle/runtime_selection_v6`, and strict local replay
+regenerated the same fail-closed proof: no selected runtime was written, the
+relaxed row reached only `25.288828` samples/sec versus v5 at `27.381321`, and
+v5 remains the fallback.
 This approval is separate from approval for the first real 60h-scale training
 run: agents must not ask to launch that run until implementation, environment
 checks, efficiency decisions, selected-runtime debug/resume, artifact checks,
 tiny-overfit, and gate-health checks are complete.
-The follow-up should measure the FSQ-derived runtime hypotheses without copying
-the FSQ implementation: launch/env settings (`torchrun --standalone
+Future runtime optimization/debug work should preserve the FSQ-derived runtime
+hypotheses without copying the FSQ implementation: launch/env settings
+(`torchrun --standalone
 --nproc_per_node=2`, `OMP_NUM_THREADS=1`, `MKL_NUM_THREADS=1`), per-rank
 CUDA/NCCL binding, mmap/sequential-read and pinned non-blocking H2D behavior,
 channels-last, cuDNN nondeterministic benchmark mode, AMP with FP32 loss islands,
@@ -438,11 +451,10 @@ This preflight builds and validates the generated kernel, runs the
 runtime-selection writer tests, exercises the generated wrapper's import and
 fail-closed artifact-validation paths, and replays downloaded v5 artifacts when
 they are present locally.
-Next work is to run local `preflight-runtime-selection`, then, only after
-explicit approval, run the compact broader AMP follow-up using
-`runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json` as the
-fallback selected runtime. After that, implement selected-runtime
-debug/resume/tiny-overfit; the real train/checkpoint CLI stack is still missing.
+Next work is the real UBC/Kaggle selected-runtime debug/resume/tiny-overfit
+gate using `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json`;
+the local synthetic train/checkpoint CLI stack now exists but cannot unlock a
+long real run.
 Do not ask for the first long real training launch until those proof artifacts
 pass.
 
@@ -649,7 +661,7 @@ KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-setup
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-setup
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/real_data_runtime_pretest_v6
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/<real_data_runtime_pretest_run>
 ```
 
 Synthetic timing remote command, only after adversarial/local verification is

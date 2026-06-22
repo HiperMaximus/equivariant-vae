@@ -1478,6 +1478,10 @@ def _dual_gate_rows(results: Sequence[_DdpLaunchResult]) -> list[CsvRow]:
                 "runtime_policy_id",
                 DEFAULT_RUNTIME_POLICY_ID,
             )
+            rewritten["requested_autocast_dtype"] = result.row.get(
+                "autocast_dtype",
+                "",
+            )
             rewritten["row_id"] = f"{result.row['row_id']}__gate__{rewritten['module']}"
             if rewritten.get("gate_health_status") == pretest.LOCAL_PASS_STATUS:
                 rewritten["gate_health_status"] = PASS_STATUS

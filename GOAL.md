@@ -104,9 +104,10 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   and any TF32 or matmul precision knob available in the Kaggle runtime. The
   first expensive run is performance-first: bitwise determinism and small
   numerical drift are acceptable if the row is materially faster and catastrophic
-  safety checks still pass. The local selected-runtime efficiency follow-up
-  harness is implemented; the successor Kaggle run still requires explicit user
-  approval before any remote action.
+  safety checks still pass. Runtime-selection v5 selected the current fallback
+  AMP-conservative dual-T4 runtime; the compact v6 relaxed scalar-gate AMP
+  follow-up ran, was slower, and kept v5. Remaining pre-long-run blockers are
+  real selected-runtime debug/resume/artifact/tiny-overfit/gate-health proof.
 - Before writing `benchmark/selected_runtime.json`, time real dual-T4 DDP
   train-step rows. The selection benchmark must prove two visible T4s,
   `world_size = 2`, `nproc_per_node = 2`, per-rank device assignment, linked

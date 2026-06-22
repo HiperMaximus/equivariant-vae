@@ -1,0 +1,31 @@
+{
+  "schema_version": "spec0001.v0",
+  "status": "selected_runtime_debug_scaffold_local_only",
+  "run": {
+    "name": "non_eq_vae_spec0001_selected_runtime_debug",
+    "mode": "local_synthetic_selected_runtime_debug_contract"
+  },
+  "source_config": "configs/spec0001/non_eq_vae_model_base.json",
+  "data": {
+    "kind": "ubc-pre-shuffled",
+    "dataset_slug": "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+    "data_root": "auto"
+  },
+  "runtime": {
+    "machine_shape": "NvidiaTeslaT4",
+    "remote_execution_requires_permission": true,
+    "selected_runtime_required": true
+  },
+  "selected_runtime_debug": {
+    "benchmark_kind": "local_synthetic_selected_runtime_debug_contract",
+    "benchmark_source": "local_train_cli_contract",
+    "full_run_eligible": false,
+    "local_synthetic_contract_ready": true,
+    "real_kaggle_proof_required": true
+  },
+  "training": {
+    "max_train_steps": 200,
+    "max_val_steps": 20,
+    "save_every_steps": 100
+  }
+}
