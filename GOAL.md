@@ -116,6 +116,10 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
 - The first full run also needs passing dataloader-throughput, paired numerical,
   selected-runtime debug, checkpoint/resume, tiny-overfit, and gate-health
   checks on the selected runtime.
+- Immediate next action: update Spec 0001 and Kaggle workflow docs for the real
+  selected-runtime debug/resume/artifact/tiny-overfit gate, then implement that
+  narrow remote gate. The local synthetic contract runner is not sufficient for
+  launch readiness.
 - Do not ask for approval to launch the first 60h-scale real run until the
   implementation is ready, the Kaggle environment has been checked, runtime
   efficiency decisions are made from the selected-runtime follow-up, and

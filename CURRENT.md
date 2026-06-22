@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-06-21
+Last updated: 2026-06-22
 
 ## Active Workstream
 
@@ -19,7 +19,13 @@ v5 fail-closed. Local synthetic selected-runtime debug/checkpoint-resume/
 artifact/tiny-overfit proof plumbing exists, but all local artifacts are
 `full_run_eligible = false`; the real UBC/Kaggle debug/resume/tiny-overfit gate
 is the next task, and no long real training run should be requested until that
-real gate passes. Historical provenance follows. Synthetic timing is now
+real gate passes. Commit `f9f0344` (`Add selected runtime debug proof runner`)
+was pushed to GitHub `origin/main`. The next work should start with a narrow
+Spec 0001/workflow patch for the real Kaggle selected-runtime debug/resume/
+artifact/tiny-overfit gate, then implement that spec. A new session is
+recommended for that next slice so the agent starts from this updated state
+rather than the long implementation context. Historical provenance follows.
+Synthetic timing is now
 completed provenance for screening: remote versions 1, 2, 3, and 4 completed
 successfully as non-promotable evidence, with v4 as the current
 5-warmup/25-measured repeat-shortlist run. The active real-data state is:
@@ -720,41 +726,39 @@ The review process lives in `docs/agentic_review_workflow.md`.
    the real gate before asking for any long real training launch approval.
    Preserve the FSQ lessons: do not execute the corruptor for clean validation,
    and do not let schedules advance after a skipped optimizer step.
-4. Run or rerun Kaggle optimization/debug jobs only after explicit user
+4. Before implementation, update Spec 0001 and the Kaggle workflow with the real
+   selected-runtime debug/tiny contract: selected-runtime artifact transport
+   into Kaggle, real `ubc-pre-shuffled` train CLI behavior, CUDA/DDP checkpoint
+   state, AMP scaler/scheduler/beta state, artifact schemas, tiny-overfit
+   thresholds, local preflight, and fail-closed tests.
+5. Run or rerun Kaggle optimization/debug jobs only after explicit user
    approval plus `KAGGLE_PUSH_CONFIRMED=1` and
    `KAGGLE_FULL_DATASET_CONFIRMED=1`; remote reads still require explicit
    approval plus `KAGGLE_REMOTE_CONFIRMED=1`.
-5. Continue the shared evaluation harness, future `SO(2)` count ceiling, and
+6. Continue the shared evaluation harness, future `SO(2)` count ceiling, and
    steerable model work only after the benchmark plumbing gates are no longer
    blocking the first real baseline run.
-6. Ask for approval on the first 60h-scale real run only after implementation,
+7. Ask for approval on the first 60h-scale real run only after implementation,
    Kaggle environment checks, efficiency-selection decisions, selected-runtime
    debug/resume/tiny-overfit checks, artifact checks, and gate-health checks are
    complete.
 
 ## Current Blockers
 
-- Spec 0001 is reopened and not implementation-ready for broad work. Narrow
-  local scaffold, topology-count, data/metrics, selector/dataloader, local
-  benchmark pre-test, model/loss train-step, HED/stain corruption, Kaggle setup
-  smoke, Kaggle capped-smoke source-delivery contracts, no-dataset synthetic
-  timing kernel/guard/remote evidence, and the capped real-data identity/
-  hash/CRC/window plus clean-validation loader proof lane now exist. The next
-  blocking implementation slice is the later real-data benchmark candidate
-  execution evidence for compile/DDP/real throughput/numerics/corruption/
-  gate-health.
+- Spec 0001 is reopened for the real selected-runtime debug/resume/artifact/
+  tiny-overfit gate. Local synthetic proof plumbing exists and runtime-selection
+  v5 is the fallback selected runtime, but the real Kaggle train CLI/kernel path
+  is not implementation-ready until the next spec patch locks artifact
+  transport, real data handling, CUDA/DDP checkpoint state, scheduler/beta/AMP
+  scaler state, artifact schemas, tiny-overfit thresholds, and local preflights.
   Remaining implementation-relock blockers include future `SO(2)` count
   ceiling, real fixed validation/tiny-overfit selector generation, real
-  selected-runtime debug, real checkpoint/resume proof, full
-  evaluation/artifact writers, and final adversarial spec review after those
-  routes are integrated.
-- The first full Kaggle run remains blocked until runtime-selection v5 is either
-  kept as fallback or replaced by a compact relaxed-AMP row with evidence for
-  material speedup, scalar-gate dtype behavior, dataloader settings, and
-  corruption strategy. The selected row may relax determinism for speed, but
-  catastrophic safety, real selected-runtime debug, checkpoint/resume,
-  tiny-overfit, gate-health summary, and fixed real visual QA gates still need
-  to pass.
+  selected-runtime debug, real checkpoint/resume proof, full evaluation/artifact
+  writers, and final adversarial spec review after those routes are integrated.
+- The first full Kaggle run remains blocked. Runtime-selection v5 stays the
+  selected fallback after v6 failed to beat it; the remaining launch blockers
+  are real selected-runtime debug/resume/tiny-overfit, gate-health summary,
+  artifact proof, and fixed real visual QA.
 - The exact held-out masked-WSI test shard must be generated, uploaded, and
   locked before final paper claims. The 152-image candidate pool is documented in
   `docs/data/ubc_ocean_masked_holdout_ids.csv`, and train/validation are
@@ -766,6 +770,24 @@ The review process lives in `docs/agentic_review_workflow.md`.
   not add debt or import from `src.nn`.
 
 ## Latest Verification
+
+2026-06-22 selected-runtime debug/resume local contract push:
+
+- Commit `f9f0344` (`Add selected runtime debug proof runner`) was pushed to
+  GitHub `origin/main`.
+- Before the push, focused tests passed:
+  `PYTHONPATH=src .venv/bin/pytest tests/test_train_cli.py tests/test_runtime_selection_benchmark.py tests/test_spec0001_benchmark_scaffold.py -q`
+  (`58 passed`).
+- Full quality passed: `./scripts/python_quality.sh` (`177 passed`, `0` type
+  errors).
+- Runtime-selection local preflight passed:
+  `./scripts/kaggle_kernel.sh preflight-runtime-selection` (`35 passed`).
+- Direct local synthetic v5 debug, resume, and tiny-overfit commands passed with
+  `full_run_eligible = false`; the checkpoint schema is
+  `spec0001.checkpoint.v4` and stores selected-runtime config hash, row id,
+  policy id, and named Torch `Generator` state.
+- No Kaggle/GitHub/Overleaf remote action remains pending. Kaggle was not pushed
+  because no real selected-runtime debug/tiny kernel target is wired yet.
 
 2026-06-12 topology-count implementation verification and hardening:
 

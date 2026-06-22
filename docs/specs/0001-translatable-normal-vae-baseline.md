@@ -21,10 +21,10 @@ remote v4/v5/v6/v7/v8 non-promotable evidence, with v8 downloaded and
 inspected; v8 fixed the v7 `quantile() input tensor is too large` evidence
 plumbing failure and marks six capped-pretest-passing eager single-visible-T4
 FP32 rows: bs4/bs8/bs12 crossed with `branchless_all` and `indexed_masked`. The
-next selected-runtime benchmark/debug slice is encoded as
+completed selected-runtime benchmark slice was encoded as
 `v8_shortlist_eager_amp_then_dual_gate`; local proof plumbing for that separate
-selected-runtime benchmark plus its Kaggle executor/kernel are now implemented
-and fail-closed. Runtime-selection v3 downloaded to
+selected-runtime benchmark plus its Kaggle executor/kernel are implemented and
+fail-closed. Runtime-selection v3 downloaded to
 `runs/kaggle/runtime_selection_v3`: it proved the real dual-T4 DDP timing gate,
 fixed the v1/v2 proof-plumbing false negatives, and wrote
 `benchmark/selected_runtime.json`. The selected row is
@@ -65,7 +65,23 @@ keeps the real UBC/Kaggle proof pending. Its local checkpoint schema records
 selected-runtime config hash, row id, and policy id, and validates those fields
 before restoring state on resume.
 Owner/workstream: comparable non-equivariant VAE baseline
-Last updated: 2026-06-21
+Last updated: 2026-06-22
+
+Immediate next spec patch before implementation:
+
+- define the real Kaggle selected-runtime debug/tiny kernel target and CLI
+  entrypoint;
+- define how `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json`
+  is embedded or attached in Kaggle;
+- define `eqvae.cli.train --data ubc-pre-shuffled` behavior for the short debug
+  and tiny-overfit gates;
+- define real-run checkpoint/resume state: model, optimizer, scheduler/beta,
+  AMP scaler, CPU/CUDA RNG, named generators, progress counters, config hash,
+  and selected-runtime identity;
+- define debug, resume, artifact-manifest, gate-health, and tiny-overfit
+  pass/fail schemas and thresholds;
+- define cheap local preflights and fail-closed tests. Do not request or launch
+  the long real run until those real Kaggle gates pass.
 
 Historical working reference: `kaggle/train_runs` is the successful Kaggle FSQ
 autoencoder training notebook/artifact. It is valid evidence for the broad
