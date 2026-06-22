@@ -116,10 +116,19 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
 - The first full run also needs passing dataloader-throughput, paired numerical,
   selected-runtime debug, checkpoint/resume, tiny-overfit, and gate-health
   checks on the selected runtime.
-- Immediate next action: update Spec 0001 and Kaggle workflow docs for the real
-  selected-runtime debug/resume/artifact/tiny-overfit gate, then implement that
-  narrow remote gate. The local synthetic contract runner is not sufficient for
-  launch readiness.
+- Spec 0006 local mechanics are implemented and locally verified:
+  shared v5 selected-runtime plan parser/application, strict linked
+  runtime-proof status/write-decision/rank/return-code plus tokenized
+  `torchrun --standalone --nproc_per_node=2` validation, UBC-format synthetic
+  train mechanics, selected `indexed_masked` train corruption, clean validation
+  RNG isolation, integrated simulated AMP skip progress semantics, checkpoint
+  schema v5 with progress consistency checks before restore, fixed-32 selector
+  readiness boundaries, observed local FP32/AMP-off row telemetry, and
+  structured local readiness artifacts consumed by push readiness. The full
+  plan-applied proof fails locally for unexecuted dual-T4 CUDA AMP/DDP fields,
+  as intended. Keep this evidence non-promotable; the next engineering work is
+  the real UBC/DDP/AMP selected-runtime runner and canonical real fixed-32
+  selector boundary, not a remote push by default.
 - Do not ask for approval to launch the first 60h-scale real run until the
   implementation is ready, the Kaggle environment has been checked, runtime
   efficiency decisions are made from the selected-runtime follow-up, and

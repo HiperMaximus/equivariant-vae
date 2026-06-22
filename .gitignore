@@ -212,6 +212,7 @@ kaggle/kernels/setup_smoke/run.py
 kaggle/kernels/synthetic_timing/run.py
 kaggle/kernels/real_data_runtime_pretest/run.py
 kaggle/kernels/runtime_selection/run.py
+kaggle/kernels/selected_runtime_debug/run.py
 
 # Kaggle credentials
 .kaggle/

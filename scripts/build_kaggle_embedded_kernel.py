@@ -24,6 +24,7 @@ DEFAULT_KERNEL_DIR = Path("kaggle/kernels/setup_smoke")
 GIT_EXECUTABLE = shutil.which("git") or "git"
 DEFAULT_READY_MARKER = "KAGGLE_SETUP_SMOKE_READY = True"
 RUNTIME_SELECTION_KERNEL_ID = "maximusshtefan/eqvae-runtime-selection"
+SELECTED_RUNTIME_DEBUG_KERNEL_ID = "maximusshtefan/eqvae-selected-runtime-debug"
 RUNTIME_SELECTION_V8_ARTIFACT_ROOT = Path(
     "runs/kaggle/real_data_runtime_pretest_v8",
 )
@@ -38,6 +39,7 @@ RUNTIME_SELECTION_V8_ARTIFACTS = (
 )
 RUNTIME_SELECTION_BASELINE_ARTIFACTS = (
     Path("runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json"),
+    Path("runs/kaggle/runtime_selection_v5/benchmark/runtime_proof.json"),
 )
 EMBEDDED_B64_PATTERN = re.compile(
     r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""',
@@ -244,6 +246,8 @@ def _payload_manifest(
     }
     if _is_runtime_selection_kernel(kernel_dir):
         entries.update(_runtime_selection_entry_hashes(repo_root))
+    elif _is_selected_runtime_debug_kernel(kernel_dir):
+        entries.update(_selected_runtime_baseline_entry_hashes(repo_root))
     return {
         "schema_version": PAYLOAD_SCHEMA_VERSION,
         "git_commit": _git_output(repo_root, "rev-parse", "HEAD"),
@@ -298,18 +302,29 @@ def _payload_files(
     )
     if _is_runtime_selection_kernel(kernel_dir):
         files.extend(_runtime_selection_payload_files(repo_root))
+    elif _is_selected_runtime_debug_kernel(kernel_dir):
+        files.extend(_selected_runtime_baseline_payload_files(repo_root))
     return tuple(files)
 
 
 def _is_runtime_selection_kernel(kernel_dir: Path) -> bool:
+    return _kernel_id(kernel_dir) == RUNTIME_SELECTION_KERNEL_ID
+
+
+def _is_selected_runtime_debug_kernel(kernel_dir: Path) -> bool:
+    return _kernel_id(kernel_dir) == SELECTED_RUNTIME_DEBUG_KERNEL_ID
+
+
+def _kernel_id(kernel_dir: Path) -> str:
     metadata_path = kernel_dir / "kernel-metadata.json"
     if not metadata_path.exists():
-        return False
+        return ""
     payload = cast(
         "dict[str, object]",
         json.loads(metadata_path.read_text(encoding="utf-8")),
     )
-    return payload.get("id") == RUNTIME_SELECTION_KERNEL_ID
+    value = payload.get("id")
+    return value if isinstance(value, str) else ""
 
 
 def _runtime_selection_v8_payload_files(
@@ -336,6 +351,15 @@ def _runtime_selection_payload_files(
     )
 
 
+def _selected_runtime_baseline_payload_files(
+    repo_root: Path,
+) -> tuple[tuple[Path, str], ...]:
+    return tuple(
+        (repo_root / relative, relative.as_posix())
+        for relative in RUNTIME_SELECTION_BASELINE_ARTIFACTS
+    )
+
+
 def _runtime_selection_v8_entry_hashes(repo_root: Path) -> dict[str, str]:
     return {
         (RUNTIME_SELECTION_V8_ARTIFACT_ROOT / relative).as_posix(): _digest_file(
@@ -347,11 +371,15 @@ def _runtime_selection_v8_entry_hashes(repo_root: Path) -> dict[str, str]:
 
 def _runtime_selection_entry_hashes(repo_root: Path) -> dict[str, str]:
     hashes = _runtime_selection_v8_entry_hashes(repo_root)
-    hashes.update({
+    hashes.update(_selected_runtime_baseline_entry_hashes(repo_root))
+    return hashes
+
+
+def _selected_runtime_baseline_entry_hashes(repo_root: Path) -> dict[str, str]:
+    return {
         relative.as_posix(): _digest_file(repo_root / relative)
         for relative in RUNTIME_SELECTION_BASELINE_ARTIFACTS
-    })
-    return hashes
+    }
 
 
 def _is_ignored_payload_file(path: Path) -> bool:
@@ -425,8 +453,11 @@ def _validate_manifest_against_source(  # noqa: C901
         "pyproject.toml": _digest_file(repo_root / "pyproject.toml"),
         "uv.lock": _digest_file(repo_root / "uv.lock"),
     }
-    if _is_runtime_selection_kernel(repo_root / _metadata_kernel_dir(manifest)):
+    kernel_dir = repo_root / _metadata_kernel_dir(manifest)
+    if _is_runtime_selection_kernel(kernel_dir):
         expected_entries.update(_runtime_selection_entry_hashes(repo_root))
+    elif _is_selected_runtime_debug_kernel(kernel_dir):
+        expected_entries.update(_selected_runtime_baseline_entry_hashes(repo_root))
     raw_entries = manifest.get("entries")
     if not isinstance(raw_entries, dict):
         errors.append("payload manifest entries must be an object")

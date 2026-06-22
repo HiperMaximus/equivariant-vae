@@ -69,6 +69,7 @@ _RUNTIME_SELECTION_V8_PAYLOAD_FILES = {
 }
 _RUNTIME_SELECTION_BASELINE_PAYLOAD_FILES = {
     "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
+    "runs/kaggle/runtime_selection_v5/benchmark/runtime_proof.json",
 }
 _EMBEDDED_PAYLOAD_B64_PATTERN = re.compile(
     r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""',
@@ -392,6 +393,97 @@ def test_embedded_runtime_selection_kernel_full_local_fail_closed_simulation(
     assert runtime_environment["failure_kind"] == (
         "runtime_selection_evidence_collection_failed"
     )
+
+
+def test_embedded_selected_runtime_debug_kernel_import_simulation(
+    tmp_path: Path,
+) -> None:
+    """Selected-runtime debug gate imports and carries the v5 runtime payload."""
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="selected_runtime_debug",
+        ready_marker="KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True",
+    )
+    environment = _run_environment(simulation.output_dir)
+    environment["EQVAE_SELECTED_RUNTIME_DEBUG_IMPORT_ONLY"] = "1"
+
+    subprocess.run(  # noqa: S603
+        (sys.executable, str(simulation.upload_dir / "run.py")),
+        cwd=simulation.upload_dir,
+        check=True,
+        env=environment,
+    )
+
+    benchmark_dir = simulation.output_dir / "benchmark"
+    assert {path.name for path in benchmark_dir.iterdir()} == {
+        "selected_runtime_debug_import.json",
+    }
+    assert not (benchmark_dir / "selected_runtime.json").exists()
+    payload = _load_json(benchmark_dir / "selected_runtime_debug_import.json")
+    manifest = cast("dict[str, object]", payload["payload_manifest"])
+    entries = cast("dict[str, object]", manifest["entries"])
+    assert payload["status"] == "import_smoke_pass"
+    assert payload["status_scope"] == "non_promotable_local_upload_simulation"
+    assert payload["benchmark_kind"] == "selected_runtime_debug_import_only"
+    assert payload["benchmark_source"] == "kaggle_selected_runtime_debug_kernel"
+    assert payload["full_run_eligible"] is False
+    assert payload["writes_selected_runtime"] is False
+    assert _RUNTIME_SELECTION_BASELINE_PAYLOAD_FILES.issubset(entries)
+    assert _RUNTIME_SELECTION_BASELINE_PAYLOAD_FILES.issubset(
+        _embedded_payload_names(simulation.upload_dir / "run.py"),
+    )
+    assert payload["selected_runtime_exists"] is True
+
+
+def test_embedded_selected_runtime_debug_kernel_full_local_fail_closed_simulation(
+    tmp_path: Path,
+) -> None:
+    """Generated selected-runtime debug launcher validates fail-closed artifacts."""
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="selected_runtime_debug",
+        ready_marker="KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True",
+    )
+
+    subprocess.run(  # noqa: S603
+        (sys.executable, str(simulation.upload_dir / "run.py")),
+        cwd=simulation.upload_dir,
+        check=True,
+        env=_run_environment(simulation.output_dir),
+    )
+
+    benchmark_dir = simulation.output_dir / "benchmark"
+    metrics_dir = simulation.output_dir / "metrics"
+    assert {path.name for path in benchmark_dir.iterdir()} == {
+        "artifact_manifest.json",
+        "checkpoint_resume_proof.json",
+        "gate_health_summary.json",
+        "local_selected_runtime_readiness.json",
+        "selected_runtime_plan_applied.json",
+        "selected_runtime_debug_summary.json",
+        "selected_runtime_gate_summary.json",
+        "tiny_overfit_summary.json",
+        "training_summary.json",
+    }
+    assert {path.name for path in metrics_dir.iterdir()} == {
+        "gate_health.csv",
+        "train_metrics.csv",
+    }
+    assert not (benchmark_dir / "selected_runtime.json").exists()
+    summary = _load_json(benchmark_dir / "selected_runtime_gate_summary.json")
+    blockers = cast("list[str]", summary["launch_blockers_remaining"])
+    component_status = cast("dict[str, object]", summary["component_status"])
+    assert summary["status"] == "fail"
+    assert summary["benchmark_kind"] == "kaggle_selected_runtime_debug_resume_tiny_gate"
+    assert summary["benchmark_source"] == "kaggle_selected_runtime_debug_kernel"
+    assert summary["full_run_eligible"] is False
+    assert component_status["selected_runtime_transport"] == "pass"
+    assert "real_ubc_selected_runtime_train_runner_not_implemented" in blockers
+    assert "fixed_32_selector_placeholder" in blockers
 
 
 def test_embedded_kernel_verify_rejects_stale_template(tmp_path: Path) -> None:

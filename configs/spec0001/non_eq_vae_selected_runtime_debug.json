@@ -1,9 +1,9 @@
 {
   "schema_version": "spec0001.v0",
-  "status": "selected_runtime_debug_scaffold_local_only",
+  "status": "selected_runtime_debug_gate_contract_ready_fail_closed",
   "run": {
     "name": "non_eq_vae_spec0001_selected_runtime_debug",
-    "mode": "local_synthetic_selected_runtime_debug_contract"
+    "mode": "selected_runtime_debug_gate_contract_fail_closed"
   },
   "source_config": "configs/spec0001/non_eq_vae_model_base.json",
   "data": {
@@ -17,10 +17,14 @@
     "selected_runtime_required": true
   },
   "selected_runtime_debug": {
-    "benchmark_kind": "local_synthetic_selected_runtime_debug_contract",
-    "benchmark_source": "local_train_cli_contract",
+    "benchmark_kind": "kaggle_selected_runtime_debug_resume_tiny_gate",
+    "benchmark_source": "kaggle_selected_runtime_debug_kernel",
     "full_run_eligible": false,
     "local_synthetic_contract_ready": true,
+    "selected_runtime_debug_gate_contract_ready": true,
+    "remote_pass_ready": false,
+    "real_train_runner_implemented": false,
+    "fixed_32_selector_real": false,
     "real_kaggle_proof_required": true
   },
   "training": {

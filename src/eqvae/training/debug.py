@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -24,6 +24,27 @@ from eqvae.checkpointing import (
     validate_checkpoint_resume_metadata,
 )
 from eqvae.config import ResolvedConfig, resolve_json_config
+from eqvae.corruption.stain import (
+    StainCorruptionProfile,
+    clean_validation_passthrough,
+    corrupt_normalized_batch,
+    profile_from_config,
+)
+from eqvae.data.dataloaders import normalize_uint8_batch
+from eqvae.data.roots import (
+    TRAIN_BIN_NAME,
+    TRAIN_CSV_NAME,
+    VALIDATION_BIN_NAME,
+    VALIDATION_CSV_NAME,
+    resolve_patch_data_paths,
+)
+from eqvae.data.synthetic import SyntheticPatchSpec, write_synthetic_patch_shard
+from eqvae.data.training_batches import (
+    PatchTrainingBatch,
+    PatchTrainingDataset,
+    PatchTrainingDatasetSpec,
+    collate_patch_training_samples,
+)
 from eqvae.losses.vae import beta_for_step
 from eqvae.metrics.reconstruction import reconstruction_metric_summaries
 from eqvae.models.non_equivariant_vae import (
@@ -32,6 +53,13 @@ from eqvae.models.non_equivariant_vae import (
     build_non_equivariant_vae,
 )
 from eqvae.training.optim import SpecAdamWConfig, create_adamw_optimizer
+from eqvae.training.progress import TrainingProgressState, record_training_attempt
+from eqvae.training.selected_runtime import (
+    SelectedRuntimeApplicationObservation,
+    SelectedRuntimePlan,
+    build_plan_applied_proof,
+    parse_selected_runtime_plan,
+)
 from eqvae.training.step import TrainStepRequest, TrainStepResult, run_train_step
 
 if TYPE_CHECKING:
@@ -42,8 +70,13 @@ if TYPE_CHECKING:
     from eqvae.models.non_equivariant_vae import NonEquivariantVAE
 
 
-_TRAIN_METRIC_COLUMNS = (
+_TRAIN_STEP_COLUMNS = (
+    "event_id",
+    "batch_attempt",
+    "optimizer_step_index",
     "optimizer_step",
+    "successful_optimizer_update_count",
+    "split",
     "loss",
     "recon_loss",
     "l1_loss",
@@ -54,13 +87,23 @@ _TRAIN_METRIC_COLUMNS = (
     "grad_norm",
     "param_update_norm",
     "nonfinite_count",
+    "batch_size",
+    "precision_policy",
+    "amp_enabled",
+    "torch_compile_enabled",
+    "compile_scope",
+    "corruption_strategy",
+    "amp_step_skipped",
     "checkpoint_path",
 )
 _LOCAL_STATUS = "local_pass"
 _FAIL_STATUS = "fail"
 _LOCAL_SCOPE = "local_synthetic_contract_real_kaggle_proof_pending"
+_SELECTED_RUNTIME_SCOPE = "local_selected_runtime_mechanics"
+_LOCAL_EXECUTION_PRECISION_POLICY = "amp_off_fp32"
 _SUPPORTED_DATA = "synthetic"
 _TINY_MODE = "kaggle_tiny_overfit"
+_TRAIN_CORRUPTION_VIEW = "train_corrupted"
 
 
 @dataclass(frozen=True)
@@ -103,6 +146,35 @@ class _RuntimeConfigProof:
     consumed: bool
     status: str
     failure_kind: str
+    plan: SelectedRuntimePlan | None
+
+
+@dataclass(frozen=True)
+class _AppliedRuntimeSettings:
+    selected_row_id: str
+    runtime_policy_id: str
+    accelerator_mode: str
+    machine_shape: str
+    world_size: int
+    nproc_per_node: int
+    torchrun_standalone: bool
+    global_batch_size: int
+    gradient_accumulation_steps: int
+    precision_policy: str
+    amp_enabled: bool
+    autocast_dtype: str
+    fp32_loss: bool
+    grad_scaler_enabled: bool
+    torch_compile_enabled: bool
+    compile_scope: str
+    dataloader_num_workers: int
+    dataloader_prefetch_factor: int | None
+    dataloader_pin_memory: bool
+    dataloader_persistent_workers: bool
+    dataloader_non_blocking_h2d: bool
+    corruption_strategy: str
+    memory_format: str
+    zero_grad_set_to_none: bool
 
 
 @dataclass(frozen=True)
@@ -120,6 +192,10 @@ class _TrainingSettings:
     optimizer_config: SpecAdamWConfig
     global_seed: int
     data_seed: int
+    corruption_seed: int
+    corruption_profile: StainCorruptionProfile
+    applied_runtime: _AppliedRuntimeSettings
+    simulated_amp_skip_attempts: frozenset[int]
     selected_runtime_required: bool
     fixed_train_patches: Path | None
 
@@ -127,12 +203,27 @@ class _TrainingSettings:
 @dataclass(frozen=True)
 class _RunArtifacts:
     training_summary: Path
-    train_metrics: Path
+    train_steps: Path
     artifact_manifest: Path
+    selected_runtime_plan_applied: Path
+    local_ubc_mechanics: Path
+    amp_progress: Path
+    local_readiness: Path
     selected_runtime_debug_summary: Path
     checkpoint_resume_proof: Path
     tiny_overfit_summary: Path
     reconstruction_samples: Path
+
+
+@dataclass(frozen=True)
+class _LocalUbcMechanics:
+    root: Path
+    train_dataset: PatchTrainingDataset
+    validation_dataset: PatchTrainingDataset
+    train_count: int
+    validation_count: int
+    status: str
+    failure_kind: str
 
 
 @dataclass(frozen=True)
@@ -142,6 +233,10 @@ class _TrainingContext:
     settings: _TrainingSettings
     artifacts: _RunArtifacts
     runtime_config: _RuntimeConfigProof
+    local_ubc: _LocalUbcMechanics | None
+    plan_applied_proof: JsonObject | None
+    amp_progress_proof: JsonObject
+    local_readiness: JsonObject
     loaded_checkpoint: LoadedCheckpoint | None
     checkpoint_metadata: tuple[CheckpointMetadata, ...]
     final_checkpoint: CheckpointMetadata
@@ -153,7 +248,7 @@ class _TrainingContext:
     reconstruction_sample_nonblank: bool
 
 
-def write_debug_training_run(  # noqa: PLR0914
+def write_debug_training_run(  # noqa: PLR0914, PLR0915
     request: DebugTrainingRequest,
 ) -> DebugTrainingResult:
     """Run a short local training proof and write debug/tiny artifacts.
@@ -178,6 +273,7 @@ def write_debug_training_run(  # noqa: PLR0914
         runtime_config=request.runtime_config,
         selected_runtime_required=settings.selected_runtime_required,
     )
+    settings = _apply_selected_runtime_settings(settings, runtime_config)
     resume_metadata = (
         None
         if request.resume is None
@@ -200,6 +296,11 @@ def write_debug_training_run(  # noqa: PLR0914
             )
             raise ValueError(message)
     artifacts = _artifact_paths(request.output_dir)
+    local_ubc = _prepare_local_ubc_mechanics(
+        output_dir=request.output_dir,
+        settings=settings,
+        enabled=runtime_config.plan is not None,
+    )
     manual_seed = cast("Callable[[int], torch.Generator]", torch.manual_seed)
     manual_seed(settings.global_seed)
     numpy_generator = np.random.default_rng(settings.global_seed)
@@ -241,6 +342,7 @@ def write_debug_training_run(  # noqa: PLR0914
     initial_metrics = _evaluate_model(
         model=model,
         settings=settings,
+        local_ubc=local_ubc,
         seed_offset=10_000,
     )
     metric_rows, checkpoints, last_result = _run_steps(
@@ -252,11 +354,13 @@ def write_debug_training_run(  # noqa: PLR0914
         settings=settings,
         request=request,
         resolved=resolved,
+        local_ubc=local_ubc,
         start_step=start_step,
     )
     final_metrics = _evaluate_model(
         model=model,
         settings=settings,
+        local_ubc=local_ubc,
         seed_offset=20_000,
     )
     final_checkpoint = save_training_checkpoint(
@@ -300,8 +404,27 @@ def write_debug_training_run(  # noqa: PLR0914
         path=artifacts.reconstruction_samples,
         model=model,
         settings=settings,
+        local_ubc=local_ubc,
     )
-    write_csv(artifacts.train_metrics, _TRAIN_METRIC_COLUMNS, metric_rows)
+    plan_applied_proof = _plan_applied_proof(
+        runtime_config=runtime_config,
+        settings=settings,
+        model=model,
+        local_ubc=local_ubc,
+        metric_rows=metric_rows,
+        last_result=last_result,
+    )
+    write_csv(artifacts.train_steps, _TRAIN_STEP_COLUMNS, metric_rows)
+    if plan_applied_proof is not None:
+        write_json(artifacts.selected_runtime_plan_applied, plan_applied_proof)
+    ubc_mechanics_proof = _local_ubc_mechanics_proof(
+        local_ubc,
+        settings=settings,
+    )
+    if ubc_mechanics_proof is not None:
+        write_json(artifacts.local_ubc_mechanics, ubc_mechanics_proof)
+    amp_progress_proof = _amp_progress_proof(metric_rows)
+    write_json(artifacts.amp_progress, amp_progress_proof)
 
     context = _TrainingContext(
         request=request,
@@ -309,6 +432,10 @@ def write_debug_training_run(  # noqa: PLR0914
         settings=settings,
         artifacts=artifacts,
         runtime_config=runtime_config,
+        local_ubc=local_ubc,
+        plan_applied_proof=plan_applied_proof,
+        amp_progress_proof=amp_progress_proof,
+        local_readiness={},
         loaded_checkpoint=loaded_checkpoint,
         checkpoint_metadata=checkpoint_metadata,
         final_checkpoint=final_checkpoint,
@@ -338,11 +465,23 @@ def write_debug_training_run(  # noqa: PLR0914
         write_json(artifacts.tiny_overfit_summary, _tiny_summary(context))
         tiny_summary_path = artifacts.tiny_overfit_summary
 
+    provisional_readiness = _local_readiness_summary(context, ubc_mechanics_proof)
+    context = _replace_context_readiness(context, provisional_readiness)
+    write_json(artifacts.local_readiness, provisional_readiness)
+    manifest_probe = _artifact_manifest(context)
+    local_readiness = _local_readiness_summary(
+        context,
+        ubc_mechanics_proof,
+        artifact_manifest=manifest_probe,
+    )
+    context = _replace_context_readiness(context, local_readiness)
+    write_json(artifacts.local_readiness, local_readiness)
+    write_json(artifacts.training_summary, _training_summary(context))
     write_json(artifacts.artifact_manifest, _artifact_manifest(context))
     return DebugTrainingResult(
         output_dir=request.output_dir,
         training_summary=artifacts.training_summary,
-        metrics=artifacts.train_metrics,
+        metrics=artifacts.train_steps,
         artifact_manifest=artifacts.artifact_manifest,
         selected_runtime_debug_summary=debug_summary_path,
         checkpoint_resume_proof=resume_proof_path,
@@ -350,7 +489,7 @@ def write_debug_training_run(  # noqa: PLR0914
     )
 
 
-def _run_steps(  # noqa: PLR0913
+def _run_steps(  # noqa: PLR0913, PLR0914
     *,
     model: NonEquivariantVAE,
     optimizer: torch.optim.Optimizer,
@@ -360,17 +499,48 @@ def _run_steps(  # noqa: PLR0913
     settings: _TrainingSettings,
     request: DebugTrainingRequest,
     resolved: ResolvedConfig,
+    local_ubc: _LocalUbcMechanics | None,
     start_step: int,
 ) -> tuple[tuple[CsvRow, ...], tuple[CheckpointMetadata, ...], TrainStepResult]:
     rows: list[CsvRow] = []
     checkpoints: list[CheckpointMetadata] = []
     last_result: TrainStepResult | None = None
-    for optimizer_step_index in range(start_step, settings.max_train_steps):
-        clean_batch = _synthetic_clean_batch(
-            batch_size=settings.batch_size,
-            image_size=settings.image_size,
-            generator=train_data_generator,
+    progress = TrainingProgressState(
+        batch_attempt_count=start_step,
+        successful_optimizer_update_count=start_step,
+        lr_scheduler_step_count=start_step,
+        tiny_smoothing_update_count=start_step if _writes_tiny_summary(settings) else 0,
+    )
+    while progress.successful_optimizer_update_count < settings.max_train_steps:
+        optimizer_step_index = progress.optimizer_step_index
+        batch_attempt = progress.batch_attempt_count + 1
+        clean_batch, input_batch, corruption_strategy = _train_batches_for_step(
+            settings=settings,
+            local_ubc=local_ubc,
+            train_data_generator=train_data_generator,
+            optimizer_step_index=optimizer_step_index,
         )
+        if batch_attempt in settings.simulated_amp_skip_attempts:
+            attempt_progress = record_training_attempt(
+                progress,
+                amp_step_skipped=True,
+                checkpoint_interval=settings.save_every_steps,
+                validation_interval=settings.max_val_steps,
+                tiny_smoothing_enabled=_writes_tiny_summary(settings),
+            )
+            progress = attempt_progress.after
+            rows.append(
+                _skipped_metric_row(
+                    batch_attempt=attempt_progress.after.batch_attempt_count,
+                    optimizer_step_index=optimizer_step_index,
+                    successful_optimizer_update_count=(
+                        attempt_progress.after.successful_optimizer_update_count
+                    ),
+                    settings=settings,
+                    corruption_strategy=corruption_strategy,
+                ),
+            )
+            continue
         eps = _zero_eps(settings)
         beta = beta_for_step(
             optimizer_step_index=optimizer_step_index,
@@ -390,12 +560,22 @@ def _run_steps(  # noqa: PLR0913
                 gradient_clip_global_norm=(
                     settings.optimizer_config.gradient_clip_global_norm
                 ),
+                input_batch=input_batch,
+                zero_grad_set_to_none=(settings.applied_runtime.zero_grad_set_to_none),
             ),
         )
         last_result = result
         successful_count = result.successful_optimizer_update_count
+        attempt_progress = record_training_attempt(
+            progress,
+            amp_step_skipped=False,
+            checkpoint_interval=settings.save_every_steps,
+            validation_interval=settings.max_val_steps,
+            tiny_smoothing_enabled=_writes_tiny_summary(settings),
+        )
+        progress = attempt_progress.after
         checkpoint_path = ""
-        if successful_count % settings.save_every_steps == 0:
+        if attempt_progress.checkpoint_due:
             checkpoint = _save_step_checkpoint(
                 request=request,
                 resolved=resolved,
@@ -410,7 +590,15 @@ def _run_steps(  # noqa: PLR0913
             )
             checkpoints.append(checkpoint)
             checkpoint_path = _relative_to_output(checkpoint.path, request.output_dir)
-        rows.append(_metric_row(result=result, checkpoint_path=checkpoint_path))
+        rows.append(
+            _metric_row(
+                result=result,
+                batch_attempt=attempt_progress.after.batch_attempt_count,
+                checkpoint_path=checkpoint_path,
+                settings=settings,
+                corruption_strategy=corruption_strategy,
+            ),
+        )
     if last_result is None:
         message = "No train steps were executed"
         raise RuntimeError(message)
@@ -433,10 +621,7 @@ def _run_steps(  # noqa: PLR0913
         checkpoints.append(checkpoint)
         rows[-1] = {
             **dict(rows[-1]),
-            "checkpoint_path": _relative_to_output(
-                checkpoint.path,
-                request.output_dir,
-            ),
+            "checkpoint_path": _relative_to_output(checkpoint.path, request.output_dir),
         }
     return tuple(rows), tuple(checkpoints), last_result
 
@@ -474,10 +659,138 @@ def _save_step_checkpoint(  # noqa: PLR0913
     )
 
 
-def _metric_row(*, result: TrainStepResult, checkpoint_path: str) -> CsvRow:
+def _prepare_local_ubc_mechanics(
+    *,
+    output_dir: Path,
+    settings: _TrainingSettings,
+    enabled: bool,
+) -> _LocalUbcMechanics | None:
+    if not enabled:
+        return None
+    root = output_dir / "local_ubc_synthetic"
+    train_count = max(32, settings.batch_size * settings.max_train_steps)
+    validation_count = max(32, settings.batch_size)
+    write_synthetic_patch_shard(
+        bin_path=root / TRAIN_BIN_NAME,
+        csv_path=root / TRAIN_CSV_NAME,
+        spec=SyntheticPatchSpec(
+            count=train_count,
+            image_size=settings.image_size,
+            channels=3,
+            seed=settings.data_seed,
+        ),
+        include_idx=False,
+    )
+    write_synthetic_patch_shard(
+        bin_path=root / VALIDATION_BIN_NAME,
+        csv_path=root / VALIDATION_CSV_NAME,
+        spec=SyntheticPatchSpec(
+            count=validation_count,
+            image_size=settings.image_size,
+            channels=3,
+            seed=settings.data_seed + 1,
+        ),
+        include_idx=True,
+    )
+    paths = resolve_patch_data_paths(root)
+    train_dataset = PatchTrainingDataset(
+        PatchTrainingDatasetSpec(
+            bin_path=paths.train.bin_path,
+            csv_path=paths.train.csv_path,
+            split="train",
+            image_size=settings.image_size,
+            channels=3,
+            validate_crc=True,
+        ),
+    )
+    validation_dataset = PatchTrainingDataset(
+        PatchTrainingDatasetSpec(
+            bin_path=paths.validation.bin_path,
+            csv_path=paths.validation.csv_path,
+            split="validation",
+            image_size=settings.image_size,
+            channels=3,
+            validate_crc=True,
+        ),
+    )
+    return _LocalUbcMechanics(
+        root=root,
+        train_dataset=train_dataset,
+        validation_dataset=validation_dataset,
+        train_count=train_count,
+        validation_count=validation_count,
+        status=_LOCAL_STATUS,
+        failure_kind="",
+    )
+
+
+def _train_batches_for_step(
+    *,
+    settings: _TrainingSettings,
+    local_ubc: _LocalUbcMechanics | None,
+    train_data_generator: torch.Generator,
+    optimizer_step_index: int,
+) -> tuple[torch.Tensor, torch.Tensor | None, str]:
+    if local_ubc is None:
+        clean_batch = _synthetic_clean_batch(
+            batch_size=settings.batch_size,
+            image_size=settings.image_size,
+            generator=train_data_generator,
+        )
+        return clean_batch, None, "identity_clean_no_corruption"
+
+    batch = _training_batch(
+        dataset=local_ubc.train_dataset,
+        batch_size=settings.batch_size,
+        step_index=optimizer_step_index,
+    )
+    clean_batch = normalize_uint8_batch(batch.images_uint8)
+    corruption_result = corrupt_normalized_batch(
+        clean_batch,
+        profile=settings.corruption_profile,
+        corruption_seed=settings.corruption_seed,
+        split=batch.split,
+        semantic_sample_keys=batch.semantic_sample_keys,
+        corruption_step=optimizer_step_index,
+        corruption_view=_TRAIN_CORRUPTION_VIEW,
+        strategy=settings.applied_runtime.corruption_strategy,
+    )
+    return (
+        clean_batch,
+        corruption_result.corrupted,
+        settings.applied_runtime.corruption_strategy,
+    )
+
+
+def _training_batch(
+    *,
+    dataset: PatchTrainingDataset,
+    batch_size: int,
+    step_index: int,
+) -> PatchTrainingBatch:
+    start = step_index * batch_size
+    samples = [dataset[(start + offset) % len(dataset)] for offset in range(batch_size)]
+    return collate_patch_training_samples(samples)
+
+
+def _metric_row(
+    *,
+    result: TrainStepResult,
+    batch_attempt: int,
+    checkpoint_path: str,
+    settings: _TrainingSettings,
+    corruption_strategy: str,
+) -> CsvRow:
     scalars = result.losses.detached_scalars()
     return {
+        "event_id": f"train_attempt_{batch_attempt:06d}",
+        "batch_attempt": str(batch_attempt),
+        "optimizer_step_index": str(result.optimizer_step_index),
         "optimizer_step": str(result.successful_optimizer_update_count),
+        "successful_optimizer_update_count": str(
+            result.successful_optimizer_update_count,
+        ),
+        "split": "train",
         "loss": _format_float(scalars["loss"]),
         "recon_loss": _format_float(scalars["recon_loss"]),
         "l1_loss": _format_float(scalars["l1_loss"]),
@@ -488,15 +801,64 @@ def _metric_row(*, result: TrainStepResult, checkpoint_path: str) -> CsvRow:
         "grad_norm": _format_float(result.grad_norm),
         "param_update_norm": _format_float(result.param_update_norm),
         "nonfinite_count": str(result.nonfinite_count),
+        "batch_size": str(settings.batch_size),
+        "precision_policy": _LOCAL_EXECUTION_PRECISION_POLICY,
+        "amp_enabled": _csv_bool(value=False),
+        "torch_compile_enabled": _csv_bool(value=False),
+        "compile_scope": "none",
+        "corruption_strategy": corruption_strategy,
+        "amp_step_skipped": "0",
         "checkpoint_path": checkpoint_path,
+    }
+
+
+def _skipped_metric_row(
+    *,
+    batch_attempt: int,
+    optimizer_step_index: int,
+    successful_optimizer_update_count: int,
+    settings: _TrainingSettings,
+    corruption_strategy: str,
+) -> CsvRow:
+    return {
+        "event_id": f"train_attempt_{batch_attempt:06d}",
+        "batch_attempt": str(batch_attempt),
+        "optimizer_step_index": str(optimizer_step_index),
+        "optimizer_step": str(successful_optimizer_update_count),
+        "successful_optimizer_update_count": str(successful_optimizer_update_count),
+        "split": "train",
+        "loss": "",
+        "recon_loss": "",
+        "l1_loss": "",
+        "ssim_loss": "",
+        "ssim_metric": "",
+        "kl_loss": "",
+        "beta": "",
+        "grad_norm": "",
+        "param_update_norm": "",
+        "nonfinite_count": "0",
+        "batch_size": str(settings.batch_size),
+        "precision_policy": _LOCAL_EXECUTION_PRECISION_POLICY,
+        "amp_enabled": _csv_bool(value=False),
+        "torch_compile_enabled": _csv_bool(value=False),
+        "compile_scope": "none",
+        "corruption_strategy": corruption_strategy,
+        "amp_step_skipped": "1",
+        "checkpoint_path": "",
     }
 
 
 def _training_summary(context: _TrainingContext) -> JsonObject:
     nonfinite_total = sum(int(row["nonfinite_count"]) for row in context.metric_rows)
+    proof_scope = (
+        _SELECTED_RUNTIME_SCOPE
+        if context.runtime_config.plan is not None
+        else _LOCAL_SCOPE
+    )
     return {
         "status": _LOCAL_STATUS if nonfinite_total == 0 else _FAIL_STATUS,
-        "proof_scope": _LOCAL_SCOPE,
+        "proof_scope": proof_scope,
+        "status_scope": proof_scope,
         "full_run_eligible": False,
         "run_name": context.settings.run_name,
         "run_mode": context.settings.run_mode,
@@ -509,12 +871,18 @@ def _training_summary(context: _TrainingContext) -> JsonObject:
         "seeds": {
             "global_seed": context.settings.global_seed,
             "data_seed": context.settings.data_seed,
+            "corruption_seed": context.settings.corruption_seed,
         },
         "max_train_steps": context.settings.max_train_steps,
         "max_val_steps": context.settings.max_val_steps,
         "save_every_steps": context.settings.save_every_steps,
-        "optimizer_steps_completed": len(context.metric_rows),
-        "amp_step_skipped_count": 0,
+        "batch_attempts_completed": len(context.metric_rows),
+        "optimizer_steps_completed": sum(
+            1 for row in context.metric_rows if row["amp_step_skipped"] == "0"
+        ),
+        "amp_step_skipped_count": sum(
+            1 for row in context.metric_rows if row["amp_step_skipped"] == "1"
+        ),
         "scheduler_advanced_after_amp_skip": False,
         "checkpoint_count": len(context.checkpoint_metadata),
         "final_checkpoint": _checkpoint_payload(
@@ -525,7 +893,18 @@ def _training_summary(context: _TrainingContext) -> JsonObject:
             context.best_checkpoint,
             context.request.output_dir,
         ),
-        "metrics_csv": "metrics/train_metrics.csv",
+        "metrics_csv": "metrics/train_steps.csv",
+        "train_steps_csv": "metrics/train_steps.csv",
+        "selected_runtime_plan_applied": (
+            ""
+            if context.plan_applied_proof is None
+            else "benchmark/selected_runtime_plan_applied.json"
+        ),
+        "local_ubc_mechanics": (
+            "" if context.local_ubc is None else "benchmark/local_ubc_mechanics.json"
+        ),
+        "amp_progress": "benchmark/amp_progress.json",
+        "local_readiness": "benchmark/local_selected_runtime_readiness.json",
         "initial_metrics": context.initial_metrics,
         "final_metrics": context.final_metrics,
         "last_loss": cast("JsonObject", context.last_result.losses.detached_scalars()),
@@ -536,10 +915,15 @@ def _training_summary(context: _TrainingContext) -> JsonObject:
 def _selected_runtime_debug_summary(context: _TrainingContext) -> JsonObject:
     return {
         "status": _LOCAL_STATUS,
-        "proof_scope": _LOCAL_SCOPE,
+        "proof_scope": _SELECTED_RUNTIME_SCOPE,
         "full_run_eligible": False,
         "runtime_config": _runtime_config_payload(context.runtime_config),
-        "optimizer_steps_completed": len(context.metric_rows),
+        "selected_runtime_plan_applied": "benchmark/selected_runtime_plan_applied.json",
+        "local_ubc_mechanics": "benchmark/local_ubc_mechanics.json",
+        "amp_progress": "benchmark/amp_progress.json",
+        "optimizer_steps_completed": sum(
+            1 for row in context.metric_rows if row["amp_step_skipped"] == "0"
+        ),
         "checkpoint_written": True,
         "checkpoint_resume_proof_status": (
             _LOCAL_STATUS if context.loaded_checkpoint is not None else "not_run"
@@ -603,12 +987,11 @@ def _resume_proof(context: _TrainingContext) -> JsonObject:
         "torch_cpu_rng_state_restored": True,
         "torch_generator_states_restored": True,
         "torch_generator_names_restored": list(loaded.torch_generator_names),
-        "torch_cuda_rng_state_status": "not_applicable_local_cpu",
-        "lr_scheduler_state_status": "not_applicable_local_debug_no_scheduler",
-        "beta_schedule_state_status": (
-            "deterministic_from_successful_optimizer_update_count"
-        ),
-        "amp_scaler_state_status": "not_applicable_local_cpu_amp_disabled",
+        "torch_cuda_rng_state_status": loaded.torch_cuda_rng_state_status,
+        "lr_scheduler_state_status": loaded.lr_scheduler_state_status,
+        "beta_schedule_state_status": loaded.beta_progress_state_status,
+        "amp_scaler_state_status": loaded.amp_scaler_state_status,
+        "ddp_sampler_progress_state_status": loaded.ddp_sampler_progress_state_status,
         "schedule_resumed_from_successful_optimizer_update_count": True,
         "config_sha256_match": config_match,
         "runtime_config_sha256_match": runtime_config_match,
@@ -618,8 +1001,9 @@ def _resume_proof(context: _TrainingContext) -> JsonObject:
 
 
 def _tiny_summary(context: _TrainingContext) -> JsonObject:
-    l1_values = [_csv_float(row, "l1_loss") for row in context.metric_rows]
-    recon_values = [_csv_float(row, "recon_loss") for row in context.metric_rows]
+    successful_rows = _successful_metric_rows(context.metric_rows)
+    l1_values = [_csv_float(row, "l1_loss") for row in successful_rows]
+    recon_values = [_csv_float(row, "recon_loss") for row in successful_rows]
     smoothing_window = min(25, len(l1_values))
     initial_l1 = _mean(l1_values[:smoothing_window])
     final_l1 = _mean(l1_values[-smoothing_window:])
@@ -628,7 +1012,7 @@ def _tiny_summary(context: _TrainingContext) -> JsonObject:
     fixed_train_patches = context.settings.fixed_train_patches
     return {
         "status": _LOCAL_STATUS,
-        "proof_scope": _LOCAL_SCOPE,
+        "proof_scope": _SELECTED_RUNTIME_SCOPE,
         "full_run_eligible": False,
         "runtime_config": _runtime_config_payload(context.runtime_config),
         "runtime_config_sha256": context.runtime_config.sha256,
@@ -639,10 +1023,10 @@ def _tiny_summary(context: _TrainingContext) -> JsonObject:
         if fixed_train_patches is None
         else _sha256_file(fixed_train_patches),
         "patch_count": _fixed_patch_count(fixed_train_patches),
-        "optimizer_steps": len(context.metric_rows),
+        "optimizer_steps": len(successful_rows),
         "smoothing_window_steps": smoothing_window,
-        "corruption_strategy": "identity_clean_no_corruption",
-        "eval_views": ["train_clean"],
+        "corruption_strategy": context.settings.applied_runtime.corruption_strategy,
+        "eval_views": ["train_clean", "train_corrupted_fixed_seed"],
         "initial_smoothed_l1": initial_l1,
         "final_smoothed_l1": final_l1,
         "initial_smoothed_recon_loss": initial_recon,
@@ -667,9 +1051,17 @@ def _tiny_summary(context: _TrainingContext) -> JsonObject:
 def _artifact_manifest(context: _TrainingContext) -> JsonObject:
     artifacts = {
         "training_summary": context.artifacts.training_summary,
-        "train_metrics": context.artifacts.train_metrics,
+        "train_steps": context.artifacts.train_steps,
         "reconstruction_samples": context.artifacts.reconstruction_samples,
+        "amp_progress": context.artifacts.amp_progress,
+        "local_selected_runtime_readiness": context.artifacts.local_readiness,
     }
+    if context.plan_applied_proof is not None:
+        artifacts["selected_runtime_plan_applied"] = (
+            context.artifacts.selected_runtime_plan_applied
+        )
+    if context.local_ubc is not None:
+        artifacts["local_ubc_mechanics"] = context.artifacts.local_ubc_mechanics
     if context.runtime_config.consumed:
         artifacts["selected_runtime_debug_summary"] = (
             context.artifacts.selected_runtime_debug_summary
@@ -682,7 +1074,11 @@ def _artifact_manifest(context: _TrainingContext) -> JsonObject:
         artifacts[f"checkpoint:{checkpoint.path.name}"] = checkpoint.path
     return {
         "status": _LOCAL_STATUS,
-        "proof_scope": _LOCAL_SCOPE,
+        "proof_scope": (
+            _SELECTED_RUNTIME_SCOPE
+            if context.runtime_config.plan is not None
+            else _LOCAL_SCOPE
+        ),
         "full_run_eligible": False,
         "artifact_hashes": cast(
             "JsonObject",
@@ -706,25 +1102,19 @@ def _runtime_config_proof(
         return _missing_runtime_config_proof(
             selected_runtime_required=selected_runtime_required,
         )
+    plan = parse_selected_runtime_plan(runtime_config)
     payload = _load_json(runtime_config)
-    _validate_runtime_payload(payload)
-    selected_row_id = _required_str(payload, "selected_row_id")
-    runtime_policy_id = _required_str(payload, "runtime_policy_id")
-    _validate_selected_runtime_snapshot(
-        payload=payload,
-        selected_row_id=selected_row_id,
-        runtime_policy_id=runtime_policy_id,
-    )
     blockers = _str_tuple(payload.get("launch_blockers"))
     return _RuntimeConfigProof(
         path=runtime_config,
-        sha256=_sha256_file(runtime_config),
-        selected_row_id=selected_row_id,
-        runtime_policy_id=runtime_policy_id,
+        sha256=plan.artifact_sha256,
+        selected_row_id=plan.selected_row_id,
+        runtime_policy_id=plan.runtime_policy_id,
         launch_blockers=blockers,
         consumed=True,
         status=_LOCAL_STATUS,
         failure_kind="",
+        plan=plan,
     )
 
 
@@ -744,64 +1134,316 @@ def _missing_runtime_config_proof(
         consumed=False,
         status="not_required",
         failure_kind="",
+        plan=None,
     )
 
 
-def _validate_runtime_payload(payload: JsonObject) -> None:
-    if payload.get("status") != "pass":
-        message = "runtime config status must be pass"
-        raise ValueError(message)
-    if payload.get("benchmark_kind") != "kaggle_runtime_selection":
-        message = "runtime config benchmark_kind must be kaggle_runtime_selection"
-        raise ValueError(message)
-    if payload.get("benchmark_source") != "kaggle_runtime_benchmark":
-        message = "runtime config benchmark_source must be kaggle_runtime_benchmark"
-        raise ValueError(message)
-    if payload.get("full_run_eligible") is not True:
-        message = "runtime config must be full_run_eligible"
-        raise ValueError(message)
-    if payload.get("full_training_launch_ready") is not False:
-        message = "runtime config must not already claim full training launch ready"
-        raise ValueError(message)
-    _validate_runtime_safety(_required_object(payload, "safety"))
+def _apply_selected_runtime_settings(
+    settings: _TrainingSettings,
+    runtime_config: _RuntimeConfigProof,
+) -> _TrainingSettings:
+    plan = runtime_config.plan
+    if plan is None:
+        return settings
+    return replace(
+        settings,
+        batch_size=plan.per_device_batch_size,
+        applied_runtime=_applied_runtime_from_plan(plan),
+    )
 
 
-def _validate_runtime_safety(safety: JsonObject) -> None:
-    for key in (
-        "dataloader_status",
-        "numerical_check_status",
-        "corruption_check_status",
-        "gate_health_status",
-    ):
-        if safety.get(key) != "pass":
-            message = f"runtime config safety.{key} must be pass"
-            raise ValueError(message)
+def _default_applied_runtime(*, batch_size: int) -> _AppliedRuntimeSettings:
+    return _AppliedRuntimeSettings(
+        selected_row_id="",
+        runtime_policy_id="",
+        accelerator_mode="local_cpu",
+        machine_shape="local_cpu",
+        world_size=1,
+        nproc_per_node=1,
+        torchrun_standalone=False,
+        global_batch_size=batch_size,
+        gradient_accumulation_steps=1,
+        precision_policy="amp_off_fp32",
+        amp_enabled=False,
+        autocast_dtype="float32",
+        fp32_loss=True,
+        grad_scaler_enabled=False,
+        torch_compile_enabled=False,
+        compile_scope="none",
+        dataloader_num_workers=0,
+        dataloader_prefetch_factor=None,
+        dataloader_pin_memory=False,
+        dataloader_persistent_workers=False,
+        dataloader_non_blocking_h2d=False,
+        corruption_strategy="identity_clean_no_corruption",
+        memory_format="contiguous",
+        zero_grad_set_to_none=True,
+    )
 
 
-def _validate_selected_runtime_snapshot(
+def _applied_runtime_from_plan(plan: SelectedRuntimePlan) -> _AppliedRuntimeSettings:
+    return _AppliedRuntimeSettings(
+        selected_row_id=plan.selected_row_id,
+        runtime_policy_id=plan.runtime_policy_id,
+        accelerator_mode=plan.accelerator_mode,
+        machine_shape=plan.machine_shape,
+        world_size=plan.world_size,
+        nproc_per_node=plan.nproc_per_node,
+        torchrun_standalone=plan.torchrun_standalone,
+        global_batch_size=plan.global_batch_size,
+        gradient_accumulation_steps=plan.gradient_accumulation_steps,
+        precision_policy=plan.precision_policy,
+        amp_enabled=plan.amp_enabled,
+        autocast_dtype=plan.autocast_dtype,
+        fp32_loss=plan.fp32_loss,
+        grad_scaler_enabled=plan.grad_scaler_enabled,
+        torch_compile_enabled=plan.torch_compile_enabled,
+        compile_scope=plan.compile_scope,
+        dataloader_num_workers=plan.dataloader_num_workers,
+        dataloader_prefetch_factor=plan.dataloader_prefetch_factor,
+        dataloader_pin_memory=plan.dataloader_pin_memory,
+        dataloader_persistent_workers=plan.dataloader_persistent_workers,
+        dataloader_non_blocking_h2d=plan.dataloader_non_blocking_h2d,
+        corruption_strategy=plan.corruption_strategy,
+        memory_format=plan.memory_format,
+        zero_grad_set_to_none=plan.zero_grad_set_to_none,
+    )
+
+
+def _plan_applied_proof(  # noqa: PLR0913
     *,
-    payload: JsonObject,
-    selected_row_id: str,
-    runtime_policy_id: str,
-) -> None:
-    selected_snapshot = _required_object(payload, "selected_row_snapshot")
-    if selected_snapshot.get("row_id") != selected_row_id:
-        message = "runtime config selected_row_snapshot.row_id mismatch"
-        raise ValueError(message)
-    if selected_snapshot.get("runtime_policy_id") != runtime_policy_id:
-        message = "runtime config selected_row_snapshot.runtime_policy_id mismatch"
-        raise ValueError(message)
-    if selected_snapshot.get("status") != "pass":
-        message = "runtime config selected_row_snapshot.status must be pass"
-        raise ValueError(message)
+    runtime_config: _RuntimeConfigProof,
+    settings: _TrainingSettings,
+    model: NonEquivariantVAE,
+    local_ubc: _LocalUbcMechanics | None,
+    metric_rows: tuple[CsvRow, ...],
+    last_result: TrainStepResult,
+) -> JsonObject | None:
+    plan = runtime_config.plan
+    if plan is None:
+        return None
+    observed_batch_size = _observed_batch_size(
+        metric_rows=metric_rows,
+        fallback=settings.batch_size,
+    )
+    observed_corruption_strategy = _observed_corruption_strategy(
+        metric_rows=metric_rows,
+        fallback=(
+            "identity_clean_no_corruption"
+            if local_ubc is None
+            else settings.applied_runtime.corruption_strategy
+        ),
+    )
+    observed = SelectedRuntimeApplicationObservation(
+        selected_row_id=runtime_config.selected_row_id,
+        runtime_policy_id=runtime_config.runtime_policy_id,
+        accelerator_mode="local_cpu",
+        machine_shape="local_cpu",
+        world_size=1,
+        nproc_per_node=1,
+        torchrun_standalone=False,
+        batch_size=observed_batch_size,
+        global_batch_size=observed_batch_size,
+        amp_enabled=False,
+        grad_scaler_enabled=False,
+        fp32_loss=True,
+        autocast_dtype="not_executed_local_cpu",
+        torch_compile_enabled=_model_is_compiled(model),
+        compile_scope="none",
+        dataloader_num_workers=0,
+        dataloader_prefetch_factor=None,
+        dataloader_pin_memory=False,
+        dataloader_persistent_workers=False,
+        dataloader_non_blocking_h2d=False,
+        corruption_strategy=observed_corruption_strategy,
+        memory_format="contiguous",
+        zero_grad_set_to_none=last_result.zero_grad_set_to_none,
+        local_ddp_status="not_executed_local_cpu_mechanics_only",
+        local_amp_status="not_executed_local_cpu",
+    )
+    return build_plan_applied_proof(
+        plan=plan,
+        observed=observed,
+        status_scope=_SELECTED_RUNTIME_SCOPE,
+    )
+
+
+def _observed_batch_size(
+    *,
+    metric_rows: tuple[CsvRow, ...],
+    fallback: int,
+) -> int:
+    observed_values = {
+        int(row["batch_size"])
+        for row in _successful_metric_rows(metric_rows)
+        if row.get("batch_size")
+    }
+    if len(observed_values) == 1:
+        return observed_values.pop()
+    return fallback
+
+
+def _observed_corruption_strategy(
+    *,
+    metric_rows: tuple[CsvRow, ...],
+    fallback: str,
+) -> str:
+    observed_values = {
+        row["corruption_strategy"]
+        for row in _successful_metric_rows(metric_rows)
+        if row.get("corruption_strategy")
+    }
+    if len(observed_values) == 1:
+        return observed_values.pop()
+    return fallback
+
+
+def _model_is_compiled(model: NonEquivariantVAE) -> bool:
+    return hasattr(model, "_orig_mod")
+
+
+def _local_ubc_mechanics_proof(
+    local_ubc: _LocalUbcMechanics | None,
+    *,
+    settings: _TrainingSettings,
+) -> JsonObject | None:
+    if local_ubc is None:
+        return None
+    return {
+        "status": local_ubc.status,
+        "status_scope": _SELECTED_RUNTIME_SCOPE,
+        "full_run_eligible": False,
+        "data_root": str(local_ubc.root),
+        "train_files": {
+            "bin": TRAIN_BIN_NAME,
+            "csv": TRAIN_CSV_NAME,
+            "include_idx": False,
+            "sample_count": local_ubc.train_count,
+        },
+        "validation_files": {
+            "bin": VALIDATION_BIN_NAME,
+            "csv": VALIDATION_CSV_NAME,
+            "include_idx": True,
+            "sample_count": local_ubc.validation_count,
+        },
+        "uses_resolve_patch_data_paths": True,
+        "uses_patch_training_dataset": True,
+        "uses_collate_patch_training_samples": True,
+        "uses_normalize_uint8_batch": True,
+        "train_corruption_strategy": settings.applied_runtime.corruption_strategy,
+        "clean_validation_uses_passthrough": True,
+        "failure_kind": local_ubc.failure_kind,
+    }
+
+
+def _amp_progress_proof(metric_rows: tuple[CsvRow, ...]) -> JsonObject:
+    skipped = [row for row in metric_rows if row.get("amp_step_skipped") == "1"]
+    successful = [row for row in metric_rows if row.get("amp_step_skipped") == "0"]
+    return {
+        "status": _LOCAL_STATUS,
+        "status_scope": _SELECTED_RUNTIME_SCOPE,
+        "full_run_eligible": False,
+        "batch_attempt_count": len(metric_rows),
+        "successful_optimizer_update_count": len(successful),
+        "amp_step_skipped_count": len(skipped),
+        "simulated_amp_skip_supported": True,
+        "skipped_batch_attempts": [int(row["batch_attempt"]) for row in skipped],
+        "skipped_steps_advance_optimizer": False,
+        "skipped_steps_advance_beta": False,
+        "skipped_steps_advance_lr_scheduler": False,
+        "skipped_steps_trigger_checkpoint": False,
+        "skipped_steps_trigger_validation": False,
+        "skipped_steps_advance_tiny_smoothing": False,
+    }
+
+
+def _local_readiness_summary(
+    context: _TrainingContext,
+    ubc_mechanics_proof: JsonObject | None,
+    *,
+    artifact_manifest: JsonObject | None = None,
+) -> JsonObject:
+    plan_status = (
+        "not_required"
+        if context.plan_applied_proof is None
+        else _string_value(context.plan_applied_proof.get("status"))
+    )
+    ubc_status = (
+        "not_required"
+        if ubc_mechanics_proof is None
+        else _string_value(ubc_mechanics_proof.get("status"))
+    )
+    checkpoint_status = (
+        "not_run" if context.loaded_checkpoint is None else _LOCAL_STATUS
+    )
+    artifact_manifest_status = (
+        "pending"
+        if artifact_manifest is None
+        else _artifact_manifest_component_status(artifact_manifest)
+    )
+    component_status = {
+        "selected_runtime_plan_applied": plan_status,
+        "ubc_format_mechanics": ubc_status,
+        "amp_progress": _string_value(context.amp_progress_proof.get("status")),
+        "checkpoint_resume": checkpoint_status,
+        "fixed_32_selector": (
+            "placeholder_or_synthetic_invalid"
+            if context.settings.fixed_train_patches is not None
+            else "not_required"
+        ),
+        "artifact_manifest": artifact_manifest_status,
+        "gate_health": "local_not_measured",
+    }
+    blocked = [
+        "real_ubc_selected_runtime_train_runner_not_implemented",
+        "fixed_32_selector_real_false",
+        "missing_real_gate_health_rows",
+        "missing_real_checkpoint_resume_proof",
+        "missing_real_tiny_overfit_proof",
+    ]
+    return cast(
+        "JsonObject",
+        {
+            "status": _FAIL_STATUS,
+            "status_scope": _SELECTED_RUNTIME_SCOPE,
+            "full_run_eligible": False,
+            "remote_pass_ready": False,
+            "real_train_runner_implemented": False,
+            "fixed_32_selector_real": False,
+            "component_status": component_status,
+            "launch_blockers_remaining": blocked,
+            "failure_kind": "local_mechanics_non_promotable_real_readiness_blocked",
+        },
+    )
+
+
+def _artifact_manifest_component_status(artifact_manifest: JsonObject) -> str:
+    missing = artifact_manifest.get("missing_artifacts")
+    status = artifact_manifest.get("status")
+    if status == _LOCAL_STATUS and isinstance(missing, list) and not missing:
+        return _LOCAL_STATUS
+    return _FAIL_STATUS
+
+
+def _replace_context_readiness(
+    context: _TrainingContext,
+    local_readiness: JsonObject,
+) -> _TrainingContext:
+    return replace(context, local_readiness=local_readiness)
 
 
 def _runtime_config_payload(runtime_config: _RuntimeConfigProof) -> JsonObject:
+    plan = runtime_config.plan
     return {
         "path": "" if runtime_config.path is None else str(runtime_config.path),
         "sha256": runtime_config.sha256,
         "selected_row_id": runtime_config.selected_row_id,
         "runtime_policy_id": runtime_config.runtime_policy_id,
+        "plan_validated": plan is not None,
+        "per_device_batch_size": 0 if plan is None else plan.per_device_batch_size,
+        "global_batch_size": 0 if plan is None else plan.global_batch_size,
+        "precision_policy": "" if plan is None else plan.precision_policy,
+        "corruption_strategy": "" if plan is None else plan.corruption_strategy,
         "launch_blockers": list(runtime_config.launch_blockers),
         "consumed": runtime_config.consumed,
         "status": runtime_config.status,
@@ -841,13 +1483,14 @@ def _settings(
         "fixed_train_patches",
         config_path=request.config_path,
     )
+    batch_size = _first_int(
+        _optional_int(runtime, "batch_size"),
+        default=2,
+    )
     settings = _TrainingSettings(
         run_name=request.run_name or _required_str(run, "name"),
         run_mode=_required_str(run, "mode"),
-        batch_size=_first_int(
-            _optional_int(runtime, "batch_size"),
-            default=2,
-        ),
+        batch_size=batch_size,
         image_size=_first_int(
             _optional_int(data, "image_size"),
             default=256,
@@ -867,6 +1510,14 @@ def _settings(
         optimizer_config=_optimizer_config(effective),
         global_seed=_seed(effective, "global_seed"),
         data_seed=_seed(effective, "data_seed"),
+        corruption_seed=_seed(effective, "corruption_seed"),
+        corruption_profile=profile_from_config(
+            _required_object(effective, "corruption"),
+        ),
+        applied_runtime=_default_applied_runtime(batch_size=batch_size),
+        simulated_amp_skip_attempts=frozenset(
+            _optional_int_list(runtime, "simulated_amp_skip_batch_attempts"),
+        ),
         selected_runtime_required=_optional_bool(
             runtime,
             "selected_runtime_required",
@@ -897,6 +1548,9 @@ def _validate_settings(settings: _TrainingSettings) -> None:
     if settings.save_every_steps <= 0:
         message = f"save_every_steps must be positive, got {settings.save_every_steps}"
         raise ValueError(message)
+    if any(attempt <= 0 for attempt in settings.simulated_amp_skip_attempts):
+        message = "simulated_amp_skip_batch_attempts must contain positive integers"
+        raise ValueError(message)
 
 
 def _optimizer_config(effective_config: JsonObject) -> SpecAdamWConfig:
@@ -926,8 +1580,14 @@ def _artifact_paths(output_dir: Path) -> _RunArtifacts:
     benchmark_dir = output_dir / "benchmark"
     return _RunArtifacts(
         training_summary=benchmark_dir / "training_summary.json",
-        train_metrics=output_dir / "metrics" / "train_metrics.csv",
+        train_steps=output_dir / "metrics" / "train_steps.csv",
         artifact_manifest=benchmark_dir / "artifact_manifest.json",
+        selected_runtime_plan_applied=(
+            benchmark_dir / "selected_runtime_plan_applied.json"
+        ),
+        local_ubc_mechanics=benchmark_dir / "local_ubc_mechanics.json",
+        amp_progress=benchmark_dir / "amp_progress.json",
+        local_readiness=benchmark_dir / "local_selected_runtime_readiness.json",
         selected_runtime_debug_summary=(
             benchmark_dir / "selected_runtime_debug_summary.json"
         ),
@@ -941,13 +1601,30 @@ def _evaluate_model(
     *,
     model: NonEquivariantVAE,
     settings: _TrainingSettings,
+    local_ubc: _LocalUbcMechanics | None,
     seed_offset: int,
 ) -> JsonObject:
-    clean_batch = _synthetic_clean_batch(
-        batch_size=settings.batch_size,
-        image_size=settings.image_size,
-        generator=_seeded_torch_generator(settings.data_seed + seed_offset),
-    )
+    if local_ubc is None:
+        clean_batch = _synthetic_clean_batch(
+            batch_size=settings.batch_size,
+            image_size=settings.image_size,
+            generator=_seeded_torch_generator(settings.data_seed + seed_offset),
+        )
+        clean_validation_rng_advanced = False
+    else:
+        validation_batch = _training_batch(
+            dataset=local_ubc.validation_dataset,
+            batch_size=settings.batch_size,
+            step_index=seed_offset,
+        )
+        clean_batch = normalize_uint8_batch(validation_batch.images_uint8)
+        rng_before = torch.get_rng_state()
+        clean_input = clean_validation_passthrough(clean_batch)
+        clean_validation_rng_advanced = not torch.equal(
+            rng_before,
+            torch.get_rng_state(),
+        )
+        clean_batch = clean_input
     eps = _zero_eps(settings)
     with torch.no_grad():
         output = model.forward(clean_batch, eps=eps)
@@ -956,6 +1633,7 @@ def _evaluate_model(
         "l1": float((output.reconstruction - clean_batch).abs().mean().item()),
         "psnr": _metric_mean(metrics["psnr_img"].as_dict()),
         "ssim": _metric_mean(metrics["ssim_img"].as_dict()),
+        "clean_validation_rng_advanced": clean_validation_rng_advanced,
     }
 
 
@@ -964,12 +1642,21 @@ def _write_reconstruction_sample(
     path: Path,
     model: NonEquivariantVAE,
     settings: _TrainingSettings,
+    local_ubc: _LocalUbcMechanics | None,
 ) -> bool:
-    clean_batch = _synthetic_clean_batch(
-        batch_size=1,
-        image_size=settings.image_size,
-        generator=_seeded_torch_generator(settings.data_seed + 30_000),
-    )
+    if local_ubc is None:
+        clean_batch = _synthetic_clean_batch(
+            batch_size=1,
+            image_size=settings.image_size,
+            generator=_seeded_torch_generator(settings.data_seed + 30_000),
+        )
+    else:
+        validation_batch = _training_batch(
+            dataset=local_ubc.validation_dataset,
+            batch_size=1,
+            step_index=30_000,
+        )
+        clean_batch = normalize_uint8_batch(validation_batch.images_uint8)
     eps = torch.zeros(
         (
             1,
@@ -1082,7 +1769,11 @@ def _seed(effective: JsonObject, name: str) -> int:
 
 
 def _best_l1(rows: Sequence[CsvRow]) -> float:
-    return min(_csv_float(row, "l1_loss") for row in rows)
+    return min(_csv_float(row, "l1_loss") for row in _successful_metric_rows(rows))
+
+
+def _successful_metric_rows(rows: Sequence[CsvRow]) -> tuple[CsvRow, ...]:
+    return tuple(row for row in rows if row.get("amp_step_skipped") == "0")
 
 
 def _mean(values: Sequence[float]) -> float:
@@ -1122,6 +1813,14 @@ def _metric_mean(payload: dict[str, int | float | None]) -> float:
 
 def _format_float(value: float) -> str:
     return f"{value:.10g}"
+
+
+def _csv_bool(*, value: bool) -> str:
+    return "true" if value else "false"
+
+
+def _string_value(value: object) -> str:
+    return value if isinstance(value, str) else ""
 
 
 def _sha256_file(path: Path) -> str:
@@ -1193,6 +1892,20 @@ def _optional_int(payload: JsonObject, key: str) -> int | None:
         return value
     message = f"Expected integer config field {key}"
     raise TypeError(message)
+
+
+def _optional_int_list(payload: JsonObject, key: str) -> tuple[int, ...]:
+    value = payload.get(key)
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        message = f"Expected integer-list config field {key}"
+        raise TypeError(message)
+    items = cast("list[object]", value)
+    if any(isinstance(item, bool) or not isinstance(item, int) for item in items):
+        message = f"Expected integer-list config field {key}"
+        raise TypeError(message)
+    return tuple(cast("list[int]", items))
 
 
 def _optional_bool(payload: JsonObject, key: str) -> bool:

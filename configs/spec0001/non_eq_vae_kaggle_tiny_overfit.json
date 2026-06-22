@@ -1,6 +1,6 @@
 {
   "schema_version": "spec0001.v0",
-  "status": "scaffold_not_remote_push_ready",
+  "status": "selected_runtime_tiny_gate_contract_ready_fail_closed",
   "run": {
     "name": "non_eq_vae_spec0001_tiny_overfit",
     "mode": "kaggle_tiny_overfit"
@@ -15,6 +15,16 @@
   "runtime": {
     "selected_runtime_required": true,
     "remote_execution_requires_permission": true
+  },
+  "selected_runtime_debug_gate": {
+    "benchmark_kind": "kaggle_selected_runtime_debug_resume_tiny_gate",
+    "benchmark_source": "kaggle_selected_runtime_debug_kernel",
+    "full_run_eligible": false,
+    "selected_runtime_debug_gate_contract_ready": true,
+    "remote_pass_ready": false,
+    "real_train_runner_implemented": false,
+    "fixed_32_selector_real": false,
+    "real_kaggle_proof_required": true
   },
   "training": {
     "max_train_steps": 300,

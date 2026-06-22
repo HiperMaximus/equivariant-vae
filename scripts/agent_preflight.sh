@@ -245,6 +245,13 @@ else
   missing=1
 fi
 
+if git check-ignore --no-index -q kaggle/kernels/selected_runtime_debug/run.py; then
+  echo "ok: generated selected-runtime debug run.py is ignored"
+else
+  echo "error: generated selected-runtime debug run.py should stay ignored"
+  missing=1
+fi
+
 for credential_path in kaggle.json .kaggle/kaggle.json kaggle/kernels/kaggle.json; do
   if git check-ignore --no-index -q "$credential_path"; then
     echo "ok: $credential_path is ignored"

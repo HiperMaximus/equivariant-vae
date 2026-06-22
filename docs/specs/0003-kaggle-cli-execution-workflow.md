@@ -68,14 +68,22 @@ samples/sec, so v5 remains the selected-runtime fallback.
 Local selected-runtime debug/checkpoint-resume/artifact/tiny-overfit proof
 plumbing now exists through `python -m eqvae.cli.train`, but it is currently a
 synthetic, fail-closed contract runner. It writes `full_run_eligible = false`
-and does not satisfy the real UBC/Kaggle gate.
+and does not satisfy the real UBC/Kaggle gate. The dedicated
+selected-runtime debug/tiny gate kernel contract is
+`selected_runtime_debug_gate_contract_ready`: `kaggle/kernels/selected_runtime_debug`
+embeds the v5 selected runtime, writes exact fail-closed gate artifacts through
+`eqvae.cli.selected_runtime_gate`, and is covered by
+`./scripts/kaggle_kernel.sh preflight-selected-runtime-debug`. Its push guard
+must continue to reject remote writes while the real `ubc-pre-shuffled`
+DDP/AMP train runner is synthetic-only or the fixed-32 tiny selector remains a
+placeholder.
 The successful historical FSQ script is runtime reference material for launch,
 loader, AMP, DDP, compile, layout, and checkpoint hypotheses only; it is not a
 source for FSQ quantization,
 PixelShuffle/sub-pixel upsampling, final `tanh` bounding, the exact old
 corruptor, or `rot90`/discrete-latent equivariance artifacts.
 Owner/workstream: Kaggle GPU execution and artifact retrieval
-Last updated: 2026-06-21
+Last updated: 2026-06-22
 
 ## Purpose
 
@@ -451,12 +459,68 @@ This preflight builds and validates the generated kernel, runs the
 runtime-selection writer tests, exercises the generated wrapper's import and
 fail-closed artifact-validation paths, and replays downloaded v5 artifacts when
 they are present locally.
-Next work is the real UBC/Kaggle selected-runtime debug/resume/tiny-overfit
-gate using `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json`;
-the local synthetic train/checkpoint CLI stack now exists but cannot unlock a
-long real run.
-Do not ask for the first long real training launch until those proof artifacts
+The Spec 0006 local selected-runtime mechanics slice is implemented and locally
+verified using `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json`.
+It remains non-promotable and cannot unlock a long real run or remote push by
+itself. The next workflow slice is a new local-first spec for the real
+UBC/DDP/AMP selected-runtime runner and the canonical real fixed-32 selector
+boundary. Do not ask for the first long real training launch until the
+downloaded real debug/resume/artifact/gate-health/tiny-overfit proof artifacts
 pass.
+
+Selected-runtime debug/tiny gate workflow:
+
+- build target: `kaggle/kernels/selected_runtime_debug`;
+- CLI contract target: `python -m eqvae.cli.selected_runtime_gate`;
+- embedded selected-runtime input:
+  `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json`;
+- local semantic preflight before any selected-runtime debug/tiny push or
+  approval request:
+
+```bash
+./scripts/kaggle_kernel.sh preflight-selected-runtime-debug
+```
+
+This preflight builds and validates the generated selected-runtime debug kernel,
+runs the selected-runtime gate tests, runs the generated-wrapper import-only
+simulation, and runs the full local fail-closed artifact simulation. Passing
+this preflight means the contract is locally coherent and wrapper-buildable; it
+does not mean the real gate passed. The push guard remains stricter: it
+requires explicit user permission plus
+`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`, exact
+metadata/source lists, fresh embedded payload verification, the
+`selected_runtime_debug_gate_contract_ready` docs tokens, the structured
+`eqvae.cli.selected_runtime_gate --verify-push-ready` check, no synthetic-only
+runner, and a fixed-32 selector that passes schema/provenance/shard replay plus
+the locked real UBC train-shard fingerprints rather than merely containing 32
+JSON rows or replaying against synthetic UBC-shaped data.
+
+Next workflow slice before any selected-runtime debug/tiny remote action:
+
+1. Draft and implement a new local-first slice for the real UBC/DDP/AMP
+   selected-runtime runner and the canonical real fixed-32 selector boundary.
+   The completed Spec 0006 local mechanics stay as the fail-closed baseline.
+2. Keep the selected-runtime debug kernel push guard blocked.
+   `remote_pass_ready`, `real_train_runner_implemented`, and
+   `fixed_32_selector_real` remain false until structured real proof artifacts
+   and the canonical real fixed-32 selector exist.
+3. Treat fixed-32 selector work as real-data gated. Synthetic selectors may
+   exercise schema replay only; the push guard may accept selector readiness
+   only after the real Kaggle train selector is generated from the canonical
+   shard and matches the locked train CSV hash, binary size, header CRC, and
+   row/patch count.
+4. A future agent may ask for explicit approval for the narrow
+   selected-runtime debug/tiny remote push only after
+   `./scripts/kaggle_kernel.sh preflight-selected-runtime-debug` and
+   `eqvae.cli.selected_runtime_gate --verify-push-ready` both pass, the shell
+   push guard is expected to pass, the real UBC/DDP/AMP runner exists, and the
+   canonical fixed-32 selector exists. That approval is not approval for the
+   long training run. Remote commands still require
+   `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1` for writes and
+   `KAGGLE_REMOTE_CONFIRMED=1` for status/output reads.
+5. The first 60h-scale training run remains prohibited until downloaded
+   selected-runtime debug, checkpoint/resume, artifact-manifest, gate-health,
+   and tiny-overfit proofs all pass.
 
 For future long-running Kaggle jobs, agents must not wait in-turn after a push
 or status read shows a kernel is still `RUNNING` and likely to take more than
@@ -651,6 +715,13 @@ Runtime-selection local semantic preflight before any successor push:
 ./scripts/kaggle_kernel.sh preflight-runtime-selection
 ```
 
+Selected-runtime debug/tiny local semantic preflight before any gate push or
+approval request:
+
+```bash
+./scripts/kaggle_kernel.sh preflight-selected-runtime-debug
+```
+
 Remote commands, only after explicit permission:
 
 ```bash
@@ -659,9 +730,11 @@ KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/setup_smo
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-setup
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-debug
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-setup
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/<real_data_runtime_pretest_run>
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-selected-runtime-debug runs/kaggle/<selected_runtime_debug_run>
 ```
 
 Synthetic timing remote command, only after adversarial/local verification is

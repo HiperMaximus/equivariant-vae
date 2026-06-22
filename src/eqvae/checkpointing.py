@@ -19,8 +19,13 @@ if TYPE_CHECKING:
     from torch import nn
 
 
-_SCHEMA_VERSION = "spec0001.checkpoint.v4"
+_SCHEMA_VERSION = "spec0001.checkpoint.v5"
 _PYTHON_RANDOM_STATE_LEN = 3
+_LR_SCHEDULER_LOCAL_STATUS = "not_applicable_local_debug_no_scheduler"
+_BETA_PROGRESS_STATUS = "deterministic_from_successful_optimizer_update_count"
+_AMP_SCALER_LOCAL_STATUS = "not_applicable_local_cpu_amp_disabled"
+_CUDA_RNG_LOCAL_STATUS = "not_applicable_local_cpu"
+_DDP_PROGRESS_LOCAL_STATUS = "not_applicable_local_single_process"
 type _PythonRandomState = tuple[int, tuple[int, ...], float | None]
 
 
@@ -47,6 +52,11 @@ class CheckpointResumeMetadata:
     runtime_config_sha256: str
     selected_row_id: str
     runtime_policy_id: str
+    lr_scheduler_state_status: str
+    beta_progress_state_status: str
+    amp_scaler_state_status: str
+    torch_cuda_rng_state_status: str
+    ddp_sampler_progress_state_status: str
     optimizer_step: int
     successful_optimizer_update_count: int
     metric_name: str
@@ -110,6 +120,27 @@ def save_training_checkpoint(  # noqa: PLR0913
         "successful_optimizer_update_count": successful_optimizer_update_count,
         "metric_name": metric_name,
         "metric_value": float(metric_value),
+        "lr_scheduler_state": {
+            "status": _LR_SCHEDULER_LOCAL_STATUS,
+        },
+        "beta_progress_state": {
+            "status": _BETA_PROGRESS_STATUS,
+            "successful_optimizer_update_count": successful_optimizer_update_count,
+        },
+        "amp_scaler_state": {
+            "status": _AMP_SCALER_LOCAL_STATUS,
+        },
+        "torch_cuda_rng_state": {
+            "status": _CUDA_RNG_LOCAL_STATUS,
+        },
+        "ddp_sampler_progress_state": {
+            "status": _DDP_PROGRESS_LOCAL_STATUS,
+        },
+        "selected_runtime_identity": {
+            "runtime_config_sha256": runtime_config_sha256,
+            "selected_row_id": selected_row_id,
+            "runtime_policy_id": runtime_policy_id,
+        },
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "python_rng_state": random.getstate(),
@@ -215,6 +246,11 @@ def load_training_checkpoint(  # noqa: PLR0913
         runtime_config_sha256=metadata.runtime_config_sha256,
         selected_row_id=metadata.selected_row_id,
         runtime_policy_id=metadata.runtime_policy_id,
+        lr_scheduler_state_status=metadata.lr_scheduler_state_status,
+        beta_progress_state_status=metadata.beta_progress_state_status,
+        amp_scaler_state_status=metadata.amp_scaler_state_status,
+        torch_cuda_rng_state_status=metadata.torch_cuda_rng_state_status,
+        ddp_sampler_progress_state_status=metadata.ddp_sampler_progress_state_status,
         optimizer_step=metadata.optimizer_step,
         successful_optimizer_update_count=(metadata.successful_optimizer_update_count),
         metric_name=metadata.metric_name,
@@ -286,6 +322,23 @@ def _metadata_from_payload(
     if schema_version != _SCHEMA_VERSION:
         message = f"Unsupported checkpoint schema {schema_version!r}"
         raise ValueError(message)
+    _validate_selected_runtime_identity(payload)
+    optimizer_step = _required_nonnegative_int(payload, "optimizer_step")
+    successful_optimizer_update_count = _required_nonnegative_int(
+        payload,
+        "successful_optimizer_update_count",
+    )
+    if optimizer_step != successful_optimizer_update_count:
+        message = (
+            "optimizer_step must match successful_optimizer_update_count "
+            f"for schema {_SCHEMA_VERSION}, got {optimizer_step} and "
+            f"{successful_optimizer_update_count}"
+        )
+        raise ValueError(message)
+    _validate_checkpoint_progress_states(
+        payload=payload,
+        successful_optimizer_update_count=successful_optimizer_update_count,
+    )
     return CheckpointResumeMetadata(
         path=path,
         schema_version=schema_version,
@@ -296,11 +349,16 @@ def _metadata_from_payload(
         runtime_config_sha256=_required_str(payload, "runtime_config_sha256"),
         selected_row_id=_required_str(payload, "selected_row_id"),
         runtime_policy_id=_required_str(payload, "runtime_policy_id"),
-        optimizer_step=_required_int(payload, "optimizer_step"),
-        successful_optimizer_update_count=_required_int(
+        lr_scheduler_state_status=_required_status(payload, "lr_scheduler_state"),
+        beta_progress_state_status=_required_status(payload, "beta_progress_state"),
+        amp_scaler_state_status=_required_status(payload, "amp_scaler_state"),
+        torch_cuda_rng_state_status=_required_status(payload, "torch_cuda_rng_state"),
+        ddp_sampler_progress_state_status=_required_status(
             payload,
-            "successful_optimizer_update_count",
+            "ddp_sampler_progress_state",
         ),
+        optimizer_step=optimizer_step,
+        successful_optimizer_update_count=successful_optimizer_update_count,
         metric_name=_required_str(payload, "metric_name"),
         metric_value=_required_float(payload, "metric_value"),
     )
@@ -337,6 +395,14 @@ def _required_int(payload: dict[str, object], key: str) -> int:
     raise TypeError(message)
 
 
+def _required_nonnegative_int(payload: dict[str, object], key: str) -> int:
+    value = _required_int(payload, key)
+    if value < 0:
+        message = f"checkpoint {key} must be nonnegative"
+        raise ValueError(message)
+    return value
+
+
 def _required_float(payload: dict[str, object], key: str) -> float:
     value = payload.get(key)
     if isinstance(value, bool):
@@ -346,6 +412,83 @@ def _required_float(payload: dict[str, object], key: str) -> float:
         return float(value)
     message = f"Expected numeric checkpoint field {key}"
     raise TypeError(message)
+
+
+def _required_status(payload: dict[str, object], key: str) -> str:
+    return cast("str", _required_status_payload(payload, key)["status"])
+
+
+def _required_status_payload(
+    payload: dict[str, object],
+    key: str,
+) -> dict[str, object]:
+    value = payload.get(key)
+    if not isinstance(value, dict):
+        message = f"Expected object checkpoint field {key}"
+        raise TypeError(message)
+    status_payload = cast("dict[str, object]", value)
+    status = status_payload.get("status")
+    if not isinstance(status, str) or not status:
+        message = f"Expected string checkpoint field {key}.status"
+        raise TypeError(message)
+    return status_payload
+
+
+def _validate_checkpoint_progress_states(
+    *,
+    payload: dict[str, object],
+    successful_optimizer_update_count: int,
+) -> None:
+    expected_statuses = {
+        "lr_scheduler_state": _LR_SCHEDULER_LOCAL_STATUS,
+        "beta_progress_state": _BETA_PROGRESS_STATUS,
+        "amp_scaler_state": _AMP_SCALER_LOCAL_STATUS,
+        "torch_cuda_rng_state": _CUDA_RNG_LOCAL_STATUS,
+        "ddp_sampler_progress_state": _DDP_PROGRESS_LOCAL_STATUS,
+    }
+    status_payloads = {
+        key: _required_status_payload(payload, key) for key in expected_statuses
+    }
+    for key, expected in expected_statuses.items():
+        actual = cast("str", status_payloads[key]["status"])
+        if actual != expected:
+            message = f"checkpoint {key}.status must be {expected!r}"
+            raise ValueError(message)
+
+    beta_payload = status_payloads["beta_progress_state"]
+    beta_count = _required_nonnegative_int(
+        beta_payload,
+        "successful_optimizer_update_count",
+    )
+    if beta_count != successful_optimizer_update_count:
+        message = (
+            "checkpoint beta_progress_state.successful_optimizer_update_count "
+            "differs from top-level successful_optimizer_update_count"
+        )
+        raise ValueError(message)
+
+
+def _validate_selected_runtime_identity(payload: dict[str, object]) -> None:
+    identity = payload.get("selected_runtime_identity")
+    if not isinstance(identity, dict):
+        message = "Expected object checkpoint field selected_runtime_identity"
+        raise TypeError(message)
+    identity_payload = cast("dict[str, object]", identity)
+    checks = (
+        "runtime_config_sha256",
+        "selected_row_id",
+        "runtime_policy_id",
+    )
+    for key in checks:
+        value = identity_payload.get(key)
+        if not isinstance(value, str):
+            message = (
+                f"Expected string checkpoint field selected_runtime_identity.{key}"
+            )
+            raise TypeError(message)
+        if value != _required_str(payload, key):
+            message = f"checkpoint selected_runtime_identity.{key} mismatch"
+            raise ValueError(message)
 
 
 def _numpy_generator_state_payload(numpy_generator: Generator) -> dict[str, object]:

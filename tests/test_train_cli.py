@@ -15,6 +15,7 @@ import torch
 
 from eqvae.checkpointing import load_training_checkpoint, save_training_checkpoint
 from eqvae.cli.train import main as train_main
+from eqvae.training.progress import TrainingProgressState, record_training_attempt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -22,9 +23,12 @@ if TYPE_CHECKING:
 SHORT_TRAIN_STEPS = 2
 RESUME_TARGET_STEPS = 3
 FIXED_TINY_PATCH_COUNT = 32
+SELECTED_RUNTIME_BATCH_SIZE = 12
 
 
-def test_train_cli_writes_selected_runtime_debug_artifacts(tmp_path: Path) -> None:
+def test_train_cli_writes_selected_runtime_debug_artifacts(  # noqa: PLR0915
+    tmp_path: Path,
+) -> None:
     """Selected-runtime debug consumes v5 but stays local/non-promotable."""
     config_path = _debug_config(tmp_path, selected_runtime_required=True)
     runtime_config = _runtime_config(tmp_path)
@@ -57,24 +61,124 @@ def test_train_cli_writes_selected_runtime_debug_artifacts(tmp_path: Path) -> No
         output_dir / "benchmark" / "selected_runtime_debug_summary.json",
     )
     manifest = _load_json(output_dir / "benchmark" / "artifact_manifest.json")
-    metric_rows = _load_csv(output_dir / "metrics" / "train_metrics.csv")
+    metric_rows = _load_csv(output_dir / "metrics" / "train_steps.csv")
+    plan_applied = _load_json(
+        output_dir / "benchmark" / "selected_runtime_plan_applied.json",
+    )
+    ubc_mechanics = _load_json(output_dir / "benchmark" / "local_ubc_mechanics.json")
+    amp_progress = _load_json(output_dir / "benchmark" / "amp_progress.json")
+    readiness = _load_json(
+        output_dir / "benchmark" / "local_selected_runtime_readiness.json",
+    )
 
     assert summary["status"] == "local_pass"
+    assert summary["status_scope"] == "local_selected_runtime_mechanics"
     assert summary["full_run_eligible"] is False
     assert summary["optimizer_steps_completed"] == SHORT_TRAIN_STEPS
+    assert summary["metrics_csv"] == "metrics/train_steps.csv"
+    assert summary["train_steps_csv"] == "metrics/train_steps.csv"
+    assert _object(summary, "initial_metrics")["clean_validation_rng_advanced"] is False
+    assert _object(summary, "final_metrics")["clean_validation_rng_advanced"] is False
     runtime = _object(summary, "runtime_config")
     assert runtime["consumed"] is True
+    assert runtime["plan_validated"] is True
     assert runtime["runtime_policy_id"] == "amp_fp16_conservative"
+    assert runtime["per_device_batch_size"] == SELECTED_RUNTIME_BATCH_SIZE
+    assert runtime["corruption_strategy"] == "indexed_masked"
+    assert plan_applied["status"] == "fail"
+    assert plan_applied["full_run_eligible"] is False
+    assert plan_applied["plan_applied"] is False
+    plan_mismatches = _string_list(plan_applied["mismatches"])
+    assert any("accelerator_mode" in mismatch for mismatch in plan_mismatches)
+    assert any("amp_enabled" in mismatch for mismatch in plan_mismatches)
+    assert ubc_mechanics["status"] == "local_pass"
+    assert ubc_mechanics["full_run_eligible"] is False
+    assert ubc_mechanics["uses_resolve_patch_data_paths"] is True
+    assert ubc_mechanics["uses_patch_training_dataset"] is True
+    assert ubc_mechanics["uses_collate_patch_training_samples"] is True
+    assert ubc_mechanics["uses_normalize_uint8_batch"] is True
+    assert ubc_mechanics["train_corruption_strategy"] == "indexed_masked"
+    assert ubc_mechanics["clean_validation_uses_passthrough"] is True
+    assert amp_progress["status"] == "local_pass"
+    assert amp_progress["full_run_eligible"] is False
+    assert amp_progress["amp_step_skipped_count"] == 0
+    assert readiness["status"] == "fail"
+    assert readiness["full_run_eligible"] is False
+    assert readiness["remote_pass_ready"] is False
+    assert readiness["real_train_runner_implemented"] is False
+    assert readiness["fixed_32_selector_real"] is False
     assert debug_summary["real_kaggle_debug_status"] == (
         "pending_permission_gated_remote_run"
     )
     assert debug_summary["checkpoint_written"] is True
     assert manifest["reconstruction_sample_nonblank"] is True
+    assert "train_steps" in _object(manifest, "artifact_hashes")
+    assert "local_selected_runtime_readiness" in _object(manifest, "artifact_hashes")
     assert len(metric_rows) == SHORT_TRAIN_STEPS
+    assert {row["batch_size"] for row in metric_rows} == {"12"}
+    assert {row["corruption_strategy"] for row in metric_rows} == {"indexed_masked"}
+    assert {row["precision_policy"] for row in metric_rows} == {"amp_off_fp32"}
+    assert {row["amp_enabled"] for row in metric_rows} == {"false"}
+    assert {row["torch_compile_enabled"] for row in metric_rows} == {"false"}
+    assert {row["amp_step_skipped"] for row in metric_rows} == {"0"}
     assert (output_dir / "checkpoints" / "step_000001.pt").exists()
     assert (output_dir / "checkpoints" / "step_000002.pt").exists()
     assert (output_dir / "checkpoints" / "final.pt").exists()
     assert (output_dir / "checkpoints" / "best_model.pt").exists()
+
+
+def test_train_cli_simulated_amp_skip_does_not_advance_artifacts(
+    tmp_path: Path,
+) -> None:
+    """Integrated AMP skip attempts do not advance training schedules."""
+    config_path = _debug_config(
+        tmp_path,
+        selected_runtime_required=True,
+        simulated_amp_skip_batch_attempts=(1,),
+    )
+    runtime_config = _runtime_config(tmp_path)
+    output_dir = tmp_path / "debug-skip"
+
+    assert (
+        train_main(
+            [
+                "--config",
+                str(config_path),
+                "--runtime-config",
+                str(runtime_config),
+                "--data",
+                "synthetic",
+                "--output-dir",
+                str(output_dir),
+                "--run-name",
+                "spec0001_selected_runtime_debug_amp_skip",
+                "--max-train-steps",
+                "1",
+                "--max-val-steps",
+                "1",
+                "--save-every-steps",
+                "1",
+            ],
+        )
+        == 0
+    )
+
+    rows = _load_csv(output_dir / "metrics" / "train_steps.csv")
+    summary = _load_json(output_dir / "benchmark" / "training_summary.json")
+    amp_progress = _load_json(output_dir / "benchmark" / "amp_progress.json")
+    assert [row["amp_step_skipped"] for row in rows] == ["1", "0"]
+    assert [row["successful_optimizer_update_count"] for row in rows] == ["0", "1"]
+    assert not rows[0]["checkpoint_path"]
+    assert rows[1]["checkpoint_path"] == "checkpoints/step_000001.pt"
+    assert summary["batch_attempts_completed"] == SHORT_TRAIN_STEPS
+    assert summary["optimizer_steps_completed"] == 1
+    assert summary["amp_step_skipped_count"] == 1
+    assert amp_progress["simulated_amp_skip_supported"] is True
+    assert amp_progress["skipped_batch_attempts"] == [1]
+    assert amp_progress["skipped_steps_advance_optimizer"] is False
+    assert amp_progress["skipped_steps_trigger_checkpoint"] is False
+    assert amp_progress["skipped_steps_trigger_validation"] is False
+    assert amp_progress["skipped_steps_advance_tiny_smoothing"] is False
 
 
 def test_train_cli_resume_writes_resume_proof(tmp_path: Path) -> None:
@@ -126,7 +230,7 @@ def test_train_cli_resume_writes_resume_proof(tmp_path: Path) -> None:
 
     proof = _load_json(resumed_output / "benchmark" / "checkpoint_resume_proof.json")
     summary = _load_json(resumed_output / "benchmark" / "training_summary.json")
-    rows = _load_csv(resumed_output / "metrics" / "train_metrics.csv")
+    rows = _load_csv(resumed_output / "metrics" / "train_steps.csv")
     assert proof["status"] == "local_pass"
     assert proof["loaded_successful_optimizer_update_count"] == 1
     assert proof["additional_optimizer_steps"] == SHORT_TRAIN_STEPS
@@ -151,10 +255,29 @@ def test_train_cli_resume_writes_resume_proof(tmp_path: Path) -> None:
     checkpoint_payload = _load_checkpoint(
         first_output / "checkpoints" / "step_000001.pt",
     )
-    assert checkpoint_payload["schema_version"] == "spec0001.checkpoint.v4"
+    assert checkpoint_payload["schema_version"] == "spec0001.checkpoint.v5"
     assert not checkpoint_payload["runtime_config_sha256"]
     assert not checkpoint_payload["selected_row_id"]
     assert not checkpoint_payload["runtime_policy_id"]
+    assert _object(checkpoint_payload, "lr_scheduler_state")["status"] == (
+        "not_applicable_local_debug_no_scheduler"
+    )
+    assert _object(checkpoint_payload, "beta_progress_state")["status"] == (
+        "deterministic_from_successful_optimizer_update_count"
+    )
+    assert _object(checkpoint_payload, "amp_scaler_state")["status"] == (
+        "not_applicable_local_cpu_amp_disabled"
+    )
+    assert _object(checkpoint_payload, "torch_cuda_rng_state")["status"] == (
+        "not_applicable_local_cpu"
+    )
+    assert _object(checkpoint_payload, "ddp_sampler_progress_state")["status"] == (
+        "not_applicable_local_single_process"
+    )
+    selected_runtime_identity = _object(checkpoint_payload, "selected_runtime_identity")
+    assert not selected_runtime_identity["runtime_config_sha256"]
+    assert not selected_runtime_identity["selected_row_id"]
+    assert not selected_runtime_identity["runtime_policy_id"]
     torch_generator_states = _object(checkpoint_payload, "torch_generator_states")
     assert set(torch_generator_states) == {"train_data"}
     assert isinstance(torch_generator_states["train_data"], torch.Tensor)
@@ -282,13 +405,9 @@ def test_train_cli_resume_rejects_runtime_config_mismatch(tmp_path: Path) -> Non
     """Resume checkpoints are bound to the selected runtime artifact."""
     config_path = _debug_config(tmp_path, selected_runtime_required=True)
     runtime_config = _runtime_config(tmp_path)
-    mismatched_runtime_config = tmp_path / "selected_runtime_mismatch.json"
+    mismatched_runtime_config = runtime_config.parent / "selected_runtime_mismatch.json"
     mismatched_payload = _load_json(runtime_config)
-    mismatched_payload["selected_row_id"] = "different_pass_runtime_row"
-    mismatched_payload["runtime_policy_id"] = "amp_fp16_conservative_different"
-    selected_snapshot = _object(mismatched_payload, "selected_row_snapshot")
-    selected_snapshot["row_id"] = "different_pass_runtime_row"
-    selected_snapshot["runtime_policy_id"] = "amp_fp16_conservative_different"
+    mismatched_payload["test_runtime_hash_salt"] = "different-but-still-valid-plan"
     _write_json(mismatched_runtime_config, mismatched_payload)
     first_output = tmp_path / "first"
 
@@ -392,6 +511,16 @@ def test_checkpoint_restores_all_local_rng_streams(tmp_path: Path) -> None:
     )
 
     assert loaded.torch_generator_names == ("train_data",)
+    assert loaded.schema_version == "spec0001.checkpoint.v5"
+    assert loaded.lr_scheduler_state_status == "not_applicable_local_debug_no_scheduler"
+    assert loaded.beta_progress_state_status == (
+        "deterministic_from_successful_optimizer_update_count"
+    )
+    assert loaded.amp_scaler_state_status == "not_applicable_local_cpu_amp_disabled"
+    assert loaded.torch_cuda_rng_state_status == "not_applicable_local_cpu"
+    assert loaded.ddp_sampler_progress_state_status == (
+        "not_applicable_local_single_process"
+    )
     assert random.random() == expected_python  # noqa: S311
     assert int(loaded_numpy_generator.integers(0, 1_000_000)) == expected_numpy
     torch.testing.assert_close(torch.rand(3), expected_torch_global)
@@ -399,6 +528,168 @@ def test_checkpoint_restores_all_local_rng_streams(tmp_path: Path) -> None:
         torch.rand(3, generator=loaded_torch_generator),
         expected_torch_named,
     )
+
+
+def test_checkpoint_schema_v5_rejects_missing_required_state_before_restore(
+    tmp_path: Path,
+) -> None:
+    """Schema v5 failures happen before mutating model or optimizer state."""
+    checkpoint_path = tmp_path / "checkpoint.pt"
+    broken_path = tmp_path / "checkpoint_broken.pt"
+    model = torch.nn.Linear(2, 1)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    numpy_generator = np.random.default_rng(123)
+
+    save_training_checkpoint(
+        path=checkpoint_path,
+        model=model,
+        optimizer=optimizer,
+        numpy_generator=numpy_generator,
+        run_name="schema_v5_source",
+        config_path=tmp_path / "config.json",
+        config_sha256="config",
+        effective_config_sha256="effective",
+        runtime_config_sha256="runtime",
+        selected_row_id="row",
+        runtime_policy_id="policy",
+        optimizer_step=1,
+        successful_optimizer_update_count=1,
+        metric_name="loss",
+        metric_value=1.0,
+    )
+    payload = _load_checkpoint(checkpoint_path)
+    del payload["amp_scaler_state"]
+    torch.save(payload, broken_path)
+
+    loaded_model = torch.nn.Linear(2, 1)
+    loaded_optimizer = torch.optim.SGD(loaded_model.parameters(), lr=0.1)
+    loaded_state = cast("dict[str, torch.Tensor]", loaded_model.state_dict())
+    before_state = {
+        name: parameter.detach().clone() for name, parameter in loaded_state.items()
+    }
+
+    with pytest.raises(TypeError, match="amp_scaler_state"):
+        load_training_checkpoint(
+            path=broken_path,
+            model=loaded_model,
+            optimizer=loaded_optimizer,
+            numpy_generator=np.random.default_rng(999),
+            expected_effective_config_sha256="effective",
+            expected_runtime_config_sha256="runtime",
+            expected_selected_row_id="row",
+            expected_runtime_policy_id="policy",
+        )
+    current_state = cast("dict[str, torch.Tensor]", loaded_model.state_dict())
+    for name, parameter in current_state.items():
+        torch.testing.assert_close(parameter, before_state[name], atol=0.0, rtol=0.0)
+
+
+def test_checkpoint_schema_v5_rejects_invalid_progress_before_restore(
+    tmp_path: Path,
+) -> None:
+    """Progress counters must be nonnegative and internally consistent."""
+    checkpoint_path = tmp_path / "checkpoint.pt"
+    model = torch.nn.Linear(2, 1)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    save_training_checkpoint(
+        path=checkpoint_path,
+        model=model,
+        optimizer=optimizer,
+        numpy_generator=np.random.default_rng(123),
+        run_name="schema_v5_progress_source",
+        config_path=tmp_path / "config.json",
+        config_sha256="config",
+        effective_config_sha256="effective",
+        runtime_config_sha256="runtime",
+        selected_row_id="row",
+        runtime_policy_id="policy",
+        optimizer_step=1,
+        successful_optimizer_update_count=1,
+        metric_name="loss",
+        metric_value=1.0,
+    )
+
+    def _negative_counter(payload: dict[str, object]) -> None:
+        payload["successful_optimizer_update_count"] = -1
+
+    def _optimizer_counter_mismatch(payload: dict[str, object]) -> None:
+        payload["optimizer_step"] = 999
+
+    def _beta_counter_mismatch(payload: dict[str, object]) -> None:
+        beta_state = _object(payload, "beta_progress_state")
+        beta_state["successful_optimizer_update_count"] = 0
+
+    cases = (
+        ("negative", _negative_counter, "successful_optimizer_update_count"),
+        ("optimizer-mismatch", _optimizer_counter_mismatch, "optimizer_step"),
+        ("beta-mismatch", _beta_counter_mismatch, "beta_progress_state"),
+    )
+    for name, mutate, match in cases:
+        broken_path = tmp_path / f"checkpoint_{name}.pt"
+        payload = _load_checkpoint(checkpoint_path)
+        mutate(payload)
+        torch.save(payload, broken_path)
+
+        loaded_model = torch.nn.Linear(2, 1)
+        loaded_optimizer = torch.optim.SGD(loaded_model.parameters(), lr=0.1)
+        before_state = {
+            key: tensor.detach().clone()
+            for key, tensor in cast(
+                "dict[str, torch.Tensor]",
+                loaded_model.state_dict(),
+            ).items()
+        }
+
+        with pytest.raises(ValueError, match=match):
+            load_training_checkpoint(
+                path=broken_path,
+                model=loaded_model,
+                optimizer=loaded_optimizer,
+                numpy_generator=np.random.default_rng(999),
+                expected_effective_config_sha256="effective",
+                expected_runtime_config_sha256="runtime",
+                expected_selected_row_id="row",
+                expected_runtime_policy_id="policy",
+            )
+        current_state = cast("dict[str, torch.Tensor]", loaded_model.state_dict())
+        for key, tensor in current_state.items():
+            torch.testing.assert_close(tensor, before_state[key], atol=0.0, rtol=0.0)
+
+
+def test_amp_skip_progress_does_not_advance_successful_schedules() -> None:
+    """A simulated GradScaler skip records an attempt but no scheduled progress."""
+    progress = TrainingProgressState()
+    skipped = record_training_attempt(
+        progress,
+        amp_step_skipped=True,
+        checkpoint_interval=1,
+        validation_interval=1,
+        tiny_smoothing_enabled=True,
+    )
+
+    assert skipped.after.batch_attempt_count == 1
+    assert skipped.after.successful_optimizer_update_count == 0
+    assert skipped.after.lr_scheduler_step_count == 0
+    assert skipped.after.checkpoint_event_count == 0
+    assert skipped.after.validation_event_count == 0
+    assert skipped.after.tiny_smoothing_update_count == 0
+    assert skipped.checkpoint_due is False
+    assert skipped.validation_due is False
+    assert skipped.tiny_smoothing_advanced is False
+
+    successful = record_training_attempt(
+        skipped.after,
+        amp_step_skipped=False,
+        checkpoint_interval=1,
+        validation_interval=1,
+        tiny_smoothing_enabled=True,
+    )
+    assert successful.after.batch_attempt_count == SHORT_TRAIN_STEPS
+    assert successful.after.successful_optimizer_update_count == 1
+    assert successful.after.lr_scheduler_step_count == 1
+    assert successful.checkpoint_due is True
+    assert successful.validation_due is True
+    assert successful.tiny_smoothing_advanced is True
 
 
 def test_train_cli_tiny_overfit_summary_is_local_and_fail_closed(
@@ -505,7 +796,7 @@ def test_train_cli_rejects_thin_runtime_config(tmp_path: Path) -> None:
         },
     )
 
-    with pytest.raises(ValueError, match="benchmark_kind"):
+    with pytest.raises(ValueError, match="invalid selected runtime plan"):
         train_main(
             [
                 "--config",
@@ -581,13 +872,14 @@ def test_train_cli_preserves_explicit_zero_seeds(tmp_path: Path) -> None:
     assert seeds["data_seed"] == 0
 
 
-def _debug_config(
+def _debug_config(  # noqa: PLR0913
     tmp_path: Path,
     *,
     selected_runtime_required: bool,
     max_val_steps: int = 1,
     global_seed: int = 20260610,
     data_seed: int = 20260611,
+    simulated_amp_skip_batch_attempts: tuple[int, ...] = (),
 ) -> Path:
     config_path = tmp_path / f"debug_config_val_{max_val_steps}.json"
     payload: dict[str, object] = {
@@ -613,6 +905,9 @@ def _debug_config(
             "max_train_steps": 2,
             "max_val_steps": max_val_steps,
             "selected_runtime_required": selected_runtime_required,
+            "simulated_amp_skip_batch_attempts": list(
+                simulated_amp_skip_batch_attempts,
+            ),
         },
         "training": {
             "max_train_steps": 2,
@@ -625,37 +920,18 @@ def _debug_config(
 
 
 def _runtime_config(tmp_path: Path) -> Path:
-    config_path = tmp_path / "selected_runtime.json"
-    selected_row_id = (
-        "dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__"
-        "policy_amp_fp16_conservative"
+    runtime_dir = tmp_path / "runtime_bundle" / "benchmark"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    config_path = runtime_dir / "selected_runtime.json"
+    source_dir = Path("runs/kaggle/runtime_selection_v5/benchmark")
+    payload = _load_json(
+        source_dir / "selected_runtime.json",
     )
-    payload: dict[str, object] = {
-        "status": "pass",
-        "benchmark_kind": "kaggle_runtime_selection",
-        "benchmark_source": "kaggle_runtime_benchmark",
-        "full_run_eligible": True,
-        "full_training_launch_ready": False,
-        "selected_row_id": selected_row_id,
-        "runtime_policy_id": "amp_fp16_conservative",
-        "launch_blockers": [
-            "missing_selected_runtime_debug_proof",
-            "missing_checkpoint_resume_proof",
-            "missing_tiny_overfit_proof",
-        ],
-        "safety": {
-            "dataloader_status": "pass",
-            "numerical_check_status": "pass",
-            "corruption_check_status": "pass",
-            "gate_health_status": "pass",
-        },
-        "selected_row_snapshot": {
-            "row_id": selected_row_id,
-            "runtime_policy_id": "amp_fp16_conservative",
-            "status": "pass",
-        },
-    }
     _write_json(config_path, payload)
+    (runtime_dir / "runtime_proof.json").write_text(
+        (source_dir / "runtime_proof.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     return config_path
 
 
@@ -710,6 +986,16 @@ def _object(payload: dict[str, object], key: str) -> dict[str, object]:
     if not isinstance(value, dict):
         raise TypeError(key)
     return cast("dict[str, object]", value)
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        raise TypeError(value)
+    items = cast("list[object]", value)
+    if not all(isinstance(item, str) for item in items):
+        message = "expected list of strings"
+        raise TypeError(message)
+    return cast("list[str]", items)
 
 
 def _load_checkpoint(path: Path) -> dict[str, object]:

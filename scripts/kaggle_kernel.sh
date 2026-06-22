@@ -13,6 +13,8 @@ real_data_runtime_pretest_kernel_dir="kaggle/kernels/real_data_runtime_pretest"
 real_data_runtime_pretest_output_dir="runs/kaggle/real_data_runtime_pretest"
 runtime_selection_kernel_dir="kaggle/kernels/runtime_selection"
 runtime_selection_output_dir="runs/kaggle/runtime_selection"
+selected_runtime_debug_kernel_dir="kaggle/kernels/selected_runtime_debug"
+selected_runtime_debug_output_dir="runs/kaggle/selected_runtime_debug"
 
 usage() {
   cat <<'EOF'
@@ -21,16 +23,19 @@ Usage:
   ./scripts/kaggle_kernel.sh validate [kernel_dir]
   ./scripts/kaggle_kernel.sh check [kernel_dir]
   ./scripts/kaggle_kernel.sh preflight-runtime-selection
+  ./scripts/kaggle_kernel.sh preflight-selected-runtime-debug
   ./scripts/kaggle_kernel.sh api-check
   ./scripts/kaggle_kernel.sh push [kernel_dir] [extra kaggle args...]
   ./scripts/kaggle_kernel.sh status [kernel_id]
   ./scripts/kaggle_kernel.sh status-setup
   ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest
   ./scripts/kaggle_kernel.sh status-runtime-selection
+  ./scripts/kaggle_kernel.sh status-selected-runtime-debug
   ./scripts/kaggle_kernel.sh output [kernel_id] [output_dir]
   ./scripts/kaggle_kernel.sh output-setup [output_dir]
   ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest [output_dir]
   ./scripts/kaggle_kernel.sh output-runtime-selection [output_dir]
+  ./scripts/kaggle_kernel.sh output-selected-runtime-debug [output_dir]
   ./scripts/kaggle_kernel.sh pull [kernel_id] [kernel_dir]
 
 Remote writes require KAGGLE_PUSH_CONFIRMED=1.
@@ -175,6 +180,15 @@ validate_kernel_dir() {
       --verify-only \
       --allow-dirty
     echo "ok: runtime-selection embedded payload matches current worktree"
+  fi
+
+  if [[ "$kernel_dir" == "$selected_runtime_debug_kernel_dir" ]]; then
+    python3 scripts/build_kaggle_embedded_kernel.py \
+      --kernel-dir "$kernel_dir" \
+      --ready-marker "KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True" \
+      --verify-only \
+      --allow-dirty
+    echo "ok: selected-runtime debug embedded payload matches current worktree"
   fi
 }
 
@@ -323,6 +337,9 @@ embedded_ready_marker() {
     maximusshtefan/eqvae-runtime-selection)
       printf '%s\n' "KAGGLE_RUNTIME_SELECTION_READY = True"
       ;;
+    maximusshtefan/eqvae-selected-runtime-debug)
+      printf '%s\n' "KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True"
+      ;;
     maximusshtefan/non-eq-vae-debug)
       printf '%s\n' "KAGGLE_SMOKE_READY = True"
       ;;
@@ -373,6 +390,11 @@ EOF
 
   if grep -q "KAGGLE_RUNTIME_SELECTION_READY = True" "$kernel_dir/$code_file"; then
     guard_runtime_selection_push_ready "$kernel_dir" "$metadata"
+    return
+  fi
+
+  if grep -q "KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True" "$kernel_dir/$code_file"; then
+    guard_selected_runtime_debug_push_ready "$kernel_dir" "$metadata"
     return
   fi
 
@@ -1075,6 +1097,7 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         "src/eqvae/cli/runtime_selection_executor.py",
         "configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json",
         "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
+        "runs/kaggle/runtime_selection_v5/benchmark/runtime_proof.json",
         "runs/kaggle/real_data_runtime_pretest_v8/benchmark/runtime_proof.json",
         "runs/kaggle/real_data_runtime_pretest_v8/benchmark/runtime_matrix.csv",
         "runs/kaggle/real_data_runtime_pretest_v8/benchmark/dataloader_matrix.csv",
@@ -1192,6 +1215,288 @@ PY
     "wrong_accelerator"; do
     if ! grep -q -- "$required_text" "$run_file"; then
       echo "error: runtime-selection run.py missing required text: $required_text" >&2
+      exit 1
+    fi
+  done
+}
+
+guard_selected_runtime_debug_push_ready() {
+  local kernel_dir="$1"
+  local metadata="$2"
+
+  if [[ -d "$kernel_dir/payload" ]]; then
+    echo "error: selected-runtime debug gate must be a single generated run.py, not a sibling payload" >&2
+    exit 1
+  fi
+
+  if [[ "${KAGGLE_FULL_DATASET_CONFIRMED:-}" != "1" ]]; then
+    cat >&2 <<'EOF'
+error: set KAGGLE_FULL_DATASET_CONFIRMED=1 only after accepting the real
+patch dataset attachment/setup cost for the selected-runtime debug/tiny gate.
+EOF
+    exit 1
+  fi
+
+  if ! grep -q 'selected_runtime_debug_gate_contract_ready' \
+    "docs/specs/0001-translatable-normal-vae-baseline.md"; then
+    echo "error: spec 0001 does not describe the selected-runtime debug gate contract" >&2
+    exit 1
+  fi
+  if ! grep -q 'selected_runtime_debug_gate_contract_ready' \
+    "docs/specs/0003-kaggle-cli-execution-workflow.md"; then
+    echo "error: spec 0003 does not describe the selected-runtime debug gate contract" >&2
+    exit 1
+  fi
+  if ! grep -q 'selected_runtime_debug_gate_contract_ready' \
+    "docs/kaggle_cli_workflow.md"; then
+    echo "error: Kaggle workflow doc does not describe the selected-runtime debug gate contract" >&2
+    exit 1
+  fi
+  if ! grep -q 'selected_runtime_debug_gate_contract_ready' \
+    "docs/specs/README.md"; then
+    echo "error: specs index does not describe the selected-runtime debug gate contract" >&2
+    exit 1
+  fi
+
+  local python_bin="${PYTHON:-.venv/bin/python}"
+  if [[ ! -x "$python_bin" ]]; then
+    python_bin="python3"
+  fi
+  PYTHONPATH=src "$python_bin" -m eqvae.cli.selected_runtime_gate \
+    --verify-push-ready \
+    --debug-config configs/spec0001/non_eq_vae_selected_runtime_debug.json \
+    --tiny-config configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json \
+    --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json \
+    --fixed-train-patches configs/spec0001/fixed_32_train_overfit_patches.json
+
+  python3 - "$metadata" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+metadata = Path(sys.argv[1])
+data = json.loads(metadata.read_text(encoding="utf-8"))
+errors: list[str] = []
+
+required_values = {
+    "id": "maximusshtefan/eqvae-selected-runtime-debug",
+    "title": "eqvae selected runtime debug",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "false",
+    "machine_shape": "NvidiaTeslaT4",
+}
+
+for key, expected in required_values.items():
+    actual = str(data.get(key, ""))
+    comparable = actual.lower() if expected in {"true", "false"} else actual
+    if comparable != expected:
+        errors.append(f"{key} must be {expected!r}")
+
+expected_dataset_sources = ["maximusshtefan/patches-pre-shuffled-ubc-ocean"]
+if data.get("dataset_sources") != expected_dataset_sources:
+    errors.append(f"dataset_sources must be exactly {expected_dataset_sources!r}")
+
+for source_field in ("competition_sources", "kernel_sources", "model_sources"):
+    if data.get(source_field) != []:
+        errors.append(f"{source_field} must be an empty list for selected-runtime debug")
+
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+
+  python3 scripts/build_kaggle_embedded_kernel.py \
+    --kernel-dir "$kernel_dir" \
+    --ready-marker "KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True" \
+    --verify-only
+
+  local run_file="$kernel_dir/run.py"
+  python3 - "$run_file" <<'PY'
+import base64
+import io
+import json
+import re
+import sys
+import zipfile
+from pathlib import Path
+
+run_text = Path(sys.argv[1]).read_text(encoding="utf-8")
+match = re.search(
+    r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""',
+    run_text,
+    flags=re.DOTALL,
+)
+if match is None:
+    print("error: selected-runtime debug run.py has no embedded payload", file=sys.stderr)
+    raise SystemExit(1)
+
+payload = base64.b64decode(match.group("payload").encode("ascii"))
+with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+    names = set(archive.namelist())
+    errors: list[str] = []
+    required_files = {
+        "src/eqvae/benchmarking/selected_runtime_gate.py",
+        "src/eqvae/cli/selected_runtime_gate.py",
+        "src/eqvae/cli/train.py",
+        "src/eqvae/training/debug.py",
+        "configs/spec0001/non_eq_vae_selected_runtime_debug.json",
+        "configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json",
+        "configs/spec0001/fixed_32_train_overfit_patches.json",
+        "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
+        "runs/kaggle/runtime_selection_v5/benchmark/runtime_proof.json",
+    }
+    missing = sorted(required_files - names)
+    if missing:
+        errors.append(f"embedded payload missing required files: {missing!r}")
+    try:
+        gate_source = archive.read(
+            "src/eqvae/benchmarking/selected_runtime_gate.py",
+        ).decode("utf-8")
+        train_source = archive.read("src/eqvae/training/debug.py").decode("utf-8")
+        debug_config = json.loads(
+            archive.read("configs/spec0001/non_eq_vae_selected_runtime_debug.json"),
+        )
+        tiny_config = json.loads(
+            archive.read("configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json"),
+        )
+        fixed_selector = json.loads(
+            archive.read("configs/spec0001/fixed_32_train_overfit_patches.json"),
+        )
+        selected_runtime = json.loads(
+            archive.read(
+                "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
+            ),
+        )
+    except KeyError as error:
+        print(f"error: selected-runtime debug payload missing {error}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+    snapshot = selected_runtime.get("selected_row_snapshot")
+    if not isinstance(snapshot, dict):
+        errors.append("selected runtime must include selected_row_snapshot")
+    else:
+        expected_row = (
+            "dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__"
+            "policy_amp_fp16_conservative"
+        )
+        if selected_runtime.get("status") != "pass":
+            errors.append("selected runtime status must be pass")
+        if selected_runtime.get("selected_row_id") != expected_row:
+            errors.append("selected runtime must be the v5 fallback row")
+        if selected_runtime.get("runtime_policy_id") != "amp_fp16_conservative":
+            errors.append("selected runtime must use amp_fp16_conservative")
+        if snapshot.get("row_id") != expected_row:
+            errors.append("selected runtime snapshot row mismatch")
+        if snapshot.get("world_size") != "2":
+            errors.append("selected runtime snapshot must be dual-rank")
+        if snapshot.get("precision_policy") != "amp_conservative":
+            errors.append("selected runtime snapshot must be AMP conservative")
+        if snapshot.get("corruption_strategy") != "indexed_masked":
+            errors.append("selected runtime snapshot must use indexed_masked")
+        expected_top_level = {
+            "world_size": 2,
+            "nproc_per_node": 2,
+            "per_device_batch_size": 12,
+            "global_batch_size": 24,
+            "gradient_accumulation_steps": 1,
+        }
+        for key, expected in expected_top_level.items():
+            if selected_runtime.get(key) != expected:
+                errors.append(f"selected runtime {key} must be {expected!r}")
+        mixed_precision = selected_runtime.get("mixed_precision")
+        if not isinstance(mixed_precision, dict):
+            errors.append("selected runtime mixed_precision must be an object")
+        else:
+            expected_mixed_precision = {
+                "enabled": True,
+                "policy": "amp_conservative",
+                "autocast_dtype": "float16",
+                "fp32_loss": True,
+                "grad_scaler_enabled": True,
+            }
+            for key, expected in expected_mixed_precision.items():
+                if mixed_precision.get(key) != expected:
+                    errors.append(f"selected runtime mixed_precision.{key} must be {expected!r}")
+        dataloader = selected_runtime.get("dataloader")
+        if not isinstance(dataloader, dict):
+            errors.append("selected runtime dataloader must be an object")
+        else:
+            expected_dataloader = {
+                "num_workers": 0,
+                "pin_memory": False,
+                "persistent_workers": False,
+                "non_blocking_h2d": True,
+            }
+            for key, expected in expected_dataloader.items():
+                if dataloader.get(key) != expected:
+                    errors.append(f"selected runtime dataloader.{key} must be {expected!r}")
+            if dataloader.get("prefetch_factor") is not None:
+                errors.append("selected runtime dataloader.prefetch_factor must be null")
+        corruption = selected_runtime.get("corruption")
+        if not isinstance(corruption, dict) or corruption.get("strategy") != "indexed_masked":
+            errors.append("selected runtime corruption.strategy must be indexed_masked")
+
+    debug_gate = debug_config.get("selected_runtime_debug")
+    tiny_gate = tiny_config.get("selected_runtime_debug_gate")
+    for name, gate in (
+        ("selected_runtime_debug", debug_gate),
+        ("selected_runtime_debug_gate", tiny_gate),
+    ):
+        if not isinstance(gate, dict):
+            errors.append(f"{name} must be an object")
+            continue
+        for key in (
+            "remote_pass_ready",
+            "real_train_runner_implemented",
+            "fixed_32_selector_real",
+        ):
+            if gate.get(key) is not True:
+                errors.append(f"{name}.{key} must be true before remote push")
+
+    if "real_ubc_selected_runtime_train_runner_not_implemented" in gate_source:
+        errors.append(
+            "selected-runtime debug gate is fail-closed contract only; "
+            "real UBC train runner is not implemented",
+        )
+    if "Only data='synthetic' is implemented" in train_source:
+        errors.append("train runner still rejects data='ubc-pre-shuffled'")
+    if fixed_selector.get("status") == "requires_real_data_generation":
+        errors.append("fixed_32_train_overfit_patches.json is still a placeholder")
+    selectors = fixed_selector.get("selectors")
+    if not isinstance(selectors, list) or len(selectors) != 32:
+        errors.append("fixed_32 selector must contain exactly 32 train selectors")
+
+    if errors:
+        for error in errors:
+            print(f"error: {error}", file=sys.stderr)
+        raise SystemExit(1)
+PY
+
+  for required_text in \
+    "KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True" \
+    "selected_runtime_debug_gate_contract_ready" \
+    "selected_runtime_gate" \
+    "selected_runtime_gate_summary.json" \
+    "selected_runtime_debug_summary.json" \
+    "selected_runtime_plan_applied.json" \
+    "local_selected_runtime_readiness.json" \
+    "checkpoint_resume_proof.json" \
+    "tiny_overfit_summary.json" \
+    "artifact_manifest.json" \
+    "gate_health_summary.json" \
+    "selected_runtime.json" \
+    "single_visible_t4" \
+    "dual_t4_ddp" \
+    "torchrun" \
+    "--nproc_per_node=2" \
+    "wrong_accelerator"; do
+    if ! grep -q -- "$required_text" "$run_file"; then
+      echo "error: selected-runtime debug run.py missing required text: $required_text" >&2
       exit 1
     fi
   done
@@ -1342,6 +1647,23 @@ preflight_runtime_selection() {
     -q
 }
 
+preflight_selected_runtime_debug() {
+  local python_bin="${PYTHON:-.venv/bin/python}"
+
+  if [[ ! -x "$python_bin" ]]; then
+    echo "error: missing executable $python_bin; run repo setup before preflight" >&2
+    exit 1
+  fi
+
+  build_embedded_kernel "$selected_runtime_debug_kernel_dir"
+  validate_kernel_dir "$selected_runtime_debug_kernel_dir"
+  PYTHONPATH=src CUDA_VISIBLE_DEVICES="" "$python_bin" -m pytest \
+    tests/test_selected_runtime_gate.py \
+    tests/test_kaggle_embedded_kernel.py::test_embedded_selected_runtime_debug_kernel_import_simulation \
+    tests/test_kaggle_embedded_kernel.py::test_embedded_selected_runtime_debug_kernel_full_local_fail_closed_simulation \
+    -q
+}
+
 action="${1:-}"
 case "$action" in
   build)
@@ -1367,6 +1689,9 @@ case "$action" in
     ;;
   preflight-runtime-selection)
     preflight_runtime_selection
+    ;;
+  preflight-selected-runtime-debug)
+    preflight_selected_runtime_debug
     ;;
   push)
     kernel_dir="${2:-$default_kernel_dir}"
@@ -1409,6 +1734,12 @@ case "$action" in
     require_kaggle_cli
     kaggle kernels status "$kernel_id"
     ;;
+  status-selected-runtime-debug)
+    kernel_id="$(kernel_id_from_metadata "$selected_runtime_debug_kernel_dir")"
+    require_remote_confirmed
+    require_kaggle_cli
+    kaggle kernels status "$kernel_id"
+    ;;
   output)
     kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"
     output_dir="${3:-$default_output_dir}"
@@ -1428,6 +1759,14 @@ case "$action" in
   output-runtime-selection)
     kernel_id="$(kernel_id_from_metadata "$runtime_selection_kernel_dir")"
     output_dir="${2:-$runtime_selection_output_dir}"
+    require_remote_confirmed
+    require_kaggle_cli
+    mkdir -p "$output_dir"
+    kaggle kernels output "$kernel_id" -p "$output_dir"
+    ;;
+  output-selected-runtime-debug)
+    kernel_id="$(kernel_id_from_metadata "$selected_runtime_debug_kernel_dir")"
+    output_dir="${2:-$selected_runtime_debug_output_dir}"
     require_remote_confirmed
     require_kaggle_cli
     mkdir -p "$output_dir"

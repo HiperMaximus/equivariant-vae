@@ -40,9 +40,22 @@ relaxed row was slower.
 Local selected-runtime debug/checkpoint-resume/artifact/tiny-overfit proof
 plumbing now exists through `python -m eqvae.cli.train`, but it is currently a
 synthetic, fail-closed contract runner. It writes `full_run_eligible = false`
-and does not satisfy the real UBC/Kaggle selected-runtime gate.
+and does not satisfy the real UBC/Kaggle selected-runtime gate. The dedicated
+selected-runtime debug/tiny gate kernel contract is now
+`selected_runtime_debug_gate_contract_ready`: `kaggle/kernels/selected_runtime_debug`
+embeds v5 selected-runtime JSON and writes exact fail-closed artifacts through
+`eqvae.cli.selected_runtime_gate`. Run
+`./scripts/kaggle_kernel.sh preflight-selected-runtime-debug` before any remote
+selected-runtime debug/tiny approval request. Its push guard must reject remote
+writes while the real `ubc-pre-shuffled` DDP/AMP train runner is synthetic-only
+or the fixed-32 selector remains a placeholder or cannot pass fixed-selector
+schema/provenance/shard replay plus the locked real UBC train-shard
+fingerprints. The local preflight can prove wrapper/artifact coherence only;
+`eqvae.cli.selected_runtime_gate --verify-push-ready` is the stricter local
+semantic push check, and downloaded Kaggle artifacts are still required before
+any long-run approval.
 Kaggle source attachments require a separate confirmation guard
-Last updated: 2026-06-21
+Last updated: 2026-06-22
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
 source of truth for experiment code, specs, configs, and paper-facing claims.
@@ -568,6 +581,23 @@ legitimately return exit code 0 while writing fail-closed proof artifacts, so
 local and remote checks must inspect `benchmark/runtime_proof.json` and
 `benchmark/selected_runtime.json`.
 
+Local-first rule for selected-runtime debug/tiny pushes: before any remote write
+or approval request for the real debug/resume/artifact/tiny-overfit gate, run:
+
+```bash
+./scripts/kaggle_kernel.sh preflight-selected-runtime-debug
+```
+
+That command builds and validates `kaggle/kernels/selected_runtime_debug`, runs
+the selected-runtime gate tests, runs the generated-wrapper import-only
+simulation, and runs the full local fail-closed artifact simulation. Passing it
+means the single-file wrapper can transport v5 and preserve the gate artifact
+contract. It does not mean the real UBC proof passed. The push guard remains
+stricter and must reject remote writes until the embedded payload no longer has
+the synthetic-only `ubc-pre-shuffled` train runner and the fixed-32
+tiny-overfit selector has exactly 32 canonical real train selectors with locked
+schema/provenance and real-shard fingerprints.
+
 Local `build`/`validate` may verify the generated real-data pretest payload
 against the current dirty worktree so agents can validate local patches before
 commit. Remote push safety is stricter: the real-data pretest push guard still
@@ -758,6 +788,13 @@ Before any runtime-selection remote push, run the local semantic preflight:
 ./scripts/kaggle_kernel.sh preflight-runtime-selection
 ```
 
+Before any selected-runtime debug/tiny remote push or approval request, run the
+local semantic preflight:
+
+```bash
+./scripts/kaggle_kernel.sh preflight-selected-runtime-debug
+```
+
 After explicit user permission for remote reads, run the read-only API
 preflight before remote benchmark pushes:
 
@@ -773,11 +810,20 @@ KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/setup_smo
 KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/synthetic_timing
 ```
 
-Push a source-attached real-data kernel only after explicit user permission and
-after intentionally accepting the real dataset attachment/setup cost:
+Push a source-attached real-data kernel only after explicit user permission,
+after intentionally accepting the real dataset attachment/setup cost, and after
+the relevant push guard is unlocked:
 
 ```bash
 KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/real_data_runtime_pretest
+```
+
+Future-only selected-runtime debug/tiny push command, not valid while the guard
+still sees the synthetic-only `ubc-pre-shuffled` runner, false readiness flags,
+or a placeholder/non-canonical fixed-32 selector:
+
+```bash
+KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_debug
 ```
 
 Check remote status after explicit permission:
@@ -785,6 +831,7 @@ Check remote status after explicit permission:
 ```bash
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-debug
 ```
 
 Download outputs into ignored local run artifacts after explicit permission:
@@ -792,6 +839,7 @@ Download outputs into ignored local run artifacts after explicit permission:
 ```bash
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/<real_data_runtime_pretest_run>
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-selected-runtime-debug runs/kaggle/<selected_runtime_debug_run>
 ```
 
 Pulling from Kaggle can overwrite local files and requires explicit permission:

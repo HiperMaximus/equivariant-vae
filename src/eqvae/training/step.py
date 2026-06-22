@@ -33,6 +33,7 @@ class TrainStepRequest:
     optimizer_step_index: int
     gradient_clip_global_norm: float
     input_batch: torch.Tensor | None = None
+    zero_grad_set_to_none: bool = True
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,7 @@ class TrainStepResult:
     nonzero_update_parameter_tensor_count: int
     optimizer_step_index: int
     successful_optimizer_update_count: int
+    zero_grad_set_to_none: bool
 
 
 def run_train_step(request: TrainStepRequest) -> TrainStepResult:
@@ -80,7 +82,7 @@ def run_train_step(request: TrainStepRequest) -> TrainStepResult:
         message = "input_batch and clean_batch must have the same shape"
         raise ValueError(message)
 
-    request.optimizer.zero_grad(set_to_none=True)
+    request.optimizer.zero_grad(set_to_none=request.zero_grad_set_to_none)
     output: VaeForwardOutput = request.model.forward(
         model_input,
         eps=request.eps,
@@ -122,6 +124,7 @@ def run_train_step(request: TrainStepRequest) -> TrainStepResult:
         nonzero_update_parameter_tensor_count=nonzero_update_count,
         optimizer_step_index=request.optimizer_step_index,
         successful_optimizer_update_count=request.optimizer_step_index + 1,
+        zero_grad_set_to_none=request.zero_grad_set_to_none,
     )
 
 
