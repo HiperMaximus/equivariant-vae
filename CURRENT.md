@@ -114,6 +114,33 @@ PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-outp
   --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json
 ```
 
+Selected-runtime debug/tiny v2 push status, 2026-06-28: after user approval for
+the narrow rerun, local source commit `fabbfb8` (`Prove selected runtime debug
+holdout resolution`) was clean. A stronger regression now proves the actual
+root fix rather than a symptom workaround: from a fake `/kaggle/working`-style
+CWD without `docs/data`, direct `fixed32_selector_status` fails with
+`fixed_32_selector_masked_holdout_unavailable`, while the wrapper helper
+validates from the embedded payload CWD and reaches the intended
+`fixed_32_selector_not_canonical_real_ubc` result for synthetic data. Local
+verification before push: focused regression tests passed (`3 passed`),
+`./scripts/python_quality.sh` passed (`216 passed`, `0 errors, 0 warnings, 0
+notes`), and `./scripts/kaggle_kernel.sh preflight-selected-runtime-debug`
+passed from clean `HEAD`. The Kaggle API preflight again passed useful checks
+while warning on the known quota/files endpoints. Kaggle accepted
+`maximusshtefan/eqvae-selected-runtime-debug` version 2 at
+https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-debug. The
+single immediate guarded status read at `2026-06-28 17:05:49 -0500` returned
+`KernelWorkerStatus.RUNNING`. Do not actively poll in-turn; the next concrete
+action is, after about `2026-06-28 17:36 -0500` or later, run
+`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-debug`.
+If terminal, download to `runs/kaggle/selected_runtime_debug_v2`, then run:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-output \
+  --output-dir runs/kaggle/selected_runtime_debug_v2 \
+  --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json
+```
+
 Synthetic timing is now
 completed provenance for screening: remote versions 1, 2, 3, and 4 completed
 successfully as non-promotable evidence, with v4 as the current
