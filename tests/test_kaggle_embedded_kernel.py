@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from eqvae.benchmarking.fixed32_selector_readiness import fixed32_selector_status
 from eqvae.benchmarking.kaggle_smoke import (
     SETUP_DATA_KIND,
     SETUP_SMOKE_KIND,
@@ -34,6 +35,20 @@ from eqvae.benchmarking.synthetic_timing import (
     SYNTHETIC_TIMING_SCOPE,
     SYNTHETIC_TIMING_SOURCE,
 )
+from eqvae.data.fixed_selectors import (
+    FIXED_32_TRAIN_OVERFIT_KIND,
+    FixedSelectorGenerationContext,
+    generate_fixed_selector_document,
+    write_fixed_selector_document,
+)
+from eqvae.data.patch_shards import PatchShardSpec
+from eqvae.data.roots import (
+    TRAIN_BIN_NAME,
+    TRAIN_CSV_NAME,
+    VALIDATION_BIN_NAME,
+    VALIDATION_CSV_NAME,
+)
+from eqvae.data.synthetic import SyntheticPatchSpec, write_synthetic_patch_shard
 
 _EXPECTED_SETUP_APPLIED_COUNT = 2
 _EXPECTED_SYNTHETIC_TIMING_BLOCKED_CLAIMS = {
@@ -541,6 +556,80 @@ def test_selected_runtime_debug_remote_selector_requires_canonical_status(
     assert _option_value(calls[0], "--kind") == "fixed_32_train_overfit"
     assert "--validate-crc" in calls[0]
     assert Path.cwd() == original_cwd
+
+
+def test_selected_runtime_debug_selector_status_resolves_payload_holdout(
+    tmp_path: Path,
+) -> None:
+    """Selector validation uses the embedded payload for relative holdout paths."""
+    from kaggle.kernels.selected_runtime_debug import run_template  # noqa: PLC0415
+
+    payload_dir = tmp_path / "payload"
+    holdout_csv = payload_dir / _MASKED_HOLDOUT_CSV_PAYLOAD_PATH
+    holdout_csv.parent.mkdir(parents=True)
+    holdout_csv.write_text("image_id\nnot_in_synthetic\n", encoding="utf-8")
+
+    data_root = tmp_path / "data"
+    dataset_dir = data_root / "dataset"
+    write_synthetic_patch_shard(
+        bin_path=dataset_dir / TRAIN_BIN_NAME,
+        csv_path=dataset_dir / TRAIN_CSV_NAME,
+        spec=SyntheticPatchSpec(count=40, image_size=8, channels=3),
+        include_idx=False,
+    )
+    write_synthetic_patch_shard(
+        bin_path=dataset_dir / VALIDATION_BIN_NAME,
+        csv_path=dataset_dir / VALIDATION_CSV_NAME,
+        spec=SyntheticPatchSpec(count=25, image_size=8, channels=3, seed=20260613),
+        include_idx=True,
+    )
+    train_spec = PatchShardSpec(
+        bin_path=dataset_dir / TRAIN_BIN_NAME,
+        csv_path=dataset_dir / TRAIN_CSV_NAME,
+        image_size=8,
+        channels=3,
+        validate_crc=True,
+    )
+    document = generate_fixed_selector_document(
+        selector_kind=FIXED_32_TRAIN_OVERFIT_KIND,
+        shard_spec=train_spec,
+        source_split="train",
+        context=FixedSelectorGenerationContext(
+            dataset_slug=EXPECTED_DATASET_SLUG,
+            data_root=dataset_dir,
+            masked_holdout_wsi_ids=frozenset({"not_in_synthetic"}),
+        ),
+    )
+    selector_path = tmp_path / "working" / "benchmark" / "fixed_32.json"
+    write_fixed_selector_document(path=selector_path, document=document)
+
+    original_cwd = Path.cwd()
+    fake_working = tmp_path / "working"
+
+    def real_status(path: Path, *, data_root: str | None) -> dict[str, object]:
+        return dict(fixed32_selector_status(path, data_root=data_root))
+
+    try:
+        os.chdir(fake_working)
+        direct_status = fixed32_selector_status(
+            selector_path,
+            data_root=str(data_root),
+        )
+        wrapped_status = run_template._fixed32_selector_status_from_payload_cwd(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+            fixed32_selector_status=real_status,
+            payload_dir=payload_dir,
+            selector_path=selector_path,
+            data_root=str(data_root),
+        )
+    finally:
+        os.chdir(original_cwd)
+
+    assert (
+        direct_status["failure_kind"] == "fixed_32_selector_masked_holdout_unavailable"
+    )
+    assert wrapped_status["failure_kind"] == "fixed_32_selector_not_canonical_real_ubc"
+    validation_errors = cast("list[object]", wrapped_status["validation_errors"])
+    assert "fixed_32_selector_masked_holdout_unavailable" not in validation_errors
 
 
 def test_selected_runtime_debug_real_runner_uses_resume_sequence(
