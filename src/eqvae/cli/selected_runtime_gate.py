@@ -27,8 +27,8 @@ if TYPE_CHECKING:
 class SelectedRuntimeGateArgs:
     """Validated CLI arguments for the selected-runtime gate."""
 
-    debug_config: Path
-    tiny_config: Path
+    debug_config: Path | None
+    tiny_config: Path | None
     runtime_config: Path
     output_dir: Path | None
     run_name: str | None
@@ -50,10 +50,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     """
     args = _parse_args(argv)
+    if args.verify_push_ready and args.verify_output:
+        message = "--verify-push-ready and --verify-output are mutually exclusive"
+        raise ValueError(message)
     if args.verify_push_ready:
+        debug_config = _required_path_arg(args.debug_config, "--debug-config")
+        tiny_config = _required_path_arg(args.tiny_config, "--tiny-config")
         blockers = verify_selected_runtime_debug_push_ready(
-            debug_config_path=args.debug_config,
-            tiny_config_path=args.tiny_config,
+            debug_config_path=debug_config,
+            tiny_config_path=tiny_config,
             selected_runtime_path=args.runtime_config,
             selector_generation_mode=args.selector_generation_mode,
             data_root=args.data_root,
@@ -80,10 +85,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.run_name is None:
         message = "--run-name is required unless --verify-push-ready is set"
         raise ValueError(message)
+    debug_config = _required_path_arg(args.debug_config, "--debug-config")
+    tiny_config = _required_path_arg(args.tiny_config, "--tiny-config")
     write_selected_runtime_gate(
         SelectedRuntimeGateRequest(
-            debug_config_path=args.debug_config,
-            tiny_config_path=args.tiny_config,
+            debug_config_path=debug_config,
+            tiny_config_path=tiny_config,
             selected_runtime_path=args.runtime_config,
             output_dir=args.output_dir,
             run_name=args.run_name,
@@ -99,8 +106,8 @@ def _parse_args(argv: Sequence[str] | None) -> SelectedRuntimeGateArgs:
     parser = argparse.ArgumentParser(
         description="Write selected-runtime debug/resume/tiny gate artifacts.",
     )
-    parser.add_argument("--debug-config", required=True)
-    parser.add_argument("--tiny-config", required=True)
+    parser.add_argument("--debug-config")
+    parser.add_argument("--tiny-config")
     parser.add_argument("--runtime-config", required=True)
     parser.add_argument("--output-dir")
     parser.add_argument("--run-name")
@@ -115,8 +122,8 @@ def _parse_args(argv: Sequence[str] | None) -> SelectedRuntimeGateArgs:
     parser.add_argument("--verify-output", action="store_true")
     namespace = parser.parse_args(argv)
     return SelectedRuntimeGateArgs(
-        debug_config=Path(_required_str(namespace, "debug_config")),
-        tiny_config=Path(_required_str(namespace, "tiny_config")),
+        debug_config=_optional_path(namespace, "debug_config"),
+        tiny_config=_optional_path(namespace, "tiny_config"),
         runtime_config=Path(_required_str(namespace, "runtime_config")),
         output_dir=_optional_path(namespace, "output_dir"),
         run_name=_optional_str(namespace, "run_name"),
@@ -137,6 +144,13 @@ def _required_str(namespace: argparse.Namespace, name: str) -> str:
         return value
     message = f"Expected string argument: {name}"
     raise TypeError(message)
+
+
+def _required_path_arg(value: Path | None, option: str) -> Path:
+    if value is not None:
+        return value
+    message = f"{option} is required unless --verify-output is set"
+    raise ValueError(message)
 
 
 def _optional_str(namespace: argparse.Namespace, name: str) -> str | None:

@@ -774,10 +774,6 @@ def test_selected_runtime_verify_output_accepts_complete_artifact_contract(
     exit_code = selected_runtime_gate_main(
         [
             "--verify-output",
-            "--debug-config",
-            "configs/spec0001/non_eq_vae_selected_runtime_debug.json",
-            "--tiny-config",
-            "configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json",
             "--runtime-config",
             str(runtime_path),
             "--output-dir",

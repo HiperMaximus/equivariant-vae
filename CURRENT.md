@@ -83,8 +83,30 @@ action is, after about `2026-06-28 15:05 -0500` or later, run
 The resumed guarded status read at `2026-06-28 15:23:22 -0500` still returned
 `KernelWorkerStatus.RUNNING`; the next status check should be after about
 `2026-06-28 15:55 -0500` or later.
-If terminal, download to a versioned directory such as
-`runs/kaggle/selected_runtime_debug_v1`, then run the strict verifier:
+The next guarded status read returned `KernelWorkerStatus.COMPLETE`, and outputs
+were downloaded to `runs/kaggle/selected_runtime_debug_v1`. Strict verification
+failed, as intended for a non-passing remote proof:
+`selected_runtime_output_missing_metric_train_steps.csv` and
+`selected_runtime_output_unexpected_metric_train_metrics.csv`. Artifact
+inspection found the root blocker happened before training:
+`benchmark/fixed32_selector_readiness.json` has
+`failure_kind = fixed_32_selector_masked_holdout_unavailable` with
+`validation_detail` resolving the selector's relative
+`docs/data/ubc_ocean_masked_holdout_ids.csv` from `/kaggle/working` instead of
+the embedded payload. The wrapper therefore correctly stayed fail-closed and
+did not launch debug or tiny training. Local fix is implemented but not remotely
+pushed: the selected-runtime debug wrapper now calls
+`fixed32_selector_status` from the embedded payload CWD so the holdout CSV is
+visible, and `eqvae.cli.selected_runtime_gate --verify-output` now matches the
+documented command without requiring debug/tiny config arguments. Verification
+after the fix: focused tests passed (`23 passed`),
+`./scripts/kaggle_kernel.sh preflight-selected-runtime-debug` passed, the
+downloaded v1 verifier now runs with the documented command and still reports
+the v1 metric-artifact failure, `git diff --check` passed, and
+`./scripts/python_quality.sh` passed (`215 passed`, `0 errors, 0 warnings, 0
+notes`). The next concrete action requires explicit user approval for a new
+narrow selected-runtime debug/tiny Kaggle push, expected as v2; this is still
+not approval for the long full run. The v1 verifier command is:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-output \

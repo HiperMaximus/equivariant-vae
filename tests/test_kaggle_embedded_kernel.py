@@ -500,6 +500,8 @@ def test_selected_runtime_debug_remote_selector_requires_canonical_status(
     output_dir = tmp_path / "output"
     selector_path = output_dir / "benchmark" / "fixed_32_train_overfit_patches.json"
     calls: list[tuple[str, ...]] = []
+    payload_dir.mkdir(parents=True)
+    original_cwd = Path.cwd()
 
     def fake_select_fixed_patches(args: object) -> int:
         values = _arg_tuple(args)
@@ -511,6 +513,7 @@ def test_selected_runtime_debug_remote_selector_requires_canonical_status(
         return 0
 
     def fake_status(path: Path, *, data_root: str | None) -> dict[str, object]:
+        assert Path.cwd() == payload_dir
         assert path == selector_path
         assert data_root == "auto"
         return {
@@ -537,6 +540,7 @@ def test_selected_runtime_debug_remote_selector_requires_canonical_status(
     assert calls
     assert _option_value(calls[0], "--kind") == "fixed_32_train_overfit"
     assert "--validate-crc" in calls[0]
+    assert Path.cwd() == original_cwd
 
 
 def test_selected_runtime_debug_real_runner_uses_resume_sequence(

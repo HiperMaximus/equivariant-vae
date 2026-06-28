@@ -1346,6 +1346,7 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
     required_run_text = (
         "selector_generation.get(\"status\") == \"pass\"",
         "_generate_remote_fixed32_selector(",
+        "_fixed32_selector_status_from_payload_cwd(",
         "fixed32_selector_status(selector_path, data_root=data_root)",
         "_run_real_selected_runtime_debug(",
         "_run_real_selected_runtime_tiny_overfit(",

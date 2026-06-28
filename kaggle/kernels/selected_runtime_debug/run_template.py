@@ -270,7 +270,12 @@ def _generate_remote_fixed32_selector(  # noqa: PLR0913
         }
     else:
         selector_status = (
-            fixed32_selector_status(selector_path, data_root=data_root)
+            _fixed32_selector_status_from_payload_cwd(
+                fixed32_selector_status=fixed32_selector_status,
+                payload_dir=payload_dir,
+                selector_path=selector_path,
+                data_root=data_root,
+            )
             if exit_code == 0
             else {
                 "status": "fail",
@@ -300,6 +305,21 @@ def _generate_remote_fixed32_selector(  # noqa: PLR0913
         encoding="utf-8",
     )
     return payload
+
+
+def _fixed32_selector_status_from_payload_cwd(
+    *,
+    fixed32_selector_status: Callable[..., dict[str, object]],
+    payload_dir: Path,
+    selector_path: Path,
+    data_root: str,
+) -> dict[str, object]:
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(payload_dir)
+        return fixed32_selector_status(selector_path, data_root=data_root)
+    finally:
+        os.chdir(original_cwd)
 
 
 def _selector_generation_failure_kind(selector_status: dict[str, object]) -> str:
