@@ -126,9 +126,23 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   readiness boundaries, observed local FP32/AMP-off row telemetry, and
   structured local readiness artifacts consumed by push readiness. The full
   plan-applied proof fails locally for unexecuted dual-T4 CUDA AMP/DDP fields,
-  as intended. Keep this evidence non-promotable; the next engineering work is
-  the real UBC/DDP/AMP selected-runtime runner and canonical real fixed-32
-  selector boundary, not a remote push by default.
+  as intended.
+- Spec 0007 local runner implementation is complete and locally verified:
+  `eqvae.cli.selected_runtime_train` supports synthetic UBC-format dry-runs and
+  real `ubc-pre-shuffled` roots, consumes the shared v5 selected-runtime plan,
+  applies the selected batch/corruption/dataloader/zero-grad policy, includes
+  the AMP/GradScaler train step with FP32 objective islands, records tokenized
+  `torchrun --standalone --nproc_per_node=2` launch and DDP rank/device proof,
+  applies selected DDP static-graph/bucket-view flags exactly, writes artifacts
+  only on rank 0 after per-rank metric/gate gathers, records selected-runtime
+  AMP/CUDA/DDP checkpoint-state statuses when active, bounds AMP-skip retries,
+  blocks readiness on any AMP skip, and writes schema-v5 checkpoint/resume,
+  train-step, gate-health, readiness, and artifact-manifest outputs. Keep this
+  evidence non-promotable. Spec 0008 local readiness now implements the
+  canonical fixed-32 selector boundary and narrow selected-runtime debug/tiny
+  push guard; the remote debug/tiny push belongs only after explicit user
+  approval, exact real-dataset metadata attachment, and local preflights. It is
+  not approval for the long full run.
 - Do not ask for approval to launch the first 60h-scale real run until the
   implementation is ready, the Kaggle environment has been checked, runtime
   efficiency decisions are made from the selected-runtime follow-up, and

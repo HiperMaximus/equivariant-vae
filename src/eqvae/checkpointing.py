@@ -26,6 +26,9 @@ _BETA_PROGRESS_STATUS = "deterministic_from_successful_optimizer_update_count"
 _AMP_SCALER_LOCAL_STATUS = "not_applicable_local_cpu_amp_disabled"
 _CUDA_RNG_LOCAL_STATUS = "not_applicable_local_cpu"
 _DDP_PROGRESS_LOCAL_STATUS = "not_applicable_local_single_process"
+_AMP_SCALER_SELECTED_RUNTIME_STATUS = "selected_runtime_amp_scaler_state"
+_CUDA_RNG_SELECTED_RUNTIME_STATUS = "selected_runtime_cuda_rng_state"
+_DDP_PROGRESS_SELECTED_RUNTIME_STATUS = "selected_runtime_ddp_sampler_progress"
 type _PythonRandomState = tuple[int, tuple[int, ...], float | None]
 
 
@@ -88,6 +91,9 @@ def save_training_checkpoint(  # noqa: PLR0913
     selected_row_id: str = "",
     runtime_policy_id: str = "",
     torch_generators: Mapping[str, torch.Generator] | None = None,
+    amp_scaler_state: Mapping[str, object] | None = None,
+    torch_cuda_rng_state: Mapping[str, object] | None = None,
+    ddp_sampler_progress_state: Mapping[str, object] | None = None,
 ) -> CheckpointMetadata:
     """Save model, optimizer, and local RNG state for debug/resume proof.
 
@@ -127,13 +133,19 @@ def save_training_checkpoint(  # noqa: PLR0913
             "status": _BETA_PROGRESS_STATUS,
             "successful_optimizer_update_count": successful_optimizer_update_count,
         },
-        "amp_scaler_state": {
+        "amp_scaler_state": dict(amp_scaler_state)
+        if amp_scaler_state is not None
+        else {
             "status": _AMP_SCALER_LOCAL_STATUS,
         },
-        "torch_cuda_rng_state": {
+        "torch_cuda_rng_state": dict(torch_cuda_rng_state)
+        if torch_cuda_rng_state is not None
+        else {
             "status": _CUDA_RNG_LOCAL_STATUS,
         },
-        "ddp_sampler_progress_state": {
+        "ddp_sampler_progress_state": dict(ddp_sampler_progress_state)
+        if ddp_sampler_progress_state is not None
+        else {
             "status": _DDP_PROGRESS_LOCAL_STATUS,
         },
         "selected_runtime_identity": {
@@ -442,17 +454,39 @@ def _validate_checkpoint_progress_states(
     expected_statuses = {
         "lr_scheduler_state": _LR_SCHEDULER_LOCAL_STATUS,
         "beta_progress_state": _BETA_PROGRESS_STATUS,
+    }
+    allowed_statuses = {
         "amp_scaler_state": _AMP_SCALER_LOCAL_STATUS,
         "torch_cuda_rng_state": _CUDA_RNG_LOCAL_STATUS,
         "ddp_sampler_progress_state": _DDP_PROGRESS_LOCAL_STATUS,
     }
     status_payloads = {
-        key: _required_status_payload(payload, key) for key in expected_statuses
+        key: _required_status_payload(payload, key)
+        for key in (*expected_statuses, *allowed_statuses)
     }
     for key, expected in expected_statuses.items():
         actual = cast("str", status_payloads[key]["status"])
         if actual != expected:
             message = f"checkpoint {key}.status must be {expected!r}"
+            raise ValueError(message)
+    runtime_statuses = {
+        "amp_scaler_state": (
+            _AMP_SCALER_LOCAL_STATUS,
+            _AMP_SCALER_SELECTED_RUNTIME_STATUS,
+        ),
+        "torch_cuda_rng_state": (
+            _CUDA_RNG_LOCAL_STATUS,
+            _CUDA_RNG_SELECTED_RUNTIME_STATUS,
+        ),
+        "ddp_sampler_progress_state": (
+            _DDP_PROGRESS_LOCAL_STATUS,
+            _DDP_PROGRESS_SELECTED_RUNTIME_STATUS,
+        ),
+    }
+    for key, allowed in runtime_statuses.items():
+        actual = cast("str", status_payloads[key]["status"])
+        if actual not in allowed:
+            message = f"checkpoint {key}.status must be one of {allowed!r}"
             raise ValueError(message)
 
     beta_payload = status_payloads["beta_progress_state"]

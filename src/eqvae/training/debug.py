@@ -1257,6 +1257,8 @@ def _plan_applied_proof(  # noqa: PLR0913
         dataloader_non_blocking_h2d=False,
         corruption_strategy=observed_corruption_strategy,
         memory_format="contiguous",
+        ddp_static_graph=False,
+        ddp_gradient_as_bucket_view=False,
         zero_grad_set_to_none=last_result.zero_grad_set_to_none,
         local_ddp_status="not_executed_local_cpu_mechanics_only",
         local_amp_status="not_executed_local_cpu",
@@ -1395,7 +1397,7 @@ def _local_readiness_summary(
         "gate_health": "local_not_measured",
     }
     blocked = [
-        "real_ubc_selected_runtime_train_runner_not_implemented",
+        "selected_runtime_debug_wrapper_not_wired_to_real_runner_until_spec0008",
         "fixed_32_selector_real_false",
         "missing_real_gate_health_rows",
         "missing_real_checkpoint_resume_proof",

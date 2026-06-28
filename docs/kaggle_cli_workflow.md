@@ -40,22 +40,34 @@ relaxed row was slower.
 Local selected-runtime debug/checkpoint-resume/artifact/tiny-overfit proof
 plumbing now exists through `python -m eqvae.cli.train`, but it is currently a
 synthetic, fail-closed contract runner. It writes `full_run_eligible = false`
-and does not satisfy the real UBC/Kaggle selected-runtime gate. The dedicated
+and does not satisfy the real UBC/Kaggle selected-runtime gate. Spec 0007 now
+also provides the dedicated real-runner CLI
+`python -m eqvae.cli.selected_runtime_train` and local-only preflight
+`./scripts/kaggle_kernel.sh preflight-selected-runtime-runner`; this runner
+supports synthetic UBC-format dry-runs and `ubc-pre-shuffled` roots, applies
+the v5 selected runtime, writes checkpoint/resume and gate-health artifacts,
+and still keeps local dry-runs non-promotable. The dedicated
 selected-runtime debug/tiny gate kernel contract is now
 `selected_runtime_debug_gate_contract_ready`: `kaggle/kernels/selected_runtime_debug`
 embeds v5 selected-runtime JSON and writes exact fail-closed artifacts through
 `eqvae.cli.selected_runtime_gate`. Run
+`./scripts/kaggle_kernel.sh preflight-selected-runtime-runner` and
 `./scripts/kaggle_kernel.sh preflight-selected-runtime-debug` before any remote
 selected-runtime debug/tiny approval request. Its push guard must reject remote
-writes while the real `ubc-pre-shuffled` DDP/AMP train runner is synthetic-only
-or the fixed-32 selector remains a placeholder or cannot pass fixed-selector
-schema/provenance/shard replay plus the locked real UBC train-shard
-fingerprints. The local preflight can prove wrapper/artifact coherence only;
-`eqvae.cli.selected_runtime_gate --verify-push-ready` is the stricter local
-semantic push check, and downloaded Kaggle artifacts are still required before
-any long-run approval.
+writes while the Spec 0008 local generator/readiness checks fail in
+`remote_generate` mode, exact real-dataset metadata is missing, or downloaded
+remote debug/tiny artifacts have not passed. Spec 0008 local readiness now
+includes `./scripts/kaggle_kernel.sh preflight-fixed32-selector-readiness`,
+strict remote-generate push readiness, generated-wrapper checks that require
+canonical selector generation plus real-runner/tiny wiring, and
+`eqvae.cli.selected_runtime_gate --verify-output` for downloaded artifacts.
+Downloaded Kaggle artifacts are still required before any pass or long-run
+approval. The next work is the explicit-user-approved narrow selected-runtime
+debug/tiny Kaggle push; the first full long run remains outside Specs 0007/0008
+and should be the immediate next candidate only after the Spec 0008 remote
+proof artifacts pass.
 Kaggle source attachments require a separate confirmation guard
-Last updated: 2026-06-22
+Last updated: 2026-06-25
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
 source of truth for experiment code, specs, configs, and paper-facing claims.
@@ -594,9 +606,10 @@ simulation, and runs the full local fail-closed artifact simulation. Passing it
 means the single-file wrapper can transport v5 and preserve the gate artifact
 contract. It does not mean the real UBC proof passed. The push guard remains
 stricter and must reject remote writes until the embedded payload no longer has
-the synthetic-only `ubc-pre-shuffled` train runner and the fixed-32
-tiny-overfit selector has exactly 32 canonical real train selectors with locked
-schema/provenance and real-shard fingerprints.
+the Spec 0008 local generator/readiness checks pass in `remote_generate` mode,
+exact real-dataset metadata is attached, and the remote kernel is configured to
+generate and validate exactly 32 canonical real train selectors from the Kaggle
+train shard before training.
 
 Local `build`/`validate` may verify the generated real-data pretest payload
 against the current dirty worktree so agents can validate local patches before
@@ -819,8 +832,9 @@ KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.
 ```
 
 Future-only selected-runtime debug/tiny push command, not valid while the guard
-still sees the synthetic-only `ubc-pre-shuffled` runner, false readiness flags,
-or a placeholder/non-canonical fixed-32 selector:
+still sees false readiness flags, missing `remote_generate` selector readiness,
+missing exact real-dataset metadata, or missing downloaded remote debug/tiny
+proof artifacts:
 
 ```bash
 KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_debug

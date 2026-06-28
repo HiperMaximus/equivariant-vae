@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from eqvae.benchmarking.selected_runtime_gate import (
+    LOCAL_SELECTOR_MODE,
+    REMOTE_GENERATE_MODE,
     SelectedRuntimeGateRequest,
+    SelectorGenerationMode,
+    verify_selected_runtime_debug_output,
     verify_selected_runtime_debug_push_ready,
     write_selected_runtime_gate,
 )
@@ -30,7 +34,9 @@ class SelectedRuntimeGateArgs:
     run_name: str | None
     data_root: str | None
     fixed_train_patches: Path | None
+    selector_generation_mode: SelectorGenerationMode
     verify_push_ready: bool
+    verify_output: bool
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -49,15 +55,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             debug_config_path=args.debug_config,
             tiny_config_path=args.tiny_config,
             selected_runtime_path=args.runtime_config,
+            selector_generation_mode=args.selector_generation_mode,
             data_root=args.data_root,
             fixed_train_patches=args.fixed_train_patches,
         )
         for blocker in blockers:
             sys.stderr.write(f"error: {blocker}\n")
         return 1 if blockers else 0
+    if args.verify_output:
+        if args.output_dir is None:
+            message = "--output-dir is required when --verify-output is set"
+            raise ValueError(message)
+        blockers = verify_selected_runtime_debug_output(
+            output_dir=args.output_dir,
+            selected_runtime_path=args.runtime_config,
+        )
+        for blocker in blockers:
+            sys.stderr.write(f"error: {blocker}\n")
+        return 1 if blockers else 0
 
     if args.output_dir is None:
-        message = "--output-dir is required unless --verify-push-ready is set"
+        message = "--output-dir is required unless a verify mode is set"
         raise ValueError(message)
     if args.run_name is None:
         message = "--run-name is required unless --verify-push-ready is set"
@@ -71,6 +89,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_name=args.run_name,
             data_root=args.data_root,
             fixed_train_patches=args.fixed_train_patches,
+            selector_generation_mode=args.selector_generation_mode,
         ),
     )
     return 0
@@ -87,7 +106,13 @@ def _parse_args(argv: Sequence[str] | None) -> SelectedRuntimeGateArgs:
     parser.add_argument("--run-name")
     parser.add_argument("--data-root")
     parser.add_argument("--fixed-train-patches")
+    parser.add_argument(
+        "--selector-generation-mode",
+        choices=(LOCAL_SELECTOR_MODE, REMOTE_GENERATE_MODE),
+        default=LOCAL_SELECTOR_MODE,
+    )
     parser.add_argument("--verify-push-ready", action="store_true")
+    parser.add_argument("--verify-output", action="store_true")
     namespace = parser.parse_args(argv)
     return SelectedRuntimeGateArgs(
         debug_config=Path(_required_str(namespace, "debug_config")),
@@ -97,7 +122,12 @@ def _parse_args(argv: Sequence[str] | None) -> SelectedRuntimeGateArgs:
         run_name=_optional_str(namespace, "run_name"),
         data_root=_optional_str(namespace, "data_root"),
         fixed_train_patches=_optional_path(namespace, "fixed_train_patches"),
+        selector_generation_mode=cast(
+            "SelectorGenerationMode",
+            _required_str(namespace, "selector_generation_mode"),
+        ),
         verify_push_ready=_required_bool(namespace, "verify_push_ready"),
+        verify_output=_required_bool(namespace, "verify_output"),
     )
 
 

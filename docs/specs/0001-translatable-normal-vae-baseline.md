@@ -68,10 +68,11 @@ debug/resume/artifact/tiny-overfit Kaggle gate contract is
 `selected_runtime_debug_gate_contract_ready`: it adds a generated single-file
 kernel wrapper, embedded v5 selected-runtime transport, fail-closed local
 artifact writer, and local semantic preflight, but remains push-blocked and
-non-promotable until the real `ubc-pre-shuffled` DDP/AMP train runner and
-real fixed-32 selector exist.
+non-promotable until the real `ubc-pre-shuffled` DDP/AMP train runner exists,
+Spec 0008 generator/readiness passes in `remote_generate` mode, exact
+real-dataset metadata is attached, and explicit user approval is given.
 Owner/workstream: comparable non-equivariant VAE baseline
-Last updated: 2026-06-22
+Last updated: 2026-06-25
 
 Selected-runtime debug/resume/tiny remote-gate contract, 2026-06-22:
 
@@ -94,9 +95,9 @@ Selected-runtime debug/resume/tiny remote-gate contract, 2026-06-22:
   embedded payload as the v5 fallback row
   `dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
   with `runtime_policy_id = amp_fp16_conservative`;
-- `eqvae.cli.train --data ubc-pre-shuffled` pass behavior remains required but
-  is not yet implemented. To pass this gate later, it must apply the selected
-  runtime rather than merely record it: dual-T4 DDP with
+- `eqvae.cli.selected_runtime_train --data ubc-pre-shuffled` pass behavior
+  remains required but is not yet implemented. To pass this gate later, it must
+  apply the selected runtime rather than merely record it: dual-T4 DDP with
   `torchrun --standalone --nproc_per_node=2`, per-device batch size 12, global
   batch size 24, AMP conservative with GradScaler and FP32 loss islands,
   selected dataloader settings, selected `indexed_masked` corruption, clean
@@ -141,10 +142,14 @@ Selected-runtime debug/resume/tiny remote-gate contract, 2026-06-22:
   exercises the generated wrapper's import-only and fail-closed artifact paths.
   The push guard remains stricter than this preflight: it also runs the
   structured `eqvae.cli.selected_runtime_gate --verify-push-ready` check and
-  refuses remote writes while the real train runner is synthetic-only, config
-  readiness flags remain false, or the fixed-32 selector cannot be validated as
-  real. Do not request or launch a long real run until the real Kaggle debug,
-  resume, artifact, gate-health, and tiny-overfit artifacts pass.
+  refuses remote writes while exact real-dataset metadata is missing, Spec 0008
+  `remote_generate` generator/readiness checks do not pass, or downloaded
+  remote debug/tiny artifacts have not passed. Spec 0008 must add the
+  `remote_generate` selector-generation mode.
+  In `remote_generate` mode, downloaded
+  remote artifacts, not local pre-push state, prove `fixed_32_selector_real`.
+  Do not request or launch a long real run until the real Kaggle debug, resume,
+  artifact, gate-health, canonical selector, and tiny-overfit artifacts pass.
 
 Spec 0006 local slice completion and next implementation direction:
 
@@ -158,9 +163,12 @@ gate artifacts, structured push-readiness blockers, and focused regressions.
 These artifacts are local and non-promotable; they do not prove real dual-T4
 DDP, real AMP, real UBC training, or real tiny-overfit behavior.
 
-The next engineering slice is a new local-first spec for the real
-UBC/DDP/AMP selected-runtime runner and canonical real fixed-32 selector
-boundary. Keep `remote_pass_ready`, `real_train_runner_implemented`, and
+The next engineering path is split into two locked child specs. Spec 0007
+implements the real `ubc-pre-shuffled` UBC/DDP/AMP selected-runtime runner and
+must apply the v5 row exactly. Spec 0008 implements local-first fixed-32
+selector generation, canonical real selector validation, and the narrow
+selected-runtime debug/tiny Kaggle push-readiness milestone. Keep
+`remote_pass_ready`, `real_train_runner_implemented`, and
 `fixed_32_selector_real` false until structured real proof artifacts exist:
 real runner capability, selected-runtime plan-applied proof, accelerator/DDP
 validation, checkpoint/resume proof, gate-health rows, tiny-overfit proof, and
@@ -168,12 +176,16 @@ a fixed-32 selector generated from the canonical real Kaggle train shard with
 CRC/provenance matching the locked train CSV hash, binary size, header CRC, and
 row/patch count. Before any selected-runtime debug/tiny remote push request,
 `./scripts/kaggle_kernel.sh preflight-selected-runtime-debug`,
-`eqvae.cli.selected_runtime_gate --verify-push-ready`, the shell push guard,
-the real runner, and the canonical fixed-32 selector must all pass, and the user
-must explicitly approve the remote action. Do not request or launch the first
-long real training run until downloaded selected-runtime debug,
-checkpoint/resume, artifact-manifest, gate-health, and tiny-overfit proofs all
-pass.
+the Spec 0008 `remote_generate` readiness verifier, the shell push guard, the real
+runner, and exact real-dataset metadata attachment must all pass, and the user
+must explicitly approve the remote action. In this mode the approved remote
+debug/tiny kernel generates and validates the canonical fixed-32 selector from
+the real Kaggle train shard before training; the canonical selector must pass
+in downloaded remote artifacts before any full long run. Do not request or
+launch the first long real training run until downloaded selected-runtime
+debug, checkpoint/resume, artifact-manifest, gate-health, canonical selector,
+and tiny-overfit proofs all pass. Once those remote artifacts pass, the first
+full real selected-runtime run should be the immediate next candidate action.
 
 Historical working reference: `kaggle/train_runs` is the successful Kaggle FSQ
 autoencoder training notebook/artifact. It is valid evidence for the broad
@@ -3545,7 +3557,7 @@ python3 -m json.tool kaggle/kernels/non_eq_vae_debug/kernel-metadata.json
 Kaggle debug command that the script kernel must run after implementation:
 
 ```bash
-python -m eqvae.cli.train \
+python -m eqvae.cli.selected_runtime_train \
   --config configs/spec0001/non_eq_vae_kaggle_debug.json \
   --data ubc-pre-shuffled \
   --data-root auto \
@@ -3595,7 +3607,7 @@ python -m eqvae.cli.selected_runtime_gate \
 Future pass command inside that gate after the real UBC runner is wired:
 
 ```bash
-python -m eqvae.cli.train \
+python -m eqvae.cli.selected_runtime_train \
   --config configs/spec0001/non_eq_vae_selected_runtime_debug.json \
   --runtime-config /kaggle/input/eqvae-runtime-selection-v5/benchmark/selected_runtime.json \
   --data ubc-pre-shuffled \
@@ -3631,7 +3643,7 @@ python -m eqvae.cli.train \
 Kaggle tiny-overfit command that must pass before the first 10-epoch run:
 
 ```bash
-python -m eqvae.cli.train \
+python -m eqvae.cli.selected_runtime_train \
   --config configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json \
   --runtime-config /kaggle/input/eqvae-runtime-selection-v5/benchmark/selected_runtime.json \
   --data ubc-pre-shuffled \

@@ -22,13 +22,15 @@
     "full_run_eligible": false,
     "selected_runtime_debug_gate_contract_ready": true,
     "remote_pass_ready": false,
-    "real_train_runner_implemented": false,
+    "real_train_runner_implemented": true,
+    "selector_generation_mode": "remote_generate",
+    "remote_selector_generation_ready": true,
     "fixed_32_selector_real": false,
     "real_kaggle_proof_required": true
   },
   "training": {
-    "max_train_steps": 300,
-    "max_val_steps": 20,
-    "save_every_steps": 100
+    "max_train_steps": 128,
+    "max_val_steps": 1,
+    "save_every_steps": 64
   }
 }

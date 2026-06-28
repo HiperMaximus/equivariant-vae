@@ -58,6 +58,8 @@ class SelectedRuntimePlan:
     dataloader_non_blocking_h2d: bool
     corruption_strategy: str
     memory_format: str
+    ddp_static_graph: bool
+    ddp_gradient_as_bucket_view: bool
     zero_grad_set_to_none: bool
 
     def expected_application(self) -> JsonObject:
@@ -94,6 +96,8 @@ class SelectedRuntimePlan:
             },
             "corruption_strategy": self.corruption_strategy,
             "memory_format": self.memory_format,
+            "ddp_static_graph": self.ddp_static_graph,
+            "ddp_gradient_as_bucket_view": self.ddp_gradient_as_bucket_view,
             "zero_grad_set_to_none": self.zero_grad_set_to_none,
             "selected_runtime_artifact_sha256": self.artifact_sha256,
             "local_ddp_status": EXPECTED_DDP_APPLICATION_STATUS,
@@ -127,6 +131,8 @@ class SelectedRuntimeApplicationObservation:
     dataloader_non_blocking_h2d: bool
     corruption_strategy: str
     memory_format: str
+    ddp_static_graph: bool
+    ddp_gradient_as_bucket_view: bool
     zero_grad_set_to_none: bool
     local_ddp_status: str
     local_amp_status: str
@@ -163,6 +169,8 @@ class SelectedRuntimeApplicationObservation:
             },
             "corruption_strategy": self.corruption_strategy,
             "memory_format": self.memory_format,
+            "ddp_static_graph": self.ddp_static_graph,
+            "ddp_gradient_as_bucket_view": self.ddp_gradient_as_bucket_view,
             "zero_grad_set_to_none": self.zero_grad_set_to_none,
             "local_ddp_status": self.local_ddp_status,
             "local_amp_status": self.local_amp_status,
@@ -338,6 +346,11 @@ def _plan_from_payload(*, path: Path, payload: JsonObject) -> SelectedRuntimePla
         dataloader_non_blocking_h2d=_bool(dataloader, "non_blocking_h2d"),
         corruption_strategy=_str(corruption, "strategy"),
         memory_format=_str(runtime_policy, "memory_format"),
+        ddp_static_graph=_bool(runtime_policy, "ddp_static_graph"),
+        ddp_gradient_as_bucket_view=_bool(
+            runtime_policy,
+            "ddp_gradient_as_bucket_view",
+        ),
         zero_grad_set_to_none=_bool(runtime_policy, "zero_grad_set_to_none"),
     )
 
@@ -527,6 +540,8 @@ def _runtime_policy_errors(policy: object) -> tuple[str, ...]:
     payload = cast("JsonObject", policy)
     expected = {
         "memory_format": "contiguous",
+        "ddp_static_graph": False,
+        "ddp_gradient_as_bucket_view": False,
         "zero_grad_set_to_none": True,
     }
     return tuple(
@@ -905,6 +920,12 @@ def _application_mismatches(
         ),
         ("corruption_strategy", observed.corruption_strategy, plan.corruption_strategy),
         ("memory_format", observed.memory_format, plan.memory_format),
+        ("ddp_static_graph", observed.ddp_static_graph, plan.ddp_static_graph),
+        (
+            "ddp_gradient_as_bucket_view",
+            observed.ddp_gradient_as_bucket_view,
+            plan.ddp_gradient_as_bucket_view,
+        ),
         (
             "zero_grad_set_to_none",
             observed.zero_grad_set_to_none,

@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-06-22
+Last updated: 2026-06-28
 
 ## Active Workstream
 
@@ -29,25 +29,46 @@ train corruption, clean validation RNG isolation, integrated simulated AMP-skip
 progress semantics, strict pre-restore checkpoint/progress rejection, and
 observed local FP32/AMP-off row telemetry in `metrics/train_steps.csv`. All
 local artifacts remain non-promotable with `full_run_eligible = false`. The
+Spec 0007 selected-runtime real runner now exists as
+`eqvae.cli.selected_runtime_train`: it supports local dry-run/synthetic proof
+and the real `ubc-pre-shuffled` data surface, consumes the shared v5
+`SelectedRuntimePlan`, applies the selected batch/corruption/dataloader/
+zero-grad policy, implements the AMP/GradScaler train-step path with FP32
+objective islands, writes schema-v5 checkpoint/resume proof, emits
+`metrics/train_steps.csv` plus selected-runtime gate-health rows, and records
+tokenized `torchrun --standalone --nproc_per_node=2` launch plus DDP
+rank/device proof artifacts. Local dry-runs still fail the full dual-T4/AMP
+plan-applied proof and keep `remote_pass_ready = false`, as intended. The
+runner honors the selected DDP static-graph/bucket-view flags exactly,
+gathers per-rank metric/gate evidence, writes artifacts only on rank 0,
+records selected-runtime AMP/CUDA/DDP checkpoint state when active, and blocks
+readiness if an AMP skip is observed. The new local-only preflight is
+`./scripts/kaggle_kernel.sh preflight-selected-runtime-runner`. The
 push-readiness CLI now also consumes the structured readiness artifact instead
 of relying on config booleans alone. The selected-runtime
 debug/resume/artifact/tiny-overfit Kaggle gate contract exists as
 `selected_runtime_debug_gate_contract_ready`; it is locally preflightable and
-fail-closed, but it is not remote-pass-ready and the push guard blocks while
-`ubc-pre-shuffled` training is synthetic-only and the fixed-32 selector is a
-placeholder or not canonical-real-UBC-valid. The gate now rejects fabricated
-fixed-32 JSON and schema-valid synthetic shard replay unless the selector also
-matches locked real train-shard fingerprints from the real-data identity proof.
+fail-closed. Spec 0008 local `remote_generate` readiness is now implemented:
+the fixed-32 selector generator/readiness preflight proves synthetic selector
+determinism while rejecting synthetic selectors as canonical-real evidence, the
+selected-runtime debug wrapper generates and validates the canonical selector
+before bounded debug/tiny training, passes the generated selector into
+`eqvae.cli.selected_runtime_train`, and exposes a strict
+`eqvae.cli.selected_runtime_gate --verify-output` post-download verifier. The
+push guard remains explicit-user-gated and remote proof is still pending:
+downloaded Kaggle artifacts must prove the canonical real selector,
+selected-runtime plan application, checkpoint/resume, gate health, manifest,
+and tiny-overfit bounds before any pass claim.
 No long real training run should be requested until the real UBC/DDP/AMP debug,
-resume, artifact, gate-health, and tiny-overfit proofs pass.
-Commit `f9f0344` (`Add selected runtime debug proof runner`) was pushed to
-GitHub `origin/main`; the selected-runtime gate-contract and Spec 0006 local
-mechanics work is currently uncommitted in the working tree. The next work
-after this local slice is not a Kaggle push by default: implement the real
-UBC/DDP/AMP selected-runtime train runner and canonical real fixed-32 selector
-boundaries, then rerun local preflights and request explicit user approval
-before any remote selected-runtime debug/tiny action. Historical provenance
-follows.
+resume, artifact, gate-health, canonical selector, and tiny-overfit proofs
+pass.
+Commit `d02204c` (`Implement selected runtime local mechanics`) recorded Spec
+0006 plus adversarial fixes. Spec 0007 is implemented locally and Spec 0008
+local readiness now passes. On 2026-06-28, the user approved the narrow
+selected-runtime debug/tiny Kaggle push only; this is not approval for the first
+full long run. If Spec 0008 remote artifacts pass, the first full real
+selected-runtime run becomes the immediate next candidate action. Historical
+provenance follows.
 Synthetic timing is now
 completed provenance for screening: remote versions 1, 2, 3, and 4 completed
 successfully as non-promotable evidence, with v4 as the current
@@ -2384,13 +2405,14 @@ The review process lives in `docs/agentic_review_workflow.md`.
   safety statuses. `artifact_manifest.json` remains `status = "fail"` with
   `contract_written = true` while the real proof is absent.
   The selected-runtime debug/tiny configs now carry explicit
-  `remote_pass_ready = false`, `real_train_runner_implemented = false`, and
-  `fixed_32_selector_real = false`. The shell push guard checks those
-  structured flags, the embedded v5 payload, metadata, docs tokens, and now
-  delegates semantic push readiness to
+  `remote_pass_ready = false`, `real_train_runner_implemented = true`, and
+  `fixed_32_selector_real = false`; the remaining implementation blocker is
+  `selected_runtime_debug_wrapper_not_wired_to_real_runner_until_spec0008`.
+  The shell push guard checks those structured flags, the embedded v5 payload,
+  metadata, docs tokens, and now delegates semantic push readiness to
   `python -m eqvae.cli.selected_runtime_gate --verify-push-ready`. That
   verifier is deliberately narrower than full proof pass: it blocks on invalid
-  selected-runtime transport, missing real runner/plan capability, non-ready
+  selected-runtime transport, missing wrapper/plan capability, non-ready
   config flags, and invalid fixed-32 selector readiness, but not on remote
   debug/resume/gate/tiny artifacts that the selected-runtime debug run itself
   would have to produce.
@@ -2440,12 +2462,12 @@ The review process lives in `docs/agentic_review_workflow.md`.
   the current selected-runtime gate `metrics/train_metrics.csv` remains a
   fail-closed contract/preflight artifact unless later migrated. Spec 0003 and
   the spec index now state that a future selected-runtime debug/tiny remote push
-  may be requested only after `preflight-selected-runtime-debug` and
-  `eqvae.cli.selected_runtime_gate --verify-push-ready` both pass, the shell
-  push guard is expected to pass, the real UBC/DDP/AMP runner and canonical
-  fixed-32 selector exist, and the user explicitly approves. At that time,
-  `GOAL.md` and the top of this file named Spec 0006 as the immediate next
-  action; the later implementation note above and below supersedes that status.
+  may be requested only after `preflight-selected-runtime-debug` and the
+  structured selected-runtime push-readiness gate pass, the shell push guard is
+  expected to pass, real-runner and selector readiness are proven, and the user
+  explicitly approves. At that time, naming Spec 0006 as the immediate next
+  action was correct; the current active state above now supersedes it with
+  Spec 0007 followed by Spec 0008.
   Two adversarial subagent reviews were run on the spec/memory plan. Integrated
   fixes: split the broad checklist into locked child Spec 0006, tightened
   remote-approval wording, relabeled a stale historical `Immediate next action`,
@@ -2481,8 +2503,105 @@ The review process lives in `docs/agentic_review_workflow.md`.
   (`12 passed`), `./scripts/python_quality.sh` (`192 passed`, 0 type errors),
   `git diff --check`, repo `./scripts/agent_preflight.sh`, and workspace
   `./agent_preflight.sh`.
-  Remaining blockers are deliberately future work: real UBC/DDP/AMP selected
-  runtime runner, canonical real fixed-32 selector generation/validation, real
+- 2026-06-28 Spec 0008 local readiness implementation handoff:
+  Spec 0008 local-first readiness is implemented and locally verified without
+  Kaggle, network, remote approval, or long training. New fixed-32 readiness
+  code lives in `src/eqvae/benchmarking/fixed32_selector_readiness.py` and
+  `src/eqvae/cli/fixed32_selector_readiness.py`; it generates deterministic
+  synthetic UBC-format fixed-32 selectors, proves schema replay, and proves
+  synthetic selectors fail canonical-real UBC readiness. The selected-runtime
+  gate now supports `selector_generation_mode = "remote_generate"`, structured
+  local readiness, and `eqvae.cli.selected_runtime_gate --verify-output` for
+  downloaded remote artifacts. The selected-runtime debug wrapper now
+  remote-generates the canonical selector before training, validates it with
+  strict real UBC fingerprints, passes the generated selector into
+  `eqvae.cli.selected_runtime_train`, runs the bounded 4->8 resume debug proof
+  plus a separate capped 128-step tiny-overfit phase, writes final gate and
+  artifact-manifest summaries, and rejects failed plan/gate/manifest/tiny
+  artifacts. The runner now accepts `--fixed-train-patches`, restricts training
+  to the fixed selector rows, records selector path/hash/count, and reports
+  DDP-safe optimizer-step counts. The shell guard now runs
+  `preflight-fixed32-selector-readiness` and checks the embedded wrapper for the
+  real runner, selector, resume, tiny, and output-verifier paths.
+  Adversarial reviews found missing tiny-overfit execution, selector not being
+  passed into the runner, missing `--verify-output`, DDP metric-row overcount,
+  and static-only wrapper checks; those findings were fixed. Verification
+  passed: focused Spec 0008 tests (`34 passed`), `./scripts/kaggle_kernel.sh
+  preflight-fixed32-selector-readiness`, `./scripts/kaggle_kernel.sh
+  preflight-selected-runtime-debug` (`24 passed` after wrapper rebuild),
+  `./scripts/kaggle_kernel.sh preflight-selected-runtime-runner` (`43 passed`
+  plus bounded dry-run), explicit `eqvae.cli.selected_runtime_gate
+  --verify-push-ready --selector-generation-mode remote_generate`, full
+  `./scripts/python_quality.sh` (`215 passed`, 0 type errors),
+  `git diff --check`, and repo `./scripts/agent_preflight.sh`.
+  Remaining work is remote-only and approval-gated: ask the user before any
+  Kaggle push/read/download, run the narrow selected-runtime debug/tiny kernel,
+  download artifacts, run `--verify-output`, inspect them, and only then decide
+  whether the first full real selected-runtime run is the next action.
+- 2026-06-28 Spec 0007 implementation handoff:
+  Spec 0007 is implemented locally. New code lives in
+  `src/eqvae/training/selected_runtime_runner.py` and
+  `src/eqvae/cli/selected_runtime_train.py`, with tests in
+  `tests/test_selected_runtime_runner.py` and local preflight wiring in
+  `./scripts/kaggle_kernel.sh preflight-selected-runtime-runner`. The runner
+  consumes v5 `SelectedRuntimePlan`, supports synthetic dry-run and real
+  `ubc-pre-shuffled` roots, builds the exact
+  `torchrun --standalone --nproc_per_node=2` launch proof, validates real
+  distributed initialization/rank-device mapping, applies selected DDP
+  `static_graph = false` and `gradient_as_bucket_view = false`, keeps rank 0
+  as the only artifact writer, gathers per-rank train/gate rows, records
+  selected-runtime AMP/CUDA/DDP checkpoint-state statuses, bounds AMP-skip
+  retries, and blocks readiness on any AMP skip. The fail-closed debug gate now
+  reports `real_train_runner_implemented = true`; its remaining local blocker
+  is `selected_runtime_debug_wrapper_not_wired_to_real_runner_until_spec0008`.
+  No Kaggle command, remote approval request, or long training launch was run.
+  Adversarial review findings about DDP artifact races, stale checkpoint-state
+  proof, wrong DDP option inference, AMP skip progress, missing distributed
+  initialization validation, and stale "runner not implemented" wording were
+  integrated. Final local verification passed:
+  `PYTHONPATH=src .venv/bin/pytest tests/test_selected_runtime_runner.py -q`
+  (`4 passed`), selected-runtime gate/embedded slices (`30 passed`), exact
+  `eqvae.cli.selected_runtime_train` two-step synthetic dry-run,
+  `./scripts/kaggle_kernel.sh preflight-selected-runtime-runner`,
+  `./scripts/kaggle_kernel.sh preflight-selected-runtime-debug`, full
+  `./scripts/python_quality.sh` (`207 passed`, 0 type errors),
+  `git diff --check`, repo `./scripts/agent_preflight.sh`, and workspace
+  `/home/maximus/Documents/Tesis/agent_preflight.sh`. Next concrete action is
+  Spec 0008 local selector/readiness implementation; remote selected-runtime
+  debug/tiny still requires local readiness plus explicit user approval, and
+  it is not approval for a long full run.
+- 2026-06-22 real-runner and remote-debug/tiny specs:
+  after commit `d02204c` (`Implement selected runtime local mechanics`), the
+  next path was split into two locked specs. Spec 0007
+  (`docs/specs/0007-real-ubc-ddp-amp-selected-runtime-runner.md`) covered the
+  local real `ubc-pre-shuffled` selected runtime runner applying v5 exactly:
+  dual-T4 DDP, standalone torchrun with `--nproc_per_node=2`, per-device batch
+  12/global batch 24, AMP conservative FP16 autocast with GradScaler and FP32
+  loss islands, no compile, `indexed_masked` corruption, selected dataloader
+  policy, checkpoint/resume, artifact manifest, and gate-health proof writers.
+  It is now implemented locally as recorded above. Spec 0008
+  (`docs/specs/0008-canonical-fixed32-and-remote-debug-tiny-readiness.md`)
+  follows it and covers local-first fixed-32 selector generation, canonical
+  real UBC selector validation, and the narrow Kaggle selected-runtime
+  debug/tiny push after local readiness and explicit user approval. The long
+  full real training run remains out of scope for both specs, but it should be
+  the immediate next candidate once Spec 0008 remote artifacts pass. No Kaggle
+  command was run for this spec-writing update.
+  Adversarial review for this docs-only spec slice first found
+  selector-readiness circularity, placeholder verification commands,
+  underspecified fixed-32 generation, missing remote debug/tiny quantitative
+  bounds, and blurry Kaggle-wrapper ownership; fixes were integrated. A
+  follow-up review found stale pre-push wording that required a pre-existing
+  canonical selector despite the chosen `remote_generate` flow, plus an
+  optional-vs-required `selected_runtime_train` entry point; those fixes were
+  integrated too. Final verification after the docs fixes passed:
+  stale-phrase sweeps for selector/runner contradictions,
+  `./scripts/kaggle_kernel.sh preflight-selected-runtime-debug` (`22 passed`),
+  `./scripts/python_quality.sh` (`203 passed`, 0 type errors),
+  `git diff --check`, repo `./scripts/agent_preflight.sh`, and workspace
+  `/home/maximus/Documents/Tesis/agent_preflight.sh`.
+  Remaining blockers after Spec 0007 are deliberately future work:
+  remote-generated canonical real fixed-32 selector generation/validation, real
   gate-health/resume/tiny proofs, explicit user approval for any remote
   selected-runtime debug/tiny action, and no long real training launch until
   those gates pass.

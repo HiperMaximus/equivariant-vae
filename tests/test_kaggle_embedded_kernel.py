@@ -76,6 +76,7 @@ _EMBEDDED_PAYLOAD_B64_PATTERN = re.compile(
     flags=re.DOTALL,
 )
 _MASKED_HOLDOUT_CSV_PAYLOAD_PATH = "docs/data/ubc_ocean_masked_holdout_ids.csv"
+_EXPECTED_SELECTED_RUNTIME_DEBUG_RUNNER_CALLS = 2
 
 
 @dataclass(frozen=True)
@@ -461,6 +462,7 @@ def test_embedded_selected_runtime_debug_kernel_full_local_fail_closed_simulatio
     assert {path.name for path in benchmark_dir.iterdir()} == {
         "artifact_manifest.json",
         "checkpoint_resume_proof.json",
+        "fixed32_selector_readiness.json",
         "gate_health_summary.json",
         "local_selected_runtime_readiness.json",
         "selected_runtime_plan_applied.json",
@@ -482,8 +484,168 @@ def test_embedded_selected_runtime_debug_kernel_full_local_fail_closed_simulatio
     assert summary["benchmark_source"] == "kaggle_selected_runtime_debug_kernel"
     assert summary["full_run_eligible"] is False
     assert component_status["selected_runtime_transport"] == "pass"
-    assert "real_ubc_selected_runtime_train_runner_not_implemented" in blockers
+    selector_readiness = _load_json(benchmark_dir / "fixed32_selector_readiness.json")
+    assert selector_readiness["status"] == "fail"
+    assert selector_readiness["selector_generation_mode"] == "remote_generate"
     assert "fixed_32_selector_placeholder" in blockers
+
+
+def test_selected_runtime_debug_remote_selector_requires_canonical_status(
+    tmp_path: Path,
+) -> None:
+    """A zero-exit selector CLI is not enough without canonical-real status."""
+    from kaggle.kernels.selected_runtime_debug import run_template  # noqa: PLC0415
+
+    payload_dir = tmp_path / "payload"
+    output_dir = tmp_path / "output"
+    selector_path = output_dir / "benchmark" / "fixed_32_train_overfit_patches.json"
+    calls: list[tuple[str, ...]] = []
+
+    def fake_select_fixed_patches(args: object) -> int:
+        values = _arg_tuple(args)
+        calls.append(values)
+        output_value = _option_value(values, "--output")
+        output_path = Path(output_value)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text("{}\n", encoding="utf-8")
+        return 0
+
+    def fake_status(path: Path, *, data_root: str | None) -> dict[str, object]:
+        assert path == selector_path
+        assert data_root == "auto"
+        return {
+            "status": "fail",
+            "canonical_real_ubc": False,
+            "failure_kind": "fixed_32_selector_not_canonical_real_ubc",
+        }
+
+    result = run_template._generate_remote_fixed32_selector(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        select_fixed_patches_main=fake_select_fixed_patches,
+        fixed32_selector_status=fake_status,
+        payload_dir=payload_dir,
+        output_dir=output_dir,
+        data_root="auto",
+        selector_path=selector_path,
+    )
+
+    artifact = _load_json(output_dir / "benchmark" / "fixed32_selector_readiness.json")
+    assert result["status"] == "fail"
+    assert result["fixed_32_selector_real"] is False
+    assert artifact["status"] == "fail"
+    assert artifact["remote_selector_generation_ready"] is False
+    assert artifact["failure_kind"] == "fixed_32_selector_not_canonical_real_ubc"
+    assert calls
+    assert _option_value(calls[0], "--kind") == "fixed_32_train_overfit"
+    assert "--validate-crc" in calls[0]
+
+
+def test_selected_runtime_debug_real_runner_uses_resume_sequence(
+    tmp_path: Path,
+) -> None:
+    """The remote-pass branch launches 4 updates, then resumes to update 8."""
+    from kaggle.kernels.selected_runtime_debug import run_template  # noqa: PLC0415
+
+    calls: list[tuple[str, ...]] = []
+    payload_dir = tmp_path / "payload"
+    output_dir = tmp_path / "output"
+    selected_runtime_path = tmp_path / "selected_runtime.json"
+    fixed_train_patches = tmp_path / "fixed_32_train_overfit_patches.json"
+
+    def fake_selected_runtime_train(args: object) -> int:
+        values = _arg_tuple(args)
+        calls.append(values)
+        phase_output = Path(_option_value(values, "--output-dir"))
+        if len(calls) == 1:
+            checkpoint = phase_output / "checkpoints" / "step_000004.pt"
+            checkpoint.parent.mkdir(parents=True, exist_ok=True)
+            checkpoint.write_bytes(b"checkpoint")
+        return 0
+
+    exit_code = run_template._run_real_selected_runtime_debug(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        selected_runtime_train_main=fake_selected_runtime_train,
+        payload_dir=payload_dir,
+        output_dir=output_dir,
+        selected_runtime_path=selected_runtime_path,
+        data_root="auto",
+        fixed_train_patches=fixed_train_patches,
+    )
+
+    assert exit_code == 0
+    assert len(calls) == _EXPECTED_SELECTED_RUNTIME_DEBUG_RUNNER_CALLS
+    phase1, phase2 = calls
+    assert "--resume" not in phase1
+    assert _option_value(phase1, "--output-dir") == str(
+        output_dir / "resume_probe_phase1",
+    )
+    assert _option_value(phase1, "--max-train-steps") == "4"
+    assert _option_value(phase1, "--save-every-steps") == "4"
+    assert _option_value(phase1, "--data") == "ubc-pre-shuffled"
+    assert _option_value(phase1, "--fixed-train-patches") == str(fixed_train_patches)
+    assert _option_value(phase2, "--output-dir") == str(output_dir)
+    assert _option_value(phase2, "--resume") == str(
+        output_dir / "resume_probe_phase1" / "checkpoints" / "step_000004.pt",
+    )
+    assert _option_value(phase2, "--max-train-steps") == "8"
+    assert _option_value(phase2, "--save-every-steps") == "4"
+    assert _option_value(phase2, "--data") == "ubc-pre-shuffled"
+    assert _option_value(phase2, "--fixed-train-patches") == str(fixed_train_patches)
+
+
+def test_selected_runtime_debug_tiny_runner_uses_generated_selector(
+    tmp_path: Path,
+) -> None:
+    """The tiny phase is capped and consumes the generated fixed-32 selector."""
+    from kaggle.kernels.selected_runtime_debug import run_template  # noqa: PLC0415
+
+    calls: list[tuple[str, ...]] = []
+    payload_dir = tmp_path / "payload"
+    output_dir = tmp_path / "output"
+    selected_runtime_path = tmp_path / "selected_runtime.json"
+    fixed_train_patches = output_dir / "benchmark" / "fixed_32_train_overfit.json"
+
+    def fake_selected_runtime_train(args: object) -> int:
+        values = _arg_tuple(args)
+        calls.append(values)
+        tiny_output = Path(_option_value(values, "--output-dir"))
+        summary = tiny_output / "benchmark" / "tiny_overfit_summary.json"
+        summary.parent.mkdir(parents=True, exist_ok=True)
+        summary.write_text(
+            json.dumps(
+                {
+                    "status": "local_pass",
+                    "patch_count": 32,
+                    "optimizer_steps": 128,
+                    "l1_improvement_fraction": 0.02,
+                    "recon_loss_improvement_fraction": 0.02,
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        return 0
+
+    exit_code = run_template._run_real_selected_runtime_tiny_overfit(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        selected_runtime_train_main=fake_selected_runtime_train,
+        payload_dir=payload_dir,
+        output_dir=output_dir,
+        selected_runtime_path=selected_runtime_path,
+        data_root="auto",
+        fixed_train_patches=fixed_train_patches,
+    )
+
+    assert exit_code == 0
+    assert len(calls) == 1
+    call = calls[0]
+    assert _option_value(call, "--config") == str(
+        payload_dir / "configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json",
+    )
+    assert _option_value(call, "--data") == "ubc-pre-shuffled"
+    assert _option_value(call, "--fixed-train-patches") == str(fixed_train_patches)
+    assert _option_value(call, "--max-train-steps") == "128"
+    assert _option_value(call, "--save-every-steps") == "64"
+    copied = _load_json(output_dir / "benchmark" / "tiny_overfit_summary.json")
+    assert copied["status"] == "local_pass"
+    assert "source_summary_sha256" in copied
 
 
 def test_embedded_kernel_verify_rejects_stale_template(tmp_path: Path) -> None:
@@ -595,6 +757,30 @@ def _run_environment(output_dir: Path) -> dict[str, str]:
 
 def _load_json(path: Path) -> dict[str, object]:
     return cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+
+
+def _arg_tuple(args: object) -> tuple[str, ...]:
+    if not isinstance(args, tuple):
+        message = "expected tuple arguments"
+        raise TypeError(message)
+    items = cast("tuple[object, ...]", args)
+    if not all(isinstance(item, str) for item in items):
+        message = "expected string arguments"
+        raise TypeError(message)
+    return cast("tuple[str, ...]", items)
+
+
+def _option_value(args: tuple[str, ...], option: str) -> str:
+    try:
+        index = args.index(option)
+    except ValueError as error:
+        message = f"missing option: {option}"
+        raise AssertionError(message) from error
+    try:
+        return args[index + 1]
+    except IndexError as error:
+        message = f"missing value for option: {option}"
+        raise AssertionError(message) from error
 
 
 def _embedded_payload_names(run_path: Path) -> set[str]:

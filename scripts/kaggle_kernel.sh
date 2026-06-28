@@ -23,6 +23,8 @@ Usage:
   ./scripts/kaggle_kernel.sh validate [kernel_dir]
   ./scripts/kaggle_kernel.sh check [kernel_dir]
   ./scripts/kaggle_kernel.sh preflight-runtime-selection
+  ./scripts/kaggle_kernel.sh preflight-fixed32-selector-readiness
+  ./scripts/kaggle_kernel.sh preflight-selected-runtime-runner
   ./scripts/kaggle_kernel.sh preflight-selected-runtime-debug
   ./scripts/kaggle_kernel.sh api-check
   ./scripts/kaggle_kernel.sh push [kernel_dir] [extra kaggle args...]
@@ -1264,10 +1266,12 @@ EOF
   fi
   PYTHONPATH=src "$python_bin" -m eqvae.cli.selected_runtime_gate \
     --verify-push-ready \
+    --selector-generation-mode remote_generate \
     --debug-config configs/spec0001/non_eq_vae_selected_runtime_debug.json \
     --tiny-config configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json \
     --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json \
     --fixed-train-patches configs/spec0001/fixed_32_train_overfit_patches.json
+  preflight_fixed32_selector_readiness
 
   python3 - "$metadata" <<'PY'
 import json
@@ -1339,11 +1343,37 @@ payload = base64.b64decode(match.group("payload").encode("ascii"))
 with zipfile.ZipFile(io.BytesIO(payload)) as archive:
     names = set(archive.namelist())
     errors: list[str] = []
+    required_run_text = (
+        "selector_generation.get(\"status\") == \"pass\"",
+        "_generate_remote_fixed32_selector(",
+        "fixed32_selector_status(selector_path, data_root=data_root)",
+        "_run_real_selected_runtime_debug(",
+        "_run_real_selected_runtime_tiny_overfit(",
+        "_write_real_gate_summary(",
+        "selected_runtime_train_main(tuple(phase1_args))",
+        "selected_runtime_train_main(tuple(runner_args))",
+        "selected_runtime_train_main(tuple(args))",
+        "\"--fixed-train-patches\"",
+        "DEBUG_RESUME_STEP = 4",
+        "DEBUG_FINAL_STEP = 8",
+        "TINY_MAX_STEP = 128",
+        "\"--resume\"",
+        "step_{DEBUG_RESUME_STEP:06d}.pt",
+        "_validate_real_runner_artifacts(output_dir=output_dir)",
+    )
+    for text in required_run_text:
+        if text not in run_text:
+            errors.append(f"selected-runtime debug run.py missing required source text: {text}")
     required_files = {
+        "src/eqvae/benchmarking/fixed32_selector_readiness.py",
         "src/eqvae/benchmarking/selected_runtime_gate.py",
+        "src/eqvae/cli/fixed32_selector_readiness.py",
+        "src/eqvae/cli/select_fixed_patches.py",
         "src/eqvae/cli/selected_runtime_gate.py",
+        "src/eqvae/cli/selected_runtime_train.py",
         "src/eqvae/cli/train.py",
         "src/eqvae/training/debug.py",
+        "src/eqvae/training/selected_runtime_runner.py",
         "configs/spec0001/non_eq_vae_selected_runtime_debug.json",
         "configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json",
         "configs/spec0001/fixed_32_train_overfit_patches.json",
@@ -1357,7 +1387,9 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         gate_source = archive.read(
             "src/eqvae/benchmarking/selected_runtime_gate.py",
         ).decode("utf-8")
-        train_source = archive.read("src/eqvae/training/debug.py").decode("utf-8")
+        runner_source = archive.read(
+            "src/eqvae/training/selected_runtime_runner.py",
+        ).decode("utf-8")
         debug_config = json.loads(
             archive.read("configs/spec0001/non_eq_vae_selected_runtime_debug.json"),
         )
@@ -1450,26 +1482,40 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         if not isinstance(gate, dict):
             errors.append(f"{name} must be an object")
             continue
-        for key in (
-            "remote_pass_ready",
-            "real_train_runner_implemented",
-            "fixed_32_selector_real",
-        ):
-            if gate.get(key) is not True:
-                errors.append(f"{name}.{key} must be true before remote push")
+        expected_gate_values = {
+            "remote_pass_ready": False,
+            "real_train_runner_implemented": True,
+            "selector_generation_mode": "remote_generate",
+            "remote_selector_generation_ready": True,
+            "fixed_32_selector_real": False,
+        }
+        for key, expected in expected_gate_values.items():
+            if gate.get(key) != expected:
+                errors.append(f"{name}.{key} must be {expected!r} before remote push")
 
-    if "real_ubc_selected_runtime_train_runner_not_implemented" in gate_source:
-        errors.append(
-            "selected-runtime debug gate is fail-closed contract only; "
-            "real UBC train runner is not implemented",
-        )
-    if "Only data='synthetic' is implemented" in train_source:
+    stale_blockers = (
+        "real_ubc_selected_runtime_train_runner_not_implemented",
+        "selected_runtime_debug_wrapper_not_wired_to_real_runner_until_spec0008",
+    )
+    for stale in stale_blockers:
+        if stale in gate_source:
+            errors.append(f"selected-runtime debug gate contains stale blocker {stale}")
+    if "Only data='synthetic' is implemented" in runner_source:
         errors.append("train runner still rejects data='ubc-pre-shuffled'")
-    if fixed_selector.get("status") == "requires_real_data_generation":
-        errors.append("fixed_32_train_overfit_patches.json is still a placeholder")
+    required_runner_text = (
+        "_loaded_checkpoint_resume_proof",
+        "loaded_successful_optimizer_update_count",
+        "additional_optimizer_steps",
+        "ubc-pre-shuffled",
+    )
+    for text in required_runner_text:
+        if text not in runner_source:
+            errors.append(f"selected-runtime runner missing required source text: {text}")
+    if fixed_selector.get("status") != "requires_real_data_generation":
+        errors.append("embedded fixed_32 selector should remain a remote-generate placeholder")
     selectors = fixed_selector.get("selectors")
-    if not isinstance(selectors, list) or len(selectors) != 32:
-        errors.append("fixed_32 selector must contain exactly 32 train selectors")
+    if not isinstance(selectors, list) or selectors:
+        errors.append("embedded fixed_32 placeholder must not contain local selectors")
 
     if errors:
         for error in errors:
@@ -1480,7 +1526,12 @@ PY
   for required_text in \
     "KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True" \
     "selected_runtime_debug_gate_contract_ready" \
+    "remote_generate" \
+    "select_fixed_patches" \
+    "fixed_32_train_overfit" \
+    "fixed32_selector_readiness" \
     "selected_runtime_gate" \
+    "selected_runtime_train" \
     "selected_runtime_gate_summary.json" \
     "selected_runtime_debug_summary.json" \
     "selected_runtime_plan_applied.json" \
@@ -1647,6 +1698,76 @@ preflight_runtime_selection() {
     -q
 }
 
+preflight_fixed32_selector_readiness() {
+  local python_bin="${PYTHON:-.venv/bin/python}"
+  local synthetic_root="/tmp/eqvae-fixed32-synthetic-root"
+  local output_dir="$synthetic_root/readiness"
+  local selector_output="$synthetic_root/fixed_32_train_overfit_patches.json"
+
+  if [[ ! -x "$python_bin" ]]; then
+    echo "error: missing executable $python_bin; run repo setup before preflight" >&2
+    exit 1
+  fi
+
+  PYTHONPATH=src CUDA_VISIBLE_DEVICES="" "$python_bin" -m pytest \
+    tests/test_fixed_selectors.py \
+    tests/test_fixed32_selector_readiness.py \
+    -q
+
+  PYTHONPATH=src CUDA_VISIBLE_DEVICES="" "$python_bin" -m eqvae.cli.fixed32_selector_readiness \
+    --config configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json \
+    --synthetic-root "$synthetic_root" \
+    --output-dir "$output_dir" \
+    --masked-holdout-csv docs/data/ubc_ocean_masked_holdout_ids.csv
+
+  PYTHONPATH=src CUDA_VISIBLE_DEVICES="" "$python_bin" -m eqvae.cli.select_fixed_patches \
+    --config configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json \
+    --kind fixed_32_train_overfit \
+    --data-root "$synthetic_root" \
+    --masked-holdout-csv docs/data/ubc_ocean_masked_holdout_ids.csv \
+    --output "$selector_output" \
+    --validate-crc
+
+  "$python_bin" - "$output_dir" "$selector_output" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+output_dir = Path(sys.argv[1])
+selector_output = Path(sys.argv[2])
+readiness_path = output_dir / "benchmark" / "fixed32_selector_readiness.json"
+errors = []
+if not selector_output.exists():
+    errors.append(f"selector output missing: {selector_output}")
+if not readiness_path.exists():
+    errors.append(f"readiness artifact missing: {readiness_path}")
+else:
+    readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+    synthetic_status = readiness.get("synthetic_selector_status")
+    if not isinstance(synthetic_status, dict):
+        errors.append("synthetic_selector_status must be an object")
+        synthetic_status = {}
+    expected = {
+        "status": "pass",
+        "selector_generation_mode": "remote_generate",
+        "remote_selector_generation_ready": True,
+        "fixed_32_selector_real": False,
+        "synthetic_selector_deterministic": True,
+        "synthetic_selector_canonical_real_rejected": True,
+    }
+    for key, value in expected.items():
+        if readiness.get(key) != value:
+            errors.append(f"{key} must be {value!r}")
+    if synthetic_status.get("failure_kind") != "fixed_32_selector_not_canonical_real_ubc":
+        errors.append("synthetic selector must fail canonical-real readiness")
+
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+}
+
 preflight_selected_runtime_debug() {
   local python_bin="${PYTHON:-.venv/bin/python}"
 
@@ -1655,6 +1776,7 @@ preflight_selected_runtime_debug() {
     exit 1
   fi
 
+  preflight_fixed32_selector_readiness
   build_embedded_kernel "$selected_runtime_debug_kernel_dir"
   validate_kernel_dir "$selected_runtime_debug_kernel_dir"
   PYTHONPATH=src CUDA_VISIBLE_DEVICES="" "$python_bin" -m pytest \
@@ -1662,6 +1784,83 @@ preflight_selected_runtime_debug() {
     tests/test_kaggle_embedded_kernel.py::test_embedded_selected_runtime_debug_kernel_import_simulation \
     tests/test_kaggle_embedded_kernel.py::test_embedded_selected_runtime_debug_kernel_full_local_fail_closed_simulation \
     -q
+}
+
+preflight_selected_runtime_runner() {
+  local python_bin="${PYTHON:-.venv/bin/python}"
+  local output_dir="/tmp/eqvae-selected-runtime-runner-preflight-$$"
+
+  if [[ ! -x "$python_bin" ]]; then
+    echo "error: missing executable $python_bin; run repo setup before preflight" >&2
+    exit 1
+  fi
+
+  PYTHONPATH=src CUDA_VISIBLE_DEVICES="" "$python_bin" -m pytest \
+    tests/test_selected_runtime_gate.py \
+    tests/test_train_cli.py \
+    tests/test_selected_runtime_runner.py \
+    -q
+
+  PYTHONPATH=src CUDA_VISIBLE_DEVICES="" "$python_bin" -m eqvae.cli.selected_runtime_train \
+    --config configs/spec0001/non_eq_vae_selected_runtime_debug.json \
+    --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json \
+    --data synthetic \
+    --output-dir "$output_dir" \
+    --run-name spec0007_local_runner_dryrun \
+    --max-train-steps 2 \
+    --max-val-steps 1 \
+    --dry-run
+
+  "$python_bin" - "$output_dir" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+output_dir = Path(sys.argv[1])
+benchmark = output_dir / "benchmark"
+metrics = output_dir / "metrics"
+required = [
+    benchmark / "training_summary.json",
+    benchmark / "selected_runtime_debug_summary.json",
+    benchmark / "selected_runtime_plan_applied.json",
+    benchmark / "checkpoint_resume_proof.json",
+    benchmark / "gate_health_summary.json",
+    benchmark / "artifact_manifest.json",
+    metrics / "train_steps.csv",
+    metrics / "gate_health.csv",
+]
+missing = [str(path) for path in required if not path.exists()]
+if missing:
+    print(f"error: selected-runtime runner preflight missing artifacts: {missing}", file=sys.stderr)
+    raise SystemExit(1)
+
+summary = json.loads((benchmark / "training_summary.json").read_text(encoding="utf-8"))
+debug = json.loads((benchmark / "selected_runtime_debug_summary.json").read_text(encoding="utf-8"))
+plan = json.loads((benchmark / "selected_runtime_plan_applied.json").read_text(encoding="utf-8"))
+manifest = json.loads((benchmark / "artifact_manifest.json").read_text(encoding="utf-8"))
+readiness = json.loads((benchmark / "local_selected_runtime_readiness.json").read_text(encoding="utf-8"))
+
+errors = []
+if summary.get("full_run_eligible") is not False:
+    errors.append("training summary must remain non-promotable")
+if debug.get("real_train_runner_implemented") is not True:
+    errors.append("runner readiness must prove real_train_runner_implemented=true")
+if debug.get("remote_pass_ready") is not False:
+    errors.append("runner dry-run must not claim remote_pass_ready")
+if plan.get("status") != "fail" or plan.get("plan_applied") is not False:
+    errors.append("local dry-run must fail full dual-T4/AMP plan application")
+if readiness.get("remote_pass_ready") is not False:
+    errors.append("local readiness must keep remote_pass_ready=false")
+if manifest.get("status") != "local_pass":
+    errors.append("artifact manifest must pass locally")
+if (benchmark / "selected_runtime.json").exists():
+    errors.append("runner preflight must not write benchmark/selected_runtime.json")
+
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PY
 }
 
 action="${1:-}"
@@ -1689,6 +1888,12 @@ case "$action" in
     ;;
   preflight-runtime-selection)
     preflight_runtime_selection
+    ;;
+  preflight-fixed32-selector-readiness)
+    preflight_fixed32_selector_readiness
+    ;;
+  preflight-selected-runtime-runner)
+    preflight_selected_runtime_runner
     ;;
   preflight-selected-runtime-debug)
     preflight_selected_runtime_debug

@@ -3,25 +3,27 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
+from eqvae.benchmarking.fixed32_selector_readiness import (
+    EXPECTED_TINY_SELECTOR_COUNT,
+    LOCAL_SELECTOR_MODE,
+    OK_STATUS,
+    REMOTE_GENERATE_MODE,
+    Fixed32RemoteGenerateReadinessRequest,
+    fixed32_selector_status,
+    readiness_blockers,
+    write_fixed32_remote_generate_readiness,
+)
 from eqvae.benchmarking.io import JsonObject, write_csv, write_json
 from eqvae.benchmarking.runtime_schema import GATE_HEALTH_COLUMNS
 from eqvae.config import ResolvedConfig, resolve_json_config
-from eqvae.data.fixed_selectors import (
-    FIXED_32_TRAIN_OVERFIT_KIND,
-    FixedSelectorDocument,
-    load_fixed_selector_document,
-    validate_fixed_selector_document,
-)
-from eqvae.data.patch_shards import PatchShardSpec
-from eqvae.data.roots import TRAIN_BIN_NAME, TRAIN_CSV_NAME, resolve_patch_data_paths
-from eqvae.data.splits import load_masked_holdout_wsi_ids
 from eqvae.training.selected_runtime import (
     EXPECTED_DATASET_SLUG,
     EXPECTED_RUNTIME_POLICY_ID,
@@ -34,17 +36,12 @@ from eqvae.training.selected_runtime import (
 GATE_SCHEMA_VERSION = "spec0001.selected_runtime_debug_gate.v1"
 GATE_KIND = "kaggle_selected_runtime_debug_resume_tiny_gate"
 GATE_SOURCE = "kaggle_selected_runtime_debug_kernel"
-EXPECTED_TINY_SELECTOR_COUNT = 32
-EXPECTED_REAL_TRAIN_PATCH_COUNT = 300_000
-EXPECTED_REAL_TRAIN_CSV_SHA256 = (
-    "8fc4959f7de006eed259f818ef2cc4ea03d1f3ec6ba483bf7229c04562f22a52"
-)
-EXPECTED_REAL_TRAIN_BIN_FILE_SIZE = 58_982_400_064
-EXPECTED_REAL_TRAIN_HEADER_CRC32 = 1_289_496_176
+type SelectorGenerationMode = Literal["local_selector", "remote_generate"]
 FAIL_STATUS = "fail"
-OK_STATUS = "pass"
-REAL_UBC_SELECTED_RUNTIME_TRAIN_RUNNER_IMPLEMENTED = False
+REAL_UBC_SELECTED_RUNTIME_TRAIN_RUNNER_IMPLEMENTED = True
+SELECTED_RUNTIME_DEBUG_WRAPPER_WIRED_TO_REAL_RUNNER = True
 SELECTED_RUNTIME_PLAN_APPLIED_TO_TRAINING = False
+REMOTE_DEBUG_PENDING_BLOCKER = "selected_runtime_debug_remote_proof_pending"
 TRAIN_METRIC_COLUMNS = (
     "optimizer_step",
     "loss",
@@ -59,6 +56,32 @@ TRAIN_METRIC_COLUMNS = (
     "nonfinite_count",
     "checkpoint_path",
 )
+REMOTE_DEBUG_REQUIRED_BENCHMARK_ARTIFACTS = frozenset(
+    {
+        "artifact_manifest.json",
+        "checkpoint_resume_proof.json",
+        "fixed32_selector_readiness.json",
+        "fixed_32_train_overfit_patches.json",
+        "gate_health_summary.json",
+        "local_selected_runtime_readiness.json",
+        "selected_runtime_plan_applied.json",
+        "selected_runtime_debug_summary.json",
+        "selected_runtime_gate_summary.json",
+        "tiny_overfit_summary.json",
+        "training_summary.json",
+    },
+)
+REMOTE_DEBUG_REQUIRED_METRIC_ARTIFACTS = frozenset(
+    {
+        "gate_health.csv",
+        "train_steps.csv",
+    },
+)
+REMOTE_DEBUG_FINAL_STEP = 8
+REMOTE_DEBUG_RESUME_STEP = 4
+REMOTE_TINY_MAX_STEP = 128
+REMOTE_TINY_MIN_IMPROVEMENT_FRACTION = 0.01
+RUNNER_OK_STATUS = "local_pass"
 
 
 @dataclass(frozen=True)
@@ -72,6 +95,7 @@ class SelectedRuntimeGateRequest:
     run_name: str
     data_root: str | None = None
     fixed_train_patches: Path | None = None
+    selector_generation_mode: SelectorGenerationMode = LOCAL_SELECTOR_MODE
 
 
 @dataclass(frozen=True)
@@ -95,11 +119,10 @@ def write_selected_runtime_gate(
 ) -> SelectedRuntimeGateResult:
     """Write selected-runtime gate artifacts without launching long training.
 
-    The current implementation intentionally fails closed because the real
-    `ubc-pre-shuffled` DDP/AMP training runner is not wired yet. It still
-    validates and records the selected-runtime transport, config hashes, fixed
-    selector readiness, and artifact contract that the Kaggle kernel must
-    preserve.
+    The current implementation intentionally fails closed for local artifact
+    writing. The real `ubc-pre-shuffled` DDP/AMP runner is wired through the
+    selected-runtime debug wrapper, but downloaded remote artifacts are still
+    required before any pass claim.
 
     Returns:
         Paths to the gate artifacts.
@@ -127,10 +150,11 @@ def write_selected_runtime_gate(
         config_path=request.tiny_config_path,
         resolved=tiny_resolved,
     )
-    selector_status = _selector_status(
+    selector_status = fixed32_selector_status(
         selector_path,
         data_root=request.data_root,
     )
+    selector_status["selector_generation_mode"] = request.selector_generation_mode
     blockers = _launch_blockers(
         runtime_errors=runtime_errors,
         selector_status=selector_status,
@@ -197,6 +221,7 @@ def write_selected_runtime_gate(
     write_json(
         paths.local_readiness,
         _local_readiness_summary(
+            selector_generation_mode=request.selector_generation_mode,
             runtime_identity=runtime_identity,
             selector_status=selector_status,
             blockers=blockers,
@@ -207,6 +232,7 @@ def write_selected_runtime_gate(
     write_json(
         paths.local_readiness,
         _local_readiness_summary(
+            selector_generation_mode=request.selector_generation_mode,
             runtime_identity=runtime_identity,
             selector_status=selector_status,
             blockers=blockers,
@@ -228,11 +254,12 @@ def write_selected_runtime_gate(
     )
 
 
-def verify_selected_runtime_debug_push_ready(
+def verify_selected_runtime_debug_push_ready(  # noqa: PLR0913
     *,
     debug_config_path: Path,
     tiny_config_path: Path,
     selected_runtime_path: Path,
+    selector_generation_mode: SelectorGenerationMode = LOCAL_SELECTOR_MODE,
     data_root: str | None = None,
     fixed_train_patches: Path | None = None,
 ) -> tuple[str, ...]:
@@ -254,39 +281,230 @@ def verify_selected_runtime_debug_push_ready(
         config_path=tiny_config_path,
         resolved=tiny_resolved,
     )
-    selector_status = _selector_status(selector_path, data_root=data_root)
+    selector_status = fixed32_selector_status(selector_path, data_root=data_root)
+    selector_status["selector_generation_mode"] = selector_generation_mode
     blockers = [
         *_push_readiness_blockers(
             runtime_errors=runtime_errors,
             selector_status=selector_status,
+            selector_generation_mode=selector_generation_mode,
         ),
         *_structured_readiness_blockers(
             debug_config_path=debug_config_path,
             tiny_config_path=tiny_config_path,
             selected_runtime_path=selected_runtime_path,
+            selector_generation_mode=selector_generation_mode,
             data_root=data_root,
             fixed_train_patches=selector_path,
         ),
         *_readiness_config_blockers(
             resolved=debug_resolved,
             gate_key="selected_runtime_debug",
+            selector_generation_mode=selector_generation_mode,
         ),
         *_readiness_config_blockers(
             resolved=tiny_resolved,
             gate_key="selected_runtime_debug_gate",
+            selector_generation_mode=selector_generation_mode,
         ),
     ]
     return _dedupe_strings(tuple(blockers))
 
 
-def _structured_readiness_blockers(
+def verify_selected_runtime_debug_output(  # noqa: PLR0914
+    *,
+    output_dir: Path,
+    selected_runtime_path: Path,
+) -> tuple[str, ...]:
+    """Return blockers for a downloaded selected-runtime debug/tiny output.
+
+    Returns:
+        Stable blocker names. Empty means the artifact contract passed locally.
+
+    """
+    benchmark_dir = output_dir / "benchmark"
+    metrics_dir = output_dir / "metrics"
+    blockers: list[str] = []
+    if not benchmark_dir.exists():
+        return ("selected_runtime_output_benchmark_dir_missing",)
+    observed_benchmark: set[str] = {path.name for path in benchmark_dir.iterdir()}
+    observed_metrics: set[str] = (
+        {path.name for path in metrics_dir.iterdir()} if metrics_dir.exists() else set()
+    )
+    missing_benchmark = REMOTE_DEBUG_REQUIRED_BENCHMARK_ARTIFACTS - observed_benchmark
+    unexpected_benchmark = (
+        observed_benchmark - REMOTE_DEBUG_REQUIRED_BENCHMARK_ARTIFACTS
+    )
+    missing_metrics = REMOTE_DEBUG_REQUIRED_METRIC_ARTIFACTS - observed_metrics
+    unexpected_metrics = observed_metrics - REMOTE_DEBUG_REQUIRED_METRIC_ARTIFACTS
+    blockers.extend(
+        f"selected_runtime_output_missing_{name}" for name in sorted(missing_benchmark)
+    )
+    blockers.extend(
+        f"selected_runtime_output_unexpected_{name}"
+        for name in sorted(unexpected_benchmark)
+    )
+    blockers.extend(
+        f"selected_runtime_output_missing_metric_{name}"
+        for name in sorted(missing_metrics)
+    )
+    blockers.extend(
+        f"selected_runtime_output_unexpected_metric_{name}"
+        for name in sorted(unexpected_metrics)
+    )
+    if (benchmark_dir / "selected_runtime.json").exists():
+        blockers.append("selected_runtime_output_wrote_selected_runtime")
+    if blockers:
+        return _dedupe_strings(tuple(blockers))
+
+    runtime_sha256 = _sha256_file(selected_runtime_path)
+    training_summary = _load_json(benchmark_dir / "training_summary.json")
+    debug_summary = _load_json(benchmark_dir / "selected_runtime_debug_summary.json")
+    plan_applied = _load_json(benchmark_dir / "selected_runtime_plan_applied.json")
+    resume_proof = _load_json(benchmark_dir / "checkpoint_resume_proof.json")
+    gate_health = _load_json(benchmark_dir / "gate_health_summary.json")
+    artifact_manifest = _load_json(benchmark_dir / "artifact_manifest.json")
+    selector_readiness = _load_json(benchmark_dir / "fixed32_selector_readiness.json")
+    tiny_summary = _load_json(benchmark_dir / "tiny_overfit_summary.json")
+    gate_summary = _load_json(benchmark_dir / "selected_runtime_gate_summary.json")
+    blockers.extend(
+        _remote_output_json_blockers(
+            runtime_sha256=runtime_sha256,
+            training_summary=training_summary,
+            debug_summary=debug_summary,
+            plan_applied=plan_applied,
+            resume_proof=resume_proof,
+            gate_health=gate_health,
+            artifact_manifest=artifact_manifest,
+            selector_readiness=selector_readiness,
+            tiny_summary=tiny_summary,
+            gate_summary=gate_summary,
+        ),
+    )
+    blockers.extend(_remote_output_train_step_blockers(metrics_dir / "train_steps.csv"))
+    return _dedupe_strings(tuple(blockers))
+
+
+def _remote_output_json_blockers(  # noqa: C901, PLR0912, PLR0913
+    *,
+    runtime_sha256: str,
+    training_summary: JsonObject,
+    debug_summary: JsonObject,
+    plan_applied: JsonObject,
+    resume_proof: JsonObject,
+    gate_health: JsonObject,
+    artifact_manifest: JsonObject,
+    selector_readiness: JsonObject,
+    tiny_summary: JsonObject,
+    gate_summary: JsonObject,
+) -> tuple[str, ...]:
+    blockers: list[str] = []
+    runtime_config = training_summary.get("runtime_config")
+    runtime_config_payload = runtime_config if isinstance(runtime_config, dict) else {}
+    if runtime_config_payload.get("sha256") != runtime_sha256:
+        blockers.append("selected_runtime_output_runtime_sha256_mismatch")
+    if training_summary.get("status") != RUNNER_OK_STATUS:
+        blockers.append("selected_runtime_output_training_summary_not_pass")
+    if training_summary.get("optimizer_steps_completed") != REMOTE_DEBUG_FINAL_STEP:
+        blockers.append("selected_runtime_output_debug_steps_not_8")
+    if training_summary.get("amp_step_skipped_count") != 0:
+        blockers.append("selected_runtime_output_amp_skips_nonzero")
+    if training_summary.get("nonfinite_count") != 0:
+        blockers.append("selected_runtime_output_nonfinite_nonzero")
+    if debug_summary.get("remote_pass_ready") is not False:
+        blockers.append("selected_runtime_output_debug_claims_remote_pass_ready")
+    if plan_applied.get("status") != RUNNER_OK_STATUS:
+        blockers.append("selected_runtime_output_plan_applied_not_pass")
+    if plan_applied.get("plan_applied") is not True:
+        blockers.append("selected_runtime_output_plan_applied_false")
+    if resume_proof.get("status") != RUNNER_OK_STATUS:
+        blockers.append("selected_runtime_output_resume_proof_not_pass")
+    if (
+        resume_proof.get("loaded_successful_optimizer_update_count")
+        != REMOTE_DEBUG_RESUME_STEP
+    ):
+        blockers.append("selected_runtime_output_resume_not_from_step4")
+    if resume_proof.get("additional_optimizer_steps") != REMOTE_DEBUG_RESUME_STEP:
+        blockers.append("selected_runtime_output_resume_additional_steps_not_4")
+    if gate_health.get("status") != RUNNER_OK_STATUS:
+        blockers.append("selected_runtime_output_gate_health_not_pass")
+    if artifact_manifest.get("status") != RUNNER_OK_STATUS:
+        blockers.append("selected_runtime_output_artifact_manifest_not_pass")
+    if artifact_manifest.get("reconstruction_sample_nonblank") is not True:
+        blockers.append("selected_runtime_output_reconstruction_blank")
+    if selector_readiness.get("fixed_32_selector_real") is not True:
+        blockers.append("selected_runtime_output_fixed32_selector_not_real")
+    if selector_readiness.get("status") != OK_STATUS:
+        blockers.append("selected_runtime_output_fixed32_selector_not_pass")
+    if tiny_summary.get("status") != RUNNER_OK_STATUS:
+        blockers.append("selected_runtime_output_tiny_overfit_not_pass")
+    if tiny_summary.get("patch_count") != EXPECTED_TINY_SELECTOR_COUNT:
+        blockers.append("selected_runtime_output_tiny_patch_count_not_32")
+    if tiny_summary.get("optimizer_steps") != REMOTE_TINY_MAX_STEP:
+        blockers.append("selected_runtime_output_tiny_steps_not_128")
+    if (
+        _float_value(tiny_summary.get("l1_improvement_fraction"))
+        < REMOTE_TINY_MIN_IMPROVEMENT_FRACTION
+    ):
+        blockers.append("selected_runtime_output_tiny_l1_improvement_low")
+    if (
+        _float_value(tiny_summary.get("recon_loss_improvement_fraction"))
+        < REMOTE_TINY_MIN_IMPROVEMENT_FRACTION
+    ):
+        blockers.append("selected_runtime_output_tiny_recon_improvement_low")
+    if gate_summary.get("status") != RUNNER_OK_STATUS:
+        blockers.append("selected_runtime_output_gate_summary_not_pass")
+    return tuple(blockers)
+
+
+def _remote_output_train_step_blockers(path: Path) -> tuple[str, ...]:
+    with path.open(encoding="utf-8", newline="") as csv_file:
+        rows = list(csv.DictReader(csv_file))
+    if not rows:
+        return ("selected_runtime_output_train_steps_empty",)
+    blockers: list[str] = []
+    successful_steps = {
+        int(row["successful_optimizer_update_count"])
+        for row in rows
+        if row.get("amp_step_skipped") == "0"
+        and row.get("successful_optimizer_update_count")
+    }
+    if max(successful_steps, default=0) != REMOTE_DEBUG_FINAL_STEP:
+        blockers.append("selected_runtime_output_train_steps_do_not_reach_8")
+    if (
+        min(successful_steps, default=REMOTE_DEBUG_FINAL_STEP)
+        <= REMOTE_DEBUG_RESUME_STEP
+    ):
+        blockers.append("selected_runtime_output_train_steps_not_resumed_only")
+    if any(row.get("amp_step_skipped") != "0" for row in rows):
+        blockers.append("selected_runtime_output_train_steps_amp_skip")
+    if any(int(row.get("nonfinite_count", "0")) != 0 for row in rows):
+        blockers.append("selected_runtime_output_train_steps_nonfinite")
+    return tuple(blockers)
+
+
+def _float_value(value: object) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, int | float):
+        return float(value)
+    return 0.0
+
+
+def _structured_readiness_blockers(  # noqa: PLR0913
     *,
     debug_config_path: Path,
     tiny_config_path: Path,
     selected_runtime_path: Path,
+    selector_generation_mode: SelectorGenerationMode,
     data_root: str | None,
     fixed_train_patches: Path,
 ) -> tuple[str, ...]:
+    if selector_generation_mode == REMOTE_GENERATE_MODE:
+        return _remote_generate_structured_readiness_blockers(
+            debug_config_path=debug_config_path,
+            selected_runtime_path=selected_runtime_path,
+        )
     with tempfile.TemporaryDirectory(
         prefix="eqvae_selected_runtime_verify_",
     ) as output_root:
@@ -299,13 +517,53 @@ def _structured_readiness_blockers(
                 run_name="selected_runtime_push_readiness_probe",
                 data_root=data_root,
                 fixed_train_patches=fixed_train_patches,
+                selector_generation_mode=LOCAL_SELECTOR_MODE,
             ),
         )
         readiness = _load_json(result.local_readiness)
-    return _local_readiness_blockers(readiness)
+    return _local_readiness_blockers(
+        readiness,
+        selector_generation_mode=selector_generation_mode,
+    )
 
 
-def _local_readiness_blockers(readiness: JsonObject) -> tuple[str, ...]:
+def _remote_generate_structured_readiness_blockers(
+    *,
+    debug_config_path: Path,
+    selected_runtime_path: Path,
+) -> tuple[str, ...]:
+    runtime_payload = _load_json(selected_runtime_path)
+    runtime_errors = _selected_runtime_errors(
+        runtime_payload,
+        selected_runtime_path=selected_runtime_path,
+    )
+    with tempfile.TemporaryDirectory(prefix="eqvae_fixed32_remote_generate_") as root:
+        root_path = Path(root)
+        result = write_fixed32_remote_generate_readiness(
+            Fixed32RemoteGenerateReadinessRequest(
+                output_dir=root_path / "readiness",
+                synthetic_root=root_path / "synthetic-root",
+                config_path=debug_config_path,
+                masked_holdout_csv=Path("docs/data/ubc_ocean_masked_holdout_ids.csv"),
+            ),
+        )
+        readiness = _load_json(result.readiness_path)
+    blockers = [
+        *readiness_blockers(readiness),
+        *(("selected_runtime_transport_validation_failed",) if runtime_errors else ()),
+    ]
+    if not REAL_UBC_SELECTED_RUNTIME_TRAIN_RUNNER_IMPLEMENTED:
+        blockers.append("real_ubc_selected_runtime_train_runner_not_implemented")
+    if not SELECTED_RUNTIME_DEBUG_WRAPPER_WIRED_TO_REAL_RUNNER:
+        blockers.append("selected_runtime_debug_wrapper_not_wired_to_real_runner")
+    return tuple(blockers)
+
+
+def _local_readiness_blockers(
+    readiness: JsonObject,
+    *,
+    selector_generation_mode: SelectorGenerationMode,
+) -> tuple[str, ...]:
     blockers: list[str] = []
     if readiness.get("status") != OK_STATUS:
         blockers.append("local_selected_runtime_readiness_status_not_pass")
@@ -317,6 +575,8 @@ def _local_readiness_blockers(readiness: JsonObject) -> tuple[str, ...]:
         )
     if readiness.get("fixed_32_selector_real") is not True:
         blockers.append("local_selected_runtime_readiness_fixed_32_selector_real_false")
+    if readiness.get("selector_generation_mode") != selector_generation_mode:
+        blockers.append("local_selected_runtime_readiness_selector_mode_mismatch")
 
     component_status = readiness.get("component_status")
     if not isinstance(component_status, dict):
@@ -453,7 +713,7 @@ def _training_summary(
         "amp_step_skipped_count": 0,
         "scheduler_advanced_after_amp_skip": False,
         "checkpoint_count": 0,
-        "failure_kind": "real_ubc_selected_runtime_train_runner_not_implemented",
+        "failure_kind": REMOTE_DEBUG_PENDING_BLOCKER,
         "launch_blockers_remaining": list(blockers),
     }
 
@@ -476,7 +736,7 @@ def _debug_summary(
         "checkpoint_resume_proof_status": FAIL_STATUS,
         "artifact_manifest": "benchmark/artifact_manifest.json",
         "real_kaggle_debug_status": FAIL_STATUS,
-        "failure_kind": "real_ubc_selected_runtime_train_runner_not_implemented",
+        "failure_kind": REMOTE_DEBUG_PENDING_BLOCKER,
         "launch_blockers_remaining": list(blockers),
     }
 
@@ -604,6 +864,7 @@ def _artifact_manifest(*, paths: _GateArtifactPaths) -> JsonObject:
 
 def _local_readiness_summary(
     *,
+    selector_generation_mode: SelectorGenerationMode,
     runtime_identity: JsonObject,
     selector_status: JsonObject,
     blockers: tuple[str, ...],
@@ -638,6 +899,10 @@ def _local_readiness_summary(
             "remote_pass_ready": False,
             "real_train_runner_implemented": (
                 REAL_UBC_SELECTED_RUNTIME_TRAIN_RUNNER_IMPLEMENTED
+            ),
+            "selector_generation_mode": selector_generation_mode,
+            "remote_selector_generation_ready": (
+                selector_generation_mode == REMOTE_GENERATE_MODE
             ),
             "fixed_32_selector_real": selector_status.get("canonical_real_ubc") is True,
             "component_status": component_status,
@@ -696,216 +961,6 @@ def _selector_path(*, config_path: Path, resolved: ResolvedConfig) -> Path:
     return Path.cwd() / path
 
 
-def _selector_status(path: Path, *, data_root: str | None) -> JsonObject:
-    if not path.exists():
-        return {
-            "path": str(path),
-            "sha256": "",
-            "status": FAIL_STATUS,
-            "selector_count": 0,
-            "expected_count": EXPECTED_TINY_SELECTOR_COUNT,
-            "failure_kind": "fixed_32_selector_missing",
-            "validation_errors": ["fixed_32_selector_missing"],
-            "canonical_real_ubc": False,
-        }
-    payload = _load_json(path)
-    selectors = payload.get("selectors")
-    selector_count = len(selectors) if isinstance(selectors, list) else 0
-    errors = list(_raw_selector_errors(payload, selector_count=selector_count))
-    validation_detail = ""
-    if not errors:
-        try:
-            document = load_fixed_selector_document(path)
-        except (KeyError, TypeError, ValueError) as error:
-            errors.append("fixed_32_selector_schema_invalid")
-            validation_detail = str(error)
-        else:
-            document_errors, validation_detail = _selector_document_errors(
-                path=path,
-                data_root=data_root,
-                document=document,
-            )
-            errors.extend(document_errors)
-    return cast(
-        "JsonObject",
-        {
-            "path": str(path),
-            "sha256": _sha256_file(path),
-            "status": OK_STATUS if not errors else FAIL_STATUS,
-            "selector_count": selector_count,
-            "expected_count": EXPECTED_TINY_SELECTOR_COUNT,
-            "failure_kind": "" if not errors else errors[0],
-            "validation_errors": errors,
-            "validation_detail": validation_detail,
-            "canonical_real_ubc": not errors,
-        },
-    )
-
-
-def _raw_selector_errors(
-    payload: JsonObject,
-    *,
-    selector_count: int,
-) -> tuple[str, ...]:
-    errors: list[str] = []
-    if payload.get("status") == "requires_real_data_generation":
-        errors.append("fixed_32_selector_placeholder")
-    if payload.get("selector_kind") != FIXED_32_TRAIN_OVERFIT_KIND:
-        errors.append("fixed_32_selector_wrong_kind")
-    if payload.get("source_split") != "train":
-        errors.append("fixed_32_selector_not_train_split")
-    if _selector_dataset_slug(payload) != EXPECTED_DATASET_SLUG:
-        errors.append("fixed_32_selector_wrong_dataset")
-    if selector_count != EXPECTED_TINY_SELECTOR_COUNT:
-        errors.append("fixed_32_selector_count_not_32")
-    return tuple(errors)
-
-
-def _selector_dataset_slug(payload: JsonObject) -> str:
-    dataset_slug = payload.get("dataset_slug")
-    if isinstance(dataset_slug, str):
-        return dataset_slug
-    source = payload.get("source")
-    if isinstance(source, dict):
-        source_slug = source.get("dataset_slug")
-        if isinstance(source_slug, str):
-            return source_slug
-    return ""
-
-
-def _selector_document_errors(
-    *,
-    path: Path,
-    data_root: str | None,
-    document: FixedSelectorDocument,
-) -> tuple[tuple[str, ...], str]:
-    detail = ""
-    errors = list(_selector_document_basic_errors(document))
-    if errors:
-        return tuple(errors), detail
-
-    document_data_root = (
-        None if document.source.data_root is None else str(document.source.data_root)
-    )
-    resolved_data_root = data_root or document_data_root or "auto"
-    try:
-        paths = resolve_patch_data_paths(resolved_data_root)
-    except FileNotFoundError as error:
-        return ("fixed_32_selector_data_unavailable",), str(error)
-
-    holdout_path = _masked_holdout_path(
-        selector_path=path,
-        selector_value=document.masked_holdout_exclusion,
-    )
-    try:
-        masked_holdout_wsi_ids = load_masked_holdout_wsi_ids(holdout_path)
-    except (OSError, ValueError) as error:
-        return ("fixed_32_selector_masked_holdout_unavailable",), str(error)
-
-    train_paths = paths.for_split("train")
-    shard_spec = PatchShardSpec(
-        bin_path=train_paths.bin_path,
-        csv_path=train_paths.csv_path,
-        image_size=document.source.header.height,
-        channels=document.source.header.channels,
-        validate_crc=True,
-    )
-    try:
-        validate_fixed_selector_document(
-            document=document,
-            shard_spec=shard_spec,
-            expected_kind=FIXED_32_TRAIN_OVERFIT_KIND,
-            masked_holdout_wsi_ids=masked_holdout_wsi_ids,
-        )
-    except (EOFError, OSError, TypeError, ValueError) as error:
-        return ("fixed_32_selector_validation_failed",), str(error)
-    canonical_errors = _canonical_real_ubc_selector_errors(document)
-    if canonical_errors:
-        return ("fixed_32_selector_not_canonical_real_ubc",), "; ".join(
-            canonical_errors,
-        )
-    return (), detail
-
-
-def _selector_document_basic_errors(
-    document: FixedSelectorDocument,
-) -> tuple[str, ...]:
-    errors: list[str] = []
-    if document.selector_kind != FIXED_32_TRAIN_OVERFIT_KIND:
-        errors.append("fixed_32_selector_wrong_kind")
-    if document.source_split != "train":
-        errors.append("fixed_32_selector_not_train_split")
-    if document.source.dataset_slug != EXPECTED_DATASET_SLUG:
-        errors.append("fixed_32_selector_wrong_dataset")
-    if len(document.selectors) != EXPECTED_TINY_SELECTOR_COUNT:
-        errors.append("fixed_32_selector_count_not_32")
-    if not document.source.crc_checked:
-        errors.append("fixed_32_selector_crc_not_checked")
-    return tuple(errors)
-
-
-def _canonical_real_ubc_selector_errors(
-    document: FixedSelectorDocument,
-) -> tuple[str, ...]:
-    source = document.source
-    header = source.header
-    checks: tuple[tuple[str, object, object], ...] = (
-        ("source.dataset_slug", source.dataset_slug, EXPECTED_DATASET_SLUG),
-        ("source.source_split", source.source_split, "train"),
-        ("source.csv_path.name", source.csv_path.name, TRAIN_CSV_NAME),
-        ("source.csv_sha256", source.csv_sha256, EXPECTED_REAL_TRAIN_CSV_SHA256),
-        ("source.bin_path.name", source.bin_path.name, TRAIN_BIN_NAME),
-        (
-            "source.bin_file_size",
-            source.bin_file_size,
-            EXPECTED_REAL_TRAIN_BIN_FILE_SIZE,
-        ),
-        ("source.row_count", source.row_count, EXPECTED_REAL_TRAIN_PATCH_COUNT),
-        ("source.patch_count", source.patch_count, EXPECTED_REAL_TRAIN_PATCH_COUNT),
-        ("source.idx_policy", source.idx_policy, "row_order"),
-        ("source.crc_checked", source.crc_checked, True),
-        ("header.crc32", header.crc32, EXPECTED_REAL_TRAIN_HEADER_CRC32),
-        ("header.patch_count", header.patch_count, EXPECTED_REAL_TRAIN_PATCH_COUNT),
-        ("header.channels", header.channels, 3),
-        ("header.height", header.height, 256),
-        ("header.width", header.width, 256),
-        ("header.version", header.version, 1),
-        ("header.layout", header.layout, b"CHW"),
-    )
-    return tuple(
-        f"{name}: expected {expected!r}, got {actual!r}"
-        for name, actual, expected in checks
-        if actual != expected
-    )
-
-
-def _masked_holdout_path(
-    *,
-    selector_path: Path,
-    selector_value: str | None,
-) -> Path:
-    if selector_value is None or not selector_value:
-        return _resolve_relative_to_ancestors(
-            base_path=selector_path,
-            relative_path=Path("docs/data/ubc_ocean_masked_holdout_ids.csv"),
-        )
-    configured = Path(selector_value)
-    if configured.is_absolute():
-        return configured
-    return _resolve_relative_to_ancestors(
-        base_path=selector_path,
-        relative_path=configured,
-    )
-
-
-def _resolve_relative_to_ancestors(*, base_path: Path, relative_path: Path) -> Path:
-    for parent in base_path.resolve().parents:
-        candidate = parent / relative_path
-        if candidate.exists():
-            return candidate
-    return Path.cwd() / relative_path
-
-
 def _launch_blockers(
     *,
     runtime_errors: tuple[str, ...],
@@ -916,6 +971,8 @@ def _launch_blockers(
         "missing_real_gate_health_rows",
         "missing_real_tiny_overfit_proof",
     ]
+    if not SELECTED_RUNTIME_DEBUG_WRAPPER_WIRED_TO_REAL_RUNNER:
+        blockers.insert(0, "selected_runtime_debug_wrapper_not_wired_to_real_runner")
     if not REAL_UBC_SELECTED_RUNTIME_TRAIN_RUNNER_IMPLEMENTED:
         blockers.insert(0, "real_ubc_selected_runtime_train_runner_not_implemented")
     if not SELECTED_RUNTIME_PLAN_APPLIED_TO_TRAINING:
@@ -931,15 +988,24 @@ def _push_readiness_blockers(
     *,
     runtime_errors: tuple[str, ...],
     selector_status: JsonObject,
+    selector_generation_mode: SelectorGenerationMode,
 ) -> tuple[str, ...]:
     blockers: list[str] = []
+    if not SELECTED_RUNTIME_DEBUG_WRAPPER_WIRED_TO_REAL_RUNNER:
+        blockers.append("selected_runtime_debug_wrapper_not_wired_to_real_runner")
     if not REAL_UBC_SELECTED_RUNTIME_TRAIN_RUNNER_IMPLEMENTED:
         blockers.append("real_ubc_selected_runtime_train_runner_not_implemented")
-    if not SELECTED_RUNTIME_PLAN_APPLIED_TO_TRAINING:
+    if (
+        selector_generation_mode != REMOTE_GENERATE_MODE
+        and not SELECTED_RUNTIME_PLAN_APPLIED_TO_TRAINING
+    ):
         blockers.append("selected_runtime_runtime_plan_not_applied_to_training")
     if runtime_errors:
         blockers.append("selected_runtime_transport_validation_failed")
-    if selector_status.get("status") != OK_STATUS:
+    if (
+        selector_generation_mode != REMOTE_GENERATE_MODE
+        and selector_status.get("status") != OK_STATUS
+    ):
         blockers.append(_string_value(selector_status.get("failure_kind")))
     return tuple(blocker for blocker in blockers if blocker)
 
@@ -948,11 +1014,25 @@ def _readiness_config_blockers(
     *,
     resolved: ResolvedConfig,
     gate_key: str,
+    selector_generation_mode: SelectorGenerationMode,
 ) -> tuple[str, ...]:
     gate = resolved.effective_config.get(gate_key)
     if not isinstance(gate, dict):
         return (f"{gate_key}_missing",)
     gate_payload = cast("JsonObject", gate)
+    if selector_generation_mode == REMOTE_GENERATE_MODE:
+        blockers: list[str] = []
+        if gate_payload.get("selector_generation_mode") != REMOTE_GENERATE_MODE:
+            blockers.append(f"{gate_key}_selector_generation_mode_not_remote_generate")
+        if gate_payload.get("remote_selector_generation_ready") is not True:
+            blockers.append(f"{gate_key}_remote_selector_generation_ready_not_true")
+        if gate_payload.get("real_train_runner_implemented") is not True:
+            blockers.append(f"{gate_key}_real_train_runner_implemented_not_true")
+        if gate_payload.get("fixed_32_selector_real") is not False:
+            blockers.append(f"{gate_key}_fixed_32_selector_real_must_remain_false")
+        if gate_payload.get("remote_pass_ready") is not False:
+            blockers.append(f"{gate_key}_remote_pass_ready_must_remain_false")
+        return tuple(blockers)
     flags = (
         "remote_pass_ready",
         "real_train_runner_implemented",
@@ -998,8 +1078,12 @@ __all__ = [
     "EXPECTED_SELECTED_ROW_ID",
     "GATE_KIND",
     "GATE_SOURCE",
+    "LOCAL_SELECTOR_MODE",
+    "REMOTE_GENERATE_MODE",
     "SelectedRuntimeGateRequest",
     "SelectedRuntimeGateResult",
+    "SelectorGenerationMode",
+    "verify_selected_runtime_debug_output",
     "verify_selected_runtime_debug_push_ready",
     "write_selected_runtime_gate",
 ]

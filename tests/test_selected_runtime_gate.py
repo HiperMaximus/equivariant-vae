@@ -103,7 +103,8 @@ def test_selected_runtime_gate_writes_fail_closed_contract(tmp_path: Path) -> No
     assert component_status["selected_runtime_plan_applied"] == "fail"
     assert component_status["local_readiness"] == "fail"
     assert component_status["real_ubc_debug"] == "fail"
-    assert "real_ubc_selected_runtime_train_runner_not_implemented" in blockers
+    training = _load_json(benchmark_dir / "training_summary.json")
+    assert training["failure_kind"] == "selected_runtime_debug_remote_proof_pending"
     assert "fixed_32_selector_placeholder" in blockers
 
     tiny = _load_json(benchmark_dir / "tiny_overfit_summary.json")
@@ -128,7 +129,7 @@ def test_selected_runtime_gate_writes_fail_closed_contract(tmp_path: Path) -> No
     assert readiness["status"] == "fail"
     assert readiness["full_run_eligible"] is False
     assert readiness["remote_pass_ready"] is False
-    assert readiness["real_train_runner_implemented"] is False
+    assert readiness["real_train_runner_implemented"] is True
     assert readiness["fixed_32_selector_real"] is False
 
 
@@ -458,6 +459,8 @@ def test_selected_runtime_plan_applied_proof_rejects_recorded_not_applied() -> N
             dataloader_non_blocking_h2d=True,
             corruption_strategy="identity_clean_no_corruption",
             memory_format="contiguous",
+            ddp_static_graph=False,
+            ddp_gradient_as_bucket_view=False,
             zero_grad_set_to_none=True,
             local_ddp_status="not_executed",
             local_amp_status="not_executed",
@@ -503,6 +506,8 @@ def test_selected_runtime_plan_applied_proof_rejects_unexecuted_ddp_amp() -> Non
             dataloader_non_blocking_h2d=plan.dataloader_non_blocking_h2d,
             corruption_strategy=plan.corruption_strategy,
             memory_format=plan.memory_format,
+            ddp_static_graph=plan.ddp_static_graph,
+            ddp_gradient_as_bucket_view=plan.ddp_gradient_as_bucket_view,
             zero_grad_set_to_none=plan.zero_grad_set_to_none,
             local_ddp_status="not_executed",
             local_amp_status="not_executed",
@@ -617,7 +622,7 @@ def test_selected_runtime_gate_rejects_synthetic_fixed32_selector_replay(
     assert "fixed_32_selector_placeholder" not in blockers
     assert "fixed_32_selector_validation_failed" not in blockers
     assert "fixed_32_selector_not_canonical_real_ubc" in blockers
-    assert "real_ubc_selected_runtime_train_runner_not_implemented" in blockers
+    assert "selected_runtime_debug_remote_proof_pending" not in blockers
     assert tiny["patch_count"] == FIXED32_SELECTOR_COUNT
     assert tiny["failure_kind"] == "fixed_32_selector_not_canonical_real_ubc"
 
@@ -660,10 +665,127 @@ def test_selected_runtime_push_readiness_excludes_remote_proof_blockers(
     )
 
     stderr = capsys.readouterr().err
-    assert "real_ubc_selected_runtime_train_runner_not_implemented" in stderr
     assert "fixed_32_selector_placeholder" in stderr
+    assert "selected_runtime_runtime_plan_not_applied_to_training" in stderr
     assert "missing_real_tiny_overfit_proof" not in stderr
     assert "missing_real_checkpoint_resume_proof" not in stderr
+
+
+def test_selected_runtime_push_readiness_remote_generate_passes() -> None:
+    """Spec 0008 pre-push mode passes without a local canonical selector."""
+    exit_code = selected_runtime_gate_main(
+        [
+            "--verify-push-ready",
+            "--selector-generation-mode",
+            "remote_generate",
+            "--debug-config",
+            "configs/spec0001/non_eq_vae_selected_runtime_debug.json",
+            "--tiny-config",
+            "configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json",
+            "--runtime-config",
+            "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
+            "--fixed-train-patches",
+            "configs/spec0001/fixed_32_train_overfit_patches.json",
+        ],
+    )
+
+    assert exit_code == 0
+
+
+def test_selected_runtime_verify_output_accepts_complete_artifact_contract(
+    tmp_path: Path,
+) -> None:
+    """The Spec 0008 post-download verifier accepts the strict artifact shape."""
+    output_dir = tmp_path / "downloaded-output"
+    benchmark_dir = output_dir / "benchmark"
+    metrics_dir = output_dir / "metrics"
+    benchmark_dir.mkdir(parents=True)
+    metrics_dir.mkdir(parents=True)
+    runtime_path = Path(
+        "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
+    )
+    runtime_sha256 = _sha256(runtime_path)
+    _write_json(
+        benchmark_dir / "training_summary.json",
+        {
+            "status": "local_pass",
+            "optimizer_steps_completed": 8,
+            "amp_step_skipped_count": 0,
+            "nonfinite_count": 0,
+            "runtime_config": {"sha256": runtime_sha256},
+        },
+    )
+    _write_json(
+        benchmark_dir / "selected_runtime_debug_summary.json",
+        {"remote_pass_ready": False},
+    )
+    _write_json(
+        benchmark_dir / "local_selected_runtime_readiness.json",
+        {"status": "local_pass"},
+    )
+    _write_json(
+        benchmark_dir / "selected_runtime_plan_applied.json",
+        {"status": "local_pass", "plan_applied": True},
+    )
+    _write_json(
+        benchmark_dir / "checkpoint_resume_proof.json",
+        {
+            "status": "local_pass",
+            "loaded_successful_optimizer_update_count": 4,
+            "additional_optimizer_steps": 4,
+        },
+    )
+    _write_json(benchmark_dir / "gate_health_summary.json", {"status": "local_pass"})
+    _write_json(
+        benchmark_dir / "artifact_manifest.json",
+        {"status": "local_pass", "reconstruction_sample_nonblank": True},
+    )
+    _write_json(
+        benchmark_dir / "fixed32_selector_readiness.json",
+        {"status": "pass", "fixed_32_selector_real": True},
+    )
+    _write_json(benchmark_dir / "fixed_32_train_overfit_patches.json", {})
+    _write_json(
+        benchmark_dir / "tiny_overfit_summary.json",
+        {
+            "status": "local_pass",
+            "patch_count": 32,
+            "optimizer_steps": 128,
+            "l1_improvement_fraction": 0.02,
+            "recon_loss_improvement_fraction": 0.02,
+        },
+    )
+    _write_json(
+        benchmark_dir / "selected_runtime_gate_summary.json",
+        {"status": "local_pass"},
+    )
+    (metrics_dir / "gate_health.csv").write_text(
+        "gate_health_status\npass\n",
+        encoding="utf-8",
+    )
+    (metrics_dir / "train_steps.csv").write_text(
+        (
+            "successful_optimizer_update_count,amp_step_skipped,nonfinite_count\n"
+            "5,0,0\n6,0,0\n7,0,0\n8,0,0\n"
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = selected_runtime_gate_main(
+        [
+            "--verify-output",
+            "--debug-config",
+            "configs/spec0001/non_eq_vae_selected_runtime_debug.json",
+            "--tiny-config",
+            "configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json",
+            "--runtime-config",
+            str(runtime_path),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    assert exit_code == 0
 
 
 def test_selected_runtime_push_readiness_depends_on_structured_artifact(
@@ -689,12 +811,17 @@ def test_selected_runtime_push_readiness_depends_on_structured_artifact(
     )
     monkeypatch.setattr(
         selected_runtime_gate,
+        "SELECTED_RUNTIME_DEBUG_WRAPPER_WIRED_TO_REAL_RUNNER",
+        True,
+    )
+    monkeypatch.setattr(
+        selected_runtime_gate,
         "SELECTED_RUNTIME_PLAN_APPLIED_TO_TRAINING",
         True,
     )
     monkeypatch.setattr(
         selected_runtime_gate,
-        "_selector_status",
+        "fixed32_selector_status",
         _passing_selector_status,
     )
 
@@ -716,7 +843,7 @@ def test_selected_runtime_push_readiness_depends_on_structured_artifact(
         )
         for blocker in blockers
     )
-    assert "real_ubc_selected_runtime_train_runner_not_implemented" not in blockers
+    assert "selected_runtime_debug_wrapper_not_wired_to_real_runner" not in blockers
 
 
 def _fake_fixed32_selector_payload() -> dict[str, object]:
@@ -828,6 +955,13 @@ def _load_json(path: Path) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise TypeError(path)
     return cast("dict[str, object]", payload)
+
+
+def _write_json(path: Path, payload: dict[str, object]) -> None:
+    path.write_text(
+        f"{json.dumps(payload, indent=2, sort_keys=True)}\n",
+        encoding="utf-8",
+    )
 
 
 def _sha256(path: Path) -> str:
