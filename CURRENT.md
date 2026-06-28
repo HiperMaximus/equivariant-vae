@@ -80,6 +80,9 @@ single immediate guarded status read at `2026-06-28 14:34:43 -0500` returned
 `KernelWorkerStatus.RUNNING`. Do not actively poll in-turn; the next concrete
 action is, after about `2026-06-28 15:05 -0500` or later, run
 `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-debug`.
+The resumed guarded status read at `2026-06-28 15:23:22 -0500` still returned
+`KernelWorkerStatus.RUNNING`; the next status check should be after about
+`2026-06-28 15:55 -0500` or later.
 If terminal, download to a versioned directory such as
 `runs/kaggle/selected_runtime_debug_v1`, then run the strict verifier:
 
