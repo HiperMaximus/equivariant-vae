@@ -21,7 +21,11 @@ from eqvae.benchmarking.selected_runtime_gate import (
 )
 from eqvae.cli.selected_runtime_gate import main as selected_runtime_gate_main
 from eqvae.data.fixed_selectors import (
+    FIXED_32_TRAIN_OVERFIT_COUNT,
     FIXED_32_TRAIN_OVERFIT_KIND,
+    FIXED_32_TRAIN_OVERFIT_SEED,
+    FIXED_SELECTOR_READY_STATUS,
+    FIXED_SELECTOR_SCHEMA_VERSION,
     FixedSelectorGenerationContext,
     generate_fixed_selector_document,
     write_fixed_selector_document,
@@ -696,80 +700,7 @@ def test_selected_runtime_verify_output_accepts_complete_artifact_contract(
     tmp_path: Path,
 ) -> None:
     """The Spec 0008 post-download verifier accepts the strict artifact shape."""
-    output_dir = tmp_path / "downloaded-output"
-    benchmark_dir = output_dir / "benchmark"
-    metrics_dir = output_dir / "metrics"
-    benchmark_dir.mkdir(parents=True)
-    metrics_dir.mkdir(parents=True)
-    runtime_path = Path(
-        "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
-    )
-    runtime_sha256 = _sha256(runtime_path)
-    _write_json(
-        benchmark_dir / "training_summary.json",
-        {
-            "status": "local_pass",
-            "optimizer_steps_completed": 8,
-            "amp_step_skipped_count": 0,
-            "nonfinite_count": 0,
-            "runtime_config": {"sha256": runtime_sha256},
-        },
-    )
-    _write_json(
-        benchmark_dir / "selected_runtime_debug_summary.json",
-        {"remote_pass_ready": False},
-    )
-    _write_json(
-        benchmark_dir / "local_selected_runtime_readiness.json",
-        {"status": "local_pass"},
-    )
-    _write_json(
-        benchmark_dir / "selected_runtime_plan_applied.json",
-        {"status": "local_pass", "plan_applied": True},
-    )
-    _write_json(
-        benchmark_dir / "checkpoint_resume_proof.json",
-        {
-            "status": "local_pass",
-            "loaded_successful_optimizer_update_count": 4,
-            "additional_optimizer_steps": 4,
-        },
-    )
-    _write_json(benchmark_dir / "gate_health_summary.json", {"status": "local_pass"})
-    _write_json(
-        benchmark_dir / "artifact_manifest.json",
-        {"status": "local_pass", "reconstruction_sample_nonblank": True},
-    )
-    _write_json(
-        benchmark_dir / "fixed32_selector_readiness.json",
-        {"status": "pass", "fixed_32_selector_real": True},
-    )
-    _write_json(benchmark_dir / "fixed_32_train_overfit_patches.json", {})
-    _write_json(
-        benchmark_dir / "tiny_overfit_summary.json",
-        {
-            "status": "local_pass",
-            "patch_count": 32,
-            "optimizer_steps": 128,
-            "l1_improvement_fraction": 0.02,
-            "recon_loss_improvement_fraction": 0.02,
-        },
-    )
-    _write_json(
-        benchmark_dir / "selected_runtime_gate_summary.json",
-        {"status": "local_pass"},
-    )
-    (metrics_dir / "gate_health.csv").write_text(
-        "gate_health_status\npass\n",
-        encoding="utf-8",
-    )
-    (metrics_dir / "train_steps.csv").write_text(
-        (
-            "successful_optimizer_update_count,amp_step_skipped,nonfinite_count\n"
-            "5,0,0\n6,0,0\n7,0,0\n8,0,0\n"
-        ),
-        encoding="utf-8",
-    )
+    output_dir, runtime_path = _write_complete_remote_output_fixture(tmp_path)
 
     exit_code = selected_runtime_gate_main(
         [
@@ -782,6 +713,67 @@ def test_selected_runtime_verify_output_accepts_complete_artifact_contract(
     )
 
     assert exit_code == 0
+
+
+def test_selected_runtime_verify_output_rejects_selector_hash_mismatch(
+    tmp_path: Path,
+) -> None:
+    """Downloaded readiness must hash-link to the downloaded fixed-32 selector."""
+    output_dir, runtime_path = _write_complete_remote_output_fixture(tmp_path)
+    selector_path = output_dir / "benchmark" / "fixed_32_train_overfit_patches.json"
+    selector_payload = _load_json(selector_path)
+    selector_payload["expected_count"] = 31
+    _write_json(selector_path, selector_payload)
+
+    blockers = selected_runtime_gate.verify_selected_runtime_debug_output(
+        output_dir=output_dir,
+        selected_runtime_path=runtime_path,
+    )
+
+    assert "selected_runtime_output_fixed32_selector_sha_mismatch" in blockers
+    assert "selected_runtime_output_fixed32_selector_metadata_mismatch" in blockers
+
+
+def test_selected_runtime_verify_output_rejects_manifest_hash_mismatch(
+    tmp_path: Path,
+) -> None:
+    """Artifact manifest hashes are replayed against downloaded files."""
+    output_dir, runtime_path = _write_complete_remote_output_fixture(tmp_path)
+    train_steps = output_dir / "metrics" / "train_steps.csv"
+    train_steps.write_text(
+        f"{train_steps.read_text(encoding='utf-8')}# tampered\n",
+        encoding="utf-8",
+    )
+
+    blockers = selected_runtime_gate.verify_selected_runtime_debug_output(
+        output_dir=output_dir,
+        selected_runtime_path=runtime_path,
+    )
+
+    assert "selected_runtime_output_manifest_hash_mismatch_metrics_train_steps" in (
+        blockers
+    )
+
+
+def test_selected_runtime_verify_output_rejects_thin_gate_health_csv(
+    tmp_path: Path,
+) -> None:
+    """Gate-health CSV content is checked, not only its summary artifact."""
+    output_dir, runtime_path = _write_complete_remote_output_fixture(tmp_path)
+    (output_dir / "metrics" / "gate_health.csv").write_text(
+        "gate_health_status\npass\n",
+        encoding="utf-8",
+    )
+
+    blockers = selected_runtime_gate.verify_selected_runtime_debug_output(
+        output_dir=output_dir,
+        selected_runtime_path=runtime_path,
+    )
+
+    assert "selected_runtime_output_gate_health_missing_columns" in blockers
+    assert "selected_runtime_output_manifest_hash_mismatch_metrics_gate_health" in (
+        blockers
+    )
 
 
 def test_selected_runtime_push_readiness_depends_on_structured_artifact(
@@ -929,6 +921,286 @@ def _passing_selector_status(
         "validation_detail": "",
         "canonical_real_ubc": True,
     }
+
+
+def _write_complete_remote_output_fixture(tmp_path: Path) -> tuple[Path, Path]:
+    output_dir = tmp_path / "downloaded-output"
+    benchmark_dir = output_dir / "benchmark"
+    metrics_dir = output_dir / "metrics"
+    artifacts_dir = output_dir / "artifacts"
+    benchmark_dir.mkdir(parents=True)
+    metrics_dir.mkdir(parents=True)
+    artifacts_dir.mkdir(parents=True)
+    runtime_path = Path(
+        "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
+    )
+    runtime_sha256 = _sha256(runtime_path)
+    _write_json(
+        benchmark_dir / "training_summary.json",
+        {
+            "status": "local_pass",
+            "optimizer_steps_completed": 8,
+            "amp_step_skipped_count": 0,
+            "nonfinite_count": 0,
+            "runtime_config": {"sha256": runtime_sha256},
+        },
+    )
+    _write_json(
+        benchmark_dir / "selected_runtime_debug_summary.json",
+        {"remote_pass_ready": False},
+    )
+    _write_json(
+        benchmark_dir / "local_selected_runtime_readiness.json",
+        {"status": "local_pass"},
+    )
+    _write_json(
+        benchmark_dir / "selected_runtime_plan_applied.json",
+        {"status": "local_pass", "plan_applied": True},
+    )
+    _write_json(
+        benchmark_dir / "checkpoint_resume_proof.json",
+        {
+            "status": "local_pass",
+            "loaded_successful_optimizer_update_count": 4,
+            "additional_optimizer_steps": 4,
+        },
+    )
+    _write_json(benchmark_dir / "gate_health_summary.json", {"status": "local_pass"})
+    selector_path = benchmark_dir / "fixed_32_train_overfit_patches.json"
+    _write_json(selector_path, _canonical_fixed32_selector_payload())
+    selector_sha256 = _sha256(selector_path)
+    _write_json(
+        benchmark_dir / "fixed32_selector_readiness.json",
+        {
+            "status": "pass",
+            "fixed_32_selector_real": True,
+            "selector_status": {
+                "status": "pass",
+                "canonical_real_ubc": True,
+                "selector_count": FIXED_32_TRAIN_OVERFIT_COUNT,
+                "sha256": selector_sha256,
+            },
+        },
+    )
+    _write_json(
+        benchmark_dir / "tiny_overfit_summary.json",
+        {
+            "status": "local_pass",
+            "patch_count": 32,
+            "optimizer_steps": 128,
+            "l1_improvement_fraction": 0.02,
+            "recon_loss_improvement_fraction": 0.02,
+        },
+    )
+    _write_json(
+        benchmark_dir / "selected_runtime_gate_summary.json",
+        {"status": "local_pass"},
+    )
+    _write_csv_rows(
+        metrics_dir / "gate_health.csv",
+        selected_runtime_gate.GATE_HEALTH_COLUMNS,
+        [_gate_health_row()],
+    )
+    _write_csv_rows(
+        metrics_dir / "train_steps.csv",
+        selected_runtime_gate.REMOTE_DEBUG_REQUIRED_TRAIN_STEP_COLUMNS,
+        _train_step_rows(),
+    )
+    (artifacts_dir / "reconstruction_samples.pt").write_bytes(b"nonblank")
+    _write_json(
+        benchmark_dir / "artifact_manifest.json",
+        {
+            "status": "local_pass",
+            "reconstruction_sample_nonblank": True,
+            "artifact_hashes": _remote_manifest_hashes(output_dir),
+        },
+    )
+    return output_dir, runtime_path
+
+
+def _canonical_fixed32_selector_payload() -> dict[str, object]:
+    requirements = selected_runtime_gate.canonical_real_ubc_requirements()
+    selectors = [
+        {
+            "rank": rank,
+            "source_split": "train",
+            "file_index": rank,
+            "row_index": rank,
+            "sample_id": f"train_{rank:06d}",
+            "wsi_id": f"real_wsi_{rank:04d}",
+            "label": rank % 5,
+            "x": rank,
+            "y": rank * 2,
+            "selection_key_sha256": hashlib.sha256(
+                f"selection-{rank}".encode(),
+            ).hexdigest(),
+            "patch_sha256": hashlib.sha256(
+                f"patch-{rank}".encode(),
+            ).hexdigest(),
+        }
+        for rank in range(FIXED_32_TRAIN_OVERFIT_COUNT)
+    ]
+    return {
+        "schema_version": FIXED_SELECTOR_SCHEMA_VERSION,
+        "status": FIXED_SELECTOR_READY_STATUS,
+        "selector_kind": FIXED_32_TRAIN_OVERFIT_KIND,
+        "source_split": "train",
+        "expected_count": FIXED_32_TRAIN_OVERFIT_COUNT,
+        "selector_seed": FIXED_32_TRAIN_OVERFIT_SEED,
+        "masked_holdout_exclusion": "docs/data/ubc_ocean_masked_holdout_ids.csv",
+        "source": {
+            "dataset_slug": requirements["dataset_slug"],
+            "data_root": "/kaggle/input/patches-pre-shuffled-ubc-ocean",
+            "source_split": "train",
+            "csv_path": f"/kaggle/input/dataset/{requirements['train_csv_filename']}",
+            "csv_sha256": requirements["train_csv_sha256"],
+            "bin_path": f"/kaggle/input/dataset/{requirements['train_bin_filename']}",
+            "bin_file_size": requirements["train_bin_file_size"],
+            "header_sha256": hashlib.sha256(b"header").hexdigest(),
+            "header": {
+                "crc32": requirements["train_header_crc32"],
+                "patch_count": requirements["patch_count"],
+                "channels": requirements["channels"],
+                "height": requirements["height"],
+                "width": requirements["width"],
+                "version": 1,
+                "layout": requirements["layout"],
+            },
+            "row_count": requirements["row_count"],
+            "patch_count": requirements["patch_count"],
+            "idx_policy": requirements["idx_policy"],
+            "crc_checked": requirements["crc_checked"],
+        },
+        "selectors": selectors,
+    }
+
+
+def _gate_health_row() -> dict[str, str]:
+    row = dict.fromkeys(selected_runtime_gate.GATE_HEALTH_COLUMNS, "")
+    row.update(
+        {
+            "run_name": "remote_debug",
+            "benchmark_kind": "kaggle_selected_runtime_real_ubc_runner",
+            "benchmark_source": "local_selected_runtime_train_runner_rank0",
+            "full_run_eligible": "false",
+            "accelerator_mode": "dual_t4_ddp",
+            "machine_shape": "NvidiaTeslaT4",
+            "row_id": EXPECTED_SELECTED_ROW_ID,
+            "candidate_row_id": EXPECTED_SELECTED_ROW_ID,
+            "runtime_policy_id": EXPECTED_RUNTIME_POLICY_ID,
+            "optimizer_step": "8",
+            "module": "rank0:encoder_gate",
+            "gate_kind": "gated_scalar_activation",
+            "num_channels": "16",
+            "num_elements": "16",
+            "gate_force_fp32": "true",
+            "input_dtype": "torch.float16",
+            "gate_math_dtype": "torch.float32",
+            "gate_tensor_dtype": "torch.float32",
+            "output_dtype": "torch.float16",
+            "requested_autocast_dtype": "float16",
+            "precision_proof_status": "pass",
+            "gate_health_status": "pass",
+        },
+    )
+    for column in selected_runtime_gate.REMOTE_GATE_HEALTH_FINITE_COLUMNS:
+        row[column] = "0.1"
+    for column in selected_runtime_gate.REMOTE_GATE_HEALTH_SATURATION_COLUMNS:
+        row[column] = "0.0"
+    return row
+
+
+def _train_step_rows() -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for step, batch_size in zip((5, 6, 7, 8), (12, 12, 8, 12), strict=True):
+        row: dict[str, str] = dict.fromkeys(
+            selected_runtime_gate.REMOTE_DEBUG_REQUIRED_TRAIN_STEP_COLUMNS,
+            "",
+        )
+        row.update(
+            {
+                "event_id": f"rank0_train_step_{step:06d}",
+                "rank": "0",
+                "optimizer_step_index": str(step - 1),
+                "optimizer_step": str(step),
+                "successful_optimizer_update_count": str(step),
+                "split": "train",
+                "loss": "1.0",
+                "recon_loss": "1.0",
+                "l1_loss": "0.5",
+                "ssim_loss": "0.5",
+                "ssim_metric": "0.5",
+                "kl_loss": "0.1",
+                "beta": "0.1",
+                "grad_norm": "1.0",
+                "param_update_norm": "0.01",
+                "nonfinite_count": "0",
+                "batch_size": str(batch_size),
+                "precision_policy": "amp_conservative",
+                "amp_enabled": "true",
+                "autocast_dtype": "float16",
+                "grad_scaler_enabled": "true",
+                "fp32_loss": "true",
+                "torch_compile_enabled": "false",
+                "compile_scope": "none",
+                "corruption_strategy": "indexed_masked",
+                "amp_step_skipped": "0",
+                "checkpoint_path": "",
+            },
+        )
+        rows.append(row)
+    return rows
+
+
+def _remote_manifest_hashes(output_dir: Path) -> dict[str, str]:
+    names = {
+        "benchmark:checkpoint_resume_proof.json": output_dir
+        / "benchmark"
+        / "checkpoint_resume_proof.json",
+        "benchmark:fixed32_selector_readiness.json": output_dir
+        / "benchmark"
+        / "fixed32_selector_readiness.json",
+        "benchmark:fixed_32_train_overfit_patches.json": output_dir
+        / "benchmark"
+        / "fixed_32_train_overfit_patches.json",
+        "benchmark:gate_health_summary.json": output_dir
+        / "benchmark"
+        / "gate_health_summary.json",
+        "benchmark:local_selected_runtime_readiness.json": output_dir
+        / "benchmark"
+        / "local_selected_runtime_readiness.json",
+        "benchmark:selected_runtime_debug_summary.json": output_dir
+        / "benchmark"
+        / "selected_runtime_debug_summary.json",
+        "benchmark:selected_runtime_gate_summary.json": output_dir
+        / "benchmark"
+        / "selected_runtime_gate_summary.json",
+        "benchmark:selected_runtime_plan_applied.json": output_dir
+        / "benchmark"
+        / "selected_runtime_plan_applied.json",
+        "benchmark:tiny_overfit_summary.json": output_dir
+        / "benchmark"
+        / "tiny_overfit_summary.json",
+        "benchmark:training_summary.json": output_dir
+        / "benchmark"
+        / "training_summary.json",
+        "metrics:gate_health": output_dir / "metrics" / "gate_health.csv",
+        "metrics:train_steps": output_dir / "metrics" / "train_steps.csv",
+        "artifact:reconstruction_samples": output_dir
+        / "artifacts"
+        / "reconstruction_samples.pt",
+    }
+    return {name: _sha256(path) for name, path in sorted(names.items())}
+
+
+def _write_csv_rows(
+    path: Path,
+    columns: tuple[str, ...],
+    rows: list[dict[str, str]],
+) -> None:
+    payload = [",".join(columns)]
+    payload.extend(",".join(row[column] for column in columns) for row in rows)
+    path.write_text(f"{'\n'.join(payload)}\n", encoding="utf-8")
 
 
 def _write_complete_data_root(root: Path) -> None:

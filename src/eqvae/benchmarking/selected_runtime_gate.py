@@ -6,6 +6,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,7 @@ from eqvae.benchmarking.fixed32_selector_readiness import (
     OK_STATUS,
     REMOTE_GENERATE_MODE,
     Fixed32RemoteGenerateReadinessRequest,
+    canonical_real_ubc_requirements,
     fixed32_selector_status,
     readiness_blockers,
     write_fixed32_remote_generate_readiness,
@@ -24,6 +26,13 @@ from eqvae.benchmarking.fixed32_selector_readiness import (
 from eqvae.benchmarking.io import JsonObject, write_csv, write_json
 from eqvae.benchmarking.runtime_schema import GATE_HEALTH_COLUMNS
 from eqvae.config import ResolvedConfig, resolve_json_config
+from eqvae.data.fixed_selectors import (
+    FIXED_32_TRAIN_OVERFIT_KIND,
+    FIXED_32_TRAIN_OVERFIT_SEED,
+    FIXED_SELECTOR_READY_STATUS,
+    FixedSelectorDocument,
+    load_fixed_selector_document,
+)
 from eqvae.training.selected_runtime import (
     EXPECTED_DATASET_SLUG,
     EXPECTED_RUNTIME_POLICY_ID,
@@ -42,6 +51,7 @@ REAL_UBC_SELECTED_RUNTIME_TRAIN_RUNNER_IMPLEMENTED = True
 SELECTED_RUNTIME_DEBUG_WRAPPER_WIRED_TO_REAL_RUNNER = True
 SELECTED_RUNTIME_PLAN_APPLIED_TO_TRAINING = False
 REMOTE_DEBUG_PENDING_BLOCKER = "selected_runtime_debug_remote_proof_pending"
+SHA256_HEX_LENGTH = 64
 TRAIN_METRIC_COLUMNS = (
     "optimizer_step",
     "loss",
@@ -79,9 +89,71 @@ REMOTE_DEBUG_REQUIRED_METRIC_ARTIFACTS = frozenset(
 )
 REMOTE_DEBUG_FINAL_STEP = 8
 REMOTE_DEBUG_RESUME_STEP = 4
+REMOTE_DEBUG_REQUIRED_SUCCESSFUL_STEPS = tuple(
+    range(REMOTE_DEBUG_RESUME_STEP + 1, REMOTE_DEBUG_FINAL_STEP + 1),
+)
 REMOTE_TINY_MAX_STEP = 128
 REMOTE_TINY_MIN_IMPROVEMENT_FRACTION = 0.01
 RUNNER_OK_STATUS = "local_pass"
+REMOTE_DEBUG_REQUIRED_TRAIN_STEP_COLUMNS = (
+    "event_id",
+    "rank",
+    "optimizer_step_index",
+    "optimizer_step",
+    "successful_optimizer_update_count",
+    "split",
+    "loss",
+    "recon_loss",
+    "l1_loss",
+    "ssim_loss",
+    "ssim_metric",
+    "kl_loss",
+    "beta",
+    "grad_norm",
+    "param_update_norm",
+    "nonfinite_count",
+    "batch_size",
+    "precision_policy",
+    "amp_enabled",
+    "autocast_dtype",
+    "grad_scaler_enabled",
+    "fp32_loss",
+    "torch_compile_enabled",
+    "compile_scope",
+    "corruption_strategy",
+    "amp_step_skipped",
+    "checkpoint_path",
+)
+REMOTE_GATE_HEALTH_FINITE_COLUMNS = (
+    "a_min",
+    "a_max",
+    "a_mean",
+    "a_std",
+    "b_min",
+    "b_max",
+    "b_mean",
+    "b_std",
+    "max_abs_a",
+    "max_abs_b",
+    "gate_mean",
+    "gate_std",
+    "gate_p01",
+    "gate_p50",
+    "gate_p99",
+    "frac_gate_lt_0_01",
+    "frac_gate_gt_0_99",
+    "worst_channel_frac_gate_lt_0_01",
+    "worst_channel_frac_gate_gt_0_99",
+    "a_grad_norm",
+    "b_grad_norm",
+)
+REMOTE_GATE_HEALTH_SATURATION_COLUMNS = (
+    "frac_gate_lt_0_01",
+    "frac_gate_gt_0_99",
+    "worst_channel_frac_gate_lt_0_01",
+    "worst_channel_frac_gate_gt_0_99",
+)
+REMOTE_GATE_HEALTH_MAX_SATURATION_FRACTION = 0.99
 
 
 @dataclass(frozen=True)
@@ -357,7 +429,9 @@ def verify_selected_runtime_debug_output(  # noqa: PLR0914
     if blockers:
         return _dedupe_strings(tuple(blockers))
 
+    runtime_payload = _load_json(selected_runtime_path)
     runtime_sha256 = _sha256_file(selected_runtime_path)
+    max_batch_size = _int_value(runtime_payload.get("per_device_batch_size"))
     training_summary = _load_json(benchmark_dir / "training_summary.json")
     debug_summary = _load_json(benchmark_dir / "selected_runtime_debug_summary.json")
     plan_applied = _load_json(benchmark_dir / "selected_runtime_plan_applied.json")
@@ -381,7 +455,27 @@ def verify_selected_runtime_debug_output(  # noqa: PLR0914
             gate_summary=gate_summary,
         ),
     )
-    blockers.extend(_remote_output_train_step_blockers(metrics_dir / "train_steps.csv"))
+    blockers.extend(
+        _remote_output_selector_blockers(
+            selector_path=benchmark_dir / "fixed_32_train_overfit_patches.json",
+            selector_readiness=selector_readiness,
+        ),
+    )
+    blockers.extend(
+        _remote_output_manifest_blockers(
+            output_dir=output_dir,
+            artifact_manifest=artifact_manifest,
+        ),
+    )
+    blockers.extend(
+        _remote_output_gate_health_blockers(metrics_dir / "gate_health.csv"),
+    )
+    blockers.extend(
+        _remote_output_train_step_blockers(
+            metrics_dir / "train_steps.csv",
+            max_batch_size=max_batch_size,
+        ),
+    )
     return _dedupe_strings(tuple(blockers))
 
 
@@ -457,18 +551,266 @@ def _remote_output_json_blockers(  # noqa: C901, PLR0912, PLR0913
     return tuple(blockers)
 
 
-def _remote_output_train_step_blockers(path: Path) -> tuple[str, ...]:
+def _remote_output_selector_blockers(
+    *,
+    selector_path: Path,
+    selector_readiness: JsonObject,
+) -> tuple[str, ...]:
+    blockers: list[str] = []
+    selector_sha256 = _sha256_file(selector_path)
+    selector_status = selector_readiness.get("selector_status")
+    selector_status_payload = (
+        selector_status if isinstance(selector_status, dict) else {}
+    )
+    if selector_status_payload.get("sha256") != selector_sha256:
+        blockers.append("selected_runtime_output_fixed32_selector_sha_mismatch")
+    if selector_status_payload.get("status") != OK_STATUS:
+        blockers.append("selected_runtime_output_fixed32_selector_status_not_pass")
+    if selector_status_payload.get("canonical_real_ubc") is not True:
+        blockers.append("selected_runtime_output_fixed32_selector_status_not_real")
+    if selector_status_payload.get("selector_count") != EXPECTED_TINY_SELECTOR_COUNT:
+        blockers.append("selected_runtime_output_fixed32_selector_status_count_not_32")
+    try:
+        document = load_fixed_selector_document(selector_path)
+    except (KeyError, TypeError, ValueError) as error:
+        return (
+            *blockers,
+            "selected_runtime_output_fixed32_selector_schema_invalid",
+            f"selected_runtime_output_fixed32_selector_schema_detail_{_hash_text(str(error))}",
+        )
+    blockers.extend(_remote_selector_document_blockers(document))
+    return tuple(blockers)
+
+
+def _remote_selector_document_blockers(
+    document: FixedSelectorDocument,
+) -> tuple[str, ...]:
+    blockers: list[str] = []
+    requirements = canonical_real_ubc_requirements()
+    header = document.source.header
+    checks: tuple[tuple[str, object, object], ...] = (
+        ("selector_kind", document.selector_kind, FIXED_32_TRAIN_OVERFIT_KIND),
+        ("status", document.status, FIXED_SELECTOR_READY_STATUS),
+        ("source_split", document.source_split, "train"),
+        ("expected_count", document.expected_count, EXPECTED_TINY_SELECTOR_COUNT),
+        ("selector_seed", document.selector_seed, FIXED_32_TRAIN_OVERFIT_SEED),
+        (
+            "source.dataset_slug",
+            document.source.dataset_slug,
+            requirements["dataset_slug"],
+        ),
+        ("source.source_split", document.source.source_split, "train"),
+        (
+            "source.csv_path.name",
+            document.source.csv_path.name,
+            requirements["train_csv_filename"],
+        ),
+        (
+            "source.bin_path.name",
+            document.source.bin_path.name,
+            requirements["train_bin_filename"],
+        ),
+        (
+            "source.csv_sha256",
+            document.source.csv_sha256,
+            requirements["train_csv_sha256"],
+        ),
+        (
+            "source.bin_file_size",
+            document.source.bin_file_size,
+            requirements["train_bin_file_size"],
+        ),
+        ("source.row_count", document.source.row_count, requirements["row_count"]),
+        (
+            "source.patch_count",
+            document.source.patch_count,
+            requirements["patch_count"],
+        ),
+        ("source.idx_policy", document.source.idx_policy, requirements["idx_policy"]),
+        (
+            "source.crc_checked",
+            document.source.crc_checked,
+            requirements["crc_checked"],
+        ),
+        ("header.crc32", header.crc32, requirements["train_header_crc32"]),
+        ("header.patch_count", header.patch_count, requirements["patch_count"]),
+        ("header.channels", header.channels, requirements["channels"]),
+        ("header.height", header.height, requirements["height"]),
+        ("header.width", header.width, requirements["width"]),
+        ("header.version", header.version, 1),
+        ("header.layout", header.layout.decode("ascii"), requirements["layout"]),
+    )
+    if any(actual != expected for _, actual, expected in checks):
+        blockers.append("selected_runtime_output_fixed32_selector_metadata_mismatch")
+    ranks = tuple(selector.rank for selector in document.selectors)
+    if ranks != tuple(range(EXPECTED_TINY_SELECTOR_COUNT)):
+        blockers.append("selected_runtime_output_fixed32_selector_rank_mismatch")
+    if any(selector.source_split != "train" for selector in document.selectors):
+        blockers.append("selected_runtime_output_fixed32_selector_row_split_mismatch")
+    sample_ids = [selector.sample_id for selector in document.selectors]
+    if len(set(sample_ids)) != len(sample_ids):
+        blockers.append("selected_runtime_output_fixed32_selector_duplicate_sample")
+    if len(document.selectors) != EXPECTED_TINY_SELECTOR_COUNT:
+        blockers.append("selected_runtime_output_fixed32_selector_count_not_32")
+    return tuple(blockers)
+
+
+def _remote_output_manifest_blockers(
+    *,
+    output_dir: Path,
+    artifact_manifest: JsonObject,
+) -> tuple[str, ...]:
+    hashes = artifact_manifest.get("artifact_hashes")
+    if not isinstance(hashes, dict):
+        return ("selected_runtime_output_manifest_hashes_missing",)
+    blockers: list[str] = []
+    observed_names = set(hashes)
+    blockers.extend(
+        [
+            f"selected_runtime_output_manifest_missing_{_blocker_token(name)}"
+            for name in sorted(_expected_remote_manifest_names() - observed_names)
+        ],
+    )
+    for name, value in sorted(hashes.items()):
+        if not isinstance(value, str) or len(value) != SHA256_HEX_LENGTH:
+            blockers.append(
+                f"selected_runtime_output_manifest_invalid_hash_{_blocker_token(name)}",
+            )
+            continue
+        path = _manifest_artifact_path(output_dir=output_dir, name=name)
+        if path is None:
+            blockers.append(
+                f"selected_runtime_output_manifest_unknown_{_blocker_token(name)}",
+            )
+            continue
+        if not path.exists():
+            blockers.append(
+                f"selected_runtime_output_manifest_artifact_missing_{_blocker_token(name)}",
+            )
+            continue
+        if _sha256_file(path) != value:
+            blockers.append(
+                f"selected_runtime_output_manifest_hash_mismatch_{_blocker_token(name)}",
+            )
+    return tuple(blockers)
+
+
+def _expected_remote_manifest_names() -> frozenset[str]:
+    benchmark_names = {
+        f"benchmark:{name}"
+        for name in REMOTE_DEBUG_REQUIRED_BENCHMARK_ARTIFACTS
+        if name != "artifact_manifest.json"
+    }
+    return frozenset(
+        {
+            *benchmark_names,
+            "metrics:gate_health",
+            "metrics:train_steps",
+            "artifact:reconstruction_samples",
+        },
+    )
+
+
+def _manifest_artifact_path(*, output_dir: Path, name: str) -> Path | None:
+    if name.startswith("benchmark:"):
+        return output_dir / "benchmark" / name.removeprefix("benchmark:")
+    if name.startswith("metrics:"):
+        metric_name = name.removeprefix("metrics:")
+        metric_filename = (
+            metric_name if metric_name.endswith(".csv") else f"{metric_name}.csv"
+        )
+        return output_dir / "metrics" / metric_filename
+    if name.startswith("artifact:"):
+        artifact_name = name.removeprefix("artifact:")
+        artifact_filename = (
+            "reconstruction_samples.pt"
+            if artifact_name == "reconstruction_samples"
+            else artifact_name
+        )
+        return output_dir / "artifacts" / artifact_filename
+    legacy = {
+        "training_summary": output_dir / "benchmark" / "training_summary.json",
+        "selected_runtime_debug_summary": output_dir
+        / "benchmark"
+        / "selected_runtime_debug_summary.json",
+        "selected_runtime_plan_applied": output_dir
+        / "benchmark"
+        / "selected_runtime_plan_applied.json",
+        "checkpoint_resume_proof": output_dir
+        / "benchmark"
+        / "checkpoint_resume_proof.json",
+        "gate_health_summary": output_dir / "benchmark" / "gate_health_summary.json",
+        "local_selected_runtime_readiness": output_dir
+        / "benchmark"
+        / "local_selected_runtime_readiness.json",
+        "tiny_overfit_summary": output_dir / "benchmark" / "tiny_overfit_summary.json",
+        "train_steps": output_dir / "metrics" / "train_steps.csv",
+        "gate_health": output_dir / "metrics" / "gate_health.csv",
+        "reconstruction_samples": output_dir
+        / "artifacts"
+        / "reconstruction_samples.pt",
+    }
+    if name.startswith("checkpoint:"):
+        return output_dir / "checkpoints" / name.removeprefix("checkpoint:")
+    return legacy.get(name)
+
+
+def _remote_output_gate_health_blockers(path: Path) -> tuple[str, ...]:
     with path.open(encoding="utf-8", newline="") as csv_file:
-        rows = list(csv.DictReader(csv_file))
+        reader = csv.DictReader(csv_file)
+        rows = list(reader)
+        fieldnames = tuple(reader.fieldnames or ())
+    if not rows:
+        return ("selected_runtime_output_gate_health_empty",)
+    missing = set(GATE_HEALTH_COLUMNS) - set(fieldnames)
+    if missing:
+        return ("selected_runtime_output_gate_health_missing_columns",)
+    blockers: list[str] = []
+    if any(row.get("gate_health_status") != "pass" for row in rows):
+        blockers.append("selected_runtime_output_gate_health_row_not_pass")
+    if any(row.get("row_id") != EXPECTED_SELECTED_ROW_ID for row in rows):
+        blockers.append("selected_runtime_output_gate_health_row_id_mismatch")
+    if any(row.get("candidate_row_id") != EXPECTED_SELECTED_ROW_ID for row in rows):
+        blockers.append("selected_runtime_output_gate_health_candidate_mismatch")
+    if any(row.get("runtime_policy_id") != EXPECTED_RUNTIME_POLICY_ID for row in rows):
+        blockers.append("selected_runtime_output_gate_health_policy_mismatch")
+    if any(
+        not _is_finite_float(row.get(column, ""))
+        for row in rows
+        for column in REMOTE_GATE_HEALTH_FINITE_COLUMNS
+    ):
+        blockers.append("selected_runtime_output_gate_health_nonfinite")
+    if any(
+        _float_value(row.get(column, "")) >= REMOTE_GATE_HEALTH_MAX_SATURATION_FRACTION
+        for row in rows
+        for column in REMOTE_GATE_HEALTH_SATURATION_COLUMNS
+    ):
+        blockers.append("selected_runtime_output_gate_health_saturated")
+    return tuple(blockers)
+
+
+def _remote_output_train_step_blockers(
+    path: Path,
+    *,
+    max_batch_size: int,
+) -> tuple[str, ...]:
+    with path.open(encoding="utf-8", newline="") as csv_file:
+        reader = csv.DictReader(csv_file)
+        rows = list(reader)
+        fieldnames = tuple(reader.fieldnames or ())
     if not rows:
         return ("selected_runtime_output_train_steps_empty",)
     blockers: list[str] = []
+    if set(REMOTE_DEBUG_REQUIRED_TRAIN_STEP_COLUMNS) - set(fieldnames):
+        blockers.append("selected_runtime_output_train_steps_missing_columns")
     successful_steps = {
-        int(row["successful_optimizer_update_count"])
+        step
         for row in rows
         if row.get("amp_step_skipped") == "0"
-        and row.get("successful_optimizer_update_count")
+        and (step := _int_value(row.get("successful_optimizer_update_count"))) > 0
     }
+    if tuple(sorted(successful_steps)) != REMOTE_DEBUG_REQUIRED_SUCCESSFUL_STEPS:
+        blockers.append("selected_runtime_output_train_steps_wrong_step_set")
     if max(successful_steps, default=0) != REMOTE_DEBUG_FINAL_STEP:
         blockers.append("selected_runtime_output_train_steps_do_not_reach_8")
     if (
@@ -478,8 +820,14 @@ def _remote_output_train_step_blockers(path: Path) -> tuple[str, ...]:
         blockers.append("selected_runtime_output_train_steps_not_resumed_only")
     if any(row.get("amp_step_skipped") != "0" for row in rows):
         blockers.append("selected_runtime_output_train_steps_amp_skip")
-    if any(int(row.get("nonfinite_count", "0")) != 0 for row in rows):
+    if any(_int_value(row.get("nonfinite_count")) != 0 for row in rows):
         blockers.append("selected_runtime_output_train_steps_nonfinite")
+    if any(
+        (batch_size := _int_value(row.get("batch_size"))) <= 0
+        or (max_batch_size > 0 and batch_size > max_batch_size)
+        for row in rows
+    ):
+        blockers.append("selected_runtime_output_train_steps_batch_size_invalid")
     return tuple(blockers)
 
 
@@ -488,7 +836,45 @@ def _float_value(value: object) -> float:
         return 0.0
     if isinstance(value, int | float):
         return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return 0.0
     return 0.0
+
+
+def _is_finite_float(value: object) -> bool:
+    if isinstance(value, str) and not value.strip():
+        return False
+    try:
+        parsed = float(cast("str | int | float", value))
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(parsed)
+
+
+def _int_value(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    return 0
+
+
+def _hash_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+
+
+def _blocker_token(value: str) -> str:
+    return "".join(character if character.isalnum() else "_" for character in value)
 
 
 def _structured_readiness_blockers(  # noqa: PLR0913

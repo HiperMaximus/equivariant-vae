@@ -35,6 +35,7 @@ from eqvae.training.selected_runtime_runner import (
 )
 
 SHORT_TRAIN_STEPS = 2
+PARTIAL_BATCH_TRAIN_STEPS = 3
 SELECTED_RUNTIME_BATCH_SIZE = 12
 IMAGE_SIZE = 64
 
@@ -214,30 +215,7 @@ def test_selected_runtime_runner_consumes_fixed_train_selector(
     config_path = _runner_config(tmp_path)
     runtime_config = _runtime_config(tmp_path)
     data_root = _synthetic_ubc_root(tmp_path / "ubc-root")
-    selector_path = tmp_path / "fixed_32_train_overfit_patches.json"
-    holdout_path = tmp_path / "masked_holdout.csv"
-    holdout_path.write_text(
-        "image_id,label,is_updated_image_id\nnot_present,HGSC,false\n",
-        encoding="utf-8",
-    )
-    document = generate_fixed_selector_document(
-        selector_kind=FIXED_32_TRAIN_OVERFIT_KIND,
-        shard_spec=PatchShardSpec(
-            bin_path=data_root / TRAIN_BIN_NAME,
-            csv_path=data_root / TRAIN_CSV_NAME,
-            image_size=IMAGE_SIZE,
-            validate_crc=True,
-        ),
-        source_split="train",
-        context=FixedSelectorGenerationContext(
-            data_root=data_root,
-            masked_holdout_wsi_ids=frozenset({"not_present"}),
-        ),
-    )
-    write_fixed_selector_document(
-        path=selector_path,
-        document=replace(document, masked_holdout_exclusion=str(holdout_path)),
-    )
+    selector_path = _fixed_selector_for_root(tmp_path, data_root=data_root)
     output_dir = tmp_path / "runner-fixed-selector"
 
     assert (
@@ -277,6 +255,53 @@ def test_selected_runtime_runner_consumes_fixed_train_selector(
     assert summary["fixed_train_patch_count"] == FIXED_32_TRAIN_OVERFIT_COUNT
     assert debug_summary["fixed_train_patches"] == str(selector_path)
     assert debug_summary["fixed_train_patch_count"] == FIXED_32_TRAIN_OVERFIT_COUNT
+
+
+def test_selected_runtime_runner_sizes_eps_from_partial_batch(
+    tmp_path: Path,
+) -> None:
+    """Fixed-32 debug proof handles the final 8-sample batch under bs12."""
+    config_path = _runner_config(tmp_path)
+    runtime_config = _runtime_config(tmp_path)
+    data_root = _synthetic_ubc_root(tmp_path / "ubc-root")
+    selector_path = _fixed_selector_for_root(tmp_path, data_root=data_root)
+    output_dir = tmp_path / "runner-fixed-selector-partial"
+
+    assert (
+        selected_runtime_train_main(
+            [
+                "--config",
+                str(config_path),
+                "--runtime-config",
+                str(runtime_config),
+                "--data",
+                "ubc-pre-shuffled",
+                "--data-root",
+                str(data_root),
+                "--fixed-train-patches",
+                str(selector_path),
+                "--output-dir",
+                str(output_dir),
+                "--run-name",
+                "spec0008_fixed_selector_partial_batch",
+                "--max-train-steps",
+                str(PARTIAL_BATCH_TRAIN_STEPS),
+                "--max-val-steps",
+                "1",
+                "--save-every-steps",
+                "1",
+                "--dry-run",
+            ],
+        )
+        == 0
+    )
+
+    summary = _load_json(output_dir / "benchmark" / "training_summary.json")
+    train_rows = _load_csv(output_dir / "metrics" / "train_steps.csv")
+
+    assert summary["optimizer_steps_completed"] == PARTIAL_BATCH_TRAIN_STEPS
+    assert summary["fixed_train_patch_count"] == FIXED_32_TRAIN_OVERFIT_COUNT
+    assert [row["batch_size"] for row in train_rows] == ["12", "12", "8"]
 
 
 def test_selected_runtime_torchrun_command_validation(tmp_path: Path) -> None:
@@ -472,6 +497,34 @@ def _synthetic_ubc_root(root: Path) -> Path:
         include_idx=True,
     )
     return root
+
+
+def _fixed_selector_for_root(tmp_path: Path, *, data_root: Path) -> Path:
+    selector_path = tmp_path / "fixed_32_train_overfit_patches.json"
+    holdout_path = tmp_path / "masked_holdout.csv"
+    holdout_path.write_text(
+        "image_id,label,is_updated_image_id\nnot_present,HGSC,false\n",
+        encoding="utf-8",
+    )
+    document = generate_fixed_selector_document(
+        selector_kind=FIXED_32_TRAIN_OVERFIT_KIND,
+        shard_spec=PatchShardSpec(
+            bin_path=data_root / TRAIN_BIN_NAME,
+            csv_path=data_root / TRAIN_CSV_NAME,
+            image_size=IMAGE_SIZE,
+            validate_crc=True,
+        ),
+        source_split="train",
+        context=FixedSelectorGenerationContext(
+            data_root=data_root,
+            masked_holdout_wsi_ids=frozenset({"not_present"}),
+        ),
+    )
+    write_fixed_selector_document(
+        path=selector_path,
+        document=replace(document, masked_holdout_exclusion=str(holdout_path)),
+    )
+    return selector_path
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:

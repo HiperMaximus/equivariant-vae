@@ -214,6 +214,28 @@ detour unless the proof artifacts expose a blocker.
   - machine shape `NvidiaTeslaT4`;
   - dataset source exactly `maximusshtefan/patches-pre-shuffled-ubc-ocean`.
 
+## Latest Remote Attempt
+
+Selected-runtime debug/tiny v2 is not a passing remote proof. It did prove the
+canonical fixed-32 selector boundary on Kaggle: the downloaded
+`benchmark/fixed32_selector_readiness.json` reports `status = "pass"`,
+`fixed_32_selector_real = true`, `remote_selector_generation_ready = true`, and
+locked real UBC train shard fingerprints for 32 selected train patches. The run
+then failed before writing training/checkpoint/tiny/gate artifacts because the
+runner built explicit VAE epsilon from the nominal batch cap 12 while the final
+single-process fixed-32 batch had 8 samples. Local follow-up fixes size epsilon
+from the realized input batch and adds a fixed-32/bs12/3-step regression.
+
+The v2 follow-up also hardens the remote path beyond the immediate crash: the
+debug wrapper now launches the selected-runtime train runner through
+`python -m torch.distributed.run --standalone --nproc_per_node=2 -m
+eqvae.cli.selected_runtime_train` with the embedded payload on `PYTHONPATH`,
+and the post-download verifier hash-links selector readiness to the downloaded
+selector, replays artifact-manifest hashes, validates gate-health CSV content,
+and tightens train-step CSV checks. A future v3 narrow push still requires
+explicit user approval and must pass downloaded `--verify-output` before this
+spec can be marked remotely proved.
+
 ## Acceptance Criteria
 
 1. Local synthetic selector generation is deterministic, schema-valid, and fast.

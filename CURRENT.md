@@ -116,24 +116,54 @@ PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-outp
 
 Selected-runtime debug/tiny v2 push status, 2026-06-28: after user approval for
 the narrow rerun, local source commit `fabbfb8` (`Prove selected runtime debug
-holdout resolution`) was clean. A stronger regression now proves the actual
-root fix rather than a symptom workaround: from a fake `/kaggle/working`-style
-CWD without `docs/data`, direct `fixed32_selector_status` fails with
+holdout resolution`) was clean. A stronger regression proved the actual v1 root
+fix rather than a symptom workaround: from a fake `/kaggle/working`-style CWD
+without `docs/data`, direct `fixed32_selector_status` fails with
 `fixed_32_selector_masked_holdout_unavailable`, while the wrapper helper
 validates from the embedded payload CWD and reaches the intended
 `fixed_32_selector_not_canonical_real_ubc` result for synthetic data. Local
-verification before push: focused regression tests passed (`3 passed`),
-`./scripts/python_quality.sh` passed (`216 passed`, `0 errors, 0 warnings, 0
-notes`), and `./scripts/kaggle_kernel.sh preflight-selected-runtime-debug`
-passed from clean `HEAD`. The Kaggle API preflight again passed useful checks
-while warning on the known quota/files endpoints. Kaggle accepted
+verification before push passed, and Kaggle accepted
 `maximusshtefan/eqvae-selected-runtime-debug` version 2 at
 https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-debug. The
-single immediate guarded status read at `2026-06-28 17:05:49 -0500` returned
-`KernelWorkerStatus.RUNNING`. Do not actively poll in-turn; the next concrete
-action is, after about `2026-06-28 17:36 -0500` or later, run
-`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-debug`.
-If terminal, download to `runs/kaggle/selected_runtime_debug_v2`, then run:
+immediate guarded status read at `2026-06-28 17:05:49 -0500` returned
+`KernelWorkerStatus.RUNNING`; the next guarded status read at
+`2026-06-28 17:45:03 -0500` returned `KernelWorkerStatus.ERROR`. Outputs were
+downloaded to `runs/kaggle/selected_runtime_debug_v2`. The v2 selector proof is
+real progress: `benchmark/fixed32_selector_readiness.json` has `status =
+"pass"`, `fixed_32_selector_real = true`, `remote_selector_generation_ready =
+true`, `selector_status.canonical_real_ubc = true`, `selector_count = 32`, and
+the locked real UBC train CSV/bin/header fingerprints. Strict verification
+still fails, as it must, because only the selector artifacts and log exist; the
+missing artifacts are the training/checkpoint/gate/tiny summaries and
+`metrics/train_steps.csv`/`metrics/gate_health.csv`. The Kaggle log root cause
+is later than v1 and precise:
+`ValueError: eps shape torch.Size([12, 16, 32, 32]) does not match mu shape
+torch.Size([8, 16, 32, 32])`. The fixed-32 selector has 32 patches and the v5
+runtime batch cap is 12, so the third single-process batch was size 8 while the
+runner built explicit VAE epsilon from the nominal configured batch size. Local
+fixes after v2 are implemented and verified: the runner now sizes explicit
+epsilon from the realized input batch and records actual metric batch size; a
+regression drives fixed-32/bs12 for three steps and proves `12, 12, 8`; the
+selected-runtime debug wrapper now launches phase1/resume/tiny through
+`python -m torch.distributed.run --standalone --nproc_per_node=2 -m
+eqvae.cli.selected_runtime_train` with the embedded payload on `PYTHONPATH`
+instead of direct single-process calls; the shell push guard requires that
+distributed launcher path; and the post-download verifier now hash-links the
+selector readiness to the downloaded selector, validates canonical selector
+metadata locally, replays artifact-manifest hashes, checks gate-health CSV
+content, and tightens train-step CSV parsing. Adversarial subagent review found
+the partial-batch epsilon fix to be a true source fix, then flagged the verifier
+and wrapper hardening items, which are now addressed. Local verification after
+the v2 fixes: focused selected-runtime gate/runner/wrapper tests passed,
+`./scripts/kaggle_kernel.sh preflight-selected-runtime-runner` passed,
+`./scripts/kaggle_kernel.sh preflight-selected-runtime-debug` passed from the
+final worktree, `./scripts/python_quality.sh` passed (`221 passed`, `0 errors,
+0 warnings, 0 notes`), `git diff --check` passed, and v2 `--verify-output`
+still reports the expected missing remote training artifacts. The next concrete
+action is to commit these local fixes, run repo/workspace preflights, then ask
+for explicit user approval for a new narrow selected-runtime debug/tiny Kaggle
+push, expected as v3. This remains not approval for the long full run. The v2
+verifier command is:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-output \

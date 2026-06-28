@@ -10,6 +10,7 @@ import io
 import json
 import os
 import shutil
+import subprocess  # noqa: S404
 import sys
 import traceback
 import zipfile
@@ -169,7 +170,7 @@ def _run_selected_runtime_debug(output_dir: Path) -> int:
     )
     if selector_generation.get("status") == "pass":
         exit_code = _run_real_selected_runtime_debug(
-            selected_runtime_train_main=selected_runtime_train_main,
+            payload_src=payload_src,
             payload_dir=payload_dir,
             output_dir=output_dir,
             selected_runtime_path=selected_runtime_path,
@@ -179,7 +180,7 @@ def _run_selected_runtime_debug(output_dir: Path) -> int:
         if exit_code != 0:
             return exit_code
         exit_code = _run_real_selected_runtime_tiny_overfit(
-            selected_runtime_train_main=selected_runtime_train_main,
+            payload_src=payload_src,
             payload_dir=payload_dir,
             output_dir=output_dir,
             selected_runtime_path=selected_runtime_path,
@@ -331,7 +332,7 @@ def _selector_generation_failure_kind(selector_status: dict[str, object]) -> str
 
 def _run_real_selected_runtime_debug(  # noqa: PLR0913
     *,
-    selected_runtime_train_main: Callable[[Sequence[str] | None], int],
+    payload_src: Path,
     payload_dir: Path,
     output_dir: Path,
     selected_runtime_path: Path,
@@ -361,7 +362,10 @@ def _run_real_selected_runtime_debug(  # noqa: PLR0913
         "--save-every-steps",
         str(DEBUG_RESUME_STEP),
     ]
-    phase1_exit_code = selected_runtime_train_main(tuple(phase1_args))
+    phase1_exit_code = _run_selected_runtime_train_torchrun(
+        payload_src=payload_src,
+        args=tuple(phase1_args),
+    )
     if phase1_exit_code != 0:
         return phase1_exit_code
     resume_checkpoint = phase1_dir / "checkpoints" / f"step_{DEBUG_RESUME_STEP:06d}.pt"
@@ -392,12 +396,15 @@ def _run_real_selected_runtime_debug(  # noqa: PLR0913
         "--save-every-steps",
         str(DEBUG_RESUME_STEP),
     ]
-    return selected_runtime_train_main(tuple(runner_args))
+    return _run_selected_runtime_train_torchrun(
+        payload_src=payload_src,
+        args=tuple(runner_args),
+    )
 
 
 def _run_real_selected_runtime_tiny_overfit(  # noqa: PLR0913
     *,
-    selected_runtime_train_main: Callable[[Sequence[str] | None], int],
+    payload_src: Path,
     payload_dir: Path,
     output_dir: Path,
     selected_runtime_path: Path,
@@ -427,7 +434,10 @@ def _run_real_selected_runtime_tiny_overfit(  # noqa: PLR0913
         "--save-every-steps",
         str(TINY_SAVE_EVERY_STEP),
     ]
-    exit_code = selected_runtime_train_main(tuple(args))
+    exit_code = _run_selected_runtime_train_torchrun(
+        payload_src=payload_src,
+        args=tuple(args),
+    )
     if exit_code != 0:
         return exit_code
     source = tiny_output_dir / "benchmark" / "tiny_overfit_summary.json"
@@ -444,6 +454,39 @@ def _run_real_selected_runtime_tiny_overfit(  # noqa: PLR0913
         encoding="utf-8",
     )
     return 0
+
+
+def _run_selected_runtime_train_torchrun(
+    *,
+    payload_src: Path,
+    args: Sequence[str],
+) -> int:
+    environment = os.environ.copy()
+    existing_pythonpath = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = (
+        str(payload_src)
+        if not existing_pythonpath
+        else f"{payload_src}{os.pathsep}{existing_pythonpath}"
+    )
+    completed = subprocess.run(  # noqa: S603
+        _selected_runtime_train_torchrun_command(args),
+        env=environment,
+        check=False,
+    )
+    return int(completed.returncode)
+
+
+def _selected_runtime_train_torchrun_command(args: Sequence[str]) -> tuple[str, ...]:
+    return (
+        sys.executable,
+        "-m",
+        "torch.distributed.run",
+        "--standalone",
+        "--nproc_per_node=2",
+        "-m",
+        "eqvae.cli.selected_runtime_train",
+        *tuple(args),
+    )
 
 
 def _write_real_gate_summary(

@@ -14,7 +14,10 @@ import sys
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    import pytest
 
 from eqvae.benchmarking.fixed32_selector_readiness import fixed32_selector_status
 from eqvae.benchmarking.kaggle_smoke import (
@@ -634,19 +637,21 @@ def test_selected_runtime_debug_selector_status_resolves_payload_holdout(
 
 def test_selected_runtime_debug_real_runner_uses_resume_sequence(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The remote-pass branch launches 4 updates, then resumes to update 8."""
     from kaggle.kernels.selected_runtime_debug import run_template  # noqa: PLC0415
 
-    calls: list[tuple[str, ...]] = []
+    calls: list[tuple[Path, tuple[str, ...]]] = []
     payload_dir = tmp_path / "payload"
+    payload_src = payload_dir / "src"
     output_dir = tmp_path / "output"
     selected_runtime_path = tmp_path / "selected_runtime.json"
     fixed_train_patches = tmp_path / "fixed_32_train_overfit_patches.json"
 
-    def fake_selected_runtime_train(args: object) -> int:
+    def fake_selected_runtime_train(*, payload_src: Path, args: object) -> int:
         values = _arg_tuple(args)
-        calls.append(values)
+        calls.append((payload_src, values))
         phase_output = Path(_option_value(values, "--output-dir"))
         if len(calls) == 1:
             checkpoint = phase_output / "checkpoints" / "step_000004.pt"
@@ -654,8 +659,14 @@ def test_selected_runtime_debug_real_runner_uses_resume_sequence(
             checkpoint.write_bytes(b"checkpoint")
         return 0
 
+    monkeypatch.setattr(
+        run_template,
+        "_run_selected_runtime_train_torchrun",
+        fake_selected_runtime_train,
+    )
+
     exit_code = run_template._run_real_selected_runtime_debug(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-        selected_runtime_train_main=fake_selected_runtime_train,
+        payload_src=payload_src,
         payload_dir=payload_dir,
         output_dir=output_dir,
         selected_runtime_path=selected_runtime_path,
@@ -665,7 +676,9 @@ def test_selected_runtime_debug_real_runner_uses_resume_sequence(
 
     assert exit_code == 0
     assert len(calls) == _EXPECTED_SELECTED_RUNTIME_DEBUG_RUNNER_CALLS
-    phase1, phase2 = calls
+    assert {call_payload_src for call_payload_src, _ in calls} == {payload_src}
+    phase1 = calls[0][1]
+    phase2 = calls[1][1]
     assert "--resume" not in phase1
     assert _option_value(phase1, "--output-dir") == str(
         output_dir / "resume_probe_phase1",
@@ -686,19 +699,21 @@ def test_selected_runtime_debug_real_runner_uses_resume_sequence(
 
 def test_selected_runtime_debug_tiny_runner_uses_generated_selector(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The tiny phase is capped and consumes the generated fixed-32 selector."""
     from kaggle.kernels.selected_runtime_debug import run_template  # noqa: PLC0415
 
-    calls: list[tuple[str, ...]] = []
+    calls: list[tuple[Path, tuple[str, ...]]] = []
     payload_dir = tmp_path / "payload"
+    payload_src = payload_dir / "src"
     output_dir = tmp_path / "output"
     selected_runtime_path = tmp_path / "selected_runtime.json"
     fixed_train_patches = output_dir / "benchmark" / "fixed_32_train_overfit.json"
 
-    def fake_selected_runtime_train(args: object) -> int:
+    def fake_selected_runtime_train(*, payload_src: Path, args: object) -> int:
         values = _arg_tuple(args)
-        calls.append(values)
+        calls.append((payload_src, values))
         tiny_output = Path(_option_value(values, "--output-dir"))
         summary = tiny_output / "benchmark" / "tiny_overfit_summary.json"
         summary.parent.mkdir(parents=True, exist_ok=True)
@@ -717,8 +732,14 @@ def test_selected_runtime_debug_tiny_runner_uses_generated_selector(
         )
         return 0
 
+    monkeypatch.setattr(
+        run_template,
+        "_run_selected_runtime_train_torchrun",
+        fake_selected_runtime_train,
+    )
+
     exit_code = run_template._run_real_selected_runtime_tiny_overfit(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-        selected_runtime_train_main=fake_selected_runtime_train,
+        payload_src=payload_src,
         payload_dir=payload_dir,
         output_dir=output_dir,
         selected_runtime_path=selected_runtime_path,
@@ -728,7 +749,8 @@ def test_selected_runtime_debug_tiny_runner_uses_generated_selector(
 
     assert exit_code == 0
     assert len(calls) == 1
-    call = calls[0]
+    assert calls[0][0] == payload_src
+    call = calls[0][1]
     assert _option_value(call, "--config") == str(
         payload_dir / "configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json",
     )
@@ -739,6 +761,26 @@ def test_selected_runtime_debug_tiny_runner_uses_generated_selector(
     copied = _load_json(output_dir / "benchmark" / "tiny_overfit_summary.json")
     assert copied["status"] == "local_pass"
     assert "source_summary_sha256" in copied
+
+
+def test_selected_runtime_debug_runner_launches_torch_distributed() -> None:
+    """The remote runner command uses torch distributed with two local ranks."""
+    from kaggle.kernels.selected_runtime_debug import run_template  # noqa: PLC0415
+
+    command = run_template._selected_runtime_train_torchrun_command(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        ("--config", "debug.json"),
+    )
+
+    assert command[:7] == (
+        sys.executable,
+        "-m",
+        "torch.distributed.run",
+        "--standalone",
+        "--nproc_per_node=2",
+        "-m",
+        "eqvae.cli.selected_runtime_train",
+    )
+    assert command[7:] == ("--config", "debug.json")
 
 
 def test_embedded_kernel_verify_rejects_stale_template(tmp_path: Path) -> None:

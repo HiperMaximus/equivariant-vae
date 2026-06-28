@@ -385,6 +385,7 @@ class _SelectedRuntimeStepResult:
     grad_norm: float
     param_update_norm: float
     nonfinite_count: int
+    batch_size: int
     amp_step_skipped: bool
     zero_grad_set_to_none: bool
 
@@ -1541,7 +1542,6 @@ def _run_train_steps(  # noqa: PLR0913
             _metric_row(
                 result=result,
                 rank=distributed.rank,
-                settings=settings,
                 plan=plan,
                 amp=amp,
                 checkpoint_path=checkpoint_path,
@@ -1599,7 +1599,11 @@ def _run_train_step(  # noqa: PLR0913, PLR0914
     )
     clean_batch = _to_device(clean_batch_cpu, device=device, plan=plan)
     input_batch = _to_device(corruption.corrupted, device=device, plan=plan)
-    eps = _zero_eps(settings, device=device)
+    eps = _zero_eps(
+        batch_size=input_batch.shape[0],
+        settings=settings,
+        device=device,
+    )
     beta = beta_for_step(
         optimizer_step_index=optimizer_step_index,
         max_optimizer_steps=settings.max_train_steps,
@@ -1657,6 +1661,7 @@ def _run_train_step(  # noqa: PLR0913, PLR0914
         grad_norm=grad_norm,
         param_update_norm=_parameter_update_norm(model, before_params),
         nonfinite_count=nonfinite_count,
+        batch_size=input_batch.shape[0],
         amp_step_skipped=amp_step_skipped,
         zero_grad_set_to_none=plan.zero_grad_set_to_none,
     )
@@ -2519,7 +2524,6 @@ def _metric_row(  # noqa: PLR0913
     *,
     result: _SelectedRuntimeStepResult,
     rank: int,
-    settings: _RunnerSettings,
     plan: SelectedRuntimePlan,
     amp: _AmpExecution,
     checkpoint_path: str,
@@ -2547,7 +2551,7 @@ def _metric_row(  # noqa: PLR0913
         "grad_norm": _format_float(result.grad_norm),
         "param_update_norm": _format_float(result.param_update_norm),
         "nonfinite_count": str(result.nonfinite_count),
-        "batch_size": str(settings.batch_size),
+        "batch_size": str(result.batch_size),
         "precision_policy": plan.precision_policy,
         "amp_enabled": _csv_bool(value=amp.enabled),
         "autocast_dtype": amp.autocast_dtype,
@@ -2647,10 +2651,15 @@ def _parameter_update_norm(
     return math.sqrt(squared)
 
 
-def _zero_eps(settings: _RunnerSettings, *, device: torch.device) -> torch.Tensor:
+def _zero_eps(
+    *,
+    batch_size: int,
+    settings: _RunnerSettings,
+    device: torch.device,
+) -> torch.Tensor:
     return torch.zeros(
         (
-            settings.batch_size,
+            batch_size,
             LATENT_CHANNELS,
             settings.image_size // 8,
             settings.image_size // 8,
