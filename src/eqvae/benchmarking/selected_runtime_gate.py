@@ -553,7 +553,7 @@ def _remote_generate_structured_readiness_blockers(
         *(("selected_runtime_transport_validation_failed",) if runtime_errors else ()),
     ]
     if not REAL_UBC_SELECTED_RUNTIME_TRAIN_RUNNER_IMPLEMENTED:
-        blockers.append("real_ubc_selected_runtime_train_runner_not_implemented")
+        blockers.append("selected_runtime_runner_capability_missing")
     if not SELECTED_RUNTIME_DEBUG_WRAPPER_WIRED_TO_REAL_RUNNER:
         blockers.append("selected_runtime_debug_wrapper_not_wired_to_real_runner")
     return tuple(blockers)
@@ -974,7 +974,7 @@ def _launch_blockers(
     if not SELECTED_RUNTIME_DEBUG_WRAPPER_WIRED_TO_REAL_RUNNER:
         blockers.insert(0, "selected_runtime_debug_wrapper_not_wired_to_real_runner")
     if not REAL_UBC_SELECTED_RUNTIME_TRAIN_RUNNER_IMPLEMENTED:
-        blockers.insert(0, "real_ubc_selected_runtime_train_runner_not_implemented")
+        blockers.insert(0, "selected_runtime_runner_capability_missing")
     if not SELECTED_RUNTIME_PLAN_APPLIED_TO_TRAINING:
         blockers.append("selected_runtime_runtime_plan_not_applied_to_training")
     if runtime_errors:
@@ -994,7 +994,7 @@ def _push_readiness_blockers(
     if not SELECTED_RUNTIME_DEBUG_WRAPPER_WIRED_TO_REAL_RUNNER:
         blockers.append("selected_runtime_debug_wrapper_not_wired_to_real_runner")
     if not REAL_UBC_SELECTED_RUNTIME_TRAIN_RUNNER_IMPLEMENTED:
-        blockers.append("real_ubc_selected_runtime_train_runner_not_implemented")
+        blockers.append("selected_runtime_runner_capability_missing")
     if (
         selector_generation_mode != REMOTE_GENERATE_MODE
         and not SELECTED_RUNTIME_PLAN_APPLIED_TO_TRAINING
