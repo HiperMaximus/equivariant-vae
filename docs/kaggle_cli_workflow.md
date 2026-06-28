@@ -68,10 +68,12 @@ used the nominal batch cap for explicit VAE epsilon on an 8-sample partial
 fixed-32 batch. Local follow-up fixes epsilon sizing from the realized input
 batch, switches the wrapper to `python -m torch.distributed.run --standalone
 --nproc_per_node=2 -m eqvae.cli.selected_runtime_train`, and hardens the
-downloaded-output verifier. The next work is an explicit-user-approved narrow
-selected-runtime debug/tiny v3 Kaggle push; the first full long run remains
-outside Specs 0007/0008 and should be the immediate next candidate only after
-the Spec 0008 remote proof artifacts pass.
+downloaded-output verifier. The explicit-user-approved narrow
+selected-runtime debug/tiny v3 push is now running; the next work is a guarded
+status poll after the recorded cadence, then output download and
+`eqvae.cli.selected_runtime_gate --verify-output` if terminal. The first full
+long run remains outside Specs 0007/0008 and should be the immediate next
+candidate only after the Spec 0008 remote proof artifacts pass.
 Kaggle source attachments require a separate confirmation guard
 Last updated: 2026-06-25
 

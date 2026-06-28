@@ -171,6 +171,36 @@ PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-outp
   --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json
 ```
 
+Selected-runtime debug/tiny v3 push status, 2026-06-28: after explicit user
+approval for the narrow rerun only, local source commit `09b5b24` (`Fix
+selected runtime debug v2 blockers`) was clean. The selected-runtime debug
+preflight passed immediately before push, rebuilding the generated embedded
+kernel and proving the payload matched the current worktree. The Kaggle API
+preflight passed the useful read checks while keeping the known quota/files
+endpoint warnings. Kaggle accepted `maximusshtefan/eqvae-selected-runtime-debug`
+version 3 at
+https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-debug. The
+single immediate guarded status read at `2026-06-28 18:25:05 -0500` returned
+`KernelWorkerStatus.RUNNING`. Do not actively poll in-turn; the next concrete
+action is, after about `2026-06-28 18:55 -0500` or later, run:
+
+```bash
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-debug
+```
+
+If terminal, download to `runs/kaggle/selected_runtime_debug_v3`, then run:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-output \
+  --output-dir runs/kaggle/selected_runtime_debug_v3 \
+  --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json
+```
+
+If verification passes, record Spec 0008 remote proof as passed and make the
+first full real selected-runtime run the next candidate action, still requiring
+separate explicit user approval. If it fails, record the exact blocker and do
+not claim readiness.
+
 Synthetic timing is now
 completed provenance for screening: remote versions 1, 2, 3, and 4 completed
 successfully as non-promotable evidence, with v4 as the current

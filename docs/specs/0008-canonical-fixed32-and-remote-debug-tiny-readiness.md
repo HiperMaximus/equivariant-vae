@@ -232,9 +232,11 @@ debug wrapper now launches the selected-runtime train runner through
 eqvae.cli.selected_runtime_train` with the embedded payload on `PYTHONPATH`,
 and the post-download verifier hash-links selector readiness to the downloaded
 selector, replays artifact-manifest hashes, validates gate-health CSV content,
-and tightens train-step CSV checks. A future v3 narrow push still requires
-explicit user approval and must pass downloaded `--verify-output` before this
-spec can be marked remotely proved.
+and tightens train-step CSV checks. After explicit user approval, v3 was pushed
+from clean commit `09b5b24` and the immediate guarded status read at
+`2026-06-28 18:25:05 -0500` returned `KernelWorkerStatus.RUNNING`. It must
+complete, be downloaded to `runs/kaggle/selected_runtime_debug_v3`, and pass
+downloaded `--verify-output` before this spec can be marked remotely proved.
 
 ## Acceptance Criteria
 
