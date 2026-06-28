@@ -69,6 +69,26 @@ selected-runtime debug/tiny Kaggle push only; this is not approval for the first
 full long run. If Spec 0008 remote artifacts pass, the first full real
 selected-runtime run becomes the immediate next candidate action. Historical
 provenance follows.
+
+Selected-runtime debug/tiny v1 push status, 2026-06-28: local source commit
+`5591737` (`Remove stale selected runtime blocker`) was clean, the selected
+debug preflight passed, the Kaggle API preflight passed useful checks while
+still warning on the known quota/files endpoints, and Kaggle accepted
+`maximusshtefan/eqvae-selected-runtime-debug` version 1 at
+https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-debug. The
+single immediate guarded status read at `2026-06-28 14:34:43 -0500` returned
+`KernelWorkerStatus.RUNNING`. Do not actively poll in-turn; the next concrete
+action is, after about `2026-06-28 15:05 -0500` or later, run
+`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-debug`.
+If terminal, download to a versioned directory such as
+`runs/kaggle/selected_runtime_debug_v1`, then run the strict verifier:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-output \
+  --output-dir runs/kaggle/selected_runtime_debug_v1 \
+  --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json
+```
+
 Synthetic timing is now
 completed provenance for screening: remote versions 1, 2, 3, and 4 completed
 successfully as non-promotable evidence, with v4 as the current
