@@ -59,6 +59,15 @@ push guard remains explicit-user-gated and remote proof is still pending:
 downloaded Kaggle artifacts must prove the canonical real selector,
 selected-runtime plan application, checkpoint/resume, gate health, manifest,
 and tiny-overfit bounds before any pass claim.
+The first approved v5 push attempt on 2026-06-29 exposed stale Kaggle OAuth
+cache behavior in local CLI calls: `kaggle auth print-access-token` could mint
+a token, but normal `kaggle kernels ...` calls reused a rejected cached token.
+The repo wrapper now runs authenticated Kaggle calls through
+`scripts/kaggle_oauth_exec.py`, which generates a fresh OAuth token and passes
+it to the child CLI via a temporary 0600 token file; selected-runtime
+`api-check` with this path passes except for the already-known quota endpoint
+warning. This is workflow plumbing only; selected-runtime debug/tiny v5 still
+needs a successful push, run, download, and strict `--verify-output` pass.
 No long real training run should be requested until the real UBC/DDP/AMP debug,
 resume, artifact, gate-health, canonical selector, and tiny-overfit proofs
 pass.
@@ -69,6 +78,27 @@ selected-runtime debug/tiny Kaggle push only; this is not approval for the first
 full long run. If Spec 0008 remote artifacts pass, the first full real
 selected-runtime run becomes the immediate next candidate action. Historical
 provenance follows.
+
+Selected-runtime debug/tiny v5 pre-push auth status, 2026-06-29: after explicit
+approval for the narrow selected-runtime debug/tiny v5 push, the local push
+guard and embedded-kernel checks passed, but the actual Kaggle upload failed
+before remote execution with Kaggle's authentication-required message. A direct
+selected-runtime status call also failed until the CLI was given a freshly
+minted OAuth token. Root cause: local Kaggle CLI 2.2.1 could generate a fresh
+token from `~/.kaggle/credentials.json`, while normal API calls were still using
+a stale cached token from the same credentials file. The selected-runtime slug
+was correct. New helper `scripts/kaggle_oauth_exec.py` avoids shell token
+substitution and token printing by generating a fresh token with the installed
+Kaggle SDK, writing it only to a temporary 0600 token file for the child
+process, and deleting that file when the child exits. `scripts/kaggle_kernel.sh`
+now routes authenticated Kaggle reads/writes through that helper when OAuth
+credentials exist, and `api-check` accepts an optional kernel directory so
+`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check
+kaggle/kernels/selected_runtime_debug` checks the actual selected-runtime
+kernel. Read-only verification of that command passed with the known quota
+warning. Next action after local verification/commit is to request fresh
+explicit approval for the narrow selected-runtime debug/tiny v5 push retry.
+This remains not approval for the long full run.
 
 Selected-runtime debug/tiny v1 push status, 2026-06-28: local source commit
 `5591737` (`Remove stale selected runtime blocker`) was clean, the selected

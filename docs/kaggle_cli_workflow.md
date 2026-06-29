@@ -409,6 +409,28 @@ quota/availability in the Kaggle web UI if the quota endpoint still warns, and
 let the benchmark itself fail rows with `failure_kind = "wrong_accelerator"` if
 Kaggle does not allocate two visible T4 devices for `dual_t4_ddp`.
 
+On 2026-06-29, the selected-runtime debug/tiny v5 push attempt found another
+Kaggle CLI auth edge: OAuth token generation still worked, but ordinary
+`kaggle kernels ...` commands reused a stale cached access token and failed
+before upload. The selected-runtime slug was correct. `scripts/kaggle_kernel.sh`
+now routes authenticated Kaggle reads/writes through
+`scripts/kaggle_oauth_exec.py` when `~/.kaggle/credentials.json` exists. The
+helper uses the installed Kaggle SDK to generate a fresh short-lived OAuth
+token, passes it to the child CLI through a temporary 0600 token file, and
+deletes that file when the child exits. This avoids shell token substitution
+and token printing. Set `KAGGLE_DISABLE_FRESH_OAUTH=1` only when intentionally
+debugging the raw Kaggle CLI auth path.
+
+`api-check` now accepts an optional kernel directory. For the selected-runtime
+debug/tiny gate, use:
+
+```bash
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check kaggle/kernels/selected_runtime_debug
+```
+
+That selected-runtime preflight passed on 2026-06-29 through the fresh-token
+wrapper with the known quota warning and `kernels files` working.
+
 The user visually confirmed the Kaggle web UI quota on 2026-06-11: phone
 verification is complete, identity verification is not complete, and Kaggle GPU
 quota shows `00:07 / 30 hrs` used. Identity verification is not currently a

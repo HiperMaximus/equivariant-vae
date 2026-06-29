@@ -538,6 +538,15 @@ Use the official Kaggle API authentication paths only, such as local CLI login o
 the standard local token file. Agents must ask before running any command that
 uses network access or remote Kaggle writes.
 
+If local Kaggle CLI OAuth credentials exist, `scripts/kaggle_kernel.sh` routes
+authenticated reads/writes through `scripts/kaggle_oauth_exec.py` by default.
+That helper generates a fresh short-lived OAuth access token from the installed
+Kaggle SDK, passes it to the child CLI through a temporary 0600 token file, and
+deletes the file when the child exits. This is specifically to avoid stale
+cached `credentials.json` access tokens and shell token-substitution leaks. Use
+`KAGGLE_DISABLE_FRESH_OAUTH=1` only when intentionally debugging the raw Kaggle
+CLI auth path.
+
 ## Metadata Contract
 
 Each script kernel folder must contain:

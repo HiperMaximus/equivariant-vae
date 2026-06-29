@@ -732,6 +732,7 @@ def _guard_environment(
 ) -> dict[str, str]:
     environment = os.environ.copy()
     environment["PATH"] = f"{fake_bin}{os.pathsep}{environment['PATH']}"
+    environment["KAGGLE_DISABLE_FRESH_OAUTH"] = "1"
     if push_confirmed:
         environment["KAGGLE_PUSH_CONFIRMED"] = "1"
     else:

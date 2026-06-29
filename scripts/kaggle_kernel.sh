@@ -26,7 +26,7 @@ Usage:
   ./scripts/kaggle_kernel.sh preflight-fixed32-selector-readiness
   ./scripts/kaggle_kernel.sh preflight-selected-runtime-runner
   ./scripts/kaggle_kernel.sh preflight-selected-runtime-debug
-  ./scripts/kaggle_kernel.sh api-check
+  ./scripts/kaggle_kernel.sh api-check [kernel_dir]
   ./scripts/kaggle_kernel.sh push [kernel_dir] [extra kaggle args...]
   ./scripts/kaggle_kernel.sh status [kernel_id]
   ./scripts/kaggle_kernel.sh status-setup
@@ -59,6 +59,62 @@ Do not commit Kaggle credentials.
 EOF
     exit 1
   fi
+}
+
+kaggle_tool_python() {
+  local kaggle_bin
+  local shebang
+  local interpreter
+  local interpreter_command
+  local interpreter_name
+  local env_interpreter
+  kaggle_bin="$(command -v kaggle)"
+  if ! IFS= read -r shebang <"$kaggle_bin"; then
+    return 1
+  fi
+  if [[ "$shebang" != '#!'* ]]; then
+    return 1
+  fi
+  interpreter="${shebang#\#!}"
+  interpreter_command="${interpreter%% *}"
+  interpreter_name="$(basename "$interpreter_command")"
+  if [[ -x "$interpreter_command" && "$interpreter_name" == python* ]]; then
+    printf '%s\n' "$interpreter_command"
+    return 0
+  fi
+  if [[ "$interpreter" == /usr/bin/env\ * ]]; then
+    env_interpreter="${interpreter#/usr/bin/env }"
+    if [[ "$env_interpreter" == -S\ * ]]; then
+      env_interpreter="${env_interpreter#-S }"
+    fi
+    env_interpreter="${env_interpreter%% *}"
+    if [[ "$(basename "$env_interpreter")" == python* ]] \
+      && command -v "$env_interpreter" >/dev/null 2>&1; then
+      command -v "$env_interpreter"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+kaggle_api() {
+  if [[ "${KAGGLE_DISABLE_FRESH_OAUTH:-}" != "1" \
+    && -f "${HOME}/.kaggle/credentials.json" ]]; then
+    local kaggle_python
+    if kaggle_python="$(kaggle_tool_python)"; then
+      "$kaggle_python" scripts/kaggle_oauth_exec.py "$@"
+      return
+    fi
+    cat >&2 <<'EOF'
+error: Kaggle OAuth credentials are present, but the Kaggle CLI Python
+interpreter could not be resolved for the fresh-token wrapper.
+Set KAGGLE_DISABLE_FRESH_OAUTH=1 only when intentionally debugging raw Kaggle
+CLI authentication.
+EOF
+    exit 1
+  fi
+
+  kaggle "$@"
 }
 
 require_remote_confirmed() {
@@ -1648,10 +1704,11 @@ EOF
 }
 
 api_check() {
+  local kernel_dir="${1:-$default_kernel_dir}"
   require_remote_confirmed
   require_kaggle_cli
   local kernel_id
-  kernel_id="$(kernel_id_from_metadata "$default_kernel_dir")"
+  kernel_id="$(kernel_id_from_metadata "$kernel_dir")"
 
   echo "Kaggle API read-only preflight"
   echo "=============================="
@@ -1660,25 +1717,25 @@ api_check() {
   kaggle auth print-access-token >/dev/null
   echo "ok: OAuth access token can be generated"
 
-  kaggle kernels list --mine --search "${kernel_id#*/}" --csv >/dev/null
+  kaggle_api kernels list --mine --search "${kernel_id#*/}" --csv >/dev/null
   echo "ok: kernels list can see $kernel_id"
 
-  kaggle kernels status "$kernel_id" >/dev/null
+  kaggle_api kernels status "$kernel_id" >/dev/null
   echo "ok: kernels status works for $kernel_id"
 
-  kaggle kernels logs "$kernel_id" >/dev/null
+  kaggle_api kernels logs "$kernel_id" >/dev/null
   echo "ok: kernels logs works for $kernel_id"
 
-  kaggle datasets files maximusshtefan/patches-pre-shuffled-ubc-ocean -v >/dev/null
+  kaggle_api datasets files maximusshtefan/patches-pre-shuffled-ubc-ocean -v >/dev/null
   echo "ok: dataset file listing works for patches-pre-shuffled-ubc-ocean"
 
-  if kaggle quota -v >/dev/null 2>&1; then
+  if kaggle_api quota -v >/dev/null 2>&1; then
     echo "ok: accelerator quota endpoint works"
   else
     echo "warn: accelerator quota endpoint failed; verify quota in Kaggle UI before remote benchmark push" >&2
   fi
 
-  if kaggle kernels files "$kernel_id" -v >/dev/null 2>&1; then
+  if kaggle_api kernels files "$kernel_id" -v >/dev/null 2>&1; then
     echo "ok: kernels files endpoint works"
   else
     echo "warn: kernels files endpoint failed; status/logs still work, but source-file introspection is unavailable" >&2
@@ -1888,7 +1945,7 @@ case "$action" in
     kaggle --version
     ;;
   api-check)
-    api_check
+    api_check "${2:-$default_kernel_dir}"
     ;;
   preflight-runtime-selection)
     preflight_runtime_selection
@@ -1917,37 +1974,37 @@ case "$action" in
     guard_push_ready "$kernel_dir"
     require_kaggle_sources_confirmed "$(metadata_path "$kernel_dir")"
     require_kaggle_cli
-    kaggle kernels push -p "$kernel_dir" "$@"
+    kaggle_api kernels push -p "$kernel_dir" "$@"
     ;;
   status)
     kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"
     require_remote_confirmed
     require_kaggle_cli
-    kaggle kernels status "$kernel_id"
+    kaggle_api kernels status "$kernel_id"
     ;;
   status-setup)
     kernel_id="$(kernel_id_from_metadata "$setup_kernel_dir")"
     require_remote_confirmed
     require_kaggle_cli
-    kaggle kernels status "$kernel_id"
+    kaggle_api kernels status "$kernel_id"
     ;;
   status-real-data-runtime-pretest)
     kernel_id="$(kernel_id_from_metadata "$real_data_runtime_pretest_kernel_dir")"
     require_remote_confirmed
     require_kaggle_cli
-    kaggle kernels status "$kernel_id"
+    kaggle_api kernels status "$kernel_id"
     ;;
   status-runtime-selection)
     kernel_id="$(kernel_id_from_metadata "$runtime_selection_kernel_dir")"
     require_remote_confirmed
     require_kaggle_cli
-    kaggle kernels status "$kernel_id"
+    kaggle_api kernels status "$kernel_id"
     ;;
   status-selected-runtime-debug)
     kernel_id="$(kernel_id_from_metadata "$selected_runtime_debug_kernel_dir")"
     require_remote_confirmed
     require_kaggle_cli
-    kaggle kernels status "$kernel_id"
+    kaggle_api kernels status "$kernel_id"
     ;;
   output)
     kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"
@@ -1955,7 +2012,7 @@ case "$action" in
     require_remote_confirmed
     require_kaggle_cli
     mkdir -p "$output_dir"
-    kaggle kernels output "$kernel_id" -p "$output_dir"
+    kaggle_api kernels output "$kernel_id" -p "$output_dir"
     ;;
   output-real-data-runtime-pretest)
     kernel_id="$(kernel_id_from_metadata "$real_data_runtime_pretest_kernel_dir")"
@@ -1963,7 +2020,7 @@ case "$action" in
     require_remote_confirmed
     require_kaggle_cli
     mkdir -p "$output_dir"
-    kaggle kernels output "$kernel_id" -p "$output_dir"
+    kaggle_api kernels output "$kernel_id" -p "$output_dir"
     ;;
   output-runtime-selection)
     kernel_id="$(kernel_id_from_metadata "$runtime_selection_kernel_dir")"
@@ -1971,7 +2028,7 @@ case "$action" in
     require_remote_confirmed
     require_kaggle_cli
     mkdir -p "$output_dir"
-    kaggle kernels output "$kernel_id" -p "$output_dir"
+    kaggle_api kernels output "$kernel_id" -p "$output_dir"
     ;;
   output-selected-runtime-debug)
     kernel_id="$(kernel_id_from_metadata "$selected_runtime_debug_kernel_dir")"
@@ -1979,7 +2036,7 @@ case "$action" in
     require_remote_confirmed
     require_kaggle_cli
     mkdir -p "$output_dir"
-    kaggle kernels output "$kernel_id" -p "$output_dir"
+    kaggle_api kernels output "$kernel_id" -p "$output_dir"
     ;;
   output-setup)
     kernel_id="$(kernel_id_from_metadata "$setup_kernel_dir")"
@@ -1987,7 +2044,7 @@ case "$action" in
     require_remote_confirmed
     require_kaggle_cli
     mkdir -p "$output_dir"
-    kaggle kernels output "$kernel_id" -p "$output_dir"
+    kaggle_api kernels output "$kernel_id" -p "$output_dir"
     ;;
   pull)
     kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"
@@ -1999,7 +2056,7 @@ case "$action" in
     fi
     guard_clean_kernel_dir "$kernel_dir"
     require_kaggle_cli
-    kaggle kernels pull "$kernel_id" -p "$kernel_dir"
+    kaggle_api kernels pull "$kernel_id" -p "$kernel_dir"
     ;;
   *)
     usage

@@ -311,10 +311,22 @@ extension, and keeps zero-tolerance AMP-skip/nonfinite checks. The embedded
 wrapper and post-download verifier now require the scaler evidence and direct
 row-level nested tiny metric proof. Downloaded v4 predates that evidence and
 correctly fails the hardened verifier with the original tiny overflow blockers
-plus scaler-proof and nested tiny-row blockers. The next action is local
-preflight/quality, commit, and explicit user approval for a new narrow
-selected-runtime debug/tiny push, expected as v5. This is not approval for the
-first full long run.
+plus scaler-proof and nested tiny-row blockers.
+
+The first approved v5 push attempt on 2026-06-29 did not reach remote
+execution: local push guards and embedded-kernel checks passed, then the Kaggle
+CLI failed before upload with an authentication-required message caused by a
+stale cached OAuth access token. The selected-runtime slug was correct. The
+workflow wrapper now routes authenticated Kaggle calls through
+`scripts/kaggle_oauth_exec.py`, which generates a fresh OAuth token from the
+installed Kaggle SDK and passes it to the child CLI via a temporary 0600 token
+file. The selected-runtime-specific read-only preflight
+`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check
+kaggle/kernels/selected_runtime_debug` passes through that path with only the
+known quota warning. The next action is local verification/commit of that
+workflow fix, then fresh explicit approval for the narrow selected-runtime
+debug/tiny push retry, expected as v5. This is not approval for the first full
+long run.
 
 ## Acceptance Criteria
 
