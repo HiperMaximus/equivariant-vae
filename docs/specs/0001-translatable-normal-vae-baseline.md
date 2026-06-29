@@ -49,8 +49,11 @@ repairs that proof policy and replayed the v4 artifacts locally to proof
 `dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
 with zero AMP skips, bounded selected-row numerical drift, `samples_sec =
 27.381321`, and estimated 10-epoch wall time `109563.740875` seconds. The
-selected payload remains `full_training_launch_ready = false` until
-selected-runtime debug, checkpoint/resume, and tiny-overfit proofs pass.
+immutable selected payload still records `full_training_launch_ready = false`
+because it was written before the downstream proof lane; Spec 0008 later
+completed the selected-runtime debug/tiny v5 proof on Kaggle and strict
+downloaded-output verification passed for
+`runs/kaggle/selected_runtime_debug_v5`.
 Runtime-selection version 6 completed the compact broader
 AMP/non-conservative follow-up using v5 as the fallback selected runtime.
 Artifacts were downloaded to `runs/kaggle/runtime_selection_v6` and replayed
@@ -59,22 +62,23 @@ with zero AMP skips but reached only `25.288828` samples/sec versus v5 at
 `27.381321`, had one bounded `dual_t4_numerical_delta_failed` numerical row,
 and wrote no `benchmark/selected_runtime.json`. Keep v5 as the selected-runtime
 fallback. The local selected-runtime debug/checkpoint-resume/artifact/
-tiny-overfit contract runner now exists at `python -m eqvae.cli.train`; it
-supports synthetic local proof only, writes `full_run_eligible = false`, and
-keeps the real UBC/Kaggle proof pending. Its local checkpoint schema records
-selected-runtime config hash, row id, and policy id, and validates those fields
-before restoring state on resume. The dedicated selected-runtime
+tiny-overfit gate now exists at `python -m eqvae.cli.selected_runtime_gate` and
+has passed the real UBC/Kaggle Spec 0008 v5 proof lane. Its checkpoint schema
+records selected-runtime config hash, row id, and policy id, and validates
+those fields before restoring state on resume. The dedicated selected-runtime
 debug/resume/artifact/tiny-overfit Kaggle gate contract is
 `selected_runtime_debug_gate_contract_ready`: it adds a generated single-file
-kernel wrapper, embedded v5 selected-runtime transport, fail-closed local
-artifact writer, and local semantic preflight, but remains push-blocked and
-non-promotable until the real `ubc-pre-shuffled` DDP/AMP train runner exists,
-Spec 0008 generator/readiness passes in `remote_generate` mode, exact
-real-dataset metadata is attached, and explicit user approval is given.
+kernel wrapper, embedded v5 selected-runtime transport, bounded real-data
+debug/tiny execution, strict downloaded-output verification, and local semantic
+preflight. It remains non-promotable by design and must not be reused as a
+full-run launcher. Spec 0009 owns the missing guarded first full selected-runtime
+training workflow, including the exact 10-epoch schedule, validation/checkpoint
+cadence, resume hardening, verifier, and explicit approval gate.
 Owner/workstream: comparable non-equivariant VAE baseline
-Last updated: 2026-06-25
+Last updated: 2026-06-29
 
-Selected-runtime debug/resume/tiny remote-gate contract, 2026-06-22:
+Selected-runtime debug/resume/tiny remote-gate contract, 2026-06-22; updated
+after Spec 0008 v5 passed on 2026-06-29:
 
 - kernel target: `kaggle/kernels/selected_runtime_debug`, with metadata id
   `maximusshtefan/eqvae-selected-runtime-debug`, readiness marker
@@ -95,14 +99,16 @@ Selected-runtime debug/resume/tiny remote-gate contract, 2026-06-22:
   embedded payload as the v5 fallback row
   `dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
   with `runtime_policy_id = amp_fp16_conservative`;
-- `eqvae.cli.selected_runtime_train --data ubc-pre-shuffled` pass behavior
-  remains required but is not yet implemented. To pass this gate later, it must
-  apply the selected runtime rather than merely record it: dual-T4 DDP with
+- `eqvae.cli.selected_runtime_train --data ubc-pre-shuffled` now has the
+  bounded pass behavior required by Spec 0008: it applies the selected runtime
+  rather than merely recording it, using dual-T4 DDP with
   `torchrun --standalone --nproc_per_node=2`, per-device batch size 12, global
   batch size 24, AMP conservative with GradScaler and FP32 loss islands,
   selected dataloader settings, selected `indexed_masked` corruption, clean
   validation that does not consume corruption RNG, fixed-seed corrupted eval,
-  and gate-health logging bound to the selected row id;
+  and gate-health logging bound to the selected row id. For the first full run,
+  extend or wrap this runner under Spec 0009 rather than launching the bounded
+  debug kernel;
 - real resume state must include model, optimizer, LR scheduler, beta/progress
   counters, AMP scaler, Python RNG, explicit NumPy `Generator`, global Torch
   CPU/CUDA RNG, named Torch generators, DDP sampler/progress state, effective
@@ -1334,9 +1340,11 @@ setting the gate modules to use the surrounding AMP dtype. Posterior/KL/loss,
 corruption, and future radial-gate norm/sigmoid arithmetic remain FP32 in spec
 0001. The `model_loss_train_step_ready` local slice remains conservative and
 does not use this relaxed hook; relaxed scalar gates are runtime-selection
-evidence only until selected-runtime debug/resume/tiny-overfit proves they are
-safe for launch. A relaxed scalar-gate runtime row must also emit gate-health
-dtype proof for every full-run-eligible scalar gate row bound to that candidate:
+evidence only. Runtime-selection v6 tested the relaxed scalar-gate AMP policy
+and kept v5 because the relaxed row was slower, so the first full
+selected-runtime run remains bound to the v5 conservative AMP policy. Any
+future relaxed scalar-gate runtime row must also emit gate-health dtype proof
+for every full-run-eligible scalar gate row bound to that candidate:
 `precision_proof_status = pass`, `gate_force_fp32 = false`, nonempty
 input/output dtype fields, and gate math/tensor/output dtype matching the
 requested autocast dtype rather than FP32. A single missing, FP32, or
@@ -2216,8 +2224,10 @@ Benchmark artifact dependency graph:
 8. `benchmark/selected_runtime.json` may be written with `status = "pass"` only
    when it references one row from `runtime_matrix.csv` whose row status is
    `pass`, whose linked artifacts have `pass`, and whose accelerator proof
-   matches the selected mode. It must set `full_training_launch_ready = false`
-   until selected-runtime debug, checkpoint/resume, and tiny-overfit proofs pass.
+   matches the selected mode. The v5 artifact correctly set
+   `full_training_launch_ready = false` at write time; downstream Spec 0008
+   artifacts now provide the passed selected-runtime debug/checkpoint-resume/
+   tiny-overfit proof needed before implementing the first full-run workflow.
 9. selected-runtime debug must consume that selected runtime and write a resume
    proof before tiny-overfit may run.
 10. `benchmark/tiny_overfit_summary.json` must pass before

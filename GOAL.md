@@ -106,8 +106,9 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   numerical drift are acceptable if the row is materially faster and catastrophic
   safety checks still pass. Runtime-selection v5 selected the current fallback
   AMP-conservative dual-T4 runtime; the compact v6 relaxed scalar-gate AMP
-  follow-up ran, was slower, and kept v5. Remaining pre-long-run blockers are
-  real selected-runtime debug/resume/artifact/tiny-overfit/gate-health proof.
+  follow-up ran, was slower, and kept v5. Spec 0008 selected-runtime
+  debug/tiny v5 passed on Kaggle and strict downloaded-output verification
+  passed locally.
 - Before writing `benchmark/selected_runtime.json`, time real dual-T4 DDP
   train-step rows. The selection benchmark must prove two visible T4s,
   `world_size = 2`, `nproc_per_node = 2`, per-rank device assignment, linked
@@ -138,12 +139,14 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   AMP/CUDA/DDP checkpoint-state statuses when active, bounds AMP-skip retries,
   blocks readiness on any AMP skip, and writes schema-v5 checkpoint/resume,
   train-step, gate-health, readiness, and artifact-manifest outputs. Keep this
-  evidence non-promotable. Spec 0008 local readiness now implements the
-  canonical fixed-32 selector boundary and narrow selected-runtime debug/tiny
-  push guard; the remote debug/tiny push belongs only after explicit user
-  approval, exact real-dataset metadata attachment, and local preflights. It is
+  evidence non-promotable. Spec 0008 remote debug/tiny v5 is complete and is
   not approval for the long full run.
-- Do not ask for approval to launch the first 60h-scale real run until the
-  implementation is ready, the Kaggle environment has been checked, runtime
-  efficiency decisions are made from the selected-runtime follow-up, and
-  selected-runtime debug/resume/tiny-overfit/artifact/gate-health checks pass.
+- Spec 0009 is implemented and locally verified for the first full
+  selected-runtime run: a dedicated full-run kernel and guarded Kaggle script
+  actions exist; the selected-runtime runner derives the 10-epoch schedule as
+  125000 optimizer updates with half-epoch intervals of 6250 updates;
+  validation, checkpoint retention, best/final artifacts, resume hardening,
+  artifact manifests, and the strict full-run verifier are in place; and
+  adversarial fixes have been applied. Do not launch or poll the remote full
+  run without fresh explicit user approval of the exact dedicated full-kernel
+  command.

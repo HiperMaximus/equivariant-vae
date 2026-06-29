@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import json
 import math
 import os
 import shlex
@@ -102,6 +104,25 @@ _TINY_MAX_OPTIMIZER_STEPS = 128
 _TINY_SMOOTHING_WINDOW = 25
 _TINY_MIN_IMPROVEMENT_FRACTION = 0.01
 _TINY_RUN_MODE = "kaggle_tiny_overfit"
+_FULL_RUN_MODE = "kaggle_selected_runtime_full_train"
+_FULL_STATUS_SCOPE = "selected_runtime_full_training_run"
+_FULL_EPOCHS = 10
+_FULL_UPDATES_PER_EPOCH = 12_500
+_FULL_TARGET_UPDATES = 125_000
+_FULL_HALF_EPOCH_INTERVAL_STEPS = 6_250
+_FULL_VALIDATION_BATCHES_PER_VIEW = 20
+_FULL_VALIDATION_VIEWS = ("clean", "deterministic_denoising")
+_FULL_CHECKPOINT_RETENTION = "best_final_latest_four_interval"
+_STOCHASTIC_REPARAMETERIZATION = "stochastic_seeded"
+_DETERMINISTIC_REPARAMETERIZATION = "deterministic_zero"
+_FULL_DETERMINISTIC_EPS_ALLOWED_FOR = (
+    "debug",
+    "tiny",
+    "numerical_checks",
+    "validation",
+    "artifacts",
+)
+_FULL_INTERVAL_CHECKPOINT_KEEP_COUNT = 4
 SELECTED_RUNTIME_AMP_GRAD_SCALER_INIT_SCALE = EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE
 _DEFAULT_SEQUENTIAL_SAMPLER_POLICY = "sequential_sampler"
 _DEFAULT_DDP_SAMPLER_POLICY = "distributed_sampler_shuffle_false_drop_last_false"
@@ -133,8 +154,32 @@ _TRAIN_STEP_COLUMNS = (
     "torch_compile_enabled",
     "compile_scope",
     "corruption_strategy",
+    "train_reparameterization",
+    "eps_policy",
+    "eps_seed_source",
+    "eps_zero_fraction",
+    "eps_abs_mean",
     "amp_step_skipped",
     "checkpoint_path",
+)
+_VALIDATION_METRIC_COLUMNS = (
+    "event_id",
+    "rank",
+    "optimizer_step",
+    "validation_boundary",
+    "split",
+    "view",
+    "batch_count",
+    "sample_count",
+    "loss",
+    "recon_loss",
+    "l1_loss",
+    "ssim_loss",
+    "ssim_metric",
+    "kl_loss",
+    "beta",
+    "deterministic_eps_used",
+    "corruption_strategy",
 )
 
 
@@ -259,8 +304,18 @@ class _RunnerSettings:
     batch_size: int
     image_size: int
     max_train_steps: int
+    target_train_steps: int
     max_val_steps: int
     save_every_steps: int
+    requested_epochs: int
+    optimizer_updates_per_epoch: int
+    half_epoch_interval_steps: int
+    validation_batches_per_view: int
+    validation_views: tuple[str, ...]
+    train_reparameterization: str
+    deterministic_eps_allowed_for: tuple[str, ...]
+    checkpoint_retention: str
+    resume_supported: bool
     ssim_weight: float
     beta_target: float
     beta_warmup_fraction: float
@@ -276,6 +331,7 @@ class _RunnerSettings:
 class _RunArtifacts:
     training_summary: Path
     selected_runtime_debug_summary: Path
+    selected_runtime_full_summary: Path
     selected_runtime_plan_applied: Path
     checkpoint_resume_proof: Path
     gate_health_summary: Path
@@ -283,6 +339,7 @@ class _RunArtifacts:
     local_readiness: Path
     artifact_manifest: Path
     train_steps: Path
+    validation_metrics: Path
     gate_health: Path
     reconstruction_samples: Path
 
@@ -479,6 +536,14 @@ class _AmpExecution:
 
 
 @dataclass(frozen=True)
+class _EpsProof:
+    eps_policy: str
+    eps_seed_source: str
+    eps_zero_fraction: float
+    eps_abs_mean: float
+
+
+@dataclass(frozen=True)
 class _SelectedRuntimeStepResult:
     optimizer_step_index: int
     successful_optimizer_update_count: int
@@ -489,6 +554,30 @@ class _SelectedRuntimeStepResult:
     batch_size: int
     amp_step_skipped: bool
     zero_grad_set_to_none: bool
+    train_reparameterization: str
+    eps_policy: str
+    eps_seed_source: str
+    eps_zero_fraction: float
+    eps_abs_mean: float
+
+
+@dataclass(frozen=True)
+class _TrainLoopResult:
+    metric_rows: tuple[CsvRow, ...]
+    validation_rows: tuple[CsvRow, ...]
+    interval_checkpoints: tuple[CheckpointMetadata, ...]
+    best_validation_checkpoint: CheckpointMetadata | None
+    best_validation_metric: float | None
+    last_result: _SelectedRuntimeStepResult
+
+
+@dataclass(frozen=True)
+class _ResumeArtifactHistory:
+    metric_rows: tuple[CsvRow, ...]
+    validation_rows: tuple[CsvRow, ...]
+    interval_checkpoints: tuple[CheckpointMetadata, ...]
+    best_checkpoint: CheckpointMetadata | None
+    best_validation_metric: float | None
 
 
 @dataclass(frozen=True)
@@ -737,10 +826,19 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
     model = build_non_equivariant_vae(norm_groups=settings.norm_groups)
     model = _place_model(model=model, plan=plan, device=distributed.device)
     optimizer, _ = create_adamw_optimizer(model, config=settings.optimizer_config)
+    amp = _amp_execution(plan=plan, distributed=distributed, dry_run=request.dry_run)
+    scaler = GradScaler(
+        "cuda",
+        init_scale=amp.grad_scaler_init_scale,
+        enabled=amp.grad_scaler_enabled,
+    )
     loaded_checkpoint = _restore_checkpoint_if_requested(
         request=request,
         model=model,
         optimizer=optimizer,
+        scaler=scaler,
+        amp=amp,
+        distributed=distributed,
         numpy_generator=numpy_generator,
         train_generator=train_generator,
         runtime_identity=runtime_identity,
@@ -757,20 +855,20 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
             f"{start_step} >= {settings.max_train_steps}"
         )
         raise ValueError(message)
+    resume_history = _load_resume_artifact_history(
+        artifacts=artifacts,
+        settings=settings,
+        distributed=distributed,
+        start_step=start_step,
+    )
 
     wrapped_model = _maybe_wrap_ddp(
         model=model,
         distributed=distributed,
         plan=plan,
     )
-    amp = _amp_execution(plan=plan, distributed=distributed, dry_run=request.dry_run)
-    scaler = GradScaler(
-        "cuda",
-        init_scale=amp.grad_scaler_init_scale,
-        enabled=amp.grad_scaler_enabled,
-    )
     write_artifacts = _is_primary_rank(distributed)
-    metric_rows, checkpoints, last_result = _run_train_steps(
+    train_loop = _run_train_steps(
         request=request,
         resolved=resolved,
         settings=settings,
@@ -786,9 +884,24 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
         train_generator=train_generator,
         runtime_identity=runtime_identity,
         start_step=start_step,
+        initial_best_validation_metric=resume_history.best_validation_metric,
         write_checkpoints=write_artifacts,
     )
-    metric_rows = _gather_csv_rows(metric_rows, distributed)
+    metric_rows = _merge_resume_csv_rows(
+        prior_rows=resume_history.metric_rows,
+        new_rows=_gather_csv_rows(train_loop.metric_rows, distributed),
+    )
+    validation_rows = _merge_resume_csv_rows(
+        prior_rows=resume_history.validation_rows,
+        new_rows=_gather_csv_rows(train_loop.validation_rows, distributed),
+    )
+    checkpoints = (
+        *resume_history.interval_checkpoints,
+        *train_loop.interval_checkpoints,
+    )
+    last_result = train_loop.last_result
+    best_validation_checkpoint = train_loop.best_validation_checkpoint
+    best_validation_metric = train_loop.best_validation_metric
     gate_rows = _gather_csv_rows(
         _gate_health_rows(
             run_name=settings.run_name,
@@ -831,21 +944,29 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
         amp=amp,
         distributed=distributed,
     )
-    best_checkpoint = _save_checkpoint(
-        path=request.output_dir / "checkpoints" / "best_model.pt",
-        request=request,
-        resolved=resolved,
+    best_checkpoint = (
+        best_validation_checkpoint
+        or resume_history.best_checkpoint
+        or _save_checkpoint(
+            path=request.output_dir / "checkpoints" / "best_model.pt",
+            request=request,
+            resolved=resolved,
+            settings=settings,
+            model=model,
+            optimizer=optimizer,
+            numpy_generator=numpy_generator,
+            train_generator=train_generator,
+            runtime_identity=runtime_identity,
+            step=settings.max_train_steps,
+            metric_value=_best_l1(metric_rows),
+            scaler=scaler,
+            amp=amp,
+            distributed=distributed,
+        )
+    )
+    checkpoints = _apply_checkpoint_retention(
+        checkpoints=checkpoints,
         settings=settings,
-        model=model,
-        optimizer=optimizer,
-        numpy_generator=numpy_generator,
-        train_generator=train_generator,
-        runtime_identity=runtime_identity,
-        step=settings.max_train_steps,
-        metric_value=_best_l1(metric_rows),
-        scaler=scaler,
-        amp=amp,
-        distributed=distributed,
     )
     all_checkpoints = (*checkpoints, final_checkpoint, best_checkpoint)
     if loaded_checkpoint is None:
@@ -858,6 +979,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
             resolved=resolved,
             settings=settings,
             runtime_identity=runtime_identity,
+            plan=plan,
             train_generator=train_generator,
             amp=amp,
             distributed=distributed,
@@ -902,6 +1024,12 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
     )
 
     write_csv(artifacts.train_steps, _TRAIN_STEP_COLUMNS, metric_rows)
+    if _writes_validation_metrics(settings):
+        write_csv(
+            artifacts.validation_metrics,
+            _VALIDATION_METRIC_COLUMNS,
+            validation_rows,
+        )
     write_csv(artifacts.gate_health, GATE_HEALTH_COLUMNS, gate_rows)
     write_json(artifacts.selected_runtime_plan_applied, plan_applied)
     write_json(artifacts.checkpoint_resume_proof, checkpoint_resume_proof)
@@ -920,9 +1048,11 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
             amp=amp,
             data_surface=data_surface,
             metric_rows=metric_rows,
-            checkpoints=all_checkpoints,
+            validation_rows=validation_rows,
+            checkpoints=checkpoints,
             final_checkpoint=final_checkpoint,
             best_checkpoint=best_checkpoint,
+            best_validation_metric=best_validation_metric,
             last_result=last_result,
             plan_applied=plan_applied,
             checkpoint_resume_proof=checkpoint_resume_proof,
@@ -930,19 +1060,38 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
             reconstruction_nonblank=reconstruction_nonblank,
         ),
     )
-    write_json(
-        artifacts.selected_runtime_debug_summary,
-        _selected_runtime_debug_summary(
-            plan=plan,
-            settings=settings,
-            plan_applied=plan_applied,
-            ddp_proof=ddp_proof,
-            amp=amp,
-            checkpoint_resume_proof=checkpoint_resume_proof,
-            gate_health_summary=gate_health_summary,
-            data_surface=data_surface,
-        ),
-    )
+    if _is_full_run(settings):
+        write_json(
+            artifacts.selected_runtime_full_summary,
+            _selected_runtime_full_summary(
+                plan=plan,
+                settings=settings,
+                plan_applied=plan_applied,
+                ddp_proof=ddp_proof,
+                amp=amp,
+                checkpoint_resume_proof=checkpoint_resume_proof,
+                gate_health_summary=gate_health_summary,
+                data_surface=data_surface,
+                metric_rows=metric_rows,
+                validation_rows=validation_rows,
+                checkpoints=checkpoints,
+                best_validation_metric=best_validation_metric,
+            ),
+        )
+    else:
+        write_json(
+            artifacts.selected_runtime_debug_summary,
+            _selected_runtime_debug_summary(
+                plan=plan,
+                settings=settings,
+                plan_applied=plan_applied,
+                ddp_proof=ddp_proof,
+                amp=amp,
+                checkpoint_resume_proof=checkpoint_resume_proof,
+                gate_health_summary=gate_health_summary,
+                data_surface=data_surface,
+            ),
+        )
     if _writes_tiny_summary(settings):
         write_json(
             artifacts.tiny_overfit_summary,
@@ -1013,7 +1162,7 @@ def _rank_assignments_match_plan(
     return observed == expected
 
 
-def _settings(
+def _settings(  # noqa: PLR0914
     *,
     request: SelectedRuntimeTrainRequest,
     resolved: ResolvedConfig,
@@ -1025,16 +1174,44 @@ def _settings(
     training = _optional_object(effective, "training") or {}
     objective = _required_object(effective, "objective")
     beta = _required_object(objective, "beta")
+    run_mode = _required_str(run, "mode")
+    full_mode = run_mode == _FULL_RUN_MODE
+    requested_epochs = _optional_int(training, "epochs") or 0
+    optimizer_updates_per_epoch = (
+        _optional_int(training, "optimizer_updates_per_epoch")
+        or plan.optimizer_updates_per_epoch
+    )
+    configured_max_train_steps = _optional_int(training, "max_train_steps")
+    target_train_steps = _target_train_steps(
+        training=training,
+        requested_epochs=requested_epochs,
+        optimizer_updates_per_epoch=optimizer_updates_per_epoch,
+        configured_max_train_steps=configured_max_train_steps,
+        full_mode=full_mode,
+    )
+    if not full_mode and request.max_train_steps is not None:
+        target_train_steps = request.max_train_steps
+    max_train_steps = _execution_train_steps(
+        request=request,
+        target_train_steps=target_train_steps,
+        full_mode=full_mode,
+    )
+    half_epoch_interval_steps = _half_epoch_interval_steps(
+        training=training,
+        optimizer_updates_per_epoch=optimizer_updates_per_epoch,
+        full_mode=full_mode,
+    )
+    validation_views = _optional_str_tuple(training, "validation_views")
+    validation_batches_per_view = (
+        _optional_int(training, "validation_batches_per_view") or 0
+    )
     settings = _RunnerSettings(
         run_name=request.run_name or _required_str(run, "name"),
-        run_mode=_required_str(run, "mode"),
+        run_mode=run_mode,
         batch_size=plan.per_device_batch_size,
         image_size=_optional_int(data, "image_size") or 256,
-        max_train_steps=(
-            request.max_train_steps
-            if request.max_train_steps is not None
-            else _optional_int(training, "max_train_steps") or 1
-        ),
+        max_train_steps=max_train_steps,
+        target_train_steps=target_train_steps,
         max_val_steps=(
             request.max_val_steps
             if request.max_val_steps is not None
@@ -1045,6 +1222,23 @@ def _settings(
             if request.save_every_steps is not None
             else _optional_int(training, "save_every_steps") or 1
         ),
+        requested_epochs=requested_epochs,
+        optimizer_updates_per_epoch=optimizer_updates_per_epoch,
+        half_epoch_interval_steps=half_epoch_interval_steps,
+        validation_batches_per_view=validation_batches_per_view,
+        validation_views=validation_views,
+        train_reparameterization=(
+            _optional_str(training, "train_reparameterization")
+            or _DETERMINISTIC_REPARAMETERIZATION
+        ),
+        deterministic_eps_allowed_for=(
+            _optional_str_tuple(training, "deterministic_eps_allowed_for")
+            or _FULL_DETERMINISTIC_EPS_ALLOWED_FOR
+        ),
+        checkpoint_retention=(
+            _optional_str(training, "checkpoint_retention") or "keep_all"
+        ),
+        resume_supported=_optional_bool(training, "resume_supported") or False,
         ssim_weight=_required_float(objective, "ssim_weight"),
         beta_target=_required_float(beta, "target"),
         beta_warmup_fraction=_required_float(beta, "step_limited_warmup_fraction"),
@@ -1057,8 +1251,79 @@ def _settings(
         ),
         norm_groups=_norm_groups(resolved),
     )
-    _validate_settings(settings)
+    _validate_settings(settings, dry_run=request.dry_run)
     return settings
+
+
+def _target_train_steps(
+    *,
+    training: JsonObject,
+    requested_epochs: int,
+    optimizer_updates_per_epoch: int,
+    configured_max_train_steps: int | None,
+    full_mode: bool,
+) -> int:
+    if not full_mode:
+        return configured_max_train_steps or 1
+    if requested_epochs <= 0:
+        message = "full-run config must declare positive training.epochs"
+        raise ValueError(message)
+    if optimizer_updates_per_epoch <= 0:
+        message = "full-run config must declare positive optimizer_updates_per_epoch"
+        raise ValueError(message)
+    derived = requested_epochs * optimizer_updates_per_epoch
+    if configured_max_train_steps is None:
+        message = (
+            "full-run config must declare max_train_steps; refusing one-step default"
+        )
+        raise ValueError(message)
+    if configured_max_train_steps != derived:
+        message = (
+            "full-run max_train_steps must equal epochs * "
+            "optimizer_updates_per_epoch: "
+            f"{configured_max_train_steps} != {derived}"
+        )
+        raise ValueError(message)
+    if training.get("validate_every") == "half_epoch" and derived % 2 != 0:
+        message = "full-run half-epoch schedule requires an even update target"
+        raise ValueError(message)
+    return derived
+
+
+def _execution_train_steps(
+    *,
+    request: SelectedRuntimeTrainRequest,
+    target_train_steps: int,
+    full_mode: bool,
+) -> int:
+    if request.max_train_steps is None:
+        return target_train_steps
+    if full_mode and not request.dry_run:
+        message = "full-run max_train_steps overrides are allowed only with --dry-run"
+        raise ValueError(message)
+    if request.max_train_steps > target_train_steps:
+        message = "max_train_steps override cannot exceed the configured target"
+        raise ValueError(message)
+    return request.max_train_steps
+
+
+def _half_epoch_interval_steps(
+    *,
+    training: JsonObject,
+    optimizer_updates_per_epoch: int,
+    full_mode: bool,
+) -> int:
+    configured = _optional_int(training, "half_epoch_interval_steps")
+    if configured is not None:
+        return configured
+    if full_mode:
+        if optimizer_updates_per_epoch % 2 != 0:
+            message = (
+                "optimizer_updates_per_epoch must be even for half-epoch validation"
+            )
+            raise ValueError(message)
+        return optimizer_updates_per_epoch // 2
+    return 0
 
 
 def _runtime_identity(plan: SelectedRuntimePlan) -> _RuntimeIdentity:
@@ -1077,6 +1342,7 @@ def _artifact_paths(output_dir: Path) -> _RunArtifacts:
         training_summary=benchmark / "training_summary.json",
         selected_runtime_debug_summary=benchmark
         / "selected_runtime_debug_summary.json",
+        selected_runtime_full_summary=benchmark / "selected_runtime_full_summary.json",
         selected_runtime_plan_applied=benchmark / "selected_runtime_plan_applied.json",
         checkpoint_resume_proof=benchmark / "checkpoint_resume_proof.json",
         gate_health_summary=benchmark / "gate_health_summary.json",
@@ -1084,6 +1350,7 @@ def _artifact_paths(output_dir: Path) -> _RunArtifacts:
         local_readiness=benchmark / "local_selected_runtime_readiness.json",
         artifact_manifest=benchmark / "artifact_manifest.json",
         train_steps=metrics / "train_steps.csv",
+        validation_metrics=metrics / "validation_metrics.csv",
         gate_health=metrics / "gate_health.csv",
         reconstruction_samples=output_dir / "artifacts" / "reconstruction_samples.pt",
     )
@@ -1270,7 +1537,306 @@ def _gather_csv_rows(
     return tuple(rows)
 
 
-def _prepare_data_surface(
+def _load_resume_artifact_history(
+    *,
+    artifacts: _RunArtifacts,
+    settings: _RunnerSettings,
+    distributed: _DistributedContext,
+    start_step: int,
+) -> _ResumeArtifactHistory:
+    if start_step <= 0:
+        return _empty_resume_artifact_history()
+
+    train_rows = _read_resume_csv_prefix(
+        path=artifacts.train_steps,
+        step_key="successful_optimizer_update_count",
+        start_step=start_step,
+        required=_is_full_run(settings),
+        artifact_name="metrics/train_steps.csv",
+    )
+    validation_rows = _read_resume_csv_prefix(
+        path=artifacts.validation_metrics,
+        step_key="optimizer_step",
+        start_step=start_step,
+        required=False,
+        artifact_name="metrics/validation_metrics.csv",
+    )
+    output_dir = artifacts.train_steps.parent.parent
+    interval_checkpoints = _resume_interval_checkpoints(
+        output_dir=output_dir,
+        start_step=start_step,
+    )
+    best_checkpoint, best_validation_metric = _resume_best_checkpoint(
+        artifacts=artifacts,
+        output_dir=output_dir,
+        start_step=start_step,
+    )
+    if _is_full_run(settings):
+        _validate_full_resume_train_prefix(
+            rows=train_rows,
+            start_step=start_step,
+            distributed=distributed,
+        )
+        _validate_full_resume_validation_prefix(
+            rows=validation_rows,
+            settings=settings,
+            start_step=start_step,
+        )
+        _validate_full_resume_checkpoint_prefix(
+            checkpoints=interval_checkpoints,
+            settings=settings,
+            start_step=start_step,
+        )
+    return _ResumeArtifactHistory(
+        metric_rows=train_rows,
+        validation_rows=validation_rows,
+        interval_checkpoints=interval_checkpoints,
+        best_checkpoint=best_checkpoint,
+        best_validation_metric=best_validation_metric,
+    )
+
+
+def _empty_resume_artifact_history() -> _ResumeArtifactHistory:
+    return _ResumeArtifactHistory(
+        metric_rows=(),
+        validation_rows=(),
+        interval_checkpoints=(),
+        best_checkpoint=None,
+        best_validation_metric=None,
+    )
+
+
+def _read_resume_csv_prefix(
+    *,
+    path: Path,
+    step_key: str,
+    start_step: int,
+    required: bool,
+    artifact_name: str,
+) -> tuple[CsvRow, ...]:
+    if not path.exists():
+        if required:
+            message = f"full-run resume requires existing {artifact_name}"
+            raise ValueError(message)
+        return ()
+    with path.open("r", encoding="utf-8", newline="") as csv_file:
+        reader = csv.DictReader(csv_file)
+        rows = [dict(row) for row in reader]
+    if required and step_key not in (reader.fieldnames or ()):
+        message = f"full-run resume {artifact_name} is missing {step_key}"
+        raise ValueError(message)
+    return tuple(
+        row for row in rows if _csv_int(row, step_key, default=0) <= start_step
+    )
+
+
+def _merge_resume_csv_rows(
+    *,
+    prior_rows: Sequence[CsvRow],
+    new_rows: Sequence[CsvRow],
+) -> tuple[CsvRow, ...]:
+    if not prior_rows:
+        return tuple(new_rows)
+    return (*tuple(prior_rows), *tuple(new_rows))
+
+
+def _resume_interval_checkpoints(
+    *,
+    output_dir: Path,
+    start_step: int,
+) -> tuple[CheckpointMetadata, ...]:
+    checkpoint_dir = output_dir / "checkpoints"
+    if not checkpoint_dir.exists():
+        return ()
+    checkpoints: list[CheckpointMetadata] = []
+    for path in checkpoint_dir.glob("step_*.pt"):
+        step = _checkpoint_step_from_name(path.name)
+        if step is None or step > start_step:
+            continue
+        checkpoints.append(
+            CheckpointMetadata(
+                path=path,
+                sha256=_sha256_file(path),
+                optimizer_step=step,
+                successful_optimizer_update_count=step,
+            ),
+        )
+    return tuple(
+        sorted(
+            checkpoints,
+            key=lambda checkpoint: checkpoint.successful_optimizer_update_count,
+        ),
+    )
+
+
+def _resume_best_checkpoint(
+    *,
+    artifacts: _RunArtifacts,
+    output_dir: Path,
+    start_step: int,
+) -> tuple[CheckpointMetadata | None, float | None]:
+    checkpoint_path = output_dir / "checkpoints" / "best_model.pt"
+    if not checkpoint_path.exists():
+        return None, None
+    summary = _read_json_object_if_exists(artifacts.training_summary)
+    metric = _json_float(summary.get("best_validation_metric")) if summary else None
+    checkpoint_payload = summary.get("best_checkpoint") if summary is not None else None
+    checkpoint_step = start_step
+    if isinstance(checkpoint_payload, dict):
+        checkpoint_step = _json_int(
+            checkpoint_payload.get("successful_optimizer_update_count"),
+            default=start_step,
+        )
+    return (
+        CheckpointMetadata(
+            path=checkpoint_path,
+            sha256=_sha256_file(checkpoint_path),
+            optimizer_step=checkpoint_step,
+            successful_optimizer_update_count=checkpoint_step,
+        ),
+        metric,
+    )
+
+
+def _validate_full_resume_train_prefix(
+    *,
+    rows: Sequence[CsvRow],
+    start_step: int,
+    distributed: _DistributedContext,
+) -> None:
+    expected_world_size = distributed.world_size if distributed.should_use_ddp else 1
+    expected_pairs = {
+        (step, rank)
+        for step in range(1, start_step + 1)
+        for rank in range(expected_world_size)
+    }
+    observed_pairs = {
+        (
+            _csv_int(row, "successful_optimizer_update_count", default=-1),
+            _csv_int(row, "rank", default=-1),
+        )
+        for row in _successful_metric_rows(rows)
+    }
+    missing = expected_pairs - observed_pairs
+    if missing:
+        sample = sorted(missing)[:5]
+        message = (
+            "full-run resume history is missing train metric rows before the "
+            f"checkpoint; sample missing step/rank pairs: {sample!r}"
+        )
+        raise ValueError(message)
+
+
+def _validate_full_resume_validation_prefix(
+    *,
+    rows: Sequence[CsvRow],
+    settings: _RunnerSettings,
+    start_step: int,
+) -> None:
+    expected_steps = tuple(
+        range(
+            settings.half_epoch_interval_steps,
+            min(start_step, settings.target_train_steps) + 1,
+            settings.half_epoch_interval_steps,
+        ),
+    )
+    observed = {
+        (_csv_int(row, "optimizer_step", default=-1), row.get("view", ""))
+        for row in rows
+    }
+    missing = {
+        (step, view)
+        for step in expected_steps
+        for view in settings.validation_views
+        if (step, view) not in observed
+    }
+    if missing:
+        sample = sorted(missing)[:5]
+        message = (
+            "full-run resume history is missing validation rows before the "
+            f"checkpoint; sample missing step/view pairs: {sample!r}"
+        )
+        raise ValueError(message)
+
+
+def _validate_full_resume_checkpoint_prefix(
+    *,
+    checkpoints: Sequence[CheckpointMetadata],
+    settings: _RunnerSettings,
+    start_step: int,
+) -> None:
+    final_interval_steps = tuple(
+        range(
+            settings.half_epoch_interval_steps,
+            settings.target_train_steps + 1,
+            settings.half_epoch_interval_steps,
+        ),
+    )[-_FULL_INTERVAL_CHECKPOINT_KEEP_COUNT:]
+    required_existing_steps = {
+        step for step in final_interval_steps if step <= start_step
+    }
+    observed_steps = {
+        checkpoint.successful_optimizer_update_count for checkpoint in checkpoints
+    }
+    missing = sorted(required_existing_steps - observed_steps)
+    if missing:
+        message = (
+            "full-run resume history is missing retained interval checkpoints "
+            f"needed for final verification: {missing!r}"
+        )
+        raise ValueError(message)
+
+
+def _checkpoint_step_from_name(name: str) -> int | None:
+    prefix = "step_"
+    suffix = ".pt"
+    if not name.startswith(prefix) or not name.endswith(suffix):
+        return None
+    try:
+        return int(name[len(prefix) : -len(suffix)])
+    except ValueError:
+        return None
+
+
+def _read_json_object_if_exists(path: Path) -> JsonObject | None:
+    if not path.exists():
+        return None
+    payload = cast("object", json.loads(path.read_text(encoding="utf-8")))
+    if not isinstance(payload, dict):
+        return None
+    return cast("JsonObject", payload)
+
+
+def _json_int(value: object, *, default: int) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
+
+
+def _json_float(value: object) -> float | None:
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _csv_int(row: CsvRow, key: str, *, default: int) -> int:
+    try:
+        return int(row.get(key, ""))
+    except (TypeError, ValueError):
+        return default
+
+
+def _prepare_data_surface(  # noqa: PLR0914
     *,
     request: SelectedRuntimeTrainRequest,
     settings: _RunnerSettings,
@@ -1279,8 +1845,12 @@ def _prepare_data_surface(
 ) -> _DataSurface:
     if request.data == "synthetic":
         root = request.output_dir / "local_ubc_synthetic"
-        train_count = max(32, settings.batch_size * settings.max_train_steps)
-        validation_count = max(32, settings.batch_size)
+        synthetic_train_steps = min(settings.max_train_steps, 32)
+        train_count = max(32, settings.batch_size * synthetic_train_steps)
+        validation_count = max(
+            32,
+            settings.batch_size * max(1, settings.validation_batches_per_view),
+        )
         write_synthetic_patch_shard(
             bin_path=root / TRAIN_BIN_NAME,
             csv_path=root / TRAIN_CSV_NAME,
@@ -1639,6 +2209,9 @@ def _restore_checkpoint_if_requested(  # noqa: PLR0913
     request: SelectedRuntimeTrainRequest,
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
+    scaler: GradScaler,
+    amp: _AmpExecution,
+    distributed: _DistributedContext,
     numpy_generator: Generator,
     train_generator: torch.Generator,
     runtime_identity: _RuntimeIdentity,
@@ -1660,6 +2233,8 @@ def _restore_checkpoint_if_requested(  # noqa: PLR0913
         optimizer=optimizer,
         numpy_generator=numpy_generator,
         torch_generators={"train_data": train_generator},
+        amp_scaler=scaler if amp.grad_scaler_enabled else None,
+        restore_cuda_rng=distributed.device.type == "cuda",
         expected_effective_config_sha256=resolved.effective_config_hash,
         expected_runtime_config_sha256=runtime_identity.sha256,
         expected_selected_row_id=runtime_identity.selected_row_id,
@@ -1667,7 +2242,7 @@ def _restore_checkpoint_if_requested(  # noqa: PLR0913
     )
 
 
-def _run_train_steps(  # noqa: PLR0913
+def _run_train_steps(  # noqa: PLR0913, PLR0914
     *,
     request: SelectedRuntimeTrainRequest,
     resolved: ResolvedConfig,
@@ -1684,18 +2259,19 @@ def _run_train_steps(  # noqa: PLR0913
     train_generator: torch.Generator,
     runtime_identity: _RuntimeIdentity,
     start_step: int,
+    initial_best_validation_metric: float | None,
     write_checkpoints: bool,
-) -> tuple[
-    tuple[CsvRow, ...],
-    tuple[CheckpointMetadata, ...],
-    _SelectedRuntimeStepResult,
-]:
+) -> _TrainLoopResult:
     rows: list[CsvRow] = []
+    validation_rows: list[CsvRow] = []
     checkpoints: list[CheckpointMetadata] = []
     train_batches = _cycle_batches(data_surface.train_loader)
+    _advance_batches(train_batches, start_step)
     last_result: _SelectedRuntimeStepResult | None = None
     successful_count = start_step
     attempt_count = 0
+    best_validation_metric = initial_best_validation_metric
+    best_validation_checkpoint: CheckpointMetadata | None = None
     max_attempts = (settings.max_train_steps - start_step) + max(
         10,
         settings.max_train_steps * 2,
@@ -1719,6 +2295,7 @@ def _run_train_steps(  # noqa: PLR0913
             batch=batch,
             optimizer_step_index=successful_count,
             successful_optimizer_update_count=successful_count + 1,
+            train_generator=train_generator,
             device=distributed.device,
         )
         last_result = result
@@ -1761,6 +2338,48 @@ def _run_train_steps(  # noqa: PLR0913
                 corruption_strategy=plan.corruption_strategy,
             ),
         )
+        if not result.amp_step_skipped and _should_run_scheduled_validation(
+            settings,
+            successful_count,
+        ):
+            boundary_rows = _run_scheduled_validation(
+                model=model,
+                settings=settings,
+                plan=plan,
+                amp=amp,
+                data_surface=data_surface,
+                optimizer_step=successful_count,
+                rank=distributed.rank,
+                device=distributed.device,
+            )
+            validation_rows.extend(boundary_rows)
+            boundary_metric = _validation_best_l1(boundary_rows)
+            if (
+                write_checkpoints
+                and boundary_metric is not None
+                and (
+                    best_validation_metric is None
+                    or boundary_metric < best_validation_metric
+                )
+            ):
+                best_validation_metric = boundary_metric
+                best_validation_checkpoint = _save_checkpoint(
+                    path=request.output_dir / "checkpoints" / "best_model.pt",
+                    request=request,
+                    resolved=resolved,
+                    settings=settings,
+                    model=checkpoint_model,
+                    optimizer=optimizer,
+                    numpy_generator=numpy_generator,
+                    train_generator=train_generator,
+                    runtime_identity=runtime_identity,
+                    step=successful_count,
+                    metric_name="validation_l1_loss",
+                    metric_value=boundary_metric,
+                    scaler=scaler,
+                    amp=amp,
+                    distributed=distributed,
+                )
     if last_result is None:
         message = "selected-runtime runner executed no train steps"
         raise RuntimeError(message)
@@ -1783,7 +2402,22 @@ def _run_train_steps(  # noqa: PLR0913
                 distributed=distributed,
             ),
         )
-    return tuple(rows), tuple(checkpoints), last_result
+    return _TrainLoopResult(
+        metric_rows=tuple(rows),
+        validation_rows=tuple(validation_rows),
+        interval_checkpoints=tuple(checkpoints),
+        best_validation_checkpoint=best_validation_checkpoint,
+        best_validation_metric=best_validation_metric,
+        last_result=last_result,
+    )
+
+
+def _advance_batches(
+    batches: Iterator[PatchTrainingBatch],
+    count: int,
+) -> None:
+    for _ in range(count):
+        next(batches)
 
 
 def _run_train_step(  # noqa: PLR0913, PLR0914
@@ -1797,6 +2431,7 @@ def _run_train_step(  # noqa: PLR0913, PLR0914
     batch: PatchTrainingBatch,
     optimizer_step_index: int,
     successful_optimizer_update_count: int,
+    train_generator: torch.Generator,
     device: torch.device,
 ) -> _SelectedRuntimeStepResult:
     clean_batch_cpu = normalize_uint8_batch(batch.images_uint8)
@@ -1812,9 +2447,10 @@ def _run_train_step(  # noqa: PLR0913, PLR0914
     )
     clean_batch = _to_device(clean_batch_cpu, device=device, plan=plan)
     input_batch = _to_device(corruption.corrupted, device=device, plan=plan)
-    eps = _zero_eps(
+    eps, eps_proof = _train_eps(
         batch_size=input_batch.shape[0],
         settings=settings,
+        train_generator=train_generator,
         device=device,
     )
     beta = beta_for_step(
@@ -1877,6 +2513,11 @@ def _run_train_step(  # noqa: PLR0913, PLR0914
         batch_size=input_batch.shape[0],
         amp_step_skipped=amp_step_skipped,
         zero_grad_set_to_none=plan.zero_grad_set_to_none,
+        train_reparameterization=settings.train_reparameterization,
+        eps_policy=eps_proof.eps_policy,
+        eps_seed_source=eps_proof.eps_seed_source,
+        eps_zero_fraction=eps_proof.eps_zero_fraction,
+        eps_abs_mean=eps_proof.eps_abs_mean,
     )
 
 
@@ -1910,6 +2551,157 @@ def _cycle_batches(
         yield from loader
 
 
+def _should_run_scheduled_validation(
+    settings: _RunnerSettings,
+    optimizer_step: int,
+) -> bool:
+    return (
+        _writes_validation_metrics(settings)
+        and optimizer_step > 0
+        and optimizer_step % settings.half_epoch_interval_steps == 0
+    )
+
+
+def _run_scheduled_validation(  # noqa: PLR0913
+    *,
+    model: nn.Module,
+    settings: _RunnerSettings,
+    plan: SelectedRuntimePlan,
+    amp: _AmpExecution,
+    data_surface: _DataSurface,
+    optimizer_step: int,
+    rank: int,
+    device: torch.device,
+) -> tuple[CsvRow, ...]:
+    was_training = model.training
+    model.eval()
+    rows: list[CsvRow] = []
+    try:
+        rows.extend(
+            _validation_view_row(
+                model=model,
+                settings=settings,
+                plan=plan,
+                amp=amp,
+                data_surface=data_surface,
+                optimizer_step=optimizer_step,
+                view=view,
+                rank=rank,
+                device=device,
+            )
+            for view in settings.validation_views
+        )
+    finally:
+        if was_training:
+            model.train()
+    return tuple(rows)
+
+
+def _validation_view_row(  # noqa: PLR0913
+    *,
+    model: nn.Module,
+    settings: _RunnerSettings,
+    plan: SelectedRuntimePlan,
+    amp: _AmpExecution,
+    data_surface: _DataSurface,
+    optimizer_step: int,
+    view: str,
+    rank: int,
+    device: torch.device,
+) -> CsvRow:
+    scalars: list[dict[str, float]] = []
+    sample_count = 0
+    validation_batches = _cycle_batches(data_surface.validation_loader)
+    for _batch_index in range(settings.validation_batches_per_view):
+        batch = next(validation_batches)
+        clean_batch_cpu = normalize_uint8_batch(batch.images_uint8)
+        if view == "clean":
+            input_batch_cpu = clean_validation_passthrough(clean_batch_cpu)
+        elif view == "deterministic_denoising":
+            input_batch_cpu = corrupt_normalized_batch(
+                clean_batch_cpu,
+                profile=settings.corruption_profile,
+                corruption_seed=settings.corruption_seed,
+                split=batch.split,
+                semantic_sample_keys=batch.semantic_sample_keys,
+                corruption_step=optimizer_step,
+                corruption_view=f"validation_{view}",
+                strategy=plan.corruption_strategy,
+            ).corrupted
+        else:
+            message = f"unsupported validation view: {view}"
+            raise ValueError(message)
+        clean_batch = _to_device(clean_batch_cpu, device=device, plan=plan)
+        input_batch = _to_device(input_batch_cpu, device=device, plan=plan)
+        eps = _zero_eps(
+            batch_size=input_batch.shape[0],
+            settings=settings,
+            device=device,
+        )
+        beta = beta_for_step(
+            optimizer_step_index=max(0, optimizer_step - 1),
+            max_optimizer_steps=settings.target_train_steps,
+            target_beta=settings.beta_target,
+            warmup_fraction=settings.beta_warmup_fraction,
+        )
+        dtype = _autocast_dtype(plan.autocast_dtype)
+        with (
+            torch.no_grad(),
+            torch.autocast(
+                device_type=device.type,
+                dtype=dtype,
+                enabled=amp.enabled,
+            ),
+        ):
+            output = cast("NonEquivariantVAE", model).forward(input_batch, eps=eps)
+            losses = compute_vae_loss(
+                output,
+                clean_batch,
+                beta=beta,
+                ssim_weight=settings.ssim_weight,
+            )
+        scalars.append(losses.detached_scalars())
+        sample_count += int(input_batch.shape[0])
+    means = _mean_loss_scalars(scalars)
+    return {
+        "event_id": f"rank{rank}_validation_{view}_{optimizer_step:06d}",
+        "rank": str(rank),
+        "optimizer_step": str(optimizer_step),
+        "validation_boundary": "half_epoch",
+        "split": "validation",
+        "view": view,
+        "batch_count": str(settings.validation_batches_per_view),
+        "sample_count": str(sample_count),
+        "loss": _format_float(means["loss"]),
+        "recon_loss": _format_float(means["recon_loss"]),
+        "l1_loss": _format_float(means["l1_loss"]),
+        "ssim_loss": _format_float(means["ssim_loss"]),
+        "ssim_metric": _format_float(means["ssim_metric"]),
+        "kl_loss": _format_float(means["kl_loss"]),
+        "beta": _format_float(means["beta"]),
+        "deterministic_eps_used": "true",
+        "corruption_strategy": plan.corruption_strategy,
+    }
+
+
+def _mean_loss_scalars(rows: Sequence[dict[str, float]]) -> dict[str, float]:
+    keys = (
+        "loss",
+        "recon_loss",
+        "l1_loss",
+        "ssim_loss",
+        "ssim_metric",
+        "kl_loss",
+        "beta",
+    )
+    return {key: _mean([row[key] for row in rows]) for key in keys}
+
+
+def _validation_best_l1(rows: Sequence[CsvRow]) -> float | None:
+    values = [float(row["l1_loss"]) for row in rows if row.get("l1_loss")]
+    return min(values) if values else None
+
+
 def _save_checkpoint(  # noqa: PLR0913
     *,
     path: Path,
@@ -1926,6 +2718,7 @@ def _save_checkpoint(  # noqa: PLR0913
     scaler: GradScaler,
     amp: _AmpExecution,
     distributed: _DistributedContext,
+    metric_name: str = "l1_loss",
 ) -> CheckpointMetadata:
     return save_training_checkpoint(
         path=path,
@@ -1942,7 +2735,7 @@ def _save_checkpoint(  # noqa: PLR0913
         effective_config_sha256=resolved.effective_config_hash,
         optimizer_step=step,
         successful_optimizer_update_count=step,
-        metric_name="l1_loss",
+        metric_name=metric_name,
         metric_value=metric_value,
         amp_scaler_state=_amp_scaler_checkpoint_state(scaler=scaler, amp=amp),
         torch_cuda_rng_state=_cuda_rng_checkpoint_state(distributed),
@@ -2005,19 +2798,28 @@ def _checkpoint_resume_proof(  # noqa: PLR0913
     resolved: ResolvedConfig,
     settings: _RunnerSettings,
     runtime_identity: _RuntimeIdentity,
+    plan: SelectedRuntimePlan,
     train_generator: torch.Generator,
     amp: _AmpExecution,
     distributed: _DistributedContext,
 ) -> JsonObject:
     model = build_non_equivariant_vae(norm_groups=settings.norm_groups)
+    model = _place_model(model=model, plan=plan, device=distributed.device)
     optimizer, _ = create_adamw_optimizer(model, config=settings.optimizer_config)
     numpy_generator = np.random.default_rng(settings.global_seed)
+    probe_scaler = GradScaler(
+        "cuda",
+        init_scale=amp.grad_scaler_init_scale,
+        enabled=amp.grad_scaler_enabled,
+    )
     loaded = load_training_checkpoint(
         path=checkpoint.path,
         model=model,
         optimizer=optimizer,
         numpy_generator=numpy_generator,
         torch_generators={"train_data": train_generator},
+        amp_scaler=probe_scaler if amp.grad_scaler_enabled else None,
+        restore_cuda_rng=distributed.device.type == "cuda",
         expected_effective_config_sha256=resolved.effective_config_hash,
         expected_runtime_config_sha256=runtime_identity.sha256,
         expected_selected_row_id=runtime_identity.selected_row_id,
@@ -2040,8 +2842,8 @@ def _checkpoint_resume_proof(  # noqa: PLR0913
             "status": _LOCAL_STATUS
             if amp_status_ok and cuda_status_ok and ddp_status_ok
             else _FAIL,
-            "status_scope": _STATUS_SCOPE,
-            "full_run_eligible": False,
+            "status_scope": _status_scope(settings),
+            "full_run_eligible": _is_full_run(settings),
             "resume_checkpoint": _relative_to_output(
                 checkpoint.path,
                 request.output_dir,
@@ -2076,6 +2878,17 @@ def _checkpoint_resume_proof(  # noqa: PLR0913
             ),
             "ddp_sampler_progress_state_status_match": ddp_status_ok,
             "torch_cuda_rng_state_status_match": cuda_status_ok,
+            "grad_scaler_state_restore_attempted": amp.grad_scaler_enabled,
+            "grad_scaler_state_restored": amp_status_ok,
+            "cuda_rng_state_restore_attempted": distributed.device.type == "cuda",
+            "cuda_rng_state_restored": cuda_status_ok,
+            "sampler_progress_restored": ddp_status_ok,
+            "sampler_progress_offset_batches": loaded.successful_optimizer_update_count,
+            "optimizer_scheduler_progress_restored": True,
+            "beta_progress_restored": (
+                loaded.beta_progress_state_status
+                == "deterministic_from_successful_optimizer_update_count"
+            ),
             "config_sha256_match": (
                 loaded.effective_config_sha256 == resolved.effective_config_hash
             ),
@@ -2136,8 +2949,8 @@ def _loaded_checkpoint_resume_proof(  # noqa: PLR0913
             "status": _LOCAL_STATUS
             if amp_status_ok and cuda_status_ok and ddp_status_ok and identity_ok
             else _FAIL,
-            "status_scope": _STATUS_SCOPE,
-            "full_run_eligible": False,
+            "status_scope": _status_scope(settings),
+            "full_run_eligible": _is_full_run(settings),
             "resume_sequence": "loaded_checkpoint_before_training_continued",
             "resume_checkpoint": _relative_to_output(loaded.path, request.output_dir),
             "loaded_schema_version": loaded.schema_version,
@@ -2169,6 +2982,17 @@ def _loaded_checkpoint_resume_proof(  # noqa: PLR0913
             ),
             "ddp_sampler_progress_state_status_match": ddp_status_ok,
             "torch_cuda_rng_state_status_match": cuda_status_ok,
+            "grad_scaler_state_restore_attempted": amp.grad_scaler_enabled,
+            "grad_scaler_state_restored": amp_status_ok,
+            "cuda_rng_state_restore_attempted": distributed.device.type == "cuda",
+            "cuda_rng_state_restored": cuda_status_ok,
+            "sampler_progress_restored": ddp_status_ok,
+            "sampler_progress_offset_batches": loaded.successful_optimizer_update_count,
+            "optimizer_scheduler_progress_restored": True,
+            "beta_progress_restored": (
+                loaded.beta_progress_state_status
+                == "deterministic_from_successful_optimizer_update_count"
+            ),
             "config_sha256_match": (
                 loaded.effective_config_sha256 == resolved.effective_config_hash
             ),
@@ -2401,7 +3225,7 @@ def _plan_applied_proof(  # noqa: PLR0913
     return build_plan_applied_proof(
         plan=plan,
         observed=observed,
-        status_scope=_STATUS_SCOPE,
+        status_scope=_status_scope(settings),
     )
 
 
@@ -2470,9 +3294,11 @@ def _training_summary(  # noqa: PLR0913
     amp: _AmpExecution,
     data_surface: _DataSurface,
     metric_rows: Sequence[CsvRow],
+    validation_rows: Sequence[CsvRow],
     checkpoints: Sequence[CheckpointMetadata],
     final_checkpoint: CheckpointMetadata,
     best_checkpoint: CheckpointMetadata,
+    best_validation_metric: float | None,
     last_result: _SelectedRuntimeStepResult,
     plan_applied: JsonObject,
     checkpoint_resume_proof: JsonObject,
@@ -2485,9 +3311,16 @@ def _training_summary(  # noqa: PLR0913
             "status": _LOCAL_STATUS
             if _nonfinite_metric_count(metric_rows) == 0
             else _FAIL,
-            "status_scope": _STATUS_SCOPE,
-            "proof_scope": _STATUS_SCOPE,
-            "full_run_eligible": False,
+            "status_scope": _status_scope(settings),
+            "proof_scope": _status_scope(settings),
+            "full_run_eligible": _full_run_artifacts_eligible(
+                settings=settings,
+                request=request,
+                metric_rows=metric_rows,
+                validation_rows=validation_rows,
+                plan_applied=plan_applied,
+                gate_health_summary=gate_health_summary,
+            ),
             "run_name": settings.run_name,
             "run_mode": settings.run_mode,
             "data": request.data,
@@ -2519,12 +3352,28 @@ def _training_summary(  # noqa: PLR0913
                 "fp32_objective_island": True,
             },
             "max_train_steps": settings.max_train_steps,
+            "target_optimizer_updates": settings.target_train_steps,
+            "requested_epochs": settings.requested_epochs,
+            "optimizer_updates_per_epoch": settings.optimizer_updates_per_epoch,
+            "half_epoch_interval_steps": settings.half_epoch_interval_steps,
+            "current_epoch_fraction": _current_epoch_fraction(settings, metric_rows),
             "max_val_steps": settings.max_val_steps,
             "save_every_steps": settings.save_every_steps,
+            "validation_batches_per_view": settings.validation_batches_per_view,
+            "validation_views": list(settings.validation_views),
+            "train_reparameterization": settings.train_reparameterization,
+            "deterministic_eps_allowed_for": list(
+                settings.deterministic_eps_allowed_for,
+            ),
+            "checkpoint_retention": settings.checkpoint_retention,
+            "resume_supported": settings.resume_supported,
             "optimizer_steps_completed": _successful_optimizer_update_count(
                 metric_rows,
             ),
+            "resumed_optimizer_update_count": _resume_start_step_from_request(request),
+            "sampler_progress_offset_batches": _resume_start_step_from_request(request),
             "metric_row_count": len(metric_rows),
+            "validation_metric_row_count": len(validation_rows),
             "amp_step_skipped_count": sum(
                 1 for row in metric_rows if row["amp_step_skipped"] == "1"
             ),
@@ -2550,8 +3399,19 @@ def _training_summary(  # noqa: PLR0913
                 request.output_dir,
             ),
             "best_checkpoint": _checkpoint_payload(best_checkpoint, request.output_dir),
+            "best_validation_metric": best_validation_metric,
+            "retained_interval_checkpoint_count": _interval_checkpoint_count(
+                checkpoints,
+            ),
+            "retained_interval_checkpoints": _checkpoint_payloads(
+                checkpoints,
+                request.output_dir,
+            ),
             "metrics_csv": "metrics/train_steps.csv",
             "train_steps_csv": "metrics/train_steps.csv",
+            "validation_metrics_csv": "metrics/validation_metrics.csv"
+            if _writes_validation_metrics(settings)
+            else "",
             "gate_health_csv": "metrics/gate_health.csv",
             "selected_runtime_plan_applied": (
                 "benchmark/selected_runtime_plan_applied.json"
@@ -2566,6 +3426,8 @@ def _training_summary(  # noqa: PLR0913
             "gate_health_status": _string_value(gate_health_summary.get("status")),
             "reconstruction_sample_nonblank": reconstruction_nonblank,
             "last_loss": cast("JsonObject", last_result.losses.detached_scalars()),
+            "last_train_eps_policy": last_result.eps_policy,
+            "last_train_eps_zero_fraction": last_result.eps_zero_fraction,
             "nonfinite_count": _nonfinite_metric_count(metric_rows),
         },
     )
@@ -2633,6 +3495,91 @@ def _selected_runtime_debug_summary(  # noqa: PLR0913
             "artifact_manifest": "benchmark/artifact_manifest.json",
             "real_kaggle_debug_status": "pending_permission_gated_remote_run",
             "launch_blockers_remaining": remote_blockers,
+        },
+    )
+
+
+def _selected_runtime_full_summary(  # noqa: PLR0913
+    *,
+    plan: SelectedRuntimePlan,
+    settings: _RunnerSettings,
+    plan_applied: JsonObject,
+    ddp_proof: JsonObject,
+    amp: _AmpExecution,
+    checkpoint_resume_proof: JsonObject,
+    gate_health_summary: JsonObject,
+    data_surface: _DataSurface,
+    metric_rows: Sequence[CsvRow],
+    validation_rows: Sequence[CsvRow],
+    checkpoints: Sequence[CheckpointMetadata],
+    best_validation_metric: float | None,
+) -> JsonObject:
+    completed_steps = _successful_optimizer_update_count(metric_rows)
+    validation_boundaries = _validation_boundary_steps(validation_rows)
+    blockers: list[str] = []
+    if completed_steps != settings.target_train_steps:
+        blockers.append("target_optimizer_updates_not_completed")
+    if _amp_step_skipped_count(metric_rows) != 0:
+        blockers.append("amp_step_skip_observed")
+    if _nonfinite_metric_count(metric_rows) != 0:
+        blockers.append("nonfinite_train_metric_observed")
+    if not _stochastic_train_eps_proven(metric_rows):
+        blockers.append("stochastic_seeded_train_epsilon_not_proven")
+    if not _validation_schedule_complete(settings, validation_rows):
+        blockers.append("half_epoch_validation_schedule_incomplete")
+    if _interval_checkpoint_count(checkpoints) > _FULL_INTERVAL_CHECKPOINT_KEEP_COUNT:
+        blockers.append("too_many_interval_checkpoints_retained")
+    if plan_applied.get("status") != _LOCAL_STATUS:
+        blockers.append("selected_runtime_plan_not_applied")
+    if gate_health_summary.get("status") != _LOCAL_STATUS:
+        blockers.append("gate_health_not_pass")
+    if data_surface.source != "ubc-pre-shuffled":
+        blockers.append("synthetic_or_wrong_data_surface")
+    status = _LOCAL_STATUS if not blockers else _FAIL
+    return cast(
+        "JsonObject",
+        {
+            "status": status,
+            "status_scope": _FULL_STATUS_SCOPE,
+            "full_run_eligible": status == _LOCAL_STATUS,
+            "real_train_runner_implemented": True,
+            "remote_pass_ready": status == _LOCAL_STATUS,
+            "selected_row_id": plan.selected_row_id,
+            "runtime_policy_id": plan.runtime_policy_id,
+            "per_device_batch_size": settings.batch_size,
+            "global_batch_size": plan.global_batch_size,
+            "target_optimizer_updates": settings.target_train_steps,
+            "optimizer_steps_completed": completed_steps,
+            "requested_epochs": settings.requested_epochs,
+            "optimizer_updates_per_epoch": settings.optimizer_updates_per_epoch,
+            "half_epoch_interval_steps": settings.half_epoch_interval_steps,
+            "validation_batches_per_view": settings.validation_batches_per_view,
+            "validation_views": list(settings.validation_views),
+            "validation_boundary_steps": list(validation_boundaries),
+            "train_reparameterization": settings.train_reparameterization,
+            "stochastic_train_eps_proven": _stochastic_train_eps_proven(metric_rows),
+            "checkpoint_retention": settings.checkpoint_retention,
+            "retained_interval_checkpoint_count": _interval_checkpoint_count(
+                checkpoints,
+            ),
+            "retained_interval_checkpoints": [
+                checkpoint.path.name for checkpoint in checkpoints
+            ],
+            "best_validation_metric": best_validation_metric,
+            "amp_execution_status": amp.local_amp_status,
+            "grad_scaler_init_scale": amp.grad_scaler_init_scale,
+            "ddp_rank_device_status": _string_value(ddp_proof.get("status")),
+            "selected_runtime_plan_applied_status": _string_value(
+                plan_applied.get("status"),
+            ),
+            "checkpoint_resume_proof_status": _string_value(
+                checkpoint_resume_proof.get("status"),
+            ),
+            "gate_health_status": _string_value(gate_health_summary.get("status")),
+            "data_source": data_surface.source,
+            "launch_blockers_remaining": blockers,
+            "failure_kind": "" if not blockers else "full_run_artifacts_not_verified",
+            "selected_runtime_full_run_contract_ready": True,
         },
     )
 
@@ -2726,6 +3673,116 @@ def _tiny_overfit_summary(
     )
 
 
+def _is_full_run(settings: _RunnerSettings) -> bool:
+    return settings.run_mode == _FULL_RUN_MODE
+
+
+def _status_scope(settings: _RunnerSettings) -> str:
+    return _FULL_STATUS_SCOPE if _is_full_run(settings) else _STATUS_SCOPE
+
+
+def _writes_validation_metrics(settings: _RunnerSettings) -> bool:
+    return bool(settings.validation_views)
+
+
+def _full_run_artifacts_eligible(  # noqa: PLR0913
+    *,
+    settings: _RunnerSettings,
+    request: SelectedRuntimeTrainRequest,
+    metric_rows: Sequence[CsvRow],
+    validation_rows: Sequence[CsvRow],
+    plan_applied: JsonObject,
+    gate_health_summary: JsonObject,
+) -> bool:
+    return (
+        _is_full_run(settings)
+        and request.data == "ubc-pre-shuffled"
+        and _successful_optimizer_update_count(metric_rows)
+        == settings.target_train_steps
+        and _amp_step_skipped_count(metric_rows) == 0
+        and _nonfinite_metric_count(metric_rows) == 0
+        and _stochastic_train_eps_proven(metric_rows)
+        and _validation_schedule_complete(settings, validation_rows)
+        and plan_applied.get("status") == _LOCAL_STATUS
+        and gate_health_summary.get("status") == _LOCAL_STATUS
+    )
+
+
+def _current_epoch_fraction(
+    settings: _RunnerSettings,
+    metric_rows: Sequence[CsvRow],
+) -> float:
+    if settings.optimizer_updates_per_epoch <= 0:
+        return 0.0
+    return _successful_optimizer_update_count(metric_rows) / float(
+        settings.optimizer_updates_per_epoch,
+    )
+
+
+def _resume_start_step_from_request(request: SelectedRuntimeTrainRequest) -> int:
+    if request.resume is None:
+        return 0
+    metadata = read_training_checkpoint_metadata(path=request.resume)
+    return metadata.successful_optimizer_update_count
+
+
+def _stochastic_train_eps_proven(rows: Sequence[CsvRow]) -> bool:
+    successful_rows = _successful_metric_rows(rows)
+    return bool(successful_rows) and all(
+        row.get("train_reparameterization") == _STOCHASTIC_REPARAMETERIZATION
+        and row.get("eps_policy") == "stochastic_seeded_train_generator"
+        and float(row.get("eps_abs_mean", "0") or "0") > 0.0
+        and float(row.get("eps_zero_fraction", "1") or "1") < 1.0
+        for row in successful_rows
+    )
+
+
+def _validation_schedule_complete(
+    settings: _RunnerSettings,
+    rows: Sequence[CsvRow],
+) -> bool:
+    if not _writes_validation_metrics(settings):
+        return True
+    expected_steps = tuple(
+        range(
+            settings.half_epoch_interval_steps,
+            settings.target_train_steps + 1,
+            settings.half_epoch_interval_steps,
+        ),
+    )
+    observed = {
+        (int(row["optimizer_step"]), row["view"])
+        for row in rows
+        if row.get("optimizer_step") and row.get("view")
+    }
+    return all(
+        (step, view) in observed
+        for step in expected_steps
+        for view in settings.validation_views
+    )
+
+
+def _validation_boundary_steps(rows: Sequence[CsvRow]) -> tuple[int, ...]:
+    return tuple(
+        sorted({
+            int(row["optimizer_step"]) for row in rows if row.get("optimizer_step")
+        }),
+    )
+
+
+def _checkpoint_payloads(
+    checkpoints: Sequence[CheckpointMetadata],
+    output_dir: Path,
+) -> list[JsonObject]:
+    return [_checkpoint_payload(checkpoint, output_dir) for checkpoint in checkpoints]
+
+
+def _interval_checkpoint_count(checkpoints: Sequence[CheckpointMetadata]) -> int:
+    return sum(
+        1 for checkpoint in checkpoints if checkpoint.path.name.startswith("step_")
+    )
+
+
 def _writes_tiny_summary(settings: _RunnerSettings) -> bool:
     return settings.run_mode == _TINY_RUN_MODE
 
@@ -2740,7 +3797,6 @@ def _artifact_manifest(
 ) -> JsonObject:
     artifact_paths = {
         "training_summary": artifacts.training_summary,
-        "selected_runtime_debug_summary": artifacts.selected_runtime_debug_summary,
         "selected_runtime_plan_applied": artifacts.selected_runtime_plan_applied,
         "checkpoint_resume_proof": artifacts.checkpoint_resume_proof,
         "gate_health_summary": artifacts.gate_health_summary,
@@ -2749,6 +3805,16 @@ def _artifact_manifest(
         "gate_health": artifacts.gate_health,
         "reconstruction_samples": artifacts.reconstruction_samples,
     }
+    if _is_full_run(settings):
+        artifact_paths["selected_runtime_full_summary"] = (
+            artifacts.selected_runtime_full_summary
+        )
+    else:
+        artifact_paths["selected_runtime_debug_summary"] = (
+            artifacts.selected_runtime_debug_summary
+        )
+    if _writes_validation_metrics(settings):
+        artifact_paths["validation_metrics"] = artifacts.validation_metrics
     if _writes_tiny_summary(settings):
         artifact_paths["tiny_overfit_summary"] = artifacts.tiny_overfit_summary
     for checkpoint in checkpoints:
@@ -2760,8 +3826,13 @@ def _artifact_manifest(
         "JsonObject",
         {
             "status": _LOCAL_STATUS if not missing else _FAIL,
-            "status_scope": _STATUS_SCOPE,
-            "full_run_eligible": False,
+            "status_scope": _status_scope(settings),
+            "full_run_eligible": (
+                _is_full_run(settings)
+                and not missing
+                and _successful_optimizer_update_count(metric_rows)
+                == settings.target_train_steps
+            ),
             "artifact_hashes": cast(
                 "JsonObject",
                 {
@@ -2818,6 +3889,11 @@ def _metric_row(  # noqa: PLR0913
         "torch_compile_enabled": _csv_bool(value=plan.torch_compile_enabled),
         "compile_scope": plan.compile_scope,
         "corruption_strategy": corruption_strategy,
+        "train_reparameterization": result.train_reparameterization,
+        "eps_policy": result.eps_policy,
+        "eps_seed_source": result.eps_seed_source,
+        "eps_zero_fraction": _format_float(result.eps_zero_fraction),
+        "eps_abs_mean": _format_float(result.eps_abs_mean),
         "amp_step_skipped": "1" if result.amp_step_skipped else "0",
         "checkpoint_path": checkpoint_path,
     }
@@ -2937,6 +4013,81 @@ def _zero_eps(
     )
 
 
+def _train_eps(
+    *,
+    batch_size: int,
+    settings: _RunnerSettings,
+    train_generator: torch.Generator,
+    device: torch.device,
+) -> tuple[torch.Tensor, _EpsProof]:
+    shape = (
+        batch_size,
+        LATENT_CHANNELS,
+        settings.image_size // 8,
+        settings.image_size // 8,
+    )
+    if settings.train_reparameterization == _STOCHASTIC_REPARAMETERIZATION:
+        eps_cpu = torch.randn(
+            shape,
+            generator=train_generator,
+            dtype=torch.float32,
+            device="cpu",
+        )
+        eps = eps_cpu.to(device=device)
+        return eps, _eps_proof(
+            eps_cpu,
+            eps_policy="stochastic_seeded_train_generator",
+            eps_seed_source="train_data_torch_generator",
+        )
+    eps = _zero_eps(batch_size=batch_size, settings=settings, device=device)
+    return eps, _eps_proof(
+        eps.detach().cpu(),
+        eps_policy="deterministic_zero",
+        eps_seed_source="fixed_zero_tensor",
+    )
+
+
+def _eps_proof(
+    eps: torch.Tensor,
+    *,
+    eps_policy: str,
+    eps_seed_source: str,
+) -> _EpsProof:
+    values = eps.detach().float()
+    zero_fraction = float(torch.count_nonzero(values == 0).item()) / float(
+        values.numel(),
+    )
+    return _EpsProof(
+        eps_policy=eps_policy,
+        eps_seed_source=eps_seed_source,
+        eps_zero_fraction=zero_fraction,
+        eps_abs_mean=float(values.abs().mean().item()),
+    )
+
+
+def _apply_checkpoint_retention(
+    *,
+    checkpoints: Sequence[CheckpointMetadata],
+    settings: _RunnerSettings,
+) -> tuple[CheckpointMetadata, ...]:
+    if (
+        not _is_full_run(settings)
+        or settings.checkpoint_retention != _FULL_CHECKPOINT_RETENTION
+    ):
+        return tuple(checkpoints)
+    retained = tuple(
+        sorted(
+            checkpoints,
+            key=lambda checkpoint: checkpoint.successful_optimizer_update_count,
+        )[-_FULL_INTERVAL_CHECKPOINT_KEEP_COUNT:],
+    )
+    retained_paths = {checkpoint.path for checkpoint in retained}
+    for checkpoint in checkpoints:
+        if checkpoint.path not in retained_paths and checkpoint.path.exists():
+            checkpoint.path.unlink()
+    return retained
+
+
 def _checkpoint_payload(
     checkpoint: CheckpointMetadata,
     output_dir: Path,
@@ -3002,7 +4153,11 @@ def _seed(effective: JsonObject, name: str) -> int:
     return _optional_int(seeds, name) or 20260610
 
 
-def _validate_settings(settings: _RunnerSettings) -> None:
+def _validate_settings(  # noqa: C901
+    settings: _RunnerSettings,
+    *,
+    dry_run: bool,
+) -> None:
     if settings.batch_size <= 0:
         message = f"batch_size must be positive, got {settings.batch_size}"
         raise ValueError(message)
@@ -3012,11 +4167,84 @@ def _validate_settings(settings: _RunnerSettings) -> None:
     if settings.max_train_steps <= 0:
         message = f"max_train_steps must be positive, got {settings.max_train_steps}"
         raise ValueError(message)
+    if settings.target_train_steps <= 0:
+        message = (
+            f"target_train_steps must be positive, got {settings.target_train_steps}"
+        )
+        raise ValueError(message)
+    if settings.max_train_steps > settings.target_train_steps:
+        message = "max_train_steps cannot exceed target_train_steps"
+        raise ValueError(message)
     if settings.max_val_steps < 0:
         message = f"max_val_steps must be nonnegative, got {settings.max_val_steps}"
         raise ValueError(message)
     if settings.save_every_steps <= 0:
         message = f"save_every_steps must be positive, got {settings.save_every_steps}"
+        raise ValueError(message)
+    if settings.validation_views and settings.validation_batches_per_view <= 0:
+        message = "validation_batches_per_view must be positive when views are set"
+        raise ValueError(message)
+    if settings.validation_views and settings.half_epoch_interval_steps <= 0:
+        message = (
+            "half_epoch_interval_steps must be positive when validation is scheduled"
+        )
+        raise ValueError(message)
+    if settings.train_reparameterization not in {
+        _DETERMINISTIC_REPARAMETERIZATION,
+        _STOCHASTIC_REPARAMETERIZATION,
+    }:
+        message = (
+            "unsupported train_reparameterization: "
+            f"{settings.train_reparameterization!r}"
+        )
+        raise ValueError(message)
+    if _is_full_run(settings):
+        _validate_full_run_settings(settings, dry_run=dry_run)
+
+
+def _validate_full_run_settings(
+    settings: _RunnerSettings,
+    *,
+    dry_run: bool,
+) -> None:
+    expected = {
+        "requested_epochs": _FULL_EPOCHS,
+        "optimizer_updates_per_epoch": _FULL_UPDATES_PER_EPOCH,
+        "target_train_steps": _FULL_TARGET_UPDATES,
+        "half_epoch_interval_steps": _FULL_HALF_EPOCH_INTERVAL_STEPS,
+        "validation_batches_per_view": _FULL_VALIDATION_BATCHES_PER_VIEW,
+    }
+    observed = {
+        "requested_epochs": settings.requested_epochs,
+        "optimizer_updates_per_epoch": settings.optimizer_updates_per_epoch,
+        "target_train_steps": settings.target_train_steps,
+        "half_epoch_interval_steps": settings.half_epoch_interval_steps,
+        "validation_batches_per_view": settings.validation_batches_per_view,
+    }
+    for field, expected_value in expected.items():
+        actual = observed[field]
+        if actual != expected_value:
+            message = f"full-run {field} must be {expected_value!r}, got {actual!r}"
+            raise ValueError(message)
+    if settings.validation_views != _FULL_VALIDATION_VIEWS:
+        message = "full-run validation_views must be clean and deterministic_denoising"
+        raise ValueError(message)
+    if settings.train_reparameterization != _STOCHASTIC_REPARAMETERIZATION:
+        message = "full-run training must use stochastic_seeded reparameterization"
+        raise ValueError(message)
+    if settings.deterministic_eps_allowed_for != _FULL_DETERMINISTIC_EPS_ALLOWED_FOR:
+        message = "full-run deterministic_eps_allowed_for has unexpected lanes"
+        raise ValueError(message)
+    if settings.checkpoint_retention != _FULL_CHECKPOINT_RETENTION:
+        message = (
+            "full-run checkpoint_retention must be best_final_latest_four_interval"
+        )
+        raise ValueError(message)
+    if not settings.resume_supported:
+        message = "full-run config must declare resume_supported=true"
+        raise ValueError(message)
+    if not dry_run and settings.save_every_steps != _FULL_HALF_EPOCH_INTERVAL_STEPS:
+        message = "full-run save_every_steps must equal the half-epoch interval"
         raise ValueError(message)
 
 
@@ -3041,6 +4269,38 @@ def _required_str(payload: JsonObject, key: str) -> str:
     if isinstance(value, str):
         return value
     message = f"Expected string config field {key}"
+    raise TypeError(message)
+
+
+def _optional_str(payload: JsonObject, key: str) -> str | None:
+    value = payload.get(key)
+    if value is None or isinstance(value, str):
+        return value
+    message = f"Expected optional string config field {key}"
+    raise TypeError(message)
+
+
+def _optional_str_tuple(payload: JsonObject, key: str) -> tuple[str, ...]:
+    value = payload.get(key)
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        message = f"Expected list config field {key}"
+        raise TypeError(message)
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            message = f"Expected string entries in config field {key}"
+            raise TypeError(message)
+        result.append(item)
+    return tuple(result)
+
+
+def _optional_bool(payload: JsonObject, key: str) -> bool | None:
+    value = payload.get(key)
+    if value is None or isinstance(value, bool):
+        return value
+    message = f"Expected boolean config field {key}"
     raise TypeError(message)
 
 

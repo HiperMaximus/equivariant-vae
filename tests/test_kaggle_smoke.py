@@ -152,7 +152,7 @@ def test_setup_smoke_writes_distinct_non_promotable_artifact(
     assert payload["full_run_eligible"] is False
     assert data["kind"] == SETUP_DATA_KIND
     assert not data["dataset_slug"]
-    assert data["origin"] == "synthetic_or_ephemeral_path"
+    assert data["origin"] == _expected_data_origin(tmp_path)
     assert data["data_integrity_status"] == "crc_checked"
     assert runtime["requires_cuda_t4"] is False
     assert train["total_applied_count"] == _EXPECTED_SETUP_APPLIED_COUNT
@@ -282,3 +282,9 @@ def _write_smoke_config(
 
 def _load_json(path: Path) -> dict[str, object]:
     return cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+
+
+def _expected_data_origin(path: Path) -> str:
+    if path.parts[:2] == ("/", "tmp"):
+        return "synthetic_or_ephemeral_path"
+    return "local_or_explicit_path"

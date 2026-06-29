@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
     from numpy.random import Generator
     from torch import nn
+    from torch.amp.grad_scaler import GradScaler
 
 
 _SCHEMA_VERSION = "spec0001.checkpoint.v5"
@@ -177,6 +178,8 @@ def load_training_checkpoint(  # noqa: PLR0913
     optimizer: torch.optim.Optimizer,
     numpy_generator: Generator,
     torch_generators: Mapping[str, torch.Generator] | None = None,
+    amp_scaler: GradScaler | None = None,
+    restore_cuda_rng: bool = False,
     expected_effective_config_sha256: str | None = None,
     expected_runtime_config_sha256: str | None = None,
     expected_selected_row_id: str | None = None,
@@ -213,6 +216,8 @@ def load_training_checkpoint(  # noqa: PLR0913
     numpy_generator_state = payload.get("numpy_generator_state")
     rng_state = payload.get("torch_cpu_rng_state")
     torch_generator_states = payload.get("torch_generator_states")
+    amp_scaler_state = payload.get("amp_scaler_state")
+    torch_cuda_rng_state = payload.get("torch_cuda_rng_state")
     if not isinstance(model_state, dict):
         message = "checkpoint model_state_dict must be an object"
         raise TypeError(message)
@@ -248,6 +253,11 @@ def load_training_checkpoint(  # noqa: PLR0913
         torch_generators=torch_generators,
         payload=cast("dict[object, object]", torch_generator_states),
     )
+    _restore_amp_scaler_state(amp_scaler=amp_scaler, payload=amp_scaler_state)
+    _restore_torch_cuda_rng_state(
+        payload=torch_cuda_rng_state,
+        restore_cuda_rng=restore_cuda_rng,
+    )
     return LoadedCheckpoint(
         path=metadata.path,
         schema_version=metadata.schema_version,
@@ -269,6 +279,54 @@ def load_training_checkpoint(  # noqa: PLR0913
         metric_value=metadata.metric_value,
         torch_generator_names=torch_generator_names,
     )
+
+
+def _restore_amp_scaler_state(
+    *,
+    amp_scaler: GradScaler | None,
+    payload: object,
+) -> None:
+    if amp_scaler is None:
+        return
+    if not isinstance(payload, dict):
+        message = "checkpoint amp_scaler_state must be an object"
+        raise TypeError(message)
+    state = cast("dict[str, object]", payload)
+    if state.get("status") != _AMP_SCALER_SELECTED_RUNTIME_STATUS:
+        return
+    state_dict = state.get("state_dict")
+    if not isinstance(state_dict, dict):
+        message = "selected-runtime amp_scaler_state.state_dict must be an object"
+        raise TypeError(message)
+    amp_scaler.load_state_dict(cast("dict[str, object]", state_dict))
+
+
+def _restore_torch_cuda_rng_state(
+    *,
+    payload: object,
+    restore_cuda_rng: bool,
+) -> None:
+    if not restore_cuda_rng:
+        return
+    if not isinstance(payload, dict):
+        message = "checkpoint torch_cuda_rng_state must be an object"
+        raise TypeError(message)
+    state = cast("dict[str, object]", payload)
+    if state.get("status") != _CUDA_RNG_SELECTED_RUNTIME_STATUS:
+        return
+    states = state.get("states")
+    if not isinstance(states, tuple | list):
+        message = "selected-runtime torch_cuda_rng_state.states must be a sequence"
+        raise TypeError(message)
+    typed_states = cast("list[object] | tuple[object, ...]", states)
+    tensors: list[torch.Tensor] = []
+    for item in typed_states:
+        if not isinstance(item, torch.Tensor):
+            message = "selected-runtime CUDA RNG states must be tensors"
+            raise TypeError(message)
+        tensors.append(item.to(dtype=torch.uint8, device="cpu"))
+    if tensors and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all(tensors)
 
 
 def read_training_checkpoint_metadata(*, path: Path) -> CheckpointResumeMetadata:

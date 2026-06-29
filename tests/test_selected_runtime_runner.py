@@ -120,6 +120,20 @@ def test_selected_runtime_runner_dry_run_writes_required_artifacts(  # noqa: PLR
         amp_execution["grad_scaler_init_scale"]
         == SELECTED_RUNTIME_AMP_GRAD_SCALER_INIT_SCALE
     )
+    retained_intervals = cast(
+        "list[dict[str, object]]",
+        summary["retained_interval_checkpoints"],
+    )
+    retained_interval_names = {
+        Path(cast("str", checkpoint["path"])).name for checkpoint in retained_intervals
+    }
+    assert retained_interval_names == {"step_000001.pt", "step_000002.pt"}
+    assert Path(cast("str", _object(summary, "final_checkpoint")["path"])).name == (
+        "final.pt"
+    )
+    assert Path(cast("str", _object(summary, "best_checkpoint")["path"])).name == (
+        "best_model.pt"
+    )
 
     assert debug_summary["real_train_runner_implemented"] is True
     assert debug_summary["remote_pass_ready"] is False

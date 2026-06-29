@@ -93,6 +93,32 @@ REMOTE_DEBUG_REQUIRED_METRIC_ARTIFACTS = frozenset(
         "train_steps.csv",
     },
 )
+REMOTE_FULL_REQUIRED_BENCHMARK_ARTIFACTS = frozenset(
+    {
+        "artifact_manifest.json",
+        "checkpoint_resume_proof.json",
+        "gate_health_summary.json",
+        "local_selected_runtime_readiness.json",
+        "selected_runtime_full_summary.json",
+        "selected_runtime_plan_applied.json",
+        "training_summary.json",
+    },
+)
+REMOTE_FULL_REQUIRED_METRIC_ARTIFACTS = frozenset(
+    {
+        "gate_health.csv",
+        "train_steps.csv",
+        "validation_metrics.csv",
+    },
+)
+REMOTE_FULL_TARGET_UPDATES = 125000
+REMOTE_FULL_EPOCHS = 10
+REMOTE_FULL_UPDATES_PER_EPOCH = 12500
+REMOTE_FULL_HALF_EPOCH_INTERVAL = 6250
+REMOTE_FULL_VALIDATION_BATCHES_PER_VIEW = 20
+REMOTE_FULL_VALIDATION_VIEWS = ("clean", "deterministic_denoising")
+REMOTE_FULL_INTERVAL_CHECKPOINT_KEEP_COUNT = 4
+REMOTE_FULL_WORLD_SIZE = 2
 REMOTE_DEBUG_FINAL_STEP = 8
 REMOTE_DEBUG_RESUME_STEP = 4
 REMOTE_DEBUG_REQUIRED_SUCCESSFUL_STEPS = tuple(
@@ -497,6 +523,405 @@ def verify_selected_runtime_debug_output(  # noqa: PLR0914
     return _dedupe_strings(tuple(blockers))
 
 
+def verify_selected_runtime_full_output(  # noqa: PLR0914
+    *,
+    output_dir: Path,
+    selected_runtime_path: Path,
+) -> tuple[str, ...]:
+    """Return blockers for a downloaded selected-runtime full-run output.
+
+    Returns:
+        Stable blocker names. Empty means the artifact contract passed locally.
+
+    """
+    benchmark_dir = output_dir / "benchmark"
+    metrics_dir = output_dir / "metrics"
+    blockers: list[str] = []
+    if not benchmark_dir.exists():
+        return ("selected_runtime_full_output_benchmark_dir_missing",)
+    observed_benchmark: set[str] = {path.name for path in benchmark_dir.iterdir()}
+    observed_metrics: set[str] = (
+        {path.name for path in metrics_dir.iterdir()} if metrics_dir.exists() else set()
+    )
+    missing_benchmark = REMOTE_FULL_REQUIRED_BENCHMARK_ARTIFACTS - observed_benchmark
+    missing_metrics = REMOTE_FULL_REQUIRED_METRIC_ARTIFACTS - observed_metrics
+    blockers.extend(
+        f"selected_runtime_full_output_missing_{name}"
+        for name in sorted(missing_benchmark)
+    )
+    blockers.extend(
+        f"selected_runtime_full_output_missing_metric_{name}"
+        for name in sorted(missing_metrics)
+    )
+    unexpected_metrics = observed_metrics - REMOTE_FULL_REQUIRED_METRIC_ARTIFACTS
+    blockers.extend(
+        f"selected_runtime_full_output_unexpected_metric_{name}"
+        for name in sorted(unexpected_metrics)
+    )
+    if (benchmark_dir / "selected_runtime.json").exists():
+        blockers.append("selected_runtime_full_output_wrote_selected_runtime")
+    if blockers:
+        return _dedupe_strings(tuple(blockers))
+
+    runtime_sha256 = _sha256_file(selected_runtime_path)
+    training_summary = _load_json(benchmark_dir / "training_summary.json")
+    full_summary = _load_json(benchmark_dir / "selected_runtime_full_summary.json")
+    plan_applied = _load_json(benchmark_dir / "selected_runtime_plan_applied.json")
+    resume_proof = _load_json(benchmark_dir / "checkpoint_resume_proof.json")
+    gate_health = _load_json(benchmark_dir / "gate_health_summary.json")
+    artifact_manifest = _load_json(benchmark_dir / "artifact_manifest.json")
+    runtime_payload = _load_json(selected_runtime_path)
+    max_batch_size = _int_value(runtime_payload.get("per_device_batch_size"))
+    world_size = _int_value(runtime_payload.get("world_size"))
+    blockers.extend(
+        _remote_full_json_blockers(
+            runtime_sha256=runtime_sha256,
+            training_summary=training_summary,
+            full_summary=full_summary,
+            plan_applied=plan_applied,
+            resume_proof=resume_proof,
+            gate_health=gate_health,
+            artifact_manifest=artifact_manifest,
+            output_dir=output_dir,
+        ),
+    )
+    blockers.extend(
+        _remote_full_manifest_blockers(
+            output_dir=output_dir,
+            training_summary=training_summary,
+            artifact_manifest=artifact_manifest,
+        ),
+    )
+    blockers.extend(
+        _remote_output_gate_health_blockers(metrics_dir / "gate_health.csv"),
+    )
+    blockers.extend(
+        _remote_full_train_step_blockers(
+            metrics_dir / "train_steps.csv",
+            max_batch_size=max_batch_size,
+            world_size=world_size,
+        ),
+    )
+    blockers.extend(
+        _remote_full_validation_blockers(metrics_dir / "validation_metrics.csv"),
+    )
+    return _dedupe_strings(tuple(blockers))
+
+
+def _remote_full_json_blockers(  # noqa: PLR0913
+    *,
+    runtime_sha256: str,
+    training_summary: JsonObject,
+    full_summary: JsonObject,
+    plan_applied: JsonObject,
+    resume_proof: JsonObject,
+    gate_health: JsonObject,
+    artifact_manifest: JsonObject,
+    output_dir: Path,
+) -> tuple[str, ...]:
+    blockers: list[str] = []
+    runtime_config = training_summary.get("runtime_config")
+    runtime_payload = runtime_config if isinstance(runtime_config, dict) else {}
+    if runtime_payload.get("sha256") != runtime_sha256:
+        blockers.append("selected_runtime_full_output_runtime_sha256_mismatch")
+    retained_interval_checkpoint_count = _int_value(
+        training_summary.get("retained_interval_checkpoint_count"),
+    )
+    retained_interval_checkpoint_names = _full_retained_interval_checkpoint_names(
+        training_summary,
+    )
+    expected_interval_checkpoint_names = _full_expected_interval_checkpoint_names()
+    checks: tuple[tuple[bool, str], ...] = (
+        (
+            training_summary.get("status") == RUNNER_OK_STATUS,
+            "training_summary_not_pass",
+        ),
+        (
+            training_summary.get("run_mode") == "kaggle_selected_runtime_full_train",
+            "wrong_run_mode",
+        ),
+        (
+            training_summary.get("target_optimizer_updates")
+            == REMOTE_FULL_TARGET_UPDATES,
+            "target_updates_mismatch",
+        ),
+        (
+            training_summary.get("optimizer_steps_completed")
+            == REMOTE_FULL_TARGET_UPDATES,
+            "completed_updates_mismatch",
+        ),
+        (
+            training_summary.get("requested_epochs") == REMOTE_FULL_EPOCHS,
+            "epochs_mismatch",
+        ),
+        (
+            training_summary.get("optimizer_updates_per_epoch")
+            == REMOTE_FULL_UPDATES_PER_EPOCH,
+            "updates_per_epoch_mismatch",
+        ),
+        (
+            training_summary.get("half_epoch_interval_steps")
+            == REMOTE_FULL_HALF_EPOCH_INTERVAL,
+            "half_epoch_interval_mismatch",
+        ),
+        (
+            training_summary.get("validation_batches_per_view")
+            == REMOTE_FULL_VALIDATION_BATCHES_PER_VIEW,
+            "validation_batch_count_mismatch",
+        ),
+        (
+            training_summary.get("validation_views")
+            == list(REMOTE_FULL_VALIDATION_VIEWS),
+            "validation_views_mismatch",
+        ),
+        (
+            training_summary.get("train_reparameterization") == "stochastic_seeded",
+            "train_reparameterization_not_stochastic",
+        ),
+        (training_summary.get("amp_step_skipped_count") == 0, "amp_skips_nonzero"),
+        (training_summary.get("nonfinite_count") == 0, "nonfinite_nonzero"),
+        (
+            training_summary.get("checkpoint_retention")
+            == "best_final_latest_four_interval",
+            "checkpoint_retention_mismatch",
+        ),
+        (training_summary.get("resume_supported") is True, "resume_not_supported"),
+        (
+            retained_interval_checkpoint_count
+            == REMOTE_FULL_INTERVAL_CHECKPOINT_KEEP_COUNT,
+            "retained_interval_checkpoint_count_mismatch",
+        ),
+        (
+            retained_interval_checkpoint_names == expected_interval_checkpoint_names,
+            "retained_interval_checkpoints_mismatch",
+        ),
+        (
+            full_summary.get("selected_runtime_full_run_contract_ready") is True,
+            "full_summary_contract_not_ready",
+        ),
+        (full_summary.get("status") == RUNNER_OK_STATUS, "full_summary_not_pass"),
+        (
+            full_summary.get("target_optimizer_updates") == REMOTE_FULL_TARGET_UPDATES,
+            "full_summary_target_mismatch",
+        ),
+        (
+            full_summary.get("stochastic_train_eps_proven") is True,
+            "stochastic_eps_not_proven",
+        ),
+        (plan_applied.get("status") == RUNNER_OK_STATUS, "plan_applied_not_pass"),
+        (plan_applied.get("plan_applied") is True, "plan_applied_false"),
+        (resume_proof.get("status") == RUNNER_OK_STATUS, "resume_proof_not_pass"),
+        (
+            resume_proof.get("grad_scaler_state_restore_attempted") is True,
+            "grad_scaler_restore_not_attempted",
+        ),
+        (
+            resume_proof.get("grad_scaler_state_restored") is True,
+            "grad_scaler_not_restored",
+        ),
+        (
+            resume_proof.get("cuda_rng_state_restore_attempted") is True,
+            "cuda_rng_restore_not_attempted",
+        ),
+        (
+            resume_proof.get("cuda_rng_state_restored") is True,
+            "cuda_rng_not_restored",
+        ),
+        (
+            resume_proof.get("sampler_progress_restored") is True,
+            "sampler_progress_not_restored",
+        ),
+        (
+            resume_proof.get("optimizer_scheduler_progress_restored") is True,
+            "optimizer_progress_not_restored",
+        ),
+        (
+            resume_proof.get("beta_progress_restored") is True,
+            "beta_progress_not_restored",
+        ),
+        (gate_health.get("status") == RUNNER_OK_STATUS, "gate_health_not_pass"),
+        (
+            artifact_manifest.get("status") == RUNNER_OK_STATUS,
+            "artifact_manifest_not_pass",
+        ),
+        (
+            artifact_manifest.get("full_run_eligible") is True,
+            "manifest_not_full_run_eligible",
+        ),
+        (
+            artifact_manifest.get("reconstruction_sample_nonblank") is True,
+            "reconstruction_blank",
+        ),
+    )
+    blockers.extend(
+        f"selected_runtime_full_output_{name}" for passed, name in checks if not passed
+    )
+    amp_execution = training_summary.get("amp_execution")
+    amp_payload = amp_execution if isinstance(amp_execution, dict) else {}
+    if (
+        _float_value(amp_payload.get("grad_scaler_init_scale"))
+        != REMOTE_AMP_GRAD_SCALER_INIT_SCALE
+    ):
+        blockers.append("selected_runtime_full_output_grad_scaler_init_scale_mismatch")
+    blockers.extend(_remote_output_plan_scaler_blockers(plan_applied))
+    for key in ("final_checkpoint", "best_checkpoint"):
+        checkpoint = training_summary.get(key)
+        checkpoint_payload = checkpoint if isinstance(checkpoint, dict) else {}
+        rel_path = checkpoint_payload.get("path")
+        if not isinstance(rel_path, str) or not (output_dir / rel_path).exists():
+            blockers.append(f"selected_runtime_full_output_{key}_missing")
+    return tuple(blockers)
+
+
+def _full_expected_interval_checkpoint_names() -> tuple[str, ...]:
+    steps = tuple(
+        range(
+            REMOTE_FULL_HALF_EPOCH_INTERVAL,
+            REMOTE_FULL_TARGET_UPDATES + 1,
+            REMOTE_FULL_HALF_EPOCH_INTERVAL,
+        ),
+    )
+    latest = steps[-REMOTE_FULL_INTERVAL_CHECKPOINT_KEEP_COUNT:]
+    return tuple(f"step_{step:06d}.pt" for step in latest)
+
+
+def _full_retained_interval_checkpoint_names(summary: JsonObject) -> tuple[str, ...]:
+    raw_checkpoints = summary.get("retained_interval_checkpoints")
+    if not isinstance(raw_checkpoints, list):
+        return ()
+    names: list[str] = []
+    for item in raw_checkpoints:
+        if not isinstance(item, dict):
+            return ()
+        path = item.get("path")
+        if not isinstance(path, str):
+            return ()
+        names.append(Path(path).name)
+    return tuple(names)
+
+
+def _remote_full_train_step_blockers(  # noqa: C901, PLR0912
+    path: Path,
+    *,
+    max_batch_size: int,
+    world_size: int,
+) -> tuple[str, ...]:
+    with path.open(encoding="utf-8", newline="") as csv_file:
+        reader = csv.DictReader(csv_file)
+        rows = list(reader)
+        fieldnames = tuple(reader.fieldnames or ())
+    if not rows:
+        return ("selected_runtime_full_output_train_steps_empty",)
+    required = set(REMOTE_DEBUG_REQUIRED_TRAIN_STEP_COLUMNS) | {
+        "train_reparameterization",
+        "eps_policy",
+        "eps_seed_source",
+        "eps_zero_fraction",
+        "eps_abs_mean",
+    }
+    blockers: list[str] = []
+    if required - set(fieldnames):
+        blockers.append("selected_runtime_full_output_train_steps_missing_columns")
+    successful_rows = [row for row in rows if row.get("amp_step_skipped") == "0"]
+    if not successful_rows:
+        blockers.append("selected_runtime_full_output_train_steps_no_successful_rows")
+        return tuple(blockers)
+    expected_world_size = REMOTE_FULL_WORLD_SIZE
+    if world_size != REMOTE_FULL_WORLD_SIZE:
+        blockers.append("selected_runtime_full_output_runtime_world_size_mismatch")
+    expected_ranks = set(range(expected_world_size))
+    expected_successful_row_count = REMOTE_FULL_TARGET_UPDATES * expected_world_size
+    if len(successful_rows) != expected_successful_row_count:
+        blockers.append("selected_runtime_full_output_train_steps_row_count_mismatch")
+    coverage: dict[int, set[int]] = {}
+    seen_step_ranks: set[tuple[int, int]] = set()
+    for row in successful_rows:
+        step = _int_value(row.get("successful_optimizer_update_count"))
+        rank = _int_value(row.get("rank"))
+        if not (1 <= step <= REMOTE_FULL_TARGET_UPDATES) or rank not in expected_ranks:
+            blockers.append(
+                "selected_runtime_full_output_train_steps_step_or_rank_invalid",
+            )
+            continue
+        step_rank = (step, rank)
+        if step_rank in seen_step_ranks:
+            blockers.append("selected_runtime_full_output_train_steps_duplicate_rank")
+            continue
+        seen_step_ranks.add(step_rank)
+        coverage.setdefault(step, set()).add(rank)
+    if len(coverage) != REMOTE_FULL_TARGET_UPDATES or any(
+        coverage.get(step) != expected_ranks
+        for step in range(1, REMOTE_FULL_TARGET_UPDATES + 1)
+    ):
+        blockers.append("selected_runtime_full_output_train_steps_schedule_incomplete")
+    if any(row.get("amp_step_skipped") != "0" for row in rows):
+        blockers.append("selected_runtime_full_output_train_steps_amp_skip")
+    if any(_int_value(row.get("nonfinite_count")) != 0 for row in rows):
+        blockers.append("selected_runtime_full_output_train_steps_nonfinite")
+    if any(
+        (batch_size := _int_value(row.get("batch_size"))) <= 0
+        or (max_batch_size > 0 and batch_size > max_batch_size)
+        for row in successful_rows
+    ):
+        blockers.append("selected_runtime_full_output_train_steps_batch_size_invalid")
+    if any(
+        row.get("train_reparameterization") != "stochastic_seeded"
+        or row.get("eps_policy") != "stochastic_seeded_train_generator"
+        or _float_value(row.get("eps_abs_mean")) <= 0.0
+        or _float_value(row.get("eps_zero_fraction")) >= 1.0
+        for row in successful_rows
+    ):
+        blockers.append("selected_runtime_full_output_train_steps_not_stochastic")
+    return tuple(blockers)
+
+
+def _remote_full_validation_blockers(path: Path) -> tuple[str, ...]:
+    with path.open(encoding="utf-8", newline="") as csv_file:
+        reader = csv.DictReader(csv_file)
+        rows = list(reader)
+        fieldnames = tuple(reader.fieldnames or ())
+    if not rows:
+        return ("selected_runtime_full_output_validation_empty",)
+    blockers: list[str] = []
+    required = {
+        "optimizer_step",
+        "view",
+        "batch_count",
+        "l1_loss",
+        "deterministic_eps_used",
+        "corruption_strategy",
+    }
+    if required - set(fieldnames):
+        blockers.append("selected_runtime_full_output_validation_missing_columns")
+    observed = {
+        (_int_value(row.get("optimizer_step")), row.get("view", "")) for row in rows
+    }
+    expected_steps = tuple(
+        range(
+            REMOTE_FULL_HALF_EPOCH_INTERVAL,
+            REMOTE_FULL_TARGET_UPDATES + 1,
+            REMOTE_FULL_HALF_EPOCH_INTERVAL,
+        ),
+    )
+    for step in expected_steps:
+        for view in REMOTE_FULL_VALIDATION_VIEWS:
+            if (step, view) not in observed:
+                blockers.append(
+                    "selected_runtime_full_output_validation_schedule_incomplete",
+                )
+                break
+    if any(
+        _int_value(row.get("batch_count")) != REMOTE_FULL_VALIDATION_BATCHES_PER_VIEW
+        for row in rows
+    ):
+        blockers.append("selected_runtime_full_output_validation_batch_count_mismatch")
+    if any(row.get("deterministic_eps_used") != "true" for row in rows):
+        blockers.append("selected_runtime_full_output_validation_not_deterministic")
+    if any(not _is_finite_float(row.get("l1_loss", "")) for row in rows):
+        blockers.append("selected_runtime_full_output_validation_nonfinite")
+    return tuple(blockers)
+
+
 def _remote_output_plan_scaler_blockers(plan_applied: JsonObject) -> tuple[str, ...]:
     expected = plan_applied.get("expected")
     observed = plan_applied.get("observed")
@@ -800,6 +1225,103 @@ def _remote_selector_document_blockers(
     if len(document.selectors) != EXPECTED_TINY_SELECTOR_COUNT:
         blockers.append("selected_runtime_output_fixed32_selector_count_not_32")
     return tuple(blockers)
+
+
+def _remote_full_manifest_blockers(
+    *,
+    output_dir: Path,
+    training_summary: JsonObject,
+    artifact_manifest: JsonObject,
+) -> tuple[str, ...]:
+    hashes = artifact_manifest.get("artifact_hashes")
+    if not isinstance(hashes, dict):
+        return ("selected_runtime_full_output_manifest_hashes_missing",)
+    expected_interval_names = {
+        f"checkpoint:{name}"
+        for name in _full_retained_interval_checkpoint_names(training_summary)
+    }
+    expected_names = frozenset(
+        {
+            "training_summary",
+            "selected_runtime_full_summary",
+            "selected_runtime_plan_applied",
+            "checkpoint_resume_proof",
+            "gate_health_summary",
+            "local_selected_runtime_readiness",
+            "train_steps",
+            "validation_metrics",
+            "gate_health",
+            "reconstruction_samples",
+            "checkpoint:final.pt",
+            "checkpoint:best_model.pt",
+        }
+        | expected_interval_names,
+    )
+    blockers: list[str] = []
+    observed_names = set(hashes)
+    blockers.extend(
+        f"selected_runtime_full_output_manifest_missing_{_blocker_token(name)}"
+        for name in sorted(expected_names - observed_names)
+    )
+    observed_interval_names = {
+        name
+        for name in observed_names
+        if name.startswith("checkpoint:step_") and name.endswith(".pt")
+    }
+    if observed_interval_names != expected_interval_names:
+        blockers.append(
+            "selected_runtime_full_output_manifest_interval_checkpoints_mismatch",
+        )
+    for name, value in sorted(hashes.items()):
+        if not isinstance(value, str) or len(value) != SHA256_HEX_LENGTH:
+            blockers.append(
+                f"selected_runtime_full_output_manifest_invalid_hash_{_blocker_token(name)}",
+            )
+            continue
+        path = _full_manifest_artifact_path(output_dir=output_dir, name=name)
+        if path is None:
+            blockers.append(
+                f"selected_runtime_full_output_manifest_unknown_{_blocker_token(name)}",
+            )
+            continue
+        if not path.exists():
+            blockers.append(
+                f"selected_runtime_full_output_manifest_artifact_missing_{_blocker_token(name)}",
+            )
+            continue
+        if _sha256_file(path) != value:
+            blockers.append(
+                f"selected_runtime_full_output_manifest_hash_mismatch_{_blocker_token(name)}",
+            )
+    return tuple(blockers)
+
+
+def _full_manifest_artifact_path(*, output_dir: Path, name: str) -> Path | None:
+    legacy = {
+        "training_summary": output_dir / "benchmark" / "training_summary.json",
+        "selected_runtime_full_summary": output_dir
+        / "benchmark"
+        / "selected_runtime_full_summary.json",
+        "selected_runtime_plan_applied": output_dir
+        / "benchmark"
+        / "selected_runtime_plan_applied.json",
+        "checkpoint_resume_proof": output_dir
+        / "benchmark"
+        / "checkpoint_resume_proof.json",
+        "gate_health_summary": output_dir / "benchmark" / "gate_health_summary.json",
+        "local_selected_runtime_readiness": output_dir
+        / "benchmark"
+        / "local_selected_runtime_readiness.json",
+        "train_steps": output_dir / "metrics" / "train_steps.csv",
+        "validation_metrics": output_dir / "metrics" / "validation_metrics.csv",
+        "gate_health": output_dir / "metrics" / "gate_health.csv",
+        "reconstruction_samples": output_dir
+        / "artifacts"
+        / "reconstruction_samples.pt",
+    }
+    if name.startswith("checkpoint:"):
+        return output_dir / "checkpoints" / name.removeprefix("checkpoint:")
+    return legacy.get(name)
 
 
 def _remote_output_manifest_blockers(

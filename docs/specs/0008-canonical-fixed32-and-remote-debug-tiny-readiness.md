@@ -1,11 +1,9 @@
 # Spec 0008: Canonical Fixed-32 And Remote Debug Tiny Readiness
 
-Status: local readiness implemented / locally verified; remote proof pending
-explicit approval
-Implementation readiness: local `remote_generate` readiness, fixed-32 selector
-generation/readiness, debug/tiny wrapper wiring, and output verifier are
-implemented; the narrow Kaggle debug/tiny push milestone still requires the
-user to explicitly approve the remote action
+Status: implemented / remote verified by selected-runtime debug/tiny v5
+Implementation readiness: complete for the narrow debug/resume/artifact/
+gate-health/tiny-overfit proof; the first full training run is outside this
+spec and is now covered by Spec 0009
 Owner/workstream: comparable non-equivariant VAE baseline, pre-long-run proof
 gate
 Last updated: 2026-06-29
@@ -25,9 +23,9 @@ milestones:
 2. explicit-user-approved narrow Kaggle selected-runtime debug/tiny push and
    artifact download/inspection.
 
-When this spec passes, the immediate next work should be preparing/requesting
-the first full real selected-runtime run, not inventing another local-only
-detour unless the proof artifacts expose a blocker.
+This spec has passed. The immediate next work is Spec 0009: implement the
+dedicated guarded first full selected-runtime training workflow before any
+remote long-run approval request.
 
 ## Non-Goals
 

@@ -1,0 +1,50 @@
+{
+  "schema_version": "spec0001.v0",
+  "status": "selected_runtime_full_run_ready_after_local_preflight",
+  "run": {
+    "name": "non_eq_vae_spec0001_selected_runtime_full",
+    "mode": "kaggle_selected_runtime_full_train"
+  },
+  "source_config": "configs/spec0001/non_eq_vae_model_base.json",
+  "data": {
+    "kind": "ubc-pre-shuffled",
+    "dataset_slug": "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+    "data_root": "auto",
+    "image_size": 256
+  },
+  "runtime": {
+    "machine_shape": "NvidiaTeslaT4",
+    "remote_execution_requires_permission": true,
+    "selected_runtime_required": true,
+    "runtime_config": "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
+    "required_debug_gate_output": "runs/kaggle/selected_runtime_debug_v5"
+  },
+  "training": {
+    "epochs": 10,
+    "optimizer_updates_per_epoch": 12500,
+    "max_train_steps": 125000,
+    "half_epoch_interval_steps": 6250,
+    "validation_batches_per_view": 20,
+    "validation_views": [
+      "clean",
+      "deterministic_denoising"
+    ],
+    "train_reparameterization": "stochastic_seeded",
+    "deterministic_eps_allowed_for": [
+      "debug",
+      "tiny",
+      "numerical_checks",
+      "validation",
+      "artifacts"
+    ],
+    "save_every_steps": 6250,
+    "checkpoint_retention": "best_final_latest_four_interval",
+    "resume_supported": true
+  },
+  "selected_runtime_full": {
+    "selected_runtime_full_run_contract_ready": true,
+    "required_debug_gate_output": "runs/kaggle/selected_runtime_debug_v5",
+    "remote_pass_ready": false,
+    "remote_launch_requires_explicit_approval": true
+  }
+}

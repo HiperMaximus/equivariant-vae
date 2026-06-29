@@ -45,6 +45,7 @@ class SelectedRuntimePlan:
     per_device_batch_size: int
     global_batch_size: int
     gradient_accumulation_steps: int
+    optimizer_updates_per_epoch: int
     precision_policy: str
     amp_enabled: bool
     autocast_dtype: str
@@ -81,6 +82,7 @@ class SelectedRuntimePlan:
             "per_device_batch_size": self.per_device_batch_size,
             "global_batch_size": self.global_batch_size,
             "gradient_accumulation_steps": self.gradient_accumulation_steps,
+            "optimizer_updates_per_epoch": self.optimizer_updates_per_epoch,
             "precision_policy": self.precision_policy,
             "amp_enabled": self.amp_enabled,
             "autocast_dtype": self.autocast_dtype,
@@ -343,6 +345,7 @@ def _plan_from_payload(*, path: Path, payload: JsonObject) -> SelectedRuntimePla
         per_device_batch_size=_int(payload, "per_device_batch_size"),
         global_batch_size=_int(payload, "global_batch_size"),
         gradient_accumulation_steps=_int(payload, "gradient_accumulation_steps"),
+        optimizer_updates_per_epoch=_int(payload, "optimizer_updates_per_epoch"),
         precision_policy=_str(mixed_precision, "policy"),
         amp_enabled=_bool(mixed_precision, "enabled"),
         autocast_dtype=_str(mixed_precision, "autocast_dtype"),
@@ -403,6 +406,7 @@ def _launch_errors(payload: JsonObject) -> tuple[str, ...]:
         "per_device_batch_size": 12,
         "global_batch_size": 24,
         "gradient_accumulation_steps": 1,
+        "optimizer_updates_per_epoch": 12500,
     }
     error_names = {
         "accelerator_mode": "selected_runtime_top_level_not_dual_t4_ddp",
@@ -413,6 +417,9 @@ def _launch_errors(payload: JsonObject) -> tuple[str, ...]:
         "global_batch_size": "selected_runtime_top_level_wrong_global_batch",
         "gradient_accumulation_steps": (
             "selected_runtime_top_level_wrong_gradient_accumulation"
+        ),
+        "optimizer_updates_per_epoch": (
+            "selected_runtime_top_level_wrong_optimizer_updates_per_epoch"
         ),
     }
     errors.extend(

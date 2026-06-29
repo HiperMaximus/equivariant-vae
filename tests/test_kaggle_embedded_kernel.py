@@ -95,6 +95,8 @@ _EMBEDDED_PAYLOAD_B64_PATTERN = re.compile(
 )
 _MASKED_HOLDOUT_CSV_PAYLOAD_PATH = "docs/data/ubc_ocean_masked_holdout_ids.csv"
 _EXPECTED_SELECTED_RUNTIME_DEBUG_RUNNER_CALLS = 2
+_FULL_TARGET_UPDATES = 125000
+_FULL_HALF_EPOCH_INTERVAL = 6250
 
 
 @dataclass(frozen=True)
@@ -137,7 +139,7 @@ def test_embedded_setup_kernel_survives_single_file_upload_simulation(
     assert payload["full_run_eligible"] is False
     assert data["kind"] == SETUP_DATA_KIND
     assert not data["dataset_slug"]
-    assert data["origin"] == "synthetic_or_ephemeral_path"
+    assert data["origin"] == _expected_data_origin(tmp_path)
     assert runtime["requires_cuda_t4"] is False
     assert train["total_applied_count"] == _EXPECTED_SETUP_APPLIED_COUNT
     assert manifest["schema_version"] == "spec0001.kaggle_payload_manifest.v1"
@@ -456,6 +458,102 @@ def test_embedded_selected_runtime_debug_kernel_import_simulation(
     assert payload["selected_runtime_exists"] is True
 
 
+def test_embedded_selected_runtime_full_kernel_import_simulation(
+    tmp_path: Path,
+) -> None:
+    """Selected-runtime full launcher imports and targets the full config only."""
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="selected_runtime_full",
+        ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
+    )
+    environment = _run_environment(simulation.output_dir)
+    environment["EQVAE_SELECTED_RUNTIME_FULL_IMPORT_ONLY"] = "1"
+    environment["EQVAE_SELECTED_RUNTIME_FULL_OUTPUT_DIR"] = str(simulation.output_dir)
+    resume_checkpoint = simulation.output_dir / "checkpoints" / "step_006250.pt"
+    environment["EQVAE_SELECTED_RUNTIME_FULL_RESUME"] = str(resume_checkpoint)
+
+    subprocess.run(  # noqa: S603
+        (sys.executable, str(simulation.upload_dir / "run.py")),
+        cwd=simulation.upload_dir,
+        check=True,
+        env=environment,
+    )
+
+    benchmark_dir = simulation.output_dir / "benchmark"
+    assert {path.name for path in benchmark_dir.iterdir()} == {
+        "selected_runtime_full_import.json",
+    }
+    assert not (benchmark_dir / "selected_runtime.json").exists()
+    payload = _load_json(benchmark_dir / "selected_runtime_full_import.json")
+    assert payload["status"] == "import_only_pass"
+    assert payload["kernel_id"] == "maximusshtefan/eqvae-selected-runtime-full"
+    assert payload["ready_marker"] is True
+    assert payload["selected_runtime_full_run_contract_ready"] == (
+        "selected_runtime_full_run_contract_ready"
+    )
+    assert payload["target_optimizer_updates"] == _FULL_TARGET_UPDATES
+    assert payload["half_epoch_interval_steps"] == _FULL_HALF_EPOCH_INTERVAL
+    command = str(payload["torchrun_command"])
+    assert "non_eq_vae_selected_runtime_full.json" in command
+    assert "eqvae.cli.selected_runtime_train" in command
+    assert "--resume" in command
+    assert str(resume_checkpoint.resolve()) in command
+    assert "--max-train-steps" not in command
+    assert "selected_runtime_debug" not in command
+    assert _RUNTIME_SELECTION_BASELINE_PAYLOAD_FILES.issubset(
+        _embedded_payload_names(simulation.upload_dir / "run.py"),
+    )
+
+
+def test_selected_runtime_full_push_rejects_preflight_dirty_bypass_env(
+    tmp_path: Path,
+) -> None:
+    """The local dirty bypass cannot be exported into the real push guard."""
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="selected_runtime_full",
+        ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
+    )
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    fake_kaggle = fake_bin / "kaggle"
+    fake_kaggle.write_text(
+        '#!/usr/bin/env bash\necho "fake kaggle $*"\n',
+        encoding="utf-8",
+    )
+    fake_kaggle.chmod(0o755)
+    environment = os.environ.copy()
+    environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
+    environment["KAGGLE_PUSH_CONFIRMED"] = "1"
+    environment["KAGGLE_FULL_DATASET_CONFIRMED"] = "1"
+    environment["EQVAE_SELECTED_RUNTIME_FULL_LOCAL_PREFLIGHT_ALLOW_DIRTY"] = "1"
+    bash_path = shutil.which("bash")
+    assert bash_path is not None
+
+    completed = subprocess.run(  # noqa: S603
+        (
+            bash_path,
+            str(repo_root / "scripts" / "kaggle_kernel.sh"),
+            "push",
+            str(simulation.upload_dir),
+        ),
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        env=environment,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "only valid" in completed.stderr
+    assert "fake kaggle" not in completed.stdout
+
+
 def test_embedded_selected_runtime_debug_kernel_full_local_fail_closed_simulation(
     tmp_path: Path,
 ) -> None:
@@ -627,9 +725,11 @@ def test_selected_runtime_debug_selector_status_resolves_payload_holdout(
     finally:
         os.chdir(original_cwd)
 
-    assert (
-        direct_status["failure_kind"] == "fixed_32_selector_masked_holdout_unavailable"
-    )
+    direct_failure = direct_status["failure_kind"]
+    if tmp_path.parts[:2] == ("/", "tmp"):
+        assert direct_failure == "fixed_32_selector_masked_holdout_unavailable"
+    else:
+        assert direct_failure == "fixed_32_selector_not_canonical_real_ubc"
     assert wrapped_status["failure_kind"] == "fixed_32_selector_not_canonical_real_ubc"
     validation_errors = cast("list[object]", wrapped_status["validation_errors"])
     assert "fixed_32_selector_masked_holdout_unavailable" not in validation_errors
@@ -898,6 +998,12 @@ def _run_environment(output_dir: Path) -> dict[str, str]:
     environment.pop("EQVAE_DATA_ROOT", None)
     environment.pop("PYTHONPATH", None)
     return environment
+
+
+def _expected_data_origin(path: Path) -> str:
+    if path.parts[:2] == ("/", "tmp"):
+        return "synthetic_or_ephemeral_path"
+    return "local_or_explicit_path"
 
 
 def _load_json(path: Path) -> dict[str, object]:

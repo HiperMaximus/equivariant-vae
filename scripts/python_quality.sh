@@ -5,6 +5,11 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$script_dir/.."
 
 venv_bin=".venv/bin"
+if [[ -z "${TMPDIR:-}" ]]; then
+  export TMPDIR="$PWD/runs/local_tmp/python_quality_$$"
+  trap 'rm -rf "$TMPDIR"' EXIT
+fi
+mkdir -p "$TMPDIR"
 missing=0
 
 for tool in python ruff pytest basedpyright; do

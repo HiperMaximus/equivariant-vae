@@ -57,33 +57,33 @@ artifacts passes for the intended AMP conservative row. Runtime-selection
 version 5 completed, downloaded to `runs/kaggle/runtime_selection_v5`, passed
 strict local replay under current `main`, and selected AMP conservative
 dual-T4 bs12 indexed-mask at `27.381321` samples/sec with zero AMP skips. The
-selected payload is still not full-training-launch-ready because
-real selected-runtime debug, checkpoint/resume, and tiny-overfit proofs are
-missing.
+immutable selected payload still records `full_training_launch_ready = false`
+because it was written before the downstream proof lane, but Spec 0008
+selected-runtime debug/tiny v5 later passed strict downloaded-output
+verification at `runs/kaggle/selected_runtime_debug_v5`.
 Runtime-selection version 6 completed the compact relaxed scalar-gate AMP
 follow-up, downloaded to `runs/kaggle/runtime_selection_v6`, and replayed
 locally. It did not write `benchmark/selected_runtime.json`; the relaxed row
 passed runtime/gate-health with zero AMP skips but reached only `25.288828`
 samples/sec, so v5 remains the selected-runtime fallback.
 Local selected-runtime debug/checkpoint-resume/artifact/tiny-overfit proof
-plumbing now exists through `python -m eqvae.cli.train`, but it is currently a
-synthetic, fail-closed contract runner. It writes `full_run_eligible = false`
-and does not satisfy the real UBC/Kaggle gate. The dedicated
+plumbing exists through `python -m eqvae.cli.selected_runtime_gate` and passed
+the real UBC/Kaggle debug/tiny lane for Spec 0008 v5. The dedicated
 selected-runtime debug/tiny gate kernel contract is
 `selected_runtime_debug_gate_contract_ready`: `kaggle/kernels/selected_runtime_debug`
-embeds the v5 selected runtime, writes exact fail-closed gate artifacts through
+embeds the v5 selected runtime, writes bounded proof artifacts through
 `eqvae.cli.selected_runtime_gate`, and is covered by
-`./scripts/kaggle_kernel.sh preflight-selected-runtime-debug`. Its push guard
-must continue to reject remote writes while Spec 0008 fixed-32 selector
-readiness is missing, exact real-dataset metadata is missing, or downloaded
-remote debug/tiny artifacts have not passed.
+`./scripts/kaggle_kernel.sh preflight-selected-runtime-debug`. That kernel is
+intentionally capped and non-promotable; it is not a first full-run launcher.
+Spec 0009 owns the missing guarded full-run kernel, exact 10-epoch schedule,
+validation/checkpoint cadence, resume hardening, verifier, and approval gate.
 The successful historical FSQ script is runtime reference material for launch,
 loader, AMP, DDP, compile, layout, and checkpoint hypotheses only; it is not a
 source for FSQ quantization,
 PixelShuffle/sub-pixel upsampling, final `tanh` bounding, the exact old
 corruptor, or `rot90`/discrete-latent equivariance artifacts.
 Owner/workstream: Kaggle GPU execution and artifact retrieval
-Last updated: 2026-06-25
+Last updated: 2026-06-29
 
 ## Purpose
 

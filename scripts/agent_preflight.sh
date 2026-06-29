@@ -4,6 +4,12 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$script_dir/.."
 
+if [[ -z "${TMPDIR:-}" ]]; then
+  export TMPDIR="$PWD/runs/local_tmp/agent_preflight_$$"
+  trap 'rm -rf "$TMPDIR"' EXIT
+fi
+mkdir -p "$TMPDIR"
+
 repo_root="$(git rev-parse --show-toplevel)"
 expected_name="equivariant-vae"
 expected_overleaf_url="https://git.overleaf.com/69c614433cbc9e46cf226d24"
@@ -45,6 +51,7 @@ required_files=(
   "docs/specs/0001-translatable-normal-vae-baseline.md"
   "docs/specs/0002-strict-python-quality-gate.md"
   "docs/specs/0003-kaggle-cli-execution-workflow.md"
+  "docs/specs/0009-first-full-selected-runtime-training-run.md"
   "docs/decisions/README.md"
   "docs/decisions/0001-continuous-so2-scope.md"
   "docs/decisions/0002-normal-vae-baseline.md"
@@ -58,6 +65,7 @@ required_files=(
   "scripts/kaggle_kernel.sh"
   "scripts/python_quality.sh"
   "scripts/sipaim_overleaf_sync.sh"
+  "configs/spec0001/non_eq_vae_selected_runtime_full.json"
   "kaggle/__init__.py"
   "kaggle/kernels/__init__.py"
   "kaggle/kernels/non_eq_vae_debug/__init__.py"
@@ -75,6 +83,10 @@ required_files=(
   "kaggle/kernels/runtime_selection/__init__.py"
   "kaggle/kernels/runtime_selection/kernel-metadata.json"
   "kaggle/kernels/runtime_selection/run_template.py"
+  "kaggle/kernels/selected_runtime_full/__init__.py"
+  "kaggle/kernels/selected_runtime_full/kernel-metadata.json"
+  "kaggle/kernels/selected_runtime_full/run_template.py"
+  "tests/test_selected_runtime_full_run.py"
   "tests/.gitkeep"
   "paper/sipaim2026/main.tex"
   "paper/sipaim2026/sipaim2026.pdf"
@@ -93,6 +105,26 @@ url_has_credentials() {
   [[ "$url" =~ ^[[:alpha:]][[:alnum:].+-]*://[^/@]+@ ]]
 }
 
+allowed_untracked_required_files=(
+  "configs/spec0001/non_eq_vae_selected_runtime_full.json"
+  "docs/specs/0009-first-full-selected-runtime-training-run.md"
+  "kaggle/kernels/selected_runtime_full/__init__.py"
+  "kaggle/kernels/selected_runtime_full/kernel-metadata.json"
+  "kaggle/kernels/selected_runtime_full/run_template.py"
+  "tests/test_selected_runtime_full_run.py"
+)
+
+is_allowed_untracked_required_file() {
+  local candidate="$1"
+  local path
+  for path in "${allowed_untracked_required_files[@]}"; do
+    if [[ "$candidate" == "$path" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 echo "Required files"
 for path in "${required_files[@]}"; do
   if [[ -f "$path" ]]; then
@@ -108,6 +140,8 @@ echo "Required files tracked by Git"
 for path in "${required_files[@]}"; do
   if git ls-files --error-unmatch "$path" >/dev/null 2>&1; then
     echo "tracked: $path"
+  elif is_allowed_untracked_required_file "$path" && [[ -f "$path" ]]; then
+    echo "pending-add: $path"
   else
     echo "untracked: $path"
     tracked_problem=1
@@ -252,6 +286,13 @@ else
   missing=1
 fi
 
+if git check-ignore --no-index -q kaggle/kernels/selected_runtime_full/run.py; then
+  echo "ok: generated selected-runtime full run.py is ignored"
+else
+  echo "error: generated selected-runtime full run.py should stay ignored"
+  missing=1
+fi
+
 for credential_path in kaggle.json .kaggle/kaggle.json kaggle/kernels/kaggle.json; do
   if git check-ignore --no-index -q "$credential_path"; then
     echo "ok: $credential_path is ignored"
@@ -275,8 +316,8 @@ stale_pattern='\b(MAPI4?|Springer|D4)\b'
 if ! command -v rg >/dev/null 2>&1; then
   echo "missing: rg; cannot run stale planning-term check"
   missing=1
-elif rg -n --ignore-case "$stale_pattern" AGENTS.md CLAUDE.md CURRENT.md GOAL.md README.md docs >/tmp/equivariant_vae_preflight_stale_terms.txt; then
-  cat /tmp/equivariant_vae_preflight_stale_terms.txt
+elif rg -n --ignore-case "$stale_pattern" AGENTS.md CLAUDE.md CURRENT.md GOAL.md README.md docs >"$TMPDIR/equivariant_vae_preflight_stale_terms.txt"; then
+  cat "$TMPDIR/equivariant_vae_preflight_stale_terms.txt"
   echo "warning: stale planning terms found in human-authored docs"
   missing=1
 else

@@ -55,10 +55,11 @@ selected-runtime debug wrapper generates and validates the canonical selector
 before bounded debug/tiny training, passes the generated selector into
 `eqvae.cli.selected_runtime_train`, and exposes a strict
 `eqvae.cli.selected_runtime_gate --verify-output` post-download verifier. The
-push guard remains explicit-user-gated and remote proof is still pending:
-downloaded Kaggle artifacts must prove the canonical real selector,
-selected-runtime plan application, checkpoint/resume, gate health, manifest,
-and tiny-overfit bounds before any pass claim.
+debug/tiny v5 run completed, was downloaded to
+`runs/kaggle/selected_runtime_debug_v5`, and passed strict output verification:
+canonical real selector generation, selected-runtime plan application,
+checkpoint/resume, gate health, manifest, and tiny-overfit bounds all have no
+remaining launch blockers.
 The first approved v5 push attempt on 2026-06-29 exposed stale Kaggle OAuth
 cache behavior in local CLI calls: `kaggle auth print-access-token` could mint
 a token, but normal `kaggle kernels ...` calls reused a rejected cached token.
@@ -73,16 +74,122 @@ completed, downloaded, and passed the strict `--verify-output` gate. The debug
 kernel remains non-promotable by design (`full_run_eligible = false`), but Spec
 0008's remote debug/resume/artifact/gate/tiny readiness proof has no remaining
 launch blockers.
-No long real training run should be requested until the real UBC/DDP/AMP debug,
-resume, artifact, gate-health, canonical selector, and tiny-overfit proofs
-pass.
+No long real training run has been approved, launched, downloaded, or verified.
+Spec 0009 is implemented locally: `configs/spec0001/non_eq_vae_selected_runtime_full.json`
+defines the 10-epoch/125000-update selected-runtime full config; the runner now
+has a `kaggle_selected_runtime_full_train` path with stochastic seeded train VAE
+reparameterization, half-epoch validation metrics, validation-best/final/latest
+four interval checkpoint policy, stricter full-run schedule validation, and
+long-run resume proof fields for GradScaler/CUDA RNG/sampler/progress identity;
+`kaggle/kernels/selected_runtime_full` is the dedicated full launcher; and
+`scripts/kaggle_kernel.sh` has guarded `preflight/status/output` actions plus a
+full-run push guard. The debug/tiny kernel remains non-promotable and must not
+be reused for the long run. The next remote action, if desired later, is an
+exact approval request for the dedicated full-run push command only after local
+review gates are recorded.
+
+Full-run Kaggle launch requirements for the next agent: use only the dedicated
+full kernel path, not the debug/tiny kernel. The correct push action is the
+generic guarded push with the full kernel directory:
+`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_full`.
+There is no `push-selected-runtime-full` action. The real push guard requires a
+clean Git worktree with committed source provenance; if the ignored generated
+`kaggle/kernels/selected_runtime_full/run.py` was built while the repo was
+dirty, first commit the source/template/config/docs, then rebuild it locally
+with `./scripts/kaggle_kernel.sh build kaggle/kernels/selected_runtime_full`,
+then rerun the guarded push. Remote status and output download are separate
+remote reads and still require explicit approval plus `KAGGLE_REMOTE_CONFIRMED=1`:
+`./scripts/kaggle_kernel.sh status-selected-runtime-full` and
+`./scripts/kaggle_kernel.sh output-selected-runtime-full runs/kaggle/selected_runtime_full_v1`.
+After a push, do not wait in-turn on the long run; if an approved status check
+shows `RUNNING`, record the local time and suggested next polling time here.
 Commit `d02204c` (`Implement selected runtime local mechanics`) recorded Spec
 0006 plus adversarial fixes. Spec 0007 is implemented locally and Spec 0008
-local readiness now passes. On 2026-06-28, the user approved the narrow
-selected-runtime debug/tiny Kaggle push only; this is not approval for the first
-full long run. If Spec 0008 remote artifacts pass, the first full real
-selected-runtime run becomes the immediate next candidate action. Historical
-provenance follows.
+remote debug/tiny readiness is proved by v5. On 2026-06-28/29, the user
+approved only the narrow selected-runtime debug/tiny Kaggle actions; this is not
+approval for the first full long run. Historical provenance follows.
+
+2026-06-29 first full-run planning update: three read-only adversarial subagent
+audits reviewed the post-Spec-0008 state. Findings: (1) no guarded first full
+selected-runtime training Kaggle kernel/workflow exists in
+`scripts/kaggle_kernel.sh` or `kaggle/kernels`; (2) the only selected-runtime
+kernel is the bounded debug/tiny proof kernel, and it must not be reused as a
+long-run launcher; (3) `selected_runtime_train` needs full-run schedule,
+validation, checkpoint, readiness, and resume work before a 10-epoch run is
+safe; (4) several docs still pointed toward a completed debug/tiny v5 action.
+This handoff updates Spec 0008 status, the spec index, GOAL, Kaggle workflow
+docs, and adds
+`docs/specs/0009-first-full-selected-runtime-training-run.md`. Verification for
+this docs/spec pass: `git diff --check`, repo `./scripts/agent_preflight.sh`,
+and workspace `/home/maximus/Documents/Tesis/agent_preflight.sh` passed after
+the edits. Next concrete action: implement Spec 0009 locally, then run its full
+local verification and adversarial review before asking for exact remote
+approval.
+
+Spec 0009 wording follow-up, 2026-06-29: an external review flagged that the
+current selected-runtime train step feeds zero epsilon into the VAE, so
+optimization behaves deterministically as `z = mu`. That is acceptable for the
+existing debug/tiny and paired-numerical proof lanes, but it would be wrong for
+the first full VAE run. Spec 0009 now explicitly requires stochastic seeded
+reparameterization during full-run optimization, permits zero/fixed epsilon only
+for deterministic validation/artifacts/debug/tiny/numerical checks, and adds an
+acceptance artifact for train reparameterization proof. Verification for this
+wording fix: `git diff --check`, trailing-whitespace scan on the edited files,
+repo `./scripts/agent_preflight.sh`, and workspace
+`/home/maximus/Documents/Tesis/agent_preflight.sh` passed.
+
+Spec 0009 local implementation update, 2026-06-29: the full-run surface now
+exists locally but has not touched Kaggle remotely. Added the full config,
+dedicated `selected_runtime_full` Kaggle kernel, full-run shell guards and
+preflight, strict `--verify-full-output` verifier, and focused tests. The
+runner derives the selected v5 schedule into exactly 10 epochs, 12500 updates
+per epoch, 125000 target optimizer updates, and 6250-update half-epoch
+intervals; full-run training samples stochastic seeded epsilon, while zero/fixed
+epsilon stays confined to deterministic debug/tiny/validation/artifact/numerical
+lanes; validation metrics are scheduled for clean and deterministic denoising
+views; interval, final, and validation-best checkpoints are written with latest
+four interval retention; resume proof now covers GradScaler, CUDA RNG,
+sampler/progress offset, selected-runtime identity, optimizer/scheduler, and
+beta progress. Adversarial review initially found two high-severity blockers:
+`--verify-full-output` could accept skinny train/checkpoint evidence, and the
+resume proof/full kernel did not prove/allow full restart discipline strongly
+enough. Both are fixed locally: the verifier now requires complete per-rank
+train-step coverage for every successful update, exact latest-four interval
+checkpoint retention and manifest hashes, and explicit GradScaler/CUDA RNG
+restore-attempt/restored evidence; the full kernel accepts an explicit
+`EQVAE_SELECTED_RUNTIME_FULL_RESUME` checkpoint hook. A second post-fix
+adversarial review found no remaining high-severity blocker, but flagged a
+medium preflight dirty-bypass leak and a low mislabeled
+`selected_runtime_full_summary.retained_interval_checkpoints` field. Both are
+fixed: the dirty bypass is accepted only by the explicit local preflight guard
+mode and is rejected by the real push guard, and both full-run summaries now
+report interval checkpoints separately from `final.pt` and `best_model.pt`
+while the manifest still hashes all retained checkpoints. A final post-edit
+adversarial review found no high-severity blocker and one medium resume-output
+gap: a resumed long run could overwrite metrics with post-resume rows only and
+then fail strict full-output verification. That is fixed locally: resume now
+loads and merges pre-resume train/validation rows, carries retained interval
+checkpoint metadata and prior best-validation state, and full-run resume fails
+closed when required prior train history is missing. Local verification passed
+after those fixes, using ignored repo-local `runs/local_tmp/...` scratch for
+heavy temp output and deleting each scratch directory after use. The local
+preflight/quality scripts now default to process-unique self-cleaning scratch
+under `runs/local_tmp/...`, and the runner preflight no longer leaves
+`runs/local_preflight` artifacts:
+`tests/test_selected_runtime_runner.py` (`8 passed`),
+`tests/test_selected_runtime_full_run.py` (`10 passed`),
+`./scripts/kaggle_kernel.sh preflight-selected-runtime-runner` (`52 passed`),
+`./scripts/kaggle_kernel.sh preflight-selected-runtime-full` (`11 passed`),
+strict debug v5 `--verify-output`, `./scripts/python_quality.sh` (`242
+passed`, basedpyright clean), `git diff --check`, repo
+`./scripts/agent_preflight.sh`, and workspace
+`/home/maximus/Documents/Tesis/agent_preflight.sh`. Temporary scratch pressure
+was handled by deleting only known local scratch directories under `/tmp` and
+ignored `runs/local_tmp`; no source artifacts were removed. No remote approval
+has been requested and no Kaggle full-run push, status read, output download,
+or other remote action was attempted. Next exact action, only if the user wants
+to launch later, is to request approval for:
+`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_full`.
 
 Selected-runtime debug/tiny v5 auth/push status, 2026-06-29: after explicit
 approval for the narrow selected-runtime debug/tiny v5 push, the local push

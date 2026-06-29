@@ -16,6 +16,7 @@ from eqvae.benchmarking.selected_runtime_gate import (
     SelectorGenerationMode,
     verify_selected_runtime_debug_output,
     verify_selected_runtime_debug_push_ready,
+    verify_selected_runtime_full_output,
     write_selected_runtime_gate,
 )
 
@@ -37,9 +38,10 @@ class SelectedRuntimeGateArgs:
     selector_generation_mode: SelectorGenerationMode
     verify_push_ready: bool
     verify_output: bool
+    verify_full_output: bool
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:  # noqa: C901
     """Write fail-closed selected-runtime gate artifacts.
 
     Returns:
@@ -50,8 +52,16 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     """
     args = _parse_args(argv)
-    if args.verify_push_ready and args.verify_output:
-        message = "--verify-push-ready and --verify-output are mutually exclusive"
+    verify_modes = sum(
+        int(enabled)
+        for enabled in (
+            args.verify_push_ready,
+            args.verify_output,
+            args.verify_full_output,
+        )
+    )
+    if verify_modes > 1:
+        message = "verify modes are mutually exclusive"
         raise ValueError(message)
     if args.verify_push_ready:
         debug_config = _required_path_arg(args.debug_config, "--debug-config")
@@ -72,6 +82,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             message = "--output-dir is required when --verify-output is set"
             raise ValueError(message)
         blockers = verify_selected_runtime_debug_output(
+            output_dir=args.output_dir,
+            selected_runtime_path=args.runtime_config,
+        )
+        for blocker in blockers:
+            sys.stderr.write(f"error: {blocker}\n")
+        return 1 if blockers else 0
+    if args.verify_full_output:
+        if args.output_dir is None:
+            message = "--output-dir is required when --verify-full-output is set"
+            raise ValueError(message)
+        blockers = verify_selected_runtime_full_output(
             output_dir=args.output_dir,
             selected_runtime_path=args.runtime_config,
         )
@@ -120,6 +141,7 @@ def _parse_args(argv: Sequence[str] | None) -> SelectedRuntimeGateArgs:
     )
     parser.add_argument("--verify-push-ready", action="store_true")
     parser.add_argument("--verify-output", action="store_true")
+    parser.add_argument("--verify-full-output", action="store_true")
     namespace = parser.parse_args(argv)
     return SelectedRuntimeGateArgs(
         debug_config=_optional_path(namespace, "debug_config"),
@@ -135,6 +157,7 @@ def _parse_args(argv: Sequence[str] | None) -> SelectedRuntimeGateArgs:
         ),
         verify_push_ready=_required_bool(namespace, "verify_push_ready"),
         verify_output=_required_bool(namespace, "verify_output"),
+        verify_full_output=_required_bool(namespace, "verify_full_output"),
     )
 
 

@@ -1,98 +1,27 @@
 # Kaggle CLI Workflow
 
-Status: draft workflow scaffold; synthetic setup-smoke path ready after
-permission; synthetic binary timing pretest evidence complete for screening;
-capped real-data runtime pretest has a local non-promotable runner/kernel/guard,
-upload-simulation proof, and identity/hash/CRC/window plus clean-validation
-loader proof plumbing plus a candidate-linked evidence lane implementation;
-remote v5 produced two eligible eager bs4 rows and remote v6 completed with
-downloaded non-promotable phase-timing plus failed-candidate hash diagnostics
-but still only two eligible bs4 rows; remote v7 completed/downloaded and exposed
-the repeated failed-candidate exception as `quantile() input tensor is too
-large`; remote v8 completed/downloaded, fixed that quantile evidence-plumbing
-failure, and produced six capped-pretest-passing eager single-visible-T4
-bs4/bs8/bs12 FP32 rows while remaining non-promotable with no selected runtime;
-compiled rows remain diagnostic-only until full compile-settle coverage exists;
-selected-runtime proof plumbing and the Kaggle executor/kernel for
-`v8_shortlist_eager_amp_then_dual_gate` selected a runtime after real dual-T4
-timing plus linked evidence passed; the runtime-selection kernel guard is
-`runtime_selection_kernel_ready`; runtime-selection v3 was pushed to Kaggle on
-2026-06-20 and downloaded to `runs/kaggle/runtime_selection_v3`. Version 3
-proved real dual-T4 DDP timing, wrote `benchmark/selected_runtime.json`, and
-selected `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`.
-Runtime-selection v4 was pushed on 2026-06-21 for the
-`selected_runtime_v3_efficiency_followup`, downloaded to
-`runs/kaggle/runtime_selection_v4`, and failed closed with no selected runtime
-because of writer proof-policy false negatives. Local commit `fc5227d` repairs
-that policy and replayed v4 artifacts to proof `pass`. Runtime-selection v5 was
-pushed from the clean rebuilt kernel, completed, and downloaded to
-`runs/kaggle/runtime_selection_v5`. It wrote `benchmark/selected_runtime.json`
-for
-`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
-at `samples_sec = 27.381321`, with strict local replay pass. It is still not
-full-training-launch-ready because selected-runtime debug, checkpoint/resume,
-and tiny-overfit proofs are missing. The local successor runtime-selection
-config used v5 as fallback and added a compact
-`amp_fp16_scalar_gate_relaxed` policy row with real relaxed scalar-gate
-precision plumbing. Runtime-selection v6 completed, downloaded to
-`runs/kaggle/runtime_selection_v6`, replayed locally, and kept v5 because the
-relaxed row was slower.
-Local selected-runtime debug/checkpoint-resume/artifact/tiny-overfit proof
-plumbing now exists through `python -m eqvae.cli.train`, but it is currently a
-synthetic, fail-closed contract runner. It writes `full_run_eligible = false`
-and does not satisfy the real UBC/Kaggle selected-runtime gate. Spec 0007 now
-also provides the dedicated real-runner CLI
-`python -m eqvae.cli.selected_runtime_train` and local-only preflight
-`./scripts/kaggle_kernel.sh preflight-selected-runtime-runner`; this runner
-supports synthetic UBC-format dry-runs and `ubc-pre-shuffled` roots, applies
-the v5 selected runtime, writes checkpoint/resume and gate-health artifacts,
-and still keeps local dry-runs non-promotable. The dedicated
-selected-runtime debug/tiny gate kernel contract is now
-`selected_runtime_debug_gate_contract_ready`: `kaggle/kernels/selected_runtime_debug`
-embeds v5 selected-runtime JSON and writes exact fail-closed artifacts through
-`eqvae.cli.selected_runtime_gate`. Run
-`./scripts/kaggle_kernel.sh preflight-selected-runtime-runner` and
-`./scripts/kaggle_kernel.sh preflight-selected-runtime-debug` before any remote
-selected-runtime debug/tiny approval request. Its push guard must reject remote
-writes while the Spec 0008 local generator/readiness checks fail in
-`remote_generate` mode, exact real-dataset metadata is missing, or downloaded
-remote debug/tiny artifacts have not passed. Spec 0008 local readiness now
-includes `./scripts/kaggle_kernel.sh preflight-fixed32-selector-readiness`,
-strict remote-generate push readiness, generated-wrapper checks that require
-canonical selector generation plus real-runner/tiny wiring, and
-`eqvae.cli.selected_runtime_gate --verify-output` for downloaded artifacts.
-Downloaded Kaggle artifacts are still required before any pass or long-run
-approval. Selected-runtime debug/tiny v2 proved the canonical real fixed-32
-selector on Kaggle, then failed before training artifacts because the runner
-used the nominal batch cap for explicit VAE epsilon on an 8-sample partial
-fixed-32 batch. Local follow-up fixes epsilon sizing from the realized input
-batch, switches the wrapper to `python -m torch.distributed.run --standalone
---nproc_per_node=2 -m eqvae.cli.selected_runtime_train`, and hardens the
-downloaded-output verifier. The explicit-user-approved narrow
-selected-runtime debug/tiny v3 push completed with `KernelWorkerStatus.ERROR`
-and outputs are downloaded under `runs/kaggle/selected_runtime_debug_v3`. It is
-not a passing remote proof: selector/debug/resume/plan/gate/manifest evidence
-wrote successfully, but tiny-overfit failed on two AMP skipped rows plus 500
-aggregate nonfinite gradient entries from dual-rank fixed-32 tail microbatches
-(`batch_size = 4`). Local follow-up keeps the partial-batch eps fix and adds a
-tiny-only `fixed32_tiny_full_batch_repeated` sampler, aggregate nonfinite
-readiness blocking, and wrapper/verifier checks for tiny sampler policy,
-effective v5 DDP epoch samples `48/24`, observed bs12 tiny batches, zero tiny
-AMP skips, and zero tiny nonfinite rows. After explicit approval for the narrow
-rerun only, selected-runtime debug/tiny v4 was pushed from clean commit
-`ce72fa0`, reached `KernelWorkerStatus.ERROR`, and was downloaded to
-`runs/kaggle/selected_runtime_debug_v4`. v4 proves the sampler fix but is not a
-passing remote proof: the tiny phase still had one early full-batch AMP
-overflow per rank at optimizer step index 3 (`batch_size = 12`, `grad_norm =
-inf`, `nonfinite_count = 125`, `amp_step_skipped = 1`). Local follow-up now
-sets and records an explicit conservative GradScaler init scale of `16384.0`,
-requires that scaler proof in debug/tiny/plan-applied artifacts, and verifies
-the nested `tiny_overfit_phase/metrics/train_steps.csv` rows directly. The next
-work is local preflights/quality, commit, then explicit approval for a new
-narrow selected-runtime debug/tiny push, expected as v5. The first full long
-run remains outside Specs 0007/0008 and should be the immediate next candidate
-only after the Spec 0008 remote proof artifacts pass.
-Kaggle source attachments require a separate confirmation guard
+Status: draft workflow scaffold; runtime-selection v5 is the selected fallback
+runtime (`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,
+`27.381321` samples/sec, about 30.4 projected hours for 10 epochs);
+runtime-selection v6 tested relaxed scalar-gate AMP and kept v5 because it was
+slower. Spec 0008 selected-runtime debug/tiny v5 completed on Kaggle,
+downloaded to `runs/kaggle/selected_runtime_debug_v5`, and passed strict
+`eqvae.cli.selected_runtime_gate --verify-output` with canonical real fixed-32
+selector generation, selected-runtime plan application, checkpoint/resume, gate
+health, artifact manifest, zero tiny AMP skips, zero tiny nonfinite rows, and no
+launch blockers. The next work is not another debug/tiny push. Spec 0009 now
+has a local guarded first full selected-runtime training workflow, but the
+remote full run has not been approved, launched, downloaded, or verified.
+
+Current full-run surface: `scripts/kaggle_kernel.sh` has
+`preflight-selected-runtime-runner`, `preflight-selected-runtime-debug`,
+`preflight-selected-runtime-full`, `status-selected-runtime-full`, and
+`output-selected-runtime-full`. The full launcher is the dedicated
+`kaggle/kernels/selected_runtime_full` kernel. Do not reuse
+`kaggle/kernels/selected_runtime_debug`, which remains bounded to
+debug/resume/tiny proof steps and writes non-promotable artifacts. The first
+full run still needs an exact approval request before any remote action.
+Kaggle source attachments require a separate confirmation guard.
 Last updated: 2026-06-29
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
@@ -872,6 +801,13 @@ local semantic preflight:
 ./scripts/kaggle_kernel.sh preflight-selected-runtime-debug
 ```
 
+Before any first full selected-runtime remote push or approval request, run the
+local semantic preflight:
+
+```bash
+./scripts/kaggle_kernel.sh preflight-selected-runtime-full
+```
+
 After explicit user permission for remote reads, run the read-only API
 preflight before remote benchmark pushes:
 
@@ -896,12 +832,19 @@ KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.
 ```
 
 Future-only selected-runtime debug/tiny push command, not valid while the guard
-still sees false readiness flags, missing `remote_generate` selector readiness,
+sees false readiness flags, missing `remote_generate` selector readiness,
 missing exact real-dataset metadata, or missing downloaded remote debug/tiny
 proof artifacts:
 
 ```bash
 KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_debug
+```
+
+Future-only first full selected-runtime push command, not valid without fresh
+explicit user approval and passing `preflight-selected-runtime-full`:
+
+```bash
+KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_full
 ```
 
 Check remote status after explicit permission:
@@ -910,6 +853,7 @@ Check remote status after explicit permission:
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-debug
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-full
 ```
 
 Download outputs into ignored local run artifacts after explicit permission:
@@ -918,6 +862,7 @@ Download outputs into ignored local run artifacts after explicit permission:
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest runs/kaggle/<real_data_runtime_pretest_run>
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-selected-runtime-debug runs/kaggle/<selected_runtime_debug_run>
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-selected-runtime-full runs/kaggle/<selected_runtime_full_run>
 ```
 
 Pulling from Kaggle can overwrite local files and requires explicit permission:

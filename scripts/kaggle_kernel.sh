@@ -4,6 +4,12 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$script_dir/.."
 
+if [[ -z "${TMPDIR:-}" ]]; then
+  export TMPDIR="$PWD/runs/local_tmp/kaggle_kernel_$$"
+  trap 'rm -rf "$TMPDIR"' EXIT
+fi
+mkdir -p "$TMPDIR"
+
 default_kernel_dir="kaggle/kernels/non_eq_vae_debug"
 default_output_dir="runs/kaggle/non_eq_vae_debug"
 setup_kernel_dir="kaggle/kernels/setup_smoke"
@@ -15,6 +21,8 @@ runtime_selection_kernel_dir="kaggle/kernels/runtime_selection"
 runtime_selection_output_dir="runs/kaggle/runtime_selection"
 selected_runtime_debug_kernel_dir="kaggle/kernels/selected_runtime_debug"
 selected_runtime_debug_output_dir="runs/kaggle/selected_runtime_debug"
+selected_runtime_full_kernel_dir="kaggle/kernels/selected_runtime_full"
+selected_runtime_full_output_dir="runs/kaggle/selected_runtime_full"
 
 usage() {
   cat <<'EOF'
@@ -26,6 +34,7 @@ Usage:
   ./scripts/kaggle_kernel.sh preflight-fixed32-selector-readiness
   ./scripts/kaggle_kernel.sh preflight-selected-runtime-runner
   ./scripts/kaggle_kernel.sh preflight-selected-runtime-debug
+  ./scripts/kaggle_kernel.sh preflight-selected-runtime-full
   ./scripts/kaggle_kernel.sh api-check [kernel_dir]
   ./scripts/kaggle_kernel.sh push [kernel_dir] [extra kaggle args...]
   ./scripts/kaggle_kernel.sh status [kernel_id]
@@ -33,11 +42,13 @@ Usage:
   ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest
   ./scripts/kaggle_kernel.sh status-runtime-selection
   ./scripts/kaggle_kernel.sh status-selected-runtime-debug
+  ./scripts/kaggle_kernel.sh status-selected-runtime-full
   ./scripts/kaggle_kernel.sh output [kernel_id] [output_dir]
   ./scripts/kaggle_kernel.sh output-setup [output_dir]
   ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest [output_dir]
   ./scripts/kaggle_kernel.sh output-runtime-selection [output_dir]
   ./scripts/kaggle_kernel.sh output-selected-runtime-debug [output_dir]
+  ./scripts/kaggle_kernel.sh output-selected-runtime-full [output_dir]
   ./scripts/kaggle_kernel.sh pull [kernel_id] [kernel_dir]
 
 Remote writes require KAGGLE_PUSH_CONFIRMED=1.
@@ -267,6 +278,15 @@ validate_kernel_dir() {
       --allow-dirty
     echo "ok: selected-runtime debug embedded payload matches current worktree"
   fi
+
+  if [[ "$kernel_dir" == "$selected_runtime_full_kernel_dir" ]]; then
+    python3 scripts/build_kaggle_embedded_kernel.py \
+      --kernel-dir "$kernel_dir" \
+      --ready-marker "KAGGLE_SELECTED_RUNTIME_FULL_READY = True" \
+      --verify-only \
+      --allow-dirty
+    echo "ok: selected-runtime full embedded payload matches current worktree"
+  fi
 }
 
 build_kernel_payload() {
@@ -417,6 +437,9 @@ embedded_ready_marker() {
     maximusshtefan/eqvae-selected-runtime-debug)
       printf '%s\n' "KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True"
       ;;
+    maximusshtefan/eqvae-selected-runtime-full)
+      printf '%s\n' "KAGGLE_SELECTED_RUNTIME_FULL_READY = True"
+      ;;
     maximusshtefan/non-eq-vae-debug)
       printf '%s\n' "KAGGLE_SMOKE_READY = True"
       ;;
@@ -472,6 +495,11 @@ EOF
 
   if grep -q "KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True" "$kernel_dir/$code_file"; then
     guard_selected_runtime_debug_push_ready "$kernel_dir" "$metadata"
+    return
+  fi
+
+  if grep -q "KAGGLE_SELECTED_RUNTIME_FULL_READY = True" "$kernel_dir/$code_file"; then
+    guard_selected_runtime_full_push_ready "$kernel_dir" "$metadata" "push"
     return
   fi
 
@@ -1632,6 +1660,208 @@ PY
   done
 }
 
+guard_selected_runtime_full_push_ready() {
+  local kernel_dir="$1"
+  local metadata="$2"
+  local guard_mode="${3:-push}"
+
+  case "$guard_mode" in
+    push|local_preflight)
+      ;;
+    *)
+      echo "error: unknown selected-runtime full guard mode: $guard_mode" >&2
+      exit 1
+      ;;
+  esac
+
+  if [[ "$guard_mode" != "local_preflight" ]] && \
+    [[ "${EQVAE_SELECTED_RUNTIME_FULL_LOCAL_PREFLIGHT_ALLOW_DIRTY:-}" == "1" ]]; then
+    cat >&2 <<'EOFGUARD'
+error: EQVAE_SELECTED_RUNTIME_FULL_LOCAL_PREFLIGHT_ALLOW_DIRTY is only valid
+inside preflight-selected-runtime-full; unset it before a real push guard.
+EOFGUARD
+    exit 1
+  fi
+
+  if [[ -d "$kernel_dir/payload" ]]; then
+    echo "error: selected-runtime full run must be a single generated run.py, not a sibling payload" >&2
+    exit 1
+  fi
+
+  if [[ "${KAGGLE_FULL_DATASET_CONFIRMED:-}" != "1" ]]; then
+    cat >&2 <<'EOFGUARD'
+error: set KAGGLE_FULL_DATASET_CONFIRMED=1 only after accepting the real
+patch dataset attachment/setup cost for the selected-runtime full training run.
+EOFGUARD
+    exit 1
+  fi
+
+  if ! grep -q 'selected_runtime_full_run_contract_ready' \
+    "configs/spec0001/non_eq_vae_selected_runtime_full.json"; then
+    echo "error: full config does not carry the selected-runtime full contract token" >&2
+    exit 1
+  fi
+  if ! grep -q 'selected_runtime_full_run_contract_ready' \
+    "$kernel_dir/run_template.py"; then
+    echo "error: full kernel template does not carry the selected-runtime full contract token" >&2
+    exit 1
+  fi
+  if ! grep -q '0009-first-full-selected-runtime-training-run.md' \
+    "docs/specs/README.md"; then
+    echo "error: specs index does not list spec 0009" >&2
+    exit 1
+  fi
+
+  local python_bin="${PYTHON:-.venv/bin/python}"
+  if [[ ! -x "$python_bin" ]]; then
+    python_bin="python3"
+  fi
+  PYTHONPATH=src "$python_bin" -m eqvae.cli.selected_runtime_gate \
+    --verify-output \
+    --output-dir runs/kaggle/selected_runtime_debug_v5 \
+    --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json
+
+  python3 - "$metadata" <<'PYFULLMETA'
+import json
+import sys
+from pathlib import Path
+metadata = Path(sys.argv[1])
+data = json.loads(metadata.read_text(encoding="utf-8"))
+errors: list[str] = []
+required = {
+    "id": "maximusshtefan/eqvae-selected-runtime-full",
+    "title": "eqvae selected runtime full",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "false",
+    "machine_shape": "NvidiaTeslaT4",
+}
+for key, expected in required.items():
+    actual = str(data.get(key, ""))
+    comparable = actual.lower() if expected in {"true", "false"} else actual
+    if comparable != expected:
+        errors.append(f"{key} must be {expected!r}")
+if data.get("dataset_sources") != ["maximusshtefan/patches-pre-shuffled-ubc-ocean"]:
+    errors.append("dataset_sources must attach only the UBC patch dataset")
+for source_field in ("competition_sources", "kernel_sources", "model_sources"):
+    if data.get(source_field) != []:
+        errors.append(f"{source_field} must be empty")
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PYFULLMETA
+
+  local verify_args=(
+    --kernel-dir "$kernel_dir"
+    --ready-marker "KAGGLE_SELECTED_RUNTIME_FULL_READY = True"
+    --verify-only
+  )
+  if [[ "$guard_mode" == "local_preflight" ]]; then
+    verify_args+=(--allow-dirty)
+  fi
+  python3 scripts/build_kaggle_embedded_kernel.py "${verify_args[@]}"
+
+  local run_file="$kernel_dir/run.py"
+  python3 - "$run_file" <<'PYFULLPAYLOAD'
+import base64
+import io
+import json
+import re
+import sys
+import zipfile
+from pathlib import Path
+run_text = Path(sys.argv[1]).read_text(encoding="utf-8")
+match = re.search(r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""', run_text, flags=re.DOTALL)
+if match is None:
+    print("error: selected-runtime full run.py has no embedded payload", file=sys.stderr)
+    raise SystemExit(1)
+payload = base64.b64decode(match.group("payload").encode("ascii"))
+with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+    names = set(archive.namelist())
+    errors: list[str] = []
+    required_files = {
+        "src/eqvae/benchmarking/selected_runtime_gate.py",
+        "src/eqvae/cli/selected_runtime_gate.py",
+        "src/eqvae/cli/selected_runtime_train.py",
+        "src/eqvae/training/selected_runtime.py",
+        "src/eqvae/training/selected_runtime_runner.py",
+        "configs/spec0001/non_eq_vae_selected_runtime_full.json",
+        "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
+        "runs/kaggle/runtime_selection_v5/benchmark/runtime_proof.json",
+    }
+    missing = sorted(required_files - names)
+    if missing:
+        errors.append(f"embedded payload missing required files: {missing!r}")
+    full_config = json.loads(archive.read("configs/spec0001/non_eq_vae_selected_runtime_full.json"))
+    selected_runtime = json.loads(archive.read("runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json"))
+    training = full_config.get("training") if isinstance(full_config, dict) else None
+    if not isinstance(training, dict):
+        errors.append("full config training must be an object")
+    else:
+        expected_training = {
+            "epochs": 10,
+            "optimizer_updates_per_epoch": 12500,
+            "max_train_steps": 125000,
+            "half_epoch_interval_steps": 6250,
+            "save_every_steps": 6250,
+            "train_reparameterization": "stochastic_seeded",
+            "checkpoint_retention": "best_final_latest_four_interval",
+            "resume_supported": True,
+        }
+        for key, expected in expected_training.items():
+            if training.get(key) != expected:
+                errors.append(f"full config training.{key} must be {expected!r}")
+    if selected_runtime.get("optimizer_updates_per_epoch") != 12500:
+        errors.append("selected runtime optimizer_updates_per_epoch must be 12500")
+    forbidden = (
+        "selected_runtime_debug",
+        "DEBUG_FINAL_STEP",
+        "TINY_MAX_STEP",
+        "non_eq_vae_selected_runtime_debug.json",
+    )
+    required_text = (
+        "KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
+        "selected_runtime_full_run_contract_ready",
+        "non_eq_vae_selected_runtime_full.json",
+        "FULL_TARGET_UPDATES = 125000",
+        "FULL_HALF_EPOCH_INTERVAL = 6250",
+        "torch.distributed.run",
+        "--nproc_per_node=2",
+        "eqvae.cli.selected_runtime_train",
+        "--verify-full-output",
+        "dual_t4_ddp",
+    )
+    for token in required_text:
+        if token not in run_text:
+            errors.append(f"full run.py missing required text: {token}")
+    forbidden_command_token = '"--max-train-steps"'
+    command_builder = "_selected_runtime_full_torchrun_command"
+    command_block_match = re.search(
+        rf"def {command_builder}\(.*?(?=\ndef _)",
+        run_text,
+        flags=re.DOTALL,
+    )
+    if command_block_match is None:
+        errors.append("full run.py missing selected-runtime full torchrun builder")
+    else:
+        command_block = command_block_match.group(0)
+        for token in forbidden:
+            if token in command_block:
+                errors.append(f"full torchrun command contains debug/tiny token: {token}")
+        if forbidden_command_token in command_block:
+            errors.append("full torchrun command must not contain --max-train-steps")
+    if errors:
+        for error in errors:
+            print(f"error: {error}", file=sys.stderr)
+        raise SystemExit(1)
+PYFULLPAYLOAD
+}
+
+
 validate_payload_freshness() {
   local payload_dir="$1"
   python3 - "$payload_dir" <<'PY'
@@ -1864,14 +2094,42 @@ preflight_selected_runtime_debug() {
     -q
 }
 
-preflight_selected_runtime_runner() {
+preflight_selected_runtime_full() {
   local python_bin="${PYTHON:-.venv/bin/python}"
-  local output_dir="/tmp/eqvae-selected-runtime-runner-preflight-$$"
 
   if [[ ! -x "$python_bin" ]]; then
     echo "error: missing executable $python_bin; run repo setup before preflight" >&2
     exit 1
   fi
+
+  PYTHONPATH=src "$python_bin" -m eqvae.cli.selected_runtime_gate \
+    --verify-output \
+    --output-dir runs/kaggle/selected_runtime_debug_v5 \
+    --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json
+
+  build_embedded_kernel "$selected_runtime_full_kernel_dir"
+  validate_kernel_dir "$selected_runtime_full_kernel_dir"
+  EQVAE_SELECTED_RUNTIME_FULL_LOCAL_PREFLIGHT_ALLOW_DIRTY=1 \
+    KAGGLE_FULL_DATASET_CONFIRMED=1 guard_selected_runtime_full_push_ready \
+    "$selected_runtime_full_kernel_dir" \
+    "$selected_runtime_full_kernel_dir/kernel-metadata.json" \
+    "local_preflight"
+  PYTHONPATH=src CUDA_VISIBLE_DEVICES="" "$python_bin" -m pytest \
+    tests/test_selected_runtime_full_run.py \
+    tests/test_kaggle_embedded_kernel.py::test_embedded_selected_runtime_full_kernel_import_simulation \
+    -q
+}
+
+
+preflight_selected_runtime_runner() {
+  local python_bin="${PYTHON:-.venv/bin/python}"
+  local output_dir="$TMPDIR/selected_runtime_runner_preflight_$$"
+
+  if [[ ! -x "$python_bin" ]]; then
+    echo "error: missing executable $python_bin; run repo setup before preflight" >&2
+    exit 1
+  fi
+  rm -rf "$output_dir"
 
   PYTHONPATH=src CUDA_VISIBLE_DEVICES="" "$python_bin" -m pytest \
     tests/test_selected_runtime_gate.py \
@@ -1939,6 +2197,7 @@ if errors:
         print(f"error: {error}", file=sys.stderr)
     raise SystemExit(1)
 PY
+  rm -rf "$output_dir"
 }
 
 action="${1:-}"
@@ -1975,6 +2234,9 @@ case "$action" in
     ;;
   preflight-selected-runtime-debug)
     preflight_selected_runtime_debug
+    ;;
+  preflight-selected-runtime-full)
+    preflight_selected_runtime_full
     ;;
   push)
     kernel_dir="${2:-$default_kernel_dir}"
@@ -2023,6 +2285,12 @@ case "$action" in
     require_kaggle_cli
     kaggle_api kernels status "$kernel_id"
     ;;
+  status-selected-runtime-full)
+    kernel_id="$(kernel_id_from_metadata "$selected_runtime_full_kernel_dir")"
+    require_remote_confirmed
+    require_kaggle_cli
+    kaggle_api kernels status "$kernel_id"
+    ;;
   output)
     kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"
     output_dir="${3:-$default_output_dir}"
@@ -2050,6 +2318,14 @@ case "$action" in
   output-selected-runtime-debug)
     kernel_id="$(kernel_id_from_metadata "$selected_runtime_debug_kernel_dir")"
     output_dir="${2:-$selected_runtime_debug_output_dir}"
+    require_remote_confirmed
+    require_kaggle_cli
+    mkdir -p "$output_dir"
+    kaggle_api kernels output "$kernel_id" -p "$output_dir"
+    ;;
+  output-selected-runtime-full)
+    kernel_id="$(kernel_id_from_metadata "$selected_runtime_full_kernel_dir")"
+    output_dir="${2:-$selected_runtime_full_output_dir}"
     require_remote_confirmed
     require_kaggle_cli
     mkdir -p "$output_dir"
