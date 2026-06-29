@@ -68,8 +68,9 @@ it to the child CLI via a temporary 0600 token file; selected-runtime
 `api-check` no longer uses the raw `kaggle auth print-access-token` probe and
 now proves auth through wrapped endpoint calls. A fresh live selected-runtime
 read-only preflight passes except for the already-known quota endpoint warning.
-This is workflow plumbing only; selected-runtime debug/tiny v5 still needs a
-successful push, run, download, and strict `--verify-output` pass.
+This is workflow plumbing only; selected-runtime debug/tiny v5 is now pushed
+and running, and still needs terminal status, download, and strict
+`--verify-output` pass before any remote-proof claim.
 No long real training run should be requested until the real UBC/DDP/AMP debug,
 resume, artifact, gate-health, canonical selector, and tiny-overfit proofs
 pass.
@@ -81,7 +82,7 @@ full long run. If Spec 0008 remote artifacts pass, the first full real
 selected-runtime run becomes the immediate next candidate action. Historical
 provenance follows.
 
-Selected-runtime debug/tiny v5 pre-push auth status, 2026-06-29: after explicit
+Selected-runtime debug/tiny v5 auth/push status, 2026-06-29: after explicit
 approval for the narrow selected-runtime debug/tiny v5 push, the local push
 guard and embedded-kernel checks passed, but the actual Kaggle upload failed
 before remote execution with Kaggle's authentication-required message. A direct
@@ -103,10 +104,19 @@ probe has been removed and covered by `tests/test_kaggle_oauth_exec.py`.
 Fresh live read-only verification of `api-check
 kaggle/kernels/selected_runtime_debug` passed with the known quota warning, and
 `status-selected-runtime-debug` now succeeds through the wrapper and reports
-the old v4 `KernelWorkerStatus.ERROR`. Next action after local
-verification/commit is to request fresh explicit approval for the narrow
-selected-runtime debug/tiny v5 push retry. This remains not approval for the
-long full run.
+the old v4 `KernelWorkerStatus.ERROR`. After fresh explicit approval for the
+narrow retry, the guarded selected-runtime API preflight passed through the
+fresh OAuth wrapper, Kaggle accepted
+`maximusshtefan/eqvae-selected-runtime-debug` version 5 at
+https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-debug, and
+the immediate guarded status read at `2026-06-29 03:27 -0500` returned
+`KernelWorkerStatus.RUNNING`. Do not actively poll in-turn; the next concrete
+action is, after about `2026-06-29 04:00 -0500` or later, run
+`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh
+status-selected-runtime-debug`. If terminal, download to
+`runs/kaggle/selected_runtime_debug_v5` and run the strict
+`eqvae.cli.selected_runtime_gate --verify-output` command. This remains not
+approval for the long full run.
 
 Selected-runtime debug/tiny v1 push status, 2026-06-28: local source commit
 `5591737` (`Remove stale selected runtime blocker`) was clean, the selected

@@ -325,10 +325,12 @@ file. The selected-runtime-specific read-only preflight
 kaggle/kernels/selected_runtime_debug` passes through that path with only the
 known quota warning. Follow-up adversarial review removed the remaining raw
 `kaggle auth print-access-token` probe from `api-check`; auth is now proven by
-wrapped endpoint calls. The next action is local verification/commit of that
-workflow fix, then fresh explicit approval for the narrow selected-runtime
-debug/tiny push retry, expected as v5. This is not approval for the first full
-long run.
+wrapped endpoint calls. After fresh explicit approval for the narrow retry,
+Kaggle accepted selected-runtime debug/tiny version 5 and the immediate guarded
+status read at `2026-06-29 03:27 -0500` returned
+`KernelWorkerStatus.RUNNING`. The next action is a later guarded status read,
+then download and strict `--verify-output` if the run is terminal. This is not
+approval for the first full long run.
 
 ## Acceptance Criteria
 

@@ -435,6 +435,14 @@ from `api-check`; the command now reports
 `ok: fresh OAuth wrapper selected for authenticated Kaggle calls` and proves
 auth through wrapped `kernels`/`datasets` endpoint calls.
 
+After fresh explicit approval for the narrow retry, the selected-runtime
+debug/tiny v5 push passed the guarded preflight and Kaggle accepted version 5 on
+2026-06-29. The immediate guarded status read at `2026-06-29 03:27 -0500`
+returned `KernelWorkerStatus.RUNNING`. Do not poll continuously; after about
+`2026-06-29 04:00 -0500` or later, run the guarded status command, and if the
+run is terminal download to `runs/kaggle/selected_runtime_debug_v5` before
+running strict `--verify-output`.
+
 The user visually confirmed the Kaggle web UI quota on 2026-06-11: phone
 verification is complete, identity verification is not complete, and Kaggle GPU
 quota shows `00:07 / 30 hrs` used. Identity verification is not currently a
