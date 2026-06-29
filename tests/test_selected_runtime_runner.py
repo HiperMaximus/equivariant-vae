@@ -27,6 +27,7 @@ from eqvae.data.roots import (
 from eqvae.data.synthetic import SyntheticPatchSpec, write_synthetic_patch_shard
 from eqvae.training.selected_runtime import parse_selected_runtime_plan
 from eqvae.training.selected_runtime_runner import (
+    SELECTED_RUNTIME_AMP_GRAD_SCALER_INIT_SCALE,
     RankDeviceAssignment,
     SelectedRuntimeEnvironmentProbe,
     build_selected_runtime_torchrun_command,
@@ -114,6 +115,11 @@ def test_selected_runtime_runner_dry_run_writes_required_artifacts(  # noqa: PLR
     assert runtime["per_device_batch_size"] == SELECTED_RUNTIME_BATCH_SIZE
     assert runtime["precision_policy"] == "amp_conservative"
     assert runtime["corruption_strategy"] == "indexed_masked"
+    amp_execution = _object(summary, "amp_execution")
+    assert (
+        amp_execution["grad_scaler_init_scale"]
+        == SELECTED_RUNTIME_AMP_GRAD_SCALER_INIT_SCALE
+    )
 
     assert debug_summary["real_train_runner_implemented"] is True
     assert debug_summary["remote_pass_ready"] is False
@@ -395,6 +401,7 @@ def test_selected_runtime_tiny_fixed_selector_uses_full_batches(
     )
     assert tiny["patch_count"] == FIXED_32_TRAIN_OVERFIT_COUNT
     assert tiny["fixed_train_repeated_to_full_batch"] is True
+    assert tiny["grad_scaler_init_scale"] == SELECTED_RUNTIME_AMP_GRAD_SCALER_INIT_SCALE
     assert tiny["amp_step_skipped_count"] == 0
     assert tiny["nonfinite_count"] == 0
     assert tiny["observed_batch_sizes"] == [SELECTED_RUNTIME_BATCH_SIZE]

@@ -80,13 +80,18 @@ readiness blocking, and wrapper/verifier checks for tiny sampler policy,
 effective v5 DDP epoch samples `48/24`, observed bs12 tiny batches, zero tiny
 AMP skips, and zero tiny nonfinite rows. After explicit approval for the narrow
 rerun only, selected-runtime debug/tiny v4 was pushed from clean commit
-`ce72fa0`; the immediate guarded status read at `2026-06-29 01:11:09 -0500`
-returned `KernelWorkerStatus.RUNNING`. The next work is a guarded v4 status
-poll after about `2026-06-29 01:45 -0500`; if terminal, download to
-`runs/kaggle/selected_runtime_debug_v4` and run
-`eqvae.cli.selected_runtime_gate --verify-output`. The first full long run
-remains outside Specs 0007/0008 and should be the immediate next candidate only
-after the Spec 0008 remote proof artifacts pass.
+`ce72fa0`, reached `KernelWorkerStatus.ERROR`, and was downloaded to
+`runs/kaggle/selected_runtime_debug_v4`. v4 proves the sampler fix but is not a
+passing remote proof: the tiny phase still had one early full-batch AMP
+overflow per rank at optimizer step index 3 (`batch_size = 12`, `grad_norm =
+inf`, `nonfinite_count = 125`, `amp_step_skipped = 1`). Local follow-up now
+sets and records an explicit conservative GradScaler init scale of `16384.0`,
+requires that scaler proof in debug/tiny/plan-applied artifacts, and verifies
+the nested `tiny_overfit_phase/metrics/train_steps.csv` rows directly. The next
+work is local preflights/quality, commit, then explicit approval for a new
+narrow selected-runtime debug/tiny push, expected as v5. The first full long
+run remains outside Specs 0007/0008 and should be the immediate next candidate
+only after the Spec 0008 remote proof artifacts pass.
 Kaggle source attachments require a separate confirmation guard
 Last updated: 2026-06-29
 

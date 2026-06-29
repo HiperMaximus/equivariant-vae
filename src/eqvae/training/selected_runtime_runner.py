@@ -77,6 +77,7 @@ from eqvae.training.selected_runtime import (
     EXPECTED_AMP_APPLICATION_STATUS,
     EXPECTED_DDP_APPLICATION_STATUS,
     EXPECTED_MACHINE_SHAPE,
+    EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE,
     SelectedRuntimeApplicationObservation,
     SelectedRuntimePlan,
     build_plan_applied_proof,
@@ -101,6 +102,7 @@ _TINY_MAX_OPTIMIZER_STEPS = 128
 _TINY_SMOOTHING_WINDOW = 25
 _TINY_MIN_IMPROVEMENT_FRACTION = 0.01
 _TINY_RUN_MODE = "kaggle_tiny_overfit"
+SELECTED_RUNTIME_AMP_GRAD_SCALER_INIT_SCALE = EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE
 _DEFAULT_SEQUENTIAL_SAMPLER_POLICY = "sequential_sampler"
 _DEFAULT_DDP_SAMPLER_POLICY = "distributed_sampler_shuffle_false_drop_last_false"
 _FIXED32_TINY_FULL_BATCH_SAMPLER_POLICY = "fixed32_tiny_full_batch_repeated"
@@ -470,6 +472,7 @@ class _DistributedContext:
 class _AmpExecution:
     enabled: bool
     grad_scaler_enabled: bool
+    grad_scaler_init_scale: float
     autocast_dtype: str
     requested_autocast_dtype: str
     local_amp_status: str
@@ -761,7 +764,11 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
         plan=plan,
     )
     amp = _amp_execution(plan=plan, distributed=distributed, dry_run=request.dry_run)
-    scaler = GradScaler("cuda", enabled=amp.grad_scaler_enabled)
+    scaler = GradScaler(
+        "cuda",
+        init_scale=amp.grad_scaler_init_scale,
+        enabled=amp.grad_scaler_enabled,
+    )
     write_artifacts = _is_primary_rank(distributed)
     metric_rows, checkpoints, last_result = _run_train_steps(
         request=request,
@@ -941,7 +948,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
             artifacts.tiny_overfit_summary,
             _tiny_overfit_summary(
                 runtime_identity=runtime_identity,
-                plan=plan,
+                corruption_strategy=plan.corruption_strategy,
                 data_surface=data_surface,
                 metric_rows=metric_rows,
                 gate_health_summary=gate_health_summary,
@@ -1616,6 +1623,7 @@ def _amp_execution(
     return _AmpExecution(
         enabled=enabled,
         grad_scaler_enabled=scaler_enabled,
+        grad_scaler_init_scale=SELECTED_RUNTIME_AMP_GRAD_SCALER_INIT_SCALE,
         autocast_dtype=plan.autocast_dtype if enabled else "not_executed_local_cpu",
         requested_autocast_dtype=plan.autocast_dtype,
         local_amp_status=(
@@ -2388,6 +2396,7 @@ def _plan_applied_proof(  # noqa: PLR0913
             else "not_executed_local_cpu_mechanics_only"
         ),
         local_amp_status=amp.local_amp_status,
+        runner_amp_grad_scaler_init_scale=amp.grad_scaler_init_scale,
     )
     return build_plan_applied_proof(
         plan=plan,
@@ -2503,6 +2512,7 @@ def _training_summary(  # noqa: PLR0913
             "amp_execution": {
                 "enabled": amp.enabled,
                 "grad_scaler_enabled": amp.grad_scaler_enabled,
+                "grad_scaler_init_scale": amp.grad_scaler_init_scale,
                 "autocast_dtype": amp.autocast_dtype,
                 "requested_autocast_dtype": amp.requested_autocast_dtype,
                 "local_amp_status": amp.local_amp_status,
@@ -2630,7 +2640,7 @@ def _selected_runtime_debug_summary(  # noqa: PLR0913
 def _tiny_overfit_summary(
     *,
     runtime_identity: _RuntimeIdentity,
-    plan: SelectedRuntimePlan,
+    corruption_strategy: str,
     data_surface: _DataSurface,
     metric_rows: Sequence[CsvRow],
     gate_health_summary: JsonObject,
@@ -2693,11 +2703,12 @@ def _tiny_overfit_summary(
             "successful_metric_row_count": len(successful_rows),
             "amp_step_skipped_count": amp_skip_count,
             "nonfinite_count": nonfinite_count,
+            "grad_scaler_init_scale": SELECTED_RUNTIME_AMP_GRAD_SCALER_INIT_SCALE,
             "observed_batch_sizes": batch_size_values,
             "smoothing_window_steps": smoothing_window,
             "corruption_strategy": _observed_corruption_strategy(
                 metric_rows,
-                fallback=plan.corruption_strategy,
+                fallback=corruption_strategy,
             ),
             "eval_views": ["train_clean", "train_corrupted_fixed_seed"],
             "initial_smoothed_l1": initial_l1,
@@ -3130,6 +3141,7 @@ def _sha256_file(path: Path) -> str:
 
 
 __all__ = [
+    "SELECTED_RUNTIME_AMP_GRAD_SCALER_INIT_SCALE",
     "RankDeviceAssignment",
     "SelectedRuntimeEnvironmentProbe",
     "SelectedRuntimeLaunchCommand",

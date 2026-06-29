@@ -726,6 +726,7 @@ def test_selected_runtime_debug_tiny_runner_uses_generated_selector(
                     "successful_metric_row_count": 256,
                     "amp_step_skipped_count": 0,
                     "nonfinite_count": 0,
+                    "grad_scaler_init_scale": run_template.AMP_GRAD_SCALER_INIT_SCALE,
                     "train_sampler_policy": "fixed32_tiny_full_batch_repeated",
                     "train_effective_global_epoch_samples": 48,
                     "train_effective_per_rank_epoch_samples": 24,
@@ -768,6 +769,7 @@ def test_selected_runtime_debug_tiny_runner_uses_generated_selector(
     assert _option_value(call, "--save-every-steps") == "64"
     copied = _load_json(output_dir / "benchmark" / "tiny_overfit_summary.json")
     assert copied["status"] == "local_pass"
+    assert copied["grad_scaler_init_scale"] == run_template.AMP_GRAD_SCALER_INIT_SCALE
     assert "source_summary_sha256" in copied
 
 

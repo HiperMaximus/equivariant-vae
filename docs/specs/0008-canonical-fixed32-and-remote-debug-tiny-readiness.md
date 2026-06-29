@@ -215,6 +215,15 @@ detour unless the proof artifacts expose a blocker.
     true`, `train_effective_global_epoch_samples = 48`,
     `train_effective_per_rank_epoch_samples = 24`, and
     `observed_batch_sizes = [12]`;
+  - selected AMP conservative GradScaler startup scale:
+    `grad_scaler_init_scale = 16384.0`, recorded in debug training summary,
+    tiny-overfit summary, and selected-runtime plan-applied proof as a runner
+    AMP extension;
+  - tiny metric-row proof: the downloaded
+    `tiny_overfit_phase/metrics/train_steps.csv` must be hash-linked from the
+    artifact manifest and must prove both ranks, successful updates `1..128`,
+    full per-rank `batch_size = 12`, finite `grad_norm`, zero AMP skips, and
+    zero nonfinite rows;
   - tiny smoothing window: 25 successful updates;
   - tiny pass threshold: final smoothed L1 and final smoothed reconstruction
     loss must each improve by at least 1 percent relative to their initial
@@ -279,18 +288,33 @@ wrapper and post-download verifier require the tiny sampler evidence. The
 downloaded v3 artifacts predate those fields, so the hardened verifier correctly
 reports the historical tiny failure plus missing-sampler-evidence blockers.
 
-Selected-runtime debug/tiny v4 is running. After explicit user approval for the
-narrow rerun only, v4 was pushed from clean commit `ce72fa0`. A first push
-attempt stopped locally before remote upload because the ignored generated
-`run.py` still embedded the pre-commit payload identity; the selected-runtime
-debug preflight regenerated and verified the embedded payload from `ce72fa0`,
-then the guarded push succeeded with
-`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`. Kaggle accepted
-`maximusshtefan/eqvae-selected-runtime-debug` version 4, and the immediate
-guarded status read at `2026-06-29 01:11:09 -0500` returned
-`KernelWorkerStatus.RUNNING`. This is not a remote proof until the terminal
-outputs are downloaded to `runs/kaggle/selected_runtime_debug_v4` and strict
-`eqvae.cli.selected_runtime_gate --verify-output` returns zero blockers.
+Selected-runtime debug/tiny v4 is not a passing remote proof. After explicit
+user approval for the narrow rerun only, v4 was pushed from clean commit
+`ce72fa0`, the immediate guarded status read returned
+`KernelWorkerStatus.RUNNING`, and the guarded follow-up status read at
+`2026-06-29 01:51:13 -0500` returned `KernelWorkerStatus.ERROR`. Outputs were
+downloaded to `runs/kaggle/selected_runtime_debug_v4`. The run proved the v3
+sampler fix: tiny uses `fixed32_tiny_full_batch_repeated`, effective epoch
+samples are `48` global / `24` per rank, and observed tiny batch sizes are
+`[12]`. The remaining failure is one early full-batch AMP loss-scale overflow
+per rank at tiny `optimizer_step_index = 3`: `batch_size = 12`, `grad_norm =
+inf`, `nonfinite_count = 125` per rank, and `amp_step_skipped = 1`. The retry
+after scale reduction succeeded, and the tiny phase still reached 128
+successful updates with strong improvement (`l1_improvement_fraction =
+0.339919261689692`, `recon_loss_improvement_fraction =
+0.29479275826312307`).
+
+The local v4 follow-up is a source fix, not a verifier workaround: the runner
+now sets an explicit conservative GradScaler init scale of `16384.0`, records
+that value in training/tiny summaries and in the plan-applied runner AMP
+extension, and keeps zero-tolerance AMP-skip/nonfinite checks. The embedded
+wrapper and post-download verifier now require the scaler evidence and direct
+row-level nested tiny metric proof. Downloaded v4 predates that evidence and
+correctly fails the hardened verifier with the original tiny overflow blockers
+plus scaler-proof and nested tiny-row blockers. The next action is local
+preflight/quality, commit, and explicit user approval for a new narrow
+selected-runtime debug/tiny push, expected as v5. This is not approval for the
+first full long run.
 
 ## Acceptance Criteria
 

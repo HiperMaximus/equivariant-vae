@@ -26,6 +26,7 @@ EXPECTED_RUNTIME_PROOF_WRITE_POLICY = (
 )
 EXPECTED_DDP_APPLICATION_STATUS = "executed_dual_t4_ddp"
 EXPECTED_AMP_APPLICATION_STATUS = "executed_amp_fp16_conservative"
+EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE = 16384.0
 
 
 @dataclass(frozen=True)
@@ -136,6 +137,7 @@ class SelectedRuntimeApplicationObservation:
     zero_grad_set_to_none: bool
     local_ddp_status: str
     local_amp_status: str
+    runner_amp_grad_scaler_init_scale: float | None = None
 
     def as_json(self) -> JsonObject:
         """Return JSON-safe observed values.
@@ -144,7 +146,7 @@ class SelectedRuntimeApplicationObservation:
             JSON-safe observed application values.
 
         """
-        return {
+        payload: JsonObject = {
             "selected_row_id": self.selected_row_id,
             "runtime_policy_id": self.runtime_policy_id,
             "accelerator_mode": self.accelerator_mode,
@@ -175,6 +177,11 @@ class SelectedRuntimeApplicationObservation:
             "local_ddp_status": self.local_ddp_status,
             "local_amp_status": self.local_amp_status,
         }
+        if self.runner_amp_grad_scaler_init_scale is not None:
+            payload["runner_amp_extension"] = {
+                "grad_scaler_init_scale": self.runner_amp_grad_scaler_init_scale,
+            }
+        return payload
 
 
 def parse_selected_runtime_plan(path: Path) -> SelectedRuntimePlan:
@@ -266,6 +273,10 @@ def build_plan_applied_proof(
     """
     expected = plan.expected_application()
     observed_payload = observed.as_json()
+    if observed.runner_amp_grad_scaler_init_scale is not None:
+        expected["runner_amp_extension"] = {
+            "grad_scaler_init_scale": EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE,
+        }
     mismatches = _application_mismatches(
         plan=plan,
         observed=observed,
@@ -940,6 +951,17 @@ def _application_mismatches(
             "local_amp_status",
             observed.local_amp_status,
             EXPECTED_AMP_APPLICATION_STATUS,
+        ),
+        *(
+            (
+                (
+                    "runner_amp_grad_scaler_init_scale",
+                    observed.runner_amp_grad_scaler_init_scale,
+                    EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE,
+                ),
+            )
+            if observed.runner_amp_grad_scaler_init_scale is not None
+            else ()
         ),
     )
     return tuple(

@@ -10,7 +10,12 @@ import math
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from eqvae.benchmarking.io import CsvRow
 
 from eqvae.benchmarking.fixed32_selector_readiness import (
     EXPECTED_TINY_SELECTOR_COUNT,
@@ -35,6 +40,7 @@ from eqvae.data.fixed_selectors import (
 )
 from eqvae.training.selected_runtime import (
     EXPECTED_DATASET_SLUG,
+    EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE,
     EXPECTED_RUNTIME_POLICY_ID,
     EXPECTED_SELECTED_ROW_ID,
     fail_closed_plan_applied_proof,
@@ -95,6 +101,7 @@ REMOTE_DEBUG_REQUIRED_SUCCESSFUL_STEPS = tuple(
 REMOTE_TINY_MAX_STEP = 128
 REMOTE_TINY_MIN_IMPROVEMENT_FRACTION = 0.01
 REMOTE_TINY_FULL_BATCH_SAMPLER_POLICY = "fixed32_tiny_full_batch_repeated"
+REMOTE_AMP_GRAD_SCALER_INIT_SCALE = EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE
 RUNNER_OK_STATUS = "local_pass"
 REMOTE_DEBUG_REQUIRED_TRAIN_STEP_COLUMNS = (
     "event_id",
@@ -480,7 +487,41 @@ def verify_selected_runtime_debug_output(  # noqa: PLR0914
             max_batch_size=max_batch_size,
         ),
     )
+    blockers.extend(
+        _remote_output_tiny_train_step_blockers(
+            output_dir / "tiny_overfit_phase" / "metrics" / "train_steps.csv",
+            max_batch_size=max_batch_size,
+            global_batch_size=global_batch_size,
+        ),
+    )
     return _dedupe_strings(tuple(blockers))
+
+
+def _remote_output_plan_scaler_blockers(plan_applied: JsonObject) -> tuple[str, ...]:
+    expected = plan_applied.get("expected")
+    observed = plan_applied.get("observed")
+    expected_payload = expected if isinstance(expected, dict) else {}
+    observed_payload = observed if isinstance(observed, dict) else {}
+    expected_extension = expected_payload.get("runner_amp_extension")
+    observed_extension = observed_payload.get("runner_amp_extension")
+    expected_runner_amp = (
+        expected_extension if isinstance(expected_extension, dict) else {}
+    )
+    observed_runner_amp = (
+        observed_extension if isinstance(observed_extension, dict) else {}
+    )
+    blockers: list[str] = []
+    if (
+        _float_value(expected_runner_amp.get("grad_scaler_init_scale"))
+        != REMOTE_AMP_GRAD_SCALER_INIT_SCALE
+    ):
+        blockers.append("selected_runtime_output_plan_expected_scaler_mismatch")
+    if (
+        _float_value(observed_runner_amp.get("grad_scaler_init_scale"))
+        != REMOTE_AMP_GRAD_SCALER_INIT_SCALE
+    ):
+        blockers.append("selected_runtime_output_plan_observed_scaler_mismatch")
+    return tuple(blockers)
 
 
 def _remote_output_json_blockers(  # noqa: C901, PLR0912, PLR0913
@@ -511,12 +552,20 @@ def _remote_output_json_blockers(  # noqa: C901, PLR0912, PLR0913
         blockers.append("selected_runtime_output_amp_skips_nonzero")
     if training_summary.get("nonfinite_count") != 0:
         blockers.append("selected_runtime_output_nonfinite_nonzero")
+    amp_execution = training_summary.get("amp_execution")
+    amp_execution_payload = amp_execution if isinstance(amp_execution, dict) else {}
+    if (
+        _float_value(amp_execution_payload.get("grad_scaler_init_scale"))
+        != REMOTE_AMP_GRAD_SCALER_INIT_SCALE
+    ):
+        blockers.append("selected_runtime_output_grad_scaler_init_scale_mismatch")
     if debug_summary.get("remote_pass_ready") is not False:
         blockers.append("selected_runtime_output_debug_claims_remote_pass_ready")
     if plan_applied.get("status") != RUNNER_OK_STATUS:
         blockers.append("selected_runtime_output_plan_applied_not_pass")
     if plan_applied.get("plan_applied") is not True:
         blockers.append("selected_runtime_output_plan_applied_false")
+    blockers.extend(_remote_output_plan_scaler_blockers(plan_applied))
     if resume_proof.get("status") != RUNNER_OK_STATUS:
         blockers.append("selected_runtime_output_resume_proof_not_pass")
     if (
@@ -582,6 +631,11 @@ def _remote_output_tiny_summary_blockers(
         (
             tiny_summary.get("nonfinite_count") == 0,
             "selected_runtime_output_tiny_nonfinite_nonzero",
+        ),
+        (
+            _float_value(tiny_summary.get("grad_scaler_init_scale"))
+            == REMOTE_AMP_GRAD_SCALER_INIT_SCALE,
+            "selected_runtime_output_tiny_grad_scaler_init_scale_mismatch",
         ),
         (
             tiny_summary.get("train_sampler_policy")
@@ -799,6 +853,7 @@ def _expected_remote_manifest_names() -> frozenset[str]:
             *benchmark_names,
             "metrics:gate_health",
             "metrics:train_steps",
+            "metrics:tiny_overfit_train_steps",
             "artifact:reconstruction_samples",
         },
     )
@@ -807,6 +862,8 @@ def _expected_remote_manifest_names() -> frozenset[str]:
 def _manifest_artifact_path(*, output_dir: Path, name: str) -> Path | None:
     if name.startswith("benchmark:"):
         return output_dir / "benchmark" / name.removeprefix("benchmark:")
+    if name == "metrics:tiny_overfit_train_steps":
+        return output_dir / "tiny_overfit_phase" / "metrics" / "train_steps.csv"
     if name.startswith("metrics:"):
         metric_name = name.removeprefix("metrics:")
         metric_filename = (
@@ -922,6 +979,98 @@ def _remote_output_train_step_blockers(
     ):
         blockers.append("selected_runtime_output_train_steps_batch_size_invalid")
     return tuple(blockers)
+
+
+def _remote_output_tiny_train_step_blockers(
+    path: Path,
+    *,
+    max_batch_size: int,
+    global_batch_size: int,
+) -> tuple[str, ...]:
+    if not path.exists():
+        return ("selected_runtime_output_tiny_train_steps_missing",)
+    with path.open(encoding="utf-8", newline="") as csv_file:
+        reader = csv.DictReader(csv_file)
+        rows = list(reader)
+        fieldnames = tuple(reader.fieldnames or ())
+    if not rows:
+        return ("selected_runtime_output_tiny_train_steps_empty",)
+    blockers: list[str] = []
+    if set(REMOTE_DEBUG_REQUIRED_TRAIN_STEP_COLUMNS) - set(fieldnames):
+        blockers.append("selected_runtime_output_tiny_train_steps_missing_columns")
+    expected_rank_count = _expected_rank_count(
+        global_batch_size=global_batch_size,
+        per_device_batch_size=max_batch_size,
+    )
+    successful_rows = [row for row in rows if row.get("amp_step_skipped") == "0"]
+    blockers.extend(
+        _tiny_train_step_rank_blockers(
+            successful_rows=successful_rows,
+            expected_rank_count=expected_rank_count,
+        ),
+    )
+    blockers.extend(
+        _tiny_train_step_value_blockers(
+            rows=rows,
+            successful_rows=successful_rows,
+            max_batch_size=max_batch_size,
+            expected_rank_count=expected_rank_count,
+        ),
+    )
+    return tuple(blockers)
+
+
+def _tiny_train_step_rank_blockers(
+    *,
+    successful_rows: Sequence[CsvRow],
+    expected_rank_count: int,
+) -> tuple[str, ...]:
+    blockers: list[str] = []
+    expected_steps = tuple(range(1, REMOTE_TINY_MAX_STEP + 1))
+    ranks = sorted({row.get("rank", "") for row in successful_rows})
+    if ranks != [str(rank) for rank in range(expected_rank_count)]:
+        blockers.append("selected_runtime_output_tiny_train_steps_rank_mismatch")
+    for rank in ranks:
+        rank_steps = tuple(
+            sorted(
+                _int_value(row.get("successful_optimizer_update_count"))
+                for row in successful_rows
+                if row.get("rank") == rank
+            ),
+        )
+        if rank_steps != expected_steps:
+            blockers.append("selected_runtime_output_tiny_train_steps_wrong_step_set")
+            break
+    return tuple(blockers)
+
+
+def _tiny_train_step_value_blockers(
+    *,
+    rows: Sequence[CsvRow],
+    successful_rows: Sequence[CsvRow],
+    max_batch_size: int,
+    expected_rank_count: int,
+) -> tuple[str, ...]:
+    blockers: list[str] = []
+    if len(successful_rows) != REMOTE_TINY_MAX_STEP * expected_rank_count:
+        blockers.append("selected_runtime_output_tiny_train_steps_wrong_row_count")
+    if any(row.get("amp_step_skipped") != "0" for row in rows):
+        blockers.append("selected_runtime_output_tiny_train_steps_amp_skip")
+    if any(_int_value(row.get("nonfinite_count")) != 0 for row in rows):
+        blockers.append("selected_runtime_output_tiny_train_steps_nonfinite")
+    if any(
+        _int_value(row.get("batch_size")) != max_batch_size for row in successful_rows
+    ):
+        blockers.append("selected_runtime_output_tiny_train_steps_batch_size_not_full")
+    if any(not _is_finite_float(row.get("grad_norm", "")) for row in rows):
+        blockers.append("selected_runtime_output_tiny_train_steps_grad_norm_nonfinite")
+    return tuple(blockers)
+
+
+def _expected_rank_count(*, global_batch_size: int, per_device_batch_size: int) -> int:
+    if global_batch_size <= 0 or per_device_batch_size <= 0:
+        return 1
+    return max(1, global_batch_size // per_device_batch_size)
 
 
 def _float_value(value: object) -> float:

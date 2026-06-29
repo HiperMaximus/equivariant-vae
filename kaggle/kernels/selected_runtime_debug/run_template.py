@@ -8,6 +8,7 @@ import csv
 import hashlib
 import io
 import json
+import math
 import os
 import shutil
 import subprocess  # noqa: S404
@@ -67,6 +68,7 @@ TINY_FULL_BATCH_SAMPLER_POLICY = "fixed32_tiny_full_batch_repeated"
 TINY_EXPECTED_BATCH_SIZE = 12
 TINY_EFFECTIVE_GLOBAL_EPOCH_SAMPLES = 48
 TINY_EFFECTIVE_PER_RANK_EPOCH_SAMPLES = 24
+AMP_GRAD_SCALER_INIT_SCALE = 16384.0
 IMPORT_ARTIFACT = "selected_runtime_debug_import.json"
 ALLOWED_BENCHMARK_ARTIFACTS = {
     "artifact_manifest.json",
@@ -560,6 +562,9 @@ def _write_real_artifact_manifest(*, output_dir: Path) -> Path:
     }
     artifacts["metrics:gate_health"] = metrics_dir / "gate_health.csv"
     artifacts["metrics:train_steps"] = metrics_dir / "train_steps.csv"
+    artifacts["metrics:tiny_overfit_train_steps"] = (
+        output_dir / "tiny_overfit_phase" / "metrics" / "train_steps.csv"
+    )
     artifacts["artifact:reconstruction_samples"] = reconstruction_samples
     missing = [name for name, path in sorted(artifacts.items()) if not path.exists()]
     payload = {
@@ -949,6 +954,14 @@ def _validate_real_runner_artifacts(  # noqa: C901, PLR0912, PLR0914, PLR0915
     if training_summary.get("nonfinite_count") != 0:
         message = "selected-runtime debug must have zero nonfinite rows"
         raise RuntimeError(message)
+    amp_execution = training_summary.get("amp_execution")
+    amp_execution_payload = amp_execution if isinstance(amp_execution, dict) else {}
+    if (
+        _float_value(amp_execution_payload.get("grad_scaler_init_scale"))
+        != AMP_GRAD_SCALER_INIT_SCALE
+    ):
+        message = "selected-runtime debug GradScaler init scale mismatch"
+        raise RuntimeError(message)
     if debug_summary.get("remote_pass_ready") is not False:
         message = "local artifact must not claim remote_pass_ready in wrapper"
         raise RuntimeError(message)
@@ -994,6 +1007,12 @@ def _validate_real_runner_artifacts(  # noqa: C901, PLR0912, PLR0914, PLR0915
     if tiny_summary.get("nonfinite_count") != 0:
         message = "selected-runtime tiny-overfit must have zero nonfinite rows"
         raise RuntimeError(message)
+    if (
+        _float_value(tiny_summary.get("grad_scaler_init_scale"))
+        != AMP_GRAD_SCALER_INIT_SCALE
+    ):
+        message = "selected-runtime tiny-overfit GradScaler init scale mismatch"
+        raise RuntimeError(message)
     if tiny_summary.get("train_sampler_policy") != TINY_FULL_BATCH_SAMPLER_POLICY:
         message = "selected-runtime tiny-overfit full-batch sampler was not used"
         raise RuntimeError(message)
@@ -1030,6 +1049,9 @@ def _validate_real_runner_artifacts(  # noqa: C901, PLR0912, PLR0914, PLR0915
         message = "selected-runtime gate summary did not pass"
         raise RuntimeError(message)
     _validate_train_steps_csv(metrics_dir / "train_steps.csv")
+    _validate_tiny_train_steps_csv(
+        output_dir / "tiny_overfit_phase" / "metrics" / "train_steps.csv",
+    )
 
 
 def _validate_json_artifact(path: Path) -> dict[str, object]:
@@ -1065,6 +1087,46 @@ def _validate_train_steps_csv(path: Path) -> None:
         raise RuntimeError(message)
 
 
+def _validate_tiny_train_steps_csv(path: Path) -> None:
+    with path.open(encoding="utf-8", newline="") as csv_file:
+        rows = list(csv.DictReader(csv_file))
+    if not rows:
+        message = "selected-runtime tiny train_steps.csv must contain rows"
+        raise RuntimeError(message)
+    successful_rows = [row for row in rows if row.get("amp_step_skipped") == "0"]
+    expected_steps = tuple(range(1, TINY_MAX_STEP + 1))
+    ranks = sorted({row.get("rank", "") for row in successful_rows})
+    if ranks != ["0", "1"]:
+        message = "selected-runtime tiny train_steps.csv rank coverage mismatch"
+        raise RuntimeError(message)
+    for rank in ranks:
+        rank_steps = tuple(
+            sorted(
+                int(row["successful_optimizer_update_count"])
+                for row in successful_rows
+                if row.get("rank") == rank
+            ),
+        )
+        if rank_steps != expected_steps:
+            message = "selected-runtime tiny train_steps.csv step coverage mismatch"
+            raise RuntimeError(message)
+    if len(successful_rows) != TINY_MAX_STEP * 2:
+        message = "selected-runtime tiny train_steps.csv row count mismatch"
+        raise RuntimeError(message)
+    if any(row.get("amp_step_skipped") != "0" for row in rows):
+        message = "selected-runtime tiny train_steps.csv contains AMP skipped rows"
+        raise RuntimeError(message)
+    if any(int(row.get("nonfinite_count", "0")) != 0 for row in rows):
+        message = "selected-runtime tiny train_steps.csv contains nonfinite rows"
+        raise RuntimeError(message)
+    if any(int(row.get("batch_size", "0")) != TINY_EXPECTED_BATCH_SIZE for row in rows):
+        message = "selected-runtime tiny train_steps.csv contains non-full batches"
+        raise RuntimeError(message)
+    if any(not _is_finite_float(row.get("grad_norm", "")) for row in rows):
+        message = "selected-runtime tiny train_steps.csv contains nonfinite grad_norm"
+        raise RuntimeError(message)
+
+
 def _csv_row_count(path: Path) -> int:
     if not path.exists():
         return 0
@@ -1074,6 +1136,23 @@ def _csv_row_count(path: Path) -> int:
 
 def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _float_value(value: object) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def _is_finite_float(value: object) -> bool:
+    return math.isfinite(_float_value(value))
 
 
 if __name__ == "__main__":

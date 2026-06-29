@@ -805,6 +805,60 @@ def test_selected_runtime_verify_output_requires_tiny_sampler_evidence(
     )
 
 
+def test_selected_runtime_verify_output_requires_grad_scaler_init_scale(
+    tmp_path: Path,
+) -> None:
+    """Downloaded proof must show the selected-runtime AMP scaler startup scale."""
+    output_dir, runtime_path = _write_complete_remote_output_fixture(tmp_path)
+    training_path = output_dir / "benchmark" / "training_summary.json"
+    training = _load_json(training_path)
+    amp_execution = _object(training, "amp_execution")
+    del amp_execution["grad_scaler_init_scale"]
+    _write_json(training_path, training)
+    tiny_path = output_dir / "benchmark" / "tiny_overfit_summary.json"
+    tiny = _load_json(tiny_path)
+    del tiny["grad_scaler_init_scale"]
+    _write_json(tiny_path, tiny)
+
+    blockers = selected_runtime_gate.verify_selected_runtime_debug_output(
+        output_dir=output_dir,
+        selected_runtime_path=runtime_path,
+    )
+
+    assert "selected_runtime_output_grad_scaler_init_scale_mismatch" in blockers
+    assert "selected_runtime_output_tiny_grad_scaler_init_scale_mismatch" in blockers
+
+
+def test_selected_runtime_verify_output_checks_tiny_metric_rows(
+    tmp_path: Path,
+) -> None:
+    """A passing tiny summary cannot hide skipped/nonfinite tiny metric rows."""
+    output_dir, runtime_path = _write_complete_remote_output_fixture(tmp_path)
+    tiny_steps = output_dir / "tiny_overfit_phase" / "metrics" / "train_steps.csv"
+    rows = _tiny_train_step_rows()
+    rows[3]["amp_step_skipped"] = "1"
+    rows[3]["grad_norm"] = "inf"
+    rows[3]["nonfinite_count"] = "125"
+    _write_csv_rows(
+        tiny_steps,
+        selected_runtime_gate.REMOTE_DEBUG_REQUIRED_TRAIN_STEP_COLUMNS,
+        rows,
+    )
+
+    blockers = selected_runtime_gate.verify_selected_runtime_debug_output(
+        output_dir=output_dir,
+        selected_runtime_path=runtime_path,
+    )
+
+    assert "selected_runtime_output_tiny_train_steps_amp_skip" in blockers
+    assert "selected_runtime_output_tiny_train_steps_nonfinite" in blockers
+    assert "selected_runtime_output_tiny_train_steps_grad_norm_nonfinite" in blockers
+    assert (
+        "selected_runtime_output_manifest_hash_mismatch_metrics_tiny_overfit_train_steps"
+        in blockers
+    )
+
+
 def test_selected_runtime_push_readiness_depends_on_structured_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -957,9 +1011,11 @@ def _write_complete_remote_output_fixture(tmp_path: Path) -> tuple[Path, Path]:
     benchmark_dir = output_dir / "benchmark"
     metrics_dir = output_dir / "metrics"
     artifacts_dir = output_dir / "artifacts"
+    tiny_metrics_dir = output_dir / "tiny_overfit_phase" / "metrics"
     benchmark_dir.mkdir(parents=True)
     metrics_dir.mkdir(parents=True)
     artifacts_dir.mkdir(parents=True)
+    tiny_metrics_dir.mkdir(parents=True)
     runtime_path = Path(
         "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
     )
@@ -971,6 +1027,11 @@ def _write_complete_remote_output_fixture(tmp_path: Path) -> tuple[Path, Path]:
             "optimizer_steps_completed": 8,
             "amp_step_skipped_count": 0,
             "nonfinite_count": 0,
+            "amp_execution": {
+                "grad_scaler_init_scale": (
+                    selected_runtime_gate.REMOTE_AMP_GRAD_SCALER_INIT_SCALE
+                ),
+            },
             "runtime_config": {"sha256": runtime_sha256},
         },
     )
@@ -984,7 +1045,24 @@ def _write_complete_remote_output_fixture(tmp_path: Path) -> tuple[Path, Path]:
     )
     _write_json(
         benchmark_dir / "selected_runtime_plan_applied.json",
-        {"status": "local_pass", "plan_applied": True},
+        {
+            "status": "local_pass",
+            "plan_applied": True,
+            "expected": {
+                "runner_amp_extension": {
+                    "grad_scaler_init_scale": (
+                        selected_runtime_gate.REMOTE_AMP_GRAD_SCALER_INIT_SCALE
+                    ),
+                },
+            },
+            "observed": {
+                "runner_amp_extension": {
+                    "grad_scaler_init_scale": (
+                        selected_runtime_gate.REMOTE_AMP_GRAD_SCALER_INIT_SCALE
+                    ),
+                },
+            },
+        },
     )
     _write_json(
         benchmark_dir / "checkpoint_resume_proof.json",
@@ -1020,6 +1098,9 @@ def _write_complete_remote_output_fixture(tmp_path: Path) -> tuple[Path, Path]:
             "successful_metric_row_count": 256,
             "amp_step_skipped_count": 0,
             "nonfinite_count": 0,
+            "grad_scaler_init_scale": (
+                selected_runtime_gate.REMOTE_AMP_GRAD_SCALER_INIT_SCALE
+            ),
             "train_sampler_policy": "fixed32_tiny_full_batch_repeated",
             "train_effective_global_epoch_samples": (
                 REMOTE_TINY_EFFECTIVE_GLOBAL_EPOCH_SAMPLES
@@ -1046,6 +1127,11 @@ def _write_complete_remote_output_fixture(tmp_path: Path) -> tuple[Path, Path]:
         metrics_dir / "train_steps.csv",
         selected_runtime_gate.REMOTE_DEBUG_REQUIRED_TRAIN_STEP_COLUMNS,
         _train_step_rows(),
+    )
+    _write_csv_rows(
+        tiny_metrics_dir / "train_steps.csv",
+        selected_runtime_gate.REMOTE_DEBUG_REQUIRED_TRAIN_STEP_COLUMNS,
+        _tiny_train_step_rows(),
     )
     (artifacts_dir / "reconstruction_samples.pt").write_bytes(b"nonblank")
     _write_json(
@@ -1193,6 +1279,49 @@ def _train_step_rows() -> list[dict[str, str]]:
     return rows
 
 
+def _tiny_train_step_rows() -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for rank in range(2):
+        for step in range(1, selected_runtime_gate.REMOTE_TINY_MAX_STEP + 1):
+            row: dict[str, str] = dict.fromkeys(
+                selected_runtime_gate.REMOTE_DEBUG_REQUIRED_TRAIN_STEP_COLUMNS,
+                "",
+            )
+            row.update(
+                {
+                    "event_id": f"rank{rank}_train_step_{step:06d}",
+                    "rank": str(rank),
+                    "optimizer_step_index": str(step - 1),
+                    "optimizer_step": str(step),
+                    "successful_optimizer_update_count": str(step),
+                    "split": "train",
+                    "loss": "1.0",
+                    "recon_loss": "1.0",
+                    "l1_loss": "0.5",
+                    "ssim_loss": "0.5",
+                    "ssim_metric": "0.5",
+                    "kl_loss": "0.1",
+                    "beta": "0.1",
+                    "grad_norm": "1.0",
+                    "param_update_norm": "0.01",
+                    "nonfinite_count": "0",
+                    "batch_size": str(SELECTED_RUNTIME_BATCH_SIZE),
+                    "precision_policy": "amp_conservative",
+                    "amp_enabled": "true",
+                    "autocast_dtype": "float16",
+                    "grad_scaler_enabled": "true",
+                    "fp32_loss": "true",
+                    "torch_compile_enabled": "false",
+                    "compile_scope": "none",
+                    "corruption_strategy": "indexed_masked",
+                    "amp_step_skipped": "0",
+                    "checkpoint_path": "",
+                },
+            )
+            rows.append(row)
+    return rows
+
+
 def _remote_manifest_hashes(output_dir: Path) -> dict[str, str]:
     names = {
         "benchmark:checkpoint_resume_proof.json": output_dir
@@ -1227,6 +1356,10 @@ def _remote_manifest_hashes(output_dir: Path) -> dict[str, str]:
         / "training_summary.json",
         "metrics:gate_health": output_dir / "metrics" / "gate_health.csv",
         "metrics:train_steps": output_dir / "metrics" / "train_steps.csv",
+        "metrics:tiny_overfit_train_steps": output_dir
+        / "tiny_overfit_phase"
+        / "metrics"
+        / "train_steps.csv",
         "artifact:reconstruction_samples": output_dir
         / "artifacts"
         / "reconstruction_samples.pt",

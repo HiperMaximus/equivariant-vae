@@ -264,40 +264,41 @@ action after committing and preflighting this local source fix is to ask for
 explicit user approval for a new narrow selected-runtime debug/tiny Kaggle push,
 expected as v4. This is still not approval for the first full long run.
 
-Selected-runtime debug/tiny v4 push status, 2026-06-29: after explicit user
-approval for the narrow rerun only, local source commit `ce72fa0` (`Fix
-selected runtime tiny proof sampler`) was clean. The Kaggle API read-only check
-passed useful paths with the known Kaggle CLI 2.2.1 warning plus the known
-quota/files endpoint warnings. The first guarded push attempt stopped locally
-before remote upload because the ignored generated
-`kaggle/kernels/selected_runtime_debug/run.py` still embedded the pre-commit
-payload identity; rerunning `./scripts/kaggle_kernel.sh
-preflight-selected-runtime-debug` regenerated and verified the embedded payload
-from commit `ce72fa0` (`11 passed`, payload verified, then `28 passed`).
-The retried guarded push used
-`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1` and Kaggle accepted
-`maximusshtefan/eqvae-selected-runtime-debug` version 4 at
-https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-debug. The
-single immediate guarded status read at `2026-06-29 01:11:09 -0500` returned
-`KernelWorkerStatus.RUNNING`. Do not actively poll in-turn; the next concrete
-action is, after about `2026-06-29 01:45 -0500` or later, run:
+Selected-runtime debug/tiny v4 status, 2026-06-29: after explicit user approval
+for the narrow rerun only, local source commit `ce72fa0` (`Fix selected runtime
+tiny proof sampler`) was clean and Kaggle accepted
+`maximusshtefan/eqvae-selected-runtime-debug` version 4. The guarded follow-up
+status read at `2026-06-29 01:51:13 -0500` returned
+`KernelWorkerStatus.ERROR`, and outputs were downloaded to
+`runs/kaggle/selected_runtime_debug_v4`. The v4 artifacts prove the sampler fix
+worked: tiny uses `train_sampler_policy = fixed32_tiny_full_batch_repeated`,
+`fixed_train_repeated_to_full_batch = true`, effective samples `48` global /
+`24` per rank, and `observed_batch_sizes = [12]`. v4 is still not a passing
+remote proof. Strict verification fails because both ranks overflowed once at
+tiny `optimizer_step_index = 3` on full `batch_size = 12` rows with
+`grad_norm = inf`, `nonfinite_count = 125` per rank, and
+`amp_step_skipped = 1`; the retry after the GradScaler scale was reduced
+succeeded, and the tiny run still completed 128 successful updates with about
+`0.3399` L1 improvement and `0.2948` reconstruction-loss improvement.
 
-```bash
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-debug
-```
-
-If terminal, download to `runs/kaggle/selected_runtime_debug_v4`, then run:
-
-```bash
-PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-output \
-  --output-dir runs/kaggle/selected_runtime_debug_v4 \
-  --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json
-```
-
-If verification passes, record Spec 0008 remote proof as passed and make the
-first full real selected-runtime run the next candidate action, still requiring
-separate explicit user approval. If it fails, record the exact blocker and do
-not claim readiness.
+Local follow-up after v4 is implemented but not remotely proved. The selected
+AMP-conservative runner now uses an explicit conservative GradScaler startup
+scale (`16384.0` instead of PyTorch's default `65536.0`) and records that scaler
+policy in `training_summary.json`, `tiny_overfit_summary.json`, and the
+selected-runtime plan-applied proof as a runner AMP extension. The wrapper and
+post-download verifier require that scaler evidence. The verifier also now
+hashes and inspects the nested
+`tiny_overfit_phase/metrics/train_steps.csv` rows directly, requiring both DDP
+ranks, steps `1..128`, full bs12 rows, finite `grad_norm`, zero AMP skips, and
+zero nonfinite counts. Under the hardened verifier, downloaded v4 correctly
+fails with scaler-evidence and row-level tiny blockers, including
+`selected_runtime_output_tiny_train_steps_amp_skip`,
+`selected_runtime_output_tiny_train_steps_nonfinite`, and
+`selected_runtime_output_tiny_train_steps_grad_norm_nonfinite`. Focused local
+tests after this fix passed (`51 passed`). The next concrete action is to run
+the full local preflight/quality gates, commit, then request explicit user
+approval for a new narrow selected-runtime debug/tiny Kaggle push, expected as
+v5. This remains not approval for the first full long run.
 
 Synthetic timing is now
 completed provenance for screening: remote versions 1, 2, 3, and 4 completed
