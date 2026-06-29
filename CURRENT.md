@@ -264,6 +264,41 @@ action after committing and preflighting this local source fix is to ask for
 explicit user approval for a new narrow selected-runtime debug/tiny Kaggle push,
 expected as v4. This is still not approval for the first full long run.
 
+Selected-runtime debug/tiny v4 push status, 2026-06-29: after explicit user
+approval for the narrow rerun only, local source commit `ce72fa0` (`Fix
+selected runtime tiny proof sampler`) was clean. The Kaggle API read-only check
+passed useful paths with the known Kaggle CLI 2.2.1 warning plus the known
+quota/files endpoint warnings. The first guarded push attempt stopped locally
+before remote upload because the ignored generated
+`kaggle/kernels/selected_runtime_debug/run.py` still embedded the pre-commit
+payload identity; rerunning `./scripts/kaggle_kernel.sh
+preflight-selected-runtime-debug` regenerated and verified the embedded payload
+from commit `ce72fa0` (`11 passed`, payload verified, then `28 passed`).
+The retried guarded push used
+`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1` and Kaggle accepted
+`maximusshtefan/eqvae-selected-runtime-debug` version 4 at
+https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-debug. The
+single immediate guarded status read at `2026-06-29 01:11:09 -0500` returned
+`KernelWorkerStatus.RUNNING`. Do not actively poll in-turn; the next concrete
+action is, after about `2026-06-29 01:45 -0500` or later, run:
+
+```bash
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-debug
+```
+
+If terminal, download to `runs/kaggle/selected_runtime_debug_v4`, then run:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-output \
+  --output-dir runs/kaggle/selected_runtime_debug_v4 \
+  --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json
+```
+
+If verification passes, record Spec 0008 remote proof as passed and make the
+first full real selected-runtime run the next candidate action, still requiring
+separate explicit user approval. If it fails, record the exact blocker and do
+not claim readiness.
+
 Synthetic timing is now
 completed provenance for screening: remote versions 1, 2, 3, and 4 completed
 successfully as non-promotable evidence, with v4 as the current

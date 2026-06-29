@@ -78,11 +78,15 @@ aggregate nonfinite gradient entries from dual-rank fixed-32 tail microbatches
 tiny-only `fixed32_tiny_full_batch_repeated` sampler, aggregate nonfinite
 readiness blocking, and wrapper/verifier checks for tiny sampler policy,
 effective v5 DDP epoch samples `48/24`, observed bs12 tiny batches, zero tiny
-AMP skips, and zero tiny nonfinite rows. The next remote action, after local
-commit/preflights and explicit user approval, is a new narrow selected-runtime
-debug/tiny push, expected as v4. The first full long run remains outside Specs
-0007/0008 and should be the immediate next candidate only after the Spec 0008
-remote proof artifacts pass.
+AMP skips, and zero tiny nonfinite rows. After explicit approval for the narrow
+rerun only, selected-runtime debug/tiny v4 was pushed from clean commit
+`ce72fa0`; the immediate guarded status read at `2026-06-29 01:11:09 -0500`
+returned `KernelWorkerStatus.RUNNING`. The next work is a guarded v4 status
+poll after about `2026-06-29 01:45 -0500`; if terminal, download to
+`runs/kaggle/selected_runtime_debug_v4` and run
+`eqvae.cli.selected_runtime_gate --verify-output`. The first full long run
+remains outside Specs 0007/0008 and should be the immediate next candidate only
+after the Spec 0008 remote proof artifacts pass.
 Kaggle source attachments require a separate confirmation guard
 Last updated: 2026-06-29
 

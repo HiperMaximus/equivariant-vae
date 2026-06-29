@@ -278,8 +278,19 @@ readiness blocks any aggregate nonfinite metric rows, and both the embedded
 wrapper and post-download verifier require the tiny sampler evidence. The
 downloaded v3 artifacts predate those fields, so the hardened verifier correctly
 reports the historical tiny failure plus missing-sampler-evidence blockers.
-Only a new explicitly approved narrow rerun, expected as v4, can prove this
-remote contract.
+
+Selected-runtime debug/tiny v4 is running. After explicit user approval for the
+narrow rerun only, v4 was pushed from clean commit `ce72fa0`. A first push
+attempt stopped locally before remote upload because the ignored generated
+`run.py` still embedded the pre-commit payload identity; the selected-runtime
+debug preflight regenerated and verified the embedded payload from `ce72fa0`,
+then the guarded push succeeded with
+`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`. Kaggle accepted
+`maximusshtefan/eqvae-selected-runtime-debug` version 4, and the immediate
+guarded status read at `2026-06-29 01:11:09 -0500` returned
+`KernelWorkerStatus.RUNNING`. This is not a remote proof until the terminal
+outputs are downloaded to `runs/kaggle/selected_runtime_debug_v4` and strict
+`eqvae.cli.selected_runtime_gate --verify-output` returns zero blockers.
 
 ## Acceptance Criteria
 
