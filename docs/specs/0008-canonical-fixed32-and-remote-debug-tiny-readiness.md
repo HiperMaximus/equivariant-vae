@@ -8,7 +8,7 @@ implemented; the narrow Kaggle debug/tiny push milestone still requires the
 user to explicitly approve the remote action
 Owner/workstream: comparable non-equivariant VAE baseline, pre-long-run proof
 gate
-Last updated: 2026-06-28
+Last updated: 2026-06-29
 
 ## Purpose
 
@@ -136,6 +136,17 @@ detour unless the proof artifacts expose a blocker.
    `fixed_32_selector_real = false`; the remote kernel must generate and
    validate the canonical selector before training, and only downloaded remote
    artifacts may prove `fixed_32_selector_real = true`.
+   The tiny-overfit phase still uses exactly the 32 unique canonical train
+   selector rows. To avoid making selected-runtime AMP readiness depend on an
+   accidental fixed-32 tail microbatch, `kaggle_tiny_overfit` repeats
+   selector-order rows only at the sampler level so every selected-runtime
+   microbatch is full-sized. The artifacts must record
+   `train_sampler_policy = "fixed32_tiny_full_batch_repeated"`,
+   `fixed_train_repeated_to_full_batch = true`,
+   `train_effective_global_epoch_samples`,
+   `train_effective_per_rank_epoch_samples`, and `observed_batch_sizes`; for
+   the v5 dual-T4 bs12 runtime the expected effective samples are 48 global and
+   24 per rank, with observed tiny batch sizes `[12]`.
 4. Local preflight before remote request.
    Before asking for any Kaggle action, run local focused tests, the
    selected-runtime debug preflight, the push-readiness CLI in
@@ -197,6 +208,13 @@ detour unless the proof artifacts expose a blocker.
   - validation batches during debug proof: 1 clean validation batch before and
     after resume;
   - tiny-overfit successful optimizer updates: at most 128;
+  - tiny fixed-32 sampler: 32 unique canonical selector rows, repeated in
+    selector order only to full selected-runtime microbatches;
+  - tiny sampler evidence for v5: `train_sampler_policy =
+    "fixed32_tiny_full_batch_repeated"`, `fixed_train_repeated_to_full_batch =
+    true`, `train_effective_global_epoch_samples = 48`,
+    `train_effective_per_rank_epoch_samples = 24`, and
+    `observed_batch_sizes = [12]`;
   - tiny smoothing window: 25 successful updates;
   - tiny pass threshold: final smoothed L1 and final smoothed reconstruction
     loss must each improve by at least 1 percent relative to their initial
@@ -226,17 +244,42 @@ runner built explicit VAE epsilon from the nominal batch cap 12 while the final
 single-process fixed-32 batch had 8 samples. Local follow-up fixes size epsilon
 from the realized input batch and adds a fixed-32/bs12/3-step regression.
 
-The v2 follow-up also hardens the remote path beyond the immediate crash: the
+The v2 follow-up also hardened the remote path beyond the immediate crash: the
 debug wrapper now launches the selected-runtime train runner through
 `python -m torch.distributed.run --standalone --nproc_per_node=2 -m
 eqvae.cli.selected_runtime_train` with the embedded payload on `PYTHONPATH`,
 and the post-download verifier hash-links selector readiness to the downloaded
 selector, replays artifact-manifest hashes, validates gate-health CSV content,
-and tightens train-step CSV checks. After explicit user approval, v3 was pushed
-from clean commit `09b5b24` and the immediate guarded status read at
-`2026-06-28 18:25:05 -0500` returned `KernelWorkerStatus.RUNNING`. It must
-complete, be downloaded to `runs/kaggle/selected_runtime_debug_v3`, and pass
-downloaded `--verify-output` before this spec can be marked remotely proved.
+and tightens train-step CSV checks.
+
+Selected-runtime debug/tiny v3 is not a passing remote proof. After explicit
+user approval, v3 was pushed from clean commit `09b5b24`; the guarded follow-up
+status read on 2026-06-29 returned `KernelWorkerStatus.ERROR`, and artifacts
+were downloaded to `runs/kaggle/selected_runtime_debug_v3`. The run proved real
+progress: canonical fixed-32 selector generation passed, the debug/resume phase
+wrote selected-runtime plan application, checkpoint/resume, gate-health CSV,
+and artifact-manifest evidence, and the tiny phase reached 128 successful
+optimizer updates with strong improvement (`l1_improvement_fraction =
+0.42601120821087546`, `recon_loss_improvement_fraction =
+0.37984046690403395`). It still failed the remote proof because the tiny phase
+observed two AMP skipped rows and 500 aggregate nonfinite gradient entries, one
+per rank at optimizer step index 3 on a per-rank `batch_size = 4` tail
+microbatch. The root gate summary remained `status = "fail"` with
+`launch_blockers_remaining = ["tiny_overfit"]`.
+
+The local v3 follow-up is a source fix, not a verifier workaround: the runner
+keeps the debug-path partial-batch epsilon fix and regression, but
+`kaggle_tiny_overfit` with the fixed-32 selector now uses the deterministic
+`fixed32_tiny_full_batch_repeated` sampler described above. Runner summaries
+now expose sampler policy/effective samples/full-batch-repeat fields, tiny
+summaries expose observed batch sizes plus aggregate AMP skip/nonfinite counts,
+training summaries aggregate nonfinite counts over all metric rows, local
+readiness blocks any aggregate nonfinite metric rows, and both the embedded
+wrapper and post-download verifier require the tiny sampler evidence. The
+downloaded v3 artifacts predate those fields, so the hardened verifier correctly
+reports the historical tiny failure plus missing-sampler-evidence blockers.
+Only a new explicitly approved narrow rerun, expected as v4, can prove this
+remote contract.
 
 ## Acceptance Criteria
 
@@ -271,6 +314,7 @@ Required local checks before requesting remote approval:
 
 ```bash
 PYTHONPATH=src .venv/bin/pytest tests/test_selected_runtime_gate.py -q
+PYTHONPATH=src .venv/bin/pytest tests/test_selected_runtime_runner.py -q
 PYTHONPATH=src .venv/bin/pytest tests/test_fixed_selectors.py -q
 PYTHONPATH=src .venv/bin/pytest tests/test_fixed32_selector_readiness.py -q
 ./scripts/kaggle_kernel.sh preflight-fixed32-selector-readiness
@@ -281,6 +325,7 @@ PYTHONPATH=src .venv/bin/python -m eqvae.cli.select_fixed_patches \
   --masked-holdout-csv docs/data/ubc_ocean_masked_holdout_ids.csv \
   --output /tmp/eqvae-fixed32-synthetic-root/fixed_32_train_overfit_patches.json \
   --validate-crc
+./scripts/kaggle_kernel.sh preflight-selected-runtime-runner
 ./scripts/kaggle_kernel.sh preflight-selected-runtime-debug
 PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-push-ready \
   --selector-generation-mode remote_generate \

@@ -69,13 +69,22 @@ fixed-32 batch. Local follow-up fixes epsilon sizing from the realized input
 batch, switches the wrapper to `python -m torch.distributed.run --standalone
 --nproc_per_node=2 -m eqvae.cli.selected_runtime_train`, and hardens the
 downloaded-output verifier. The explicit-user-approved narrow
-selected-runtime debug/tiny v3 push is now running; the next work is a guarded
-status poll after the recorded cadence, then output download and
-`eqvae.cli.selected_runtime_gate --verify-output` if terminal. The first full
-long run remains outside Specs 0007/0008 and should be the immediate next
-candidate only after the Spec 0008 remote proof artifacts pass.
+selected-runtime debug/tiny v3 push completed with `KernelWorkerStatus.ERROR`
+and outputs are downloaded under `runs/kaggle/selected_runtime_debug_v3`. It is
+not a passing remote proof: selector/debug/resume/plan/gate/manifest evidence
+wrote successfully, but tiny-overfit failed on two AMP skipped rows plus 500
+aggregate nonfinite gradient entries from dual-rank fixed-32 tail microbatches
+(`batch_size = 4`). Local follow-up keeps the partial-batch eps fix and adds a
+tiny-only `fixed32_tiny_full_batch_repeated` sampler, aggregate nonfinite
+readiness blocking, and wrapper/verifier checks for tiny sampler policy,
+effective v5 DDP epoch samples `48/24`, observed bs12 tiny batches, zero tiny
+AMP skips, and zero tiny nonfinite rows. The next remote action, after local
+commit/preflights and explicit user approval, is a new narrow selected-runtime
+debug/tiny push, expected as v4. The first full long run remains outside Specs
+0007/0008 and should be the immediate next candidate only after the Spec 0008
+remote proof artifacts pass.
 Kaggle source attachments require a separate confirmation guard
-Last updated: 2026-06-25
+Last updated: 2026-06-29
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
 source of truth for experiment code, specs, configs, and paper-facing claims.

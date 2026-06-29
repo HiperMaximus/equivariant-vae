@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-06-28
+Last updated: 2026-06-29
 
 ## Active Workstream
 
@@ -181,14 +181,66 @@ endpoint warnings. Kaggle accepted `maximusshtefan/eqvae-selected-runtime-debug`
 version 3 at
 https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-debug. The
 single immediate guarded status read at `2026-06-28 18:25:05 -0500` returned
-`KernelWorkerStatus.RUNNING`. Do not actively poll in-turn; the next concrete
-action is, after about `2026-06-28 18:55 -0500` or later, run:
+`KernelWorkerStatus.RUNNING`. The guarded follow-up status read on 2026-06-29
+returned `KernelWorkerStatus.ERROR`, and outputs were downloaded to
+`runs/kaggle/selected_runtime_debug_v3`. The initial strict verification before
+local hardening failed only on:
 
-```bash
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-debug
-```
+- `selected_runtime_output_tiny_overfit_not_pass`;
+- `selected_runtime_output_gate_summary_not_pass`.
 
-If terminal, download to `runs/kaggle/selected_runtime_debug_v3`, then run:
+The v3 artifacts are real progress but not remote proof. The canonical selector,
+selected-runtime plan application, checkpoint/resume proof, gate-health CSV,
+artifact manifest, and debug/resume phase all wrote the expected artifacts.
+The root gate summary is still `status = "fail"` with
+`launch_blockers_remaining = ["tiny_overfit"]`; component `local_pass` values
+inside downloaded artifacts are evidence rows, not a remote-pass claim. Only a
+zero-blocker `--verify-output` result plus a passing gate summary may mark Spec
+0008 remotely proved.
+
+The precise v3 tiny blocker is not convergence. The tiny phase reached 128
+successful optimizer updates and improved strongly
+(`l1_improvement_fraction = 0.42601120821087546`,
+`recon_loss_improvement_fraction = 0.37984046690403395`), but it failed the
+Spec 0008 zero-tolerance AMP/nonfinite contract:
+`amp_step_skipped_count = 2` and `nonfinite_count = 500`. The offending metric
+rows are one per rank at optimizer step index 3 with per-rank `batch_size = 4`,
+`grad_norm = inf`, and `amp_step_skipped = 1`. This came from cycling the
+canonical 32-patch selector under dual-rank DDP with per-rank batch size 12,
+which produced a repeated 12/4 per-rank microbatch pattern in tiny mode.
+
+Local follow-up after v3 is implemented and locally verified but not remotely
+proved. The runner keeps the v2 partial-batch eps source fix and its regression,
+but `kaggle_tiny_overfit` with the fixed-32 selector now uses a deterministic
+`fixed32_tiny_full_batch_repeated` sampler policy: the selector remains 32
+unique canonical patches, while selector-order rows are repeated only to make
+tiny-overfit microbatches full-sized for the selected bs12 AMP runtime. The
+training, debug, and tiny summaries record `train_sampler_policy`,
+`train_effective_global_epoch_samples`,
+`train_effective_per_rank_epoch_samples`, and
+`fixed_train_repeated_to_full_batch`; the tiny summary also records
+`observed_batch_sizes`, `amp_step_skipped_count`, and aggregate
+`nonfinite_count`. The wrapper and post-download verifier now require those tiny
+fields, including derived v5 DDP effective samples `48` global / `24` per rank
+and `observed_batch_sizes = [12]`. The runner training summary and local
+readiness now aggregate nonfinite rows over all metric rows instead of only
+looking at the final step. Focused local tests prove the DDP padding math covers
+all 32 selector rows while avoiding tail microbatches, and the old debug-path
+partial-batch regression still proves `12, 12, 8`.
+
+Verification after the local v3 fix: `tests/test_selected_runtime_runner.py`
+passed (`8 passed`); focused selected-runtime gate/runner/embedded-kernel tests
+passed (`49 passed`); `./scripts/kaggle_kernel.sh
+preflight-fixed32-selector-readiness` passed (`11 passed`);
+`./scripts/kaggle_kernel.sh preflight-selected-runtime-runner` passed (`50
+passed` plus script checks); `./scripts/kaggle_kernel.sh
+preflight-selected-runtime-debug` passed (`11 passed`, regenerated and verified
+the embedded payload, then `28 passed`); the documented synthetic selector CLI
+command passed; remote-generate push readiness passed;
+`./scripts/python_quality.sh` passed (`224 passed`, `0 errors, 0 warnings, 0
+notes`); `git diff --check` passed; repo `./scripts/agent_preflight.sh` passed;
+and workspace `/home/maximus/Documents/Tesis/agent_preflight.sh` passed. The
+downloaded v3 verifier command remains:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-output \
@@ -196,10 +248,21 @@ PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-outp
   --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json
 ```
 
-If verification passes, record Spec 0008 remote proof as passed and make the
-first full real selected-runtime run the next candidate action, still requiring
-separate explicit user approval. If it fails, record the exact blocker and do
-not claim readiness.
+Under the hardened verifier it now reports the historical tiny failure plus the
+new missing-sampler-evidence blockers:
+`selected_runtime_output_tiny_overfit_not_pass`,
+`selected_runtime_output_tiny_amp_skips_nonzero`,
+`selected_runtime_output_tiny_nonfinite_nonzero`,
+`selected_runtime_output_tiny_sampler_policy_mismatch`,
+`selected_runtime_output_tiny_not_repeated_to_full_batch`,
+`selected_runtime_output_tiny_global_epoch_samples_mismatch`,
+`selected_runtime_output_tiny_per_rank_epoch_samples_mismatch`,
+`selected_runtime_output_tiny_batch_sizes_not_full`, and
+`selected_runtime_output_gate_summary_not_pass`. It fails as expected because
+the v3 artifacts predate the local sampler/evidence fix. The next concrete
+action after committing and preflighting this local source fix is to ask for
+explicit user approval for a new narrow selected-runtime debug/tiny Kaggle push,
+expected as v4. This is still not approval for the first full long run.
 
 Synthetic timing is now
 completed provenance for screening: remote versions 1, 2, 3, and 4 completed

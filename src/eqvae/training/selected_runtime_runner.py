@@ -101,6 +101,9 @@ _TINY_MAX_OPTIMIZER_STEPS = 128
 _TINY_SMOOTHING_WINDOW = 25
 _TINY_MIN_IMPROVEMENT_FRACTION = 0.01
 _TINY_RUN_MODE = "kaggle_tiny_overfit"
+_DEFAULT_SEQUENTIAL_SAMPLER_POLICY = "sequential_sampler"
+_DEFAULT_DDP_SAMPLER_POLICY = "distributed_sampler_shuffle_false_drop_last_false"
+_FIXED32_TINY_FULL_BATCH_SAMPLER_POLICY = "fixed32_tiny_full_batch_repeated"
 _SUPPORTED_DATA = frozenset({"synthetic", "ubc-pre-shuffled"})
 _TRAIN_STEP_COLUMNS = (
     "event_id",
@@ -295,6 +298,17 @@ class _DataSurface:
     fixed_train_patches: Path | None
     fixed_train_patches_sha256: str
     fixed_train_patch_count: int
+    train_sampler_policy: str
+    train_effective_global_epoch_samples: int
+    train_effective_per_rank_epoch_samples: int
+
+
+@dataclass(frozen=True)
+class _TrainSamplerPlan:
+    policy: str
+    full_batch_repeated: bool
+    effective_global_epoch_samples: int
+    effective_per_rank_epoch_samples: int
 
 
 class _SelectedPatchTrainingDataset(Dataset[PatchTrainingSample]):
@@ -356,6 +370,90 @@ class _SelectedPatchTrainingDataset(Dataset[PatchTrainingSample]):
         self._base.close()
 
 
+class _FixedSelectorFullBatchSampler(Sampler[int]):
+    """Repeat a fixed selector to full per-rank batches for tiny overfit proof."""
+
+    def __init__(
+        self,
+        *,
+        dataset_size: int,
+        batch_size: int,
+        world_size: int,
+        rank: int,
+    ) -> None:
+        """Create a finite deterministic sampler epoch."""
+        self._indices = fixed_selector_full_batch_indices(
+            dataset_size=dataset_size,
+            batch_size=batch_size,
+            world_size=world_size,
+            rank=rank,
+        )
+
+    def __iter__(self) -> Iterator[int]:
+        """Yield one repeated full-batch sampler epoch.
+
+        Returns:
+            Iterator over selected dataset indices for this rank.
+
+        """
+        return iter(self._indices)
+
+    def __len__(self) -> int:
+        """Return the number of samples emitted on this rank per epoch.
+
+        Returns:
+            Per-rank sample count.
+
+        """
+        return len(self._indices)
+
+
+def fixed_selector_full_batch_indices(
+    *,
+    dataset_size: int,
+    batch_size: int,
+    world_size: int,
+    rank: int,
+) -> tuple[int, ...]:
+    """Return deterministic per-rank indices padded to full microbatches.
+
+    The canonical selector still has ``dataset_size`` unique patches. Padding
+    only repeats selector-order indices so tiny overfit proofs exercise stable
+    selected-runtime microbatches instead of accidental tail batches.
+
+    Args:
+        dataset_size: Number of unique fixed-selector rows.
+        batch_size: Per-rank microbatch size.
+        world_size: Number of participating ranks.
+        rank: Current rank.
+
+    Returns:
+        Per-rank selector indices for one repeated full-batch epoch.
+
+    Raises:
+        ValueError: If size arguments are invalid or rank is out of range.
+
+    """
+    if dataset_size <= 0:
+        message = "fixed selector full-batch sampler requires a nonempty dataset"
+        raise ValueError(message)
+    if batch_size <= 0:
+        message = "fixed selector full-batch sampler requires positive batch_size"
+        raise ValueError(message)
+    if world_size <= 0:
+        message = "fixed selector full-batch sampler requires positive world_size"
+        raise ValueError(message)
+    if rank < 0 or rank >= world_size:
+        message = f"rank must be in [0, {world_size}): {rank}"
+        raise ValueError(message)
+    global_batch_size = batch_size * world_size
+    global_epoch_samples = math.ceil(dataset_size / global_batch_size)
+    global_epoch_samples *= global_batch_size
+    return tuple(
+        index % dataset_size for index in range(rank, global_epoch_samples, world_size)
+    )
+
+
 @dataclass(frozen=True)
 class _DistributedContext:
     device: torch.device
@@ -406,6 +504,7 @@ class _LocalReadinessComponents:
     data_source: str
     ddp_proof: JsonObject
     amp_step_skipped_count: int
+    nonfinite_count: int
 
 
 def build_selected_runtime_torchrun_command(  # noqa: PLR0913
@@ -791,6 +890,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
             data_source=data_surface.source,
             ddp_proof=ddp_proof,
             amp_step_skipped_count=_amp_step_skipped_count(metric_rows),
+            nonfinite_count=_nonfinite_metric_count(metric_rows),
         ),
     )
 
@@ -1205,24 +1305,30 @@ def _prepare_data_surface(
         source = "ubc-pre-shuffled"
         synthetic_generated = False
     paths = resolve_patch_data_paths(root)
-    base_train_dataset = PatchTrainingDataset(
-        PatchTrainingDatasetSpec(
-            bin_path=paths.train.bin_path,
-            csv_path=paths.train.csv_path,
-            split="train",
-            image_size=settings.image_size,
-            channels=3,
-            validate_crc=validate_crc,
-        ),
-    )
     (
         train_dataset,
         fixed_train_patches,
         fixed_train_patches_sha256,
         fixed_train_patch_count,
     ) = _apply_fixed_train_selector(
-        dataset=base_train_dataset,
+        dataset=PatchTrainingDataset(
+            PatchTrainingDatasetSpec(
+                bin_path=paths.train.bin_path,
+                csv_path=paths.train.csv_path,
+                split="train",
+                image_size=settings.image_size,
+                channels=3,
+                validate_crc=validate_crc,
+            ),
+        ),
         selector_path=request.fixed_train_patches,
+    )
+    train_sampler = _train_sampler_plan(
+        settings=settings,
+        fixed_train_patch_count=fixed_train_patch_count,
+        dataset_size=len(train_dataset),
+        batch_size=settings.batch_size,
+        distributed=distributed,
     )
     validation_dataset = PatchTrainingDataset(
         PatchTrainingDatasetSpec(
@@ -1239,12 +1345,14 @@ def _prepare_data_surface(
         batch_size=settings.batch_size,
         plan=plan,
         distributed=distributed,
+        full_batch_repeated=train_sampler.full_batch_repeated,
     )
     validation_loader = _loader(
         dataset=validation_dataset,
         batch_size=settings.batch_size,
         plan=plan,
         distributed=distributed,
+        full_batch_repeated=False,
     )
     return _DataSurface(
         root=paths.root,
@@ -1258,6 +1366,13 @@ def _prepare_data_surface(
         fixed_train_patches=fixed_train_patches,
         fixed_train_patches_sha256=fixed_train_patches_sha256,
         fixed_train_patch_count=fixed_train_patch_count,
+        train_sampler_policy=train_sampler.policy,
+        train_effective_global_epoch_samples=(
+            train_sampler.effective_global_epoch_samples
+        ),
+        train_effective_per_rank_epoch_samples=(
+            train_sampler.effective_per_rank_epoch_samples
+        ),
     )
 
 
@@ -1335,9 +1450,20 @@ def _loader(
     batch_size: int,
     plan: SelectedRuntimePlan,
     distributed: _DistributedContext,
+    full_batch_repeated: bool,
 ) -> DataLoader[PatchTrainingBatch]:
     sampler: Sampler[int]
-    if distributed.should_use_ddp:
+    if full_batch_repeated:
+        sampler = cast(
+            "Sampler[int]",
+            _FixedSelectorFullBatchSampler(
+                dataset_size=len(dataset),
+                batch_size=batch_size,
+                world_size=distributed.world_size if distributed.should_use_ddp else 1,
+                rank=distributed.rank if distributed.should_use_ddp else 0,
+            ),
+        )
+    elif distributed.should_use_ddp:
         sampler = cast(
             "Sampler[int]",
             DistributedSampler(
@@ -1365,6 +1491,85 @@ def _loader(
         drop_last=False,
     )
     return cast("DataLoader[PatchTrainingBatch]", loader)
+
+
+def _uses_fixed_tiny_full_batch_sampler(
+    *,
+    settings: _RunnerSettings,
+    fixed_train_patch_count: int,
+) -> bool:
+    return (
+        settings.run_mode == _TINY_RUN_MODE
+        and fixed_train_patch_count == FIXED_32_TRAIN_OVERFIT_COUNT
+    )
+
+
+def _train_sampler_plan(
+    *,
+    settings: _RunnerSettings,
+    fixed_train_patch_count: int,
+    dataset_size: int,
+    batch_size: int,
+    distributed: _DistributedContext,
+) -> _TrainSamplerPlan:
+    full_batch_repeated = _uses_fixed_tiny_full_batch_sampler(
+        settings=settings,
+        fixed_train_patch_count=fixed_train_patch_count,
+    )
+    (
+        effective_global_epoch_samples,
+        effective_per_rank_epoch_samples,
+    ) = _effective_train_epoch_samples(
+        dataset_size=dataset_size,
+        batch_size=batch_size,
+        distributed=distributed,
+        full_batch_repeated=full_batch_repeated,
+    )
+    return _TrainSamplerPlan(
+        policy=_train_sampler_policy(
+            distributed=distributed,
+            full_batch_repeated=full_batch_repeated,
+        ),
+        full_batch_repeated=full_batch_repeated,
+        effective_global_epoch_samples=effective_global_epoch_samples,
+        effective_per_rank_epoch_samples=effective_per_rank_epoch_samples,
+    )
+
+
+def _train_sampler_policy(
+    *,
+    distributed: _DistributedContext,
+    full_batch_repeated: bool,
+) -> str:
+    if full_batch_repeated:
+        return _FIXED32_TINY_FULL_BATCH_SAMPLER_POLICY
+    if distributed.should_use_ddp:
+        return _DEFAULT_DDP_SAMPLER_POLICY
+    return _DEFAULT_SEQUENTIAL_SAMPLER_POLICY
+
+
+def _effective_train_epoch_samples(
+    *,
+    dataset_size: int,
+    batch_size: int,
+    distributed: _DistributedContext,
+    full_batch_repeated: bool,
+) -> tuple[int, int]:
+    world_size = distributed.world_size if distributed.should_use_ddp else 1
+    if full_batch_repeated:
+        per_rank = len(
+            fixed_selector_full_batch_indices(
+                dataset_size=dataset_size,
+                batch_size=batch_size,
+                world_size=world_size,
+                rank=0,
+            ),
+        )
+        return per_rank * world_size, per_rank
+    if distributed.should_use_ddp:
+        per_rank = math.ceil(dataset_size / world_size)
+        return per_rank * world_size, per_rank
+    return dataset_size, dataset_size
 
 
 def _place_model(
@@ -2200,6 +2405,7 @@ def _local_readiness_summary(
         and components.gate_health_summary.get("status") == _LOCAL_STATUS
         and components.data_source == "ubc-pre-shuffled"
         and components.amp_step_skipped_count == 0
+        and components.nonfinite_count == 0
     )
     blockers: list[str] = []
     if components.plan_applied.get("status") != _LOCAL_STATUS:
@@ -2210,6 +2416,8 @@ def _local_readiness_summary(
         blockers.append("missing_dual_t4_ddp_rank_device_proof")
     if components.amp_step_skipped_count > 0:
         blockers.append("amp_step_skip_observed")
+    if components.nonfinite_count > 0:
+        blockers.append("nonfinite_train_metric_observed")
     blockers.append("fixed_32_selector_real_false_until_spec0008")
     return cast(
         "JsonObject",
@@ -2233,6 +2441,7 @@ def _local_readiness_summary(
                 "ubc_data_surface": components.data_source,
                 "ddp_rank_device": _string_value(components.ddp_proof.get("status")),
                 "amp_step_skipped_count": components.amp_step_skipped_count,
+                "nonfinite_count": components.nonfinite_count,
             },
             "launch_blockers_remaining": blockers,
             "failure_kind": "" if remote_ready else "local_non_promotable",
@@ -2264,7 +2473,9 @@ def _training_summary(  # noqa: PLR0913
     return cast(
         "JsonObject",
         {
-            "status": _LOCAL_STATUS if last_result.nonfinite_count == 0 else _FAIL,
+            "status": _LOCAL_STATUS
+            if _nonfinite_metric_count(metric_rows) == 0
+            else _FAIL,
             "status_scope": _STATUS_SCOPE,
             "proof_scope": _STATUS_SCOPE,
             "full_run_eligible": False,
@@ -2312,6 +2523,17 @@ def _training_summary(  # noqa: PLR0913
             else str(data_surface.fixed_train_patches),
             "fixed_train_patches_sha256": data_surface.fixed_train_patches_sha256,
             "fixed_train_patch_count": data_surface.fixed_train_patch_count,
+            "train_sampler_policy": data_surface.train_sampler_policy,
+            "train_effective_global_epoch_samples": (
+                data_surface.train_effective_global_epoch_samples
+            ),
+            "train_effective_per_rank_epoch_samples": (
+                data_surface.train_effective_per_rank_epoch_samples
+            ),
+            "fixed_train_repeated_to_full_batch": (
+                data_surface.train_sampler_policy
+                == _FIXED32_TINY_FULL_BATCH_SAMPLER_POLICY
+            ),
             "checkpoint_count": len(checkpoints),
             "final_checkpoint": _checkpoint_payload(
                 final_checkpoint,
@@ -2334,7 +2556,7 @@ def _training_summary(  # noqa: PLR0913
             "gate_health_status": _string_value(gate_health_summary.get("status")),
             "reconstruction_sample_nonblank": reconstruction_nonblank,
             "last_loss": cast("JsonObject", last_result.losses.detached_scalars()),
-            "nonfinite_count": last_result.nonfinite_count,
+            "nonfinite_count": _nonfinite_metric_count(metric_rows),
         },
     )
 
@@ -2383,6 +2605,17 @@ def _selected_runtime_debug_summary(  # noqa: PLR0913
             else str(data_surface.fixed_train_patches),
             "fixed_train_patches_sha256": data_surface.fixed_train_patches_sha256,
             "fixed_train_patch_count": data_surface.fixed_train_patch_count,
+            "train_sampler_policy": data_surface.train_sampler_policy,
+            "train_effective_global_epoch_samples": (
+                data_surface.train_effective_global_epoch_samples
+            ),
+            "train_effective_per_rank_epoch_samples": (
+                data_surface.train_effective_per_rank_epoch_samples
+            ),
+            "fixed_train_repeated_to_full_batch": (
+                data_surface.train_sampler_policy
+                == _FIXED32_TINY_FULL_BATCH_SAMPLER_POLICY
+            ),
             "uses_resolve_patch_data_paths": True,
             "uses_patch_training_dataset": True,
             "uses_collate_patch_training_samples": True,
@@ -2405,6 +2638,7 @@ def _tiny_overfit_summary(
     successful_rows = _successful_metric_rows(metric_rows)
     l1_values = [float(row["l1_loss"]) for row in successful_rows]
     recon_values = [float(row["recon_loss"]) for row in successful_rows]
+    batch_size_values = _batch_size_values(successful_rows)
     smoothing_window = min(_TINY_SMOOTHING_WINDOW, len(successful_rows))
     initial_l1 = _mean(l1_values[:smoothing_window])
     final_l1 = _mean(l1_values[-smoothing_window:])
@@ -2443,10 +2677,23 @@ def _tiny_overfit_summary(
             else str(data_surface.fixed_train_patches),
             "fixed_train_patches_sha256": data_surface.fixed_train_patches_sha256,
             "patch_count": data_surface.fixed_train_patch_count,
+            "train_sampler_policy": data_surface.train_sampler_policy,
+            "train_effective_global_epoch_samples": (
+                data_surface.train_effective_global_epoch_samples
+            ),
+            "train_effective_per_rank_epoch_samples": (
+                data_surface.train_effective_per_rank_epoch_samples
+            ),
+            "fixed_train_repeated_to_full_batch": (
+                data_surface.train_sampler_policy
+                == _FIXED32_TINY_FULL_BATCH_SAMPLER_POLICY
+            ),
             "optimizer_steps": _successful_optimizer_update_count(metric_rows),
             "metric_row_count": len(metric_rows),
+            "successful_metric_row_count": len(successful_rows),
             "amp_step_skipped_count": amp_skip_count,
             "nonfinite_count": nonfinite_count,
+            "observed_batch_sizes": batch_size_values,
             "smoothing_window_steps": smoothing_window,
             "corruption_strategy": _observed_corruption_strategy(
                 metric_rows,
@@ -2593,6 +2840,16 @@ def _successful_metric_rows(rows: Sequence[CsvRow]) -> tuple[CsvRow, ...]:
 
 def _amp_step_skipped_count(rows: Sequence[CsvRow]) -> int:
     return sum(1 for row in rows if row.get("amp_step_skipped") == "1")
+
+
+def _nonfinite_metric_count(rows: Sequence[CsvRow]) -> int:
+    return sum(int(row.get("nonfinite_count", "0")) for row in rows)
+
+
+def _batch_size_values(rows: Sequence[CsvRow]) -> tuple[int, ...]:
+    return tuple(
+        sorted({int(row["batch_size"]) for row in rows if row.get("batch_size")}),
+    )
 
 
 def _best_l1(rows: Sequence[CsvRow]) -> float:

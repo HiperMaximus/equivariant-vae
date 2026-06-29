@@ -51,6 +51,9 @@ PATCH_SIZE = 8
 TRAIN_PATCH_COUNT = 40
 VALIDATION_PATCH_COUNT = 25
 FIXED32_SELECTOR_COUNT = 32
+REMOTE_TINY_EFFECTIVE_GLOBAL_EPOCH_SAMPLES = 48
+REMOTE_TINY_EFFECTIVE_PER_RANK_EPOCH_SAMPLES = 24
+SELECTED_RUNTIME_BATCH_SIZE = 12
 MASKED_HOLDOUT_WSI = "synthetic_wsi_0000"
 
 
@@ -776,6 +779,32 @@ def test_selected_runtime_verify_output_rejects_thin_gate_health_csv(
     )
 
 
+def test_selected_runtime_verify_output_requires_tiny_sampler_evidence(
+    tmp_path: Path,
+) -> None:
+    """Downloaded tiny proof must show the fixed-32 full-batch sampler ran."""
+    output_dir, runtime_path = _write_complete_remote_output_fixture(tmp_path)
+    tiny_path = output_dir / "benchmark" / "tiny_overfit_summary.json"
+    tiny = _load_json(tiny_path)
+    tiny["train_sampler_policy"] = "distributed_sampler_shuffle_false_drop_last_false"
+    tiny["fixed_train_repeated_to_full_batch"] = False
+    tiny["observed_batch_sizes"] = [4, SELECTED_RUNTIME_BATCH_SIZE]
+    _write_json(tiny_path, tiny)
+
+    blockers = selected_runtime_gate.verify_selected_runtime_debug_output(
+        output_dir=output_dir,
+        selected_runtime_path=runtime_path,
+    )
+
+    assert "selected_runtime_output_tiny_sampler_policy_mismatch" in blockers
+    assert "selected_runtime_output_tiny_not_repeated_to_full_batch" in blockers
+    assert "selected_runtime_output_tiny_batch_sizes_not_full" in blockers
+    assert (
+        "selected_runtime_output_manifest_hash_mismatch_benchmark_tiny_overfit_summary_json"
+        in (blockers)
+    )
+
+
 def test_selected_runtime_push_readiness_depends_on_structured_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -988,6 +1017,18 @@ def _write_complete_remote_output_fixture(tmp_path: Path) -> tuple[Path, Path]:
             "status": "local_pass",
             "patch_count": 32,
             "optimizer_steps": 128,
+            "successful_metric_row_count": 256,
+            "amp_step_skipped_count": 0,
+            "nonfinite_count": 0,
+            "train_sampler_policy": "fixed32_tiny_full_batch_repeated",
+            "train_effective_global_epoch_samples": (
+                REMOTE_TINY_EFFECTIVE_GLOBAL_EPOCH_SAMPLES
+            ),
+            "train_effective_per_rank_epoch_samples": (
+                REMOTE_TINY_EFFECTIVE_PER_RANK_EPOCH_SAMPLES
+            ),
+            "fixed_train_repeated_to_full_batch": True,
+            "observed_batch_sizes": [SELECTED_RUNTIME_BATCH_SIZE],
             "l1_improvement_fraction": 0.02,
             "recon_loss_improvement_fraction": 0.02,
         },

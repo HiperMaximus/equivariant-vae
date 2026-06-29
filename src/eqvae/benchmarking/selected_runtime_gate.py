@@ -94,6 +94,7 @@ REMOTE_DEBUG_REQUIRED_SUCCESSFUL_STEPS = tuple(
 )
 REMOTE_TINY_MAX_STEP = 128
 REMOTE_TINY_MIN_IMPROVEMENT_FRACTION = 0.01
+REMOTE_TINY_FULL_BATCH_SAMPLER_POLICY = "fixed32_tiny_full_batch_repeated"
 RUNNER_OK_STATUS = "local_pass"
 REMOTE_DEBUG_REQUIRED_TRAIN_STEP_COLUMNS = (
     "event_id",
@@ -432,6 +433,7 @@ def verify_selected_runtime_debug_output(  # noqa: PLR0914
     runtime_payload = _load_json(selected_runtime_path)
     runtime_sha256 = _sha256_file(selected_runtime_path)
     max_batch_size = _int_value(runtime_payload.get("per_device_batch_size"))
+    global_batch_size = _int_value(runtime_payload.get("global_batch_size"))
     training_summary = _load_json(benchmark_dir / "training_summary.json")
     debug_summary = _load_json(benchmark_dir / "selected_runtime_debug_summary.json")
     plan_applied = _load_json(benchmark_dir / "selected_runtime_plan_applied.json")
@@ -453,6 +455,8 @@ def verify_selected_runtime_debug_output(  # noqa: PLR0914
             selector_readiness=selector_readiness,
             tiny_summary=tiny_summary,
             gate_summary=gate_summary,
+            max_batch_size=max_batch_size,
+            global_batch_size=global_batch_size,
         ),
     )
     blockers.extend(
@@ -491,6 +495,8 @@ def _remote_output_json_blockers(  # noqa: C901, PLR0912, PLR0913
     selector_readiness: JsonObject,
     tiny_summary: JsonObject,
     gate_summary: JsonObject,
+    max_batch_size: int,
+    global_batch_size: int,
 ) -> tuple[str, ...]:
     blockers: list[str] = []
     runtime_config = training_summary.get("runtime_config")
@@ -530,25 +536,112 @@ def _remote_output_json_blockers(  # noqa: C901, PLR0912, PLR0913
         blockers.append("selected_runtime_output_fixed32_selector_not_real")
     if selector_readiness.get("status") != OK_STATUS:
         blockers.append("selected_runtime_output_fixed32_selector_not_pass")
-    if tiny_summary.get("status") != RUNNER_OK_STATUS:
-        blockers.append("selected_runtime_output_tiny_overfit_not_pass")
-    if tiny_summary.get("patch_count") != EXPECTED_TINY_SELECTOR_COUNT:
-        blockers.append("selected_runtime_output_tiny_patch_count_not_32")
-    if tiny_summary.get("optimizer_steps") != REMOTE_TINY_MAX_STEP:
-        blockers.append("selected_runtime_output_tiny_steps_not_128")
-    if (
-        _float_value(tiny_summary.get("l1_improvement_fraction"))
-        < REMOTE_TINY_MIN_IMPROVEMENT_FRACTION
-    ):
-        blockers.append("selected_runtime_output_tiny_l1_improvement_low")
-    if (
-        _float_value(tiny_summary.get("recon_loss_improvement_fraction"))
-        < REMOTE_TINY_MIN_IMPROVEMENT_FRACTION
-    ):
-        blockers.append("selected_runtime_output_tiny_recon_improvement_low")
+    blockers.extend(
+        _remote_output_tiny_summary_blockers(
+            tiny_summary=tiny_summary,
+            max_batch_size=max_batch_size,
+            global_batch_size=global_batch_size,
+        ),
+    )
     if gate_summary.get("status") != RUNNER_OK_STATUS:
         blockers.append("selected_runtime_output_gate_summary_not_pass")
     return tuple(blockers)
+
+
+def _remote_output_tiny_summary_blockers(
+    *,
+    tiny_summary: JsonObject,
+    max_batch_size: int,
+    global_batch_size: int,
+) -> tuple[str, ...]:
+    expected_global_epoch_samples = _expected_tiny_global_epoch_samples(
+        global_batch_size=global_batch_size,
+    )
+    expected_per_rank_epoch_samples = _expected_tiny_per_rank_epoch_samples(
+        global_epoch_samples=expected_global_epoch_samples,
+        global_batch_size=global_batch_size,
+        per_device_batch_size=max_batch_size,
+    )
+    checks = (
+        (
+            tiny_summary.get("status") == RUNNER_OK_STATUS,
+            "selected_runtime_output_tiny_overfit_not_pass",
+        ),
+        (
+            tiny_summary.get("patch_count") == EXPECTED_TINY_SELECTOR_COUNT,
+            "selected_runtime_output_tiny_patch_count_not_32",
+        ),
+        (
+            tiny_summary.get("optimizer_steps") == REMOTE_TINY_MAX_STEP,
+            "selected_runtime_output_tiny_steps_not_128",
+        ),
+        (
+            tiny_summary.get("amp_step_skipped_count") == 0,
+            "selected_runtime_output_tiny_amp_skips_nonzero",
+        ),
+        (
+            tiny_summary.get("nonfinite_count") == 0,
+            "selected_runtime_output_tiny_nonfinite_nonzero",
+        ),
+        (
+            tiny_summary.get("train_sampler_policy")
+            == REMOTE_TINY_FULL_BATCH_SAMPLER_POLICY,
+            "selected_runtime_output_tiny_sampler_policy_mismatch",
+        ),
+        (
+            tiny_summary.get("fixed_train_repeated_to_full_batch") is True,
+            "selected_runtime_output_tiny_not_repeated_to_full_batch",
+        ),
+        (
+            tiny_summary.get("train_effective_global_epoch_samples")
+            == expected_global_epoch_samples,
+            "selected_runtime_output_tiny_global_epoch_samples_mismatch",
+        ),
+        (
+            tiny_summary.get("train_effective_per_rank_epoch_samples")
+            == expected_per_rank_epoch_samples,
+            "selected_runtime_output_tiny_per_rank_epoch_samples_mismatch",
+        ),
+        (
+            tiny_summary.get("observed_batch_sizes") == [max_batch_size],
+            "selected_runtime_output_tiny_batch_sizes_not_full",
+        ),
+        (
+            _float_value(tiny_summary.get("l1_improvement_fraction"))
+            >= REMOTE_TINY_MIN_IMPROVEMENT_FRACTION,
+            "selected_runtime_output_tiny_l1_improvement_low",
+        ),
+        (
+            _float_value(tiny_summary.get("recon_loss_improvement_fraction"))
+            >= REMOTE_TINY_MIN_IMPROVEMENT_FRACTION,
+            "selected_runtime_output_tiny_recon_improvement_low",
+        ),
+    )
+    return tuple(blocker for passed, blocker in checks if not passed)
+
+
+def _expected_tiny_global_epoch_samples(*, global_batch_size: int) -> int:
+    if global_batch_size <= 0:
+        return 0
+    return (
+        math.ceil(EXPECTED_TINY_SELECTOR_COUNT / global_batch_size) * global_batch_size
+    )
+
+
+def _expected_tiny_per_rank_epoch_samples(
+    *,
+    global_epoch_samples: int,
+    global_batch_size: int,
+    per_device_batch_size: int,
+) -> int:
+    if (
+        global_epoch_samples <= 0
+        or global_batch_size <= 0
+        or per_device_batch_size <= 0
+    ):
+        return 0
+    world_size = max(1, global_batch_size // per_device_batch_size)
+    return global_epoch_samples // world_size
 
 
 def _remote_output_selector_blockers(

@@ -30,13 +30,25 @@ from eqvae.training.selected_runtime_runner import (
     RankDeviceAssignment,
     SelectedRuntimeEnvironmentProbe,
     build_selected_runtime_torchrun_command,
+    fixed_selector_full_batch_indices,
     validate_selected_runtime_environment,
     validate_selected_runtime_torchrun_command,
 )
 
 SHORT_TRAIN_STEPS = 2
 PARTIAL_BATCH_TRAIN_STEPS = 3
+TINY_FULL_BATCH_TRAIN_STEPS = 4
 SELECTED_RUNTIME_BATCH_SIZE = 12
+DDP_WORLD_SIZE = 2
+DDP_TINY_EPOCH_BATCHES_PER_RANK = 2
+DDP_TINY_PER_RANK_EPOCH_SAMPLES = (
+    SELECTED_RUNTIME_BATCH_SIZE * DDP_TINY_EPOCH_BATCHES_PER_RANK
+)
+DDP_TINY_GLOBAL_EPOCH_SAMPLES = DDP_TINY_PER_RANK_EPOCH_SAMPLES * DDP_WORLD_SIZE
+SINGLE_TINY_EPOCH_BATCHES = 3
+SINGLE_TINY_FULL_BATCH_EPOCH_SAMPLES = (
+    SELECTED_RUNTIME_BATCH_SIZE * SINGLE_TINY_EPOCH_BATCHES
+)
 IMAGE_SIZE = 64
 
 
@@ -304,6 +316,91 @@ def test_selected_runtime_runner_sizes_eps_from_partial_batch(
     assert [row["batch_size"] for row in train_rows] == ["12", "12", "8"]
 
 
+def test_fixed_selector_full_batch_indices_pad_ddp_tiny_batches() -> None:
+    """Tiny-overfit DDP sampler repeats selector rows into full rank batches."""
+    rank0 = fixed_selector_full_batch_indices(
+        dataset_size=FIXED_32_TRAIN_OVERFIT_COUNT,
+        batch_size=SELECTED_RUNTIME_BATCH_SIZE,
+        world_size=DDP_WORLD_SIZE,
+        rank=0,
+    )
+    rank1 = fixed_selector_full_batch_indices(
+        dataset_size=FIXED_32_TRAIN_OVERFIT_COUNT,
+        batch_size=SELECTED_RUNTIME_BATCH_SIZE,
+        world_size=DDP_WORLD_SIZE,
+        rank=1,
+    )
+
+    assert len(rank0) == DDP_TINY_PER_RANK_EPOCH_SAMPLES
+    assert len(rank1) == DDP_TINY_PER_RANK_EPOCH_SAMPLES
+    assert len(rank0) % SELECTED_RUNTIME_BATCH_SIZE == 0
+    assert len(rank1) % SELECTED_RUNTIME_BATCH_SIZE == 0
+    assert set(rank0) | set(rank1) == set(range(FIXED_32_TRAIN_OVERFIT_COUNT))
+    assert len(rank0) + len(rank1) == DDP_TINY_GLOBAL_EPOCH_SAMPLES
+
+
+def test_selected_runtime_tiny_fixed_selector_uses_full_batches(
+    tmp_path: Path,
+) -> None:
+    """Tiny-overfit mode repeats fixed-32 rows instead of emitting tail batches."""
+    config_path = _tiny_runner_config(tmp_path)
+    runtime_config = _runtime_config(tmp_path)
+    data_root = _synthetic_ubc_root(tmp_path / "ubc-root")
+    selector_path = _fixed_selector_for_root(tmp_path, data_root=data_root)
+    output_dir = tmp_path / "runner-tiny-fixed-selector"
+
+    assert (
+        selected_runtime_train_main(
+            [
+                "--config",
+                str(config_path),
+                "--runtime-config",
+                str(runtime_config),
+                "--data",
+                "ubc-pre-shuffled",
+                "--data-root",
+                str(data_root),
+                "--fixed-train-patches",
+                str(selector_path),
+                "--output-dir",
+                str(output_dir),
+                "--run-name",
+                "spec0008_tiny_full_batch_selector",
+                "--max-train-steps",
+                str(TINY_FULL_BATCH_TRAIN_STEPS),
+                "--max-val-steps",
+                "1",
+                "--save-every-steps",
+                str(TINY_FULL_BATCH_TRAIN_STEPS),
+                "--dry-run",
+            ],
+        )
+        == 0
+    )
+
+    summary = _load_json(output_dir / "benchmark" / "training_summary.json")
+    tiny = _load_json(output_dir / "benchmark" / "tiny_overfit_summary.json")
+    train_rows = _load_csv(output_dir / "metrics" / "train_steps.csv")
+
+    assert summary["fixed_train_patch_count"] == FIXED_32_TRAIN_OVERFIT_COUNT
+    assert summary["fixed_train_repeated_to_full_batch"] is True
+    assert summary["train_sampler_policy"] == "fixed32_tiny_full_batch_repeated"
+    assert (
+        summary["train_effective_global_epoch_samples"]
+        == SINGLE_TINY_FULL_BATCH_EPOCH_SAMPLES
+    )
+    assert (
+        summary["train_effective_per_rank_epoch_samples"]
+        == SINGLE_TINY_FULL_BATCH_EPOCH_SAMPLES
+    )
+    assert tiny["patch_count"] == FIXED_32_TRAIN_OVERFIT_COUNT
+    assert tiny["fixed_train_repeated_to_full_batch"] is True
+    assert tiny["amp_step_skipped_count"] == 0
+    assert tiny["nonfinite_count"] == 0
+    assert tiny["observed_batch_sizes"] == [SELECTED_RUNTIME_BATCH_SIZE]
+    assert [row["batch_size"] for row in train_rows] == ["12", "12", "12", "12"]
+
+
 def test_selected_runtime_torchrun_command_validation(tmp_path: Path) -> None:
     """The launcher builder is tokenized and rejects misleading commands."""
     plan = parse_selected_runtime_plan(_runtime_config(tmp_path))
@@ -458,6 +555,17 @@ def _runner_config(tmp_path: Path) -> Path:
     }
     _write_json(config_path, payload)
     return config_path
+
+
+def _tiny_runner_config(tmp_path: Path) -> Path:
+    config_path = _runner_config(tmp_path)
+    payload = _load_json(config_path)
+    run = _object(payload, "run")
+    run["name"] = "spec0008_selected_runtime_tiny_runner"
+    run["mode"] = "kaggle_tiny_overfit"
+    tiny_path = tmp_path / "tiny_runner_config.json"
+    _write_json(tiny_path, payload)
+    return tiny_path
 
 
 def _runtime_config(tmp_path: Path) -> Path:

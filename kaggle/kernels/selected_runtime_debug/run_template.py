@@ -63,6 +63,10 @@ TINY_MAX_STEP = 128
 TINY_SAVE_EVERY_STEP = 64
 FIXED_TINY_SELECTOR_COUNT = 32
 TINY_MIN_IMPROVEMENT_FRACTION = 0.01
+TINY_FULL_BATCH_SAMPLER_POLICY = "fixed32_tiny_full_batch_repeated"
+TINY_EXPECTED_BATCH_SIZE = 12
+TINY_EFFECTIVE_GLOBAL_EPOCH_SAMPLES = 48
+TINY_EFFECTIVE_PER_RANK_EPOCH_SAMPLES = 24
 IMPORT_ARTIFACT = "selected_runtime_debug_import.json"
 ALLOWED_BENCHMARK_ARTIFACTS = {
     "artifact_manifest.json",
@@ -983,6 +987,35 @@ def _validate_real_runner_artifacts(  # noqa: C901, PLR0912, PLR0914, PLR0915
         raise RuntimeError(message)
     if tiny_summary.get("optimizer_steps") != TINY_MAX_STEP:
         message = "selected-runtime tiny-overfit must run exactly the tiny cap"
+        raise RuntimeError(message)
+    if tiny_summary.get("amp_step_skipped_count") != 0:
+        message = "selected-runtime tiny-overfit must have zero AMP skipped updates"
+        raise RuntimeError(message)
+    if tiny_summary.get("nonfinite_count") != 0:
+        message = "selected-runtime tiny-overfit must have zero nonfinite rows"
+        raise RuntimeError(message)
+    if tiny_summary.get("train_sampler_policy") != TINY_FULL_BATCH_SAMPLER_POLICY:
+        message = "selected-runtime tiny-overfit full-batch sampler was not used"
+        raise RuntimeError(message)
+    if tiny_summary.get("fixed_train_repeated_to_full_batch") is not True:
+        message = (
+            "selected-runtime tiny-overfit did not repeat selector to full batches"
+        )
+        raise RuntimeError(message)
+    if (
+        tiny_summary.get("train_effective_global_epoch_samples")
+        != TINY_EFFECTIVE_GLOBAL_EPOCH_SAMPLES
+    ):
+        message = "selected-runtime tiny-overfit global epoch samples mismatch"
+        raise RuntimeError(message)
+    if (
+        tiny_summary.get("train_effective_per_rank_epoch_samples")
+        != TINY_EFFECTIVE_PER_RANK_EPOCH_SAMPLES
+    ):
+        message = "selected-runtime tiny-overfit per-rank epoch samples mismatch"
+        raise RuntimeError(message)
+    if tiny_summary.get("observed_batch_sizes") != [TINY_EXPECTED_BATCH_SIZE]:
+        message = "selected-runtime tiny-overfit did not use full bs12 batches"
         raise RuntimeError(message)
     if tiny_summary.get("l1_improvement_fraction", 0.0) < TINY_MIN_IMPROVEMENT_FRACTION:
         message = "selected-runtime tiny-overfit L1 improvement is below threshold"
