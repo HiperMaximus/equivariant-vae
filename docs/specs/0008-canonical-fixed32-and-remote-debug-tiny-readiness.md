@@ -326,11 +326,18 @@ kaggle/kernels/selected_runtime_debug` passes through that path with only the
 known quota warning. Follow-up adversarial review removed the remaining raw
 `kaggle auth print-access-token` probe from `api-check`; auth is now proven by
 wrapped endpoint calls. After fresh explicit approval for the narrow retry,
-Kaggle accepted selected-runtime debug/tiny version 5 and the immediate guarded
+Kaggle accepted selected-runtime debug/tiny version 5. The immediate guarded
 status read at `2026-06-29 03:27 -0500` returned
-`KernelWorkerStatus.RUNNING`. The next action is a later guarded status read,
-then download and strict `--verify-output` if the run is terminal. This is not
-approval for the first full long run.
+`KernelWorkerStatus.RUNNING`; the guarded follow-up status read returned
+`KernelWorkerStatus.COMPLETE`. Outputs were downloaded to
+`runs/kaggle/selected_runtime_debug_v5`, and strict
+`eqvae.cli.selected_runtime_gate --verify-output` passed. The v5 gate summary
+has no remaining launch blockers, canonical real fixed-32 selector generation
+passed, tiny-overfit had zero AMP skips and zero nonfinite rows, and the nested
+tiny metric CSV proved 256 rank rows over 128 optimizer steps. Spec 0008 remote
+debug/tiny readiness is therefore proved. The next candidate action is the
+first full real selected-runtime run, which still requires fresh explicit
+approval and is not launched by this proof.
 
 ## Acceptance Criteria
 

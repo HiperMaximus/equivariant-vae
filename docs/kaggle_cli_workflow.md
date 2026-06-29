@@ -438,10 +438,14 @@ auth through wrapped `kernels`/`datasets` endpoint calls.
 After fresh explicit approval for the narrow retry, the selected-runtime
 debug/tiny v5 push passed the guarded preflight and Kaggle accepted version 5 on
 2026-06-29. The immediate guarded status read at `2026-06-29 03:27 -0500`
-returned `KernelWorkerStatus.RUNNING`. Do not poll continuously; after about
-`2026-06-29 04:00 -0500` or later, run the guarded status command, and if the
-run is terminal download to `runs/kaggle/selected_runtime_debug_v5` before
-running strict `--verify-output`.
+returned `KernelWorkerStatus.RUNNING`, and the guarded follow-up status read
+returned `KernelWorkerStatus.COMPLETE`. Outputs were downloaded to
+`runs/kaggle/selected_runtime_debug_v5`; strict `--verify-output` passed with
+canonical real fixed-32 selector generation, all selected-runtime debug gate
+components passing, no remaining launch blockers, zero tiny AMP skips, zero
+tiny nonfinite rows, and 256 nested tiny metric rows across ranks 0/1. The
+first full real selected-runtime run is now the next candidate action, with
+fresh explicit approval required.
 
 The user visually confirmed the Kaggle web UI quota on 2026-06-11: phone
 verification is complete, identity verification is not complete, and Kaggle GPU

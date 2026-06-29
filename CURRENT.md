@@ -68,9 +68,11 @@ it to the child CLI via a temporary 0600 token file; selected-runtime
 `api-check` no longer uses the raw `kaggle auth print-access-token` probe and
 now proves auth through wrapped endpoint calls. A fresh live selected-runtime
 read-only preflight passes except for the already-known quota endpoint warning.
-This is workflow plumbing only; selected-runtime debug/tiny v5 is now pushed
-and running, and still needs terminal status, download, and strict
-`--verify-output` pass before any remote-proof claim.
+This is workflow plumbing only; selected-runtime debug/tiny v5 has now
+completed, downloaded, and passed the strict `--verify-output` gate. The debug
+kernel remains non-promotable by design (`full_run_eligible = false`), but Spec
+0008's remote debug/resume/artifact/gate/tiny readiness proof has no remaining
+launch blockers.
 No long real training run should be requested until the real UBC/DDP/AMP debug,
 resume, artifact, gate-health, canonical selector, and tiny-overfit proofs
 pass.
@@ -110,13 +112,35 @@ fresh OAuth wrapper, Kaggle accepted
 `maximusshtefan/eqvae-selected-runtime-debug` version 5 at
 https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-debug, and
 the immediate guarded status read at `2026-06-29 03:27 -0500` returned
-`KernelWorkerStatus.RUNNING`. Do not actively poll in-turn; the next concrete
-action is, after about `2026-06-29 04:00 -0500` or later, run
-`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh
-status-selected-runtime-debug`. If terminal, download to
-`runs/kaggle/selected_runtime_debug_v5` and run the strict
-`eqvae.cli.selected_runtime_gate --verify-output` command. This remains not
-approval for the long full run.
+`KernelWorkerStatus.RUNNING`. The guarded follow-up status read returned
+`KernelWorkerStatus.COMPLETE`. Outputs were downloaded to
+`runs/kaggle/selected_runtime_debug_v5`, and strict local verification passed:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-output \
+  --output-dir runs/kaggle/selected_runtime_debug_v5 \
+  --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json
+```
+
+The gate summary has `status = "local_pass"`,
+`status_scope = "permission_gated_remote_debug_tiny_proof"`,
+`launch_blockers_remaining = []`, and component statuses `local_pass` for
+artifact manifest, checkpoint/resume, gate health, real UBC debug,
+selected-runtime plan application, and tiny overfit, plus selector generation
+`pass`. The selector proof is canonical real UBC:
+`fixed_32_selector_real = true`, `remote_selector_generation_ready = true`,
+`selector_count = 32`, dataset slug
+`maximusshtefan/patches-pre-shuffled-ubc-ocean`, train CSV SHA256
+`8fc4959f7de006eed259f818ef2cc4ea03d1f3ec6ba483bf7229c04562f22a52`, train
+binary size `58982400064`, header CRC32 `1289496176`, and selector SHA256
+`15e32a5e54210588bcbe4bfb55afd0f32799b184d39b89ccbf098627cdeee4a1`.
+Tiny-overfit passed the hardened AMP proof with `grad_scaler_init_scale =
+16384.0`, `amp_step_skipped_count = 0`, `nonfinite_count = 0`, 128 optimizer
+steps, 256 nested tiny metric rows over ranks 0/1, observed batch sizes `[12]`,
+`l1_improvement_fraction = 0.3546171902297934`, and
+`recon_loss_improvement_fraction = 0.30851685095892983`. The first full real
+selected-runtime run is now the next candidate action, but it requires fresh
+explicit approval and is not launched by this proof.
 
 Selected-runtime debug/tiny v1 push status, 2026-06-28: local source commit
 `5591737` (`Remove stale selected runtime blocker`) was clean, the selected
