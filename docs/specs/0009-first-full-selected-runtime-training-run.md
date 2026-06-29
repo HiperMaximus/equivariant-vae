@@ -1,9 +1,10 @@
 # Spec 0009: First Full Selected-Runtime Training Run
 
-Status: implemented locally; remote launch not approved
+Status: full kernel version 1 pushed; awaiting approved status/output checks
 Implementation readiness: guarded full-run workflow exists locally and passed
-the required local verification gates; remote push remains blocked until
-explicit user approval of the exact command.
+the required local verification gates; the first remote push was explicitly
+approved and accepted by Kaggle, while status/output checks remain approval
+gated.
 Owner/workstream: comparable non-equivariant VAE baseline, first full Kaggle run
 Last updated: 2026-06-29
 
@@ -20,8 +21,11 @@ baseline training run.
 
 The local implementation now adds the full-run config, runner mode, dedicated
 Kaggle kernel, shell guards, local preflight, and strict full-output verifier
-described here. Do not request remote approval until local verification and
-adversarial review pass, and do not launch without fresh explicit approval.
+described here. Local verification and adversarial review passed. The first
+remote full-kernel push was then explicitly approved and accepted as
+`maximusshtefan/eqvae-selected-runtime-full` version 1 at
+https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-full. Do not
+run status reads or output downloads without fresh explicit approval.
 
 ## Non-Goals
 
@@ -258,8 +262,9 @@ Local verification on 2026-06-29 passed after adversarial fixes:
   The local preflight/quality scripts now default to process-unique
   self-cleaning scratch under `runs/local_tmp/...`, and runner preflight output
   is no longer left under `runs/local_preflight`.
-- No Kaggle full-run push, status read, output download, or other remote action
-  was run.
+- The first full-kernel push was later approved and accepted by Kaggle as
+  version 1. No status read, output download, or full-output verification has
+  been run yet.
 
 Adversarial review results:
 
@@ -282,32 +287,35 @@ Adversarial review results:
   retained interval checkpoint metadata plus prior best-validation state, and
   full-run resume fails closed when required prior train history is missing.
 
-Expected remote sequence after explicit approval, with exact output directory
-chosen at request time:
+Remote sequence and current state:
 
 ```bash
+# Already approved and accepted as Kaggle kernel version 1 on 2026-06-29:
 KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 \
   ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_full
 
+# Still requires explicit approval:
 KAGGLE_REMOTE_CONFIRMED=1 \
   ./scripts/kaggle_kernel.sh status-selected-runtime-full
 
+# Still requires explicit approval after the run completes:
 KAGGLE_REMOTE_CONFIRMED=1 \
   ./scripts/kaggle_kernel.sh output-selected-runtime-full runs/kaggle/selected_runtime_full_v1
 ```
 
-Do not run those commands until implementation and approval are complete.
+There is no `push-selected-runtime-full` action; the full launch uses the
+generic guarded `push` action with `kaggle/kernels/selected_runtime_full`.
 
 ## Remaining Blockers
 
-- No Kaggle full-run push, status read, or output download has been approved or
-  attempted for Spec 0009.
+- No Kaggle full-run status read or output download has been approved or
+  attempted after the accepted version 1 push.
 - The strict full-output verifier is implemented and covered by synthetic
   artifact tests, but it cannot verify a real full-run output until an approved
   Kaggle run is downloaded.
-- The next remote approval request must still name the exact command, kernel id,
-  selected-runtime artifact, target update count, projected duration, output
-  directory, polling cadence, and confirmation variables.
+- The next remote approval request must still name the exact status command,
+  kernel id, selected-runtime artifact, target update count, projected duration,
+  output directory, polling cadence, and confirmation variables.
 - Final paper metrics, full evaluator artifacts, and sealed masked-WSI test
   evidence remain later specs/work items.
 

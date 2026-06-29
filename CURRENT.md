@@ -74,7 +74,9 @@ completed, downloaded, and passed the strict `--verify-output` gate. The debug
 kernel remains non-promotable by design (`full_run_eligible = false`), but Spec
 0008's remote debug/resume/artifact/gate/tiny readiness proof has no remaining
 launch blockers.
-No long real training run has been approved, launched, downloaded, or verified.
+The first long selected-runtime training kernel push has been explicitly
+approved and launched on Kaggle as version 1; it has not yet been status-checked,
+downloaded, or verified.
 Spec 0009 is implemented locally: `configs/spec0001/non_eq_vae_selected_runtime_full.json`
 defines the 10-epoch/125000-update selected-runtime full config; the runner now
 has a `kaggle_selected_runtime_full_train` path with stochastic seeded train VAE
@@ -85,8 +87,7 @@ long-run resume proof fields for GradScaler/CUDA RNG/sampler/progress identity;
 `scripts/kaggle_kernel.sh` has guarded `preflight/status/output` actions plus a
 full-run push guard. The debug/tiny kernel remains non-promotable and must not
 be reused for the long run. The next remote action, if desired later, is an
-exact approval request for the dedicated full-run push command only after local
-review gates are recorded.
+exact approval request for the dedicated full-run status command.
 
 Full-run Kaggle launch requirements for the next agent: use only the dedicated
 full kernel path, not the debug/tiny kernel. The correct push action is the
@@ -103,11 +104,28 @@ remote reads and still require explicit approval plus `KAGGLE_REMOTE_CONFIRMED=1
 `./scripts/kaggle_kernel.sh output-selected-runtime-full runs/kaggle/selected_runtime_full_v1`.
 After a push, do not wait in-turn on the long run; if an approved status check
 shows `RUNNING`, record the local time and suggested next polling time here.
+
+Spec 0009 full-run remote push status, 2026-06-29: the first approved command
+used the nonexistent action `push-selected-runtime-full`; the script printed
+usage and exited locally before any Kaggle remote call. The corrected approved
+command first blocked locally, again before any Kaggle remote call, because the
+real push guard rejected dirty-worktree payload provenance. The source changes
+were committed as `c02b538` (`Implement selected runtime full run prep`), the
+ignored `kaggle/kernels/selected_runtime_full/run.py` was rebuilt from that
+clean commit, and the clean guarded command
+`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_full`
+was accepted by Kaggle at `2026-06-29 18:10 -0500` as
+`maximusshtefan/eqvae-selected-runtime-full` version 1:
+https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-full. No
+status read, output download, or full-output verification has been run yet.
+Next exact action, only after explicit approval, is:
+`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-full`.
 Commit `d02204c` (`Implement selected runtime local mechanics`) recorded Spec
 0006 plus adversarial fixes. Spec 0007 is implemented locally and Spec 0008
 remote debug/tiny readiness is proved by v5. On 2026-06-28/29, the user
-approved only the narrow selected-runtime debug/tiny Kaggle actions; this is not
-approval for the first full long run. Historical provenance follows.
+approved only the narrow selected-runtime debug/tiny Kaggle actions before the
+later explicit full-kernel push approval recorded above. Historical provenance
+follows.
 
 2026-06-29 first full-run planning update: three read-only adversarial subagent
 audits reviewed the post-Spec-0008 state. Findings: (1) no guarded first full
@@ -138,8 +156,8 @@ wording fix: `git diff --check`, trailing-whitespace scan on the edited files,
 repo `./scripts/agent_preflight.sh`, and workspace
 `/home/maximus/Documents/Tesis/agent_preflight.sh` passed.
 
-Spec 0009 local implementation update, 2026-06-29: the full-run surface now
-exists locally but has not touched Kaggle remotely. Added the full config,
+Spec 0009 local implementation update, 2026-06-29: the full-run surface was
+implemented locally before the later approved Kaggle push. Added the full config,
 dedicated `selected_runtime_full` Kaggle kernel, full-run shell guards and
 preflight, strict `--verify-full-output` verifier, and focused tests. The
 runner derives the selected v5 schedule into exactly 10 epochs, 12500 updates
@@ -185,11 +203,10 @@ passed`, basedpyright clean), `git diff --check`, repo
 `./scripts/agent_preflight.sh`, and workspace
 `/home/maximus/Documents/Tesis/agent_preflight.sh`. Temporary scratch pressure
 was handled by deleting only known local scratch directories under `/tmp` and
-ignored `runs/local_tmp`; no source artifacts were removed. No remote approval
-has been requested and no Kaggle full-run push, status read, output download,
-or other remote action was attempted. Next exact action, only if the user wants
-to launch later, is to request approval for:
-`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_full`.
+ignored `runs/local_tmp`; no source artifacts were removed. This local
+verification is the evidence behind commit `c02b538` and the later approved
+full-kernel version 1 push. Status reads and output downloads remain separate
+approval-gated remote actions.
 
 Selected-runtime debug/tiny v5 auth/push status, 2026-06-29: after explicit
 approval for the narrow selected-runtime debug/tiny v5 push, the local push

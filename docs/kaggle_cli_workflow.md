@@ -10,8 +10,10 @@ downloaded to `runs/kaggle/selected_runtime_debug_v5`, and passed strict
 selector generation, selected-runtime plan application, checkpoint/resume, gate
 health, artifact manifest, zero tiny AMP skips, zero tiny nonfinite rows, and no
 launch blockers. The next work is not another debug/tiny push. Spec 0009 now
-has a local guarded first full selected-runtime training workflow, but the
-remote full run has not been approved, launched, downloaded, or verified.
+has a guarded first full selected-runtime training workflow. The first full
+kernel push was explicitly approved and accepted by Kaggle as
+`maximusshtefan/eqvae-selected-runtime-full` version 1 on 2026-06-29; it has
+not yet been status-checked, downloaded, or verified.
 
 Current full-run surface: `scripts/kaggle_kernel.sh` has
 `preflight-selected-runtime-runner`, `preflight-selected-runtime-debug`,
@@ -19,9 +21,12 @@ Current full-run surface: `scripts/kaggle_kernel.sh` has
 `output-selected-runtime-full`. The full launcher is the dedicated
 `kaggle/kernels/selected_runtime_full` kernel. Do not reuse
 `kaggle/kernels/selected_runtime_debug`, which remains bounded to
-debug/resume/tiny proof steps and writes non-promotable artifacts. The first
-full run still needs an exact approval request before any remote action.
-Kaggle source attachments require a separate confirmation guard.
+debug/resume/tiny proof steps and writes non-promotable artifacts. There is no
+`push-selected-runtime-full` action; full pushes use
+`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_full`.
+The next remote actions are status/output checks, each requiring exact approval
+and `KAGGLE_REMOTE_CONFIRMED=1`. Kaggle source attachments require a separate
+confirmation guard.
 Last updated: 2026-06-29
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
