@@ -429,7 +429,11 @@ KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check kaggle/kernels/se
 ```
 
 That selected-runtime preflight passed on 2026-06-29 through the fresh-token
-wrapper with the known quota warning and `kernels files` working.
+wrapper with the known quota warning and `kernels files` working. A follow-up
+adversarial review removed the old raw `kaggle auth print-access-token` probe
+from `api-check`; the command now reports
+`ok: fresh OAuth wrapper selected for authenticated Kaggle calls` and proves
+auth through wrapped `kernels`/`datasets` endpoint calls.
 
 The user visually confirmed the Kaggle web UI quota on 2026-06-11: phone
 verification is complete, identity verification is not complete, and Kaggle GPU

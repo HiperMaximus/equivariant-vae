@@ -545,7 +545,9 @@ Kaggle SDK, passes it to the child CLI through a temporary 0600 token file, and
 deletes the file when the child exits. This is specifically to avoid stale
 cached `credentials.json` access tokens and shell token-substitution leaks. Use
 `KAGGLE_DISABLE_FRESH_OAUTH=1` only when intentionally debugging the raw Kaggle
-CLI auth path.
+CLI auth path. `api-check` must prove authentication through wrapped endpoint
+calls; it must not depend on a separate raw `kaggle auth print-access-token`
+probe.
 
 ## Metadata Contract
 

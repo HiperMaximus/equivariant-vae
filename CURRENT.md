@@ -65,9 +65,11 @@ a token, but normal `kaggle kernels ...` calls reused a rejected cached token.
 The repo wrapper now runs authenticated Kaggle calls through
 `scripts/kaggle_oauth_exec.py`, which generates a fresh OAuth token and passes
 it to the child CLI via a temporary 0600 token file; selected-runtime
-`api-check` with this path passes except for the already-known quota endpoint
-warning. This is workflow plumbing only; selected-runtime debug/tiny v5 still
-needs a successful push, run, download, and strict `--verify-output` pass.
+`api-check` no longer uses the raw `kaggle auth print-access-token` probe and
+now proves auth through wrapped endpoint calls. A fresh live selected-runtime
+read-only preflight passes except for the already-known quota endpoint warning.
+This is workflow plumbing only; selected-runtime debug/tiny v5 still needs a
+successful push, run, download, and strict `--verify-output` pass.
 No long real training run should be requested until the real UBC/DDP/AMP debug,
 resume, artifact, gate-health, canonical selector, and tiny-overfit proofs
 pass.
@@ -95,10 +97,16 @@ now routes authenticated Kaggle reads/writes through that helper when OAuth
 credentials exist, and `api-check` accepts an optional kernel directory so
 `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check
 kaggle/kernels/selected_runtime_debug` checks the actual selected-runtime
-kernel. Read-only verification of that command passed with the known quota
-warning. Next action after local verification/commit is to request fresh
-explicit approval for the narrow selected-runtime debug/tiny v5 push retry.
-This remains not approval for the long full run.
+kernel. Follow-up adversarial review found that `api-check` still had one raw
+`kaggle auth print-access-token` probe before the wrapped endpoint checks; that
+probe has been removed and covered by `tests/test_kaggle_oauth_exec.py`.
+Fresh live read-only verification of `api-check
+kaggle/kernels/selected_runtime_debug` passed with the known quota warning, and
+`status-selected-runtime-debug` now succeeds through the wrapper and reports
+the old v4 `KernelWorkerStatus.ERROR`. Next action after local
+verification/commit is to request fresh explicit approval for the narrow
+selected-runtime debug/tiny v5 push retry. This remains not approval for the
+long full run.
 
 Selected-runtime debug/tiny v1 push status, 2026-06-28: local source commit
 `5591737` (`Remove stale selected runtime blocker`) was clean, the selected

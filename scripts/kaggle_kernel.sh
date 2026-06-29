@@ -117,6 +117,25 @@ EOF
   kaggle "$@"
 }
 
+kaggle_auth_path_message() {
+  if [[ "${KAGGLE_DISABLE_FRESH_OAUTH:-}" != "1" \
+    && -f "${HOME}/.kaggle/credentials.json" ]]; then
+    if kaggle_tool_python >/dev/null; then
+      echo "ok: fresh OAuth wrapper selected for authenticated Kaggle calls"
+      return
+    fi
+    cat >&2 <<'EOF'
+error: Kaggle OAuth credentials are present, but the Kaggle CLI Python
+interpreter could not be resolved for the fresh-token wrapper.
+Set KAGGLE_DISABLE_FRESH_OAUTH=1 only when intentionally debugging raw Kaggle
+CLI authentication.
+EOF
+    exit 1
+  fi
+
+  echo "ok: raw Kaggle auth path selected for authenticated Kaggle calls"
+}
+
 require_remote_confirmed() {
   if [[ "${KAGGLE_REMOTE_CONFIRMED:-}" != "1" ]]; then
     echo "error: set KAGGLE_REMOTE_CONFIRMED=1 after explicit user permission" >&2
@@ -1713,9 +1732,7 @@ api_check() {
   echo "Kaggle API read-only preflight"
   echo "=============================="
   kaggle --version
-
-  kaggle auth print-access-token >/dev/null
-  echo "ok: OAuth access token can be generated"
+  kaggle_auth_path_message
 
   kaggle_api kernels list --mine --search "${kernel_id#*/}" --csv >/dev/null
   echo "ok: kernels list can see $kernel_id"

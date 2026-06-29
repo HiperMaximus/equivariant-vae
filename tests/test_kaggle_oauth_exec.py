@@ -89,6 +89,66 @@ def test_kaggle_kernel_status_uses_env_shebang_fresh_oauth_wrapper(
     assert report["token_value"] == _FAKE_TOKEN
 
 
+def test_kaggle_kernel_api_check_does_not_use_raw_token_probe(
+    tmp_path: Path,
+) -> None:
+    """The read-only preflight proves auth through wrapped endpoint calls."""
+    repo_root = Path(__file__).resolve().parents[1]
+    fake_bin = _write_fake_api_check_kaggle(tmp_path)
+    sdk_root = _write_fake_kagglesdk(tmp_path)
+    report_path = tmp_path / "api-check-calls.jsonl"
+    home = tmp_path / "home"
+    (home / ".kaggle").mkdir(parents=True)
+    (home / ".kaggle" / "credentials.json").write_text("{}\n", encoding="utf-8")
+    env = _test_env(fake_bin=fake_bin, sdk_root=sdk_root, report_path=report_path)
+    env["HOME"] = str(home)
+    env["KAGGLE_REMOTE_CONFIRMED"] = "1"
+
+    completed = subprocess.run(  # noqa: S603
+        (
+            _required_executable("bash"),
+            str(repo_root / "scripts" / "kaggle_kernel.sh"),
+            "api-check",
+            "kaggle/kernels/selected_runtime_debug",
+        ),
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "raw token probe invoked" not in completed.stderr
+    assert _FAKE_TOKEN not in completed.stdout
+    assert _FAKE_TOKEN not in completed.stderr
+    calls = _load_reports(report_path)
+    assert ["auth", "print-access-token"] not in calls
+    assert [
+        "kernels",
+        "list",
+        "--mine",
+        "--search",
+        "eqvae-selected-runtime-debug",
+        "--csv",
+    ] in calls
+    assert ["kernels", "status", "maximusshtefan/eqvae-selected-runtime-debug"] in calls
+    assert ["kernels", "logs", "maximusshtefan/eqvae-selected-runtime-debug"] in calls
+    assert [
+        "datasets",
+        "files",
+        "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+        "-v",
+    ] in calls
+    assert ["quota", "-v"] in calls
+    assert [
+        "kernels",
+        "files",
+        "maximusshtefan/eqvae-selected-runtime-debug",
+        "-v",
+    ] in calls
+
+
 def test_kaggle_kernel_refuses_silent_raw_fallback_when_oauth_helper_unavailable(
     tmp_path: Path,
 ) -> None:
@@ -160,6 +220,37 @@ def _write_fake_kaggle(tmp_path: Path) -> Path:
     return fake_bin
 
 
+def _write_fake_api_check_kaggle(tmp_path: Path) -> Path:
+    fake_bin = tmp_path / "fake_bin"
+    fake_bin.mkdir(exist_ok=True)
+    fake_kaggle = fake_bin / "kaggle"
+    fake_kaggle.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import os\n"
+        "import pathlib\n"
+        "import sys\n"
+        "argv = sys.argv[1:]\n"
+        "if argv == ['--version']:\n"
+        "    sys.stdout.write('Kaggle CLI test\\n')\n"
+        "    raise SystemExit(0)\n"
+        "if argv == ['auth', 'print-access-token']:\n"
+        "    sys.stderr.write('raw token probe invoked\\n')\n"
+        "    raise SystemExit(86)\n"
+        "token_path = pathlib.Path(os.environ['KAGGLE_API_TOKEN'])\n"
+        "token_value = token_path.read_text(encoding='utf-8')\n"
+        "if token_value != os.environ['FAKE_KAGGLE_TOKEN']:\n"
+        "    sys.stderr.write('wrong token value\\n')\n"
+        "    raise SystemExit(87)\n"
+        "report = pathlib.Path(os.environ['FAKE_KAGGLE_REPORT'])\n"
+        "with report.open('a', encoding='utf-8') as handle:\n"
+        "    handle.write(json.dumps(argv) + '\\n')\n",
+        encoding="utf-8",
+    )
+    fake_kaggle.chmod(0o755)
+    return fake_bin
+
+
 def _write_fake_kagglesdk(tmp_path: Path) -> Path:
     sdk_root = tmp_path / "fake_sdk"
     package = sdk_root / "kagglesdk"
@@ -205,6 +296,13 @@ def _test_env(*, fake_bin: Path, sdk_root: Path, report_path: Path) -> dict[str,
 
 def _load_report(path: Path) -> dict[str, object]:
     return cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+
+
+def _load_reports(path: Path) -> list[list[str]]:
+    return cast(
+        "list[list[str]]",
+        [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()],
+    )
 
 
 def _required_executable(name: str) -> str:

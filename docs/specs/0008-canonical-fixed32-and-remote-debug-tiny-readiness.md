@@ -323,7 +323,9 @@ installed Kaggle SDK and passes it to the child CLI via a temporary 0600 token
 file. The selected-runtime-specific read-only preflight
 `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check
 kaggle/kernels/selected_runtime_debug` passes through that path with only the
-known quota warning. The next action is local verification/commit of that
+known quota warning. Follow-up adversarial review removed the remaining raw
+`kaggle auth print-access-token` probe from `api-check`; auth is now proven by
+wrapped endpoint calls. The next action is local verification/commit of that
 workflow fix, then fresh explicit approval for the narrow selected-runtime
 debug/tiny push retry, expected as v5. This is not approval for the first full
 long run.
