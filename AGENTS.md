@@ -136,6 +136,7 @@ See:
   resume, metric, and artifact behavior.
 - `docs/overleaf_sync_workflow.md` for the full workflow and failure modes.
 - `docs/decisions/README.md` for settled project decisions.
+- `docs/open_follow_ups.md` for the known-issues backlog to revisit.
 - `docs/agentic_review_workflow.md` for independent adversarial review.
 - `docs/spec_driven_development.md`, `docs/specs/README.md`, and active specs
   in `docs/specs/` for implementation contracts.
