@@ -117,8 +117,11 @@ clean commit, and the clean guarded command
 was accepted by Kaggle at `2026-06-29 18:10 -0500` as
 `maximusshtefan/eqvae-selected-runtime-full` version 1:
 https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-full. No
-status read, output download, or full-output verification has been run yet.
-Next exact action, only after explicit approval, is:
+output download or full-output verification has been run yet. The first
+approved status read at `2026-06-29 19:11 -0500` returned
+`KernelWorkerStatus.RUNNING`. Do not actively poll in-turn. Next exact action,
+only after explicit approval around `2026-06-29 21:15 -0500` to
+`2026-06-29 22:15 -0500` or later, is:
 `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-full`.
 Commit `d02204c` (`Implement selected runtime local mechanics`) recorded Spec
 0006 plus adversarial fixes. Spec 0007 is implemented locally and Spec 0008
