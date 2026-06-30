@@ -85,12 +85,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
   :2763-2776`, `_save_checkpoint :870,2306`. Fix: persist per-rank generator/CUDA
   RNG keyed by rank, or re-derive each rank's seed from `(data_seed, rank,
   start_step)`; add a resume test asserting post-resume eps differ across ranks.
-- **FU-013 — DistributedSampler uses shuffle=False, no set_epoch, for 10 epochs.**
-  All epochs traverse the same fixed order. Files: `_loader:2043-2053`,
-  `_cycle_batches:2547-2552`, `_advance_batches:2415-2420`. Fix: either assert/doc
-  that the UBC shard is pre-shuffled (so fixed order is intentional), or enable
-  `shuffle=True` + `set_epoch(epoch)` and make resume replay the seeded shuffle
-  rather than advance over it.
 - **FU-014 — GOAL.md duplicates/out-stales the spec index.** Per-spec status +
   v5/v6 narration in `GOAL.md:107-152` duplicates and disagrees with
   `docs/specs/README.md:28-34`. Fix: strip status tails, keep durable requirement
