@@ -74,9 +74,12 @@ completed, downloaded, and passed the strict `--verify-output` gate. The debug
 kernel remains non-promotable by design (`full_run_eligible = false`), but Spec
 0008's remote debug/resume/artifact/gate/tiny readiness proof has no remaining
 launch blockers.
-The first long selected-runtime training kernel push has been explicitly
-approved and launched on Kaggle as version 1; it has not yet been status-checked,
-downloaded, or verified.
+The first long selected-runtime training kernel push was explicitly approved
+and launched on Kaggle as version 1; it later returned
+`KernelWorkerStatus.CANCEL_ACKNOWLEDGED` and was downloaded locally to
+`runs/kaggle/selected_runtime_full_v1`. The download contains resumable
+checkpoints through update 43750 but no metrics/benchmark summaries, so it is
+not a completed or verified full run.
 Spec 0009 is implemented locally: `configs/spec0001/non_eq_vae_selected_runtime_full.json`
 defines the 10-epoch/125000-update selected-runtime full config; the runner now
 has a `kaggle_selected_runtime_full_train` path with stochastic seeded train VAE
@@ -117,16 +120,47 @@ clean commit, and the clean guarded command
 was accepted by Kaggle at `2026-06-29 18:10 -0500` as
 `maximusshtefan/eqvae-selected-runtime-full` version 1:
 https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-full. No
-output download or full-output verification has been run yet. The first
-approved status read at `2026-06-29 19:11 -0500` returned
+full-output verification has been run yet. The first approved status read at
+`2026-06-29 19:11 -0500` returned
 `KernelWorkerStatus.RUNNING`. The next approved status read at
 `2026-06-30 11:36 -0500` returned
 `KernelWorkerStatus.CANCEL_ACKNOWLEDGED`; the first full run is no longer
-running and has not produced verified local artifacts. No output download or
-full-output verification has been run yet. Next exact action, only after
-explicit approval, is to download any available canceled-run outputs for local
-inspection:
+running and has not produced verified local artifacts. The canceled-run outputs
+were downloaded after explicit approval and inspected locally; see the next
+paragraph. Next action is local resume-policy work, not another remote command.
+
+Spec 0009 full-run v1 output inspection, 2026-06-30: after explicit approval,
+the canceled-run outputs were downloaded with
 `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-selected-runtime-full runs/kaggle/selected_runtime_full_v1`.
+Downloaded artifacts are local only and ignored by Git. Kaggle returned
+checkpoints through `checkpoints/step_043750.pt` plus `best_model.pt`, embedded
+payload files, and `eqvae-selected-runtime-full.log`; it did not return
+`benchmark/` or `metrics/` directories. The log contains only DDP startup
+warnings and no traceback or Python error, so the local evidence points to an
+external Kaggle cancellation/runtime cutoff rather than a model/training
+exception, but the downloaded log does not explicitly state the exact cutoff
+reason. The latest checkpoint is schema `spec0001.checkpoint.v5`, selected row
+`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,
+AMP policy `amp_fp16_conservative`, `optimizer_step =
+successful_optimizer_update_count = 43750` (3.5 epochs of the planned 10,
+35% complete, 81250 updates remaining), and SHA256
+`ceeeb62a789ce38d123b443bd06edfc4ab41f76b5d2bf1474b39a232afeb3e54`.
+It includes optimizer state, LR scheduler state, AMP GradScaler state
+(`scale = 262144.0`), CUDA RNG state, named `train_data` generator state, beta
+progress, DDP sampler progress, and selected-runtime identity. `best_model.pt`
+is from update 31250 with validation L1 `0.1223133542` and SHA256
+`a2fcabd928bf6c1f781939725010540854a2627bddbfe3c8dd4c43a548cd5824`.
+Strict full-output verification failed as expected with
+`selected_runtime_full_output_benchmark_dir_missing`, so v1 is not a completed
+or paper-promotable run. Important resume blocker: current full-run resume code
+requires existing `metrics/train_steps.csv` prefix rows for full-run resumes,
+but v1 has no metrics directory because Kaggle canceled before final CSV/summary
+writing. Do not push a naive resume kernel yet. Next local action is to patch
+Spec 0009 resume behavior for Kaggle-canceled checkpoint-only continuation
+(for example, periodic interval metric flushing for future runs plus an
+explicit checkpoint-only-resume proof/verification policy for this v1 prefix),
+add focused tests and adversarial review, then request exact approval for a
+guarded resume upload/push that supplies `step_043750.pt` to Kaggle.
 Commit `d02204c` (`Implement selected runtime local mechanics`) recorded Spec
 0006 plus adversarial fixes. Spec 0007 is implemented locally and Spec 0008
 remote debug/tiny readiness is proved by v5. On 2026-06-28/29, the user

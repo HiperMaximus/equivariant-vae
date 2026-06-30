@@ -1,12 +1,14 @@
 # Spec 0009: First Full Selected-Runtime Training Run
 
-Status: full kernel version 1 pushed; awaiting approved status/output checks
+Status: full kernel version 1 canceled with resumable checkpoint; continuation
+needs local resume-policy patch
 Implementation readiness: guarded full-run workflow exists locally and passed
 the required local verification gates; the first remote push was explicitly
-approved and accepted by Kaggle, while status/output checks remain approval
-gated.
+approved and accepted by Kaggle, the first status showed `RUNNING`, the next
+status returned `KernelWorkerStatus.CANCEL_ACKNOWLEDGED`, and the canceled-run
+outputs have been downloaded for local inspection.
 Owner/workstream: comparable non-equivariant VAE baseline, first full Kaggle run
-Last updated: 2026-06-29
+Last updated: 2026-06-30
 
 ## Purpose
 
@@ -24,8 +26,11 @@ Kaggle kernel, shell guards, local preflight, and strict full-output verifier
 described here. Local verification and adversarial review passed. The first
 remote full-kernel push was then explicitly approved and accepted as
 `maximusshtefan/eqvae-selected-runtime-full` version 1 at
-https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-full. Do not
-run status reads or output downloads without fresh explicit approval.
+https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-full. Kaggle
+later reported `KernelWorkerStatus.CANCEL_ACKNOWLEDGED`; downloaded outputs
+contain interval checkpoints through update 43750 but no `benchmark/` or
+`metrics/` directories. Do not run further remote status, output, upload, or
+resume-push actions without fresh explicit approval.
 
 ## Non-Goals
 
@@ -263,8 +268,9 @@ Local verification on 2026-06-29 passed after adversarial fixes:
   self-cleaning scratch under `runs/local_tmp/...`, and runner preflight output
   is no longer left under `runs/local_preflight`.
 - The first full-kernel push was later approved and accepted by Kaggle as
-  version 1. No status read, output download, or full-output verification has
-  been run yet.
+  version 1. It later returned `KernelWorkerStatus.CANCEL_ACKNOWLEDGED`; the
+  canceled outputs were downloaded and inspected locally, but strict full-output
+  verification fails as expected because summaries/metrics are missing.
 
 Adversarial review results:
 
@@ -294,11 +300,11 @@ Remote sequence and current state:
 KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 \
   ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_full
 
-# Still requires explicit approval:
+# Already approved; latest observed status was CANCEL_ACKNOWLEDGED:
 KAGGLE_REMOTE_CONFIRMED=1 \
   ./scripts/kaggle_kernel.sh status-selected-runtime-full
 
-# Still requires explicit approval after the run completes:
+# Already approved and downloaded for canceled-run inspection:
 KAGGLE_REMOTE_CONFIRMED=1 \
   ./scripts/kaggle_kernel.sh output-selected-runtime-full runs/kaggle/selected_runtime_full_v1
 ```
@@ -306,16 +312,44 @@ KAGGLE_REMOTE_CONFIRMED=1 \
 There is no `push-selected-runtime-full` action; the full launch uses the
 generic guarded `push` action with `kaggle/kernels/selected_runtime_full`.
 
+Canceled v1 inspection results:
+
+- `runs/kaggle/selected_runtime_full_v1` is ignored local evidence, about
+  368 MB.
+- Kaggle output contains `checkpoints/step_006250.pt` through
+  `checkpoints/step_043750.pt` plus `best_model.pt`, embedded payload files, and
+  `eqvae-selected-runtime-full.log`.
+- The downloaded log has only DDP startup warnings and no traceback, so the
+  evidence points to an external Kaggle cancellation/runtime cutoff rather than
+  an in-code exception. The log does not state the exact cutoff reason.
+- Latest resumable checkpoint:
+  `checkpoints/step_043750.pt`, SHA256
+  `ceeeb62a789ce38d123b443bd06edfc4ab41f76b5d2bf1474b39a232afeb3e54`,
+  `optimizer_step = successful_optimizer_update_count = 43750`, 3.5 of 10
+  epochs, 81250 updates remaining.
+- `best_model.pt` is from update 31250 with validation L1 `0.1223133542`,
+  SHA256
+  `a2fcabd928bf6c1f781939725010540854a2627bddbfe3c8dd4c43a548cd5824`.
+- The latest checkpoint includes optimizer, LR scheduler, AMP GradScaler, CUDA
+  RNG, named `train_data` generator, beta progress, DDP sampler progress, and
+  selected-runtime identity state.
+- Strict full-output verification fails as expected with
+  `selected_runtime_full_output_benchmark_dir_missing`; v1 is not complete or
+  paper-promotable.
+
 ## Remaining Blockers
 
-- No Kaggle full-run status read or output download has been approved or
-  attempted after the accepted version 1 push.
-- The strict full-output verifier is implemented and covered by synthetic
-  artifact tests, but it cannot verify a real full-run output until an approved
-  Kaggle run is downloaded.
-- The next remote approval request must still name the exact status command,
-  kernel id, selected-runtime artifact, target update count, projected duration,
-  output directory, polling cadence, and confirmation variables.
+- A naive resume push is not ready: the current full-run resume path requires
+  existing `metrics/train_steps.csv` prefix rows, but canceled v1 did not output
+  `metrics/` before interruption.
+- Patch the local resume policy before any resume launch: flush train and
+  validation metrics at interval checkpoints for future cancellations, and add
+  an explicit checkpoint-only prefix policy or verifier evidence for continuing
+  from v1's `step_043750.pt`.
+- Add focused tests plus adversarial review for the canceled-output resume path.
+- Any checkpoint upload, Kaggle source attachment, resume push, status read, or
+  output download still requires exact explicit approval and confirmation
+  variables.
 - Final paper metrics, full evaluator artifacts, and sealed masked-WSI test
   evidence remain later specs/work items.
 

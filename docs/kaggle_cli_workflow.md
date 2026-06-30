@@ -12,8 +12,11 @@ health, artifact manifest, zero tiny AMP skips, zero tiny nonfinite rows, and no
 launch blockers. The next work is not another debug/tiny push. Spec 0009 now
 has a guarded first full selected-runtime training workflow. The first full
 kernel push was explicitly approved and accepted by Kaggle as
-`maximusshtefan/eqvae-selected-runtime-full` version 1 on 2026-06-29; it has
-not yet been status-checked, downloaded, or verified.
+`maximusshtefan/eqvae-selected-runtime-full` version 1 on 2026-06-29. It later
+returned `KernelWorkerStatus.CANCEL_ACKNOWLEDGED`; canceled outputs were
+downloaded to `runs/kaggle/selected_runtime_full_v1` with checkpoints through
+update 43750 but without metrics/benchmark summaries, so strict full-output
+verification fails as expected.
 
 Current full-run surface: `scripts/kaggle_kernel.sh` has
 `preflight-selected-runtime-runner`, `preflight-selected-runtime-debug`,
@@ -24,10 +27,12 @@ Current full-run surface: `scripts/kaggle_kernel.sh` has
 debug/resume/tiny proof steps and writes non-promotable artifacts. There is no
 `push-selected-runtime-full` action; full pushes use
 `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_full`.
-The next remote actions are status/output checks, each requiring exact approval
-and `KAGGLE_REMOTE_CONFIRMED=1`. Kaggle source attachments require a separate
-confirmation guard.
-Last updated: 2026-06-29
+The next action is local resume-policy work for the canceled-output checkpoint
+path before any new resume upload/push. Future remote status/output checks,
+checkpoint uploads, kernel-source attachments, or resume pushes each require
+exact approval and the relevant confirmation variables. Kaggle source
+attachments require a separate confirmation guard.
+Last updated: 2026-06-30
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
 source of truth for experiment code, specs, configs, and paper-facing claims.
