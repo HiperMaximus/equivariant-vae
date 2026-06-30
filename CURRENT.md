@@ -119,10 +119,14 @@ was accepted by Kaggle at `2026-06-29 18:10 -0500` as
 https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-full. No
 output download or full-output verification has been run yet. The first
 approved status read at `2026-06-29 19:11 -0500` returned
-`KernelWorkerStatus.RUNNING`. Do not actively poll in-turn. Next exact action,
-only after explicit approval around `2026-06-29 21:15 -0500` to
-`2026-06-29 22:15 -0500` or later, is:
-`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-full`.
+`KernelWorkerStatus.RUNNING`. The next approved status read at
+`2026-06-30 11:36 -0500` returned
+`KernelWorkerStatus.CANCEL_ACKNOWLEDGED`; the first full run is no longer
+running and has not produced verified local artifacts. No output download or
+full-output verification has been run yet. Next exact action, only after
+explicit approval, is to download any available canceled-run outputs for local
+inspection:
+`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-selected-runtime-full runs/kaggle/selected_runtime_full_v1`.
 Commit `d02204c` (`Implement selected runtime local mechanics`) recorded Spec
 0006 plus adversarial fixes. Spec 0007 is implemented locally and Spec 0008
 remote debug/tiny readiness is proved by v5. On 2026-06-28/29, the user
