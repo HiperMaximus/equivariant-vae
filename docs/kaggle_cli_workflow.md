@@ -16,7 +16,19 @@ kernel push was explicitly approved and accepted by Kaggle as
 returned `KernelWorkerStatus.CANCEL_ACKNOWLEDGED`; canceled outputs were
 downloaded to `runs/kaggle/selected_runtime_full_v1` with checkpoints through
 update 43750 but without metrics/benchmark summaries, so strict full-output
-verification fails as expected.
+verification fails as expected. The local runner now uses two-phase full-run
+interval flushing: train, validation, gate-health, partial summaries, and
+partial manifests are fsync/atomic-written before a new interval checkpoint is
+exposed, then refreshed with checkpoint hashes after checkpoint/best-model save.
+Future Kaggle cancellations should preserve resume history beside checkpoints.
+Separate artifact-scope warning: the current Spec 0009 full-run surface still
+does not write the fixed-25 rotated-input versus transformed-latent/embedding
+equivariance artifacts required by the repo goal and issue images. Future
+selected-runtime full launches are training/checkpoint evidence only until
+`fixed25_equivariance_artifact_protocol` is implemented. The runner now prints
+half-epoch boundary breadcrumbs and waits at a final full-run boundary barrier
+after checkpoint/manifest refresh so pulled Kaggle logs show the last completed
+boundary.
 
 Current full-run surface: `scripts/kaggle_kernel.sh` has
 `preflight-selected-runtime-runner`, `preflight-selected-runtime-debug`,

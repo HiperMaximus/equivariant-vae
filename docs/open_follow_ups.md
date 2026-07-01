@@ -40,30 +40,78 @@ Rules to keep this file from rotting (the problem it exists to fix):
 - **FU-007 — DDP eps is identical across ranks (confirmed).** `train_generator`
   is seeded with `settings.data_seed` and global RNG with `global_seed`, with no
   rank offset, so both ranks draw the same reparameterization noise each step.
-  Files: `src/eqvae/training/selected_runtime_runner.py:815-818`, `:2452-2455`,
-  `_train_eps :4018-4047`. Fix: offset the eps generator per rank
+  Files: `src/eqvae/training/selected_runtime_runner.py:876-880` (seed setup),
+  `_train_eps :5009`. Fix: offset the eps generator per rank
   (`data_seed + rank`, or fold rank into a per-step eps seed), keep it seeded;
   coordinate with FU-012 resume; add a gate-health check asserting per-rank
   `eps_abs_mean` differ.
 - **FU-008 — best_model.pt selected on rank-0-local shard and wrong view
   (confirmed).** `_validation_best_l1` does `min()` over per-view rows (so it
   tracks the easier `clean` view) and runs before the cross-rank gather.
-  Files: `selected_runtime_runner.py:2356-2382`, `_validation_best_l1:2700-2702`,
-  `_validation_view_row:2600-2684`. Fix: aggregate per-view L1 across ranks
+  Files: `selected_runtime_runner.py:_save_best_validation_checkpoint:2852`,
+  `_validation_best_l1:3693`, `_validation_view_row:3593`; rank-0-only save via
+  `write_artifacts=_is_primary_rank`. Fix: aggregate per-view L1 across ranks
   (sample-weighted all-reduce; shards uneven with `drop_last=False`), then select
   explicitly on the `deterministic_denoising` view. Mirror in the final/summary path.
-- **FU-009 — CURRENT.md self-contradicts (full run launched vs blocked).**
-  `CURRENT.md:77-130` says v1 pushed/RUNNING; `:1177-1219` Next-Steps and
-  `:1223-1236` Blockers still say selection/debug-gate pending. Fix: rewrite
-  Next-Steps to the one live item (approval-gated `status-selected-runtime-full`
-  → download → `--verify-full-output`); replace the stale blockers. See D-03/D-04.
 - **FU-010 — Two contradictory "selected runtime" values in one doc.**
-  `docs/kaggle_cli_workflow.md:222-226` (v3, 14.04 samples/s, 59h) vs `:3-5`/`:564`
-  (v5, 27.38 samples/s, ~30h). Fix: delete the v3 block (D-17); confirm no config
+  `docs/kaggle_cli_workflow.md:239-243` (v3, 14.04 samples/s, 59.37h) vs `:5`/`:582`
+  (v5, 27.38 samples/s, ~30.4h). Fix: delete the v3 block (D-17); confirm no config
   references `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`.
 - **FU-011 — CURRENT.md is ~3076 lines, ~95% narration.** Durable contract is
   buried under `:5-1148` (Active Workstream prose) and `:1247-3053` (verification
   log). Fix: see D-01/D-02; target low hundreds of lines.
+- **FU-039 — Spec 0009 v1 has checkpoint-only prefix after Kaggle cancellation.**
+  `runs/kaggle/selected_runtime_full_v1` has `step_043750.pt` and `best_model.pt`
+  but no `metrics/` or `benchmark/`; strict verification fails with
+  `selected_runtime_full_output_benchmark_dir_missing`. Current local fix adds a
+  two-phase interval flush in `src/eqvae/training/selected_runtime_runner.py`:
+  metrics/validation/gate/partial summaries are atomic-written before exposing a
+  new interval checkpoint, then refreshed with checkpoint hashes after save; DDP
+  ranks broadcast rank-0 artifact-write/checkpoint-save failures and fail
+  together. This protects future launches but cannot recover v1's first 43750
+  missing metric rows. Fix before any resume push: decide whether to restart
+  from scratch for complete training curves, or add an explicit
+  checkpoint-only-prefix continuation mode that stays non-paper-promotable for
+  missing pre-resume metrics and is reviewed separately. Historical FSQ wrote
+  CSVs incrementally (`kaggle/train_runs:630,958,1093`); keep that durability
+  pattern. The selected-runtime full runner now also prints visible half-epoch
+  boundary breadcrumbs and waits at a final full-run boundary barrier after the
+  second flush/checkpoint refresh so pulled Kaggle logs show the last completed
+  boundary (`src/eqvae/training/selected_runtime_runner.py:_log_full_boundary_start`,
+  `_synchronize_full_boundary_completion`).
+- **FU-040 — P0 next implementation: `fixed25_equivariance_artifact_protocol`.**
+  The first full-run surface lacks the FSQ/issue-required fixed-25 qualitative
+  and equivariance artifact protocol. The current Spec 0009 runner writes only a
+  minimal deterministic `artifacts/reconstruction_samples.pt` final artifact
+  (`src/eqvae/training/selected_runtime_runner.py:_write_reconstruction_sample`)
+  and `metrics/validation_metrics.csv` rows for clean/denoising views. It does
+  not yet archive the canonical fixed 25 validation patches, save per-boundary
+  reconstruction progress for them, compare rotated-input reconstruction against
+  transformed-latent reconstruction, persist latent/embedding arrays/PCA maps,
+  or emit `equivariance_error_25_patches`-style rows. This is required by
+  `GOAL.md:70-79`, `docs/repo_goal_and_requirements.md:49-56,75-91,109-149`,
+  `docs/issue_image_inventory.md:13-16,23-46`, and Spec 0001's fixed-25 plus
+  rotated/latent protocol (`docs/specs/0001-translatable-normal-vae-baseline.md:2942-2960,3027-3048`).
+  The old FSQ notebook saved the relevant reference/evaluation artifacts,
+  half-epoch logs/barriers, incremental CSV rows, and the
+  `equivariance_error_25_patches` metric at half-epoch boundaries
+  (`kaggle/train_runs:825-842,970-1100,1119-1122`).
+
+  Required next local work: create a focused spec, likely Spec 0010, or amend
+  Spec 0009 before another paper-promotable full launch. The implementation must
+  include canonical fixed-25 selector consumption/generation guard, fixed
+  originals, per-boundary reconstruction progress, continuous-angle rotated
+  input reconstructions, transformed-latent reconstructions from deterministic
+  posterior `mu`, boundary-masked and unmasked error maps, latent/embedding
+  arrays, EQ-VAE-style PCA/latent-map visualizations, `n=25` equivariance CSV
+  metrics, manifest metadata for angles/interpolation/padding/masks, atomic
+  directory writes, half-epoch log breadcrumbs/barriers, strict verifier checks,
+  and focused tests. Do not copy FSQ quantization/codebook/discrete-index
+  artifacts; replace them with continuous-latent statistics appropriate for the
+  normal VAE and future `SO(2)` model. A future full run without this protocol
+  must be labeled training/checkpoint evidence only; it must not be presented as
+  issue #4/#6 equivariant embedding evidence unless the user explicitly changes
+  this requirement.
 
 ### MED
 
@@ -82,7 +130,7 @@ Rules to keep this file from rotting (the problem it exists to fix):
   all ranks load its RNG. Self-consistent only because of FU-007; fixing FU-007
   without this re-breaks per-rank eps after any resume. Files:
   `src/eqvae/checkpointing.py:251,304-329`; runner `_cuda_rng_checkpoint_state
-  :2763-2776`, `_save_checkpoint :870,2306`. Fix: persist per-rank generator/CUDA
+  :3756`, `_save_checkpoint :3698`. Fix: persist per-rank generator/CUDA
   RNG keyed by rank, or re-derive each rank's seed from `(data_seed, rank,
   start_step)`; add a resume test asserting post-resume eps differ across ranks.
 - **FU-014 — GOAL.md duplicates/out-stales the spec index.** Per-spec status +
@@ -98,8 +146,8 @@ Rules to keep this file from rotting (the problem it exists to fix):
   Fix: verify the HED/OD matrix convention and seeding; mark the audit resolved or
   escalate.
 - **FU-017 — No test calls the real validation forward loop.** Only the schedule
-  predicate is tested. Files: `_run_scheduled_validation:2565`,
-  `_validation_view_row:2600`; `tests/test_selected_runtime_full_run.py:87-91`.
+  predicate is tested. Files: `_run_scheduled_validation:3558`,
+  `_validation_view_row:3593`; `tests/test_selected_runtime_full_run.py:87-93`.
   Fix: synthetic test asserting two view rows, clean view consumes no corruption
   RNG, denoising reproducible, best-selection picks denoising (after FU-008).
 - **FU-018 — No telemetry/test for decoder head saturation (out-of-[0,1]).**
@@ -199,11 +247,6 @@ HIGH unless noted. Execute, then delete this section's done items.
 - **D-02 [HIGH]** Drop dated handoff backlog in "Active Workstream" from
   "Historical provenance follows." `:131-1148`. Keep the short current-state
   paragraph + live full-run pointer.
-- **D-03 [HIGH]** Replace "Next Concrete Steps" `:1177-1219` with the one live item
-  (approval-gated status → download → verify).
-- **D-04 [HIGH]** Replace stale "Current Blockers" `:1223-1236` with the real one
-  (v1 pushed, not yet status-checked/verified). Keep sealed-test-shard + src/nn bullets.
-
 ### docs/specs/0001 (~3993 lines)
 - **D-05 [HIGH]** Drop status+saga preamble `:3-431` → <10-line Status. Durable
   contract starts at `## Purpose :432`. Keep readiness token literals.

@@ -27,7 +27,6 @@ from torch.utils.data import (
     SequentialSampler,
 )
 
-from eqvae.benchmarking.io import CsvRow, JsonObject, JsonValue, write_csv, write_json
 from eqvae.benchmarking.runtime_schema import GATE_HEALTH_COLUMNS
 from eqvae.checkpointing import (
     CheckpointMetadata,
@@ -90,6 +89,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
 
     from numpy.random import Generator
+
+    from eqvae.benchmarking.io import CsvRow, JsonObject, JsonValue
 
 
 _BENCHMARK_KIND = "kaggle_selected_runtime_real_ubc_runner"
@@ -328,6 +329,12 @@ class _RunnerSettings:
 
 
 @dataclass(frozen=True)
+class _FinalArtifactWriteResult:
+    best_checkpoint: CheckpointMetadata
+    final_checkpoint: CheckpointMetadata
+
+
+@dataclass(frozen=True)
 class _RunArtifacts:
     training_summary: Path
     selected_runtime_debug_summary: Path
@@ -342,6 +349,61 @@ class _RunArtifacts:
     validation_metrics: Path
     gate_health: Path
     reconstruction_samples: Path
+
+
+@dataclass(frozen=True)
+class _IntervalFlushContext:
+    artifacts: _RunArtifacts
+    request: SelectedRuntimeTrainRequest
+    settings: _RunnerSettings
+    plan: SelectedRuntimePlan
+    runtime_identity: _RuntimeIdentity
+    launch_command: SelectedRuntimeLaunchCommand
+    ddp_proof: JsonObject
+    amp: _AmpExecution
+    data_surface: _DataSurface
+    distributed: _DistributedContext
+
+
+@dataclass(frozen=True)
+class _IntervalFlushState:
+    metric_rows: tuple[CsvRow, ...]
+    validation_rows: tuple[CsvRow, ...]
+    gate_rows: tuple[CsvRow, ...]
+    checkpoints: tuple[CheckpointMetadata, ...]
+    best_checkpoint: CheckpointMetadata | None
+    best_validation_metric: float | None
+    last_result: _SelectedRuntimeStepResult
+    current_step: int
+    # Resume prefix rows are kept separate from the per-rank rows above so the
+    # interval flush can prepend them exactly once, after the all-gather, rather
+    # than gathering the same prefix from every rank (see
+    # _write_interval_artifact_flush).
+    resume_metric_rows: tuple[CsvRow, ...] = ()
+    resume_validation_rows: tuple[CsvRow, ...] = ()
+
+
+@dataclass(frozen=True)
+class _CheckpointWriteContext:
+    request: SelectedRuntimeTrainRequest
+    resolved: ResolvedConfig
+    settings: _RunnerSettings
+    model: nn.Module
+    optimizer: torch.optim.Optimizer
+    numpy_generator: Generator
+    train_generator: torch.Generator
+    runtime_identity: _RuntimeIdentity
+    scaler: GradScaler
+    amp: _AmpExecution
+    distributed: _DistributedContext
+
+
+@dataclass(frozen=True)
+class _BoundaryCheckpointWriteResult:
+    interval_checkpoint: CheckpointMetadata | None
+    best_checkpoint: CheckpointMetadata | None
+    best_validation_metric: float | None
+    checkpoint_path: str
 
 
 @dataclass(frozen=True)
@@ -770,7 +832,7 @@ def build_ddp_rank_device_proof(
     )
 
 
-def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
+def write_selected_runtime_training_run(  # noqa: PLR0914
     request: SelectedRuntimeTrainRequest,
 ) -> SelectedRuntimeTrainResult:
     """Run the selected-runtime train runner and write proof artifacts.
@@ -885,7 +947,22 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
         runtime_identity=runtime_identity,
         start_step=start_step,
         initial_best_validation_metric=resume_history.best_validation_metric,
+        resume_history=resume_history,
         write_checkpoints=write_artifacts,
+        interval_flush=_IntervalFlushContext(
+            artifacts=artifacts,
+            request=request,
+            settings=settings,
+            plan=plan,
+            runtime_identity=runtime_identity,
+            launch_command=launch_command,
+            ddp_proof=ddp_proof,
+            amp=amp,
+            data_surface=data_surface,
+            distributed=distributed,
+        )
+        if _is_full_run(settings)
+        else None,
     )
     metric_rows = _merge_resume_csv_rows(
         prior_rows=resume_history.metric_rows,
@@ -914,20 +991,152 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
         ),
         distributed,
     )
-    if not write_artifacts:
-        _barrier(distributed)
-        _close_data_surface(data_surface)
-        _cleanup_distributed(distributed)
-        return SelectedRuntimeTrainResult(
-            output_dir=request.output_dir,
-            training_summary=artifacts.training_summary,
-            metrics=artifacts.train_steps,
-            gate_health=artifacts.gate_health,
-            artifact_manifest=artifacts.artifact_manifest,
-            selected_runtime_plan_applied=artifacts.selected_runtime_plan_applied,
-            checkpoint_resume_proof=artifacts.checkpoint_resume_proof,
-            gate_health_summary=artifacts.gate_health_summary,
+    _write_final_artifacts(
+        artifacts=artifacts,
+        request=request,
+        resolved=resolved,
+        settings=settings,
+        plan=plan,
+        runtime_identity=runtime_identity,
+        launch_command=launch_command,
+        ddp_proof=ddp_proof,
+        amp=amp,
+        data_surface=data_surface,
+        distributed=distributed,
+        model=model,
+        optimizer=optimizer,
+        scaler=scaler,
+        numpy_generator=numpy_generator,
+        train_generator=train_generator,
+        loaded_checkpoint=loaded_checkpoint,
+        resume_history=resume_history,
+        metric_rows=metric_rows,
+        validation_rows=validation_rows,
+        gate_rows=gate_rows,
+        checkpoints=checkpoints,
+        best_validation_checkpoint=best_validation_checkpoint,
+        best_validation_metric=best_validation_metric,
+        last_result=last_result,
+    )
+    _barrier(distributed)
+    _close_data_surface(data_surface)
+    _cleanup_distributed(distributed)
+    return SelectedRuntimeTrainResult(
+        output_dir=request.output_dir,
+        training_summary=artifacts.training_summary,
+        metrics=artifacts.train_steps,
+        gate_health=artifacts.gate_health,
+        artifact_manifest=artifacts.artifact_manifest,
+        selected_runtime_plan_applied=artifacts.selected_runtime_plan_applied,
+        checkpoint_resume_proof=artifacts.checkpoint_resume_proof,
+        gate_health_summary=artifacts.gate_health_summary,
+    )
+
+
+def _write_final_artifacts(  # noqa: PLR0913
+    *,
+    artifacts: _RunArtifacts,
+    request: SelectedRuntimeTrainRequest,
+    resolved: ResolvedConfig,
+    settings: _RunnerSettings,
+    plan: SelectedRuntimePlan,
+    runtime_identity: _RuntimeIdentity,
+    launch_command: SelectedRuntimeLaunchCommand,
+    ddp_proof: JsonObject,
+    amp: _AmpExecution,
+    data_surface: _DataSurface,
+    distributed: _DistributedContext,
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scaler: GradScaler,
+    numpy_generator: Generator,
+    train_generator: torch.Generator,
+    loaded_checkpoint: LoadedCheckpoint | None,
+    resume_history: _ResumeArtifactHistory,
+    metric_rows: Sequence[CsvRow],
+    validation_rows: Sequence[CsvRow],
+    gate_rows: Sequence[CsvRow],
+    checkpoints: Sequence[CheckpointMetadata],
+    best_validation_checkpoint: CheckpointMetadata | None,
+    best_validation_metric: float | None,
+    last_result: _SelectedRuntimeStepResult,
+) -> _FinalArtifactWriteResult | None:
+    write_error: Exception | None = None
+    write_error_message: str | None = None
+    result: _FinalArtifactWriteResult | None = None
+    if _is_primary_rank(distributed):
+        try:
+            result = _write_final_artifacts_primary(
+                artifacts=artifacts,
+                request=request,
+                resolved=resolved,
+                settings=settings,
+                plan=plan,
+                runtime_identity=runtime_identity,
+                launch_command=launch_command,
+                ddp_proof=ddp_proof,
+                amp=amp,
+                data_surface=data_surface,
+                distributed=distributed,
+                model=model,
+                optimizer=optimizer,
+                scaler=scaler,
+                numpy_generator=numpy_generator,
+                train_generator=train_generator,
+                loaded_checkpoint=loaded_checkpoint,
+                resume_history=resume_history,
+                metric_rows=metric_rows,
+                validation_rows=validation_rows,
+                gate_rows=gate_rows,
+                checkpoints=checkpoints,
+                best_validation_checkpoint=best_validation_checkpoint,
+                best_validation_metric=best_validation_metric,
+                last_result=last_result,
+            )
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover - DDP sync guard
+            write_error = exc
+            write_error_message = _exception_summary(exc)
+    write_error_message = _broadcast_rank0_error(
+        error_message=write_error_message,
+        distributed=distributed,
+    )
+    if write_error_message is not None:
+        message = (
+            "selected-runtime final artifact write failed on rank 0: "
+            f"{write_error_message}"
         )
+        raise RuntimeError(message) from write_error
+    return result
+
+
+def _write_final_artifacts_primary(  # noqa: PLR0913
+    *,
+    artifacts: _RunArtifacts,
+    request: SelectedRuntimeTrainRequest,
+    resolved: ResolvedConfig,
+    settings: _RunnerSettings,
+    plan: SelectedRuntimePlan,
+    runtime_identity: _RuntimeIdentity,
+    launch_command: SelectedRuntimeLaunchCommand,
+    ddp_proof: JsonObject,
+    amp: _AmpExecution,
+    data_surface: _DataSurface,
+    distributed: _DistributedContext,
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scaler: GradScaler,
+    numpy_generator: Generator,
+    train_generator: torch.Generator,
+    loaded_checkpoint: LoadedCheckpoint | None,
+    resume_history: _ResumeArtifactHistory,
+    metric_rows: Sequence[CsvRow],
+    validation_rows: Sequence[CsvRow],
+    gate_rows: Sequence[CsvRow],
+    checkpoints: Sequence[CheckpointMetadata],
+    best_validation_checkpoint: CheckpointMetadata | None,
+    best_validation_metric: float | None,
+    last_result: _SelectedRuntimeStepResult,
+) -> _FinalArtifactWriteResult:
     final_checkpoint = _save_checkpoint(
         path=request.output_dir / "checkpoints" / "final.pt",
         request=request,
@@ -964,36 +1173,23 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
             distributed=distributed,
         )
     )
-    checkpoints = _apply_checkpoint_retention(
+    retained_checkpoints = _apply_checkpoint_retention(
         checkpoints=checkpoints,
         settings=settings,
     )
-    all_checkpoints = (*checkpoints, final_checkpoint, best_checkpoint)
-    if loaded_checkpoint is None:
-        checkpoint_resume_proof = _checkpoint_resume_proof(
-            checkpoint=_resume_probe_checkpoint(
-                checkpoints=checkpoints,
-                target_step=settings.max_train_steps,
-            ),
-            request=request,
-            resolved=resolved,
-            settings=settings,
-            runtime_identity=runtime_identity,
-            plan=plan,
-            train_generator=train_generator,
-            amp=amp,
-            distributed=distributed,
-        )
-    else:
-        checkpoint_resume_proof = _loaded_checkpoint_resume_proof(
-            loaded=loaded_checkpoint,
-            request=request,
-            resolved=resolved,
-            settings=settings,
-            runtime_identity=runtime_identity,
-            amp=amp,
-            distributed=distributed,
-        )
+    all_checkpoints = (*retained_checkpoints, final_checkpoint, best_checkpoint)
+    checkpoint_resume_proof = _final_checkpoint_resume_proof(
+        loaded_checkpoint=loaded_checkpoint,
+        checkpoints=retained_checkpoints,
+        request=request,
+        resolved=resolved,
+        settings=settings,
+        runtime_identity=runtime_identity,
+        plan=plan,
+        train_generator=train_generator,
+        amp=amp,
+        distributed=distributed,
+    )
     reconstruction_nonblank = _write_reconstruction_sample(
         path=artifacts.reconstruction_samples,
         model=model,
@@ -1022,20 +1218,18 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
             nonfinite_count=_nonfinite_metric_count(metric_rows),
         ),
     )
-
-    write_csv(artifacts.train_steps, _TRAIN_STEP_COLUMNS, metric_rows)
-    if _writes_validation_metrics(settings):
-        write_csv(
-            artifacts.validation_metrics,
-            _VALIDATION_METRIC_COLUMNS,
-            validation_rows,
-        )
-    write_csv(artifacts.gate_health, GATE_HEALTH_COLUMNS, gate_rows)
-    write_json(artifacts.selected_runtime_plan_applied, plan_applied)
-    write_json(artifacts.checkpoint_resume_proof, checkpoint_resume_proof)
-    write_json(artifacts.gate_health_summary, gate_health_summary)
-    write_json(artifacts.local_readiness, local_readiness)
-    write_json(
+    _write_final_csv_artifacts(
+        artifacts=artifacts,
+        settings=settings,
+        metric_rows=metric_rows,
+        validation_rows=validation_rows,
+        gate_rows=gate_rows,
+    )
+    _write_json_atomic(artifacts.selected_runtime_plan_applied, plan_applied)
+    _write_json_atomic(artifacts.checkpoint_resume_proof, checkpoint_resume_proof)
+    _write_json_atomic(artifacts.gate_health_summary, gate_health_summary)
+    _write_json_atomic(artifacts.local_readiness, local_readiness)
+    _write_json_atomic(
         artifacts.training_summary,
         _training_summary(
             request=request,
@@ -1049,7 +1243,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
             data_surface=data_surface,
             metric_rows=metric_rows,
             validation_rows=validation_rows,
-            checkpoints=checkpoints,
+            checkpoints=retained_checkpoints,
             final_checkpoint=final_checkpoint,
             best_checkpoint=best_checkpoint,
             best_validation_metric=best_validation_metric,
@@ -1060,8 +1254,123 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
             reconstruction_nonblank=reconstruction_nonblank,
         ),
     )
+    _write_mode_summary(
+        artifacts=artifacts,
+        settings=settings,
+        plan=plan,
+        plan_applied=plan_applied,
+        ddp_proof=ddp_proof,
+        amp=amp,
+        checkpoint_resume_proof=checkpoint_resume_proof,
+        gate_health_summary=gate_health_summary,
+        data_surface=data_surface,
+        metric_rows=metric_rows,
+        validation_rows=validation_rows,
+        checkpoints=retained_checkpoints,
+        best_validation_metric=best_validation_metric,
+    )
+    if _writes_tiny_summary(settings):
+        _write_json_atomic(
+            artifacts.tiny_overfit_summary,
+            _tiny_overfit_summary(
+                runtime_identity=runtime_identity,
+                corruption_strategy=plan.corruption_strategy,
+                data_surface=data_surface,
+                metric_rows=metric_rows,
+                gate_health_summary=gate_health_summary,
+            ),
+        )
+    _write_json_atomic(
+        artifacts.artifact_manifest,
+        _artifact_manifest(
+            artifacts=artifacts,
+            settings=settings,
+            checkpoints=all_checkpoints,
+            metric_rows=metric_rows,
+            reconstruction_nonblank=reconstruction_nonblank,
+        ),
+    )
+    return _FinalArtifactWriteResult(
+        best_checkpoint=best_checkpoint,
+        final_checkpoint=final_checkpoint,
+    )
+
+
+def _final_checkpoint_resume_proof(  # noqa: PLR0913
+    *,
+    loaded_checkpoint: LoadedCheckpoint | None,
+    checkpoints: Sequence[CheckpointMetadata],
+    request: SelectedRuntimeTrainRequest,
+    resolved: ResolvedConfig,
+    settings: _RunnerSettings,
+    runtime_identity: _RuntimeIdentity,
+    plan: SelectedRuntimePlan,
+    train_generator: torch.Generator,
+    amp: _AmpExecution,
+    distributed: _DistributedContext,
+) -> JsonObject:
+    if loaded_checkpoint is None:
+        return _checkpoint_resume_proof(
+            checkpoint=_resume_probe_checkpoint(
+                checkpoints=checkpoints,
+                target_step=settings.max_train_steps,
+            ),
+            request=request,
+            resolved=resolved,
+            settings=settings,
+            runtime_identity=runtime_identity,
+            plan=plan,
+            train_generator=train_generator,
+            amp=amp,
+            distributed=distributed,
+        )
+    return _loaded_checkpoint_resume_proof(
+        loaded=loaded_checkpoint,
+        request=request,
+        resolved=resolved,
+        settings=settings,
+        runtime_identity=runtime_identity,
+        amp=amp,
+        distributed=distributed,
+    )
+
+
+def _write_final_csv_artifacts(
+    *,
+    artifacts: _RunArtifacts,
+    settings: _RunnerSettings,
+    metric_rows: Sequence[CsvRow],
+    validation_rows: Sequence[CsvRow],
+    gate_rows: Sequence[CsvRow],
+) -> None:
+    _write_csv_atomic(artifacts.train_steps, _TRAIN_STEP_COLUMNS, metric_rows)
+    if _writes_validation_metrics(settings):
+        _write_csv_atomic(
+            artifacts.validation_metrics,
+            _VALIDATION_METRIC_COLUMNS,
+            validation_rows,
+        )
+    _write_csv_atomic(artifacts.gate_health, GATE_HEALTH_COLUMNS, gate_rows)
+
+
+def _write_mode_summary(  # noqa: PLR0913
+    *,
+    artifacts: _RunArtifacts,
+    settings: _RunnerSettings,
+    plan: SelectedRuntimePlan,
+    plan_applied: JsonObject,
+    ddp_proof: JsonObject,
+    amp: _AmpExecution,
+    checkpoint_resume_proof: JsonObject,
+    gate_health_summary: JsonObject,
+    data_surface: _DataSurface,
+    metric_rows: Sequence[CsvRow],
+    validation_rows: Sequence[CsvRow],
+    checkpoints: Sequence[CheckpointMetadata],
+    best_validation_metric: float | None,
+) -> None:
     if _is_full_run(settings):
-        write_json(
+        _write_json_atomic(
             artifacts.selected_runtime_full_summary,
             _selected_runtime_full_summary(
                 plan=plan,
@@ -1078,51 +1387,19 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
                 best_validation_metric=best_validation_metric,
             ),
         )
-    else:
-        write_json(
-            artifacts.selected_runtime_debug_summary,
-            _selected_runtime_debug_summary(
-                plan=plan,
-                settings=settings,
-                plan_applied=plan_applied,
-                ddp_proof=ddp_proof,
-                amp=amp,
-                checkpoint_resume_proof=checkpoint_resume_proof,
-                gate_health_summary=gate_health_summary,
-                data_surface=data_surface,
-            ),
-        )
-    if _writes_tiny_summary(settings):
-        write_json(
-            artifacts.tiny_overfit_summary,
-            _tiny_overfit_summary(
-                runtime_identity=runtime_identity,
-                corruption_strategy=plan.corruption_strategy,
-                data_surface=data_surface,
-                metric_rows=metric_rows,
-                gate_health_summary=gate_health_summary,
-            ),
-        )
-    manifest = _artifact_manifest(
-        artifacts=artifacts,
-        settings=settings,
-        checkpoints=all_checkpoints,
-        metric_rows=metric_rows,
-        reconstruction_nonblank=reconstruction_nonblank,
-    )
-    write_json(artifacts.artifact_manifest, manifest)
-    _barrier(distributed)
-    _close_data_surface(data_surface)
-    _cleanup_distributed(distributed)
-    return SelectedRuntimeTrainResult(
-        output_dir=request.output_dir,
-        training_summary=artifacts.training_summary,
-        metrics=artifacts.train_steps,
-        gate_health=artifacts.gate_health,
-        artifact_manifest=artifacts.artifact_manifest,
-        selected_runtime_plan_applied=artifacts.selected_runtime_plan_applied,
-        checkpoint_resume_proof=artifacts.checkpoint_resume_proof,
-        gate_health_summary=artifacts.gate_health_summary,
+        return
+    _write_json_atomic(
+        artifacts.selected_runtime_debug_summary,
+        _selected_runtime_debug_summary(
+            plan=plan,
+            settings=settings,
+            plan_applied=plan_applied,
+            ddp_proof=ddp_proof,
+            amp=amp,
+            checkpoint_resume_proof=checkpoint_resume_proof,
+            gate_health_summary=gate_health_summary,
+            data_surface=data_surface,
+        ),
     )
 
 
@@ -2260,11 +2537,26 @@ def _run_train_steps(  # noqa: PLR0913, PLR0914
     runtime_identity: _RuntimeIdentity,
     start_step: int,
     initial_best_validation_metric: float | None,
+    resume_history: _ResumeArtifactHistory,
     write_checkpoints: bool,
+    interval_flush: _IntervalFlushContext | None,
 ) -> _TrainLoopResult:
     rows: list[CsvRow] = []
     validation_rows: list[CsvRow] = []
     checkpoints: list[CheckpointMetadata] = []
+    checkpoint_context = _CheckpointWriteContext(
+        request=request,
+        resolved=resolved,
+        settings=settings,
+        model=checkpoint_model,
+        optimizer=optimizer,
+        numpy_generator=numpy_generator,
+        train_generator=train_generator,
+        runtime_identity=runtime_identity,
+        scaler=scaler,
+        amp=amp,
+        distributed=distributed,
+    )
     train_batches = _cycle_batches(data_surface.train_loader)
     _advance_batches(train_batches, start_step)
     last_result: _SelectedRuntimeStepResult | None = None
@@ -2301,47 +2593,31 @@ def _run_train_steps(  # noqa: PLR0913, PLR0914
         last_result = result
         if not result.amp_step_skipped:
             successful_count = result.successful_optimizer_update_count
-        checkpoint_path = ""
-        if (
-            write_checkpoints
-            and not result.amp_step_skipped
+        checkpoint_boundary = (
+            not result.amp_step_skipped
             and successful_count > 0
             and successful_count % settings.save_every_steps == 0
-        ):
-            checkpoint = _save_checkpoint(
-                path=request.output_dir
-                / "checkpoints"
-                / f"step_{successful_count:06d}.pt",
-                request=request,
-                resolved=resolved,
-                settings=settings,
-                model=checkpoint_model,
-                optimizer=optimizer,
-                numpy_generator=numpy_generator,
-                train_generator=train_generator,
-                runtime_identity=runtime_identity,
-                step=successful_count,
-                metric_value=float(result.losses.l1_loss.detach().cpu().item()),
-                scaler=scaler,
-                amp=amp,
-                distributed=distributed,
-            )
-            checkpoints.append(checkpoint)
-            checkpoint_path = _relative_to_output(checkpoint.path, request.output_dir)
+        )
+        scheduled_validation_due = (
+            not result.amp_step_skipped
+            and _should_run_scheduled_validation(settings, successful_count)
+        )
         rows.append(
             _metric_row(
                 result=result,
                 rank=distributed.rank,
                 plan=plan,
                 amp=amp,
-                checkpoint_path=checkpoint_path,
+                checkpoint_path="",
                 corruption_strategy=plan.corruption_strategy,
             ),
         )
-        if not result.amp_step_skipped and _should_run_scheduled_validation(
-            settings,
-            successful_count,
-        ):
+        if scheduled_validation_due:
+            _log_full_boundary_start(
+                settings=settings,
+                distributed=distributed,
+                optimizer_step=successful_count,
+            )
             boundary_rows = _run_scheduled_validation(
                 model=model,
                 settings=settings,
@@ -2354,32 +2630,81 @@ def _run_train_steps(  # noqa: PLR0913, PLR0914
             )
             validation_rows.extend(boundary_rows)
             boundary_metric = _validation_best_l1(boundary_rows)
-            if (
-                write_checkpoints
-                and boundary_metric is not None
-                and (
-                    best_validation_metric is None
-                    or boundary_metric < best_validation_metric
-                )
-            ):
-                best_validation_metric = boundary_metric
-                best_validation_checkpoint = _save_checkpoint(
-                    path=request.output_dir / "checkpoints" / "best_model.pt",
-                    request=request,
-                    resolved=resolved,
-                    settings=settings,
+            if interval_flush is not None:
+                _write_interval_artifact_flush(
+                    context=interval_flush,
                     model=checkpoint_model,
-                    optimizer=optimizer,
-                    numpy_generator=numpy_generator,
-                    train_generator=train_generator,
-                    runtime_identity=runtime_identity,
-                    step=successful_count,
-                    metric_name="validation_l1_loss",
-                    metric_value=boundary_metric,
-                    scaler=scaler,
-                    amp=amp,
-                    distributed=distributed,
+                    local_state=_interval_flush_state(
+                        settings=settings,
+                        resume_history=resume_history,
+                        metric_rows=rows,
+                        validation_rows=validation_rows,
+                        checkpoints=checkpoints,
+                        best_checkpoint=best_validation_checkpoint,
+                        best_validation_metric=best_validation_metric,
+                        last_result=result,
+                        current_step=successful_count,
+                    ),
                 )
+            checkpoint_write = _write_boundary_checkpoints(
+                context=checkpoint_context,
+                step=successful_count,
+                step_metric_value=float(result.losses.l1_loss.detach().cpu().item()),
+                checkpoint_boundary=checkpoint_boundary,
+                write_checkpoints=write_checkpoints,
+                boundary_metric=boundary_metric,
+                best_validation_metric=best_validation_metric,
+            )
+            best_validation_metric = checkpoint_write.best_validation_metric
+            best_validation_checkpoint = (
+                checkpoint_write.best_checkpoint or best_validation_checkpoint
+            )
+            _record_interval_checkpoint_write(
+                checkpoint_write=checkpoint_write,
+                rows=rows,
+                checkpoints=checkpoints,
+            )
+            if interval_flush is not None:
+                _write_interval_artifact_flush(
+                    context=interval_flush,
+                    model=checkpoint_model,
+                    local_state=_interval_flush_state(
+                        settings=settings,
+                        resume_history=resume_history,
+                        metric_rows=rows,
+                        validation_rows=validation_rows,
+                        checkpoints=checkpoints,
+                        best_checkpoint=best_validation_checkpoint,
+                        best_validation_metric=best_validation_metric,
+                        last_result=result,
+                        current_step=successful_count,
+                    ),
+                )
+            _synchronize_full_boundary_completion(
+                settings=settings,
+                distributed=distributed,
+                optimizer_step=successful_count,
+            )
+        elif checkpoint_boundary:
+            checkpoint_write = _write_boundary_checkpoints(
+                context=checkpoint_context,
+                step=successful_count,
+                step_metric_value=float(result.losses.l1_loss.detach().cpu().item()),
+                checkpoint_boundary=checkpoint_boundary,
+                write_checkpoints=write_checkpoints,
+                boundary_metric=None,
+                best_validation_metric=best_validation_metric,
+            )
+            _record_interval_checkpoint_write(
+                checkpoint_write=checkpoint_write,
+                rows=rows,
+                checkpoints=checkpoints,
+            )
+            _synchronize_full_boundary_completion(
+                settings=settings,
+                distributed=distributed,
+                optimizer_step=successful_count,
+            )
     if last_result is None:
         message = "selected-runtime runner executed no train steps"
         raise RuntimeError(message)
@@ -2410,6 +2735,623 @@ def _run_train_steps(  # noqa: PLR0913, PLR0914
         best_validation_metric=best_validation_metric,
         last_result=last_result,
     )
+
+
+def _write_boundary_checkpoints(  # noqa: PLR0913
+    *,
+    context: _CheckpointWriteContext,
+    step: int,
+    step_metric_value: float,
+    checkpoint_boundary: bool,
+    write_checkpoints: bool,
+    boundary_metric: float | None,
+    best_validation_metric: float | None,
+) -> _BoundaryCheckpointWriteResult:
+    interval_checkpoint: CheckpointMetadata | None = None
+    best_checkpoint: CheckpointMetadata | None = None
+    updated_best_metric = best_validation_metric
+    checkpoint_error: Exception | None = None
+    checkpoint_error_message: str | None = None
+    if write_checkpoints:
+        try:
+            if boundary_metric is not None and _is_better_validation_metric(
+                boundary_metric,
+                best_validation_metric,
+            ):
+                updated_best_metric = boundary_metric
+                best_checkpoint = _save_best_validation_checkpoint(
+                    context=context,
+                    step=step,
+                    boundary_metric=boundary_metric,
+                )
+            if checkpoint_boundary:
+                interval_checkpoint = _save_interval_checkpoint(
+                    context=context,
+                    step=step,
+                    metric_value=step_metric_value,
+                )
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover - DDP sync guard
+            checkpoint_error = exc
+            checkpoint_error_message = _exception_summary(exc)
+    checkpoint_error_message = _broadcast_rank0_error(
+        error_message=checkpoint_error_message,
+        distributed=context.distributed,
+    )
+    if checkpoint_error_message is not None:
+        message = (
+            "selected-runtime interval checkpoint save failed on rank 0: "
+            f"{checkpoint_error_message}"
+        )
+        raise RuntimeError(message) from checkpoint_error
+    return _BoundaryCheckpointWriteResult(
+        interval_checkpoint=interval_checkpoint,
+        best_checkpoint=best_checkpoint,
+        best_validation_metric=updated_best_metric,
+        checkpoint_path=""
+        if interval_checkpoint is None
+        else _relative_to_output(interval_checkpoint.path, context.request.output_dir),
+    )
+
+
+def _interval_flush_state(  # noqa: PLR0913
+    *,
+    settings: _RunnerSettings,
+    resume_history: _ResumeArtifactHistory,
+    metric_rows: Sequence[CsvRow],
+    validation_rows: Sequence[CsvRow],
+    checkpoints: Sequence[CheckpointMetadata],
+    best_checkpoint: CheckpointMetadata | None,
+    best_validation_metric: float | None,
+    last_result: _SelectedRuntimeStepResult,
+    current_step: int,
+) -> _IntervalFlushState:
+    combined_checkpoints = _apply_checkpoint_retention(
+        checkpoints=(*resume_history.interval_checkpoints, *tuple(checkpoints)),
+        settings=settings,
+    )
+    return _IntervalFlushState(
+        # Only this rank's new rows go in the all-gathered fields. The resume
+        # prefix is carried separately and prepended once after the gather;
+        # prepending it here would duplicate it world_size times through
+        # _gather_csv_rows on a resumed DDP run.
+        metric_rows=tuple(metric_rows),
+        validation_rows=tuple(validation_rows),
+        gate_rows=(),
+        checkpoints=combined_checkpoints,
+        best_checkpoint=best_checkpoint or resume_history.best_checkpoint,
+        best_validation_metric=best_validation_metric,
+        last_result=last_result,
+        current_step=current_step,
+        resume_metric_rows=tuple(resume_history.metric_rows),
+        resume_validation_rows=tuple(resume_history.validation_rows),
+    )
+
+
+def _record_interval_checkpoint_write(
+    *,
+    checkpoint_write: _BoundaryCheckpointWriteResult,
+    rows: list[CsvRow],
+    checkpoints: list[CheckpointMetadata],
+) -> None:
+    if checkpoint_write.interval_checkpoint is not None:
+        checkpoints.append(checkpoint_write.interval_checkpoint)
+    if checkpoint_write.checkpoint_path:
+        rows[-1] = _replace_metric_checkpoint_path(
+            rows[-1],
+            checkpoint_write.checkpoint_path,
+        )
+
+
+def _is_better_validation_metric(
+    boundary_metric: float,
+    best_validation_metric: float | None,
+) -> bool:
+    return best_validation_metric is None or boundary_metric < best_validation_metric
+
+
+def _save_best_validation_checkpoint(
+    *,
+    context: _CheckpointWriteContext,
+    step: int,
+    boundary_metric: float,
+) -> CheckpointMetadata:
+    return _save_checkpoint(
+        path=context.request.output_dir / "checkpoints" / "best_model.pt",
+        request=context.request,
+        resolved=context.resolved,
+        settings=context.settings,
+        model=context.model,
+        optimizer=context.optimizer,
+        numpy_generator=context.numpy_generator,
+        train_generator=context.train_generator,
+        runtime_identity=context.runtime_identity,
+        step=step,
+        metric_name="validation_l1_loss",
+        metric_value=boundary_metric,
+        scaler=context.scaler,
+        amp=context.amp,
+        distributed=context.distributed,
+    )
+
+
+def _save_interval_checkpoint(
+    *,
+    context: _CheckpointWriteContext,
+    step: int,
+    metric_value: float,
+) -> CheckpointMetadata:
+    return _save_checkpoint(
+        path=context.request.output_dir / "checkpoints" / f"step_{step:06d}.pt",
+        request=context.request,
+        resolved=context.resolved,
+        settings=context.settings,
+        model=context.model,
+        optimizer=context.optimizer,
+        numpy_generator=context.numpy_generator,
+        train_generator=context.train_generator,
+        runtime_identity=context.runtime_identity,
+        step=step,
+        metric_value=metric_value,
+        scaler=context.scaler,
+        amp=context.amp,
+        distributed=context.distributed,
+    )
+
+
+def _replace_metric_checkpoint_path(row: CsvRow, checkpoint_path: str) -> CsvRow:
+    updated = dict(row)
+    updated["checkpoint_path"] = checkpoint_path
+    return updated
+
+
+def _write_interval_artifact_flush(
+    *,
+    context: _IntervalFlushContext,
+    model: nn.Module,
+    local_state: _IntervalFlushState,
+) -> None:
+    """Durably write checkpoint-adjacent progress artifacts for long Kaggle runs.
+
+    Raises:
+        RuntimeError: if rank 0 cannot write the partial artifacts.
+
+    """
+    gathered_metric_rows = _merge_resume_csv_rows(
+        prior_rows=local_state.resume_metric_rows,
+        new_rows=_gather_csv_rows(local_state.metric_rows, context.distributed),
+    )
+    gathered_validation_rows = _merge_resume_csv_rows(
+        prior_rows=local_state.resume_validation_rows,
+        new_rows=_gather_csv_rows(local_state.validation_rows, context.distributed),
+    )
+    gate_rows = _gather_csv_rows(
+        _gate_health_rows(
+            run_name=context.settings.run_name,
+            plan=context.plan,
+            probe=context.distributed.probe,
+            amp=context.amp,
+            model=model,
+            optimizer_step=local_state.current_step,
+            rank=context.distributed.rank,
+        ),
+        context.distributed,
+    )
+    write_error: Exception | None = None
+    write_error_message: str | None = None
+    if _is_primary_rank(context.distributed):
+        try:
+            _write_partial_interval_artifacts(
+                context=context,
+                state=_IntervalFlushState(
+                    metric_rows=gathered_metric_rows,
+                    validation_rows=gathered_validation_rows,
+                    gate_rows=gate_rows,
+                    checkpoints=local_state.checkpoints,
+                    best_checkpoint=local_state.best_checkpoint,
+                    best_validation_metric=local_state.best_validation_metric,
+                    last_result=local_state.last_result,
+                    current_step=local_state.current_step,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover - rank sync
+            write_error = exc
+            write_error_message = _exception_summary(exc)
+    write_error_message = _broadcast_rank0_error(
+        error_message=write_error_message,
+        distributed=context.distributed,
+    )
+    if write_error_message is not None:
+        message = (
+            "selected-runtime interval artifact flush failed on rank 0: "
+            f"{write_error_message}"
+        )
+        raise RuntimeError(message) from write_error
+
+
+def _broadcast_rank0_error(
+    *,
+    error_message: str | None,
+    distributed: _DistributedContext,
+) -> str | None:
+    if not distributed.should_use_ddp or not dist.is_initialized():
+        return error_message
+    payload: list[object] = [error_message if distributed.rank == 0 else None]
+    broadcast_object_list = cast(
+        "Callable[[list[object], int], None]",
+        dist.broadcast_object_list,
+    )
+    broadcast_object_list(payload, 0)
+    value = payload[0]
+    return value if isinstance(value, str) else None
+
+
+def _exception_summary(exc: Exception) -> str:
+    return f"{exc.__class__.__name__}: {exc}" if str(exc) else exc.__class__.__name__
+
+
+def _write_partial_interval_artifacts(
+    *,
+    context: _IntervalFlushContext,
+    state: _IntervalFlushState,
+) -> None:
+    latest_checkpoint = state.checkpoints[-1] if state.checkpoints else None
+    gate_health_summary = _gate_health_summary(state.gate_rows)
+    plan_applied = _plan_applied_proof(
+        plan=context.plan,
+        settings=context.settings,
+        probe=context.distributed.probe,
+        amp=context.amp,
+        ddp_proof=context.ddp_proof,
+        metric_rows=state.metric_rows,
+        last_result=state.last_result,
+    )
+    checkpoint_resume_proof = _partial_checkpoint_resume_proof(
+        checkpoint=latest_checkpoint,
+        context=context,
+        current_step=state.current_step,
+    )
+    local_readiness = _local_readiness_summary(
+        _LocalReadinessComponents(
+            plan_applied=plan_applied,
+            checkpoint_resume_proof=checkpoint_resume_proof,
+            gate_health_summary=gate_health_summary,
+            data_source=context.data_surface.source,
+            ddp_proof=context.ddp_proof,
+            amp_step_skipped_count=_amp_step_skipped_count(state.metric_rows),
+            nonfinite_count=_nonfinite_metric_count(state.metric_rows),
+        ),
+    )
+
+    _write_csv_atomic(
+        context.artifacts.train_steps,
+        _TRAIN_STEP_COLUMNS,
+        state.metric_rows,
+    )
+    if _writes_validation_metrics(context.settings):
+        _write_csv_atomic(
+            context.artifacts.validation_metrics,
+            _VALIDATION_METRIC_COLUMNS,
+            state.validation_rows,
+        )
+    _write_csv_atomic(
+        context.artifacts.gate_health,
+        GATE_HEALTH_COLUMNS,
+        state.gate_rows,
+    )
+    _write_json_atomic(context.artifacts.selected_runtime_plan_applied, plan_applied)
+    _write_json_atomic(
+        context.artifacts.checkpoint_resume_proof,
+        checkpoint_resume_proof,
+    )
+    _write_json_atomic(context.artifacts.gate_health_summary, gate_health_summary)
+    _write_json_atomic(context.artifacts.local_readiness, local_readiness)
+    _write_json_atomic(
+        context.artifacts.training_summary,
+        _partial_training_summary(
+            context=context,
+            state=state,
+        ),
+    )
+    if _is_full_run(context.settings):
+        _write_json_atomic(
+            context.artifacts.selected_runtime_full_summary,
+            _partial_selected_runtime_full_summary(
+                context=context,
+                state=state,
+                plan_applied=plan_applied,
+                checkpoint_resume_proof=checkpoint_resume_proof,
+                gate_health_summary=gate_health_summary,
+            ),
+        )
+    _write_json_atomic(
+        context.artifacts.artifact_manifest,
+        _partial_artifact_manifest(
+            artifacts=context.artifacts,
+            settings=context.settings,
+            state=state,
+        ),
+    )
+
+
+def _partial_checkpoint_resume_proof(
+    *,
+    checkpoint: CheckpointMetadata | None,
+    context: _IntervalFlushContext,
+    current_step: int,
+) -> JsonObject:
+    checkpoint_step = (
+        0 if checkpoint is None else checkpoint.successful_optimizer_update_count
+    )
+    return cast(
+        "JsonObject",
+        {
+            "status": _FAIL,
+            "status_scope": _status_scope(context.settings),
+            "full_run_eligible": False,
+            "partial_artifact_flush": True,
+            "partial_artifact_flush_step": current_step,
+            "latest_metric_prefix_step": current_step,
+            "latest_checkpoint_step": checkpoint_step,
+            "resume_checkpoint": ""
+            if checkpoint is None
+            else _relative_to_output(checkpoint.path, context.request.output_dir),
+            "resume_checkpoint_sha256": "" if checkpoint is None else checkpoint.sha256,
+            "loaded_successful_optimizer_update_count": checkpoint_step,
+            "final_optimizer_step": context.settings.max_train_steps,
+            "additional_optimizer_steps": max(
+                0,
+                context.settings.max_train_steps - checkpoint_step,
+            ),
+            "model_state_checkpointed": checkpoint is not None,
+            "optimizer_state_checkpointed": checkpoint is not None,
+            "grad_scaler_state_checkpointed": context.amp.grad_scaler_enabled,
+            "cuda_rng_state_checkpointed": context.distributed.device.type == "cuda",
+            "sampler_progress_checkpointed": context.distributed.should_use_ddp,
+            "optimizer_scheduler_progress_checkpointed": checkpoint is not None,
+            "beta_progress_checkpointed": checkpoint is not None,
+            "checkpoint_restore_probe_deferred": True,
+            "failure_kind": "partial_interval_checkpoint_not_final_resume_proof",
+        },
+    )
+
+
+def _partial_training_summary(
+    *,
+    context: _IntervalFlushContext,
+    state: _IntervalFlushState,
+) -> JsonObject:
+    payload = cast(
+        "JsonObject",
+        {
+            "status": _FAIL,
+            "status_scope": _status_scope(context.settings),
+            "proof_scope": _status_scope(context.settings),
+            "full_run_eligible": False,
+            "partial_artifact_flush": True,
+            "partial_artifact_flush_step": state.current_step,
+            "failure_kind": "partial_full_run_interval_artifacts",
+            "run_name": context.settings.run_name,
+            "run_mode": context.settings.run_mode,
+            "data": context.request.data,
+            "data_root": str(context.data_surface.root),
+            "synthetic_generated": context.data_surface.synthetic_generated,
+            "config_path": str(context.request.config_path),
+            "runtime_config": {
+                "path": str(context.runtime_identity.path),
+                "sha256": context.runtime_identity.sha256,
+                "selected_row_id": context.runtime_identity.selected_row_id,
+                "runtime_policy_id": context.runtime_identity.runtime_policy_id,
+                "per_device_batch_size": context.plan.per_device_batch_size,
+                "global_batch_size": context.plan.global_batch_size,
+                "precision_policy": context.plan.precision_policy,
+                "corruption_strategy": context.plan.corruption_strategy,
+                "consumed": True,
+            },
+            "selected_runtime_launch_command": context.launch_command.shell_command,
+            "ddp_rank_device_proof": context.ddp_proof,
+            "amp_execution": {
+                "enabled": context.amp.enabled,
+                "grad_scaler_enabled": context.amp.grad_scaler_enabled,
+                "grad_scaler_init_scale": context.amp.grad_scaler_init_scale,
+                "autocast_dtype": context.amp.autocast_dtype,
+                "requested_autocast_dtype": context.amp.requested_autocast_dtype,
+                "local_amp_status": context.amp.local_amp_status,
+                "fp32_objective_island": True,
+            },
+            "max_train_steps": context.settings.max_train_steps,
+            "target_optimizer_updates": context.settings.target_train_steps,
+            "requested_epochs": context.settings.requested_epochs,
+            "optimizer_updates_per_epoch": context.settings.optimizer_updates_per_epoch,
+            "half_epoch_interval_steps": context.settings.half_epoch_interval_steps,
+            "current_epoch_fraction": _current_epoch_fraction(
+                context.settings,
+                state.metric_rows,
+            ),
+            "max_val_steps": context.settings.max_val_steps,
+            "save_every_steps": context.settings.save_every_steps,
+            "validation_batches_per_view": context.settings.validation_batches_per_view,
+            "validation_views": list(context.settings.validation_views),
+            "train_reparameterization": context.settings.train_reparameterization,
+            "deterministic_eps_allowed_for": list(
+                context.settings.deterministic_eps_allowed_for,
+            ),
+            "checkpoint_retention": context.settings.checkpoint_retention,
+            "resume_supported": context.settings.resume_supported,
+            "optimizer_steps_completed": _successful_optimizer_update_count(
+                state.metric_rows,
+            ),
+            "metric_row_count": len(state.metric_rows),
+            "validation_metric_row_count": len(state.validation_rows),
+            "amp_step_skipped_count": _amp_step_skipped_count(state.metric_rows),
+            "nonfinite_count": _nonfinite_metric_count(state.metric_rows),
+            "checkpoint_count": len(state.checkpoints),
+            "retained_interval_checkpoint_count": _interval_checkpoint_count(
+                state.checkpoints,
+            ),
+            "retained_interval_checkpoints": _checkpoint_payloads(
+                state.checkpoints,
+                context.request.output_dir,
+            ),
+            "metrics_csv": "metrics/train_steps.csv",
+            "train_steps_csv": "metrics/train_steps.csv",
+            "validation_metrics_csv": "metrics/validation_metrics.csv"
+            if _writes_validation_metrics(context.settings)
+            else "",
+            "gate_health_csv": "metrics/gate_health.csv",
+            "selected_runtime_plan_applied": (
+                "benchmark/selected_runtime_plan_applied.json"
+            ),
+            "checkpoint_resume_proof": "benchmark/checkpoint_resume_proof.json",
+            "gate_health_summary": "benchmark/gate_health_summary.json",
+            "artifact_manifest": "benchmark/artifact_manifest.json",
+            "reconstruction_sample_nonblank": False,
+            "last_loss": cast(
+                "JsonObject",
+                state.last_result.losses.detached_scalars(),
+            ),
+            "last_train_eps_policy": state.last_result.eps_policy,
+            "last_train_eps_zero_fraction": state.last_result.eps_zero_fraction,
+        },
+    )
+    if state.best_checkpoint is not None:
+        payload["best_checkpoint"] = _checkpoint_payload(
+            state.best_checkpoint,
+            context.request.output_dir,
+        )
+        payload["best_validation_metric"] = state.best_validation_metric
+    return payload
+
+
+def _partial_selected_runtime_full_summary(
+    *,
+    context: _IntervalFlushContext,
+    state: _IntervalFlushState,
+    plan_applied: JsonObject,
+    checkpoint_resume_proof: JsonObject,
+    gate_health_summary: JsonObject,
+) -> JsonObject:
+    summary = _selected_runtime_full_summary(
+        plan=context.plan,
+        settings=context.settings,
+        plan_applied=plan_applied,
+        ddp_proof=context.ddp_proof,
+        amp=context.amp,
+        checkpoint_resume_proof=checkpoint_resume_proof,
+        gate_health_summary=gate_health_summary,
+        data_surface=context.data_surface,
+        metric_rows=state.metric_rows,
+        validation_rows=state.validation_rows,
+        checkpoints=state.checkpoints,
+        best_validation_metric=state.best_validation_metric,
+    )
+    summary["partial_artifact_flush"] = True
+    summary["partial_artifact_flush_step"] = state.current_step
+    blockers = summary.get("launch_blockers_remaining")
+    if isinstance(blockers, list):
+        blockers.append("partial_artifact_flush_not_complete")
+    else:
+        summary["launch_blockers_remaining"] = ["partial_artifact_flush_not_complete"]
+    summary["full_run_eligible"] = False
+    summary["remote_pass_ready"] = False
+    summary["status"] = _FAIL
+    summary["failure_kind"] = "partial_full_run_interval_artifacts"
+    return summary
+
+
+def _partial_artifact_manifest(
+    *,
+    artifacts: _RunArtifacts,
+    settings: _RunnerSettings,
+    state: _IntervalFlushState,
+) -> JsonObject:
+    artifact_paths = {
+        "training_summary": artifacts.training_summary,
+        "selected_runtime_full_summary": artifacts.selected_runtime_full_summary,
+        "selected_runtime_plan_applied": artifacts.selected_runtime_plan_applied,
+        "checkpoint_resume_proof": artifacts.checkpoint_resume_proof,
+        "gate_health_summary": artifacts.gate_health_summary,
+        "local_selected_runtime_readiness": artifacts.local_readiness,
+        "train_steps": artifacts.train_steps,
+        "validation_metrics": artifacts.validation_metrics,
+        "gate_health": artifacts.gate_health,
+    }
+    for checkpoint in state.checkpoints:
+        artifact_paths[f"checkpoint:{checkpoint.path.name}"] = checkpoint.path
+    if state.best_checkpoint is not None:
+        artifact_paths[f"checkpoint:{state.best_checkpoint.path.name}"] = (
+            state.best_checkpoint.path
+        )
+    missing = [
+        name for name, path in sorted(artifact_paths.items()) if not path.exists()
+    ]
+    return cast(
+        "JsonObject",
+        {
+            "status": _FAIL,
+            "status_scope": _status_scope(settings),
+            "full_run_eligible": False,
+            "partial_artifact_flush": True,
+            "partial_artifact_flush_step": state.current_step,
+            "artifact_hashes": cast(
+                "JsonObject",
+                {
+                    name: _sha256_file(path)
+                    for name, path in sorted(artifact_paths.items())
+                    if path.exists()
+                },
+            ),
+            "missing_artifacts": missing,
+            "checkpoint_count": len(state.checkpoints),
+            "metric_row_count": len(state.metric_rows),
+            "reconstruction_sample_nonblank": False,
+        },
+    )
+
+
+def _write_json_atomic(path: Path, payload: JsonObject) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.tmp")
+    tmp_path.write_text(
+        f"{json.dumps(payload, indent=2, sort_keys=True)}\n",
+        encoding="utf-8",
+    )
+    _fsync_file(tmp_path)
+    tmp_path.replace(path)
+    _fsync_directory(path.parent)
+
+
+def _write_csv_atomic(
+    path: Path,
+    fieldnames: Sequence[str],
+    rows: Sequence[CsvRow],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.tmp")
+    with tmp_path.open("w", encoding="utf-8", newline="") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames, lineterminator="\n")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(dict(row))
+        csv_file.flush()
+        os.fsync(csv_file.fileno())
+    tmp_path.replace(path)
+    _fsync_directory(path.parent)
+
+
+def _fsync_file(path: Path) -> None:
+    with path.open("rb") as file_obj:
+        os.fsync(file_obj.fileno())
+
+
+def _fsync_directory(path: Path) -> None:
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def _advance_batches(
@@ -2559,6 +3501,57 @@ def _should_run_scheduled_validation(
         _writes_validation_metrics(settings)
         and optimizer_step > 0
         and optimizer_step % settings.half_epoch_interval_steps == 0
+    )
+
+
+def _full_boundary_epoch_fraction(
+    settings: _RunnerSettings,
+    optimizer_step: int,
+) -> float:
+    if settings.optimizer_updates_per_epoch <= 0:
+        return 0.0
+    return optimizer_step / float(settings.optimizer_updates_per_epoch)
+
+
+def _log_full_boundary_start(
+    *,
+    settings: _RunnerSettings,
+    distributed: _DistributedContext,
+    optimizer_step: int,
+) -> None:
+    if not _is_full_run(settings) or not _is_primary_rank(distributed):
+        return
+    epoch_fraction = _full_boundary_epoch_fraction(settings, optimizer_step)
+    validation_views = ",".join(settings.validation_views)
+    print(  # noqa: T201 - Kaggle logs need explicit half-epoch breadcrumbs.
+        "[RANK 0] selected-runtime full boundary start: "
+        f"update {optimizer_step}/{settings.target_train_steps} "
+        f"(epoch {epoch_fraction:.1f}); validation_views={validation_views}; "
+        "will flush metrics before checkpoint and refresh manifest after checkpoint.",
+        flush=True,
+    )
+
+
+def _synchronize_full_boundary_completion(
+    *,
+    settings: _RunnerSettings,
+    distributed: _DistributedContext,
+    optimizer_step: int,
+) -> None:
+    if not _is_full_run(settings):
+        return
+    epoch_fraction = _full_boundary_epoch_fraction(settings, optimizer_step)
+    print(  # noqa: T201 - Kaggle logs need explicit half-epoch breadcrumbs.
+        f"[RANK {distributed.rank}] selected-runtime full boundary complete: "
+        f"update {optimizer_step}/{settings.target_train_steps} "
+        f"(epoch {epoch_fraction:.1f}); waiting at boundary barrier.",
+        flush=True,
+    )
+    _barrier(distributed)
+    print(  # noqa: T201 - Kaggle logs need explicit half-epoch breadcrumbs.
+        f"[RANK {distributed.rank}] selected-runtime full boundary barrier resolved: "
+        f"update {optimizer_step}/{settings.target_train_steps}; resuming training.",
+        flush=True,
     )
 
 

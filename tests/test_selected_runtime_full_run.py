@@ -7,6 +7,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, cast
 
@@ -22,6 +23,7 @@ from eqvae.benchmarking.selected_runtime_gate import verify_selected_runtime_ful
 from eqvae.checkpointing import CheckpointMetadata, LoadedCheckpoint
 from eqvae.cli.selected_runtime_train import main as selected_runtime_train_main
 from eqvae.config import resolve_json_config
+from eqvae.losses.vae import VaeLossComponents
 from eqvae.training import selected_runtime_runner
 from eqvae.training.selected_runtime import parse_selected_runtime_plan
 from eqvae.training.selected_runtime_runner import SelectedRuntimeTrainRequest
@@ -92,6 +94,46 @@ def test_full_config_derives_exact_spec0009_schedule(tmp_path: Path) -> None:
         settings,
         _FULL_HALF_EPOCH_INTERVAL,
     )
+
+
+def test_full_boundary_logging_waits_at_barrier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Full-run boundaries leave log breadcrumbs and synchronize ranks."""
+    settings = _full_settings(tmp_path=tmp_path, max_train_steps=2, save_every=1)
+    distributed = _local_distributed_context()
+    barrier_ranks: list[int] = []
+
+    def fake_barrier(observed: selected_runtime_runner._DistributedContext) -> None:
+        barrier_ranks.append(observed.rank)
+
+    monkeypatch.setattr(selected_runtime_runner, "_barrier", fake_barrier)
+
+    selected_runtime_runner._log_full_boundary_start(  # noqa: SLF001
+        settings=settings,
+        distributed=distributed,
+        optimizer_step=_FULL_HALF_EPOCH_INTERVAL,
+    )
+    selected_runtime_runner._synchronize_full_boundary_completion(  # noqa: SLF001
+        settings=settings,
+        distributed=distributed,
+        optimizer_step=_FULL_HALF_EPOCH_INTERVAL,
+    )
+    debug_settings = replace(settings, run_mode="kaggle_selected_runtime_debug_train")
+    selected_runtime_runner._synchronize_full_boundary_completion(  # noqa: SLF001
+        settings=debug_settings,
+        distributed=distributed,
+        optimizer_step=_FULL_HALF_EPOCH_INTERVAL,
+    )
+
+    output = capsys.readouterr().out
+    assert "selected-runtime full boundary start" in output
+    assert "validation_views=clean,deterministic_denoising" in output
+    assert "selected-runtime full boundary complete" in output
+    assert "selected-runtime full boundary barrier resolved" in output
+    assert barrier_ranks == [0]
 
 
 def test_full_config_refuses_missing_max_train_steps(tmp_path: Path) -> None:
@@ -413,6 +455,531 @@ def test_full_resume_history_requires_prior_train_metrics(tmp_path: Path) -> Non
             distributed=_local_distributed_context(),
             start_step=1,
         )
+
+
+def test_full_interval_flush_state_includes_resume_prefix(tmp_path: Path) -> None:
+    """Interval state keeps the resume prefix out of the all-gathered rows.
+
+    The prefix is carried separately so a resumed DDP run prepends it once after
+    the all-gather instead of gathering it from every rank; merging the split
+    back together must still reproduce the full pre-resume-plus-new sequence.
+    """
+    settings = _full_settings(tmp_path=tmp_path, max_train_steps=6, save_every=1)
+    checkpoint_dir = tmp_path / "checkpoints"
+    checkpoint_dir.mkdir()
+    contract = _FullOutputContract(
+        target_updates=6,
+        epochs=1,
+        updates_per_epoch=6,
+        half_interval=1,
+        validation_batches=1,
+        keep_count=4,
+        world_size=1,
+    )
+    checkpoints: list[CheckpointMetadata] = []
+    for step in range(1, 7):
+        path = checkpoint_dir / f"step_{step:06d}.pt"
+        path.write_bytes(f"checkpoint:{step}".encode())
+        checkpoints.append(
+            CheckpointMetadata(
+                path=path,
+                sha256=_sha256_file(path),
+                optimizer_step=step,
+                successful_optimizer_update_count=step,
+            ),
+        )
+    resume_history = selected_runtime_runner._ResumeArtifactHistory(  # noqa: SLF001
+        metric_rows=tuple(
+            _train_step_row(contract=contract, step=step, rank=0)
+            for step in range(1, 5)
+        ),
+        validation_rows=tuple(_validation_rows(contract)[:4]),
+        interval_checkpoints=tuple(checkpoints[:4]),
+        best_checkpoint=None,
+        best_validation_metric=None,
+    )
+
+    state = selected_runtime_runner._interval_flush_state(  # noqa: SLF001
+        settings=settings,
+        resume_history=resume_history,
+        metric_rows=(
+            _train_step_row(contract=contract, step=5, rank=0),
+            _train_step_row(contract=contract, step=6, rank=0),
+        ),
+        validation_rows=tuple(_validation_rows(contract)[4:6]),
+        checkpoints=tuple(checkpoints[4:6]),
+        best_checkpoint=None,
+        best_validation_metric=None,
+        last_result=_step_result(step=6),
+        current_step=6,
+    )
+
+    # The all-gathered fields carry only this rank's new rows...
+    assert [row["successful_optimizer_update_count"] for row in state.metric_rows] == [
+        "5",
+        "6",
+    ]
+    # ...while the resume prefix is carried separately for a single prepend.
+    assert [
+        row["successful_optimizer_update_count"] for row in state.resume_metric_rows
+    ] == ["1", "2", "3", "4"]
+    merged_metric_rows = selected_runtime_runner._merge_resume_csv_rows(  # noqa: SLF001
+        prior_rows=state.resume_metric_rows,
+        new_rows=state.metric_rows,
+    )
+    assert [row["successful_optimizer_update_count"] for row in merged_metric_rows] == [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+    ]
+    assert [row["optimizer_step"] for row in state.resume_validation_rows] == [
+        row["optimizer_step"] for row in _validation_rows(contract)[:4]
+    ]
+    assert [checkpoint.path.name for checkpoint in state.checkpoints] == [
+        "step_000003.pt",
+        "step_000004.pt",
+        "step_000005.pt",
+        "step_000006.pt",
+    ]
+    assert not (checkpoint_dir / "step_000001.pt").exists()
+    assert not (checkpoint_dir / "step_000002.pt").exists()
+
+
+def test_full_interval_flush_writes_resume_history_and_partial_artifacts(  # noqa: PLR0914, PLR0915
+    tmp_path: Path,
+) -> None:
+    """Interval checkpoint flushes preserve metrics before final teardown."""
+    flush_step = 2
+    output_dir = tmp_path / "interval_flush"
+    request = SelectedRuntimeTrainRequest(
+        config_path=_FULL_CONFIG,
+        runtime_config=_RUNTIME_CONFIG,
+        output_dir=output_dir,
+        run_name="spec0009_interval_flush",
+        data="synthetic",
+        max_train_steps=2,
+        save_every_steps=1,
+        dry_run=True,
+    )
+    plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+    resolved = resolve_json_config(_FULL_CONFIG)
+    settings = selected_runtime_runner._settings(  # noqa: SLF001
+        request=request,
+        resolved=resolved,
+        plan=plan,
+    )
+    distributed = _local_distributed_context()
+    data_surface = selected_runtime_runner._prepare_data_surface(  # noqa: SLF001
+        request=request,
+        settings=settings,
+        plan=plan,
+        distributed=distributed,
+    )
+    try:
+        artifacts = selected_runtime_runner._artifact_paths(output_dir)  # noqa: SLF001
+        checkpoint_dir = output_dir / "checkpoints"
+        checkpoint_dir.mkdir(parents=True)
+        contract = _FullOutputContract(
+            target_updates=2,
+            epochs=1,
+            updates_per_epoch=2,
+            half_interval=1,
+            validation_batches=1,
+            keep_count=4,
+            world_size=1,
+        )
+        model = selected_runtime_runner.build_non_equivariant_vae(
+            norm_groups=settings.norm_groups,
+        )
+        launch_command = (
+            selected_runtime_runner.build_selected_runtime_torchrun_command(
+                config_path=_FULL_CONFIG,
+                runtime_config=_RUNTIME_CONFIG,
+                data="synthetic",
+                output_dir=output_dir,
+                run_name=request.run_name,
+                max_train_steps=2,
+                save_every_steps=1,
+                dry_run=True,
+            )
+        )
+        context = selected_runtime_runner._IntervalFlushContext(  # noqa: SLF001
+            artifacts=artifacts,
+            request=request,
+            settings=settings,
+            plan=plan,
+            runtime_identity=selected_runtime_runner._runtime_identity(  # noqa: SLF001
+                plan,
+            ),
+            launch_command=launch_command,
+            ddp_proof=selected_runtime_runner.build_ddp_rank_device_proof(
+                plan=plan,
+                probe=distributed.probe,
+                launch_command=launch_command,
+                dry_run=True,
+            ),
+            amp=selected_runtime_runner._amp_execution(  # noqa: SLF001
+                plan=plan,
+                distributed=distributed,
+                dry_run=True,
+            ),
+            data_surface=data_surface,
+            distributed=distributed,
+        )
+        metric_rows = [
+            _train_step_row(contract=contract, step=step, rank=0)
+            for step in range(1, flush_step + 1)
+        ]
+        for row in metric_rows:
+            row["checkpoint_path"] = ""
+        pre_checkpoint_state = selected_runtime_runner._IntervalFlushState(  # noqa: SLF001
+            metric_rows=tuple(metric_rows),
+            validation_rows=tuple(_validation_rows(contract)),
+            gate_rows=(),
+            checkpoints=(),
+            best_checkpoint=None,
+            best_validation_metric=None,
+            last_result=_step_result(step=flush_step),
+            current_step=flush_step,
+        )
+
+        selected_runtime_runner._write_interval_artifact_flush(  # noqa: SLF001
+            context=context,
+            model=model,
+            local_state=pre_checkpoint_state,
+        )
+
+        pre_checkpoint_proof = cast(
+            "dict[str, object]",
+            json.loads(artifacts.checkpoint_resume_proof.read_text(encoding="utf-8")),
+        )
+        pre_checkpoint_manifest = cast(
+            "dict[str, object]",
+            json.loads(artifacts.artifact_manifest.read_text(encoding="utf-8")),
+        )
+        checkpoint_path = checkpoint_dir / "step_000002.pt"
+        checkpoint_path.write_bytes(b"checkpoint:step_000002")
+        best_path = checkpoint_dir / "best_model.pt"
+        best_path.write_bytes(b"checkpoint:best")
+        checkpoint = CheckpointMetadata(
+            path=checkpoint_path,
+            sha256=_sha256_file(checkpoint_path),
+            optimizer_step=2,
+            successful_optimizer_update_count=2,
+        )
+        best_checkpoint = CheckpointMetadata(
+            path=best_path,
+            sha256=_sha256_file(best_path),
+            optimizer_step=2,
+            successful_optimizer_update_count=2,
+        )
+        metric_rows[-1]["checkpoint_path"] = "checkpoints/step_000002.pt"
+        post_checkpoint_state = selected_runtime_runner._IntervalFlushState(  # noqa: SLF001
+            metric_rows=tuple(metric_rows),
+            validation_rows=tuple(_validation_rows(contract)),
+            gate_rows=(),
+            checkpoints=(checkpoint,),
+            best_checkpoint=best_checkpoint,
+            best_validation_metric=0.5,
+            last_result=_step_result(step=flush_step),
+            current_step=flush_step,
+        )
+
+        selected_runtime_runner._write_interval_artifact_flush(  # noqa: SLF001
+            context=context,
+            model=model,
+            local_state=post_checkpoint_state,
+        )
+
+        train_rows = list(
+            csv.DictReader(
+                artifacts.train_steps.open(encoding="utf-8", newline=""),
+            ),
+        )
+        summary = cast(
+            "dict[str, object]",
+            json.loads(artifacts.training_summary.read_text(encoding="utf-8")),
+        )
+        full_summary = cast(
+            "dict[str, object]",
+            json.loads(
+                artifacts.selected_runtime_full_summary.read_text(encoding="utf-8"),
+            ),
+        )
+        manifest = cast(
+            "dict[str, object]",
+            json.loads(artifacts.artifact_manifest.read_text(encoding="utf-8")),
+        )
+        history = selected_runtime_runner._load_resume_artifact_history(  # noqa: SLF001
+            artifacts=artifacts,
+            settings=settings,
+            distributed=distributed,
+            start_step=2,
+        )
+        blockers = verify_selected_runtime_full_output(
+            output_dir=output_dir,
+            selected_runtime_path=_RUNTIME_CONFIG,
+        )
+
+        assert [row["successful_optimizer_update_count"] for row in train_rows] == [
+            "1",
+            "2",
+        ]
+        assert summary["partial_artifact_flush"] is True
+        assert summary["full_run_eligible"] is False
+        assert summary["optimizer_steps_completed"] == flush_step
+        assert full_summary["partial_artifact_flush"] is True
+        assert full_summary["status"] == "fail"
+        assert pre_checkpoint_proof["latest_metric_prefix_step"] == flush_step
+        assert pre_checkpoint_proof["latest_checkpoint_step"] == 0
+        assert not pre_checkpoint_proof["resume_checkpoint"]
+        assert "checkpoint:step_000002.pt" not in cast(
+            "dict[str, object]",
+            pre_checkpoint_manifest["artifact_hashes"],
+        )
+        assert manifest["partial_artifact_flush"] is True
+        assert "train_steps" in cast("dict[str, object]", manifest["artifact_hashes"])
+        proof = cast(
+            "dict[str, object]",
+            json.loads(artifacts.checkpoint_resume_proof.read_text(encoding="utf-8")),
+        )
+        assert proof["latest_checkpoint_step"] == flush_step
+        assert proof["resume_checkpoint"] == "checkpoints/step_000002.pt"
+        assert len(history.metric_rows) == flush_step
+        assert history.best_checkpoint is not None
+        assert "selected_runtime_full_output_training_summary_not_pass" in blockers
+        assert (
+            "selected_runtime_full_output_train_steps_schedule_incomplete" in blockers
+        )
+    finally:
+        selected_runtime_runner._close_data_surface(data_surface)  # noqa: SLF001
+
+
+def test_full_interval_flush_dedups_resume_prefix_under_simulated_ddp(  # noqa: PLR0914, PLR0915
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A resumed 2-rank flush prepends the resume prefix once, not world_size times.
+
+    Regression guard: the resume prefix lives on every rank, so gathering it
+    inside the interval flush would duplicate it world_size times in the partial
+    metrics CSV and later break strict full-output verification.
+    """
+    output_dir = tmp_path / "ddp_interval_flush"
+    request = SelectedRuntimeTrainRequest(
+        config_path=_FULL_CONFIG,
+        runtime_config=_RUNTIME_CONFIG,
+        output_dir=output_dir,
+        run_name="spec0009_ddp_interval_flush",
+        data="synthetic",
+        max_train_steps=4,
+        save_every_steps=2,
+        dry_run=True,
+    )
+    plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+    resolved = resolve_json_config(_FULL_CONFIG)
+    settings = selected_runtime_runner._settings(  # noqa: SLF001
+        request=request,
+        resolved=resolved,
+        plan=plan,
+    )
+    local = _local_distributed_context()
+    data_surface = selected_runtime_runner._prepare_data_surface(  # noqa: SLF001
+        request=request,
+        settings=settings,
+        plan=plan,
+        distributed=local,
+    )
+    try:
+        artifacts = selected_runtime_runner._artifact_paths(output_dir)  # noqa: SLF001
+        checkpoint_dir = output_dir / "checkpoints"
+        checkpoint_dir.mkdir(parents=True)
+        contract = _FullOutputContract(
+            target_updates=4,
+            epochs=1,
+            updates_per_epoch=4,
+            half_interval=2,
+            validation_batches=1,
+            keep_count=4,
+            world_size=2,
+        )
+        model = selected_runtime_runner.build_non_equivariant_vae(
+            norm_groups=settings.norm_groups,
+        )
+        launch_command = (
+            selected_runtime_runner.build_selected_runtime_torchrun_command(
+                config_path=_FULL_CONFIG,
+                runtime_config=_RUNTIME_CONFIG,
+                data="synthetic",
+                output_dir=output_dir,
+                run_name=request.run_name,
+                max_train_steps=4,
+                save_every_steps=2,
+                dry_run=True,
+            )
+        )
+        ddp = replace(
+            local,
+            rank=0,
+            local_rank=0,
+            world_size=2,
+            nproc_per_node=2,
+            should_use_ddp=True,
+            probe=replace(
+                local.probe,
+                world_size=2,
+                nproc_per_node=2,
+                distributed_initialized=True,
+            ),
+        )
+        context = selected_runtime_runner._IntervalFlushContext(  # noqa: SLF001
+            artifacts=artifacts,
+            request=request,
+            settings=settings,
+            plan=plan,
+            runtime_identity=selected_runtime_runner._runtime_identity(plan),  # noqa: SLF001
+            launch_command=launch_command,
+            ddp_proof=selected_runtime_runner.build_ddp_rank_device_proof(
+                plan=plan,
+                probe=ddp.probe,
+                launch_command=launch_command,
+                dry_run=True,
+            ),
+            amp=selected_runtime_runner._amp_execution(  # noqa: SLF001
+                plan=plan,
+                distributed=ddp,
+                dry_run=True,
+            ),
+            data_surface=data_surface,
+            distributed=ddp,
+        )
+        # The resume prefix already holds BOTH ranks' rows for steps 1 and 2.
+        resume_metric_rows = tuple(
+            _train_step_row(contract=contract, step=step, rank=rank)
+            for step in (1, 2)
+            for rank in (0, 1)
+        )
+        resume_validation_rows = tuple(_validation_rows(contract)[:2])
+        resume_checkpoint_path = checkpoint_dir / "step_000002.pt"
+        resume_checkpoint_path.write_bytes(b"checkpoint:step_000002")
+        resume_history = selected_runtime_runner._ResumeArtifactHistory(  # noqa: SLF001
+            metric_rows=resume_metric_rows,
+            validation_rows=resume_validation_rows,
+            interval_checkpoints=(
+                CheckpointMetadata(
+                    path=resume_checkpoint_path,
+                    sha256=_sha256_file(resume_checkpoint_path),
+                    optimizer_step=2,
+                    successful_optimizer_update_count=2,
+                ),
+            ),
+            best_checkpoint=None,
+            best_validation_metric=None,
+        )
+        local_new_metric = (_train_step_row(contract=contract, step=4, rank=0),)
+        local_new_validation = tuple(
+            row for row in _validation_rows(contract) if row["optimizer_step"] == "4"
+        )
+
+        def fake_is_initialized() -> bool:
+            return True
+
+        def peer_rank1_rows(obj: object) -> tuple[dict[str, str], ...]:
+            peer: list[dict[str, str]] = []
+            for row in cast("Sequence[dict[str, str]]", obj):
+                clone = dict(row)
+                if "rank" in clone:
+                    clone["rank"] = "1"
+                event_id = clone.get("event_id", "")
+                if "rank0" in event_id:
+                    clone["event_id"] = event_id.replace("rank0", "rank1")
+                peer.append(clone)
+            return tuple(peer)
+
+        def fake_all_gather_object(gathered: list[object], obj: object) -> None:
+            # Model two ranks: this rank's rows plus a distinct rank-1 copy.
+            gathered[0] = obj
+            gathered[1] = peer_rank1_rows(obj)
+
+        def fake_broadcast_object_list(payload: list[object], src: int) -> None:
+            _ = (payload, src)
+
+        monkeypatch.setattr(
+            selected_runtime_runner.dist,
+            "is_initialized",
+            fake_is_initialized,
+        )
+        monkeypatch.setattr(
+            selected_runtime_runner.dist,
+            "all_gather_object",
+            fake_all_gather_object,
+        )
+        monkeypatch.setattr(
+            selected_runtime_runner.dist,
+            "broadcast_object_list",
+            fake_broadcast_object_list,
+        )
+
+        selected_runtime_runner._write_interval_artifact_flush(  # noqa: SLF001
+            context=context,
+            model=model,
+            local_state=selected_runtime_runner._interval_flush_state(  # noqa: SLF001
+                settings=settings,
+                resume_history=resume_history,
+                metric_rows=local_new_metric,
+                validation_rows=local_new_validation,
+                checkpoints=(),
+                best_checkpoint=None,
+                best_validation_metric=None,
+                last_result=_step_result(step=4),
+                current_step=4,
+            ),
+        )
+
+        train_rows = list(
+            csv.DictReader(
+                artifacts.train_steps.open(encoding="utf-8", newline=""),
+            ),
+        )
+        validation_rows = list(
+            csv.DictReader(
+                artifacts.validation_metrics.open(encoding="utf-8", newline=""),
+            ),
+        )
+    finally:
+        selected_runtime_runner._close_data_surface(data_surface)  # noqa: SLF001
+
+    resume_prefix_last_step = 2
+    prefix_pairs = sorted(
+        (row["successful_optimizer_update_count"], row["rank"])
+        for row in train_rows
+        if int(row["successful_optimizer_update_count"]) <= resume_prefix_last_step
+    )
+    new_pairs = sorted(
+        (row["successful_optimizer_update_count"], row["rank"])
+        for row in train_rows
+        if int(row["successful_optimizer_update_count"]) > resume_prefix_last_step
+    )
+    # The 4-row two-rank resume prefix appears exactly once (not world_size times)...
+    assert prefix_pairs == [("1", "0"), ("1", "1"), ("2", "0"), ("2", "1")]
+    # ...and both ranks' distinct new boundary rows survive the gather.
+    assert new_pairs == [("4", "0"), ("4", "1")]
+    new_validation = sorted(
+        (row["optimizer_step"], row["rank"], row["view"])
+        for row in validation_rows
+        if row["optimizer_step"] == "4"
+    )
+    assert new_validation == [
+        ("4", "0", "clean"),
+        ("4", "0", "deterministic_denoising"),
+        ("4", "1", "clean"),
+        ("4", "1", "deterministic_denoising"),
+    ]
+    validation_prefix = [row for row in validation_rows if row["optimizer_step"] == "2"]
+    assert len(validation_prefix) == len(resume_validation_rows)
 
 
 def test_full_output_verifier_accepts_strict_artifact_contract(
@@ -872,6 +1439,35 @@ def _gate_health_row(contract: _FullOutputContract) -> dict[str, str]:
         },
     )
     return row
+
+
+def _step_result(step: int) -> selected_runtime_runner._SelectedRuntimeStepResult:
+    scalar = torch.tensor(1.0)
+    losses = VaeLossComponents(
+        loss=scalar,
+        recon_loss=scalar,
+        l1_loss=torch.tensor(0.5),
+        ssim_loss=torch.tensor(0.5),
+        ssim_metric=torch.tensor(0.5),
+        kl_loss=torch.tensor(0.01),
+        beta=1.0,
+    )
+    return selected_runtime_runner._SelectedRuntimeStepResult(  # noqa: SLF001
+        optimizer_step_index=step - 1,
+        successful_optimizer_update_count=step,
+        losses=losses,
+        grad_norm=1.0,
+        param_update_norm=0.1,
+        nonfinite_count=0,
+        batch_size=12,
+        amp_step_skipped=False,
+        zero_grad_set_to_none=True,
+        train_reparameterization="stochastic_seeded",
+        eps_policy="stochastic_seeded_train_generator",
+        eps_seed_source="train_data_torch_generator",
+        eps_zero_fraction=0.0,
+        eps_abs_mean=0.8,
+    )
 
 
 def _interval_checkpoint_names(contract: _FullOutputContract) -> tuple[str, ...]:

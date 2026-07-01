@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-06-29
+Last updated: 2026-06-30
 
 ## Active Workstream
 
@@ -89,8 +89,12 @@ long-run resume proof fields for GradScaler/CUDA RNG/sampler/progress identity;
 `kaggle/kernels/selected_runtime_full` is the dedicated full launcher; and
 `scripts/kaggle_kernel.sh` has guarded `preflight/status/output` actions plus a
 full-run push guard. The debug/tiny kernel remains non-promotable and must not
-be reused for the long run. The next remote action, if desired later, is an
-exact approval request for the dedicated full-run status command.
+be reused for the long run. After the v1 cancellation, the local runner was
+hardened to use a two-phase full-run interval artifact flush: metrics,
+validation, gate-health, and fail-closed partial summaries are fsync/atomic
+written before exposing the new interval checkpoint; after checkpoint/best-model
+save, the same artifacts are refreshed with checkpoint hashes. DDP ranks now
+broadcast rank-0 flush failures so all ranks fail together instead of hanging.
 
 Full-run Kaggle launch requirements for the next agent: use only the dedicated
 full kernel path, not the debug/tiny kernel. The correct push action is the
@@ -107,6 +111,33 @@ remote reads and still require explicit approval plus `KAGGLE_REMOTE_CONFIRMED=1
 `./scripts/kaggle_kernel.sh output-selected-runtime-full runs/kaggle/selected_runtime_full_v1`.
 After a push, do not wait in-turn on the long run; if an approved status check
 shows `RUNNING`, record the local time and suggested next polling time here.
+
+Important artifact-scope correction, 2026-06-30: local review against
+`GOAL.md`, `docs/repo_goal_and_requirements.md`, `docs/issue_image_inventory.md`,
+Spec 0001, and the historical FSQ notebook confirms that Spec 0009's current
+full-run runner does not yet save the advisor/issue-required fixed-25
+equivariance artifact protocol. It writes durable train/validation/gate CSVs,
+summaries, checkpoints, and a minimal deterministic reconstruction tensor, but
+not fixed-25 original/reconstruction progress, rotated-input versus
+transformed-latent reconstructions, latent/embedding arrays or PCA maps,
+boundary-masked error maps, or an `equivariance_error_25_patches` metric. Treat
+any future Spec 0009 verifier pass as training/checkpoint evidence only until a
+focused fixed-25 rotated/latent artifact spec is implemented or explicitly
+deferred. The runner now at least prints half-epoch full-run boundary
+breadcrumbs and waits at a final full-run boundary barrier after the
+flush/checkpoint refresh, mirroring the useful FSQ logging/synchronization
+pattern for pulled Kaggle logs. The next near-term local implementation target is
+`fixed25_equivariance_artifact_protocol`: create a focused spec, likely Spec
+0010, or amend Spec 0009 to carry forward the useful FSQ qualitative/equivariant
+testing as continuous-VAE artifacts. Required scope: canonical fixed-25 selector
+guard, fixed originals, per-boundary reconstruction progress, continuous-angle
+rotated-input reconstructions, transformed-latent reconstructions from
+deterministic posterior `mu`, masked/unmasked error maps, latent/embedding
+arrays, EQ-VAE-style PCA/latent maps, `n=25` equivariance metrics, manifest
+metadata for angle/interpolation/padding/mask policy, atomic writes, boundary
+logs/barriers, verifier checks, and focused tests. Do not copy FSQ
+quantization/codebook/discrete-index artifacts; replace them with
+continuous-latent statistics for the normal VAE and future `SO(2)` model.
 
 Spec 0009 full-run remote push status, 2026-06-29: the first approved command
 used the nonexistent action `push-selected-runtime-full`; the script printed
@@ -152,15 +183,59 @@ is from update 31250 with validation L1 `0.1223133542` and SHA256
 `a2fcabd928bf6c1f781939725010540854a2627bddbfe3c8dd4c43a548cd5824`.
 Strict full-output verification failed as expected with
 `selected_runtime_full_output_benchmark_dir_missing`, so v1 is not a completed
-or paper-promotable run. Important resume blocker: current full-run resume code
-requires existing `metrics/train_steps.csv` prefix rows for full-run resumes,
-but v1 has no metrics directory because Kaggle canceled before final CSV/summary
-writing. Do not push a naive resume kernel yet. Next local action is to patch
-Spec 0009 resume behavior for Kaggle-canceled checkpoint-only continuation
-(for example, periodic interval metric flushing for future runs plus an
-explicit checkpoint-only-resume proof/verification policy for this v1 prefix),
-add focused tests and adversarial review, then request exact approval for a
-guarded resume upload/push that supplies `step_043750.pt` to Kaggle.
+or paper-promotable run. Root cause of the missing CSVs/summaries was confirmed
+against the historical FSQ run: FSQ appended CSVs during training before
+checkpoints, while Spec 0009 v1 wrote interval checkpoints during the loop but
+deferred CSV and summary writes until normal final teardown. Local future-proof
+fix is now implemented in `src/eqvae/training/selected_runtime_runner.py`: full
+runs use a two-phase boundary flush: atomic `metrics/train_steps.csv`,
+`metrics/validation_metrics.csv`, `metrics/gate_health.csv`, partial
+non-promotable benchmark summaries, and a partial manifest are written before
+the new interval checkpoint is exposed, then refreshed with checkpoint hashes
+after checkpoint/best-model save; final completion overwrites them with full
+eligible artifacts. DDP ranks broadcast rank-0 artifact-write and
+checkpoint-save failures so all ranks fail together. A follow-up adversarial
+review of that interval flush found and fixed one more high-severity bug: it
+prepended the resume-history prefix to every rank's rows before the all-gather,
+so a resumed dual-T4 run would duplicate the pre-resume metric/validation rows
+`world_size` times and later fail strict verification. The prefix is now kept
+out of the all-gathered per-rank rows and prepended once after the gather,
+mirroring the final-artifact path; simulated `world_size=2` regression test
+`test_full_interval_flush_dedups_resume_prefix_under_simulated_ddp` guards it.
+Focused test
+`test_full_interval_flush_writes_resume_history_and_partial_artifacts` proves
+the pre-checkpoint flush leaves resume-readable train history, the
+post-checkpoint refresh records the checkpoint hash, and strict full-output
+verification still rejects the incomplete run. `tests/test_kaggle_embedded_kernel.py`
+also no longer assumes pytest scratch directories live under `/tmp`, so the
+quality gate can use workspace-local scratch that is cleaned after use. The
+latest local code also adds explicit full-run boundary logs and a final
+boundary barrier after the second flush/checkpoint refresh; focused test
+`test_full_boundary_logging_waits_at_barrier` covers the helper. Separate new
+finding: Spec 0009 still lacks the fixed-25 rotated-input/transformed-latent
+artifact protocol required by the issue images and Spec 0001, so do not treat a
+future training/checkpoint verifier pass as equivariant embedding evidence. This
+is tracked as `fixed25_equivariance_artifact_protocol` / FU-040 and should be
+implemented soon before any paper-promotable full launch.
+Important remaining v1 decision:
+the first 43750 metric rows are unrecoverable, so do not push a naive resume
+kernel yet. Choose either (a) restart the full run from scratch with interval
+flushing enabled for complete curves, or (b) implement/review an explicit
+checkpoint-only-prefix continuation policy that resumes from
+`step_043750.pt` but remains non-paper-promotable for missing pre-resume
+metrics. Before any paper-promotable full rerun, also add or explicitly defer
+the fixed-25 equivariance artifact protocol.
+Latest local verification after the post-cancellation durability fixes:
+`tests/test_selected_runtime_runner.py` (`8 passed`),
+`tests/test_selected_runtime_full_run.py` (`14 passed`),
+`./scripts/kaggle_kernel.sh preflight-selected-runtime-runner` (`52 passed`),
+`./scripts/kaggle_kernel.sh preflight-selected-runtime-full` (`15 passed`),
+strict debug v5 output verification, `./scripts/python_quality.sh` (`246
+passed`, basedpyright clean), `git diff --check`, repo
+`./scripts/agent_preflight.sh`, and workspace
+`/home/maximus/Documents/Tesis/agent_preflight.sh` all passed. Heavy local gates
+used workspace scratch under `/home/maximus/Documents/Tesis/.agent-tmp/equivariant-vae`;
+empty it after use.
 Commit `d02204c` (`Implement selected runtime local mechanics`) recorded Spec
 0006 plus adversarial fixes. Spec 0007 is implemented locally and Spec 0008
 remote debug/tiny readiness is proved by v5. On 2026-06-28/29, the user
@@ -1214,64 +1289,40 @@ The review process lives in `docs/agentic_review_workflow.md`.
 
 ## Next Concrete Steps
 
-1. Runtime-selection v5 is the current efficient selected-runtime answer. It
-   selected AMP conservative dual-T4 bs12 indexed-mask at `27.381321`
-   samples/sec and about 30.4 projected hours for 10 epochs, with strict local
-   replay pass. This approval was only for the efficiency benchmark, not for the
-   first 60h-scale real training run.
-2. Compact aggressive-AMP follow-up version 6 completed, downloaded to
-   `runs/kaggle/runtime_selection_v6`, and replayed locally. Its
-   `amp_fp16_scalar_gate_relaxed` row did not beat v5 (`25.288828` samples/sec
-   versus `27.381321`) and did not write `benchmark/selected_runtime.json`, so
-   keep v5 as the selected-runtime fallback.
-3. Next learning/stability gate is selected-runtime debug/resume/tiny-overfit
-   using `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json`.
-   Local synthetic proof plumbing now exists through `python -m eqvae.cli.train`:
-   it consumes the selected runtime, writes training/debug/resume/artifact/
-   tiny-overfit summaries, and saves/restores model, optimizer, Python RNG,
-   explicit NumPy `Generator` state, global Torch CPU RNG state, and named Torch
-   `Generator` states such as `train_data`. Checkpoints are bound to the
-   selected-runtime config hash, row id, and policy id, and resume metadata is
-   validated before state restore. CUDA RNG restore is recorded as not
-   applicable for the local CPU proof and remains required for the real Kaggle
-   runner. It is explicitly `full_run_eligible = false`; the real UBC/Kaggle
-   debug, resume, artifact, and tiny-overfit proof gate is still pending. Prove
-   the real gate before asking for any long real training launch approval.
-   Preserve the FSQ lessons: do not execute the corruptor for clean validation,
-   and do not let schedules advance after a skipped optimizer step.
-4. Before implementation, update Spec 0001 and the Kaggle workflow with the real
-   selected-runtime debug/tiny contract: selected-runtime artifact transport
-   into Kaggle, real `ubc-pre-shuffled` train CLI behavior, CUDA/DDP checkpoint
-   state, AMP scaler/scheduler/beta state, artifact schemas, tiny-overfit
-   thresholds, local preflight, and fail-closed tests.
-5. Run or rerun Kaggle optimization/debug jobs only after explicit user
-   approval plus `KAGGLE_PUSH_CONFIRMED=1` and
-   `KAGGLE_FULL_DATASET_CONFIRMED=1`; remote reads still require explicit
-   approval plus `KAGGLE_REMOTE_CONFIRMED=1`.
+1. Runtime-selection v5 is the locked selected-runtime answer. It selected AMP
+   conservative dual-T4 bs12 indexed-mask at `27.381321` samples/sec and about
+   30.4 projected hours for 10 epochs; v6 did not beat it.
+2. Selected-runtime debug/tiny v5 completed, downloaded to
+   `runs/kaggle/selected_runtime_debug_v5`, and passed strict output
+   verification. It is the proven bounded gate, not the long-run launcher.
+3. Full-run v1 was pushed with explicit approval, later returned
+   `KernelWorkerStatus.CANCEL_ACKNOWLEDGED`, and was downloaded to
+   `runs/kaggle/selected_runtime_full_v1`. The download has checkpoints through
+   `step_043750.pt` and `best_model.pt` but no `metrics/` or `benchmark/`, so
+   strict full-output verification fails and v1 is not paper-promotable.
+4. The local runner now has two-phase interval artifact flushing for future
+   full launches. The next implementation decision is whether to restart the
+   full run from scratch for complete metrics/curves or add a separately
+   reviewed checkpoint-only-prefix continuation policy for `step_043750.pt` that
+   remains non-paper-promotable for the missing first 43750 metric rows.
+5. Do not run any Kaggle status/output/upload/push without exact explicit
+   approval plus the required confirmation environment variables. Any future
+   full push must use `kaggle/kernels/selected_runtime_full`, never
+   `kaggle/kernels/selected_runtime_debug`.
 6. Continue the shared evaluation harness, future `SO(2)` count ceiling, and
-   steerable model work only after the benchmark plumbing gates are no longer
-   blocking the first real baseline run.
-7. Ask for approval on the first 60h-scale real run only after implementation,
-   Kaggle environment checks, efficiency-selection decisions, selected-runtime
-   debug/resume/tiny-overfit checks, artifact checks, and gate-health checks are
-   complete.
+   steerable model work only after the current full-baseline recovery decision
+   is settled.
 
 ## Current Blockers
 
-- Spec 0001 is reopened for the real selected-runtime debug/resume/artifact/
-  tiny-overfit gate. Local synthetic proof plumbing exists and runtime-selection
-  v5 is the fallback selected runtime, but the real Kaggle train CLI/kernel path
-  is not implementation-ready until the next spec patch locks artifact
-  transport, real data handling, CUDA/DDP checkpoint state, scheduler/beta/AMP
-  scaler state, artifact schemas, tiny-overfit thresholds, and local preflights.
-  Remaining implementation-relock blockers include future `SO(2)` count
-  ceiling, real fixed validation/tiny-overfit selector generation, real
-  selected-runtime debug, real checkpoint/resume proof, full evaluation/artifact
-  writers, and final adversarial spec review after those routes are integrated.
-- The first full Kaggle run remains blocked. Runtime-selection v5 stays the
-  selected fallback after v6 failed to beat it; the remaining launch blockers
-  are real selected-runtime debug/resume/tiny-overfit, gate-health summary,
-  artifact proof, and fixed real visual QA.
+- Full-run v1 is canceled and incomplete. Its checkpoint prefix is resumable in
+  model-state terms, but the first 43750 metric rows are unrecoverable, so a
+  naive resume would produce incomplete curves. Choose restart-from-scratch or a
+  separately specified checkpoint-only-prefix continuation before any new remote
+  full-run push.
+- Future full launches must keep the two-phase interval flush and rank-0
+  failure broadcast intact, and must pass local tests/preflights before any
+  approval request.
 - The exact held-out masked-WSI test shard must be generated, uploaded, and
   locked before final paper claims. The 152-image candidate pool is documented in
   `docs/data/ubc_ocean_masked_holdout_ids.csv`, and train/validation are

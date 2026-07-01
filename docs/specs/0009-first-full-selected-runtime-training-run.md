@@ -1,7 +1,8 @@
 # Spec 0009: First Full Selected-Runtime Training Run
 
-Status: full kernel version 1 canceled with resumable checkpoint; continuation
-needs local resume-policy patch
+Status: full kernel version 1 canceled with resumable checkpoint; future
+two-phase cancellation metric flushing fixed locally; v1 continuation policy
+undecided; fixed-25 rotated/latent equivariance artifact protocol missing
 Implementation readiness: guarded full-run workflow exists locally and passed
 the required local verification gates; the first remote push was explicitly
 approved and accepted by Kaggle, the first status showed `RUNNING`, the next
@@ -29,8 +30,24 @@ remote full-kernel push was then explicitly approved and accepted as
 https://www.kaggle.com/code/maximusshtefan/eqvae-selected-runtime-full. Kaggle
 later reported `KernelWorkerStatus.CANCEL_ACKNOWLEDGED`; downloaded outputs
 contain interval checkpoints through update 43750 but no `benchmark/` or
-`metrics/` directories. Do not run further remote status, output, upload, or
-resume-push actions without fresh explicit approval.
+`metrics/` directories. The future-loss bug is fixed locally by two-phase
+interval artifact flushing: metrics/validation/gate/partial summaries are
+fsync/atomic-written before a new interval checkpoint is exposed, then refreshed
+with checkpoint hashes after checkpoint/best-model save. DDP ranks broadcast
+rank-0 flush failures and fail together; full-run half-epoch boundaries now log
+visible start/complete breadcrumbs and wait at a final boundary barrier after
+the second flush/checkpoint refresh. V1's missing prefix metrics are still
+unrecoverable.
+
+New local review found a separate artifact-scope gap: this spec's current
+runner/verifier do not yet produce the fixed-25 rotated-input versus
+transformed-latent/embedding equivariance artifacts required by `GOAL.md`,
+`docs/repo_goal_and_requirements.md`, `docs/issue_image_inventory.md`, and Spec
+0001. The current full-run artifact surface is valid for training durability and
+checkpoint/resume evidence only; it is not enough for issue #4/#6 equivariant
+embedding evaluation or paper-promotable qualitative artifacts. Do not run
+further remote status, output, upload, or resume-push actions without fresh
+explicit approval.
 
 ## Non-Goals
 
@@ -99,7 +116,11 @@ resume-push actions without fresh explicit approval.
   - checkpoints: final, best validation, and retained interval checkpoints;
   - nonblank reconstruction sample artifacts sufficient for handoff inspection.
 - This first run may produce training-dashboard ingredients, but final paper
-  figures/tables remain later evaluation work.
+  figures/tables remain later evaluation work. As currently implemented, it does
+  not produce the FSQ-style fixed-25 rotated-input/transformed-latent grids,
+  latent arrays/PCA maps, boundary-masked error maps, or
+  `equivariance_error_25_patches` rows required for the later paper/advisor
+  artifact protocol.
 
 ## Related Requirements And Evidence
 
@@ -144,11 +165,13 @@ resume-push actions without fresh explicit approval.
    deterministic denoising. Final full-dataset validation and sealed test
    evaluation are later evaluator work.
 6. Checkpoint cadence and retention must match the config.
-   Save interval checkpoints at every half-epoch boundary, write `final.pt`,
-   write `best_model.pt` from the best validation checkpoint rather than the
-   final train row, and retain final, best, and the latest four interval
-   checkpoints unless Kaggle output constraints force a narrower explicitly
-   documented policy.
+   At every half-epoch boundary, flush train/validation/gate metrics and
+   fail-closed partial summaries before exposing the new interval checkpoint;
+   then save the interval checkpoint, refresh partial artifacts with checkpoint
+   hashes, write `final.pt`, write `best_model.pt` from the best validation
+   checkpoint rather than the final train row, and retain final, best, and the
+   latest four interval checkpoints unless Kaggle output constraints force a
+   narrower explicitly documented policy.
 7. Resume must be long-run safe.
    Resume must restore or prove restoration of model, optimizer, LR/beta
    progress, GradScaler state, Python RNG, explicit NumPy generator, Torch CPU
@@ -245,28 +268,28 @@ git diff --check
 cd /home/maximus/Documents/Tesis && ./agent_preflight.sh
 ```
 
-Local verification on 2026-06-29 passed after adversarial fixes:
+Local verification on 2026-06-30 passed after the canceled-v1 interval-flush
+fixes:
 
 - `PYTHONPATH=src .venv/bin/pytest tests/test_selected_runtime_runner.py -q`
   passed with `8 passed`.
 - `PYTHONPATH=src .venv/bin/pytest tests/test_selected_runtime_full_run.py -q`
-  passed with `10 passed`.
+  passed with `14 passed`.
 - `./scripts/kaggle_kernel.sh preflight-selected-runtime-runner` passed with
   `52 passed`.
 - `./scripts/kaggle_kernel.sh preflight-selected-runtime-full` passed with
-  `11 passed`.
+  `15 passed`.
 - Strict debug v5 output verification passed for
   `runs/kaggle/selected_runtime_debug_v5` against the v5 selected runtime.
-- `./scripts/python_quality.sh` passed with `242 passed` and basedpyright
+- `./scripts/python_quality.sh` passed with `246 passed` and basedpyright
   `0 errors, 0 warnings, 0 notes`.
 - `git diff --check`, repo `./scripts/agent_preflight.sh`, and workspace
   `/home/maximus/Documents/Tesis/agent_preflight.sh` passed.
-- `/tmp` pressure during verification was resolved by deleting only known local
-  scratch directories once, then running heavy gates with ignored repo-local
-  `runs/local_tmp/...` scratch and deleting each scratch directory after use.
-  The local preflight/quality scripts now default to process-unique
-  self-cleaning scratch under `runs/local_tmp/...`, and runner preflight output
-  is no longer left under `runs/local_preflight`.
+- Heavy local gates were run with workspace-local scratch under
+  `/home/maximus/Documents/Tesis/.agent-tmp/equivariant-vae`, and the scratch
+  contents were deleted after use. `tests/test_kaggle_embedded_kernel.py` now
+  handles non-`/tmp` pytest scratch directories by checking the actual ancestor
+  path that can resolve the masked-holdout CSV.
 - The first full-kernel push was later approved and accepted by Kaggle as
   version 1. It later returned `KernelWorkerStatus.CANCEL_ACKNOWLEDGED`; the
   canceled outputs were downloaded and inspected locally, but strict full-output
@@ -292,6 +315,21 @@ Adversarial review results:
   locally: resume now loads and merges pre-resume train/validation rows, carries
   retained interval checkpoint metadata plus prior best-validation state, and
   full-run resume fails closed when required prior train history is missing.
+- The post-cancellation interval-flush review found two additional blockers:
+  the first flush happened after checkpoint exposure, and rank-0 write failure
+  could let peer DDP ranks continue into later collectives. Those are fixed
+  locally: full-run boundaries now flush metrics/validation/gate and fail-closed
+  partial summaries before checkpoint exposure, refresh those artifacts with
+  checkpoint hashes after best/interval checkpoint save, and broadcast rank-0
+  artifact-write or checkpoint-save failures so all ranks raise together.
+- A follow-up review of that interval-flush work found one more high-severity
+  blocker: the flush prepended the resume-history prefix to every rank's rows
+  before the all-gather, so a resumed dual-T4 run would duplicate the pre-resume
+  train/validation rows `world_size` times and then fail strict full-output
+  verification (`train_steps_duplicate_rank` / row-count mismatch). It is fixed
+  locally by keeping the resume prefix out of the all-gathered per-rank rows and
+  prepending it once after the gather, mirroring the final-artifact path; a
+  simulated `world_size = 2` interval-flush regression test now guards it.
 
 Remote sequence and current state:
 
@@ -339,14 +377,30 @@ Canceled v1 inspection results:
 
 ## Remaining Blockers
 
-- A naive resume push is not ready: the current full-run resume path requires
-  existing `metrics/train_steps.csv` prefix rows, but canceled v1 did not output
-  `metrics/` before interruption.
-- Patch the local resume policy before any resume launch: flush train and
-  validation metrics at interval checkpoints for future cancellations, and add
-  an explicit checkpoint-only prefix policy or verifier evidence for continuing
-  from v1's `step_043750.pt`.
-- Add focused tests plus adversarial review for the canceled-output resume path.
+- Canceled v1 lacks the first 43750 train metric rows. A naive resume push is
+  still not ready until the project chooses restart-from-scratch or an explicit
+  checkpoint-only-prefix continuation policy for `step_043750.pt`.
+- Future launches now use two-phase train/validation/gate-health plus partial
+  summary/manifest flushing around interval checkpoints, but this cannot recover
+  v1's already-missing prefix rows.
+- Future launches now print half-epoch boundary start/complete log breadcrumbs
+  and wait at a final full-run boundary barrier after checkpoint/manifest refresh,
+  mirroring the useful FSQ synchronization/logging pattern for pulled Kaggle logs.
+- The fixed-25 rotated-input/transformed-latent equivariance artifact protocol is
+  not implemented in the Spec 0009 full runner or verifier. Before another
+  paper-promotable full launch, implement
+  `fixed25_equivariance_artifact_protocol` by either amending this spec or
+  creating a focused evaluator/artifact spec, likely Spec 0010, that writes the
+  canonical fixed-25 originals,
+  per-boundary reconstruction progress, rotated-input reconstructions,
+  transformed-latent reconstructions, latent/embedding arrays or PCA maps,
+  boundary-masked error maps, `n=25` equivariance metrics, angle/interpolation/
+  mask metadata, atomic directory artifacts, boundary logs/barriers, and strict
+  verifier checks. A future full run without this protocol is training/checkpoint
+  evidence only and must not be presented as issue #4/#6 equivariant embedding
+  evidence unless the user explicitly changes the requirement.
+- Add adversarial review for any later checkpoint-only-prefix continuation
+  policy before asking for resume approval.
 - Any checkpoint upload, Kaggle source attachment, resume push, status read, or
   output download still requires exact explicit approval and confirmation
   variables.
@@ -362,6 +416,8 @@ Canceled v1 inspection results:
 - Treating debug/tiny non-promotable artifacts as full-run evidence.
 - Losing resume correctness after a Kaggle interruption.
 - Producing a checkpoint-heavy output that is awkward to download or inspect.
+- Treating a Spec 0009 verifier pass as issue #4/#6 equivariant embedding
+  evidence even though fixed-25 rotated/latent artifacts are not generated yet.
 - Overstating paper readiness before later evaluator/test artifacts exist.
 
 ## Adversarial Checks
@@ -381,9 +437,11 @@ Canceled v1 inspection results:
 
 ## Open Questions
 
-None that block implementation. The first full training run uses bounded
-half-epoch validation for training supervision/dashboard evidence; full
-validation/test metrics and paper figures are later evaluator work.
+The first full training run currently uses bounded half-epoch validation for
+training supervision/dashboard ingredients only. Full validation/test metrics
+and paper figures are later evaluator work, but fixed-25 rotated/latent
+equivariance artifacts are required before treating any future full run as
+issue #4/#6 or paper-promotable embedding evidence.
 
 ## Related Files
 

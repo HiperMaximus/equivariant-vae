@@ -726,10 +726,14 @@ def test_selected_runtime_debug_selector_status_resolves_payload_holdout(
         os.chdir(original_cwd)
 
     direct_failure = direct_status["failure_kind"]
-    if tmp_path.parts[:2] == ("/", "tmp"):
-        assert direct_failure == "fixed_32_selector_masked_holdout_unavailable"
-    else:
+    direct_has_holdout = any(
+        (parent / _MASKED_HOLDOUT_CSV_PAYLOAD_PATH).exists()
+        for parent in selector_path.resolve().parents
+    )
+    if direct_has_holdout:
         assert direct_failure == "fixed_32_selector_not_canonical_real_ubc"
+    else:
+        assert direct_failure == "fixed_32_selector_masked_holdout_unavailable"
     assert wrapped_status["failure_kind"] == "fixed_32_selector_not_canonical_real_ubc"
     validation_errors = cast("list[object]", wrapped_status["validation_errors"])
     assert "fixed_32_selector_masked_holdout_unavailable" not in validation_errors
