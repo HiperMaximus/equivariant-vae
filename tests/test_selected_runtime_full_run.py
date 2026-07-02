@@ -17,6 +17,10 @@ if TYPE_CHECKING:
 import pytest
 import torch
 
+from eqvae.artifacts.fixed25_equivariance import (
+    EQUIVARIANCE_25_COLUMNS,
+    REQUIRED_EQUIVARIANCE_METRICS,
+)
 from eqvae.benchmarking import selected_runtime_gate
 from eqvae.benchmarking.runtime_schema import GATE_HEALTH_COLUMNS
 from eqvae.benchmarking.selected_runtime_gate import verify_selected_runtime_full_output
@@ -863,6 +867,12 @@ def test_full_interval_flush_dedups_resume_prefix_under_simulated_ddp(  # noqa: 
             for rank in (0, 1)
         )
         resume_validation_rows = tuple(_validation_rows(contract)[:2])
+        # Fixed-25 rows are canonical global rank-0 rows: the resume prefix holds
+        # one copy per boundary, not one per rank (Spec 0010).
+        resume_equivariance_rows = (
+            _equivariance_row(step=1, degrees=90),
+            _equivariance_row(step=2, degrees=90),
+        )
         resume_checkpoint_path = checkpoint_dir / "step_000002.pt"
         resume_checkpoint_path.write_bytes(b"checkpoint:step_000002")
         resume_history = selected_runtime_runner._ResumeArtifactHistory(  # noqa: SLF001
@@ -878,11 +888,13 @@ def test_full_interval_flush_dedups_resume_prefix_under_simulated_ddp(  # noqa: 
             ),
             best_checkpoint=None,
             best_validation_metric=None,
+            equivariance_rows=resume_equivariance_rows,
         )
         local_new_metric = (_train_step_row(contract=contract, step=4, rank=0),)
         local_new_validation = tuple(
             row for row in _validation_rows(contract) if row["optimizer_step"] == "4"
         )
+        local_new_equivariance = (_equivariance_row(step=4, degrees=90),)
 
         def fake_is_initialized() -> bool:
             return True
@@ -936,6 +948,7 @@ def test_full_interval_flush_dedups_resume_prefix_under_simulated_ddp(  # noqa: 
                 best_validation_metric=None,
                 last_result=_step_result(step=4),
                 current_step=4,
+                equivariance_rows=local_new_equivariance,
             ),
         )
 
@@ -947,6 +960,11 @@ def test_full_interval_flush_dedups_resume_prefix_under_simulated_ddp(  # noqa: 
         validation_rows = list(
             csv.DictReader(
                 artifacts.validation_metrics.open(encoding="utf-8", newline=""),
+            ),
+        )
+        equivariance_rows = list(
+            csv.DictReader(
+                artifacts.equivariance_25.open(encoding="utf-8", newline=""),
             ),
         )
     finally:
@@ -980,6 +998,9 @@ def test_full_interval_flush_dedups_resume_prefix_under_simulated_ddp(  # noqa: 
     ]
     validation_prefix = [row for row in validation_rows if row["optimizer_step"] == "2"]
     assert len(validation_prefix) == len(resume_validation_rows)
+    # The canonical fixed-25 rows are merged, never gathered: the resume prefix
+    # appears once per boundary (not world_size times) and the new row survives.
+    assert [row["optimizer_step"] for row in equivariance_rows] == ["1", "2", "4"]
 
 
 def test_full_output_verifier_accepts_strict_artifact_contract(
@@ -1054,6 +1075,172 @@ def test_full_output_verifier_rejects_incomplete_train_step_coverage(
 
     assert "selected_runtime_full_output_train_steps_row_count_mismatch" in blockers
     assert "selected_runtime_full_output_train_steps_schedule_incomplete" in blockers
+
+
+def test_full_output_verifier_rejects_missing_fixed25_originals(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The fixed-25 originals archive is required (Spec 0010)."""
+    contract = _small_full_output_contract(monkeypatch)
+    output_dir = tmp_path / "full_output"
+    _write_full_output_fixture(output_dir=output_dir, contract=contract)
+    (output_dir / "artifacts" / "fixed25" / "originals.pt").unlink()
+
+    blockers = verify_selected_runtime_full_output(
+        output_dir=output_dir,
+        selected_runtime_path=_RUNTIME_CONFIG,
+    )
+
+    assert "selected_runtime_full_output_fixed25_originals_missing" in blockers
+
+
+def test_full_output_verifier_rejects_missing_equivariance_csv(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The equivariance metrics CSV is required (Spec 0010)."""
+    contract = _small_full_output_contract(monkeypatch)
+    output_dir = tmp_path / "full_output"
+    _write_full_output_fixture(output_dir=output_dir, contract=contract)
+    (output_dir / "metrics" / "equivariance_25.csv").unlink()
+
+    blockers = verify_selected_runtime_full_output(
+        output_dir=output_dir,
+        selected_runtime_path=_RUNTIME_CONFIG,
+    )
+
+    assert "selected_runtime_full_output_fixed25_equivariance_csv_missing" in blockers
+
+
+def test_full_output_verifier_rejects_fixed25_rotation_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The fixed-25 manifest must record the locked rot90 convention."""
+    contract = _small_full_output_contract(monkeypatch)
+    output_dir = tmp_path / "full_output"
+    _write_full_output_fixture(output_dir=output_dir, contract=contract)
+    manifest_path = output_dir / "artifacts" / "fixed25" / "manifest.json"
+    manifest = cast(
+        "dict[str, dict[str, object]]",
+        json.loads(manifest_path.read_text(encoding="utf-8")),
+    )
+    manifest["rotation"]["method"] = "bilinear"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    _refresh_manifest_hash(
+        output_dir=output_dir,
+        artifact_name="fixed25_manifest",
+        artifact_path=manifest_path,
+    )
+
+    blockers = verify_selected_runtime_full_output(
+        output_dir=output_dir,
+        selected_runtime_path=_RUNTIME_CONFIG,
+    )
+
+    assert "selected_runtime_full_output_fixed25_manifest_rotation_mismatch" in blockers
+
+
+def test_full_output_verifier_retires_reconstruction_sample_requirement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The full-run verifier no longer requires the retired single-patch dump."""
+    contract = _small_full_output_contract(monkeypatch)
+    output_dir = tmp_path / "full_output"
+    _write_full_output_fixture(output_dir=output_dir, contract=contract)
+    assert not (output_dir / "artifacts" / "reconstruction_samples.pt").exists()
+
+    blockers = verify_selected_runtime_full_output(
+        output_dir=output_dir,
+        selected_runtime_path=_RUNTIME_CONFIG,
+    )
+
+    assert blockers == ()
+    assert not any("reconstruction" in blocker for blocker in blockers)
+
+
+def test_full_output_verifier_rejects_missing_fixed25_error_maps(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Full-frame error maps are a required per-boundary artifact (Spec 0010)."""
+    contract = _small_full_output_contract(monkeypatch)
+    output_dir = tmp_path / "full_output"
+    _write_full_output_fixture(output_dir=output_dir, contract=contract)
+    fixed25_dir = output_dir / "artifacts" / "fixed25"
+    boundary = fixed25_dir / f"boundary_{contract.target_updates:06d}"
+    (boundary / "error_maps_angle_180.pt").unlink()
+
+    blockers = verify_selected_runtime_full_output(
+        output_dir=output_dir,
+        selected_runtime_path=_RUNTIME_CONFIG,
+    )
+
+    assert "selected_runtime_full_output_fixed25_boundary_incomplete" in blockers
+
+
+def test_full_output_verifier_rejects_non_promotable_fixed25(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A synthetic / non-promotable fixed-25 manifest fails the promotable gate."""
+    contract = _small_full_output_contract(monkeypatch)
+    output_dir = tmp_path / "full_output"
+    _write_full_output_fixture(output_dir=output_dir, contract=contract)
+    manifest_path = output_dir / "artifacts" / "fixed25" / "manifest.json"
+    manifest = cast(
+        "dict[str, object]",
+        json.loads(manifest_path.read_text(encoding="utf-8")),
+    )
+    manifest["data_source"] = "synthetic"
+    manifest["promotable"] = False
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    _refresh_manifest_hash(
+        output_dir=output_dir,
+        artifact_name="fixed25_manifest",
+        artifact_path=manifest_path,
+    )
+
+    blockers = verify_selected_runtime_full_output(
+        output_dir=output_dir,
+        selected_runtime_path=_RUNTIME_CONFIG,
+    )
+
+    assert "selected_runtime_full_output_fixed25_manifest_non_promotable" in blockers
+
+
+def test_full_resume_equivariance_prefix_requires_complete_boundaries(
+    tmp_path: Path,
+) -> None:
+    """A truncated pre-resume equivariance CSV fails closed like validation does."""
+    settings = _full_settings(tmp_path=tmp_path, max_train_steps=2, save_every=1)
+    step = settings.half_epoch_interval_steps
+    complete = tuple(
+        _equivariance_row(step=step, degrees=degrees, metric=metric)
+        for metric in REQUIRED_EQUIVARIANCE_METRICS
+        for degrees in (90, 180, 270)
+    )
+
+    # A complete prefix and an empty (protocol-inactive) prefix both pass.
+    selected_runtime_runner._validate_full_resume_equivariance_prefix(  # noqa: SLF001
+        rows=complete,
+        settings=settings,
+        start_step=step,
+    )
+    selected_runtime_runner._validate_full_resume_equivariance_prefix(  # noqa: SLF001
+        rows=(),
+        settings=settings,
+        start_step=step,
+    )
+
+    with pytest.raises(ValueError, match="equivariance"):
+        selected_runtime_runner._validate_full_resume_equivariance_prefix(  # noqa: SLF001
+            rows=complete[1:],
+            settings=settings,
+            start_step=step,
+        )
 
 
 def _small_full_output_contract(
@@ -1161,7 +1348,7 @@ def _write_full_output_fixture(
     checkpoint_names = (*interval_checkpoint_names, "final.pt", "best_model.pt")
     for name in checkpoint_names:
         (checkpoints / name).write_bytes(f"checkpoint:{name}".encode())
-    (artifacts / "reconstruction_samples.pt").write_bytes(b"reconstruction")
+    fixed25_hashes = _write_fixed25_fixture(output_dir=output_dir, contract=contract)
 
     _write_json(
         benchmark / "training_summary.json",
@@ -1261,9 +1448,9 @@ def _write_full_output_fixture(
         "train_steps": _sha256_file(metrics / "train_steps.csv"),
         "validation_metrics": _sha256_file(metrics / "validation_metrics.csv"),
         "gate_health": _sha256_file(metrics / "gate_health.csv"),
-        "reconstruction_samples": _sha256_file(artifacts / "reconstruction_samples.pt"),
         "checkpoint:final.pt": _sha256_file(checkpoints / "final.pt"),
         "checkpoint:best_model.pt": _sha256_file(checkpoints / "best_model.pt"),
+        **fixed25_hashes,
     }
     artifact_hashes.update(
         {
@@ -1280,6 +1467,78 @@ def _write_full_output_fixture(
             "artifact_hashes": artifact_hashes,
         },
     )
+
+
+def _write_fixed25_fixture(
+    *,
+    output_dir: Path,
+    contract: _FullOutputContract,
+) -> dict[str, str]:
+    fixed25_dir = output_dir / "artifacts" / "fixed25"
+    boundary_steps = list(
+        range(
+            contract.half_interval,
+            contract.target_updates + 1,
+            contract.half_interval,
+        ),
+    )
+    last_step = boundary_steps[-1]
+    boundary_dir = fixed25_dir / f"boundary_{last_step:06d}"
+    (boundary_dir / "grids").mkdir(parents=True, exist_ok=True)
+    (fixed25_dir / "originals.pt").write_bytes(b"originals")
+    for name in (
+        "reconstruction_progress.pt",
+        "latent_mu.pt",
+        "latent_pca_eqvae_style.png",
+        "latent_first3.png",
+    ):
+        (boundary_dir / name).write_bytes(name.encode())
+    (boundary_dir / "grids" / "rotated_input_vs_latent_grid.png").write_bytes(b"grid")
+    for degrees in (90, 180, 270):
+        (boundary_dir / f"rotated_angle_{degrees}.pt").write_bytes(b"rotated")
+        (boundary_dir / f"error_maps_angle_{degrees}.pt").write_bytes(b"errors")
+    _write_json(
+        fixed25_dir / "manifest.json",
+        {
+            "schema": "spec0010.fixed25_equivariance.manifest.v1",
+            "rotation": {"method": "rot90", "dims": [2, 3], "k_values": [0, 1, 2, 3]},
+            "data_source": "real",
+            "promotable": True,
+            "boundary_optimizer_steps": boundary_steps,
+        },
+    )
+    equivariance_rows = [
+        _equivariance_row(step=step, degrees=degrees, metric=metric)
+        for step in boundary_steps
+        for metric in REQUIRED_EQUIVARIANCE_METRICS
+        for degrees in (90, 180, 270)
+    ]
+    equivariance_path = output_dir / "metrics" / "equivariance_25.csv"
+    _write_csv(equivariance_path, EQUIVARIANCE_25_COLUMNS, equivariance_rows)
+    return {
+        "equivariance_25": _sha256_file(equivariance_path),
+        "fixed25_originals": _sha256_file(fixed25_dir / "originals.pt"),
+        "fixed25_manifest": _sha256_file(fixed25_dir / "manifest.json"),
+    }
+
+
+def _equivariance_row(
+    *,
+    step: int,
+    degrees: int,
+    metric: str = "equivariance_error_25_patches",
+) -> dict[str, str]:
+    return {
+        "optimizer_step": str(step),
+        "angle_degrees": str(degrees),
+        "metric_name": metric,
+        "value": "0.1",
+        "mean": "0.1",
+        "std": "0.01",
+        "n": "25",
+        "data_source": "real",
+        "promotable": "true",
+    }
 
 
 def _train_step_columns() -> tuple[str, ...]:

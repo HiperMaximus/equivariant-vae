@@ -46,5 +46,8 @@
     "required_debug_gate_output": "runs/kaggle/selected_runtime_debug_v5",
     "remote_pass_ready": false,
     "remote_launch_requires_explicit_approval": true
+  },
+  "fixed25_equivariance": {
+    "enabled": true
   }
 }

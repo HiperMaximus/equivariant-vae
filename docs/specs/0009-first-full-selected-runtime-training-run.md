@@ -117,10 +117,10 @@ explicit approval.
   - nonblank reconstruction sample artifacts sufficient for handoff inspection.
 - This first run may produce training-dashboard ingredients, but final paper
   figures/tables remain later evaluation work. As currently implemented, it does
-  not produce the FSQ-style fixed-25 rotated-input/transformed-latent grids,
-  latent arrays/PCA maps, boundary-masked error maps, or
+  not produce the FSQ-style fixed-25 rotated-input/rotated-embedding grids,
+  latent arrays/PCA maps, full-frame error maps, or
   `equivariance_error_25_patches` rows required for the later paper/advisor
-  artifact protocol.
+  artifact protocol (now specified by Spec 0010).
 
 ## Related Requirements And Evidence
 
@@ -390,13 +390,15 @@ Canceled v1 inspection results:
   not implemented in the Spec 0009 full runner or verifier. Before another
   paper-promotable full launch, implement
   `fixed25_equivariance_artifact_protocol` by either amending this spec or
-  creating a focused evaluator/artifact spec, likely Spec 0010, that writes the
+  creating a focused evaluator/artifact spec — now Spec 0010
+  (`docs/specs/0010-fixed25-equivariance-artifact-protocol.md`, an evaluation-only
+  embedding-inspection protocol; decision 0009) — that writes the
   canonical fixed-25 originals,
-  per-boundary reconstruction progress, rotated-input reconstructions,
-  transformed-latent reconstructions, latent/embedding arrays or PCA maps,
-  boundary-masked error maps, `n=25` equivariance metrics, angle/interpolation/
-  mask metadata, atomic directory artifacts, boundary logs/barriers, and strict
-  verifier checks. A future full run without this protocol is training/checkpoint
+  per-boundary reconstruction progress, exact rot90 `{0,90,180,270}` rotated-input
+  reconstructions, deterministic-`mu` rotated-embedding reconstructions,
+  latent/embedding arrays or PCA maps, full-frame error maps, `n=25` equivariance
+  metrics, rotation/angle metadata, atomic directory artifacts, boundary
+  logs/barriers, and strict verifier checks. A future full run without this protocol is training/checkpoint
   evidence only and must not be presented as issue #4/#6 equivariant embedding
   evidence unless the user explicitly changes the requirement.
 - Add adversarial review for any later checkpoint-only-prefix continuation

@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-06-30
+Last updated: 2026-07-01
 
 ## Active Workstream
 
@@ -120,22 +120,39 @@ equivariance artifact protocol. It writes durable train/validation/gate CSVs,
 summaries, checkpoints, and a minimal deterministic reconstruction tensor, but
 not fixed-25 original/reconstruction progress, rotated-input versus
 transformed-latent reconstructions, latent/embedding arrays or PCA maps,
-boundary-masked error maps, or an `equivariance_error_25_patches` metric. Treat
+full-frame error maps, or an `equivariance_error_25_patches` metric. Treat
 any future Spec 0009 verifier pass as training/checkpoint evidence only until a
 focused fixed-25 rotated/latent artifact spec is implemented or explicitly
 deferred. The runner now at least prints half-epoch full-run boundary
 breadcrumbs and waits at a final full-run boundary barrier after the
 flush/checkpoint refresh, mirroring the useful FSQ logging/synchronization
-pattern for pulled Kaggle logs. The next near-term local implementation target is
-`fixed25_equivariance_artifact_protocol`: create a focused spec, likely Spec
-0010, or amend Spec 0009 to carry forward the useful FSQ qualitative/equivariant
-testing as continuous-VAE artifacts. Required scope: canonical fixed-25 selector
-guard, fixed originals, per-boundary reconstruction progress, continuous-angle
-rotated-input reconstructions, transformed-latent reconstructions from
-deterministic posterior `mu`, masked/unmasked error maps, latent/embedding
-arrays, EQ-VAE-style PCA/latent maps, `n=25` equivariance metrics, manifest
-metadata for angle/interpolation/padding/mask policy, atomic writes, boundary
-logs/barriers, verifier checks, and focused tests. Do not copy FSQ
+pattern for pulled Kaggle logs. `fixed25_equivariance_artifact_protocol` is now IMPLEMENTED as Spec 0010
+(`docs/specs/0010-fixed25-equivariance-artifact-protocol.md`) on the working tree
+(uncommitted, 2026-07-01): new `src/eqvae/artifacts/fixed25_equivariance.py` +
+`src/eqvae/cli/fixed25_equivariance.py`, runner boundary-loop evaluator with
+FU-039-durable `metrics/equivariance_25.csv` (merge-not-gather for the global
+rank-0 rows, resume-prefix validator, broadcast-guarded rank-0 eval), gate + config
++ CPU tests; gate green (263 passed, 0 type errors) with a 6-lens post-impl
+adversarial review integrated (9 confirmed findings). Remaining OPEN before
+paper-promotable use: generate the REAL fixed-25 selector (the tracked config is the
+placeholder, so a real run FAILS CLOSED until then) and commit the work. It is an
+EVALUATION/INSPECTION protocol
+(decision `docs/decisions/0009-fixed25-embedding-equivariance-eval-proxy.md`),
+decoupled from training: it probes the embedding space with exact rot90 as a
+PROXY for embedding smoothness/structure (EQ-VAE idea), to COMPARE the
+non-equivariant baseline vs the future `SO(2)`-steerable model on the SAME frozen
+25 validation images. `SO(2)` steerability is a property of the equivariant
+model's convolutions, not of this evaluation. Required scope: canonical fixed-25 selector
+guard, fixed originals, per-boundary reconstruction progress, exact rot90
+`{0,90,180,270}` rotated-input reconstructions, transformed-latent
+reconstructions from deterministic posterior `mu`, full-frame error maps,
+latent/embedding arrays, EQ-VAE-style PCA/latent maps, `n=25` equivariance
+metrics (headline = EQ-VAE Appendix C.3 / FSQ normalized-latent-L2 ratio),
+manifest metadata for rotation/angle policy (no mask; full-frame error maps), atomic writes, boundary
+logs/barriers, verifier checks, and focused tests. Rotation model corrected
+2026-07-01 to rot90 `{0,90,180,270}` (not continuous angles) per the FSQ
+reference (`kaggle/train_runs:1056-1097`) and the EQ-VAE paper §3.3 the advisor
+cited; continuous angles are deferred to the future `SO(2)` spec. Do not copy FSQ
 quantization/codebook/discrete-index artifacts; replace them with
 continuous-latent statistics for the normal VAE and future `SO(2)` model.
 
@@ -215,8 +232,9 @@ boundary barrier after the second flush/checkpoint refresh; focused test
 finding: Spec 0009 still lacks the fixed-25 rotated-input/transformed-latent
 artifact protocol required by the issue images and Spec 0001, so do not treat a
 future training/checkpoint verifier pass as equivariant embedding evidence. This
-is tracked as `fixed25_equivariance_artifact_protocol` / FU-040 and should be
-implemented soon before any paper-promotable full launch.
+is tracked as `fixed25_equivariance_artifact_protocol` / FU-040 and is now
+drafted as Spec 0010 (status draft, awaiting user approval) before any
+paper-promotable full launch.
 Important remaining v1 decision:
 the first 43750 metric rows are unrecoverable, so do not push a naive resume
 kernel yet. Choose either (a) restart the full run from scratch with interval
@@ -1312,6 +1330,12 @@ The review process lives in `docs/agentic_review_workflow.md`.
 6. Continue the shared evaluation harness, future `SO(2)` count ceiling, and
    steerable model work only after the current full-baseline recovery decision
    is settled.
+7. Spec 0010 (`fixed25-equivariance-artifact-protocol`) is drafted and
+   adversarially reviewed (2026-07-01); status draft, spec-only. It is the P0
+   FU-040 artifact protocol and is BLOCKED on explicit user approval before any
+   implementation, runner, config, test, or verifier code. Paper-promotable
+   fixed-25 artifacts also need the real selector (real Kaggle data), coupling
+   this to the v1-continuation decision in step 4.
 
 ## Current Blockers
 

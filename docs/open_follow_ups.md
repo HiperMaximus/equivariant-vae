@@ -79,39 +79,35 @@ Rules to keep this file from rotting (the problem it exists to fix):
   second flush/checkpoint refresh so pulled Kaggle logs show the last completed
   boundary (`src/eqvae/training/selected_runtime_runner.py:_log_full_boundary_start`,
   `_synchronize_full_boundary_completion`).
-- **FU-040 — P0 next implementation: `fixed25_equivariance_artifact_protocol`.**
-  The first full-run surface lacks the FSQ/issue-required fixed-25 qualitative
-  and equivariance artifact protocol. The current Spec 0009 runner writes only a
-  minimal deterministic `artifacts/reconstruction_samples.pt` final artifact
-  (`src/eqvae/training/selected_runtime_runner.py:_write_reconstruction_sample`)
-  and `metrics/validation_metrics.csv` rows for clean/denoising views. It does
-  not yet archive the canonical fixed 25 validation patches, save per-boundary
-  reconstruction progress for them, compare rotated-input reconstruction against
-  transformed-latent reconstruction, persist latent/embedding arrays/PCA maps,
-  or emit `equivariance_error_25_patches`-style rows. This is required by
-  `GOAL.md:70-79`, `docs/repo_goal_and_requirements.md:49-56,75-91,109-149`,
-  `docs/issue_image_inventory.md:13-16,23-46`, and Spec 0001's fixed-25 plus
-  rotated/latent protocol (`docs/specs/0001-translatable-normal-vae-baseline.md:2942-2960,3027-3048`).
-  The old FSQ notebook saved the relevant reference/evaluation artifacts,
-  half-epoch logs/barriers, incremental CSV rows, and the
-  `equivariance_error_25_patches` metric at half-epoch boundaries
-  (`kaggle/train_runs:825-842,970-1100,1119-1122`).
+- **FU-040 — `fixed25_equivariance_artifact_protocol`: IMPLEMENTED (Spec 0010),
+  uncommitted; remaining open work = real selector + commit.** The eval/inspection
+  protocol (Spec 0010, user-approved 2026-07-01) is fully implemented on the working
+  tree and NOT yet committed: new `src/eqvae/artifacts/fixed25_equivariance.py`
+  (exact rot90 `{0,90,180,270}`, EQ-VAE `pca_to_rgb` + first3, six equivariance
+  metrics incl. headline normalized-L2² ratio, fail-closed 25-patch loader,
+  dep-free PNG encoder) and `src/eqvae/cli/fixed25_equivariance.py` (standalone
+  re-run on any checkpoint / future `SO(2)` model); runner wires the per-boundary
+  evaluator + full FU-039-class durability for `metrics/equivariance_25.csv`
+  (separate resume-prefix field, merge-NOT-gather for the global rank-0 rows,
+  `_validate_full_resume_equivariance_prefix`, broadcast-guarded rank-0 eval);
+  gate requires the fixed-25 artifacts (incl. error maps + `promotable=real`) and
+  retires `reconstruction_samples.pt` from the full run; configs add a shared
+  `fixed25_equivariance` block (`enabled` only in the full config). Gate green:
+  263 passed, 0 type errors. Adversarially reviewed post-impl (6-lens workflow,
+  9 confirmed findings integrated). It is decoupled from training (decision 0009);
+  the same frozen 25 validation images serve both the baseline and the future
+  `SO(2)` model; continuous angles are a future `SO(2)`-only extension. FSQ
+  quantization/codebook/discrete-index artifacts are deliberately NOT copied.
 
-  Required next local work: create a focused spec, likely Spec 0010, or amend
-  Spec 0009 before another paper-promotable full launch. The implementation must
-  include canonical fixed-25 selector consumption/generation guard, fixed
-  originals, per-boundary reconstruction progress, continuous-angle rotated
-  input reconstructions, transformed-latent reconstructions from deterministic
-  posterior `mu`, boundary-masked and unmasked error maps, latent/embedding
-  arrays, EQ-VAE-style PCA/latent-map visualizations, `n=25` equivariance CSV
-  metrics, manifest metadata for angles/interpolation/padding/masks, atomic
-  directory writes, half-epoch log breadcrumbs/barriers, strict verifier checks,
-  and focused tests. Do not copy FSQ quantization/codebook/discrete-index
-  artifacts; replace them with continuous-latent statistics appropriate for the
-  normal VAE and future `SO(2)` model. A future full run without this protocol
-  must be labeled training/checkpoint evidence only; it must not be presented as
-  issue #4/#6 equivariant embedding evidence unless the user explicitly changes
-  this requirement.
+  Remaining OPEN work before this is paper-promotable: (1) generate the REAL
+  fixed-25 validation selector — the tracked
+  `configs/spec0001/fixed_25_validation_patches.json` is still the
+  `requires_real_data_generation` placeholder, so a real full run FAILS CLOSED
+  until it exists (needs the real Kaggle validation `.bin/.csv`; couples to the
+  FU-039 v1-continuation decision); (2) commit the Spec 0010 work (currently
+  uncommitted on the working tree). A full run without promotable fixed-25 output
+  must still be labeled training/checkpoint evidence only — never issue #4/#6
+  equivariant-embedding evidence.
 
 ### MED
 

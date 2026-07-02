@@ -153,5 +153,40 @@
     "final_clamp_min": -1.0,
     "final_clamp_max": 1.0,
     "metadata_schema_version": "spec0001.stain_corruptor.metadata.v1"
+  },
+  "fixed25_equivariance": {
+    "enabled": false,
+    "selector_config": "configs/spec0001/fixed_25_validation_patches.json",
+    "expected_count": 25,
+    "expected_per_label": 5,
+    "rotation": {
+      "method": "rot90",
+      "dims": [2, 3],
+      "k_values": [0, 1, 2, 3]
+    },
+    "latent": {
+      "transform": "rot90_scalar_field",
+      "source": "posterior_mu_deterministic",
+      "channels": 16,
+      "spatial": 32
+    },
+    "sampled_latent": {
+      "paired_epsilon": true,
+      "epsilon_seed": 20260612
+    },
+    "equivariance": {
+      "error_eps": 0.00000001
+    },
+    "save_every_boundary": true,
+    "pca": {
+      "methods": ["pca_top3", "first3"],
+      "components": 3,
+      "fit_scope": "per_image",
+      "sign_convention": "unpinned"
+    },
+    "error_maps": {
+      "masked": false
+    },
+    "promotable_requires_real_data": true
   }
 }

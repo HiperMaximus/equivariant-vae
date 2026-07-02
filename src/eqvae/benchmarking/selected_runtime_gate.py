@@ -17,6 +17,22 @@ if TYPE_CHECKING:
 
     from eqvae.benchmarking.io import CsvRow
 
+from eqvae.artifacts.fixed25_equivariance import (
+    DEGREES_PER_K,
+    EQUIVARIANCE_25_COLUMNS,
+    FIRST3_PNG,
+    FIXED25_DIRNAME,
+    GRID_PNG,
+    LATENT_MU_PT,
+    MANIFEST_JSON,
+    MEASURED_K_VALUES,
+    ORIGINALS_PT,
+    PCA_PNG,
+    RECONSTRUCTION_PROGRESS_PT,
+    REQUIRED_EQUIVARIANCE_METRICS,
+    error_maps_pt_name,
+    rotated_pt_name,
+)
 from eqvae.benchmarking.fixed32_selector_readiness import (
     EXPECTED_TINY_SELECTOR_COUNT,
     LOCAL_SELECTOR_MODE,
@@ -111,6 +127,13 @@ REMOTE_FULL_REQUIRED_METRIC_ARTIFACTS = frozenset(
         "validation_metrics.csv",
     },
 )
+# equivariance_25.csv is required by the deep fixed-25 checks (Spec 0010) rather
+# than the early required-artifact gate, so a partial flush that has not yet
+# written it still reaches the deep schedule checks. It is allowed here so a real
+# full-run output is not flagged as an unexpected extra metric file.
+REMOTE_FULL_OPTIONAL_METRIC_ARTIFACTS = frozenset({"equivariance_25.csv"})
+_FIXED25_EXPECTED_SAMPLE_COUNT = "25"
+_FIXED25_EXPECTED_K_VALUES = [0, 1, 2, 3]
 REMOTE_FULL_TARGET_UPDATES = 125000
 REMOTE_FULL_EPOCHS = 10
 REMOTE_FULL_UPDATES_PER_EPOCH = 12500
@@ -553,7 +576,11 @@ def verify_selected_runtime_full_output(  # noqa: PLR0914
         f"selected_runtime_full_output_missing_metric_{name}"
         for name in sorted(missing_metrics)
     )
-    unexpected_metrics = observed_metrics - REMOTE_FULL_REQUIRED_METRIC_ARTIFACTS
+    unexpected_metrics = (
+        observed_metrics
+        - REMOTE_FULL_REQUIRED_METRIC_ARTIFACTS
+        - REMOTE_FULL_OPTIONAL_METRIC_ARTIFACTS
+    )
     blockers.extend(
         f"selected_runtime_full_output_unexpected_metric_{name}"
         for name in sorted(unexpected_metrics)
@@ -605,6 +632,7 @@ def verify_selected_runtime_full_output(  # noqa: PLR0914
     blockers.extend(
         _remote_full_validation_blockers(metrics_dir / "validation_metrics.csv"),
     )
+    blockers.extend(_remote_full_fixed25_blockers(output_dir=output_dir))
     return _dedupe_strings(tuple(blockers))
 
 
@@ -747,10 +775,6 @@ def _remote_full_json_blockers(  # noqa: PLR0913
         (
             artifact_manifest.get("full_run_eligible") is True,
             "manifest_not_full_run_eligible",
-        ),
-        (
-            artifact_manifest.get("reconstruction_sample_nonblank") is True,
-            "reconstruction_blank",
         ),
     )
     blockers.extend(
@@ -920,6 +944,126 @@ def _remote_full_validation_blockers(path: Path) -> tuple[str, ...]:
     if any(not _is_finite_float(row.get("l1_loss", "")) for row in rows):
         blockers.append("selected_runtime_full_output_validation_nonfinite")
     return tuple(blockers)
+
+
+def _remote_full_fixed25_blockers(*, output_dir: Path) -> tuple[str, ...]:
+    """Return blockers for the Spec 0010 fixed-25 embedding-equivariance artifacts.
+
+    Requires the archived originals, a complete equivariance CSV, a manifest with
+    the locked rotation convention and promotability label, and the latest
+    boundary directory's reconstruction / rotated / latent / grid / PCA artifacts.
+
+    Returns:
+        Stable blocker names; empty when the fixed-25 contract passed locally.
+
+    """
+    prefix = "selected_runtime_full_output_fixed25"
+    fixed25_dir = output_dir / "artifacts" / FIXED25_DIRNAME
+    blockers: list[str] = []
+    if not (fixed25_dir / ORIGINALS_PT).exists():
+        blockers.append(f"{prefix}_originals_missing")
+    blockers.extend(
+        _fixed25_equivariance_csv_blockers(
+            output_dir / "metrics" / "equivariance_25.csv",
+            prefix=prefix,
+        ),
+    )
+    manifest_blockers, boundary_steps = _fixed25_manifest_blockers(
+        fixed25_dir / MANIFEST_JSON,
+        prefix=prefix,
+    )
+    blockers.extend(manifest_blockers)
+    if boundary_steps:
+        blockers.extend(
+            _fixed25_boundary_blockers(
+                fixed25_dir=fixed25_dir,
+                optimizer_step=max(boundary_steps),
+                prefix=prefix,
+            ),
+        )
+    return tuple(blockers)
+
+
+def _fixed25_equivariance_csv_blockers(path: Path, *, prefix: str) -> tuple[str, ...]:
+    if not path.exists():
+        return (f"{prefix}_equivariance_csv_missing",)
+    with path.open(encoding="utf-8", newline="") as csv_file:
+        reader = csv.DictReader(csv_file)
+        rows = list(reader)
+        fieldnames = tuple(reader.fieldnames or ())
+    blockers: list[str] = []
+    if set(EQUIVARIANCE_25_COLUMNS) - set(fieldnames):
+        blockers.append(f"{prefix}_equivariance_csv_missing_columns")
+    if not rows:
+        blockers.append(f"{prefix}_equivariance_csv_empty")
+        return tuple(blockers)
+    observed_metrics = {row.get("metric_name", "") for row in rows}
+    if set(REQUIRED_EQUIVARIANCE_METRICS) - observed_metrics:
+        blockers.append(f"{prefix}_equivariance_csv_missing_metrics")
+    measured_angles = {str(DEGREES_PER_K * k) for k in MEASURED_K_VALUES}
+    if any(row.get("n") != _FIXED25_EXPECTED_SAMPLE_COUNT for row in rows):
+        blockers.append(f"{prefix}_equivariance_csv_bad_sample_count")
+    if any(row.get("angle_degrees", "") not in measured_angles for row in rows):
+        blockers.append(f"{prefix}_equivariance_csv_bad_angle")
+    return tuple(blockers)
+
+
+def _fixed25_manifest_blockers(
+    path: Path,
+    *,
+    prefix: str,
+) -> tuple[tuple[str, ...], tuple[int, ...]]:
+    if not path.exists():
+        return ((f"{prefix}_manifest_missing",), ())
+    manifest = _load_json(path)
+    blockers: list[str] = []
+    rotation = manifest.get("rotation")
+    rotation_payload = rotation if isinstance(rotation, dict) else {}
+    if (
+        rotation_payload.get("method") != "rot90"
+        or rotation_payload.get("k_values") != _FIXED25_EXPECTED_K_VALUES
+    ):
+        blockers.append(f"{prefix}_manifest_rotation_mismatch")
+    if "data_source" not in manifest or "promotable" not in manifest:
+        blockers.append(f"{prefix}_manifest_missing_promotability")
+    elif not _fixed25_manifest_is_promotable(manifest):
+        # A promotable full-run output must carry real fixed-25 evidence;
+        # synthetic / non-promotable artifacts are never issue #4/#6 evidence.
+        blockers.append(f"{prefix}_manifest_non_promotable")
+    steps_raw = manifest.get("boundary_optimizer_steps")
+    steps = (
+        tuple(step for step in steps_raw if isinstance(step, int))
+        if isinstance(steps_raw, list)
+        else ()
+    )
+    if not steps:
+        blockers.append(f"{prefix}_manifest_no_boundaries")
+    return (tuple(blockers), steps)
+
+
+def _fixed25_manifest_is_promotable(manifest: JsonObject) -> bool:
+    return manifest.get("data_source") == "real" and manifest.get("promotable") is True
+
+
+def _fixed25_boundary_blockers(
+    *,
+    fixed25_dir: Path,
+    optimizer_step: int,
+    prefix: str,
+) -> tuple[str, ...]:
+    boundary_dir = fixed25_dir / f"boundary_{optimizer_step:06d}"
+    required = [
+        RECONSTRUCTION_PROGRESS_PT,
+        LATENT_MU_PT,
+        GRID_PNG,
+        PCA_PNG,
+        FIRST3_PNG,
+        *(rotated_pt_name(DEGREES_PER_K * k) for k in MEASURED_K_VALUES),
+        *(error_maps_pt_name(DEGREES_PER_K * k) for k in MEASURED_K_VALUES),
+    ]
+    if any(not (boundary_dir / name).exists() for name in required):
+        return (f"{prefix}_boundary_incomplete",)
+    return ()
 
 
 def _remote_output_plan_scaler_blockers(plan_applied: JsonObject) -> tuple[str, ...]:
@@ -1251,7 +1395,11 @@ def _remote_full_manifest_blockers(
             "train_steps",
             "validation_metrics",
             "gate_health",
-            "reconstruction_samples",
+            # Spec 0010: the fixed-25 artifacts replace the retired single-patch
+            # reconstruction dump for the full run.
+            "equivariance_25",
+            "fixed25_originals",
+            "fixed25_manifest",
             "checkpoint:final.pt",
             "checkpoint:best_model.pt",
         }
@@ -1318,6 +1466,9 @@ def _full_manifest_artifact_path(*, output_dir: Path, name: str) -> Path | None:
         "reconstruction_samples": output_dir
         / "artifacts"
         / "reconstruction_samples.pt",
+        "equivariance_25": output_dir / "metrics" / "equivariance_25.csv",
+        "fixed25_originals": output_dir / "artifacts" / FIXED25_DIRNAME / ORIGINALS_PT,
+        "fixed25_manifest": output_dir / "artifacts" / FIXED25_DIRNAME / MANIFEST_JSON,
     }
     if name.startswith("checkpoint:"):
         return output_dir / "checkpoints" / name.removeprefix("checkpoint:")

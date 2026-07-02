@@ -27,6 +27,21 @@ from torch.utils.data import (
     SequentialSampler,
 )
 
+from eqvae.artifacts.fixed25_equivariance import (
+    DEGREES_PER_K,
+    EQUIVARIANCE_25_COLUMNS,
+    MEASURED_K_VALUES,
+    REQUIRED_EQUIVARIANCE_METRICS,
+    Fixed25Config,
+    Fixed25Patches,
+    compute_rot90_exactness,
+    evaluate_boundary,
+    load_fixed25_patches,
+    parse_fixed25_config,
+    validation_shard_spec_for,
+    write_manifest,
+    write_originals,
+)
 from eqvae.benchmarking.runtime_schema import GATE_HEALTH_COLUMNS
 from eqvae.checkpointing import (
     CheckpointMetadata,
@@ -195,6 +210,7 @@ class SelectedRuntimeTrainRequest:
     data: str
     data_root: str | None = None
     fixed_train_patches: Path | None = None
+    fixed_25_validation_patches: Path | None = None
     resume: Path | None = None
     max_train_steps: int | None = None
     max_val_steps: int | None = None
@@ -349,6 +365,20 @@ class _RunArtifacts:
     validation_metrics: Path
     gate_health: Path
     reconstruction_samples: Path
+    equivariance_25: Path
+    fixed25_dir: Path
+
+
+@dataclass(frozen=True)
+class _Fixed25Runtime:
+    """Loaded fixed-25 embedding-equivariance evaluation state (Spec 0010)."""
+
+    config: Fixed25Config
+    patches: Fixed25Patches
+    fixed25_dir: Path
+    data_source: str
+    promotable: bool
+    rot90_exactness_error: float
 
 
 @dataclass(frozen=True)
@@ -381,6 +411,10 @@ class _IntervalFlushState:
     # _write_interval_artifact_flush).
     resume_metric_rows: tuple[CsvRow, ...] = ()
     resume_validation_rows: tuple[CsvRow, ...] = ()
+    # Fixed-25 equivariance rows are canonical global rows produced on rank 0 only
+    # (Spec 0010): they are merged with the resume prefix but never all-gathered.
+    equivariance_rows: tuple[CsvRow, ...] = ()
+    resume_equivariance_rows: tuple[CsvRow, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -631,6 +665,7 @@ class _TrainLoopResult:
     best_validation_checkpoint: CheckpointMetadata | None
     best_validation_metric: float | None
     last_result: _SelectedRuntimeStepResult
+    equivariance_rows: tuple[CsvRow, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -640,6 +675,7 @@ class _ResumeArtifactHistory:
     interval_checkpoints: tuple[CheckpointMetadata, ...]
     best_checkpoint: CheckpointMetadata | None
     best_validation_metric: float | None
+    equivariance_rows: tuple[CsvRow, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -930,6 +966,15 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
         plan=plan,
     )
     write_artifacts = _is_primary_rank(distributed)
+    fixed25 = _prepare_fixed25_runtime(
+        request=request,
+        settings=settings,
+        resolved=resolved,
+        data_surface=data_surface,
+        distributed=distributed,
+        model=model,
+        artifacts=artifacts,
+    )
     train_loop = _run_train_steps(
         request=request,
         resolved=resolved,
@@ -963,6 +1008,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
         )
         if _is_full_run(settings)
         else None,
+        fixed25=fixed25,
     )
     metric_rows = _merge_resume_csv_rows(
         prior_rows=resume_history.metric_rows,
@@ -971,6 +1017,12 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
     validation_rows = _merge_resume_csv_rows(
         prior_rows=resume_history.validation_rows,
         new_rows=_gather_csv_rows(train_loop.validation_rows, distributed),
+    )
+    # Canonical global fixed-25 rows are produced on rank 0 only: merge the
+    # resume prefix but do NOT all-gather (Spec 0010 DDP contract).
+    equivariance_rows = _merge_resume_csv_rows(
+        prior_rows=resume_history.equivariance_rows,
+        new_rows=train_loop.equivariance_rows,
     )
     checkpoints = (
         *resume_history.interval_checkpoints,
@@ -1013,10 +1065,12 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
         metric_rows=metric_rows,
         validation_rows=validation_rows,
         gate_rows=gate_rows,
+        equivariance_rows=equivariance_rows,
         checkpoints=checkpoints,
         best_validation_checkpoint=best_validation_checkpoint,
         best_validation_metric=best_validation_metric,
         last_result=last_result,
+        fixed25=fixed25,
     )
     _barrier(distributed)
     _close_data_surface(data_surface)
@@ -1056,10 +1110,12 @@ def _write_final_artifacts(  # noqa: PLR0913
     metric_rows: Sequence[CsvRow],
     validation_rows: Sequence[CsvRow],
     gate_rows: Sequence[CsvRow],
+    equivariance_rows: Sequence[CsvRow],
     checkpoints: Sequence[CheckpointMetadata],
     best_validation_checkpoint: CheckpointMetadata | None,
     best_validation_metric: float | None,
     last_result: _SelectedRuntimeStepResult,
+    fixed25: _Fixed25Runtime | None,
 ) -> _FinalArtifactWriteResult | None:
     write_error: Exception | None = None
     write_error_message: str | None = None
@@ -1088,10 +1144,12 @@ def _write_final_artifacts(  # noqa: PLR0913
                 metric_rows=metric_rows,
                 validation_rows=validation_rows,
                 gate_rows=gate_rows,
+                equivariance_rows=equivariance_rows,
                 checkpoints=checkpoints,
                 best_validation_checkpoint=best_validation_checkpoint,
                 best_validation_metric=best_validation_metric,
                 last_result=last_result,
+                fixed25=fixed25,
             )
         except Exception as exc:  # noqa: BLE001  # pragma: no cover - DDP sync guard
             write_error = exc
@@ -1132,10 +1190,12 @@ def _write_final_artifacts_primary(  # noqa: PLR0913
     metric_rows: Sequence[CsvRow],
     validation_rows: Sequence[CsvRow],
     gate_rows: Sequence[CsvRow],
+    equivariance_rows: Sequence[CsvRow],
     checkpoints: Sequence[CheckpointMetadata],
     best_validation_checkpoint: CheckpointMetadata | None,
     best_validation_metric: float | None,
     last_result: _SelectedRuntimeStepResult,
+    fixed25: _Fixed25Runtime | None,
 ) -> _FinalArtifactWriteResult:
     final_checkpoint = _save_checkpoint(
         path=request.output_dir / "checkpoints" / "final.pt",
@@ -1190,12 +1250,18 @@ def _write_final_artifacts_primary(  # noqa: PLR0913
         amp=amp,
         distributed=distributed,
     )
-    reconstruction_nonblank = _write_reconstruction_sample(
-        path=artifacts.reconstruction_samples,
-        model=model,
-        settings=settings,
-        data_surface=data_surface,
-        device=distributed.device,
+    # The trivial single-patch dump is retired when the fixed-25 protocol is
+    # active (Spec 0010); the debug/tiny path keeps writing it unchanged.
+    reconstruction_nonblank = (
+        False
+        if fixed25 is not None
+        else _write_reconstruction_sample(
+            path=artifacts.reconstruction_samples,
+            model=model,
+            settings=settings,
+            data_surface=data_surface,
+            device=distributed.device,
+        )
     )
     gate_health_summary = _gate_health_summary(gate_rows)
     plan_applied = _plan_applied_proof(
@@ -1224,6 +1290,7 @@ def _write_final_artifacts_primary(  # noqa: PLR0913
         metric_rows=metric_rows,
         validation_rows=validation_rows,
         gate_rows=gate_rows,
+        equivariance_rows=equivariance_rows if fixed25 is not None else (),
     )
     _write_json_atomic(artifacts.selected_runtime_plan_applied, plan_applied)
     _write_json_atomic(artifacts.checkpoint_resume_proof, checkpoint_resume_proof)
@@ -1288,6 +1355,7 @@ def _write_final_artifacts_primary(  # noqa: PLR0913
             checkpoints=all_checkpoints,
             metric_rows=metric_rows,
             reconstruction_nonblank=reconstruction_nonblank,
+            fixed25=fixed25,
         ),
     )
     return _FinalArtifactWriteResult(
@@ -1335,13 +1403,14 @@ def _final_checkpoint_resume_proof(  # noqa: PLR0913
     )
 
 
-def _write_final_csv_artifacts(
+def _write_final_csv_artifacts(  # noqa: PLR0913
     *,
     artifacts: _RunArtifacts,
     settings: _RunnerSettings,
     metric_rows: Sequence[CsvRow],
     validation_rows: Sequence[CsvRow],
     gate_rows: Sequence[CsvRow],
+    equivariance_rows: Sequence[CsvRow] = (),
 ) -> None:
     _write_csv_atomic(artifacts.train_steps, _TRAIN_STEP_COLUMNS, metric_rows)
     if _writes_validation_metrics(settings):
@@ -1349,6 +1418,12 @@ def _write_final_csv_artifacts(
             artifacts.validation_metrics,
             _VALIDATION_METRIC_COLUMNS,
             validation_rows,
+        )
+    if equivariance_rows:
+        _write_csv_atomic(
+            artifacts.equivariance_25,
+            EQUIVARIANCE_25_COLUMNS,
+            equivariance_rows,
         )
     _write_csv_atomic(artifacts.gate_health, GATE_HEALTH_COLUMNS, gate_rows)
 
@@ -1630,6 +1705,8 @@ def _artifact_paths(output_dir: Path) -> _RunArtifacts:
         validation_metrics=metrics / "validation_metrics.csv",
         gate_health=metrics / "gate_health.csv",
         reconstruction_samples=output_dir / "artifacts" / "reconstruction_samples.pt",
+        equivariance_25=metrics / "equivariance_25.csv",
+        fixed25_dir=output_dir / "artifacts" / "fixed25",
     )
 
 
@@ -1838,6 +1915,13 @@ def _load_resume_artifact_history(
         required=False,
         artifact_name="metrics/validation_metrics.csv",
     )
+    equivariance_rows = _read_resume_csv_prefix(
+        path=artifacts.equivariance_25,
+        step_key="optimizer_step",
+        start_step=start_step,
+        required=False,
+        artifact_name="metrics/equivariance_25.csv",
+    )
     output_dir = artifacts.train_steps.parent.parent
     interval_checkpoints = _resume_interval_checkpoints(
         output_dir=output_dir,
@@ -1864,12 +1948,18 @@ def _load_resume_artifact_history(
             settings=settings,
             start_step=start_step,
         )
+        _validate_full_resume_equivariance_prefix(
+            rows=equivariance_rows,
+            settings=settings,
+            start_step=start_step,
+        )
     return _ResumeArtifactHistory(
         metric_rows=train_rows,
         validation_rows=validation_rows,
         interval_checkpoints=interval_checkpoints,
         best_checkpoint=best_checkpoint,
         best_validation_metric=best_validation_metric,
+        equivariance_rows=equivariance_rows,
     )
 
 
@@ -1880,6 +1970,7 @@ def _empty_resume_artifact_history() -> _ResumeArtifactHistory:
         interval_checkpoints=(),
         best_checkpoint=None,
         best_validation_metric=None,
+        equivariance_rows=(),
     )
 
 
@@ -2032,6 +2123,50 @@ def _validate_full_resume_validation_prefix(
         message = (
             "full-run resume history is missing validation rows before the "
             f"checkpoint; sample missing step/view pairs: {sample!r}"
+        )
+        raise ValueError(message)
+
+
+def _validate_full_resume_equivariance_prefix(
+    *,
+    rows: Sequence[CsvRow],
+    settings: _RunnerSettings,
+    start_step: int,
+) -> None:
+    # Fail closed like validation/train/checkpoint (Spec 0010 DDP/resume item c):
+    # if the fixed-25 protocol wrote any pre-resume rows, every half-epoch boundary
+    # up to start_step must carry all measured angles x required metrics. An empty
+    # prefix means the protocol was inactive (skip); a truncated prefix must raise.
+    if not rows or settings.half_epoch_interval_steps <= 0:
+        return
+    expected_steps = tuple(
+        range(
+            settings.half_epoch_interval_steps,
+            min(start_step, settings.target_train_steps) + 1,
+            settings.half_epoch_interval_steps,
+        ),
+    )
+    measured_angles = tuple(str(DEGREES_PER_K * k) for k in MEASURED_K_VALUES)
+    observed = {
+        (
+            _csv_int(row, "optimizer_step", default=-1),
+            row.get("angle_degrees", ""),
+            row.get("metric_name", ""),
+        )
+        for row in rows
+    }
+    missing = {
+        (step, angle, metric)
+        for step in expected_steps
+        for angle in measured_angles
+        for metric in REQUIRED_EQUIVARIANCE_METRICS
+        if (step, angle, metric) not in observed
+    }
+    if missing:
+        sample = sorted(missing)[:5]
+        message = (
+            "full-run resume history is missing equivariance rows before the "
+            f"checkpoint; sample missing step/angle/metric: {sample!r}"
         )
         raise ValueError(message)
 
@@ -2519,7 +2654,7 @@ def _restore_checkpoint_if_requested(  # noqa: PLR0913
     )
 
 
-def _run_train_steps(  # noqa: PLR0913, PLR0914
+def _run_train_steps(  # noqa: C901, PLR0913, PLR0914, PLR0915
     *,
     request: SelectedRuntimeTrainRequest,
     resolved: ResolvedConfig,
@@ -2540,9 +2675,11 @@ def _run_train_steps(  # noqa: PLR0913, PLR0914
     resume_history: _ResumeArtifactHistory,
     write_checkpoints: bool,
     interval_flush: _IntervalFlushContext | None,
+    fixed25: _Fixed25Runtime | None = None,
 ) -> _TrainLoopResult:
     rows: list[CsvRow] = []
     validation_rows: list[CsvRow] = []
+    equivariance_rows: list[CsvRow] = []
     checkpoints: list[CheckpointMetadata] = []
     checkpoint_context = _CheckpointWriteContext(
         request=request,
@@ -2630,6 +2767,15 @@ def _run_train_steps(  # noqa: PLR0913, PLR0914
             )
             validation_rows.extend(boundary_rows)
             boundary_metric = _validation_best_l1(boundary_rows)
+            if fixed25 is not None:
+                equivariance_rows.extend(
+                    _evaluate_fixed25_boundary(
+                        fixed25=fixed25,
+                        model=checkpoint_model,
+                        distributed=distributed,
+                        optimizer_step=successful_count,
+                    ),
+                )
             if interval_flush is not None:
                 _write_interval_artifact_flush(
                     context=interval_flush,
@@ -2644,6 +2790,7 @@ def _run_train_steps(  # noqa: PLR0913, PLR0914
                         best_validation_metric=best_validation_metric,
                         last_result=result,
                         current_step=successful_count,
+                        equivariance_rows=equivariance_rows,
                     ),
                 )
             checkpoint_write = _write_boundary_checkpoints(
@@ -2678,6 +2825,7 @@ def _run_train_steps(  # noqa: PLR0913, PLR0914
                         best_validation_metric=best_validation_metric,
                         last_result=result,
                         current_step=successful_count,
+                        equivariance_rows=equivariance_rows,
                     ),
                 )
             _synchronize_full_boundary_completion(
@@ -2734,6 +2882,7 @@ def _run_train_steps(  # noqa: PLR0913, PLR0914
         best_validation_checkpoint=best_validation_checkpoint,
         best_validation_metric=best_validation_metric,
         last_result=last_result,
+        equivariance_rows=tuple(equivariance_rows),
     )
 
 
@@ -2804,6 +2953,7 @@ def _interval_flush_state(  # noqa: PLR0913
     best_validation_metric: float | None,
     last_result: _SelectedRuntimeStepResult,
     current_step: int,
+    equivariance_rows: Sequence[CsvRow] = (),
 ) -> _IntervalFlushState:
     combined_checkpoints = _apply_checkpoint_retention(
         checkpoints=(*resume_history.interval_checkpoints, *tuple(checkpoints)),
@@ -2824,6 +2974,8 @@ def _interval_flush_state(  # noqa: PLR0913
         current_step=current_step,
         resume_metric_rows=tuple(resume_history.metric_rows),
         resume_validation_rows=tuple(resume_history.validation_rows),
+        equivariance_rows=tuple(equivariance_rows),
+        resume_equivariance_rows=tuple(resume_history.equivariance_rows),
     )
 
 
@@ -2924,6 +3076,13 @@ def _write_interval_artifact_flush(
         prior_rows=local_state.resume_validation_rows,
         new_rows=_gather_csv_rows(local_state.validation_rows, context.distributed),
     )
+    # Fixed-25 rows are canonical global rank-0 rows: merge the resume prefix but
+    # NEVER all-gather them (Spec 0010 DDP contract; gathering would duplicate
+    # them world_size times or force a collective around rank-0-only compute).
+    merged_equivariance_rows = _merge_resume_csv_rows(
+        prior_rows=local_state.resume_equivariance_rows,
+        new_rows=local_state.equivariance_rows,
+    )
     gate_rows = _gather_csv_rows(
         _gate_health_rows(
             run_name=context.settings.run_name,
@@ -2951,6 +3110,7 @@ def _write_interval_artifact_flush(
                     best_validation_metric=local_state.best_validation_metric,
                     last_result=local_state.last_result,
                     current_step=local_state.current_step,
+                    equivariance_rows=merged_equivariance_rows,
                 ),
             )
         except Exception as exc:  # noqa: BLE001  # pragma: no cover - rank sync
@@ -2987,6 +3147,155 @@ def _broadcast_rank0_error(
 
 def _exception_summary(exc: Exception) -> str:
     return f"{exc.__class__.__name__}: {exc}" if str(exc) else exc.__class__.__name__
+
+
+def _prepare_fixed25_runtime(  # noqa: PLR0913
+    *,
+    request: SelectedRuntimeTrainRequest,
+    settings: _RunnerSettings,
+    resolved: ResolvedConfig,
+    data_surface: _DataSurface,
+    distributed: _DistributedContext,
+    model: nn.Module,
+    artifacts: _RunArtifacts,
+) -> _Fixed25Runtime | None:
+    """Load the fixed-25 evaluation runtime for Spec 0010, or ``None`` if off.
+
+    The protocol runs for real data (failing closed if the canonical selector is
+    still the placeholder) or when an explicit synthetic selector override is
+    provided; a plain synthetic smoke run without an override skips it. Writes the
+    immutable originals plus the initial manifest on the primary rank.
+
+    Returns:
+        The loaded fixed-25 runtime, or ``None`` when the protocol is inactive.
+
+    Raises:
+        RuntimeError: If the rank-0 initial artifact write fails (broadcast so all
+            ranks raise together).
+
+    """
+    config = parse_fixed25_config(
+        resolved.effective_config,
+        default_epsilon_seed=_seed(resolved.effective_config, "latent_seed"),
+    )
+    if config is None or not config.enabled:
+        return None
+    if data_surface.synthetic_generated and request.fixed_25_validation_patches is None:
+        return None
+    selector_path = request.fixed_25_validation_patches or Path(config.selector_config)
+    validation_paths = resolve_patch_data_paths(data_surface.root).validation
+    shard_spec = validation_shard_spec_for(
+        validation_bin_path=validation_paths.bin_path,
+        validation_csv_path=validation_paths.csv_path,
+        image_size=settings.image_size,
+        validate_crc=data_surface.validate_crc,
+    )
+    patches = load_fixed25_patches(
+        config=config,
+        selector_path=selector_path,
+        validation_shard_spec=shard_spec,
+        validation_dataset=data_surface.validation_dataset,
+    )
+    data_source = "synthetic" if data_surface.synthetic_generated else "real"
+    promotable = not data_surface.synthetic_generated
+    exactness = compute_rot90_exactness(
+        model=cast("NonEquivariantVAE", model),
+        patches=patches,
+        device=distributed.device,
+    )
+    runtime = _Fixed25Runtime(
+        config=config,
+        patches=patches,
+        fixed25_dir=artifacts.fixed25_dir,
+        data_source=data_source,
+        promotable=promotable,
+        rot90_exactness_error=exactness,
+    )
+    write_error: Exception | None = None
+    write_error_message: str | None = None
+    if _is_primary_rank(distributed):
+        try:
+            write_originals(fixed25_dir=runtime.fixed25_dir, patches=patches)
+            write_manifest(
+                fixed25_dir=runtime.fixed25_dir,
+                config=config,
+                patches=patches,
+                data_source=data_source,
+                promotable=promotable,
+                rot90_exactness_error=exactness,
+            )
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover - DDP sync guard
+            write_error = exc
+            write_error_message = _exception_summary(exc)
+    # Broadcast a rank-0 write failure so all ranks raise together instead of the
+    # peers hanging at the first training collective (mirrors the boundary flush).
+    write_error_message = _broadcast_rank0_error(
+        error_message=write_error_message,
+        distributed=distributed,
+    )
+    if write_error_message is not None:
+        message = (
+            "selected-runtime fixed-25 initial artifact write failed on rank 0: "
+            f"{write_error_message}"
+        )
+        raise RuntimeError(message) from write_error
+    return runtime
+
+
+def _evaluate_fixed25_boundary(
+    *,
+    fixed25: _Fixed25Runtime,
+    model: nn.Module,
+    distributed: _DistributedContext,
+    optimizer_step: int,
+) -> tuple[CsvRow, ...]:
+    """Run the fixed-25 protocol for one boundary on rank 0 and broadcast errors.
+
+    Returns:
+        The per-angle equivariance rows (populated only on the primary rank; the
+        canonical global rows are merged, never all-gathered).
+
+    Raises:
+        RuntimeError: If the rank-0 evaluation fails (broadcast to all ranks).
+
+    """
+    rows: tuple[CsvRow, ...] = ()
+    eval_error: Exception | None = None
+    eval_error_message: str | None = None
+    if _is_primary_rank(distributed):
+        try:
+            rows = evaluate_boundary(
+                model=cast("NonEquivariantVAE", model),
+                patches=fixed25.patches,
+                config=fixed25.config,
+                fixed25_dir=fixed25.fixed25_dir,
+                optimizer_step=optimizer_step,
+                device=distributed.device,
+                data_source=fixed25.data_source,
+                promotable=fixed25.promotable,
+            )
+            write_manifest(
+                fixed25_dir=fixed25.fixed25_dir,
+                config=fixed25.config,
+                patches=fixed25.patches,
+                data_source=fixed25.data_source,
+                promotable=fixed25.promotable,
+                rot90_exactness_error=fixed25.rot90_exactness_error,
+            )
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover - DDP sync guard
+            eval_error = exc
+            eval_error_message = _exception_summary(exc)
+    eval_error_message = _broadcast_rank0_error(
+        error_message=eval_error_message,
+        distributed=distributed,
+    )
+    if eval_error_message is not None:
+        message = (
+            "selected-runtime fixed-25 boundary evaluation failed on rank 0: "
+            f"{eval_error_message}"
+        )
+        raise RuntimeError(message) from eval_error
+    return rows
 
 
 def _write_partial_interval_artifacts(
@@ -3032,6 +3341,12 @@ def _write_partial_interval_artifacts(
             context.artifacts.validation_metrics,
             _VALIDATION_METRIC_COLUMNS,
             state.validation_rows,
+        )
+    if state.equivariance_rows:
+        _write_csv_atomic(
+            context.artifacts.equivariance_25,
+            EQUIVARIANCE_25_COLUMNS,
+            state.equivariance_rows,
         )
     _write_csv_atomic(
         context.artifacts.gate_health,
@@ -4780,13 +5095,14 @@ def _writes_tiny_summary(settings: _RunnerSettings) -> bool:
     return settings.run_mode == _TINY_RUN_MODE
 
 
-def _artifact_manifest(
+def _artifact_manifest(  # noqa: PLR0913
     *,
     artifacts: _RunArtifacts,
     settings: _RunnerSettings,
     checkpoints: Sequence[CheckpointMetadata],
     metric_rows: Sequence[CsvRow],
     reconstruction_nonblank: bool,
+    fixed25: _Fixed25Runtime | None = None,
 ) -> JsonObject:
     artifact_paths = {
         "training_summary": artifacts.training_summary,
@@ -4796,8 +5112,14 @@ def _artifact_manifest(
         "local_selected_runtime_readiness": artifacts.local_readiness,
         "train_steps": artifacts.train_steps,
         "gate_health": artifacts.gate_health,
-        "reconstruction_samples": artifacts.reconstruction_samples,
     }
+    if fixed25 is not None:
+        # Spec 0010: the fixed-25 artifacts replace the retired single-patch dump.
+        artifact_paths["equivariance_25"] = artifacts.equivariance_25
+        artifact_paths["fixed25_originals"] = artifacts.fixed25_dir / "originals.pt"
+        artifact_paths["fixed25_manifest"] = artifacts.fixed25_dir / "manifest.json"
+    else:
+        artifact_paths["reconstruction_samples"] = artifacts.reconstruction_samples
     if _is_full_run(settings):
         artifact_paths["selected_runtime_full_summary"] = (
             artifacts.selected_runtime_full_summary

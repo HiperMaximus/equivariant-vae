@@ -13,6 +13,7 @@ Read order:
 6. `0006-no-final-tanh-output.md`
 7. `0007-stain-corruptor-convention.md`
 8. `0008-kaggle-synthetic-timing-pretest.md`
+9. `0009-fixed25-embedding-equivariance-eval-proxy.md`
 
 Keep notes short. If a decision changes, update or supersede the relevant note
 and then update `CURRENT.md`, `GOAL.md`, and any affected plan docs.
