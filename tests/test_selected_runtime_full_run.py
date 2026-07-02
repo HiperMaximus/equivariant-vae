@@ -10,10 +10,10 @@ import json
 import math
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, cast
+from typing import TYPE_CHECKING, NamedTuple, NoReturn, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
 import numpy as np
 import pytest
@@ -32,7 +32,10 @@ from eqvae.config import resolve_json_config
 from eqvae.losses.vae import VaeLossComponents
 from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
 from eqvae.training import selected_runtime_runner
-from eqvae.training.selected_runtime import parse_selected_runtime_plan
+from eqvae.training.selected_runtime import (
+    SelectedRuntimePlan,
+    parse_selected_runtime_plan,
+)
 from eqvae.training.selected_runtime_runner import SelectedRuntimeTrainRequest
 
 _FULL_CONFIG = Path("configs/spec0001/non_eq_vae_selected_runtime_full.json")
@@ -584,6 +587,163 @@ def test_run_train_steps_selects_best_on_denoising_view_end_to_end(  # noqa: PLR
     # L1, NOT the easier clean view (the FU-008 bug) or a train-loss value.
     assert abs(train_loop.best_validation_metric - min(denoising_l1)) < _FLOAT_TOLERANCE
     assert abs(min(clean_l1) - min(denoising_l1)) > _FLOAT_TOLERANCE
+
+
+class _ValidationScaffold(NamedTuple):
+    """Minimal setup for a direct ``_validation_view_row`` call (FU-017)."""
+
+    settings: selected_runtime_runner._RunnerSettings
+    plan: SelectedRuntimePlan
+    amp: selected_runtime_runner._AmpExecution
+    data_surface: selected_runtime_runner._DataSurface
+    model: torch.nn.Module
+
+
+def _open_validation_scaffold(tmp_path: Path) -> _ValidationScaffold:
+    """Build the model and CPU data surface used by the FU-017 validation tests.
+
+    Returns:
+        The validation scaffold; the caller must close its data surface.
+
+    """
+    request = SelectedRuntimeTrainRequest(
+        config_path=_FULL_CONFIG,
+        runtime_config=_RUNTIME_CONFIG,
+        output_dir=tmp_path / "validation",
+        run_name="spec0009_validation_repro",
+        data="synthetic",
+        max_train_steps=2,
+        save_every_steps=1,
+        dry_run=True,
+    )
+    plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+    settings = replace(
+        selected_runtime_runner._settings(  # noqa: SLF001
+            request=request,
+            resolved=resolve_json_config(_FULL_CONFIG),
+            plan=plan,
+        ),
+        half_epoch_interval_steps=1,
+        validation_batches_per_view=1,
+    )
+    local = _local_distributed_context()
+    data_surface = selected_runtime_runner._prepare_data_surface(  # noqa: SLF001
+        request=request,
+        settings=settings,
+        plan=plan,
+        distributed=local,
+    )
+    scaffold_built = False
+    try:
+        model = build_non_equivariant_vae(norm_groups=settings.norm_groups)
+        model.eval()
+        amp = selected_runtime_runner._amp_execution(  # noqa: SLF001
+            plan=plan,
+            distributed=local,
+            dry_run=True,
+        )
+        scaffold = _ValidationScaffold(
+            settings=settings,
+            plan=plan,
+            amp=amp,
+            data_surface=data_surface,
+            model=model,
+        )
+        scaffold_built = True
+    finally:
+        if not scaffold_built:
+            selected_runtime_runner._close_data_surface(data_surface)  # noqa: SLF001
+    return scaffold
+
+
+def _validation_row(
+    scaffold: _ValidationScaffold,
+    *,
+    view: str,
+    optimizer_step: int,
+) -> Mapping[str, str]:
+    return selected_runtime_runner._validation_view_row(  # noqa: SLF001
+        model=scaffold.model,
+        settings=scaffold.settings,
+        plan=scaffold.plan,
+        amp=scaffold.amp,
+        data_surface=scaffold.data_surface,
+        optimizer_step=optimizer_step,
+        view=view,
+        rank=0,
+        device=torch.device("cpu"),
+    )
+
+
+def test_clean_validation_view_consumes_no_corruption_rng(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FU-017: the clean validation view never enters the corruption machinery."""
+    scaffold = _open_validation_scaffold(tmp_path)
+
+    def _forbid_corruption(*_args: object, **_kwargs: object) -> NoReturn:
+        message = "corrupt_normalized_batch was invoked"
+        raise RuntimeError(message)
+
+    monkeypatch.setattr(
+        selected_runtime_runner,
+        "corrupt_normalized_batch",
+        _forbid_corruption,
+    )
+    try:
+        # The clean view is a pure passthrough: the corruption stub must not fire.
+        clean_row = _validation_row(scaffold, view="clean", optimizer_step=1)
+        assert clean_row["view"] == "clean"
+        # The same stub proves the denoising view DOES invoke corruption.
+        with pytest.raises(RuntimeError, match="corrupt_normalized_batch was invoked"):
+            _validation_row(scaffold, view="deterministic_denoising", optimizer_step=1)
+    finally:
+        selected_runtime_runner._close_data_surface(scaffold.data_surface)  # noqa: SLF001
+
+
+def test_deterministic_denoising_validation_row_is_reproducible(
+    tmp_path: Path,
+) -> None:
+    """FU-017: the deterministic_denoising validation row is byte-reproducible.
+
+    Corruption is a pure function of (seed, split, semantic key, step, view), eps is
+    zero, and the model is unchanged, so two runs over the same shuffle-false loader
+    at the same step must produce byte-identical rows. A non-vacuity control asserts
+    the corrupted input actually moves the row (clean vs denoising metrics differ),
+    so the byte-equality cannot pass silently if the model output becomes
+    input-independent.
+    """
+    scaffold = _open_validation_scaffold(tmp_path)
+    try:
+        first = _validation_row(
+            scaffold,
+            view="deterministic_denoising",
+            optimizer_step=1,
+        )
+        second = _validation_row(
+            scaffold,
+            view="deterministic_denoising",
+            optimizer_step=1,
+        )
+        clean = _validation_row(scaffold, view="clean", optimizer_step=1)
+    finally:
+        selected_runtime_runner._close_data_surface(scaffold.data_surface)  # noqa: SLF001
+
+    assert first == second
+    # Non-vacuity control: at the same step the ONLY difference between the clean and
+    # denoising rows is the corrupted input, so their loss metrics must differ.
+    metric_keys = (
+        "loss",
+        "recon_loss",
+        "l1_loss",
+        "ssim_loss",
+        "ssim_metric",
+        "kl_loss",
+    )
+    assert {key: first[key] for key in metric_keys} != {
+        key: clean[key] for key in metric_keys
+    }
 
 
 def test_fresh_full_run_flushes_metrics_at_first_boundary(  # noqa: PLR0914

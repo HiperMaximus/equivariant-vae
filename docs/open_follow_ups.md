@@ -102,12 +102,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
   `docs/behavior_inventory_kaggle.md:249-255`; cross-check `src/eqvae/corruption/`.
   Fix: verify the HED/OD matrix convention and seeding; mark the audit resolved or
   escalate.
-- **FU-017 — Validation forward loop is only partially covered.** Best-selection
-  picking the cross-rank denoising view is now covered end-to-end by
-  `test_run_train_steps_selects_best_on_denoising_view_end_to_end` (runs the real
-  `_run_scheduled_validation`/`_validation_view_row` path with both views). Still
-  open: an explicit assert that the `clean` view consumes no corruption RNG and
-  that the `deterministic_denoising` view is reproducible run-to-run.
 
 ### LOW
 
