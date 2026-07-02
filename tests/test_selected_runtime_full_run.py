@@ -103,6 +103,37 @@ def test_full_config_derives_exact_spec0009_schedule(tmp_path: Path) -> None:
     )
 
 
+def test_full_run_beta_warmup_is_pinned_to_one_epoch(tmp_path: Path) -> None:
+    """FU-003: the full-run guard resolves beta warmup to exactly one epoch.
+
+    It resolves against target_train_steps, so a shortened --dry-run
+    max_train_steps does not lower the resolved warmup below one epoch.
+    """
+    settings = _full_settings(tmp_path=tmp_path, max_train_steps=2, save_every=1)
+
+    assert (
+        selected_runtime_runner._resolved_beta_warmup_steps(settings)  # noqa: SLF001
+        == _FULL_UPDATES_PER_EPOCH
+    )
+    # Does not raise for the real, pinned schedule (uses target, not max=2).
+    selected_runtime_runner._validate_full_run_settings(  # noqa: SLF001
+        settings,
+        dry_run=True,
+    )
+
+
+def test_full_run_rejects_beta_warmup_not_one_epoch(tmp_path: Path) -> None:
+    """FU-003: a warmup fraction that desyncs from one epoch fails closed."""
+    settings = _full_settings(tmp_path=tmp_path, max_train_steps=2, save_every=1)
+    desynced = replace(settings, beta_warmup_fraction=0.2)
+
+    with pytest.raises(ValueError, match="beta warmup must span exactly one epoch"):
+        selected_runtime_runner._validate_full_run_settings(  # noqa: SLF001
+            desynced,
+            dry_run=True,
+        )
+
+
 def test_full_boundary_logging_waits_at_barrier(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -904,6 +935,10 @@ def test_full_dry_run_summary_lists_only_interval_checkpoints(
         full_summary["best_validation_selection_reduction"]
         == "train_l1_no_validation_best"
     )
+    # FU-003: run metadata records the beta schedule resolved to epoch 1.
+    assert math.isclose(cast("float", full_summary["beta_target"]), 1.0)
+    assert math.isclose(cast("float", full_summary["beta_warmup_fraction"]), 0.1)
+    assert full_summary["beta_warmup_steps"] == _FULL_UPDATES_PER_EPOCH
 
     training_summary = cast(
         "dict[str, object]",
@@ -919,6 +954,10 @@ def test_full_dry_run_summary_lists_only_interval_checkpoints(
     )
     retained_names = {Path(cast("str", row["path"])).name for row in retained}
     assert retained_names == {"step_000001.pt", "step_000002.pt"}
+    # FU-003: the training summary records the same epoch-1 beta schedule.
+    assert math.isclose(cast("float", training_summary["beta_target"]), 1.0)
+    assert math.isclose(cast("float", training_summary["beta_warmup_fraction"]), 0.1)
+    assert training_summary["beta_warmup_steps"] == _FULL_UPDATES_PER_EPOCH
 
 
 def test_full_resume_history_merges_prefix_metrics_and_checkpoints(

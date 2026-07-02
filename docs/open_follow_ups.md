@@ -90,17 +90,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
 
 ### MED
 
-- **FU-002 — KL vs recon balance unverified at runtime.** Mean KL over 16×32×32
-  with β-target 1; no magnitude guard. Files: `src/eqvae/losses/vae.py`
-  `kl_divergence_loss`; `tests/test_vae_loss.py:26-75`. Fix: (a) add a test
-  asserting kl/recon fall in a sane ratio band at β=1; (b) enforce both columns in
-  `metrics/train_steps.csv` via `test_selected_runtime_full_run.py`. Watch on the
-  live run for posterior collapse / KL domination.
-- **FU-003 — β warmup is a raw step-fraction, not pinned to epoch 1.** Files:
-  `selected_runtime_runner.py:2456-2461` (`beta_warmup_fraction`), spec0009 config.
-  Fix: derive `warmup_steps = optimizer_updates_per_epoch`, or validate
-  `beta_warmup_fraction * max_train_steps == 12500` for full runs and record the
-  resolved warmup-step count; add a config test.
 - **FU-014 — GOAL.md duplicates/out-stales the spec index.** Per-spec status +
   v5/v6 narration in `GOAL.md:107-152` duplicates and disagrees with
   `docs/specs/README.md:28-34`. Fix: strip status tails, keep durable requirement
@@ -122,6 +111,13 @@ Rules to keep this file from rotting (the problem it exists to fix):
 
 ### LOW
 
+- **FU-042 — Inspect run-1 KL and decoder telemetry for collapse/saturation.**
+  Code guards exist (FU-002 KL/recon balance test; FU-018 decoder-saturation
+  columns `recon_output_rms`/`x_hat_*`/`frac_x_hat_*` in `metrics/train_steps.csv`),
+  but the first promotable full run must still be read for posterior collapse
+  (KL → 0) / KL domination and decoder-head saturation. Fix: on run 1, check the
+  KL-vs-recon curve and `frac_x_hat_*`; if collapse appears, lengthen β warmup
+  (FU-003 deliberately pins it to one epoch, so this needs a conscious change).
 - **FU-019 — Train CSV loss/grad metrics are per-rank-local, never reduced.**
   `selected_runtime_runner.py:2331-2340`, grad_norm pre-allreduce. Fix: optionally
   emit a global-mean train loss; at minimum document that CSV scalars are per-rank.

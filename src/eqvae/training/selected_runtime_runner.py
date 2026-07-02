@@ -80,7 +80,12 @@ from eqvae.data.training_batches import (
     PatchTrainingSample,
     collate_patch_training_samples,
 )
-from eqvae.losses.vae import VaeLossComponents, beta_for_step, compute_vae_loss
+from eqvae.losses.vae import (
+    VaeLossComponents,
+    beta_for_step,
+    beta_warmup_steps,
+    compute_vae_loss,
+)
 from eqvae.models.activations import GatedScalarActivation
 from eqvae.models.non_equivariant_vae import (
     DEFAULT_GROUPNORM_GROUPS,
@@ -4854,6 +4859,9 @@ def _training_summary(  # noqa: PLR0913
             "requested_epochs": settings.requested_epochs,
             "optimizer_updates_per_epoch": settings.optimizer_updates_per_epoch,
             "half_epoch_interval_steps": settings.half_epoch_interval_steps,
+            "beta_target": settings.beta_target,
+            "beta_warmup_fraction": settings.beta_warmup_fraction,
+            "beta_warmup_steps": _resolved_beta_warmup_steps(settings),
             "current_epoch_fraction": _current_epoch_fraction(settings, metric_rows),
             "max_val_steps": settings.max_val_steps,
             "save_every_steps": settings.save_every_steps,
@@ -5053,6 +5061,9 @@ def _selected_runtime_full_summary(  # noqa: C901, PLR0913
             "requested_epochs": settings.requested_epochs,
             "optimizer_updates_per_epoch": settings.optimizer_updates_per_epoch,
             "half_epoch_interval_steps": settings.half_epoch_interval_steps,
+            "beta_target": settings.beta_target,
+            "beta_warmup_fraction": settings.beta_warmup_fraction,
+            "beta_warmup_steps": _resolved_beta_warmup_steps(settings),
             "validation_batches_per_view": settings.validation_batches_per_view,
             "validation_views": list(settings.validation_views),
             "validation_boundary_steps": list(validation_boundaries),
@@ -5802,6 +5813,22 @@ def _validate_settings(  # noqa: C901
         _validate_full_run_settings(settings, dry_run=dry_run)
 
 
+def _resolved_beta_warmup_steps(settings: _RunnerSettings) -> int:
+    """Return the beta warmup length resolved against the full-run target schedule.
+
+    Uses ``target_train_steps`` (the intended 125000-update schedule) so the value
+    is stable under ``--dry-run``, where ``max_train_steps`` is shortened.
+
+    Returns:
+        The resolved beta warmup step count.
+
+    """
+    return beta_warmup_steps(
+        settings.target_train_steps,
+        warmup_fraction=settings.beta_warmup_fraction,
+    )
+
+
 def _validate_full_run_settings(
     settings: _RunnerSettings,
     *,
@@ -5845,6 +5872,14 @@ def _validate_full_run_settings(
         raise ValueError(message)
     if not dry_run and settings.save_every_steps != _FULL_HALF_EPOCH_INTERVAL_STEPS:
         message = "full-run save_every_steps must equal the half-epoch interval"
+        raise ValueError(message)
+    resolved_beta_warmup_steps = _resolved_beta_warmup_steps(settings)
+    if resolved_beta_warmup_steps != _FULL_UPDATES_PER_EPOCH:
+        message = (
+            "full-run beta warmup must span exactly one epoch: beta_warmup_steps="
+            f"{resolved_beta_warmup_steps!r} != optimizer_updates_per_epoch="
+            f"{_FULL_UPDATES_PER_EPOCH!r}"
+        )
         raise ValueError(message)
 
 

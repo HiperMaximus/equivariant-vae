@@ -257,6 +257,9 @@ Add `configs/spec0001/non_eq_vae_selected_runtime_full.json` with:
   "runs/kaggle/selected_runtime_debug_v5"`;
 - `training.epochs = 10`;
 - `training.optimizer_updates_per_epoch = 12500`;
+- beta warmup is pinned to one epoch:
+  `beta_warmup_steps(target_train_steps, step_limited_warmup_fraction) ==
+  optimizer_updates_per_epoch` (12500), recorded in the run metadata;
 - `training.max_train_steps = 125000`;
 - `training.half_epoch_interval_steps = 6250`;
 - `training.validation_batches_per_view = 20`;
