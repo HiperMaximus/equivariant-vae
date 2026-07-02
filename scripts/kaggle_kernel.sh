@@ -39,7 +39,7 @@ Usage:
   ./scripts/kaggle_kernel.sh preflight-selected-runtime-full
   ./scripts/kaggle_kernel.sh preflight-fixed25-selector
   ./scripts/kaggle_kernel.sh api-check [kernel_dir]
-  ./scripts/kaggle_kernel.sh push [kernel_dir] [extra kaggle args...]
+  ./scripts/kaggle_kernel.sh push [kernel_dir] [--wait [--wait-interval N] [--wait-max N] [--wait-queued N]] [extra kaggle args...]
   ./scripts/kaggle_kernel.sh status [kernel_id]
   ./scripts/kaggle_kernel.sh status-setup
   ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest
@@ -47,6 +47,9 @@ Usage:
   ./scripts/kaggle_kernel.sh status-selected-runtime-debug
   ./scripts/kaggle_kernel.sh status-selected-runtime-full
   ./scripts/kaggle_kernel.sh status-fixed25-selector
+  ./scripts/kaggle_kernel.sh wait [kernel_id] [poll_seconds] [max_polls] [max_queued_seconds]
+  ./scripts/kaggle_kernel.sh wait-fixed25-selector [poll_seconds] [max_polls] [max_queued_seconds]
+  ./scripts/kaggle_kernel.sh wait-selected-runtime-full [poll_seconds] [max_polls] [max_queued_seconds]
   ./scripts/kaggle_kernel.sh output [kernel_id] [output_dir]
   ./scripts/kaggle_kernel.sh output-setup [output_dir]
   ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest [output_dir]
@@ -157,6 +160,88 @@ require_remote_confirmed() {
     echo "error: set KAGGLE_REMOTE_CONFIRMED=1 after explicit user permission" >&2
     exit 1
   fi
+}
+
+wait_kernel_until_settled() {
+  # Poll a kernel's status until it leaves the actively-pending states, then
+  # print WAIT_SETTLED_STATUS=<outcome> and return so the caller is woken instead
+  # of hanging. The two pending states are bounded separately:
+  #   * RUNNING -- polled at the slow steady cadence (poll_interval) and bounded
+  #     by max_polls; on exhaustion it prints TIMEOUT_STILL_PENDING (return 2).
+  #   * QUEUED  -- polled faster and bounded by a shorter budget
+  #     (max_queued_seconds); a kernel that never gets a compute slot is
+  #     abandoned early with QUEUED_TIMEOUT (return 3) rather than tying the
+  #     watcher up for the full multi-hour running backstop.
+  # Every other status settles and returns 0: COMPLETE, ERROR, a cancellation
+  # (CANCEL_REQUESTED / CANCEL_ACKNOWLEDGED, e.g. the Kaggle session time limit
+  # killing the run), or any unrecognized status. Each poll goes through
+  # kaggle_api, which mints a fresh OAuth token, so multi-hour waits stay
+  # authenticated. A transient unparseable reply is retried against max_polls.
+  # Every path wakes the caller.
+  local kernel_id="$1"
+  # Default to a 5-minute steady cadence: most watched kernels are multi-hour
+  # runs, so a slow poll is plenty and stays far clear of API rate limits.
+  local poll_interval="${2:-300}"
+  local max_polls="${3:-180}"
+  # Abandon a kernel stuck in QUEUED after this many seconds (default 5 min).
+  local max_queued_seconds="${4:-300}"
+  # Hard floor so no argument can hammer the Kaggle API into rate limiting.
+  if ((poll_interval < 10)); then
+    echo "wait: clamping poll interval to the 10s minimum (was ${poll_interval}s)" >&2
+    poll_interval=10
+  fi
+  # Poll QUEUED faster than the steady cadence so the shorter queue budget is
+  # enforced with useful granularity, but never below the floor or above the
+  # steady interval.
+  local queued_interval=30
+  if ((queued_interval > poll_interval)); then
+    queued_interval="$poll_interval"
+  fi
+  if ((queued_interval < 10)); then
+    queued_interval=10
+  fi
+  local running_polls=0 queued_elapsed=0 status status_line
+  while :; do
+    status_line="$(kaggle_api kernels status "$kernel_id" 2>&1)" || true
+    status="$(printf '%s\n' "$status_line" \
+      | grep -oE 'KernelWorkerStatus\.[A-Z_]+' | head -1 || true)"
+    status="${status#KernelWorkerStatus.}"
+    case "$status" in
+    QUEUED)
+      echo "wait: QUEUED ${queued_elapsed}s/${max_queued_seconds}s"
+      if ((queued_elapsed >= max_queued_seconds)); then
+        echo "WAIT_SETTLED_STATUS=QUEUED_TIMEOUT"
+        return 3
+      fi
+      sleep "$queued_interval"
+      queued_elapsed=$((queued_elapsed + queued_interval))
+      ;;
+    RUNNING)
+      queued_elapsed=0
+      running_polls=$((running_polls + 1))
+      echo "wait: RUNNING poll ${running_polls}/${max_polls}"
+      if ((running_polls >= max_polls)); then
+        echo "WAIT_SETTLED_STATUS=TIMEOUT_STILL_PENDING"
+        return 2
+      fi
+      sleep "$poll_interval"
+      ;;
+    "")
+      running_polls=$((running_polls + 1))
+      printf 'wait: unparseable status (%s/%s); raw output follows\n%s\n' \
+        "$running_polls" "$max_polls" "$status_line" >&2
+      if ((running_polls >= max_polls)); then
+        echo "WAIT_SETTLED_STATUS=TIMEOUT_STILL_PENDING"
+        return 2
+      fi
+      sleep "$poll_interval"
+      ;;
+    *)
+      echo "WAIT_SETTLED_STATUS=${status}"
+      return 0
+      ;;
+    esac
+  done
 }
 
 require_kaggle_sources_confirmed() {
@@ -2366,21 +2451,81 @@ case "$action" in
     preflight_fixed25_selector
     ;;
   push)
-    kernel_dir="${2:-$default_kernel_dir}"
-    if [[ "$#" -ge 2 ]]; then
+    # Only treat the first token as kernel_dir when it is a real path, not an option
+    # flag, so `push --wait ...` still falls back to the default kernel_dir instead of
+    # swallowing `--wait` as the directory.
+    if [[ -n "${2:-}" && "$2" != --* ]]; then
+      kernel_dir="$2"
       shift 2
     else
+      kernel_dir="$default_kernel_dir"
       shift 1
     fi
+    # --wait blocks after a successful push until the kernel settles, so a caller
+    # can push-and-be-woken in a single backgrounded command. --wait-interval /
+    # --wait-max / --wait-queued tune the RUNNING cadence, the RUNNING backstop,
+    # and the QUEUED budget; all wait flags are consumed here and never forwarded
+    # to the Kaggle CLI. Everything else passes through unchanged.
+    push_wait=0
+    push_wait_interval=300
+    push_wait_max=180
+    push_wait_queued=300
+    push_passthrough=()
+    while [[ "$#" -gt 0 ]]; do
+      case "$1" in
+      --wait)
+        push_wait=1
+        ;;
+      --wait-interval)
+        if [[ "$#" -lt 2 ]]; then
+          echo "error: --wait-interval requires a value" >&2
+          exit 1
+        fi
+        push_wait_interval="$2"
+        shift
+        ;;
+      --wait-max)
+        if [[ "$#" -lt 2 ]]; then
+          echo "error: --wait-max requires a value" >&2
+          exit 1
+        fi
+        push_wait_max="$2"
+        shift
+        ;;
+      --wait-queued)
+        if [[ "$#" -lt 2 ]]; then
+          echo "error: --wait-queued requires a value" >&2
+          exit 1
+        fi
+        push_wait_queued="$2"
+        shift
+        ;;
+      *)
+        push_passthrough+=("$1")
+        ;;
+      esac
+      shift
+    done
     if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" ]]; then
       echo "error: set KAGGLE_PUSH_CONFIRMED=1 after explicit user permission" >&2
       exit 1
+    fi
+    if [[ "$push_wait" == "1" ]]; then
+      require_remote_confirmed
     fi
     validate_kernel_dir "$kernel_dir"
     guard_push_ready "$kernel_dir"
     require_kaggle_sources_confirmed "$(metadata_path "$kernel_dir")"
     require_kaggle_cli
-    kaggle_api kernels push -p "$kernel_dir" "$@"
+    kaggle_api kernels push -p "$kernel_dir" \
+      "${push_passthrough[@]+"${push_passthrough[@]}"}"
+    if [[ "$push_wait" == "1" ]]; then
+      push_kernel_id="$(kernel_id_from_metadata "$kernel_dir")"
+      echo "push: waiting for ${push_kernel_id} to settle..."
+      wait_kernel_until_settled \
+        "$push_kernel_id" "$push_wait_interval" "$push_wait_max" \
+        "$push_wait_queued"
+    fi
     ;;
   status)
     kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"
@@ -2423,6 +2568,24 @@ case "$action" in
     require_remote_confirmed
     require_kaggle_cli
     kaggle_api kernels status "$kernel_id"
+    ;;
+  wait)
+    kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"
+    require_remote_confirmed
+    require_kaggle_cli
+    wait_kernel_until_settled "$kernel_id" "${3:-300}" "${4:-180}" "${5:-300}"
+    ;;
+  wait-fixed25-selector)
+    kernel_id="$(kernel_id_from_metadata "$fixed25_selector_kernel_dir")"
+    require_remote_confirmed
+    require_kaggle_cli
+    wait_kernel_until_settled "$kernel_id" "${2:-300}" "${3:-180}" "${4:-300}"
+    ;;
+  wait-selected-runtime-full)
+    kernel_id="$(kernel_id_from_metadata "$selected_runtime_full_kernel_dir")"
+    require_remote_confirmed
+    require_kaggle_cli
+    wait_kernel_until_settled "$kernel_id" "${2:-300}" "${3:-480}" "${4:-600}"
     ;;
   output)
     kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"

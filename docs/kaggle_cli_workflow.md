@@ -473,6 +473,45 @@ real-data path, payload-manifest provenance, and explicit
 `data_integrity_status`. The first remote version is already `ERROR` from the
 missing source package and produced no smoke evidence.
 
+### Waiting on a kernel without foreground polling
+
+`wait` blocks until a kernel leaves the actively-pending states and then prints
+`WAIT_SETTLED_STATUS=<state>`. The two pending states are bounded separately:
+
+- `RUNNING` is polled at the steady cadence (`poll_seconds`, default 300) and
+  bounded by `max_polls`; on exhaustion it prints
+  `WAIT_SETTLED_STATUS=TIMEOUT_STILL_PENDING` and returns `2`.
+- `QUEUED` is polled faster (30s) and bounded by a shorter budget
+  (`max_queued_seconds`, default 300): a kernel that never gets a compute slot is
+  abandoned early with `WAIT_SETTLED_STATUS=QUEUED_TIMEOUT` (return `3`) instead
+  of tying the watcher up for the whole multi-hour running backstop.
+
+Every other outcome settles and returns `0` — `COMPLETE`, `ERROR`, and any
+cancellation (`CANCEL_REQUESTED` / `CANCEL_ACKNOWLEDGED`, e.g. the Kaggle session
+time limit killing a long run) — so a watcher is always woken instead of
+hanging. Each poll mints a fresh OAuth token, so multi-hour waits stay
+authenticated. A hard 10s floor prevents any argument from hammering the API into
+rate limiting. All forms require `KAGGLE_REMOTE_CONFIRMED=1` because polling is a
+remote read.
+
+```bash
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh wait [kernel_id] [poll_seconds] [max_polls] [max_queued_seconds]
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh wait-fixed25-selector [poll_seconds] [max_polls] [max_queued_seconds]
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh wait-selected-runtime-full [poll_seconds] [max_polls] [max_queued_seconds]
+```
+
+`push` also accepts `--wait` (with optional `--wait-interval SECONDS`,
+`--wait-max POLLS`, and `--wait-queued SECONDS`), which runs the same settle-wait
+after a successful push and consumes those flags instead of forwarding them to
+the Kaggle CLI. `--wait` additionally requires `KAGGLE_REMOTE_CONFIRMED=1`. This
+lets one backgrounded command push and then block until the run settles:
+
+```bash
+KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 KAGGLE_REMOTE_CONFIRMED=1 \
+  ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_full \
+  --wait --wait-interval 300 --wait-max 480 --wait-queued 600
+```
+
 Use the real-data smoke only when intentionally testing Kaggle dataset
 attachment plus UBC shard resolution. The `patches-pre-shuffled-ubc-ocean`
 source is larger than 60 GB, so Kaggle may spend a long time preparing the
