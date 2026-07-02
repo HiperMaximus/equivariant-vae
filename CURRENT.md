@@ -291,32 +291,46 @@ FU-039 entry deleted from `docs/open_follow_ups.md`; Spec 0009 "Remaining
 Blockers" updated. The first paper-promotable full launch still also needs FU-041
 (the real fixed-25 selector) — see FU-041 status below.
 Latest local verification (2026-07-02, this window): full gate
-`./scripts/python_quality.sh` = `273 passed`, `0 errors, 0 warnings, 0 notes`
+`./scripts/python_quality.sh` = `277 passed`, `0 errors, 0 warnings, 0 notes`
 (basedpyright clean); `git diff --check` clean; repo `./scripts/agent_preflight.sh`
-and workspace `/home/maximus/Documents/Tesis/agent_preflight.sh` both pass. Focused:
-`tests/test_selected_runtime_full_run.py` + `tests/test_selected_runtime_runner.py`
-+ `tests/test_fixed25_equivariance_artifacts.py` = `49 passed`;
-`tests/test_fixed_selectors.py` = green. Heavy local gates used workspace scratch
-under `/home/maximus/Documents/Tesis/.agent-tmp/equivariant-vae`; empty it after use.
-FU-041 status (2026-07-02): local/ungated parts DONE. The baked
-`generation_command` in `configs/spec0001/fixed_25_validation_patches.json`
-resolves cleanly and fails ONLY at `resolve_patch_data_paths("auto")`
-(FileNotFoundError), leaving the tracked placeholder untouched (fail-closed).
-Existing `tests/test_fixed_selectors.py` proves deterministic 5-per-label
-digest-sort, CRC + canonical-overwrite protection, and placeholder rejection; a
-synthetic fixed-25 dry-run yields `data_source=synthetic`/`promotable=false`
-(standalone CLI default and the in-run `_prepare_fixed25_runtime` path). The ONE
-remaining blocker is generating the REAL selector, which needs the real UBC
-validation shard (not resolvable locally). Two ways to get it, presented to the
-user for approval (awaiting choice): (a) a Kaggle DATA DOWNLOAD of the validation
-shard then local generation — friction: `resolve_patch_data_paths` requires all
-four train+validation shard files (the ~59 GB train bin) to exist, so it needs the
-full dataset or placeholder train files, and a raw `kaggle` download is not gated
-by the repo `KAGGLE_REMOTE_CONFIRMED` guard; (b) RECOMMENDED — generate inside a
-Kaggle kernel where the dataset is already mounted (both splits present, byte-exact
-provenance, tiny JSON output), which needs a small new selector kernel built
-locally first, then one approved push + output download. No remote action taken
-this window.
+and workspace `/home/maximus/Documents/Tesis/agent_preflight.sh` both pass. Local
+selector-kernel preflight `./scripts/kaggle_kernel.sh preflight-fixed25-selector` =
+`23 passed` (build + validate + import-simulation). Heavy local gates used workspace
+scratch under `/home/maximus/Documents/Tesis/.agent-tmp/equivariant-vae`; empty it
+after use.
+FU-041 status (2026-07-02): approach (b) CHOSEN and BUILT locally; commit + push
+still pending user approval. The user picked generating the REAL selector inside a
+dedicated CPU Kaggle kernel (approach b), and requested: validation-only (verified,
+5-layer fail-closed), save BOTH which patches (selector JSON identities) AND the
+images, and no GPU. Built locally (uncommitted working tree):
+  - CRC-consistency fix (Option Y): the fixed-25 selector is validated with
+    `validate_crc=True` end-to-end (`_prepare_fixed25_runtime`, the standalone
+    `fixed25_equivariance` CLI, and the new `fixed25_originals` CLI) so a real
+    CRC-validated selector (`crc_checked=True`, honoring
+    `canonical_overwrite_requires_crc`) LOADS in the run. Empirically necessary:
+    a `--validate-crc` selector failed the old `validate_crc=False` load path
+    (`crc_checked` mismatch). Regression test added; makes the baked
+    `generation_command` and the placeholder CRC policy internally consistent.
+  - New CLI `src/eqvae/cli/fixed25_originals.py`: writes `artifacts/fixed25/
+    originals.pt` + montage `originals.png` from a selector (no model), fail-closed
+    on the placeholder.
+  - New CPU kernel `kaggle/kernels/fixed25_selector` (`enable_gpu:false`, no
+    machine_shape, no T4 quota): runs `select_fixed_patches --kind
+    fixed_25_validation --validate-crc` then `fixed25_originals`, writing the
+    selector JSON + originals to `/kaggle/working`; import-only mode + push guard
+    (`guard_fixed25_selector_push_ready`: clean tree, CPU/dataset metadata, spec
+    token, required literals); `preflight-fixed25-selector`/`status-fixed25-selector`
+    /`output-fixed25-selector` wired; `run.py` gitignored; Spec 0010 addendum added.
+  - Verification: full gate `277 passed` (4 new tests), selector preflight
+    `23 passed`, and a 3-lens clean-context adversarial review (crc-correctness,
+    kernel-correctness, shell-and-guard) returned ZERO findings.
+Remaining (gated): commit this working tree, then the one approved remote push
+(`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh
+push kaggle/kernels/fixed25_selector`) requires a clean committed worktree +
+rebuilt `run.py`; then `status-fixed25-selector` / `output-fixed25-selector`
+(`KAGGLE_REMOTE_CONFIRMED=1`) to download the selector + originals for review, then
+commit the generated selector to the tracked config (overwrites the placeholder;
+needs approval). No remote action taken this window.
 Section C note: the generated `kaggle/kernels/selected_runtime_full/run.py` is
 gitignored and STALE (built 2026-06-30, before Spec 0010 `8457233`, DDP fixes
 `504c863`, and the FU-039 decision `402ec4a`); it MUST be rebuilt from a clean

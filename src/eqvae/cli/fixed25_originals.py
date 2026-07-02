@@ -1,10 +1,16 @@
 # Copyright 2026 HiperMaximus
-"""Standalone Spec 0010 fixed-25 embedding-equivariance evaluator.
+"""Save the fixed-25 selected patch images without a trained model.
 
-Re-runs the fixed-25 protocol over any saved checkpoint (``best_model.pt`` /
-``final.pt``) and, once it exists, over the future ``SO(2)``-steerable model, using
-byte-identical evaluation config and the same frozen 25 validation patches. This is
-an evaluation / inspection tool only; it never touches training.
+Companion to ``eqvae.cli.select_fixed_patches``: given a ready fixed-25 selector
+and the validation shard, this loads the 25 canonical validation patches (failing
+closed on the placeholder / any noncanonical selector) and writes the immutable
+originals archive (``artifacts/fixed25/originals.pt`` plus an ``originals.png``
+montage) via the shared Spec 0010 ``write_originals``. It needs no checkpoint, so
+it runs alongside selector generation (e.g. inside the Kaggle selector kernel where
+the real UBC shard is mounted) to persist *which* patches were selected AND the
+patches themselves for inspection before the tracked selector config is committed.
+
+This is inspection tooling only; it never touches training or the model.
 """
 
 from __future__ import annotations
@@ -14,53 +20,42 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-import torch
-
 from eqvae.artifacts.fixed25_equivariance import (
     FIXED25_DIRNAME,
-    compute_rot90_exactness,
-    evaluate_boundary,
+    ORIGINALS_PNG,
+    ORIGINALS_PT,
     load_fixed25_patches,
     parse_fixed25_config,
     validation_shard_spec_for,
-    write_equivariance_csv,
-    write_manifest,
     write_originals,
 )
 from eqvae.config import resolve_json_config
 from eqvae.data.roots import resolve_patch_data_paths
 from eqvae.data.training_batches import PatchTrainingDataset, PatchTrainingDatasetSpec
-from eqvae.models.non_equivariant_vae import (
-    DEFAULT_GROUPNORM_GROUPS,
-    build_non_equivariant_vae,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from eqvae.artifacts.fixed25_equivariance import Fixed25Config
+    from eqvae.artifacts.fixed25_equivariance import Fixed25Config, Fixed25Patches
     from eqvae.benchmarking.io import JsonObject
-    from eqvae.models.non_equivariant_vae import NonEquivariantVAE
 
 _DEFAULT_IMAGE_SIZE = 256
 _DEFAULT_LATENT_SEED = 20260612
+_DEFAULT_CHANNELS = 3
 
 
 @dataclass(frozen=True)
-class Fixed25StandaloneArgs:
-    """Validated arguments for the standalone fixed-25 evaluator."""
+class Fixed25OriginalsArgs:
+    """Validated arguments for the fixed-25 originals archiver."""
 
     config: Path
-    checkpoint: Path
     output_dir: Path
     data_root: str
     selector: Path | None
-    optimizer_step: int
-    promotable: bool
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the standalone fixed-25 evaluation for one checkpoint.
+    """Load the fixed-25 patches and write the originals archive.
 
     Returns:
         Process exit status.
@@ -88,36 +83,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         "image_size",
         default=_DEFAULT_IMAGE_SIZE,
     )
-    norm_groups = _int_field(
-        _object_field(_object_field(effective, "model"), "normalization"),
-        "num_groups",
-        default=DEFAULT_GROUPNORM_GROUPS,
-    )
     validation_dataset = _validation_dataset(
         data_root=args.data_root,
         image_size=image_size,
     )
     try:
-        _run(
+        patches = _load_patches(
             args=args,
             config=config,
             validation_dataset=validation_dataset,
             image_size=image_size,
-            norm_groups=norm_groups,
         )
     finally:
         validation_dataset.close()
+    fixed25_dir = args.output_dir / "artifacts" / FIXED25_DIRNAME
+    write_originals(fixed25_dir=fixed25_dir, patches=patches)
+    _report(patches=patches, fixed25_dir=fixed25_dir)
     return 0
 
 
-def _run(
+def _load_patches(
     *,
-    args: Fixed25StandaloneArgs,
+    args: Fixed25OriginalsArgs,
     config: Fixed25Config,
     validation_dataset: PatchTrainingDataset,
     image_size: int,
-    norm_groups: int,
-) -> None:
+) -> Fixed25Patches:
     paths = resolve_patch_data_paths(args.data_root).validation
     shard_spec = validation_shard_spec_for(
         validation_bin_path=paths.bin_path,
@@ -128,45 +119,23 @@ def _run(
         validate_crc=True,
     )
     selector_path = args.selector or Path(config.selector_config)
-    patches = load_fixed25_patches(
+    return load_fixed25_patches(
         config=config,
         selector_path=selector_path,
         validation_shard_spec=shard_spec,
         validation_dataset=validation_dataset,
     )
-    model = build_non_equivariant_vae(norm_groups=norm_groups)
-    _load_model_weights(model=model, checkpoint=args.checkpoint)
-    model.eval()
-    device = torch.device("cpu")
-    # Safe default: artifacts are non-promotable unless the operator explicitly
-    # opts in with --promotable (which asserts a real, canonical evaluation), so a
-    # forgotten flag can never mislabel synthetic output as issue evidence.
-    data_source = "real" if args.promotable else "synthetic"
-    promotable = args.promotable
-    fixed25_dir = args.output_dir / "artifacts" / FIXED25_DIRNAME
-    exactness = compute_rot90_exactness(model=model, patches=patches, device=device)
-    write_originals(fixed25_dir=fixed25_dir, patches=patches)
-    rows = evaluate_boundary(
-        model=model,
-        patches=patches,
-        config=config,
-        fixed25_dir=fixed25_dir,
-        optimizer_step=args.optimizer_step,
-        device=device,
-        data_source=data_source,
-        promotable=promotable,
+
+
+def _report(*, patches: Fixed25Patches, fixed25_dir: Path) -> None:
+    labels = sorted(
+        int(cast("int", identity["label"])) for identity in patches.identities
     )
-    write_equivariance_csv(
-        path=args.output_dir / "metrics" / "equivariance_25.csv",
-        rows=rows,
-    )
-    write_manifest(
-        fixed25_dir=fixed25_dir,
-        config=config,
-        patches=patches,
-        data_source=data_source,
-        promotable=promotable,
-        rot90_exactness_error=exactness,
+    print(  # noqa: T201 - Kaggle logs need an explicit selected-patch summary.
+        f"fixed-25 originals: wrote {patches.images.shape[0]} patches "
+        f"(labels {labels}) to {fixed25_dir / ORIGINALS_PT} and "
+        f"{fixed25_dir / ORIGINALS_PNG}; selector sha256 {patches.selector_sha256}",
+        flush=True,
     )
 
 
@@ -182,26 +151,10 @@ def _validation_dataset(
             csv_path=paths.csv_path,
             split="validation",
             image_size=image_size,
-            channels=3,
+            channels=_DEFAULT_CHANNELS,
             validate_crc=False,
         ),
     )
-
-
-def _load_model_weights(*, model: NonEquivariantVAE, checkpoint: Path) -> None:
-    payload = cast(
-        "object",
-        torch.load(checkpoint, map_location="cpu", weights_only=False),
-    )
-    state: object = payload
-    if isinstance(payload, dict):
-        payload_dict = cast("dict[str, object]", payload)
-        if "model_state_dict" in payload_dict:
-            state = payload_dict["model_state_dict"]
-    if not isinstance(state, dict):
-        message = f"checkpoint {checkpoint} does not contain a model state dict"
-        raise TypeError(message)
-    model.load_state_dict(cast("dict[str, object]", state))
 
 
 def _object_field(obj: JsonObject, key: str) -> JsonObject:
@@ -214,33 +167,20 @@ def _int_field(obj: JsonObject, key: str, *, default: int) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else default
 
 
-def _parse_args(argv: Sequence[str] | None) -> Fixed25StandaloneArgs:
+def _parse_args(argv: Sequence[str] | None) -> Fixed25OriginalsArgs:
     parser = argparse.ArgumentParser(
-        description="Run the Spec 0010 fixed-25 embedding-equivariance evaluator.",
+        description="Write the fixed-25 selected patch originals (no model needed).",
     )
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--data-root", type=str, default="auto")
     parser.add_argument("--selector", type=Path, default=None)
-    parser.add_argument("--optimizer-step", type=int, default=0)
-    parser.add_argument(
-        "--promotable",
-        action="store_true",
-        help=(
-            "Opt in to labeling artifacts real / promotable; omit for the safe "
-            "synthetic / non-promotable default."
-        ),
-    )
     namespace = parser.parse_args(argv)
-    return Fixed25StandaloneArgs(
+    return Fixed25OriginalsArgs(
         config=cast("Path", namespace.config),
-        checkpoint=cast("Path", namespace.checkpoint),
         output_dir=cast("Path", namespace.output_dir),
         data_root=cast("str", namespace.data_root),
         selector=cast("Path | None", namespace.selector),
-        optimizer_step=cast("int", namespace.optimizer_step),
-        promotable=cast("bool", namespace.promotable),
     )
 
 

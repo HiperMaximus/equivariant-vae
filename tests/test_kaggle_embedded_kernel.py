@@ -364,6 +364,48 @@ def test_embedded_runtime_selection_kernel_import_simulation(
     assert '"model_inventory.csv"' in template_text
 
 
+def test_embedded_fixed25_selector_kernel_import_simulation(
+    tmp_path: Path,
+) -> None:
+    """Fixed-25 selector kernel imports and carries the selector configs + CLIs."""
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="fixed25_selector",
+        ready_marker="KAGGLE_FIXED25_SELECTOR_READY = True",
+    )
+    environment = _run_environment(simulation.output_dir)
+    environment["EQVAE_FIXED25_SELECTOR_IMPORT_ONLY"] = "1"
+
+    subprocess.run(  # noqa: S603
+        (sys.executable, str(simulation.upload_dir / "run.py")),
+        cwd=simulation.upload_dir,
+        check=True,
+        env=environment,
+    )
+
+    benchmark_dir = simulation.output_dir / "benchmark"
+    assert {path.name for path in benchmark_dir.iterdir()} == {
+        "fixed25_selector_import.json",
+    }
+    payload = _load_json(benchmark_dir / "fixed25_selector_import.json")
+    manifest = cast("dict[str, object]", payload["payload_manifest"])
+    assert payload["status"] == "import_smoke_pass"
+    assert payload["status_scope"] == "non_promotable_local_upload_simulation"
+    assert payload["full_run_eligible"] is False
+    assert payload["writes_selector"] is True
+    assert payload["writes_originals"] is True
+    assert payload["selector_kind"] == "fixed_25_validation"
+    assert payload["config_exists"] is True
+    assert manifest["schema_version"] == "spec0001.kaggle_payload_manifest.v1"
+    names = _embedded_payload_names(simulation.upload_dir / "run.py")
+    assert "configs/spec0001/non_eq_vae_selected_runtime_full.json" in names
+    assert "configs/spec0001/fixed_25_validation_patches.json" in names
+    assert "src/eqvae/cli/select_fixed_patches.py" in names
+    assert "src/eqvae/cli/fixed25_originals.py" in names
+
+
 def test_embedded_runtime_selection_kernel_full_local_fail_closed_simulation(
     tmp_path: Path,
 ) -> None:

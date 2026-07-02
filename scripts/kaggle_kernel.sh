@@ -23,6 +23,8 @@ selected_runtime_debug_kernel_dir="kaggle/kernels/selected_runtime_debug"
 selected_runtime_debug_output_dir="runs/kaggle/selected_runtime_debug"
 selected_runtime_full_kernel_dir="kaggle/kernels/selected_runtime_full"
 selected_runtime_full_output_dir="runs/kaggle/selected_runtime_full"
+fixed25_selector_kernel_dir="kaggle/kernels/fixed25_selector"
+fixed25_selector_output_dir="runs/kaggle/fixed25_selector"
 
 usage() {
   cat <<'EOF'
@@ -35,6 +37,7 @@ Usage:
   ./scripts/kaggle_kernel.sh preflight-selected-runtime-runner
   ./scripts/kaggle_kernel.sh preflight-selected-runtime-debug
   ./scripts/kaggle_kernel.sh preflight-selected-runtime-full
+  ./scripts/kaggle_kernel.sh preflight-fixed25-selector
   ./scripts/kaggle_kernel.sh api-check [kernel_dir]
   ./scripts/kaggle_kernel.sh push [kernel_dir] [extra kaggle args...]
   ./scripts/kaggle_kernel.sh status [kernel_id]
@@ -43,12 +46,14 @@ Usage:
   ./scripts/kaggle_kernel.sh status-runtime-selection
   ./scripts/kaggle_kernel.sh status-selected-runtime-debug
   ./scripts/kaggle_kernel.sh status-selected-runtime-full
+  ./scripts/kaggle_kernel.sh status-fixed25-selector
   ./scripts/kaggle_kernel.sh output [kernel_id] [output_dir]
   ./scripts/kaggle_kernel.sh output-setup [output_dir]
   ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest [output_dir]
   ./scripts/kaggle_kernel.sh output-runtime-selection [output_dir]
   ./scripts/kaggle_kernel.sh output-selected-runtime-debug [output_dir]
   ./scripts/kaggle_kernel.sh output-selected-runtime-full [output_dir]
+  ./scripts/kaggle_kernel.sh output-fixed25-selector [output_dir]
   ./scripts/kaggle_kernel.sh pull [kernel_id] [kernel_dir]
 
 Remote writes require KAGGLE_PUSH_CONFIRMED=1.
@@ -287,6 +292,15 @@ validate_kernel_dir() {
       --allow-dirty
     echo "ok: selected-runtime full embedded payload matches current worktree"
   fi
+
+  if [[ "$kernel_dir" == "$fixed25_selector_kernel_dir" ]]; then
+    python3 scripts/build_kaggle_embedded_kernel.py \
+      --kernel-dir "$kernel_dir" \
+      --ready-marker "KAGGLE_FIXED25_SELECTOR_READY = True" \
+      --verify-only \
+      --allow-dirty
+    echo "ok: fixed25-selector embedded payload matches current worktree"
+  fi
 }
 
 build_kernel_payload() {
@@ -440,6 +454,9 @@ embedded_ready_marker() {
     maximusshtefan/eqvae-selected-runtime-full)
       printf '%s\n' "KAGGLE_SELECTED_RUNTIME_FULL_READY = True"
       ;;
+    maximusshtefan/eqvae-fixed25-selector)
+      printf '%s\n' "KAGGLE_FIXED25_SELECTOR_READY = True"
+      ;;
     maximusshtefan/non-eq-vae-debug)
       printf '%s\n' "KAGGLE_SMOKE_READY = True"
       ;;
@@ -500,6 +517,11 @@ EOF
 
   if grep -q "KAGGLE_SELECTED_RUNTIME_FULL_READY = True" "$kernel_dir/$code_file"; then
     guard_selected_runtime_full_push_ready "$kernel_dir" "$metadata" "push"
+    return
+  fi
+
+  if grep -q "KAGGLE_FIXED25_SELECTOR_READY = True" "$kernel_dir/$code_file"; then
+    guard_fixed25_selector_push_ready "$kernel_dir" "$metadata"
     return
   fi
 
@@ -734,6 +756,91 @@ PY
   python3 scripts/build_kaggle_embedded_kernel.py \
     --kernel-dir "$kernel_dir" \
     --ready-marker "KAGGLE_SETUP_SMOKE_READY = True" \
+    --verify-only
+}
+
+guard_fixed25_selector_push_ready() {
+  local kernel_dir="$1"
+  local metadata="$2"
+
+  if [[ -d "$kernel_dir/payload" ]]; then
+    echo "error: fixed25 selector must be a single generated run.py, not a payload" >&2
+    exit 1
+  fi
+
+  if ! grep -q 'fixed25_selector_kernel_ready' \
+    "docs/specs/0010-fixed25-equivariance-artifact-protocol.md"; then
+    echo "error: spec 0010 does not authorize the fixed25 selector kernel" >&2
+    exit 1
+  fi
+
+  if [[ "${KAGGLE_FULL_DATASET_CONFIRMED:-}" != "1" ]]; then
+    echo "error: set KAGGLE_FULL_DATASET_CONFIRMED=1 to attach the UBC dataset for selector generation" >&2
+    exit 1
+  fi
+
+  python3 - "$metadata" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+metadata = Path(sys.argv[1])
+data = json.loads(metadata.read_text(encoding="utf-8"))
+errors: list[str] = []
+
+required_values = {
+    "id": "maximusshtefan/eqvae-fixed25-selector",
+    "title": "eqvae fixed25 selector",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "false",
+    "enable_internet": "false",
+}
+
+for key, expected in required_values.items():
+    actual = str(data.get(key, ""))
+    comparable = actual.lower() if expected in {"true", "false"} else actual
+    if comparable != expected:
+        errors.append(f"{key} must be {expected!r}")
+
+if data.get("machine_shape") not in (None, "", "None"):
+    errors.append("fixed25 selector machine_shape must be absent or empty (CPU-only)")
+
+if data.get("dataset_sources") != ["maximusshtefan/patches-pre-shuffled-ubc-ocean"]:
+    errors.append("dataset_sources must attach only the UBC patch dataset")
+
+for source_field in ("competition_sources", "kernel_sources", "model_sources"):
+    if data.get(source_field) != []:
+        errors.append(f"{source_field} must be an empty list")
+
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+
+  local code_file
+  code_file="$(json_field "$metadata" code_file)"
+  local required_text
+  for required_text in \
+    "KAGGLE_FIXED25_SELECTOR_READY = True" \
+    "fixed_25_validation" \
+    "select_fixed_patches" \
+    "fixed25_originals" \
+    "originals.pt" \
+    "originals.png" \
+    "--validate-crc"; do
+    if ! grep -q -- "$required_text" "$kernel_dir/$code_file"; then
+      echo "error: fixed25 selector run.py missing required text: $required_text" >&2
+      exit 1
+    fi
+  done
+
+  python3 scripts/build_kaggle_embedded_kernel.py \
+    --kernel-dir "$kernel_dir" \
+    --ready-marker "KAGGLE_FIXED25_SELECTOR_READY = True" \
     --verify-only
 }
 
@@ -2006,6 +2113,23 @@ preflight_runtime_selection() {
     -q
 }
 
+preflight_fixed25_selector() {
+  local python_bin="${PYTHON:-.venv/bin/python}"
+
+  if [[ ! -x "$python_bin" ]]; then
+    echo "error: missing executable $python_bin; run repo setup before preflight" >&2
+    exit 1
+  fi
+
+  build_embedded_kernel "$fixed25_selector_kernel_dir"
+  validate_kernel_dir "$fixed25_selector_kernel_dir"
+  PYTHONPATH=src CUDA_VISIBLE_DEVICES="" "$python_bin" -m pytest \
+    tests/test_fixed_selectors.py \
+    tests/test_fixed25_equivariance_artifacts.py \
+    tests/test_kaggle_embedded_kernel.py::test_embedded_fixed25_selector_kernel_import_simulation \
+    -q
+}
+
 preflight_fixed32_selector_readiness() {
   local python_bin="${PYTHON:-.venv/bin/python}"
   local synthetic_root="/tmp/eqvae-fixed32-synthetic-root"
@@ -2238,6 +2362,9 @@ case "$action" in
   preflight-selected-runtime-full)
     preflight_selected_runtime_full
     ;;
+  preflight-fixed25-selector)
+    preflight_fixed25_selector
+    ;;
   push)
     kernel_dir="${2:-$default_kernel_dir}"
     if [[ "$#" -ge 2 ]]; then
@@ -2291,6 +2418,12 @@ case "$action" in
     require_kaggle_cli
     kaggle_api kernels status "$kernel_id"
     ;;
+  status-fixed25-selector)
+    kernel_id="$(kernel_id_from_metadata "$fixed25_selector_kernel_dir")"
+    require_remote_confirmed
+    require_kaggle_cli
+    kaggle_api kernels status "$kernel_id"
+    ;;
   output)
     kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"
     output_dir="${3:-$default_output_dir}"
@@ -2326,6 +2459,14 @@ case "$action" in
   output-selected-runtime-full)
     kernel_id="$(kernel_id_from_metadata "$selected_runtime_full_kernel_dir")"
     output_dir="${2:-$selected_runtime_full_output_dir}"
+    require_remote_confirmed
+    require_kaggle_cli
+    mkdir -p "$output_dir"
+    kaggle_api kernels output "$kernel_id" -p "$output_dir"
+    ;;
+  output-fixed25-selector)
+    kernel_id="$(kernel_id_from_metadata "$fixed25_selector_kernel_dir")"
+    output_dir="${2:-$fixed25_selector_output_dir}"
     require_remote_confirmed
     require_kaggle_cli
     mkdir -p "$output_dir"

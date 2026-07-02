@@ -39,6 +39,7 @@ from eqvae.artifacts.fixed25_equivariance import (
     write_originals,
 )
 from eqvae.cli.fixed25_equivariance import main as fixed25_main
+from eqvae.cli.fixed25_originals import main as fixed25_originals_main
 from eqvae.data.fixed_selectors import (
     FIXED_25_VALIDATION_KIND,
     FixedSelectorGenerationContext,
@@ -153,6 +154,10 @@ def _write_selector(root: Path, path: Path) -> None:
             bin_path=root / VALIDATION_BIN_NAME,
             csv_path=root / VALIDATION_CSV_NAME,
             image_size=_PATCH_SIZE,
+            # The canonical selector is CRC-validated (crc_checked=True); the
+            # fixed-25 load path validates with CRC too, and crc_checked is
+            # compared for equality, so fixtures must generate CRC-validated.
+            validate_crc=True,
         ),
         source_split="validation",
         context=FixedSelectorGenerationContext(data_root=root),
@@ -185,7 +190,7 @@ def _load_patches(tmp_path: Path) -> Fixed25Patches:
                 validation_bin_path=root / VALIDATION_BIN_NAME,
                 validation_csv_path=root / VALIDATION_CSV_NAME,
                 image_size=_PATCH_SIZE,
-                validate_crc=False,
+                validate_crc=True,
             ),
             validation_dataset=dataset,
         )
@@ -259,7 +264,7 @@ def test_load_fixed25_fails_closed_on_placeholder(tmp_path: Path) -> None:
                     validation_bin_path=root / VALIDATION_BIN_NAME,
                     validation_csv_path=root / VALIDATION_CSV_NAME,
                     image_size=_PATCH_SIZE,
-                    validate_crc=False,
+                    validate_crc=True,
                 ),
                 validation_dataset=dataset,
             )
@@ -286,10 +291,63 @@ def test_load_fixed25_fails_closed_on_count_mismatch(tmp_path: Path) -> None:
                     validation_bin_path=root / VALIDATION_BIN_NAME,
                     validation_csv_path=root / VALIDATION_CSV_NAME,
                     image_size=_PATCH_SIZE,
-                    validate_crc=False,
+                    validate_crc=True,
                 ),
                 validation_dataset=dataset,
             )
+    finally:
+        dataset.close()
+
+
+def test_fixed25_load_requires_crc_validated_selector(tmp_path: Path) -> None:
+    """The fixed-25 load path validates with CRC (Option Y).
+
+    The canonical selector is CRC-validated (``crc_checked=True``) and the real
+    full run validates the fixed-25 selector shard with CRC, so a non-CRC selector
+    (``crc_checked=False``) must be refused (``_validate_source`` compares
+    ``crc_checked`` for equality) and a CRC-validated one must load. This pins the
+    end-to-end consistency that lets a generated real selector load in the run.
+    """
+    root = _build_validation_shard(tmp_path)
+    no_crc_selector = tmp_path / "no_crc_selector.json"
+    write_fixed_selector_document(
+        path=no_crc_selector,
+        document=generate_fixed_selector_document(
+            selector_kind=FIXED_25_VALIDATION_KIND,
+            shard_spec=PatchShardSpec(
+                bin_path=root / VALIDATION_BIN_NAME,
+                csv_path=root / VALIDATION_CSV_NAME,
+                image_size=_PATCH_SIZE,
+                validate_crc=False,
+            ),
+            source_split="validation",
+            context=FixedSelectorGenerationContext(data_root=root),
+        ),
+    )
+    shard_spec = validation_shard_spec_for(
+        validation_bin_path=root / VALIDATION_BIN_NAME,
+        validation_csv_path=root / VALIDATION_CSV_NAME,
+        image_size=_PATCH_SIZE,
+        validate_crc=True,
+    )
+    dataset = _validation_dataset(root)
+    try:
+        with pytest.raises(ValueError, match="crc_checked"):
+            load_fixed25_patches(
+                config=_config(),
+                selector_path=no_crc_selector,
+                validation_shard_spec=shard_spec,
+                validation_dataset=dataset,
+            )
+        crc_selector = tmp_path / "crc_selector.json"
+        _write_selector(root, crc_selector)
+        patches = load_fixed25_patches(
+            config=_config(),
+            selector_path=crc_selector,
+            validation_shard_spec=shard_spec,
+            validation_dataset=dataset,
+        )
+        assert patches.images.shape[0] == _VALIDATION_COUNT
     finally:
         dataset.close()
 
@@ -487,3 +545,73 @@ def test_standalone_cli_runs_over_checkpoint(tmp_path: Path) -> None:
     # Safe default without --promotable: artifacts are synthetic / non-promotable.
     assert manifest["data_source"] == "synthetic"
     assert manifest["promotable"] is False
+
+
+def test_originals_cli_writes_selected_patches(tmp_path: Path) -> None:
+    """The originals CLI saves the 25 selected patches without a checkpoint."""
+    _manual_seed(7)
+    root = _build_validation_shard(tmp_path)
+    selector_path = tmp_path / "selector.json"
+    _write_selector(root, selector_path)
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "seeds": {"latent_seed": 20260612},
+                "data": {"image_size": _PATCH_SIZE},
+                "fixed25_equivariance": _CONFIG_BLOCK,
+            },
+        ),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "originals"
+
+    status = fixed25_originals_main(
+        [
+            "--config",
+            str(config_path),
+            "--output-dir",
+            str(output_dir),
+            "--data-root",
+            str(root),
+            "--selector",
+            str(selector_path),
+        ],
+    )
+
+    assert status == 0
+    fixed25_dir = output_dir / "artifacts" / "fixed25"
+    assert (fixed25_dir / "originals.png").read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    saved = _load_pt(fixed25_dir / "originals.pt")
+    assert saved["images"].shape[0] == _VALIDATION_COUNT
+    assert len(saved["identities"]) == _VALIDATION_COUNT
+    # No boundary/model artifacts: this step archives only the selected originals.
+    assert not (fixed25_dir / "boundary_000000").exists()
+    assert not (fixed25_dir / "manifest.json").exists()
+
+
+def test_originals_cli_fails_closed_on_placeholder(tmp_path: Path) -> None:
+    """Without an explicit selector, the tracked placeholder is refused."""
+    root = _build_validation_shard(tmp_path)
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "seeds": {"latent_seed": 20260612},
+                "data": {"image_size": _PATCH_SIZE},
+                "fixed25_equivariance": _CONFIG_BLOCK,
+            },
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match=r"not ready|requires_real_data"):
+        fixed25_originals_main(
+            [
+                "--config",
+                str(config_path),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--data-root",
+                str(root),
+            ],
+        )

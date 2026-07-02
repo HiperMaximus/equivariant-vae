@@ -718,6 +718,57 @@ Spec 0010). Remaining, non-blocking implementation notes:
   arrays are saved in-run with images rendered by the standalone evaluator (either is
   acceptable; in-run rendering is cheap).
 
+## Addendum: fixed-25 selector generation kernel (FU-041)
+
+The canonical selector `configs/spec0001/fixed_25_validation_patches.json` must be
+generated from the REAL UBC validation shard, which is not resolvable locally
+(`resolve_patch_data_paths("auto")` only finds it under `/kaggle/input/...`). The
+dedicated CPU kernel `kaggle/kernels/fixed25_selector` generates it where the dataset
+is mounted, with byte-exact source provenance. This section authorizes that kernel
+(guard token: `fixed25_selector_kernel_ready`).
+
+- **CPU only, no GPU.** The step reads the validation shard, digest-sorts 5-per-label
+  (locked `FIXED_25_VALIDATION_SEED`), and writes JSON + 25 images; there is no model
+  forward pass. `kernel-metadata.json` sets `enable_gpu: false` with no `machine_shape`,
+  so it never consumes T4 quota. The push guard rejects a GPU shape.
+- **What it runs** (both CLIs are already in the embedded payload; the config resolves
+  `source_config` to `non_eq_vae_model_base.json`):
+  1. `python -m eqvae.cli.select_fixed_patches --config
+     configs/spec0001/non_eq_vae_selected_runtime_full.json --kind fixed_25_validation
+     --data-root auto --output /kaggle/working/fixed_25_validation_patches.json
+     --validate-crc` — generates the canonical selector to the working dir (NOT the
+     tracked config path, so no `--allow-tracked-config-overwrite`).
+  2. `python -m eqvae.cli.fixed25_originals --config <same> --data-root auto --selector
+     /kaggle/working/fixed_25_validation_patches.json --output-dir /kaggle/working` —
+     archives the 25 selected patches as `artifacts/fixed25/originals.pt` and a montage
+     `originals.png` (no checkpoint needed), so the exact images are reviewable.
+- **Validation-only, fail-closed.** `--kind fixed_25_validation` forces the validation
+  split, and every fixed-25 load path additionally raises unless the selector's
+  `source_split == "validation"`. The masked-holdout WSIs are already excluded from the
+  validation shard, so no extra holdout filter applies (holdout filtering is
+  train/`fixed_32`-only).
+- **CRC contract (settled 2026-07-02).** The canonical selector is CRC-validated
+  (`crc_checked=True`, honoring `canonical_overwrite_requires_crc`), and
+  `validate_fixed_selector_document` compares `crc_checked` for equality, so the fixed-25
+  load path validates the selector shard with CRC on BOTH sides — the standalone
+  evaluator, the `fixed25_originals` CLI, and the full-run `_prepare_fixed25_runtime`
+  all use `validate_crc=True` for the selector shard (independent of the general
+  `data_surface.validate_crc`, which stays `False` for the training/validation loaders).
+  This mirrors the fixed-32 readiness convention and prevents a real CRC-validated
+  selector from failing closed in the run.
+- **Guards.** The push is the generic guarded push
+  (`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh
+  push kaggle/kernels/fixed25_selector`); `guard_fixed25_selector_push_ready` requires a
+  clean worktree (`--verify-only` without `--allow-dirty`), the CPU/dataset metadata
+  contract, this spec's `fixed25_selector_kernel_ready` token, and the required run.py
+  literals. Remote status/output are separate `KAGGLE_REMOTE_CONFIRMED=1` reads
+  (`status-fixed25-selector`, `output-fixed25-selector`). Local preflight:
+  `./scripts/kaggle_kernel.sh preflight-fixed25-selector`.
+- **Promotability.** The kernel output is generation evidence; the selector becomes
+  paper-promotable only once committed (after user review of the downloaded JSON + the
+  originals montage) and consumed by a real full run. Committing overwrites the tracked
+  placeholder and MUST be user-approved.
+
 ## Related Files
 
 - `GOAL.md`

@@ -3266,7 +3266,13 @@ def _prepare_fixed25_runtime(  # noqa: PLR0913
         validation_bin_path=validation_paths.bin_path,
         validation_csv_path=validation_paths.csv_path,
         image_size=settings.image_size,
-        validate_crc=data_surface.validate_crc,
+        # The canonical fixed-25 selector is generated CRC-validated
+        # (canonical_overwrite_requires_crc), so its source provenance records
+        # crc_checked=True. validate_fixed_selector_document compares crc_checked
+        # for equality, so the selector shard must be CRC-validated here too
+        # (independent of data_surface.validate_crc) or a real, CRC-validated
+        # selector would fail closed. Mirrors the fixed-32 readiness convention.
+        validate_crc=True,
     )
     patches = load_fixed25_patches(
         config=config,

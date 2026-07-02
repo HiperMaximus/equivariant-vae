@@ -71,32 +71,41 @@ Rules to keep this file from rotting (the problem it exists to fix):
   evidence only — never issue #4/#6 equivariant-embedding evidence.
 
 - **FU-041 — Generate the REAL fixed-25 validation selector (freeze the 25
-  images).** The Spec 0010 / FU-040 protocol code is done, but the canonical
-  selector `configs/spec0001/fixed_25_validation_patches.json` is still the
-  `status: requires_real_data_generation` placeholder with `selectors: []` — i.e.
-  the actual 25 images are NOT chosen yet. Until it exists, a real full run FAILS
-  CLOSED (the fixed-25 loader raises on the placeholder) and NO promotable
-  fixed-25 artifacts (originals, rotated recons, PCA, equivariance curve) can be
-  produced. Blocked locally because the real UBC validation shard is not
-  resolvable here — `resolve_patch_data_paths("auto")` only finds it under
-  `/kaggle/input/...` (needs the real `dataset/ubc_ocean_valid.{bin,csv}`).
-  Fix: run the generator against the REAL validation split (the exact command is
-  baked into the placeholder config's `generation_command`):
-  `PYTHONPATH=src uv run --locked --no-sync python -m eqvae.cli.select_fixed_patches
-  --config configs/spec0001/non_eq_vae_kaggle_debug.json --data-root auto --output
-  configs/spec0001/fixed_25_validation_patches.json --validate-crc
-  --allow-tracked-config-overwrite`. It digest-sorts 5-per-label from the
-  validation split (locked seed `FIXED_25_VALIDATION_SEED`), CRC-validates, and
-  overwrites the placeholder. This needs the real data present, via either (a) a
-  Kaggle DATA DOWNLOAD (remote read — needs explicit approval) plus a local
-  `EQVAE_DATA_ROOT`/`--data-root`, or (b) generation inside a Kaggle kernel where
-  the dataset is mounted. NOTE: the old FSQ-notebook 25 are only informally
-  related; the canonical selector will match them only if they coincide with the
-  digest-sorted set. Verify after generation: status becomes `pass` with 25
-  `selectors` (exactly 5 per label 0..4), `load_fixed_selector_document` +
-  `validate_fixed_selector_document` pass against the real shard, and a fixed-25
-  dry-run then produces `promotable=true`/`data_source=real` artifacts. Couples to
-  the FU-039 v1-continuation decision (the first promotable full run needs both).
+  images).** The canonical selector `configs/spec0001/fixed_25_validation_patches.json`
+  is still the `status: requires_real_data_generation` placeholder with
+  `selectors: []`, so a real full run FAILS CLOSED (the fixed-25 loader raises on
+  the placeholder) and no promotable fixed-25 artifacts can be produced. The real
+  UBC validation shard is not resolvable locally (`resolve_patch_data_paths("auto")`
+  only finds it under `/kaggle/input/...`). Approach (b) CHOSEN (user, 2026-07-02):
+  generate on Kaggle via the dedicated CPU kernel — BUILT locally (uncommitted),
+  remaining is the gated push + download + commit. Built this window:
+  - CRC-consistency fix (Option Y): the fixed-25 selector is validated with
+    `validate_crc=True` end-to-end (`_prepare_fixed25_runtime`, the standalone
+    `eqvae.cli.fixed25_equivariance`, and the new `eqvae.cli.fixed25_originals`), so a
+    CRC-validated real selector (`crc_checked=True`) loads in the run. This is
+    required: `_validate_source` compares `crc_checked` for equality, and a
+    `--validate-crc` selector previously failed the `validate_crc=False` load path.
+  - `eqvae.cli.fixed25_originals` writes the 25 selected images
+    (`artifacts/fixed25/originals.pt` + montage) from a selector, no model.
+  - CPU kernel `kaggle/kernels/fixed25_selector` (`enable_gpu:false`, no T4 quota):
+    runs `select_fixed_patches --kind fixed_25_validation --data-root auto --output
+    <working>/fixed_25_validation_patches.json --validate-crc` then `fixed25_originals`,
+    writing the selector JSON + originals to `/kaggle/working`. Guarded by
+    `guard_fixed25_selector_push_ready` (clean tree, CPU/dataset metadata, spec-0010
+    `fixed25_selector_kernel_ready` token, required literals);
+    `preflight-fixed25-selector` / `status-fixed25-selector` / `output-fixed25-selector`
+    wired; Spec 0010 addendum documents it. Gate `277 passed`; selector preflight
+    `23 passed`; 3-lens adversarial review = 0 findings.
+  Remaining (all gated on the user): commit the working tree; run the approved push
+  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh
+  push kaggle/kernels/fixed25_selector` (needs a clean committed worktree + rebuilt
+  `run.py`); then `output-fixed25-selector` (`KAGGLE_REMOTE_CONFIRMED=1`) to download
+  the selector + originals; review them; commit the generated selector to the tracked
+  config (overwrites the placeholder — needs approval). Verify after generation:
+  status `pass` with 25 `selectors` (5 per label 0..4), it loads under the CRC-
+  validating fixed-25 path, and a real full run then produces
+  `promotable=true`/`data_source=real` fixed-25 artifacts. Couples to the first
+  promotable full run (needs both this and the FU-039 fresh restart).
 
 ### MED
 
