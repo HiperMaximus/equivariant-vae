@@ -99,15 +99,39 @@ Rules to keep this file from rotting (the problem it exists to fix):
   `SO(2)` model; continuous angles are a future `SO(2)`-only extension. FSQ
   quantization/codebook/discrete-index artifacts are deliberately NOT copied.
 
-  Remaining OPEN work before this is paper-promotable: (1) generate the REAL
-  fixed-25 validation selector — the tracked
-  `configs/spec0001/fixed_25_validation_patches.json` is still the
-  `requires_real_data_generation` placeholder, so a real full run FAILS CLOSED
-  until it exists (needs the real Kaggle validation `.bin/.csv`; couples to the
-  FU-039 v1-continuation decision); (2) commit the Spec 0010 work (currently
-  uncommitted on the working tree). A full run without promotable fixed-25 output
-  must still be labeled training/checkpoint evidence only — never issue #4/#6
-  equivariant-embedding evidence.
+  The Spec 0010 code is committed on `main` (`8457233`, unpushed). The ONLY
+  remaining blocker before this is paper-promotable is generating the real
+  fixed-25 selector, now tracked as its own item **FU-041** below. A full run
+  without promotable fixed-25 output must still be labeled training/checkpoint
+  evidence only — never issue #4/#6 equivariant-embedding evidence.
+
+- **FU-041 — Generate the REAL fixed-25 validation selector (freeze the 25
+  images).** The Spec 0010 / FU-040 protocol code is done, but the canonical
+  selector `configs/spec0001/fixed_25_validation_patches.json` is still the
+  `status: requires_real_data_generation` placeholder with `selectors: []` — i.e.
+  the actual 25 images are NOT chosen yet. Until it exists, a real full run FAILS
+  CLOSED (the fixed-25 loader raises on the placeholder) and NO promotable
+  fixed-25 artifacts (originals, rotated recons, PCA, equivariance curve) can be
+  produced. Blocked locally because the real UBC validation shard is not
+  resolvable here — `resolve_patch_data_paths("auto")` only finds it under
+  `/kaggle/input/...` (needs the real `dataset/ubc_ocean_valid.{bin,csv}`).
+  Fix: run the generator against the REAL validation split (the exact command is
+  baked into the placeholder config's `generation_command`):
+  `PYTHONPATH=src uv run --locked --no-sync python -m eqvae.cli.select_fixed_patches
+  --config configs/spec0001/non_eq_vae_kaggle_debug.json --data-root auto --output
+  configs/spec0001/fixed_25_validation_patches.json --validate-crc
+  --allow-tracked-config-overwrite`. It digest-sorts 5-per-label from the
+  validation split (locked seed `FIXED_25_VALIDATION_SEED`), CRC-validates, and
+  overwrites the placeholder. This needs the real data present, via either (a) a
+  Kaggle DATA DOWNLOAD (remote read — needs explicit approval) plus a local
+  `EQVAE_DATA_ROOT`/`--data-root`, or (b) generation inside a Kaggle kernel where
+  the dataset is mounted. NOTE: the old FSQ-notebook 25 are only informally
+  related; the canonical selector will match them only if they coincide with the
+  digest-sorted set. Verify after generation: status becomes `pass` with 25
+  `selectors` (exactly 5 per label 0..4), `load_fixed_selector_document` +
+  `validate_fixed_selector_document` pass against the real shard, and a fixed-25
+  dry-run then produces `promotable=true`/`data_source=real` artifacts. Couples to
+  the FU-039 v1-continuation decision (the first promotable full run needs both).
 
 ### MED
 
