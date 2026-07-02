@@ -76,6 +76,11 @@ def compute_vae_loss(
         )
         raise ValueError(message)
 
+    # FU-004: L1 penalizes the raw unbounded output, so it reflects any excess the
+    # zero-init head pushes outside [-1, 1] (there is no final tanh). SSIM instead
+    # runs on `normalized_to_image_domain`, which clamps to [0, 1], so out-of-range
+    # pixels get a zero SSIM gradient and are invisible there; decoder-head
+    # saturation is observed via the FU-018 train-step telemetry, not this term.
     l1_loss = (reconstruction - target_f32).abs().mean()
     ssim_metric = ssim_per_image(
         normalized_to_image_domain(reconstruction),

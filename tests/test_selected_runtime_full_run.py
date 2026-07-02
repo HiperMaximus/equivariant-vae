@@ -7,6 +7,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, cast
@@ -29,6 +30,7 @@ from eqvae.checkpointing import CheckpointMetadata, LoadedCheckpoint
 from eqvae.cli.selected_runtime_train import main as selected_runtime_train_main
 from eqvae.config import resolve_json_config
 from eqvae.losses.vae import VaeLossComponents
+from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
 from eqvae.training import selected_runtime_runner
 from eqvae.training.selected_runtime import parse_selected_runtime_plan
 from eqvae.training.selected_runtime_runner import SelectedRuntimeTrainRequest
@@ -720,9 +722,23 @@ def test_fresh_full_run_flushes_metrics_at_first_boundary(  # noqa: PLR0914
     assert artifacts.train_steps.exists()
     assert artifacts.validation_metrics.exists()
     with artifacts.train_steps.open(encoding="utf-8", newline="") as handle:
-        train_updates = {
-            row["successful_optimizer_update_count"] for row in csv.DictReader(handle)
-        }
+        train_rows = list(csv.DictReader(handle))
+    train_updates = {row["successful_optimizer_update_count"] for row in train_rows}
+    # FU-018: the runner writes finite decoder-head saturation telemetry per row.
+    assert train_rows
+    for column in (
+        "recon_output_rms",
+        "x_hat_min",
+        "x_hat_max",
+        "frac_x_hat_lt_minus1",
+        "frac_x_hat_gt_1",
+    ):
+        assert all(math.isfinite(float(row[column])) for row in train_rows)
+    # The zero-init head is exactly 0.0 at update 1, but a trained update produces
+    # nonzero output. Requiring at least one nonzero row fails if the
+    # _run_train_step -> result -> _metric_row wiring regresses to the 0.0 defaults.
+    assert any(float(row["recon_output_rms"]) > 0.0 for row in train_rows)
+    assert any(float(row["x_hat_max"]) > 0.0 for row in train_rows)
     with artifacts.validation_metrics.open(encoding="utf-8", newline="") as handle:
         validation_steps = {row["optimizer_step"] for row in csv.DictReader(handle)}
     # Both boundaries are persisted; update 1 (the first half-epoch boundary) included.
@@ -1715,6 +1731,97 @@ def test_full_output_verifier_rejects_missing_loss_columns(
     )
 
 
+def test_reconstruction_output_stats_flag_out_of_range_decoder_output() -> None:
+    """FU-018: the decoder telemetry reports range plus directional saturation.
+
+    The exact boundary values -1.0 and 1.0 are present but must NOT be counted as
+    saturated, locking the strict open-interval ``< -1`` / ``> 1`` convention.
+    """
+    reconstruction = torch.tensor(
+        [[[[-2.0, -1.0], [1.0, 2.0]]]],
+        dtype=torch.float32,
+    )
+
+    stats = selected_runtime_runner._reconstruction_output_stats(reconstruction)  # noqa: SLF001
+
+    assert math.isclose(stats.x_hat_min, -2.0)
+    assert math.isclose(stats.x_hat_max, 2.0)
+    # Only -2 is < -1 and only 2 is > 1; the boundary values -1 and 1 are excluded.
+    assert math.isclose(stats.frac_x_hat_lt_minus1, 0.25)
+    assert math.isclose(stats.frac_x_hat_gt_1, 0.25)
+    assert math.isclose(stats.recon_output_rms, math.sqrt(10.0 / 4.0))
+
+
+def test_saturated_decoder_head_records_out_of_range_telemetry() -> None:
+    """FU-018: a deliberately saturated output head is flagged by the telemetry."""
+    image_size = 64
+    model = build_non_equivariant_vae()
+    bias = model.output_head.bias
+    assert bias is not None
+    with torch.no_grad():
+        _ = bias.fill_(50.0)
+    clean_batch = torch.zeros((1, 3, image_size, image_size), dtype=torch.float32)
+    eps = torch.zeros((1, 16, image_size // 8, image_size // 8), dtype=torch.float32)
+
+    output = model.forward(clean_batch, eps=eps)
+    stats = selected_runtime_runner._reconstruction_output_stats(  # noqa: SLF001
+        output.reconstruction,
+    )
+
+    # Zero-init head weight + bias 50 => the raw output is 50.0 at every pixel.
+    assert math.isclose(stats.frac_x_hat_gt_1, 1.0)
+    assert math.isclose(stats.frac_x_hat_lt_minus1, 0.0)
+    assert math.isclose(stats.x_hat_min, 50.0)
+    assert math.isclose(stats.x_hat_max, 50.0)
+    assert math.isclose(stats.recon_output_rms, 50.0)
+
+
+@pytest.mark.parametrize(
+    "dropped_column",
+    [
+        "recon_output_rms",
+        "x_hat_min",
+        "x_hat_max",
+        "frac_x_hat_lt_minus1",
+        "frac_x_hat_gt_1",
+    ],
+)
+def test_full_output_verifier_rejects_missing_decoder_telemetry_columns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dropped_column: str,
+) -> None:
+    """FU-018: each decoder-telemetry column is independently required by the gate."""
+    contract = _small_full_output_contract(monkeypatch)
+    output_dir = tmp_path / "full_output"
+    _write_full_output_fixture(output_dir=output_dir, contract=contract)
+    train_steps_path = output_dir / "metrics" / "train_steps.csv"
+    reduced_columns = tuple(
+        column for column in _train_step_columns() if column != dropped_column
+    )
+    reduced_rows = [
+        {key: value for key, value in row.items() if key != dropped_column}
+        for row in _train_step_rows(contract)
+    ]
+    _write_csv(train_steps_path, reduced_columns, reduced_rows)
+    _refresh_manifest_hash(
+        output_dir=output_dir,
+        artifact_name="train_steps",
+        artifact_path=train_steps_path,
+    )
+
+    blockers = verify_selected_runtime_full_output(
+        output_dir=output_dir,
+        selected_runtime_path=_RUNTIME_CONFIG,
+    )
+
+    assert "selected_runtime_full_output_train_steps_missing_columns" in blockers
+    assert "selected_runtime_full_output_train_steps_row_count_mismatch" not in blockers
+    assert (
+        "selected_runtime_full_output_train_steps_schedule_incomplete" not in blockers
+    )
+
+
 def test_full_output_verifier_rejects_missing_fixed25_originals(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2280,6 +2387,11 @@ def _train_step_columns() -> tuple[str, ...]:
         "beta",
         "grad_norm",
         "param_update_norm",
+        "recon_output_rms",
+        "x_hat_min",
+        "x_hat_max",
+        "frac_x_hat_lt_minus1",
+        "frac_x_hat_gt_1",
         "nonfinite_count",
         "batch_size",
         "precision_policy",
@@ -2330,6 +2442,11 @@ def _train_step_row(
         "beta": "1.0",
         "grad_norm": "1.0",
         "param_update_norm": "0.1",
+        "recon_output_rms": "0.8",
+        "x_hat_min": "-0.9",
+        "x_hat_max": "0.95",
+        "frac_x_hat_lt_minus1": "0.0",
+        "frac_x_hat_gt_1": "0.0",
         "nonfinite_count": "0",
         "batch_size": "12",
         "precision_policy": "amp_conservative",

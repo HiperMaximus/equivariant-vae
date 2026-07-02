@@ -2875,7 +2875,7 @@ Required output schemas:
 
 - `config_resolved.json`: full config after CLI overrides;
 - `metrics/train_steps.csv`: one row per logged train step with at least
-  `run_name,event_id,batch_attempt,optimizer_step,split,loss,recon_loss,l1_loss,ssim_loss,ssim_metric,mae_norm,mse_norm,psnr_img,ssim_img,kl_loss,beta,lr,grad_norm,batch_size,precision_policy,amp_enabled,torch_compile_enabled,compile_scope,corruption_strategy,amp_step_skipped,mu_mean,mu_std,mu_min,mu_max,logvar_mean,logvar_std,logvar_min,logvar_max,logvar_clamp_count,x_hat_min,x_hat_max,frac_x_hat_lt_minus1,frac_x_hat_gt_1`;
+  `run_name,event_id,batch_attempt,optimizer_step,split,loss,recon_loss,l1_loss,ssim_loss,ssim_metric,mae_norm,mse_norm,psnr_img,ssim_img,kl_loss,beta,lr,grad_norm,batch_size,precision_policy,amp_enabled,torch_compile_enabled,compile_scope,corruption_strategy,amp_step_skipped,mu_mean,mu_std,mu_min,mu_max,logvar_mean,logvar_std,logvar_min,logvar_max,logvar_clamp_count,recon_output_rms,x_hat_min,x_hat_max,frac_x_hat_lt_minus1,frac_x_hat_gt_1`;
 - skipped AMP rows are logged as batch-attempt events with
   `amp_step_skipped = 1`; they do not increment `optimizer_step` and do not
   trigger optimizer-step-based schedules, validation, or checkpointing;

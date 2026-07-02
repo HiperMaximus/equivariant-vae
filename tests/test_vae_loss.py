@@ -152,6 +152,44 @@ def test_kl_recon_balance_stays_in_sane_band_at_beta_one() -> None:
     assert kl_loss / recon_loss <= _KL_RECON_RATIO_UPPER_BOUND
 
 
+def test_l1_reflects_raw_excess_while_ssim_is_clamp_blind() -> None:
+    """FU-004: L1 penalizes raw out-of-range output; SSIM sees only clamped [0, 1]."""
+    target = torch.zeros((1, CHANNELS, IMAGE_SIZE, IMAGE_SIZE))
+    mu = torch.zeros((1, LATENT_CHANNELS, LATENT_SIZE, LATENT_SIZE))
+    logvar = torch.zeros_like(mu)
+    at_boundary = torch.ones_like(target)  # +1 -> image-domain 1.0
+    out_of_range = torch.full_like(target, 3.0)  # +3 -> image-domain 2.0, clamps to 1.0
+
+    boundary_components = compute_vae_loss(
+        _forward_output(
+            reconstruction=at_boundary,
+            mu=mu,
+            logvar=logvar,
+            logvar_clamped=logvar,
+        ),
+        target,
+        beta=0.0,
+    )
+    saturated_components = compute_vae_loss(
+        _forward_output(
+            reconstruction=out_of_range,
+            mu=mu,
+            logvar=logvar,
+            logvar_clamped=logvar,
+        ),
+        target,
+        beta=0.0,
+    )
+
+    # Both reconstructions clamp to the same image-domain 1.0, so SSIM is identical.
+    assert torch.equal(
+        saturated_components.ssim_metric,
+        boundary_components.ssim_metric,
+    )
+    # L1 is on the raw output, so the out-of-range excess is penalized more.
+    assert float(saturated_components.l1_loss) > float(boundary_components.l1_loss)
+
+
 def _forward_output(
     *,
     reconstruction: torch.Tensor,

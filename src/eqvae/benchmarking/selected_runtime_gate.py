@@ -861,6 +861,11 @@ def _remote_full_train_step_blockers(  # noqa: C901, PLR0912
         "eps_seed_source",
         "eps_zero_fraction",
         "eps_abs_mean",
+        "recon_output_rms",
+        "x_hat_min",
+        "x_hat_max",
+        "frac_x_hat_lt_minus1",
+        "frac_x_hat_gt_1",
     }
     blockers: list[str] = []
     if required - set(fieldnames):

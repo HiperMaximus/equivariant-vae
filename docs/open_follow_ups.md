@@ -119,16 +119,9 @@ Rules to keep this file from rotting (the problem it exists to fix):
   `_run_scheduled_validation`/`_validation_view_row` path with both views). Still
   open: an explicit assert that the `clean` view consumes no corruption RNG and
   that the `deterministic_denoising` view is reproducible run-to-run.
-- **FU-018 — No telemetry/test for decoder head saturation (out-of-[0,1]).**
-  Files: `losses/vae.py` (SSIM clamp), model output head, `_metric_row`/
-  `_gate_health_rows :3066`. Fix: add decoder-output RMS + clamp-fraction to
-  gate-health and a test asserting it is recorded. (Telemetry side of FU-004.)
 
 ### LOW
 
-- **FU-004 — SSIM term clamps out-of-range output invisibly.** `losses/vae.py`
-  SSIM term wraps `normalized_to_image_domain`; no final tanh. Fix: keep no-tanh;
-  rely on FU-018 telemetry unless the run shows persistent saturation.
 - **FU-019 — Train CSV loss/grad metrics are per-rank-local, never reduced.**
   `selected_runtime_runner.py:2331-2340`, grad_norm pre-allreduce. Fix: optionally
   emit a global-mean train loss; at minimum document that CSV scalars are per-rank.

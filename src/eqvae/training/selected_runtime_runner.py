@@ -171,6 +171,11 @@ _TRAIN_STEP_COLUMNS = (
     "beta",
     "grad_norm",
     "param_update_norm",
+    "recon_output_rms",
+    "x_hat_min",
+    "x_hat_max",
+    "frac_x_hat_lt_minus1",
+    "frac_x_hat_gt_1",
     "nonfinite_count",
     "batch_size",
     "precision_policy",
@@ -666,6 +671,27 @@ class _SelectedRuntimeStepResult:
     eps_seed_source: str
     eps_zero_fraction: float
     eps_abs_mean: float
+    recon_output_rms: float = 0.0
+    x_hat_min: float = 0.0
+    x_hat_max: float = 0.0
+    frac_x_hat_lt_minus1: float = 0.0
+    frac_x_hat_gt_1: float = 0.0
+
+
+@dataclass(frozen=True)
+class _ReconstructionOutputStats:
+    """Decoder-head output telemetry for saturation observability (FU-018).
+
+    The output head is a zero-initialized raw-RGB convolution with no final
+    ``tanh``; pixels the decoder pushes outside ``[-1, 1]`` receive a zero SSIM
+    gradient (SSIM runs on the clamped image domain) and are otherwise invisible.
+    """
+
+    recon_output_rms: float
+    x_hat_min: float
+    x_hat_max: float
+    frac_x_hat_lt_minus1: float
+    frac_x_hat_gt_1: float
 
 
 @dataclass(frozen=True)
@@ -3840,6 +3866,7 @@ def _run_train_step(  # noqa: PLR0913, PLR0914
     else:
         optimizer.step()
         amp_step_skipped = False
+    recon_stats = _reconstruction_output_stats(output.reconstruction)
     return _SelectedRuntimeStepResult(
         optimizer_step_index=optimizer_step_index,
         successful_optimizer_update_count=(
@@ -3859,6 +3886,11 @@ def _run_train_step(  # noqa: PLR0913, PLR0914
         eps_seed_source=eps_proof.eps_seed_source,
         eps_zero_fraction=eps_proof.eps_zero_fraction,
         eps_abs_mean=eps_proof.eps_abs_mean,
+        recon_output_rms=recon_stats.recon_output_rms,
+        x_hat_min=recon_stats.x_hat_min,
+        x_hat_max=recon_stats.x_hat_max,
+        frac_x_hat_lt_minus1=recon_stats.frac_x_hat_lt_minus1,
+        frac_x_hat_gt_1=recon_stats.frac_x_hat_gt_1,
     )
 
 
@@ -5397,6 +5429,11 @@ def _metric_row(  # noqa: PLR0913
         "beta": _format_float(scalars["beta"]),
         "grad_norm": _format_float(result.grad_norm),
         "param_update_norm": _format_float(result.param_update_norm),
+        "recon_output_rms": _format_float(result.recon_output_rms),
+        "x_hat_min": _format_float(result.x_hat_min),
+        "x_hat_max": _format_float(result.x_hat_max),
+        "frac_x_hat_lt_minus1": _format_float(result.frac_x_hat_lt_minus1),
+        "frac_x_hat_gt_1": _format_float(result.frac_x_hat_gt_1),
         "nonfinite_count": str(result.nonfinite_count),
         "batch_size": str(result.batch_size),
         "precision_policy": plan.precision_policy,
@@ -5945,6 +5982,19 @@ def _norm(tensor: torch.Tensor) -> float:
 
 def _float_item(tensor: torch.Tensor) -> float:
     return float(cast("float", tensor.item()))
+
+
+def _reconstruction_output_stats(
+    reconstruction: torch.Tensor,
+) -> _ReconstructionOutputStats:
+    detached = reconstruction.detach().float()
+    return _ReconstructionOutputStats(
+        recon_output_rms=math.sqrt(_tensor_stat(detached.square(), "mean")),
+        x_hat_min=_tensor_stat(detached, "min"),
+        x_hat_max=_tensor_stat(detached, "max"),
+        frac_x_hat_lt_minus1=_frac(detached < -1.0),
+        frac_x_hat_gt_1=_frac(detached > 1.0),
+    )
 
 
 def _format_float(value: float) -> str:
