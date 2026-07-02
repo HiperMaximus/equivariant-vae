@@ -1664,6 +1664,57 @@ def test_full_output_verifier_rejects_incomplete_train_step_coverage(
     assert "selected_runtime_full_output_train_steps_schedule_incomplete" in blockers
 
 
+@pytest.mark.parametrize(
+    "dropped_columns",
+    [
+        ("recon_loss",),
+        ("kl_loss",),
+        ("recon_loss", "kl_loss"),
+    ],
+)
+def test_full_output_verifier_rejects_missing_loss_columns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dropped_columns: tuple[str, ...],
+) -> None:
+    """FU-002: the gate rejects train_steps.csv missing recon_loss or kl_loss.
+
+    Each loss column is required independently, so dropping recon_loss alone,
+    kl_loss alone, or both must each trip the missing-column blocker. The rows
+    otherwise provide full valid per-rank schedule coverage, so the only train-step
+    blocker is the missing-column contract violation, not incidental coverage.
+    """
+    contract = _small_full_output_contract(monkeypatch)
+    output_dir = tmp_path / "full_output"
+    _write_full_output_fixture(output_dir=output_dir, contract=contract)
+    train_steps_path = output_dir / "metrics" / "train_steps.csv"
+    dropped = set(dropped_columns)
+    reduced_columns = tuple(
+        column for column in _train_step_columns() if column not in dropped
+    )
+    reduced_rows = [
+        {key: value for key, value in row.items() if key not in dropped}
+        for row in _train_step_rows(contract)
+    ]
+    _write_csv(train_steps_path, reduced_columns, reduced_rows)
+    _refresh_manifest_hash(
+        output_dir=output_dir,
+        artifact_name="train_steps",
+        artifact_path=train_steps_path,
+    )
+
+    blockers = verify_selected_runtime_full_output(
+        output_dir=output_dir,
+        selected_runtime_path=_RUNTIME_CONFIG,
+    )
+
+    assert "selected_runtime_full_output_train_steps_missing_columns" in blockers
+    assert "selected_runtime_full_output_train_steps_row_count_mismatch" not in blockers
+    assert (
+        "selected_runtime_full_output_train_steps_schedule_incomplete" not in blockers
+    )
+
+
 def test_full_output_verifier_rejects_missing_fixed25_originals(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

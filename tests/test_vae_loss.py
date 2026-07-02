@@ -22,6 +22,21 @@ IMAGE_SIZE = 16
 LATENT_CHANNELS = 16
 LATENT_SIZE = 4
 
+# FU-002: sane bands plus an independent reduction/formula lock for the mean-reduced
+# KL against reconstruction at beta = 1 on a representative early-training posterior.
+# The mean reduction gives an O(0.1) KL; a ``.mean() -> .sum()`` regression inflates
+# it by the full element count B*C*H*W (2*16*32*32 = 32768; 16384 per sample) and a
+# code-level zeroing of KL drives it to 0. This is a loss-contract unit lock; live
+# posterior-collapse detection over a run is the runtime CSV's job (FU-002b).
+_REPRESENTATIVE_POSTERIOR_SEED = 20260702
+_FULL_LATENT_SPATIAL = 32
+_FULL_IMAGE_SIZE = 32
+_KL_LOSS_LOWER_BOUND = 0.02
+_KL_LOSS_UPPER_BOUND = 1.0
+_KL_RECON_RATIO_LOWER_BOUND = 0.02
+_KL_RECON_RATIO_UPPER_BOUND = 10.0
+_KL_REDUCTION_REL_TOL = 1e-5
+
 
 def test_vae_loss_uses_locked_reductions() -> None:
     """L1 is global, SSIM is per-image mean, and KL is latent global mean."""
@@ -88,6 +103,53 @@ def test_step_limited_beta_schedule_is_zero_based() -> None:
         1.0,
         abs_tol=0.0,
     )
+
+
+def test_kl_recon_balance_stays_in_sane_band_at_beta_one() -> None:
+    """FU-002: lock the KL reduction/formula and KL/recon balance at beta = 1.
+
+    An independent recomputation of the diagonal-Gaussian KL from the raw formula
+    pins the mean reduction and coefficient exactly (a ``.mean() -> .sum()``
+    regression, a per-sample sum, or a dropped ``0.5`` factor all break it); an
+    absolute band pins the O(0.1) magnitude; and a ratio band asserts KL neither
+    vanishes against nor dominates reconstruction for a representative
+    early-training posterior. Live training-time collapse is watched via the run
+    CSV (FU-002b), not this unit test.
+    """
+    generator = torch.Generator().manual_seed(_REPRESENTATIVE_POSTERIOR_SEED)
+    latent_shape = (BATCH, LATENT_CHANNELS, _FULL_LATENT_SPATIAL, _FULL_LATENT_SPATIAL)
+    image_shape = (BATCH, CHANNELS, _FULL_IMAGE_SIZE, _FULL_IMAGE_SIZE)
+    mu = torch.randn(latent_shape, generator=generator) * 0.5
+    logvar_clamped = (
+        (torch.randn(latent_shape, generator=generator) * 0.2) - 0.5
+    ).clamp(-8.0, 4.0)
+    target = (torch.rand(image_shape, generator=generator) * 2.0) - 1.0
+    reconstruction = (
+        target + (torch.randn(image_shape, generator=generator) * 0.3)
+    ).clamp(-1.0, 1.0)
+    output = _forward_output(
+        reconstruction=reconstruction,
+        mu=mu,
+        logvar=logvar_clamped,
+        logvar_clamped=logvar_clamped,
+    )
+
+    components = compute_vae_loss(output, target, beta=1.0)
+
+    kl_loss = float(components.kl_loss)
+    recon_loss = float(components.recon_loss)
+    # Independent reduction+formula lock: recompute the KL from the raw formula and
+    # require the mean reduction exactly. A .mean()->.sum() (kl ~ 6072), a
+    # per-sample sum, or a coefficient error all break this equality.
+    kl_element = -0.5 * (1.0 + logvar_clamped - mu.square() - logvar_clamped.exp())
+    expected_mean_kl = float(kl_element.mean())
+    assert math.isclose(kl_loss, expected_mean_kl, rel_tol=_KL_REDUCTION_REL_TOL)
+    # Sane magnitude band: the mean reduction is O(0.1), never the O(10^3) sum form
+    # nor a collapse to 0.
+    assert _KL_LOSS_LOWER_BOUND <= kl_loss <= _KL_LOSS_UPPER_BOUND
+    # Balance band at beta = 1: KL neither vanishes against nor dominates recon.
+    assert kl_loss / recon_loss >= _KL_RECON_RATIO_LOWER_BOUND
+    assert kl_loss / recon_loss <= _KL_RECON_RATIO_UPPER_BOUND
 
 
 def _forward_output(
