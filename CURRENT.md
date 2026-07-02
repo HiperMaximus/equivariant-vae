@@ -156,6 +156,34 @@ cited; continuous angles are deferred to the future `SO(2)` spec. Do not copy FS
 quantization/codebook/discrete-index artifacts; replace them with
 continuous-latent statistics for the normal VAE and future `SO(2)` model.
 
+DDP correctness pass, 2026-07-02 (uncommitted, working tree): the open HIGH
+DDP-correctness follow-ups are fixed in
+`src/eqvae/training/selected_runtime_runner.py`, with matching strict-verifier
+assertions in `src/eqvae/benchmarking/selected_runtime_gate.py` and CPU tests
+(including simulated `world_size=2` cases) in
+`tests/test_selected_runtime_full_run.py`. FU-007: each rank seeds its
+reparameterization eps generator from `data_seed + rank` (rank 0 unchanged), and
+the full summary carries `per_rank_reparameterization_eps_divergent` with a
+fail-closed blocker. FU-012: after a resume restores rank-0's generator, each
+rank re-applies its per-rank offset from `(data_seed, rank, start_step)` (DDP
+only). FU-008: best_model.pt is selected on the cross-rank sample-weighted
+`deterministic_denoising` view (never clean, never `min()` over views, never
+rank-0-local), recorded via `best_validation_selection_view`/`_reduction` and
+asserted by the verifier; a no-validation-boundary fallback is labeled
+`train_l1_no_validation_best` so the verifier rejects it. A 5-lens adversarial
+subagent review plus two focused delta verifiers found and fixed a DDP boundary
+deadlock hazard (added `_synchronized_amp_step_skipped`, a per-step cross-rank
+AMP-skip agreement check that fails fast — this also implements the former
+FU-020), a fallback-labeling honesty gap, and a missing end-to-end
+best-selection test; no residual defects. All changes are no-ops for
+single-process (`world_size == 1`) runs. Gate green: `./scripts/python_quality.sh`
+= 272 passed, basedpyright clean; `git diff --check` clean; repo
+`./scripts/agent_preflight.sh` clean. Resolved and deleted from
+`docs/open_follow_ups.md`: FU-007, FU-008, FU-012, FU-020. These fixes gate a
+VALID dual-T4 full run and are independent of the still-open data/decision
+blockers FU-041 (real fixed-25 selector) and FU-039 (v1-continuation decision).
+Not yet committed; awaiting explicit commit approval.
+
 Spec 0009 full-run remote push status, 2026-06-29: the first approved command
 used the nonexistent action `push-selected-runtime-full`; the script printed
 usage and exited locally before any Kaggle remote call. The corrected approved

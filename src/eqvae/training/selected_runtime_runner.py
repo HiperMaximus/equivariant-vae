@@ -128,6 +128,17 @@ _FULL_TARGET_UPDATES = 125_000
 _FULL_HALF_EPOCH_INTERVAL_STEPS = 6_250
 _FULL_VALIDATION_BATCHES_PER_VIEW = 20
 _FULL_VALIDATION_VIEWS = ("clean", "deterministic_denoising")
+# best_model.pt is selected on the paper-relevant denoising view (FU-008), never
+# the easier clean view, and across ranks with a sample-weighted reduction because
+# DDP validation shards are uneven under drop_last=False.
+_CHECKPOINT_SELECTION_VIEW = "deterministic_denoising"
+_CHECKPOINT_SELECTION_REDUCTION = "cross_rank_sample_weighted_l1"
+# When no validation boundary selected a best (e.g. a dry run shorter than one
+# half-epoch), best_model.pt falls back to the min train L1; label it honestly so
+# the strict verifier (which requires the denoising selection) fails such a run
+# closed instead of trusting a false denoising-selection claim.
+_CHECKPOINT_SELECTION_FALLBACK = "train_l1_no_validation_best"
+_SELECTION_SUM_PAIR_LEN = 2
 _FULL_CHECKPOINT_RETENTION = "best_final_latest_four_interval"
 _STOCHASTIC_REPARAMETERIZATION = "stochastic_seeded"
 _DETERMINISTIC_REPARAMETERIZATION = "deterministic_zero"
@@ -913,7 +924,12 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
     manual_seed(settings.global_seed)
     numpy_generator = np.random.default_rng(settings.global_seed)
     train_generator = torch.Generator(device="cpu")
-    train_generator.manual_seed(settings.data_seed)
+    # Per-rank reparameterization-noise seed (FU-007): DDP ranks must draw
+    # independent epsilon (never a shared z). Rank 0 reduces to ``data_seed``, so
+    # world_size==1 values are unchanged.
+    train_generator.manual_seed(
+        _eps_generator_seed(data_seed=settings.data_seed, rank=distributed.rank),
+    )
     data_surface = _prepare_data_surface(
         request=request,
         settings=settings,
@@ -946,6 +962,13 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
         0
         if loaded_checkpoint is None
         else loaded_checkpoint.successful_optimizer_update_count
+    )
+    _reapply_per_rank_eps_offset_on_resume(
+        train_generator=train_generator,
+        settings=settings,
+        distributed=distributed,
+        loaded_checkpoint=loaded_checkpoint,
+        start_step=start_step,
     )
     if start_step >= settings.max_train_steps:
         message = (
@@ -1866,6 +1889,49 @@ def _barrier(distributed: _DistributedContext) -> None:
         barrier()
 
 
+def _synchronized_amp_step_skipped(
+    *,
+    local_amp_step_skipped: bool,
+    distributed: _DistributedContext,
+) -> bool:
+    """Return the DDP-consistent AMP step-skip decision, failing fast on disagreement.
+
+    The half-epoch boundary path runs collectives (the FU-008 validation-selection
+    all-gather, the interval-flush gathers, the barrier) ONLY when a step is not
+    skipped, so every rank must agree on the skip decision or a multi-hour run
+    deadlocks at the first boundary collective. DDP synchronizes gradients before
+    the ``GradScaler`` inf/nan check, so the decision is normally identical across
+    ranks; this gathers the per-rank flags every step (an unconditional, symmetric
+    collective, so it cannot itself desync) and raises together if they ever
+    disagree, converting an otherwise-silent deadlock into a clear error. Because
+    ranks agree in the normal case, the returned value equals the local decision
+    and counting/metrics are unchanged (also a no-op for single-process runs).
+
+    Returns:
+        The agreed AMP step-skip decision (equal to the local decision).
+
+    Raises:
+        RuntimeError: if ranks disagree on the AMP step-skip decision.
+
+    """
+    if not distributed.should_use_ddp or not dist.is_initialized():
+        return local_amp_step_skipped
+    gathered: list[object] = [None for _ in range(distributed.world_size)]
+    all_gather_object = cast(
+        "Callable[[list[object], object], None]",
+        dist.all_gather_object,
+    )
+    all_gather_object(gathered, bool(local_amp_step_skipped))
+    flags = {bool(flag) for flag in gathered if isinstance(flag, bool)}
+    if len(flags) > 1:
+        message = (
+            "selected-runtime ranks disagree on the AMP step-skip decision; "
+            "DDP gradient synchronization should keep it identical across ranks"
+        )
+        raise RuntimeError(message)
+    return local_amp_step_skipped
+
+
 def _gather_csv_rows(
     local_rows: Sequence[CsvRow],
     distributed: _DistributedContext,
@@ -2728,15 +2794,24 @@ def _run_train_steps(  # noqa: C901, PLR0913, PLR0914, PLR0915
             device=distributed.device,
         )
         last_result = result
-        if not result.amp_step_skipped:
+        # The AMP-skip decision gates the half-epoch boundary block, which runs
+        # collectives (the FU-008 validation-selection all-gather, interval-flush
+        # gathers, the barrier). All ranks must agree on it or the run deadlocks at
+        # the first boundary collective; this fails fast on disagreement instead
+        # (an unconditional, symmetric per-step collective) rather than hanging.
+        amp_step_skipped = _synchronized_amp_step_skipped(
+            local_amp_step_skipped=result.amp_step_skipped,
+            distributed=distributed,
+        )
+        if not amp_step_skipped:
             successful_count = result.successful_optimizer_update_count
         checkpoint_boundary = (
-            not result.amp_step_skipped
+            not amp_step_skipped
             and successful_count > 0
             and successful_count % settings.save_every_steps == 0
         )
         scheduled_validation_due = (
-            not result.amp_step_skipped
+            not amp_step_skipped
             and _should_run_scheduled_validation(settings, successful_count)
         )
         rows.append(
@@ -2766,7 +2841,10 @@ def _run_train_steps(  # noqa: C901, PLR0913, PLR0914, PLR0915
                 device=distributed.device,
             )
             validation_rows.extend(boundary_rows)
-            boundary_metric = _validation_best_l1(boundary_rows)
+            boundary_metric = _boundary_selection_metric(
+                boundary_rows=boundary_rows,
+                distributed=distributed,
+            )
             if fixed25 is not None:
                 equivariance_rows.extend(
                     _evaluate_fixed25_boundary(
@@ -4005,9 +4083,83 @@ def _mean_loss_scalars(rows: Sequence[dict[str, float]]) -> dict[str, float]:
     return {key: _mean([row[key] for row in rows]) for key in keys}
 
 
-def _validation_best_l1(rows: Sequence[CsvRow]) -> float | None:
-    values = [float(row["l1_loss"]) for row in rows if row.get("l1_loss")]
-    return min(values) if values else None
+def _boundary_selection_metric(
+    *,
+    boundary_rows: Sequence[CsvRow],
+    distributed: _DistributedContext,
+) -> float | None:
+    """Return the cross-rank sample-weighted validation L1 used to pick best (FU-008).
+
+    ``best_model.pt`` must be selected on the paper-relevant
+    ``deterministic_denoising`` view (not the easier ``clean`` view) and on the
+    GLOBAL validation set. DDP validation shards are uneven under
+    ``drop_last=False``, so we all-reduce ``sum(l1 * n)`` and ``sum(n)`` for the
+    selection view across ranks and divide, rather than averaging rank-0's local
+    shard or averaging per-view/per-rank means. The caller invokes this inside the
+    half-epoch boundary block, which every rank enters together because
+    ``_synchronized_amp_step_skipped`` forces the ranks to agree on
+    ``scheduled_validation_due``; the gathered metric is therefore identical on all
+    ranks and world_size-independent for the same validation samples.
+
+    Returns:
+        The global denoising-view L1, or ``None`` when no selection-view samples
+        were validated.
+
+    """
+    local_weighted, local_count = _local_selection_l1_sums(boundary_rows)
+    total_weighted, total_count = _all_reduce_selection_l1_sums(
+        local_weighted_l1=local_weighted,
+        local_sample_count=local_count,
+        distributed=distributed,
+    )
+    if total_count <= 0:
+        return None
+    return total_weighted / total_count
+
+
+def _local_selection_l1_sums(boundary_rows: Sequence[CsvRow]) -> tuple[float, int]:
+    weighted = 0.0
+    count = 0
+    for row in boundary_rows:
+        if row.get("view") != _CHECKPOINT_SELECTION_VIEW:
+            continue
+        l1_text = row.get("l1_loss")
+        sample_text = row.get("sample_count")
+        if not l1_text or not sample_text:
+            continue
+        samples = int(sample_text)
+        if samples <= 0:
+            continue
+        weighted += float(l1_text) * samples
+        count += samples
+    return weighted, count
+
+
+def _all_reduce_selection_l1_sums(
+    *,
+    local_weighted_l1: float,
+    local_sample_count: int,
+    distributed: _DistributedContext,
+) -> tuple[float, int]:
+    if not distributed.should_use_ddp or not dist.is_initialized():
+        return local_weighted_l1, local_sample_count
+    gathered: list[object] = [None for _ in range(distributed.world_size)]
+    all_gather_object = cast(
+        "Callable[[list[object], object], None]",
+        dist.all_gather_object,
+    )
+    all_gather_object(gathered, (local_weighted_l1, local_sample_count))
+    total_weighted = 0.0
+    total_count = 0
+    for item in gathered:
+        if not isinstance(item, tuple | list):
+            continue
+        pair = cast("Sequence[object]", item)
+        if len(pair) != _SELECTION_SUM_PAIR_LEN:
+            continue
+        total_weighted += float(cast("float", pair[0]))
+        total_count += int(cast("int", pair[1]))
+    return total_weighted, total_count
 
 
 def _save_checkpoint(  # noqa: PLR0913
@@ -4807,7 +4959,7 @@ def _selected_runtime_debug_summary(  # noqa: PLR0913
     )
 
 
-def _selected_runtime_full_summary(  # noqa: PLR0913
+def _selected_runtime_full_summary(  # noqa: C901, PLR0913
     *,
     plan: SelectedRuntimePlan,
     settings: _RunnerSettings,
@@ -4833,6 +4985,8 @@ def _selected_runtime_full_summary(  # noqa: PLR0913
         blockers.append("nonfinite_train_metric_observed")
     if not _stochastic_train_eps_proven(metric_rows):
         blockers.append("stochastic_seeded_train_epsilon_not_proven")
+    if not _per_rank_eps_divergent(metric_rows):
+        blockers.append("per_rank_reparameterization_eps_not_divergent")
     if not _validation_schedule_complete(settings, validation_rows):
         blockers.append("half_epoch_validation_schedule_incomplete")
     if _interval_checkpoint_count(checkpoints) > _FULL_INTERVAL_CHECKPOINT_KEEP_COUNT:
@@ -4866,6 +5020,19 @@ def _selected_runtime_full_summary(  # noqa: PLR0913
             "validation_boundary_steps": list(validation_boundaries),
             "train_reparameterization": settings.train_reparameterization,
             "stochastic_train_eps_proven": _stochastic_train_eps_proven(metric_rows),
+            "per_rank_reparameterization_eps_divergent": _per_rank_eps_divergent(
+                metric_rows,
+            ),
+            "best_validation_selection_view": (
+                _CHECKPOINT_SELECTION_VIEW
+                if best_validation_metric is not None
+                else _CHECKPOINT_SELECTION_FALLBACK
+            ),
+            "best_validation_selection_reduction": (
+                _CHECKPOINT_SELECTION_REDUCTION
+                if best_validation_metric is not None
+                else _CHECKPOINT_SELECTION_FALLBACK
+            ),
             "checkpoint_retention": settings.checkpoint_retention,
             "retained_interval_checkpoint_count": _interval_checkpoint_count(
                 checkpoints,
@@ -5043,6 +5210,36 @@ def _stochastic_train_eps_proven(rows: Sequence[CsvRow]) -> bool:
         and float(row.get("eps_zero_fraction", "1") or "1") < 1.0
         for row in successful_rows
     )
+
+
+def _per_rank_eps_divergent(rows: Sequence[CsvRow]) -> bool:
+    """Return whether DDP ranks drew independent reparameterization eps (FU-007).
+
+    Guards against the collapse where every rank shares one eps stream (identical
+    ``z``). Keyed on the ranks actually observed in the gathered metric rows, not
+    the plan world_size, so a single-process run (which has nothing to diverge)
+    passes trivially. Multi-rank runs must show at least one successful optimizer
+    step where the per-rank ``eps_abs_mean`` values are not all identical; two
+    ranks sharing one eps stream would record bit-identical means.
+
+    Returns:
+        ``True`` when eps is per-rank distinct (or only one rank is present).
+
+    """
+    successful_rows = _successful_metric_rows(rows)
+    by_step: dict[str, dict[str, str]] = {}
+    observed_ranks: set[str] = set()
+    for row in successful_rows:
+        rank = row.get("rank")
+        step = row.get("successful_optimizer_update_count")
+        eps_abs_mean = row.get("eps_abs_mean")
+        if not rank or not step or not eps_abs_mean:
+            continue
+        observed_ranks.add(rank)
+        by_step.setdefault(step, {})[rank] = eps_abs_mean
+    if len(observed_ranks) <= 1:
+        return True
+    return any(len(set(rank_to_eps.values())) > 1 for rank_to_eps in by_step.values())
 
 
 def _validation_schedule_complete(
@@ -5325,6 +5522,51 @@ def _zero_eps(
         ),
         dtype=torch.float32,
         device=device,
+    )
+
+
+def _eps_generator_seed(*, data_seed: int, rank: int, start_step: int = 0) -> int:
+    """Return the per-rank reparameterization-noise seed (FU-007 / FU-012).
+
+    DDP ranks must draw independent reparameterization epsilon (never a shared
+    ``z``), so the eps generator is offset by ``rank``. ``start_step`` re-bases the
+    stream after a resume so post-resume eps neither repeats the pre-resume noise
+    nor collapses back to the single rank-0 stream that every rank restores from
+    the rank-0 checkpoint. Rank 0 with ``start_step == 0`` reduces to ``data_seed``,
+    so world_size==1 fresh-run values are unchanged.
+
+    Returns:
+        The seed for this rank's reparameterization ``torch.Generator``.
+
+    """
+    return data_seed + rank + start_step
+
+
+def _reapply_per_rank_eps_offset_on_resume(
+    *,
+    train_generator: torch.Generator,
+    settings: _RunnerSettings,
+    distributed: _DistributedContext,
+    loaded_checkpoint: LoadedCheckpoint | None,
+    start_step: int,
+) -> None:
+    """Re-establish per-rank eps divergence after a resume (FU-012).
+
+    Only rank 0 writes checkpoints, so every rank restores rank-0's saved
+    reparameterization generator, which would collapse the FU-007 per-rank offset
+    back to an identical-across-ranks eps stream after any resume. Re-seeding each
+    rank's eps generator from ``(data_seed, rank, start_step)`` restores the
+    divergence. Skipped for single-process runs so a world_size==1 resume keeps
+    the exact restored continuous stream.
+    """
+    if loaded_checkpoint is None or not distributed.should_use_ddp:
+        return
+    train_generator.manual_seed(
+        _eps_generator_seed(
+            data_seed=settings.data_seed,
+            rank=distributed.rank,
+            start_step=start_step,
+        ),
     )
 
 

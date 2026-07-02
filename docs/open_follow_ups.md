@@ -37,22 +37,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
 
 ### HIGH
 
-- **FU-007 — DDP eps is identical across ranks (confirmed).** `train_generator`
-  is seeded with `settings.data_seed` and global RNG with `global_seed`, with no
-  rank offset, so both ranks draw the same reparameterization noise each step.
-  Files: `src/eqvae/training/selected_runtime_runner.py:876-880` (seed setup),
-  `_train_eps :5009`. Fix: offset the eps generator per rank
-  (`data_seed + rank`, or fold rank into a per-step eps seed), keep it seeded;
-  coordinate with FU-012 resume; add a gate-health check asserting per-rank
-  `eps_abs_mean` differ.
-- **FU-008 — best_model.pt selected on rank-0-local shard and wrong view
-  (confirmed).** `_validation_best_l1` does `min()` over per-view rows (so it
-  tracks the easier `clean` view) and runs before the cross-rank gather.
-  Files: `selected_runtime_runner.py:_save_best_validation_checkpoint:2852`,
-  `_validation_best_l1:3693`, `_validation_view_row:3593`; rank-0-only save via
-  `write_artifacts=_is_primary_rank`. Fix: aggregate per-view L1 across ranks
-  (sample-weighted all-reduce; shards uneven with `drop_last=False`), then select
-  explicitly on the `deterministic_denoising` view. Mirror in the final/summary path.
 - **FU-010 — Two contradictory "selected runtime" values in one doc.**
   `docs/kaggle_cli_workflow.md:239-243` (v3, 14.04 samples/s, 59.37h) vs `:5`/`:582`
   (v5, 27.38 samples/s, ~30.4h). Fix: delete the v3 block (D-17); confirm no config
@@ -146,13 +130,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
   Fix: derive `warmup_steps = optimizer_updates_per_epoch`, or validate
   `beta_warmup_fraction * max_train_steps == 12500` for full runs and record the
   resolved warmup-step count; add a config test.
-- **FU-012 — Resume restores rank-0 RNG to all ranks.** Only rank 0 checkpoints;
-  all ranks load its RNG. Self-consistent only because of FU-007; fixing FU-007
-  without this re-breaks per-rank eps after any resume. Files:
-  `src/eqvae/checkpointing.py:251,304-329`; runner `_cuda_rng_checkpoint_state
-  :3756`, `_save_checkpoint :3698`. Fix: persist per-rank generator/CUDA
-  RNG keyed by rank, or re-derive each rank's seed from `(data_seed, rank,
-  start_step)`; add a resume test asserting post-resume eps differ across ranks.
 - **FU-014 — GOAL.md duplicates/out-stales the spec index.** Per-spec status +
   v5/v6 narration in `GOAL.md:107-152` duplicates and disagrees with
   `docs/specs/README.md:28-34`. Fix: strip status tails, keep durable requirement
@@ -165,11 +142,12 @@ Rules to keep this file from rotting (the problem it exists to fix):
   `docs/behavior_inventory_kaggle.md:249-255`; cross-check `src/eqvae/corruption/`.
   Fix: verify the HED/OD matrix convention and seeding; mark the audit resolved or
   escalate.
-- **FU-017 — No test calls the real validation forward loop.** Only the schedule
-  predicate is tested. Files: `_run_scheduled_validation:3558`,
-  `_validation_view_row:3593`; `tests/test_selected_runtime_full_run.py:87-93`.
-  Fix: synthetic test asserting two view rows, clean view consumes no corruption
-  RNG, denoising reproducible, best-selection picks denoising (after FU-008).
+- **FU-017 — Validation forward loop is only partially covered.** Best-selection
+  picking the cross-rank denoising view is now covered end-to-end by
+  `test_run_train_steps_selects_best_on_denoising_view_end_to_end` (runs the real
+  `_run_scheduled_validation`/`_validation_view_row` path with both views). Still
+  open: an explicit assert that the `clean` view consumes no corruption RNG and
+  that the `deterministic_denoising` view is reproducible run-to-run.
 - **FU-018 — No telemetry/test for decoder head saturation (out-of-[0,1]).**
   Files: `losses/vae.py` (SSIM clamp), model output head, `_metric_row`/
   `_gate_health_rows :3066`. Fix: add decoder-output RMS + clamp-fraction to
@@ -183,9 +161,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
 - **FU-019 — Train CSV loss/grad metrics are per-rank-local, never reduced.**
   `selected_runtime_runner.py:2331-2340`, grad_norm pre-allreduce. Fix: optionally
   emit a global-mean train loss; at minimum document that CSV scalars are per-rank.
-- **FU-020 — AMP-skip / successful_count tracked per-rank with no cross-rank
-  assert.** `:2477-2521`, counter `:2302-2303`. Fix: all-reduce/assert agreement
-  each boundary to fail fast on DDP desync.
 - **FU-021 — Two divergent train-step impls (debug `step.py` vs full
   `_run_train_step`).** Can drift. Fix: share logic or add a parity test; document
   `step.py`/`progress.py` as debug-only.

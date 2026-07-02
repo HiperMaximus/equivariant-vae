@@ -140,6 +140,11 @@ REMOTE_FULL_UPDATES_PER_EPOCH = 12500
 REMOTE_FULL_HALF_EPOCH_INTERVAL = 6250
 REMOTE_FULL_VALIDATION_BATCHES_PER_VIEW = 20
 REMOTE_FULL_VALIDATION_VIEWS = ("clean", "deterministic_denoising")
+# best_model.pt must be selected on the denoising view across ranks with a
+# sample-weighted reduction (FU-008), and reparameterization eps must be per-rank
+# distinct (FU-007); the full summary records both so the gate can assert them.
+REMOTE_FULL_CHECKPOINT_SELECTION_VIEW = "deterministic_denoising"
+REMOTE_FULL_CHECKPOINT_SELECTION_REDUCTION = "cross_rank_sample_weighted_l1"
 REMOTE_FULL_INTERVAL_CHECKPOINT_KEEP_COUNT = 4
 REMOTE_FULL_WORLD_SIZE = 2
 REMOTE_DEBUG_FINAL_STEP = 8
@@ -735,6 +740,20 @@ def _remote_full_json_blockers(  # noqa: PLR0913
         (
             full_summary.get("stochastic_train_eps_proven") is True,
             "stochastic_eps_not_proven",
+        ),
+        (
+            full_summary.get("per_rank_reparameterization_eps_divergent") is True,
+            "per_rank_eps_not_divergent",
+        ),
+        (
+            full_summary.get("best_validation_selection_view")
+            == REMOTE_FULL_CHECKPOINT_SELECTION_VIEW,
+            "best_validation_selection_view_mismatch",
+        ),
+        (
+            full_summary.get("best_validation_selection_reduction")
+            == REMOTE_FULL_CHECKPOINT_SELECTION_REDUCTION,
+            "best_validation_selection_reduction_mismatch",
         ),
         (plan_applied.get("status") == RUNNER_OK_STATUS, "plan_applied_not_pass"),
         (plan_applied.get("plan_applied") is True, "plan_applied_false"),

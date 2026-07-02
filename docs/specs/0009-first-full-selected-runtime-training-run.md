@@ -2,14 +2,17 @@
 
 Status: full kernel version 1 canceled with resumable checkpoint; future
 two-phase cancellation metric flushing fixed locally; v1 continuation policy
-undecided; fixed-25 rotated/latent equivariance artifact protocol missing
+undecided; fixed-25 rotated/latent equivariance artifact protocol implemented as
+Spec 0010; DDP correctness fixes (per-rank eps, resume eps, cross-rank
+denoising best-checkpoint selection, boundary control-flow synchronization) now
+landed locally (see the DDP Correctness Addendum below)
 Implementation readiness: guarded full-run workflow exists locally and passed
 the required local verification gates; the first remote push was explicitly
 approved and accepted by Kaggle, the first status showed `RUNNING`, the next
 status returned `KernelWorkerStatus.CANCEL_ACKNOWLEDGED`, and the canceled-run
 outputs have been downloaded for local inspection.
 Owner/workstream: comparable non-equivariant VAE baseline, first full Kaggle run
-Last updated: 2026-06-30
+Last updated: 2026-07-02
 
 ## Purpose
 
@@ -194,6 +197,50 @@ explicit approval.
    the state in `CURRENT.md`, give the user a concrete local time to resume,
    and stop active waiting.
 
+## DDP Correctness Addendum (FU-007 / FU-008 / FU-012)
+
+This scoped addendum tightens the DDP semantics of contract items 4 (stochastic
+reparameterization), 6 (best-checkpoint selection), and 7 (resume). It landed as
+a focused correctness pass and is a hard requirement for any VALID dual-T4 full
+run; the changes are no-ops for single-process (`world_size == 1`) runs.
+
+1. Reparameterization eps must be per-rank distinct.
+   Each rank seeds its reparameterization generator from `data_seed + rank`
+   (rank 0 reduces to `data_seed`, so single-rank values are unchanged), so DDP
+   ranks never draw an identical `z`. The full-run summary records
+   `per_rank_reparameterization_eps_divergent` (derived from the observed
+   per-rank `eps_abs_mean` in the gathered train rows) and fails closed with
+   blocker `per_rank_reparameterization_eps_not_divergent` if a multi-rank run
+   collapsed to a shared eps stream.
+2. Resume must re-establish per-rank eps divergence.
+   Only rank 0 checkpoints, so every rank restores rank-0's saved generator on
+   resume. After the restore, each rank re-applies its per-rank offset from
+   `(data_seed, rank, start_step)` (DDP only; single-rank keeps the exact
+   restored stream), so post-resume eps stays per-rank distinct and does not
+   repeat the pre-resume noise.
+3. best_model.pt is selected on the global denoising view.
+   The best-validation checkpoint is chosen on the `deterministic_denoising`
+   view (never the easier `clean` view, never `min()` over views) and across
+   ranks with a sample-weighted reduction of `sum(l1 * n) / sum(n)` (shards are
+   uneven under `drop_last=False`, so this is not an average of per-rank means).
+   The selection metric is world_size-independent for the same validation
+   samples. Both the per-boundary path and the final/summary path use the single
+   shared reduction; the summary records `best_validation_selection_view` and
+   `best_validation_selection_reduction`, and the strict verifier asserts both.
+   If no validation boundary selected a best (e.g. a run shorter than one
+   half-epoch), best_model.pt falls back to the min train L1 and the summary
+   labels the selection `train_l1_no_validation_best`, which the verifier rejects
+   as non-promotable.
+4. Ranks must agree on the half-epoch boundary before its collectives.
+   The boundary block runs DDP collectives (the denoising-selection all-gather,
+   the interval-flush gathers, the barrier) only when a step is not AMP-skipped,
+   so all ranks must agree on the skip decision or the run deadlocks. The runner
+   gathers the per-rank AMP-skip flag every step (an unconditional, symmetric
+   collective) and raises together on disagreement, converting an otherwise
+   silent deadlock into a clear error. DDP synchronizes gradients before the
+   GradScaler inf/nan check, so agreement is the normal case and counting/metrics
+   are unchanged; this also satisfies the former FU-020 cross-rank assert.
+
 ## Config Contract
 
 Add `configs/spec0001/non_eq_vae_selected_runtime_full.json` with:
@@ -249,6 +296,13 @@ Add `configs/spec0001/non_eq_vae_selected_runtime_full.json` with:
 11. Remote reads/status/downloads require `KAGGLE_REMOTE_CONFIRMED=1`.
 12. Adversarial subagent review finds no high-severity launch blocker before
    requesting remote approval.
+13. The DDP Correctness Addendum holds: reparameterization eps is per-rank
+   distinct and stays distinct across resume; best_model.pt is selected on the
+   cross-rank sample-weighted `deterministic_denoising` view and is
+   world_size-independent; the full summary records the eps-divergence and
+   selection-view/reduction audit fields and the verifier asserts them; and ranks
+   agree on the AMP-skip decision before each boundary's collectives. All four
+   are covered by CPU tests including simulated `world_size=2` cases.
 
 ## Tests And Verification Commands
 

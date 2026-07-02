@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, NamedTuple, cast
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+import numpy as np
 import pytest
 import torch
 
@@ -202,6 +203,356 @@ def test_full_train_eps_uses_seeded_stochastic_generator(tmp_path: Path) -> None
     assert float(proof.eps_abs_mean) > 0.0
 
 
+def test_eps_generator_seed_is_per_rank_and_preserves_single_rank() -> None:
+    """FU-007/FU-012: rank offset diverges eps; rank 0 fresh keeps data_seed."""
+    data_seed = 4242
+    ranks = (0, 1)
+    seed = selected_runtime_runner._eps_generator_seed  # noqa: SLF001
+
+    # Rank 0 fresh reduces to data_seed, so world_size==1 values are unchanged.
+    assert seed(data_seed=data_seed, rank=0) == data_seed
+    fresh = {seed(data_seed=data_seed, rank=rank) for rank in ranks}
+    assert len(fresh) == len(ranks)
+    # A resume folds start_step so ranks stay distinct AND the post-resume stream
+    # does not repeat the fresh stream (FU-012).
+    resumed = {
+        seed(data_seed=data_seed, rank=rank, start_step=_FULL_HALF_EPOCH_INTERVAL)
+        for rank in ranks
+    }
+    assert len(resumed) == len(ranks)
+    assert resumed.isdisjoint(fresh)
+
+
+def test_train_eps_diverges_across_ranks_but_rank0_matches_legacy(
+    tmp_path: Path,
+) -> None:
+    """FU-007: DDP ranks draw independent eps; rank 0 matches the pre-fix stream."""
+    settings = _full_settings(tmp_path=tmp_path, max_train_steps=1, save_every=1)
+
+    def draw(seed_value: int) -> tuple[torch.Tensor, float]:
+        generator = torch.Generator(device="cpu")
+        generator.manual_seed(seed_value)
+        eps, proof = selected_runtime_runner._train_eps(  # noqa: SLF001
+            batch_size=12,
+            settings=settings,
+            train_generator=generator,
+            device=torch.device("cpu"),
+        )
+        return eps, float(proof.eps_abs_mean)
+
+    seed = selected_runtime_runner._eps_generator_seed  # noqa: SLF001
+    rank0_eps, rank0_mean = draw(seed(data_seed=settings.data_seed, rank=0))
+    rank1_eps, rank1_mean = draw(seed(data_seed=settings.data_seed, rank=1))
+    legacy_eps, _ = draw(settings.data_seed)
+
+    # Rank 0 fresh eps is bit-identical to the pre-fix single-rank stream.
+    assert torch.equal(rank0_eps, legacy_eps)
+    # Ranks draw independent eps (never a shared z) with distinct abs-mean.
+    assert not torch.equal(rank0_eps, rank1_eps)
+    assert rank0_mean != rank1_mean
+
+
+def test_per_rank_eps_divergent_flags_collapsed_eps() -> None:
+    """FU-007 gate-health: identical per-rank eps_abs_mean is flagged as collapse."""
+    divergent = [
+        _eps_metric_row(rank=0, step=1, eps_abs_mean="0.80"),
+        _eps_metric_row(rank=1, step=1, eps_abs_mean="0.81"),
+    ]
+    collapsed = [
+        _eps_metric_row(rank=0, step=1, eps_abs_mean="0.80"),
+        _eps_metric_row(rank=1, step=1, eps_abs_mean="0.80"),
+    ]
+    single = [_eps_metric_row(rank=0, step=1, eps_abs_mean="0.80")]
+
+    assert selected_runtime_runner._per_rank_eps_divergent(divergent)  # noqa: SLF001
+    # The FU-007 bug (shared eps stream) records bit-identical means -> flagged.
+    assert not selected_runtime_runner._per_rank_eps_divergent(collapsed)  # noqa: SLF001
+    # A single-process run has nothing to diverge, so it passes trivially.
+    assert selected_runtime_runner._per_rank_eps_divergent(single)  # noqa: SLF001
+
+
+def test_resume_reapplies_per_rank_eps_offset_under_ddp(tmp_path: Path) -> None:
+    """FU-012: a resumed DDP run re-diverges eps; single-rank resume is a no-op."""
+    settings = _full_settings(tmp_path=tmp_path, max_train_steps=1, save_every=1)
+    loaded = _loaded_checkpoint_stub()
+
+    def restored_generator() -> torch.Generator:
+        # Every rank restores rank-0's saved generator state on resume (FU-012).
+        generator = torch.Generator(device="cpu")
+        generator.manual_seed(settings.data_seed)
+        return generator
+
+    def draw(generator: torch.Generator) -> torch.Tensor:
+        eps, _ = selected_runtime_runner._train_eps(  # noqa: SLF001
+            batch_size=12,
+            settings=settings,
+            train_generator=generator,
+            device=torch.device("cpu"),
+        )
+        return eps
+
+    def resume(*, rank: int, should_use_ddp: bool) -> torch.Tensor:
+        generator = restored_generator()
+        distributed = (
+            _ddp_distributed_context(rank=rank)
+            if should_use_ddp
+            else _local_distributed_context()
+        )
+        selected_runtime_runner._reapply_per_rank_eps_offset_on_resume(  # noqa: SLF001
+            train_generator=generator,
+            settings=settings,
+            distributed=distributed,
+            loaded_checkpoint=loaded,
+            start_step=_FULL_HALF_EPOCH_INTERVAL,
+        )
+        return draw(generator)
+
+    restored_stream = draw(restored_generator())
+    ddp_rank0 = resume(rank=0, should_use_ddp=True)
+    ddp_rank1 = resume(rank=1, should_use_ddp=True)
+    single_rank = resume(rank=0, should_use_ddp=False)
+
+    # Post-resume DDP ranks draw distinct eps (no collapse to rank-0's stream)...
+    assert not torch.equal(ddp_rank0, ddp_rank1)
+    # ...and the re-based stream does not repeat the restored stream.
+    assert not torch.equal(ddp_rank0, restored_stream)
+    # Single-rank resume keeps the exact restored continuous stream (unchanged).
+    assert torch.equal(single_rank, restored_stream)
+
+
+def test_boundary_selection_metric_uses_denoising_view_not_clean() -> None:
+    """FU-008: best is selected on the denoising view, not the easier clean view."""
+    rows = (
+        _selection_boundary_row(view="clean", l1="0.10", sample_count="240"),
+        _selection_boundary_row(
+            view="deterministic_denoising",
+            l1="0.50",
+            sample_count="240",
+        ),
+    )
+
+    metric = selected_runtime_runner._boundary_selection_metric(  # noqa: SLF001
+        boundary_rows=rows,
+        distributed=_local_distributed_context(),
+    )
+
+    # min-over-views (the FU-008 bug) would return the easier clean 0.10.
+    assert metric is not None
+    assert abs(metric - 0.50) < _FLOAT_TOLERANCE
+
+
+def test_boundary_selection_metric_is_cross_rank_sample_weighted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FU-008: selection reduces sum(l1*n)/sum(n) for denoising across ranks."""
+    rank1_denoising_weighted = 0.6 * 120
+    rank1_sample_count = 120
+
+    def fake_is_initialized() -> bool:
+        return True
+
+    def fake_all_gather_object(gathered: list[object], obj: object) -> None:
+        gathered[0] = obj
+        gathered[1] = (rank1_denoising_weighted, rank1_sample_count)
+
+    monkeypatch.setattr(
+        selected_runtime_runner.dist,
+        "is_initialized",
+        fake_is_initialized,
+    )
+    monkeypatch.setattr(
+        selected_runtime_runner.dist,
+        "all_gather_object",
+        fake_all_gather_object,
+    )
+
+    rank0_rows = (
+        _selection_boundary_row(view="clean", l1="0.10", sample_count="240", rank=0),
+        _selection_boundary_row(
+            view="deterministic_denoising",
+            l1="0.40",
+            sample_count="240",
+            rank=0,
+        ),
+    )
+    metric = selected_runtime_runner._boundary_selection_metric(  # noqa: SLF001
+        boundary_rows=rank0_rows,
+        distributed=_ddp_distributed_context(rank=0),
+    )
+
+    expected = (0.40 * 240 + rank1_denoising_weighted) / (240 + rank1_sample_count)
+    assert metric is not None
+    assert abs(metric - expected) < _FLOAT_TOLERANCE
+    # Mutation guards: rank-0-only (0.40) and average-of-averages (0.50) are wrong.
+    assert abs(metric - 0.40) > _FLOAT_TOLERANCE
+    assert abs(metric - 0.50) > _FLOAT_TOLERANCE
+    # World_size independence: one rank over all 360 samples selects the same value.
+    single_rank_metric = selected_runtime_runner._boundary_selection_metric(  # noqa: SLF001
+        boundary_rows=(
+            _selection_boundary_row(
+                view="deterministic_denoising",
+                l1=f"{expected:.12f}",
+                sample_count="360",
+            ),
+        ),
+        distributed=_local_distributed_context(),
+    )
+    assert single_rank_metric is not None
+    assert abs(single_rank_metric - expected) < _FLOAT_TOLERANCE
+
+
+def test_synchronized_amp_step_skipped_agrees_or_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AMP-skip is gathered every step so ranks cannot desync at a boundary (FU-020)."""
+
+    def fake_is_initialized() -> bool:
+        return True
+
+    monkeypatch.setattr(
+        selected_runtime_runner.dist,
+        "is_initialized",
+        fake_is_initialized,
+    )
+
+    # A single-process run skips the collective entirely (no behavior change).
+    assert not selected_runtime_runner._synchronized_amp_step_skipped(  # noqa: SLF001
+        local_amp_step_skipped=False,
+        distributed=_local_distributed_context(),
+    )
+
+    def agree(gathered: list[object], obj: object) -> None:
+        gathered[0] = obj
+        gathered[1] = obj
+
+    monkeypatch.setattr(selected_runtime_runner.dist, "all_gather_object", agree)
+    # When ranks agree, the local decision is returned unchanged.
+    assert selected_runtime_runner._synchronized_amp_step_skipped(  # noqa: SLF001
+        local_amp_step_skipped=True,
+        distributed=_ddp_distributed_context(rank=0),
+    )
+
+    def disagree(gathered: list[object], obj: object) -> None:
+        gathered[0] = obj
+        gathered[1] = not bool(obj)
+
+    monkeypatch.setattr(selected_runtime_runner.dist, "all_gather_object", disagree)
+    # Divergent skip decisions fail fast (all ranks raise) instead of deadlocking
+    # at the next boundary collective.
+    with pytest.raises(RuntimeError, match="disagree on the AMP step-skip decision"):
+        selected_runtime_runner._synchronized_amp_step_skipped(  # noqa: SLF001
+            local_amp_step_skipped=False,
+            distributed=_ddp_distributed_context(rank=0),
+        )
+
+
+def test_run_train_steps_selects_best_on_denoising_view_end_to_end(  # noqa: PLR0914
+    tmp_path: Path,
+) -> None:
+    """FU-008 end-to-end: best_model.pt is saved from the denoising-view metric."""
+    output_dir = tmp_path / "best_selection"
+    request = SelectedRuntimeTrainRequest(
+        config_path=_FULL_CONFIG,
+        runtime_config=_RUNTIME_CONFIG,
+        output_dir=output_dir,
+        run_name="spec0009_best_selection",
+        data="synthetic",
+        max_train_steps=2,
+        save_every_steps=1,
+        dry_run=True,
+    )
+    plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+    resolved = resolve_json_config(_FULL_CONFIG)
+    # Force validation at every step so a 2-step local run exercises best-selection.
+    settings = replace(
+        selected_runtime_runner._settings(  # noqa: SLF001
+            request=request,
+            resolved=resolved,
+            plan=plan,
+        ),
+        half_epoch_interval_steps=1,
+        validation_batches_per_view=1,
+    )
+    local = _local_distributed_context()
+    data_surface = selected_runtime_runner._prepare_data_surface(  # noqa: SLF001
+        request=request,
+        settings=settings,
+        plan=plan,
+        distributed=local,
+    )
+    try:
+        (output_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
+        model = selected_runtime_runner.build_non_equivariant_vae(
+            norm_groups=settings.norm_groups,
+        )
+        optimizer, _ = selected_runtime_runner.create_adamw_optimizer(
+            model,
+            config=settings.optimizer_config,
+        )
+        amp = selected_runtime_runner._amp_execution(  # noqa: SLF001
+            plan=plan,
+            distributed=local,
+            dry_run=True,
+        )
+        scaler = selected_runtime_runner.GradScaler(
+            "cuda",
+            init_scale=amp.grad_scaler_init_scale,
+            enabled=amp.grad_scaler_enabled,
+        )
+        train_generator = torch.Generator(device="cpu")
+        train_generator.manual_seed(settings.data_seed)
+        train_loop = selected_runtime_runner._run_train_steps(  # noqa: SLF001
+            request=request,
+            resolved=resolved,
+            settings=settings,
+            plan=plan,
+            model=model,
+            checkpoint_model=model,
+            optimizer=optimizer,
+            scaler=scaler,
+            amp=amp,
+            data_surface=data_surface,
+            distributed=local,
+            numpy_generator=np.random.default_rng(settings.global_seed),
+            train_generator=train_generator,
+            runtime_identity=selected_runtime_runner._runtime_identity(plan),  # noqa: SLF001
+            start_step=0,
+            initial_best_validation_metric=None,
+            resume_history=selected_runtime_runner._ResumeArtifactHistory(  # noqa: SLF001
+                metric_rows=(),
+                validation_rows=(),
+                interval_checkpoints=(),
+                best_checkpoint=None,
+                best_validation_metric=None,
+            ),
+            write_checkpoints=True,
+            interval_flush=None,
+            fixed25=None,
+        )
+    finally:
+        selected_runtime_runner._close_data_surface(data_surface)  # noqa: SLF001
+
+    # best_model.pt was saved from a validation boundary (not the train-L1 fallback)...
+    assert train_loop.best_validation_checkpoint is not None
+    assert (output_dir / "checkpoints" / "best_model.pt").exists()
+    assert train_loop.best_validation_metric is not None
+    denoising_l1 = [
+        float(row["l1_loss"])
+        for row in train_loop.validation_rows
+        if row["view"] == "deterministic_denoising"
+    ]
+    clean_l1 = [
+        float(row["l1_loss"])
+        for row in train_loop.validation_rows
+        if row["view"] == "clean"
+    ]
+    assert denoising_l1
+    # ...and selected on the DENOISING view: the best metric is the min denoising-view
+    # L1, NOT the easier clean view (the FU-008 bug) or a train-loss value.
+    assert abs(train_loop.best_validation_metric - min(denoising_l1)) < _FLOAT_TOLERANCE
+    assert abs(min(clean_l1) - min(denoising_l1)) > _FLOAT_TOLERANCE
+
+
 def test_full_loaded_resume_proof_records_restore_attempts(tmp_path: Path) -> None:
     """The resumed full-run proof carries the stricter restore-attempt evidence."""
     plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
@@ -340,6 +691,19 @@ def test_full_dry_run_summary_lists_only_interval_checkpoints(
     assert retained_full_names == ["step_000001.pt", "step_000002.pt"]
     assert "final.pt" not in retained_full_names
     assert "best_model.pt" not in retained_full_names
+    # FU-007/FU-008: the runner records the per-rank eps and selection-view audit
+    # fields; single-rank divergence is trivially satisfied. This dry run is shorter
+    # than one half-epoch, so no validation boundary selects a best and the
+    # selection fields honestly report the train-L1 fallback (not a false denoising
+    # claim), which the strict verifier would reject as non-promotable.
+    assert full_summary["per_rank_reparameterization_eps_divergent"] is True
+    assert (
+        full_summary["best_validation_selection_view"] == "train_l1_no_validation_best"
+    )
+    assert (
+        full_summary["best_validation_selection_reduction"]
+        == "train_l1_no_validation_best"
+    )
 
     training_summary = cast(
         "dict[str, object]",
@@ -1020,6 +1384,45 @@ def test_full_output_verifier_accepts_strict_artifact_contract(
     assert blockers == ()
 
 
+def test_full_output_verifier_rejects_collapsed_eps_and_wrong_selection_view(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FU-007/FU-008: the gate rejects collapsed eps and clean-view selection."""
+    contract = _small_full_output_contract(monkeypatch)
+    output_dir = tmp_path / "full_output"
+    _write_full_output_fixture(output_dir=output_dir, contract=contract)
+    summary_path = output_dir / "benchmark" / "selected_runtime_full_summary.json"
+    summary = cast(
+        "dict[str, object]",
+        json.loads(summary_path.read_text(encoding="utf-8")),
+    )
+    summary["per_rank_reparameterization_eps_divergent"] = False
+    summary["best_validation_selection_view"] = "clean"
+    summary["best_validation_selection_reduction"] = "rank0_local_min_over_views"
+    _write_json(summary_path, summary)
+    _refresh_manifest_hash(
+        output_dir=output_dir,
+        artifact_name="selected_runtime_full_summary",
+        artifact_path=summary_path,
+    )
+
+    blockers = verify_selected_runtime_full_output(
+        output_dir=output_dir,
+        selected_runtime_path=_RUNTIME_CONFIG,
+    )
+
+    assert "selected_runtime_full_output_per_rank_eps_not_divergent" in blockers
+    assert (
+        "selected_runtime_full_output_best_validation_selection_view_mismatch"
+        in blockers
+    )
+    assert (
+        "selected_runtime_full_output_best_validation_selection_reduction_mismatch"
+        in blockers
+    )
+
+
 def test_full_output_verifier_rejects_missing_validation_boundary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1332,6 +1735,87 @@ def _local_distributed_context() -> selected_runtime_runner._DistributedContext:
     )
 
 
+def _ddp_distributed_context(
+    *,
+    rank: int,
+) -> selected_runtime_runner._DistributedContext:
+    local = _local_distributed_context()
+    return replace(
+        local,
+        rank=rank,
+        local_rank=rank,
+        world_size=2,
+        nproc_per_node=2,
+        should_use_ddp=True,
+        probe=replace(
+            local.probe,
+            world_size=2,
+            nproc_per_node=2,
+            rank=rank,
+            local_rank=rank,
+            distributed_initialized=True,
+        ),
+    )
+
+
+def _loaded_checkpoint_stub() -> LoadedCheckpoint:
+    return LoadedCheckpoint(
+        path=Path("checkpoints/step_006250.pt"),
+        schema_version="spec0001.checkpoint.v5",
+        run_name="spec0009_resume_stub",
+        config_path=str(_FULL_CONFIG),
+        config_sha256="",
+        effective_config_sha256="",
+        runtime_config_sha256="",
+        selected_row_id=_EXPECTED_ROW_ID,
+        runtime_policy_id="amp_fp16_conservative",
+        lr_scheduler_state_status="not_applicable_local_debug_no_scheduler",
+        beta_progress_state_status=(
+            "deterministic_from_successful_optimizer_update_count"
+        ),
+        amp_scaler_state_status="selected_runtime_amp_scaler_state",
+        torch_cuda_rng_state_status="selected_runtime_cuda_rng_state",
+        ddp_sampler_progress_state_status="selected_runtime_ddp_sampler_progress",
+        optimizer_step=_FULL_HALF_EPOCH_INTERVAL,
+        successful_optimizer_update_count=_FULL_HALF_EPOCH_INTERVAL,
+        metric_name="validation_l1_loss",
+        metric_value=0.5,
+        torch_generator_names=("train_data",),
+    )
+
+
+def _eps_metric_row(
+    *,
+    rank: int,
+    step: int,
+    eps_abs_mean: str,
+    amp_step_skipped: str = "0",
+) -> dict[str, str]:
+    return {
+        "rank": str(rank),
+        "successful_optimizer_update_count": str(step),
+        "eps_abs_mean": eps_abs_mean,
+        "amp_step_skipped": amp_step_skipped,
+    }
+
+
+def _selection_boundary_row(
+    *,
+    view: str,
+    l1: str,
+    sample_count: str,
+    rank: int = 0,
+) -> dict[str, str]:
+    return {
+        "event_id": f"rank{rank}_validation_{view}_000001",
+        "rank": str(rank),
+        "optimizer_step": "1",
+        "view": view,
+        "l1_loss": l1,
+        "sample_count": sample_count,
+    }
+
+
 def _write_full_output_fixture(
     *,
     output_dir: Path,
@@ -1384,6 +1868,9 @@ def _write_full_output_fixture(
             "selected_runtime_full_run_contract_ready": True,
             "target_optimizer_updates": contract.target_updates,
             "stochastic_train_eps_proven": True,
+            "per_rank_reparameterization_eps_divergent": True,
+            "best_validation_selection_view": "deterministic_denoising",
+            "best_validation_selection_reduction": "cross_rank_sample_weighted_l1",
         },
     )
     _write_json(
