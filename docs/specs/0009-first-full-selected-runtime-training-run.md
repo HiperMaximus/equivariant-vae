@@ -1,8 +1,9 @@
 # Spec 0009: First Full Selected-Runtime Training Run
 
 Status: full kernel version 1 canceled with resumable checkpoint; future
-two-phase cancellation metric flushing fixed locally; v1 continuation policy
-undecided; fixed-25 rotated/latent equivariance artifact protocol implemented as
+two-phase cancellation metric flushing fixed locally; v1 policy DECIDED
+(restart from scratch, discard v1 as a resume base — 2026-07-02); fixed-25
+rotated/latent equivariance artifact protocol implemented as
 Spec 0010; DDP correctness fixes (per-rank eps, resume eps, cross-rank
 denoising best-checkpoint selection, boundary control-flow synchronization) now
 landed locally (see the DDP Correctness Addendum below)
@@ -431,9 +432,15 @@ Canceled v1 inspection results:
 
 ## Remaining Blockers
 
-- Canceled v1 lacks the first 43750 train metric rows. A naive resume push is
-  still not ready until the project chooses restart-from-scratch or an explicit
-  checkpoint-only-prefix continuation policy for `step_043750.pt`.
+- Canceled v1 lacks the first 43750 train metric rows and they are
+  unrecoverable. DECIDED 2026-07-02: the first paper-promotable run RESTARTS FROM
+  SCRATCH (fresh from optimizer step 0) for a complete continuous training curve;
+  it does NOT resume from `step_043750.pt` (a resume would leave steps 1-43750
+  blank). v1's checkpoints are a local record only, not a resume source. The
+  checkpoint-only-prefix continuation option is dropped. Remaining FU-039 work is
+  verification only: confirm the full config/kernel launch fresh
+  (`EQVAE_SELECTED_RUNTIME_FULL_RESUME` unset, `start_step == 0`, interval flush
+  active).
 - Future launches now use two-phase train/validation/gate-health plus partial
   summary/manifest flushing around interval checkpoints, but this cannot recover
   v1's already-missing prefix rows.

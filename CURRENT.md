@@ -180,8 +180,9 @@ single-process (`world_size == 1`) runs. Gate green: `./scripts/python_quality.s
 = 272 passed, basedpyright clean; `git diff --check` clean; repo
 `./scripts/agent_preflight.sh` clean. Resolved and deleted from
 `docs/open_follow_ups.md`: FU-007, FU-008, FU-012, FU-020. These fixes gate a
-VALID dual-T4 full run and are independent of the still-open data/decision
-blockers FU-041 (real fixed-25 selector) and FU-039 (v1-continuation decision).
+VALID dual-T4 full run. FU-039 is now DECIDED (restart from scratch, discard v1
+as a resume base; see below); the remaining gating blocker is FU-041 (real
+fixed-25 selector).
 Not yet committed; awaiting explicit commit approval.
 
 Spec 0009 full-run remote push status, 2026-06-29: the first approved command
@@ -263,14 +264,20 @@ future training/checkpoint verifier pass as equivariant embedding evidence. This
 is tracked as `fixed25_equivariance_artifact_protocol` / FU-040 and is now
 drafted as Spec 0010 (status draft, awaiting user approval) before any
 paper-promotable full launch.
-Important remaining v1 decision:
-the first 43750 metric rows are unrecoverable, so do not push a naive resume
-kernel yet. Choose either (a) restart the full run from scratch with interval
-flushing enabled for complete curves, or (b) implement/review an explicit
-checkpoint-only-prefix continuation policy that resumes from
-`step_043750.pt` but remains non-paper-promotable for missing pre-resume
-metrics. Before any paper-promotable full rerun, also add or explicitly defer
-the fixed-25 equivariance artifact protocol.
+FU-039 v1 decision, DECIDED 2026-07-02: the first paper-promotable full run
+RESTARTS FROM SCRATCH (fresh run from optimizer step 0). It does NOT resume from
+`runs/kaggle/selected_runtime_full_v1/step_043750.pt`, because the user needs a
+complete continuous training curve and v1 has zero recoverable metric rows (its
+CSVs were never written before Kaggle cancelled), so a resume would leave steps
+1-43750 permanently blank. v1's checkpoints stay on disk as a local record only;
+they are NOT a resume source and must NOT be uploaded/attached as one. The
+checkpoint-only-prefix continuation option is dropped. The two-phase interval
+flush (committed `8d86f6a`) means a fresh run writes metrics at every half-epoch
+boundary and survives cancellation, so the v1 data loss cannot recur. Remaining
+FU-039 work is verification/hygiene only: confirm the full config/kernel launch a
+fresh run (`EQVAE_SELECTED_RUNTIME_FULL_RESUME` unset, `start_step == 0`) with
+interval flushing active. The first paper-promotable full launch still also needs
+FU-041 (the real fixed-25 selector).
 Latest local verification after the post-cancellation durability fixes:
 `tests/test_selected_runtime_runner.py` (`8 passed`),
 `tests/test_selected_runtime_full_run.py` (`14 passed`),
