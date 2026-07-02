@@ -324,7 +324,17 @@ images, and no GPU. Built locally (uncommitted working tree):
   - Verification: full gate `277 passed` (4 new tests), selector preflight
     `23 passed`, and a 3-lens clean-context adversarial review (crc-correctness,
     kernel-correctness, shell-and-guard) returned ZERO findings.
-Remaining (gated): commit this working tree, then the one approved remote push
+Committed as `ce86c97` (2026-07-02); worktree clean; `run.py` rebuilt from that
+clean commit. The approved push was BLOCKED by the Claude Code auto-mode permission
+classifier (flagged data-exfiltration: a kernel push uploads the embedded `src/eqvae`
+tree to Kaggle, which is how every kernel push works). This is a harness guardrail,
+not a code issue; it must be run by the user or with auto mode off / a Bash
+permission rule. Exact command (worktree is already clean + committed, so it will
+pass the push guard):
+`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/fixed25_selector`
+then `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-fixed25-selector`,
+and after COMPLETE `KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-fixed25-selector runs/kaggle/fixed25_selector`.
+Remaining (gated): the one approved remote push
 (`KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh
 push kaggle/kernels/fixed25_selector`) requires a clean committed worktree +
 rebuilt `run.py`; then `status-fixed25-selector` / `output-fixed25-selector`
