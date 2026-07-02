@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-07-01
+Last updated: 2026-07-02
 
 ## Active Workstream
 
@@ -273,22 +273,55 @@ CSVs were never written before Kaggle cancelled), so a resume would leave steps
 they are NOT a resume source and must NOT be uploaded/attached as one. The
 checkpoint-only-prefix continuation option is dropped. The two-phase interval
 flush (committed `8d86f6a`) means a fresh run writes metrics at every half-epoch
-boundary and survives cancellation, so the v1 data loss cannot recur. Remaining
-FU-039 work is verification/hygiene only: confirm the full config/kernel launch a
-fresh run (`EQVAE_SELECTED_RUNTIME_FULL_RESUME` unset, `start_step == 0`) with
-interval flushing active. The first paper-promotable full launch still also needs
-FU-041 (the real fixed-25 selector).
-Latest local verification after the post-cancellation durability fixes:
-`tests/test_selected_runtime_runner.py` (`8 passed`),
-`tests/test_selected_runtime_full_run.py` (`14 passed`),
-`./scripts/kaggle_kernel.sh preflight-selected-runtime-runner` (`52 passed`),
-`./scripts/kaggle_kernel.sh preflight-selected-runtime-full` (`15 passed`),
-strict debug v5 output verification, `./scripts/python_quality.sh` (`246
-passed`, basedpyright clean), `git diff --check`, repo
-`./scripts/agent_preflight.sh`, and workspace
-`/home/maximus/Documents/Tesis/agent_preflight.sh` all passed. Heavy local gates
-used workspace scratch under `/home/maximus/Documents/Tesis/.agent-tmp/equivariant-vae`;
-empty it after use.
+boundary and survives cancellation, so the v1 data loss cannot recur.
+FU-039 verification DONE 2026-07-02 (uncommitted working tree): confirmed by
+reading that the full config carries no resume field, the dedicated kernel
+(`kaggle/kernels/selected_runtime_full/run_template.py`) adds `--resume` ONLY when
+`EQVAE_SELECTED_RUNTIME_FULL_RESUME` is set/non-empty (unset => fresh), the runner
+resolves `start_step == 0` when no checkpoint loads
+(`selected_runtime_runner.py:961-965`), and the interval-flush context is attached
+iff `_is_full_run` (`:1032`). New CPU test
+`test_fresh_full_run_flushes_metrics_at_first_boundary` drives a FRESH
+`_run_train_steps` (start_step 0, real interval-flush context) and, via a spy on
+`_write_interval_artifact_flush`, proves the FIRST half-epoch boundary persists
+train + validation metric rows mid-loop (before any teardown). A 3-lens
+clean-context adversarial workflow (test-soundness, fresh-launch-claim,
+gate-regression), each verifying against the real files, returned zero findings.
+FU-039 entry deleted from `docs/open_follow_ups.md`; Spec 0009 "Remaining
+Blockers" updated. The first paper-promotable full launch still also needs FU-041
+(the real fixed-25 selector) — see FU-041 status below.
+Latest local verification (2026-07-02, this window): full gate
+`./scripts/python_quality.sh` = `273 passed`, `0 errors, 0 warnings, 0 notes`
+(basedpyright clean); `git diff --check` clean; repo `./scripts/agent_preflight.sh`
+and workspace `/home/maximus/Documents/Tesis/agent_preflight.sh` both pass. Focused:
+`tests/test_selected_runtime_full_run.py` + `tests/test_selected_runtime_runner.py`
++ `tests/test_fixed25_equivariance_artifacts.py` = `49 passed`;
+`tests/test_fixed_selectors.py` = green. Heavy local gates used workspace scratch
+under `/home/maximus/Documents/Tesis/.agent-tmp/equivariant-vae`; empty it after use.
+FU-041 status (2026-07-02): local/ungated parts DONE. The baked
+`generation_command` in `configs/spec0001/fixed_25_validation_patches.json`
+resolves cleanly and fails ONLY at `resolve_patch_data_paths("auto")`
+(FileNotFoundError), leaving the tracked placeholder untouched (fail-closed).
+Existing `tests/test_fixed_selectors.py` proves deterministic 5-per-label
+digest-sort, CRC + canonical-overwrite protection, and placeholder rejection; a
+synthetic fixed-25 dry-run yields `data_source=synthetic`/`promotable=false`
+(standalone CLI default and the in-run `_prepare_fixed25_runtime` path). The ONE
+remaining blocker is generating the REAL selector, which needs the real UBC
+validation shard (not resolvable locally). Two ways to get it, presented to the
+user for approval (awaiting choice): (a) a Kaggle DATA DOWNLOAD of the validation
+shard then local generation — friction: `resolve_patch_data_paths` requires all
+four train+validation shard files (the ~59 GB train bin) to exist, so it needs the
+full dataset or placeholder train files, and a raw `kaggle` download is not gated
+by the repo `KAGGLE_REMOTE_CONFIRMED` guard; (b) RECOMMENDED — generate inside a
+Kaggle kernel where the dataset is already mounted (both splits present, byte-exact
+provenance, tiny JSON output), which needs a small new selector kernel built
+locally first, then one approved push + output download. No remote action taken
+this window.
+Section C note: the generated `kaggle/kernels/selected_runtime_full/run.py` is
+gitignored and STALE (built 2026-06-30, before Spec 0010 `8457233`, DDP fixes
+`504c863`, and the FU-039 decision `402ec4a`); it MUST be rebuilt from a clean
+commit via `./scripts/kaggle_kernel.sh build kaggle/kernels/selected_runtime_full`
+before any full-run push.
 Commit `d02204c` (`Implement selected runtime local mechanics`) recorded Spec
 0006 plus adversarial fixes. Spec 0007 is implemented locally and Spec 0008
 remote debug/tiny readiness is proved by v5. On 2026-06-28/29, the user

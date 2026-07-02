@@ -553,6 +553,190 @@ def test_run_train_steps_selects_best_on_denoising_view_end_to_end(  # noqa: PLR
     assert abs(min(clean_l1) - min(denoising_l1)) > _FLOAT_TOLERANCE
 
 
+def test_fresh_full_run_flushes_metrics_at_first_boundary(  # noqa: PLR0914
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FU-039: a fresh full run persists metrics at the FIRST half-epoch boundary.
+
+    The first paper-promotable full run restarts from scratch (``start_step == 0``,
+    no resume). This drives ``_run_train_steps`` fresh with a real interval-flush
+    context and proves the interval flush writes train/validation metric rows at the
+    first boundary (update 1), mid-loop, before any final teardown — so a Kaggle
+    cancellation after the first boundary still leaves a recoverable partial curve
+    (the exact v1 data-loss class this restart depends on not recurring).
+    """
+    output_dir = tmp_path / "fresh_first_boundary"
+    request = SelectedRuntimeTrainRequest(
+        config_path=_FULL_CONFIG,
+        runtime_config=_RUNTIME_CONFIG,
+        output_dir=output_dir,
+        run_name="spec0009_fresh_first_boundary",
+        data="synthetic",
+        max_train_steps=2,
+        save_every_steps=1,
+        dry_run=True,
+    )
+    plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+    resolved = resolve_json_config(_FULL_CONFIG)
+    # Force a boundary at every step so a 2-step local run exercises two boundaries.
+    settings = replace(
+        selected_runtime_runner._settings(  # noqa: SLF001
+            request=request,
+            resolved=resolved,
+            plan=plan,
+        ),
+        half_epoch_interval_steps=1,
+        validation_batches_per_view=1,
+    )
+    distributed = _local_distributed_context()
+    data_surface = selected_runtime_runner._prepare_data_surface(  # noqa: SLF001
+        request=request,
+        settings=settings,
+        plan=plan,
+        distributed=distributed,
+    )
+
+    # Spy the interval flush: the run never calls the final-teardown writer here, so
+    # the ONLY writer of the metric CSVs is this mid-loop flush. Recording each call
+    # proves the FIRST flush happened at boundary 1 (not only at the final boundary),
+    # which on-disk state alone cannot show because each flush rewrites the whole CSV.
+    flush_calls: list[dict[str, object]] = []
+    original_flush = selected_runtime_runner._write_interval_artifact_flush  # noqa: SLF001
+
+    def _spy_flush(
+        *,
+        context: selected_runtime_runner._IntervalFlushContext,
+        model: torch.nn.Module,
+        local_state: selected_runtime_runner._IntervalFlushState,
+    ) -> None:
+        original_flush(context=context, model=model, local_state=local_state)
+        flush_calls.append(
+            {
+                "current_step": local_state.current_step,
+                "train_csv_exists": context.artifacts.train_steps.exists(),
+                "max_update": max(
+                    (
+                        int(row["successful_optimizer_update_count"])
+                        for row in local_state.metric_rows
+                    ),
+                    default=0,
+                ),
+            },
+        )
+
+    monkeypatch.setattr(
+        selected_runtime_runner,
+        "_write_interval_artifact_flush",
+        _spy_flush,
+    )
+
+    artifacts = selected_runtime_runner._artifact_paths(output_dir)  # noqa: SLF001
+    launch_command = selected_runtime_runner.build_selected_runtime_torchrun_command(
+        config_path=_FULL_CONFIG,
+        runtime_config=_RUNTIME_CONFIG,
+        data="synthetic",
+        output_dir=output_dir,
+        run_name=request.run_name,
+        max_train_steps=2,
+        save_every_steps=1,
+        dry_run=True,
+    )
+    interval_flush = selected_runtime_runner._IntervalFlushContext(  # noqa: SLF001
+        artifacts=artifacts,
+        request=request,
+        settings=settings,
+        plan=plan,
+        runtime_identity=selected_runtime_runner._runtime_identity(plan),  # noqa: SLF001
+        launch_command=launch_command,
+        ddp_proof=selected_runtime_runner.build_ddp_rank_device_proof(
+            plan=plan,
+            probe=distributed.probe,
+            launch_command=launch_command,
+            dry_run=True,
+        ),
+        amp=selected_runtime_runner._amp_execution(  # noqa: SLF001
+            plan=plan,
+            distributed=distributed,
+            dry_run=True,
+        ),
+        data_surface=data_surface,
+        distributed=distributed,
+    )
+    try:
+        (output_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
+        model = selected_runtime_runner.build_non_equivariant_vae(
+            norm_groups=settings.norm_groups,
+        )
+        optimizer, _ = selected_runtime_runner.create_adamw_optimizer(
+            model,
+            config=settings.optimizer_config,
+        )
+        amp = selected_runtime_runner._amp_execution(  # noqa: SLF001
+            plan=plan,
+            distributed=distributed,
+            dry_run=True,
+        )
+        scaler = selected_runtime_runner.GradScaler(
+            "cuda",
+            init_scale=amp.grad_scaler_init_scale,
+            enabled=amp.grad_scaler_enabled,
+        )
+        train_generator = torch.Generator(device="cpu")
+        train_generator.manual_seed(settings.data_seed)
+        selected_runtime_runner._run_train_steps(  # noqa: SLF001
+            request=request,
+            resolved=resolved,
+            settings=settings,
+            plan=plan,
+            model=model,
+            checkpoint_model=model,
+            optimizer=optimizer,
+            scaler=scaler,
+            amp=amp,
+            data_surface=data_surface,
+            distributed=distributed,
+            numpy_generator=np.random.default_rng(settings.global_seed),
+            train_generator=train_generator,
+            runtime_identity=selected_runtime_runner._runtime_identity(plan),  # noqa: SLF001
+            start_step=0,
+            initial_best_validation_metric=None,
+            resume_history=selected_runtime_runner._ResumeArtifactHistory(  # noqa: SLF001
+                metric_rows=(),
+                validation_rows=(),
+                interval_checkpoints=(),
+                best_checkpoint=None,
+                best_validation_metric=None,
+            ),
+            write_checkpoints=True,
+            interval_flush=interval_flush,
+            fixed25=None,
+        )
+    finally:
+        selected_runtime_runner._close_data_surface(data_surface)  # noqa: SLF001
+
+    # The final-teardown writer (_write_final_artifacts) was never called, so any
+    # metric CSV on disk was produced by the mid-loop interval flush of a fresh run.
+    assert artifacts.train_steps.exists()
+    assert artifacts.validation_metrics.exists()
+    with artifacts.train_steps.open(encoding="utf-8", newline="") as handle:
+        train_updates = {
+            row["successful_optimizer_update_count"] for row in csv.DictReader(handle)
+        }
+    with artifacts.validation_metrics.open(encoding="utf-8", newline="") as handle:
+        validation_steps = {row["optimizer_step"] for row in csv.DictReader(handle)}
+    # Both boundaries are persisted; update 1 (the first half-epoch boundary) included.
+    assert {"1", "2"} <= train_updates
+    assert "1" in validation_steps
+
+    # The spy proves the FIRST flush ran at boundary 1 and had already written the
+    # train CSV then, so the first-boundary rows survive a cancel before boundary 2.
+    assert flush_calls
+    assert flush_calls[0]["current_step"] == 1
+    assert flush_calls[0]["train_csv_exists"] is True
+    assert flush_calls[0]["max_update"] == 1
+
+
 def test_full_loaded_resume_proof_records_restore_attempts(tmp_path: Path) -> None:
     """The resumed full-run proof carries the stricter restore-attempt evidence."""
     plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)

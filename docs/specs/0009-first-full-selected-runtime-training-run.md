@@ -437,10 +437,14 @@ Canceled v1 inspection results:
   SCRATCH (fresh from optimizer step 0) for a complete continuous training curve;
   it does NOT resume from `step_043750.pt` (a resume would leave steps 1-43750
   blank). v1's checkpoints are a local record only, not a resume source. The
-  checkpoint-only-prefix continuation option is dropped. Remaining FU-039 work is
-  verification only: confirm the full config/kernel launch fresh
-  (`EQVAE_SELECTED_RUNTIME_FULL_RESUME` unset, `start_step == 0`, interval flush
-  active).
+  checkpoint-only-prefix continuation option is dropped. FU-039 verification is
+  now DONE (2026-07-02): the full config has no resume field, the dedicated kernel
+  adds `--resume` only when `EQVAE_SELECTED_RUNTIME_FULL_RESUME` is set (unset =>
+  fresh), the runner resolves `start_step == 0` with no loaded checkpoint, and the
+  interval flush is active for the full run. `test_fresh_full_run_flushes_metrics_at_first_boundary`
+  proves a fresh `_run_train_steps` persists train + validation metric rows at the
+  FIRST half-epoch boundary (mid-loop, before teardown), so a cancellation cannot
+  reproduce the v1 blank-prefix loss. This is no longer a blocker.
 - Future launches now use two-phase train/validation/gate-health plus partial
   summary/manifest flushing around interval checkpoints, but this cannot recover
   v1's already-missing prefix rows.

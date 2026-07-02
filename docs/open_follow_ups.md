@@ -44,27 +44,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
 - **FU-011 — CURRENT.md is ~3076 lines, ~95% narration.** Durable contract is
   buried under `:5-1148` (Active Workstream prose) and `:1247-3053` (verification
   log). Fix: see D-01/D-02; target low hundreds of lines.
-- **FU-039 — v1 restart DECIDED (2026-07-02); remaining work is verification.**
-  `runs/kaggle/selected_runtime_full_v1` has `step_043750.pt` and `best_model.pt`
-  but no `metrics/` or `benchmark/`; strict verification fails with
-  `selected_runtime_full_output_benchmark_dir_missing`, and v1's first 43750
-  metric rows are unrecoverable. DECISION: the first paper-promotable full run
-  RESTARTS FROM SCRATCH (fresh from optimizer step 0) — the user needs a complete
-  continuous training curve, and even a resume from `step_043750.pt` would leave
-  steps 1-43750 permanently blank. v1's checkpoints are a local record only, NOT a
-  resume source, and must NOT be uploaded/attached as one. The
-  checkpoint-only-prefix continuation option is dropped. The two-phase interval
-  flush (committed `8d86f6a`) writes metrics/validation/gate/partial summaries
-  atomically before exposing each interval checkpoint and refreshes them with
-  checkpoint hashes after save (DDP ranks broadcast rank-0 write/save failures and
-  fail together), plus half-epoch boundary breadcrumbs + a final boundary barrier
-  (`_log_full_boundary_start`, `_synchronize_full_boundary_completion`), so a
-  fresh run survives cancellation with a recoverable partial curve. Remaining work
-  before this entry can be deleted: confirm the full config/kernel launch a FRESH
-  run (`EQVAE_SELECTED_RUNTIME_FULL_RESUME` unset, `start_step == 0`, interval
-  flush active) and, if missing, add a test that a fresh full run writes metric
-  rows from the first half-epoch boundary. Couples to FU-041 (the first promotable
-  launch needs both).
 - **FU-040 — `fixed25_equivariance_artifact_protocol`: IMPLEMENTED (Spec 0010),
   uncommitted; remaining open work = real selector + commit.** The eval/inspection
   protocol (Spec 0010, user-approved 2026-07-01) is fully implemented on the working
