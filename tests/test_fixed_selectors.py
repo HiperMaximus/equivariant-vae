@@ -51,7 +51,28 @@ TRAIN_PATCH_COUNT = 40
 VALIDATION_PATCH_COUNT = FIXED_25_VALIDATION_COUNT
 VALIDATION_PATCH_COUNT_WITH_EXTRA = 30
 MASKED_HOLDOUT_WSI = "synthetic_wsi_0000"
-PLACEHOLDER_SELECTOR_PATH = Path("configs/spec0001/fixed_25_validation_patches.json")
+TRACKED_FIXED25_SELECTOR_PATH = Path(
+    "configs/spec0001/fixed_25_validation_patches.json",
+)
+
+
+def _write_placeholder_selector(path: Path) -> None:
+    """Write a minimal fixed-25 placeholder selector (status not ready)."""
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "spec0001.fixed_selector.v1",
+                "status": "requires_real_data_generation",
+                "selector_kind": "fixed_25_validation",
+                "source_split": "validation",
+                "expected_count": FIXED_25_VALIDATION_COUNT,
+                "expected_per_label": FIXED_25_VALIDATION_PER_LABEL,
+                "selector_seed": "20260610",
+                "selectors": [],
+            },
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_fixed_25_selector_canonicalizes_valid_alias(tmp_path: Path) -> None:
@@ -126,10 +147,23 @@ def test_fixed_32_train_selector_excludes_masked_holdout(tmp_path: Path) -> None
     )
 
 
-def test_placeholder_selector_configs_are_rejected() -> None:
-    """Canonical placeholder configs cannot be consumed as real selectors."""
+def test_placeholder_selector_configs_are_rejected(tmp_path: Path) -> None:
+    """Placeholder configs cannot be consumed as real selectors."""
+    placeholder = tmp_path / "fixed_25_validation_patches.json"
+    _write_placeholder_selector(placeholder)
     with pytest.raises(ValueError, match="not ready"):
-        load_fixed_selector_document(PLACEHOLDER_SELECTOR_PATH)
+        load_fixed_selector_document(placeholder)
+
+
+def test_committed_fixed25_selector_is_real() -> None:
+    """The committed fixed-25 config is a promoted real selector, not a placeholder."""
+    document = load_fixed_selector_document(TRACKED_FIXED25_SELECTOR_PATH)
+    assert document.status == "pass"
+    assert document.selector_kind == FIXED_25_VALIDATION_KIND
+    assert document.source_split == "validation"
+    assert len(document.selectors) == FIXED_25_VALIDATION_COUNT
+    assert document.expected_per_label == FIXED_25_VALIDATION_PER_LABEL
+    assert document.source.crc_checked is True
 
 
 def test_canonical_selector_write_requires_overwrite_and_crc(

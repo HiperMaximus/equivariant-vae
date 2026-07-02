@@ -64,48 +64,29 @@ Rules to keep this file from rotting (the problem it exists to fix):
   `SO(2)` model; continuous angles are a future `SO(2)`-only extension. FSQ
   quantization/codebook/discrete-index artifacts are deliberately NOT copied.
 
-  The Spec 0010 code is committed on `main` (`8457233`, unpushed). The ONLY
-  remaining blocker before this is paper-promotable is generating the real
-  fixed-25 selector, now tracked as its own item **FU-041** below. A full run
-  without promotable fixed-25 output must still be labeled training/checkpoint
-  evidence only — never issue #4/#6 equivariant-embedding evidence.
+  The Spec 0010 code is committed on `main` (`8457233`, unpushed). Its former
+  blocker — the real fixed-25 selector — is now generated and committed
+  (**FU-041, DONE** below). A full run that still lacks promotable fixed-25 output
+  must be labeled training/checkpoint evidence only — never issue #4/#6
+  equivariant-embedding evidence.
 
-- **FU-041 — Generate the REAL fixed-25 validation selector (freeze the 25
-  images).** The canonical selector `configs/spec0001/fixed_25_validation_patches.json`
-  is still the `status: requires_real_data_generation` placeholder with
-  `selectors: []`, so a real full run FAILS CLOSED (the fixed-25 loader raises on
-  the placeholder) and no promotable fixed-25 artifacts can be produced. The real
-  UBC validation shard is not resolvable locally (`resolve_patch_data_paths("auto")`
-  only finds it under `/kaggle/input/...`). Approach (b) CHOSEN (user, 2026-07-02):
-  generate on Kaggle via the dedicated CPU kernel — BUILT locally (uncommitted),
-  remaining is the gated push + download + commit. Built this window:
-  - CRC-consistency fix (Option Y): the fixed-25 selector is validated with
-    `validate_crc=True` end-to-end (`_prepare_fixed25_runtime`, the standalone
-    `eqvae.cli.fixed25_equivariance`, and the new `eqvae.cli.fixed25_originals`), so a
-    CRC-validated real selector (`crc_checked=True`) loads in the run. This is
-    required: `_validate_source` compares `crc_checked` for equality, and a
-    `--validate-crc` selector previously failed the `validate_crc=False` load path.
-  - `eqvae.cli.fixed25_originals` writes the 25 selected images
-    (`artifacts/fixed25/originals.pt` + montage) from a selector, no model.
-  - CPU kernel `kaggle/kernels/fixed25_selector` (`enable_gpu:false`, no T4 quota):
-    runs `select_fixed_patches --kind fixed_25_validation --data-root auto --output
-    <working>/fixed_25_validation_patches.json --validate-crc` then `fixed25_originals`,
-    writing the selector JSON + originals to `/kaggle/working`. Guarded by
-    `guard_fixed25_selector_push_ready` (clean tree, CPU/dataset metadata, spec-0010
-    `fixed25_selector_kernel_ready` token, required literals);
-    `preflight-fixed25-selector` / `status-fixed25-selector` / `output-fixed25-selector`
-    wired; Spec 0010 addendum documents it. Gate `277 passed`; selector preflight
-    `23 passed`; 3-lens adversarial review = 0 findings.
-  Remaining (all gated on the user): commit the working tree; run the approved push
-  `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh
-  push kaggle/kernels/fixed25_selector` (needs a clean committed worktree + rebuilt
-  `run.py`); then `output-fixed25-selector` (`KAGGLE_REMOTE_CONFIRMED=1`) to download
-  the selector + originals; review them; commit the generated selector to the tracked
-  config (overwrites the placeholder — needs approval). Verify after generation:
-  status `pass` with 25 `selectors` (5 per label 0..4), it loads under the CRC-
-  validating fixed-25 path, and a real full run then produces
-  `promotable=true`/`data_source=real` fixed-25 artifacts. Couples to the first
-  promotable full run (needs both this and the FU-039 fresh restart).
+- **FU-041 — Generate the REAL fixed-25 validation selector. DONE (2026-07-02).**
+  Generated on the dedicated CPU Kaggle kernel `kaggle/kernels/fixed25_selector`
+  (no GPU; ~30 min was 60GB dataset staging, ~66s actual compute), downloaded, and
+  verified: `status: pass`, 25 `selectors` (5 per label 0..4),
+  `source_split: validation`, `crc_checked: true` from `ubc_ocean_valid.bin`. The
+  CRC-consistency fix (Option Y) validates the fixed-25 selector with
+  `validate_crc=True` end-to-end, so the `crc_checked=true` selector loads under
+  the run's CRC-validating fixed-25 path. Promoted to the tracked
+  `configs/spec0001/fixed_25_validation_patches.json` (canonical generator form —
+  loads without data via `load_fixed_selector_document`). The 25 selected images
+  are frozen in `docs/data/fixed25/`: `originals.png` (5×5 montage) + `originals.pt`
+  (lossless uint8, reconstruct `x/255*2-1`; `write_originals` now stores uint8, a
+  quarter the size). Tests reworked: the three fail-closed tests assert against a
+  synthetic placeholder (the tracked config is now real), a positive
+  `test_committed_fixed25_selector_is_real` guards it, and the stale
+  `fixed_real_25_status` breadcrumb is now `committed`. With the FU-039 fresh
+  restart, both first-promotable-full-run blockers are now cleared.
 
 ### MED
 

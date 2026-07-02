@@ -259,7 +259,7 @@ def _payload(  # noqa: PLR0913
                 "synthetic_grid_path": str(visual_relative),
                 "synthetic_grid_sha256": visual_sha256,
                 "grid_order": ["clean", "stain_only", "gaussian_only", "combined"],
-                "fixed_real_25_status": "requires_real_data_generation",
+                "fixed_real_25_status": "committed",
             },
             "effective_config_snapshot": {
                 "schema_version": _optional_string(effective_config, "schema_version"),

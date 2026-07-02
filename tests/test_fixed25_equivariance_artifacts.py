@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import csv
 import json
-from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -13,6 +12,7 @@ import torch
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
     from torch import Tensor
 
@@ -26,6 +26,7 @@ from eqvae.artifacts.fixed25_equivariance import (
     Fixed25Config,
     Fixed25Patches,
     compute_rot90_exactness,
+    encode_originals_uint8,
     evaluate_boundary,
     first3_to_rgb,
     headline_equivariance_at_k0,
@@ -60,7 +61,6 @@ from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
 _PATCH_SIZE = 16
 _VALIDATION_COUNT = 25
 _EXPECTED_ROWS = len(REQUIRED_EQUIVARIANCE_METRICS) * len(MEASURED_K_VALUES)
-_PLACEHOLDER_SELECTOR = Path("configs/spec0001/fixed_25_validation_patches.json")
 _FLOAT16_TOLERANCE = 5e-2
 _EXACTNESS_TOLERANCE = 1e-4
 _ZERO_ABS = 1e-6
@@ -165,6 +165,25 @@ def _write_selector(root: Path, path: Path) -> None:
     write_fixed_selector_document(path=path, document=document)
 
 
+def _write_placeholder_selector(path: Path) -> None:
+    """Write a minimal fixed-25 placeholder selector (status not ready)."""
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "spec0001.fixed_selector.v1",
+                "status": "requires_real_data_generation",
+                "selector_kind": "fixed_25_validation",
+                "source_split": "validation",
+                "expected_count": _VALIDATION_COUNT,
+                "expected_per_label": 5,
+                "selector_seed": "20260610",
+                "selectors": [],
+            },
+        ),
+        encoding="utf-8",
+    )
+
+
 def _validation_dataset(root: Path) -> PatchTrainingDataset:
     return PatchTrainingDataset(
         PatchTrainingDatasetSpec(
@@ -252,14 +271,16 @@ def test_parse_config_rejects_non_rot90_convention() -> None:
 
 
 def test_load_fixed25_fails_closed_on_placeholder(tmp_path: Path) -> None:
-    """The committed placeholder selector is refused, never resampled."""
+    """A placeholder selector is refused, never resampled."""
     root = _build_validation_shard(tmp_path)
+    placeholder = tmp_path / "placeholder_selector.json"
+    _write_placeholder_selector(placeholder)
     dataset = _validation_dataset(root)
     try:
         with pytest.raises(ValueError, match=r"not ready|requires_real_data"):
             load_fixed25_patches(
                 config=_config(),
-                selector_path=_PLACEHOLDER_SELECTOR,
+                selector_path=placeholder,
                 validation_shard_spec=validation_shard_spec_for(
                     validation_bin_path=root / VALIDATION_BIN_NAME,
                     validation_csv_path=root / VALIDATION_CSV_NAME,
@@ -547,6 +568,27 @@ def test_standalone_cli_runs_over_checkpoint(tmp_path: Path) -> None:
     assert manifest["promotable"] is False
 
 
+def test_encode_originals_uint8_is_lossless_and_fails_closed() -> None:
+    """uint8 archive encoding is lossless for 8-bit input and fails closed otherwise."""
+    eight_bit = (torch.arange(256, dtype=torch.float32) / 255.0 * 2.0 - 1.0).reshape(
+        1,
+        1,
+        16,
+        16,
+    )
+    encoded = encode_originals_uint8(eight_bit)
+    assert encoded.dtype == torch.uint8
+    reconstructed = encoded.to(torch.float32) / 255.0 * 2.0 - 1.0
+    assert torch.equal(reconstructed, eight_bit)
+    # A value halfway between two 8-bit levels is not representable -> fail closed.
+    midpoint = torch.full((1, 1, 2, 2), 0.5 / 255.0 * 2.0 - 1.0)
+    with pytest.raises(ValueError, match="not 8-bit representable"):
+        encode_originals_uint8(midpoint)
+    # Out-of-[-1, 1] input is caught (not silently clamped away).
+    with pytest.raises(ValueError, match="not 8-bit representable"):
+        encode_originals_uint8(torch.full((1, 1, 2, 2), 1.5))
+
+
 def test_originals_cli_writes_selected_patches(tmp_path: Path) -> None:
     """The originals CLI saves the 25 selected patches without a checkpoint."""
     _manual_seed(7)
@@ -583,7 +625,9 @@ def test_originals_cli_writes_selected_patches(tmp_path: Path) -> None:
     fixed25_dir = output_dir / "artifacts" / "fixed25"
     assert (fixed25_dir / "originals.png").read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
     saved = _load_pt(fixed25_dir / "originals.pt")
-    assert saved["images"].shape[0] == _VALIDATION_COUNT
+    images_u8 = saved["images_uint8"]
+    assert images_u8.dtype == torch.uint8
+    assert images_u8.shape[0] == _VALIDATION_COUNT
     assert len(saved["identities"]) == _VALIDATION_COUNT
     # No boundary/model artifacts: this step archives only the selected originals.
     assert not (fixed25_dir / "boundary_000000").exists()
@@ -591,15 +635,20 @@ def test_originals_cli_writes_selected_patches(tmp_path: Path) -> None:
 
 
 def test_originals_cli_fails_closed_on_placeholder(tmp_path: Path) -> None:
-    """Without an explicit selector, the tracked placeholder is refused."""
+    """Without an explicit selector, a placeholder selector_config is refused."""
     root = _build_validation_shard(tmp_path)
+    placeholder = tmp_path / "placeholder_selector.json"
+    _write_placeholder_selector(placeholder)
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps(
             {
                 "seeds": {"latent_seed": 20260612},
                 "data": {"image_size": _PATCH_SIZE},
-                "fixed25_equivariance": _CONFIG_BLOCK,
+                "fixed25_equivariance": {
+                    **_CONFIG_BLOCK,
+                    "selector_config": str(placeholder),
+                },
             },
         ),
         encoding="utf-8",

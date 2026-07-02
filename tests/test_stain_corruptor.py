@@ -484,7 +484,7 @@ def test_local_stain_corruptor_qa_artifact(tmp_path: Path) -> None:
     assert checks["target_preserved"] is True
     assert checks["clean_validation_rng_advanced"] is False
     assert checks["sample_count"] == EXPECTED_QA_COUNT
-    assert visual_artifacts["fixed_real_25_status"] == "requires_real_data_generation"
+    assert visual_artifacts["fixed_real_25_status"] == "committed"
     visual_path = tmp_path / cast("str", visual_artifacts["synthetic_grid_path"])
     assert visual_path.exists()
     assert visual_path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")

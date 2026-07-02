@@ -2,12 +2,12 @@
 
 Status: implemented (on working tree, uncommitted; 2026-07-01)
 Implementation readiness: implemented and locally verified (gate green, 6-lens
-adversarial review integrated); paper-promotable output still requires the REAL
-fixed-25 selector (the tracked config is the placeholder, so a real run fails closed)
+adversarial review integrated); the REAL fixed-25 selector is generated and committed
+(FU-041 DONE, 2026-07-02), so a real full run can now produce promotable fixed-25 output
 Owner/workstream: comparable non-equivariant VAE baseline, qualitative and
 embedding-equivariance evaluation artifacts (FU-040, token
 `fixed25_equivariance_artifact_protocol`)
-Last updated: 2026-07-01
+Last updated: 2026-07-02
 
 ## Framing: what this is (and is not)
 
@@ -217,9 +217,9 @@ digest-sorted) is stricter and more reproducible than "first 25 of the val loade
   `:34` `FIXED_SELECTOR_PLACEHOLDER_STATUS`).
 - The protocol MUST fail closed (raise, do not resample) if any of:
   - the file is missing or the schema version is not `spec0001.fixed_selector.v1`;
-  - `status == "requires_real_data_generation"` or `selectors` is empty (the current
-    committed file is exactly this placeholder;
-    `configs/spec0001/fixed_25_validation_patches.json:3,29`);
+  - `status == "requires_real_data_generation"` or `selectors` is empty (the tracked
+    config now holds the REAL selector as of FU-041, 2026-07-02; this clause still
+    fails closed on any placeholder, e.g. a synthetic one in a CPU test);
   - `expected_count != 25` or the realized selector count `!= 25`;
   - `expected_per_label != 5` or any label `0..4` does not have exactly 5 rows;
   - the document fails `validate_fixed_selector_document` (noncanonical rows).
@@ -727,6 +727,13 @@ dedicated CPU kernel `kaggle/kernels/fixed25_selector` generates it where the da
 is mounted, with byte-exact source provenance. This section authorizes that kernel
 (guard token: `fixed25_selector_kernel_ready`).
 
+**Status: DONE (2026-07-02).** The kernel ran on Kaggle, the selector was downloaded,
+verified (`status: pass`, 25 selectors, 5 per label 0..4, validation split,
+`crc_checked: true` from `ubc_ocean_valid.bin`), and committed to the tracked config;
+the 25 images are frozen in `docs/data/fixed25/` (`originals.png` + lossless-uint8
+`originals.pt`). The remainder of this section documents the (idempotent) generation
+contract.
+
 - **CPU only, no GPU.** The step reads the validation shard, digest-sorts 5-per-label
   (locked `FIXED_25_VALIDATION_SEED`), and writes JSON + 25 images; there is no model
   forward pass. `kernel-metadata.json` sets `enable_gpu: false` with no `machine_shape`,
@@ -740,7 +747,8 @@ is mounted, with byte-exact source provenance. This section authorizes that kern
      tracked config path, so no `--allow-tracked-config-overwrite`).
   2. `python -m eqvae.cli.fixed25_originals --config <same> --data-root auto --selector
      /kaggle/working/fixed_25_validation_patches.json --output-dir /kaggle/working` —
-     archives the 25 selected patches as `artifacts/fixed25/originals.pt` and a montage
+     archives the 25 selected patches as `artifacts/fixed25/originals.pt` (images
+     stored losslessly as uint8, reconstruct `x/255*2-1`) and a montage
      `originals.png` (no checkpoint needed), so the exact images are reviewable.
 - **Validation-only, fail-closed.** `--kind fixed_25_validation` forces the validation
   split, and every fixed-25 load path additionally raises unless the selector's
@@ -764,10 +772,10 @@ is mounted, with byte-exact source provenance. This section authorizes that kern
   literals. Remote status/output are separate `KAGGLE_REMOTE_CONFIRMED=1` reads
   (`status-fixed25-selector`, `output-fixed25-selector`). Local preflight:
   `./scripts/kaggle_kernel.sh preflight-fixed25-selector`.
-- **Promotability.** The kernel output is generation evidence; the selector becomes
-  paper-promotable only once committed (after user review of the downloaded JSON + the
-  originals montage) and consumed by a real full run. Committing overwrites the tracked
-  placeholder and MUST be user-approved.
+- **Promotability.** The kernel output is generation evidence; the selector is
+  paper-promotable once committed (done 2026-07-02, after user review of the JSON + the
+  originals montage) and consumed by a real full run. The commit overwrote the former
+  tracked placeholder (user-approved).
 
 ## Related Files
 

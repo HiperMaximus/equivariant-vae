@@ -96,6 +96,14 @@ REQUIRED_EQUIVARIANCE_METRICS: tuple[str, ...] = (
 FIXED25_DIRNAME = "fixed25"
 ORIGINALS_PT = "originals.pt"
 ORIGINALS_PNG = "originals.png"
+# originals.pt stores the clean patches losslessly as uint8 in [0, 255] (a quarter
+# of float32); reconstruct the model-domain tensor with the documented convention.
+ORIGINALS_IMAGES_KEY = "images_uint8"
+ORIGINALS_DOMAIN = "uint8[0,255]; model_domain = x / 255 * 2 - 1"
+# Separates float32 rounding noise on exactly-8-bit input (~4e-6) from a genuinely
+# non-8-bit residual (up to 0.5) or out-of-range input (>> 0.5); see
+# encode_originals_uint8.
+_UINT8_LOSSLESS_TOLERANCE = 1e-3
 MANIFEST_JSON = "manifest.json"
 RECONSTRUCTION_PROGRESS_PT = "reconstruction_progress.pt"
 RECONSTRUCTION_PROGRESS_PNG = "reconstruction_progress.png"
@@ -816,22 +824,60 @@ def _fmt(value: float) -> str:
     return format(value, ".10g")
 
 
+def encode_originals_uint8(images: Tensor) -> Tensor:
+    """Losslessly encode clean ``[-1, 1]`` originals as uint8 in ``[0, 255]``.
+
+    The clean fixed-25 originals come straight from the 8-bit patch shard, so the
+    model-domain floats are exactly ``k / 255 * 2 - 1``; storing uint8 is a quarter
+    the size with no loss. Reconstruct with ``x / 255 * 2 - 1``.
+
+    Returns:
+        A uint8 tensor of the same shape.
+
+    Raises:
+        ValueError: If the source is not 8-bit representable (encoding would be
+            lossy), keeping the archive fail-closed.
+
+    """
+    source = images.detach().to(torch.float32).cpu()
+    scaled = (source + 1.0) / 2.0 * 255.0
+    encoded = scaled.round().clamp(0.0, 255.0)
+    # Fail-closed on the PRE-round residual against the unclamped scale: exactly-8-bit
+    # input lands on integers in [0, 255] (residual ~4e-6 float noise), genuinely
+    # non-8-bit input deviates by up to 0.5, and out-of-[-1, 1] input by far more (the
+    # clamp would otherwise hide it). A post-reconstruction round-trip could never fire
+    # because nearest-level rounding bounds that error below the step for any input.
+    max_error = float((scaled - encoded).abs().max()) if source.numel() else 0.0
+    if max_error > _UINT8_LOSSLESS_TOLERANCE:
+        message = (
+            f"fixed-25 originals are not 8-bit representable (max error {max_error}); "
+            "refusing to store a lossy uint8 archive"
+        )
+        raise ValueError(message)
+    return encoded.to(torch.uint8)
+
+
 def write_originals(*, fixed25_dir: Path, patches: Fixed25Patches) -> None:
     """Write the immutable 25 clean originals (``.pt`` plus a PNG montage).
 
-    Written once per run (the FSQ immutable structural baseline).
+    Written once per run (the FSQ immutable structural baseline). ``images`` come
+    straight from the 8-bit patch shard, so they are stored losslessly as uint8
+    in ``[0, 255]`` under ``images_uint8`` (a quarter of float32); reconstruct the
+    model-domain tensor with ``images_uint8 / 255 * 2 - 1`` (see ``ORIGINALS_DOMAIN``).
     """
+    images = patches.images.detach().cpu()
     _atomic_torch_save(
         fixed25_dir / ORIGINALS_PT,
         {
-            "images": patches.images.detach().cpu(),
+            ORIGINALS_IMAGES_KEY: encode_originals_uint8(images),
+            "images_domain": ORIGINALS_DOMAIN,
             "identities": list(patches.identities),
             "selector_sha256": patches.selector_sha256,
         },
     )
     _atomic_write_png(
         fixed25_dir / ORIGINALS_PNG,
-        _montage([patches.images[i] for i in range(patches.images.shape[0])]),
+        _montage([images[i] for i in range(images.shape[0])]),
     )
 
 
@@ -1212,11 +1258,14 @@ __all__ = [
     "FIXED25_DIRNAME",
     "MANIFEST_JSON",
     "MEASURED_K_VALUES",
+    "ORIGINALS_DOMAIN",
+    "ORIGINALS_IMAGES_KEY",
     "ORIGINALS_PT",
     "REQUIRED_EQUIVARIANCE_METRICS",
     "Fixed25Config",
     "Fixed25Patches",
     "compute_rot90_exactness",
+    "encode_originals_uint8",
     "evaluate_boundary",
     "first3_to_rgb",
     "headline_equivariance_at_k0",
