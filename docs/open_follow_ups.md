@@ -118,9 +118,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
 - **FU-021 — Two divergent train-step impls (debug `step.py` vs full
   `_run_train_step`).** Can drift. Fix: share logic or add a parity test; document
   `step.py`/`progress.py` as debug-only.
-- **FU-022 — Validation beta uses `target_train_steps`, training uses
-  `max_train_steps`.** Differs only under `--dry-run`. Files: `:2456-2461` vs
-  `:2641-2646`. Fix: use the same denominator or assert `max==target` outside dry-run.
 - **FU-023 — equivariant_vae_transition_plan.md (1005 lines) billed as Active
   Source Of Truth but frames FSQ run as current.** Referenced in GOAL/README/
   AGENTS/CLAUDE. Fix: demote to background, or refresh Status. See D-21.

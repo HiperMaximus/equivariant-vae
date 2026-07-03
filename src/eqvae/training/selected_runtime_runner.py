@@ -4069,7 +4069,10 @@ def _validation_view_row(  # noqa: PLR0913
         )
         beta = beta_for_step(
             optimizer_step_index=max(0, optimizer_step - 1),
-            max_optimizer_steps=settings.target_train_steps,
+            # FU-022: share the training-step denominator so train/validation beta
+            # agree (equal for the full run where max == target; consistent under
+            # --dry-run where max < target).
+            max_optimizer_steps=settings.max_train_steps,
             target_beta=settings.beta_target,
             warmup_fraction=settings.beta_warmup_fraction,
         )

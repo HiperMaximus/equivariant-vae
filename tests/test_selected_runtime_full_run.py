@@ -29,7 +29,7 @@ from eqvae.benchmarking.selected_runtime_gate import verify_selected_runtime_ful
 from eqvae.checkpointing import CheckpointMetadata, LoadedCheckpoint
 from eqvae.cli.selected_runtime_train import main as selected_runtime_train_main
 from eqvae.config import resolve_json_config
-from eqvae.losses.vae import VaeLossComponents
+from eqvae.losses.vae import VaeLossComponents, beta_for_step
 from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
 from eqvae.training import selected_runtime_runner
 from eqvae.training.selected_runtime import (
@@ -744,6 +744,39 @@ def test_deterministic_denoising_validation_row_is_reproducible(
     assert {key: first[key] for key in metric_keys} != {
         key: clean[key] for key in metric_keys
     }
+
+
+def test_validation_beta_uses_training_denominator_under_dry_run(
+    tmp_path: Path,
+) -> None:
+    """FU-022: validation beta shares the training denominator (max_train_steps).
+
+    Under --dry-run max_train_steps << target_train_steps, so the two denominators
+    diverge; this pins the validation row's beta to the max-based (training) value
+    rather than the target-based value.
+    """
+    scaffold = _open_validation_scaffold(tmp_path)  # dry-run: max_train_steps == 2
+    try:
+        row = _validation_row(scaffold, view="clean", optimizer_step=2)
+    finally:
+        selected_runtime_runner._close_data_surface(scaffold.data_surface)  # noqa: SLF001
+
+    settings = scaffold.settings
+    max_based = beta_for_step(
+        optimizer_step_index=1,
+        max_optimizer_steps=settings.max_train_steps,
+        target_beta=settings.beta_target,
+        warmup_fraction=settings.beta_warmup_fraction,
+    )
+    target_based = beta_for_step(
+        optimizer_step_index=1,
+        max_optimizer_steps=settings.target_train_steps,
+        target_beta=settings.beta_target,
+        warmup_fraction=settings.beta_warmup_fraction,
+    )
+    assert math.isclose(float(row["beta"]), max_based)
+    # The denominators genuinely diverge under --dry-run, so the fix is observable.
+    assert not math.isclose(max_based, target_based)
 
 
 def test_fresh_full_run_flushes_metrics_at_first_boundary(  # noqa: PLR0914
