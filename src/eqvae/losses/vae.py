@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import torch
 
@@ -45,37 +45,38 @@ class VaeLossComponents:
         }
 
 
-def compute_vae_loss(
+class VaeLossTensors(NamedTuple):
+    """Scalar loss tensors from the compile-safe VAE loss core (no float beta)."""
+
+    loss: torch.Tensor
+    recon_loss: torch.Tensor
+    l1_loss: torch.Tensor
+    ssim_loss: torch.Tensor
+    ssim_metric: torch.Tensor
+    kl_loss: torch.Tensor
+
+
+def vae_loss_core(
     output: VaeForwardOutput,
     target: torch.Tensor,
     *,
-    beta: float,
-    ssim_weight: float = 0.1,
-) -> VaeLossComponents:
-    """Compute `L1 + ssim_weight * (1 - SSIM) + beta * KL`.
+    beta: torch.Tensor,
+    ssim_weight: float,
+) -> VaeLossTensors:
+    """Compute the composite VAE loss with beta as a 0-dim device tensor.
+
+    Compile-safe core for the fast-path training step: `beta` crosses the graph
+    boundary as a tensor (a changing Python float would force a recompile every
+    warmup/schedule step) and NO validation runs here (the eager `compute_vae_loss`
+    wrapper validates weights/shapes). Callers pass image-domain-clampable tensors;
+    SSIM inputs are clamped to `[0, 1]` by `normalized_to_image_domain`.
 
     Returns:
-        Scalar loss components with gradients attached where appropriate.
-
-    Raises:
-        ValueError: If loss weights or tensor shapes are invalid.
+        Scalar loss tensors (total, recon, l1, ssim, ssim_metric, kl).
 
     """
-    if beta < 0.0:
-        message = f"beta must be nonnegative, got {beta}"
-        raise ValueError(message)
-    if ssim_weight < 0.0:
-        message = f"ssim_weight must be nonnegative, got {ssim_weight}"
-        raise ValueError(message)
     reconstruction = output.reconstruction.to(dtype=torch.float32)
     target_f32 = target.to(dtype=torch.float32)
-    if reconstruction.shape != target_f32.shape:
-        message = (
-            "Reconstruction and target shapes differ: "
-            f"{reconstruction.shape} vs {target_f32.shape}"
-        )
-        raise ValueError(message)
-
     # FU-004: L1 penalizes the raw unbounded output, so it reflects any excess the
     # zero-init head pushes outside [-1, 1] (there is no final tanh). SSIM instead
     # runs on `normalized_to_image_domain`, which clamps to [0, 1], so out-of-range
@@ -90,13 +91,60 @@ def compute_vae_loss(
     recon_loss = l1_loss + (ssim_weight * ssim_loss)
     kl_loss = kl_divergence_loss(mu=output.mu, logvar_clamped=output.logvar_clamped)
     total_loss = recon_loss + (beta * kl_loss)
-    return VaeLossComponents(
+    return VaeLossTensors(
         loss=total_loss,
         recon_loss=recon_loss,
         l1_loss=l1_loss,
         ssim_loss=ssim_loss,
         ssim_metric=ssim_metric,
         kl_loss=kl_loss,
+    )
+
+
+def compute_vae_loss(
+    output: VaeForwardOutput,
+    target: torch.Tensor,
+    *,
+    beta: float,
+    ssim_weight: float = 0.1,
+) -> VaeLossComponents:
+    """Compute `L1 + ssim_weight * (1 - SSIM) + beta * KL`.
+
+    Eager wrapper over `vae_loss_core`: validates the weights/shapes and reports the
+    scalar `beta` float, while the core does the compile-safe tensor computation.
+
+    Returns:
+        Scalar loss components with gradients attached where appropriate.
+
+    Raises:
+        ValueError: If loss weights or tensor shapes are invalid.
+
+    """
+    if beta < 0.0:
+        message = f"beta must be nonnegative, got {beta}"
+        raise ValueError(message)
+    if ssim_weight < 0.0:
+        message = f"ssim_weight must be nonnegative, got {ssim_weight}"
+        raise ValueError(message)
+    if output.reconstruction.shape != target.shape:
+        message = (
+            "Reconstruction and target shapes differ: "
+            f"{output.reconstruction.shape} vs {target.shape}"
+        )
+        raise ValueError(message)
+    beta_tensor = torch.tensor(
+        beta,
+        dtype=torch.float32,
+        device=output.reconstruction.device,
+    )
+    tensors = vae_loss_core(output, target, beta=beta_tensor, ssim_weight=ssim_weight)
+    return VaeLossComponents(
+        loss=tensors.loss,
+        recon_loss=tensors.recon_loss,
+        l1_loss=tensors.l1_loss,
+        ssim_loss=tensors.ssim_loss,
+        ssim_metric=tensors.ssim_metric,
+        kl_loss=tensors.kl_loss,
         beta=beta,
     )
 
@@ -181,8 +229,10 @@ def _tensor_float(tensor: torch.Tensor) -> float:
 
 __all__ = [
     "VaeLossComponents",
+    "VaeLossTensors",
     "beta_for_step",
     "beta_warmup_steps",
     "compute_vae_loss",
     "kl_divergence_loss",
+    "vae_loss_core",
 ]
