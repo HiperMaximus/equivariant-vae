@@ -30,7 +30,7 @@ dev = [
 ]
 
 [tool.ruff]
-extend-exclude = ["src/nn"]
+extend-exclude = ["src/nn", "kaggle/fsq_train_reference.py"]
 fix = false
 line-length = 88
 preview = true
