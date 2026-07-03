@@ -1963,6 +1963,87 @@ def _synchronized_amp_step_skipped(
     return local_amp_step_skipped
 
 
+_DDP_PARAMETER_SYNC_CHECK_STEPS = 8
+
+
+def _assert_ddp_parameters_in_sync(
+    *,
+    model: nn.Module,
+    distributed: _DistributedContext,
+) -> None:
+    """Fail fast if DDP ranks hold divergent parameters (gradients not synced).
+
+    Correct DDP averages gradients during ``backward``, so after every optimizer
+    step each rank must hold bit-identical parameters. Some misconfigurations
+    (notably ``ddp_static_graph`` interactions, or a compiled step that drops the
+    all-reduce) silently skip that sync and let ranks drift into different models
+    with no error, wasting the whole run. This gathers a two-moment float64
+    parameter fingerprint (an unconditional, symmetric collective, so it cannot
+    itself desync) and raises on every rank if any fingerprint differs, turning a
+    silent divergence into an immediate, loud failure. The caller runs it only for
+    the first few optimizer steps, where a systematic desync first appears (and
+    then stays), so the overhead is bounded. No-op for single-process runs.
+
+    Raises:
+        RuntimeError: if any rank's parameter fingerprint differs.
+
+    """
+    if not distributed.should_use_ddp or not dist.is_initialized():
+        return
+    parameter_sum = 0.0
+    parameter_square_sum = 0.0
+    for parameter in model.parameters():
+        values = parameter.detach().to(dtype=torch.float64)
+        parameter_sum += float(values.sum().item())
+        parameter_square_sum += float(values.square().sum().item())
+    gathered: list[object] = [None for _ in range(distributed.world_size)]
+    all_gather_object = cast(
+        "Callable[[list[object], object], None]",
+        dist.all_gather_object,
+    )
+    all_gather_object(gathered, (parameter_sum, parameter_square_sum))
+    reference: tuple[float, float] | None = None
+    for pair in gathered:
+        if not isinstance(pair, tuple):
+            continue
+        fingerprint = cast("tuple[float, float]", pair)
+        if reference is None:
+            reference = fingerprint
+        elif not _fingerprints_match(reference, fingerprint):
+            message = (
+                "selected-runtime DDP ranks hold divergent parameters after an "
+                "optimizer step; gradient synchronization is not averaging across "
+                "ranks (check the ddp_static_graph / torch.compile configuration)"
+            )
+            raise RuntimeError(message)
+
+
+def _fingerprints_match(
+    left: tuple[float, float],
+    right: tuple[float, float],
+) -> bool:
+    """Return whether two parameter fingerprints agree, treating NaN as equal.
+
+    Under correct DDP, synced parameters give bit-identical finite fingerprints, so
+    exact equality is the right test. Identical NaN parameters across ranks are also
+    in sync (a numerical blow-up is caught by ``nonfinite_count`` / ``GradScaler``,
+    not here), but ``nan != nan`` would wrongly flag them; NaN is matched to NaN so
+    only a genuine divergence (a NaN-vs-finite split or differing finite values)
+    reports a desync.
+
+    Returns:
+        ``True`` if the two fingerprints agree moment-for-moment.
+
+    """
+    return _moment_matches(left[0], right[0]) and _moment_matches(left[1], right[1])
+
+
+def _moment_matches(left: float, right: float) -> bool:
+    if math.isnan(left) or math.isnan(right):
+        return math.isnan(left) and math.isnan(right)
+    return left == right
+
+
 def _gather_csv_rows(
     local_rows: Sequence[CsvRow],
     distributed: _DistributedContext,
@@ -2834,6 +2915,13 @@ def _run_train_steps(  # noqa: C901, PLR0913, PLR0914, PLR0915
             local_amp_step_skipped=result.amp_step_skipped,
             distributed=distributed,
         )
+        # Fail closed if DDP stops averaging gradients (e.g. a static_graph/compile
+        # misconfig) before it silently trains divergent models across ranks. Gate on
+        # the process-local iteration counter (not the global optimizer step) so a
+        # resumed run re-checks its own first steps; `attempt_count` advances once per
+        # iteration on every rank, so this stays symmetric.
+        if attempt_count <= _DDP_PARAMETER_SYNC_CHECK_STEPS:
+            _assert_ddp_parameters_in_sync(model=model, distributed=distributed)
         if not amp_step_skipped:
             successful_count = result.successful_optimizer_update_count
         checkpoint_boundary = (

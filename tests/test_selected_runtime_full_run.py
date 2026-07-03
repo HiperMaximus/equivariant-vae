@@ -482,6 +482,102 @@ def test_synchronized_amp_step_skipped_agrees_or_raises(
         )
 
 
+def test_assert_ddp_parameters_in_sync_passes_or_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cross-rank parameter divergence fails fast instead of training two models."""
+    model = torch.nn.Linear(2, 2)
+
+    def fake_is_initialized() -> bool:
+        return True
+
+    monkeypatch.setattr(
+        selected_runtime_runner.dist,
+        "is_initialized",
+        fake_is_initialized,
+    )
+
+    # A single-process run skips the collective entirely (no behavior change).
+    selected_runtime_runner._assert_ddp_parameters_in_sync(  # noqa: SLF001
+        model=model,
+        distributed=_local_distributed_context(),
+    )
+
+    def agree(gathered: list[object], obj: object) -> None:
+        gathered[0] = obj
+        gathered[1] = obj
+
+    monkeypatch.setattr(selected_runtime_runner.dist, "all_gather_object", agree)
+    # Identical fingerprints across ranks pass without raising.
+    selected_runtime_runner._assert_ddp_parameters_in_sync(  # noqa: SLF001
+        model=model,
+        distributed=_ddp_distributed_context(rank=0),
+    )
+
+    def disagree(gathered: list[object], obj: object) -> None:
+        gathered[0] = obj
+        gathered[1] = (1.0e30, 2.0e30)
+
+    monkeypatch.setattr(selected_runtime_runner.dist, "all_gather_object", disagree)
+    # A divergent fingerprint (grads not synced) raises on every rank.
+    with pytest.raises(RuntimeError, match="divergent parameters"):
+        selected_runtime_runner._assert_ddp_parameters_in_sync(  # noqa: SLF001
+            model=model,
+            distributed=_ddp_distributed_context(rank=0),
+        )
+
+
+def test_assert_ddp_parameters_in_sync_treats_identical_nan_as_synced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bit-identical NaN params across ranks are in sync, not a spurious desync."""
+    model = torch.nn.Linear(2, 2)
+
+    def fake_is_initialized() -> bool:
+        return True
+
+    monkeypatch.setattr(
+        selected_runtime_runner.dist,
+        "is_initialized",
+        fake_is_initialized,
+    )
+
+    def gather_distinct_nan(gathered: list[object], obj: object) -> None:
+        # Real all_gather_object deserializes each rank's tuple into a DISTINCT
+        # object, so the two NaN fingerprints are not the same object and nan != nan.
+        del obj
+        gathered[0] = (float("nan"), float("nan"))
+        gathered[1] = (float("nan"), float("nan"))
+
+    monkeypatch.setattr(
+        selected_runtime_runner.dist,
+        "all_gather_object",
+        gather_distinct_nan,
+    )
+    # NaN is caught by nonfinite_count / GradScaler, not misread as a DDP desync.
+    selected_runtime_runner._assert_ddp_parameters_in_sync(  # noqa: SLF001
+        model=model,
+        distributed=_ddp_distributed_context(rank=0),
+    )
+
+    def gather_nan_vs_finite(gathered: list[object], obj: object) -> None:
+        del obj
+        gathered[0] = (float("nan"), float("nan"))
+        gathered[1] = (0.0, 0.0)
+
+    monkeypatch.setattr(
+        selected_runtime_runner.dist,
+        "all_gather_object",
+        gather_nan_vs_finite,
+    )
+    # One rank NaN and another finite is a genuine desync (one rank diverged).
+    with pytest.raises(RuntimeError, match="divergent parameters"):
+        selected_runtime_runner._assert_ddp_parameters_in_sync(  # noqa: SLF001
+            model=model,
+            distributed=_ddp_distributed_context(rank=0),
+        )
+
+
 def test_run_train_steps_selects_best_on_denoising_view_end_to_end(  # noqa: PLR0914
     tmp_path: Path,
 ) -> None:
