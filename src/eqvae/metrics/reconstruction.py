@@ -14,7 +14,6 @@ SSIM_DATA_RANGE = 1.0
 SSIM_K1 = 0.01
 SSIM_K2 = 0.03
 NCHW_DIMENSIONS = 4
-IMAGE_DOMAIN_TOLERANCE = 1.0e-6
 MIN_MSE_FOR_FINITE_PSNR = 0.0
 
 
@@ -103,8 +102,6 @@ def psnr_per_image(
         message = f"data_range must be positive, got {data_range}"
         raise ValueError(message)
     prediction_f32, target_f32 = _validate_pair(prediction, target)
-    _validate_image_domain(prediction_f32, name="prediction")
-    _validate_image_domain(target_f32, name="target")
     mse_values = mse_per_image(prediction_f32, target_f32)
     range_tensor = torch.tensor(
         data_range,
@@ -132,7 +129,10 @@ def ssim_per_image(
 
     The implementation uses the locked spec 0001 convention: FP32 math,
     Gaussian `11x11` window with `sigma=1.5`, grouped per-channel convolutions,
-    and reflect padding so the full image contributes to the SSIM map.
+    and reflect padding so the full image contributes to the SSIM map. Callers
+    must pass image-domain `[0, 1]` tensors (via `normalized_to_image_domain`);
+    the finite/domain `.item()` input asserts are intentionally not run here so
+    this stays `torch.compile`-clean on the training hot path.
 
     Returns:
         Per-image SSIM tensor.
@@ -144,8 +144,6 @@ def ssim_per_image(
         sigma=sigma,
     )
     prediction_f32, target_f32 = _validate_pair(prediction, target)
-    _validate_image_domain(prediction_f32, name="prediction")
-    _validate_image_domain(target_f32, name="target")
     _validate_ssim_spatial_shape(prediction_f32, window_size=window_size)
 
     kernel = _ssim_kernel(
@@ -244,8 +242,6 @@ def _validate_pair(
         raise ValueError(message)
     prediction_f32 = prediction.to(dtype=torch.float32)
     target_f32 = target.to(dtype=torch.float32)
-    _validate_finite(prediction_f32, name="prediction")
-    _validate_finite(target_f32, name="target")
     return prediction_f32, target_f32
 
 
@@ -258,14 +254,6 @@ def _validate_finite(
     valid = torch.isfinite(tensor) if not allow_inf else ~torch.isnan(tensor)
     if not bool(valid.all().item()):
         message = f"{name} contains non-finite values"
-        raise ValueError(message)
-
-
-def _validate_image_domain(tensor: torch.Tensor, *, name: str) -> None:
-    lower_ok = bool((tensor >= -IMAGE_DOMAIN_TOLERANCE).all().item())
-    upper_ok = bool((tensor <= 1.0 + IMAGE_DOMAIN_TOLERANCE).all().item())
-    if not lower_ok or not upper_ok:
-        message = f"{name} must be in image-domain [0, 1] for PSNR/SSIM"
         raise ValueError(message)
 
 

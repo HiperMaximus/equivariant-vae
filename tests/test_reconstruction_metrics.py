@@ -108,20 +108,14 @@ def test_ssim_rejects_too_small_images() -> None:
         ssim_per_image(image, image)
 
 
-def test_ssim_rejects_non_image_domain_inputs() -> None:
-    """PSNR/SSIM callers must project to image-domain tensors first."""
-    image = torch.full((1, CHANNELS, IMAGE_SIZE, IMAGE_SIZE), 2.0)
+def test_normalized_to_image_domain_clamps_into_unit_range() -> None:
+    """The projection clamps any input into [0, 1] (replaces the runtime guard)."""
+    out_of_range = torch.tensor([[-3.0, 3.0]])
 
-    with pytest.raises(ValueError, match=r"\[0, 1\]"):
-        ssim_per_image(image, image)
+    projected = normalized_to_image_domain(out_of_range)
 
-
-def test_psnr_rejects_non_image_domain_inputs() -> None:
-    """PSNR uses the same image-domain guard as SSIM."""
-    image = torch.full((1, CHANNELS, IMAGE_SIZE, IMAGE_SIZE), 2.0)
-
-    with pytest.raises(ValueError, match=r"\[0, 1\]"):
-        psnr_per_image(image, image)
+    assert float(projected.min().item()) >= 0.0
+    assert float(projected.max().item()) <= 1.0
 
 
 def test_metrics_reject_empty_channel_or_spatial_dimensions() -> None:
