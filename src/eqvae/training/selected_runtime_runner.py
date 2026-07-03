@@ -93,6 +93,7 @@ from eqvae.models.non_equivariant_vae import (
     NonEquivariantVAE,
     build_non_equivariant_vae,
 )
+from eqvae.training.ddp_sync_guard import assert_ddp_parameters_in_sync
 from eqvae.training.optim import SpecAdamWConfig, create_adamw_optimizer
 from eqvae.training.selected_runtime import (
     EXPECTED_AMP_APPLICATION_STATUS,
@@ -1971,77 +1972,16 @@ def _assert_ddp_parameters_in_sync(
     model: nn.Module,
     distributed: _DistributedContext,
 ) -> None:
-    """Fail fast if DDP ranks hold divergent parameters (gradients not synced).
+    """Fail closed if DDP ranks desync; no-op for single-process runs.
 
-    Correct DDP averages gradients during ``backward``, so after every optimizer
-    step each rank must hold bit-identical parameters. Some misconfigurations
-    (notably ``ddp_static_graph`` interactions, or a compiled step that drops the
-    all-reduce) silently skip that sync and let ranks drift into different models
-    with no error, wasting the whole run. This gathers a two-moment float64
-    parameter fingerprint (an unconditional, symmetric collective, so it cannot
-    itself desync) and raises on every rank if any fingerprint differs, turning a
-    silent divergence into an immediate, loud failure. The caller runs it only for
-    the first few optimizer steps, where a systematic desync first appears (and
-    then stays), so the overhead is bounded. No-op for single-process runs.
-
-    Raises:
-        RuntimeError: if any rank's parameter fingerprint differs.
-
+    Thin wrapper over `eqvae.training.ddp_sync_guard.assert_ddp_parameters_in_sync`
+    (which raises `RuntimeError` on a cross-rank divergence) that gates on the
+    distributed context. The caller runs it only for the first few optimizer steps of
+    a process, where a systematic desync first appears (and then stays).
     """
     if not distributed.should_use_ddp or not dist.is_initialized():
         return
-    parameter_sum = 0.0
-    parameter_square_sum = 0.0
-    for parameter in model.parameters():
-        values = parameter.detach().to(dtype=torch.float64)
-        parameter_sum += float(values.sum().item())
-        parameter_square_sum += float(values.square().sum().item())
-    gathered: list[object] = [None for _ in range(distributed.world_size)]
-    all_gather_object = cast(
-        "Callable[[list[object], object], None]",
-        dist.all_gather_object,
-    )
-    all_gather_object(gathered, (parameter_sum, parameter_square_sum))
-    reference: tuple[float, float] | None = None
-    for pair in gathered:
-        if not isinstance(pair, tuple):
-            continue
-        fingerprint = cast("tuple[float, float]", pair)
-        if reference is None:
-            reference = fingerprint
-        elif not _fingerprints_match(reference, fingerprint):
-            message = (
-                "selected-runtime DDP ranks hold divergent parameters after an "
-                "optimizer step; gradient synchronization is not averaging across "
-                "ranks (check the ddp_static_graph / torch.compile configuration)"
-            )
-            raise RuntimeError(message)
-
-
-def _fingerprints_match(
-    left: tuple[float, float],
-    right: tuple[float, float],
-) -> bool:
-    """Return whether two parameter fingerprints agree, treating NaN as equal.
-
-    Under correct DDP, synced parameters give bit-identical finite fingerprints, so
-    exact equality is the right test. Identical NaN parameters across ranks are also
-    in sync (a numerical blow-up is caught by ``nonfinite_count`` / ``GradScaler``,
-    not here), but ``nan != nan`` would wrongly flag them; NaN is matched to NaN so
-    only a genuine divergence (a NaN-vs-finite split or differing finite values)
-    reports a desync.
-
-    Returns:
-        ``True`` if the two fingerprints agree moment-for-moment.
-
-    """
-    return _moment_matches(left[0], right[0]) and _moment_matches(left[1], right[1])
-
-
-def _moment_matches(left: float, right: float) -> bool:
-    if math.isnan(left) or math.isnan(right):
-        return math.isnan(left) and math.isnan(right)
-    return left == right
+    assert_ddp_parameters_in_sync(model, world_size=distributed.world_size)
 
 
 def _gather_csv_rows(
