@@ -246,13 +246,17 @@ The new comparison should use the same corruption policy for both branches once
 locked, and should log whether the target is clean `x_clean` and the input is
 `corrupt(x_clean)`.
 
-Clean-context implementation audit on 2026-06-11 found that the historical
-corruptor must not be copied directly: the fixed HED matrix is likely applied
-with the wrong orientation for channel-first left multiplication, the buffer
-names are ambiguous under the row-vector versus column-vector convention, and
-global RNG use is not DDP-clean. The relocked implementation should rewrite this
-as a tested Tellez-style HED/OD stain jitter module with explicit matrix
-convention and per-sample/rank/step-aware RNG.
+Clean-context implementation audit resolution: the relocked
+`src/eqvae/corruption/stain.py` satisfies the historical audit and the historical
+corruptor is not copied directly. Its HED matrices (`RGB_FROM_HED`/`HED_FROM_RGB`)
+match scikit-image 0.26.0 and are verified true inverses, applied channel-first
+via `einsum("bchw,cd->bdhw", ...)`; the conversion buffers are unambiguously named;
+and corruption uses rank-invariant per-sample seeding — a per-sample
+`torch.Generator` seeded by
+`blake2b(corruption_seed, split, semantic_sample_key, step, view, version)`, with no
+global RNG. Keep the seeding rank-invariant: `semantic_sample_key` excludes
+file/rank order by design, so do not add rank-keyed seeding — it would make
+corruption depend on DDP topology and break reproducibility.
 
 ### Historical Model
 

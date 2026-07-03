@@ -20,7 +20,9 @@ from eqvae.corruption.stain import (
     CONSERVATIVE_DEFAULT_PROFILE,
     CORRUPTION_VERSION,
     FSQ_LEGACY_WIDE_PROFILE,
+    HED_FROM_RGB,
     INDEXED_MASKED_STRATEGY,
+    RGB_FROM_HED,
     StainCorruptionParameters,
     StainCorruptionProfile,
     StainCorruptor,
@@ -45,6 +47,7 @@ if TYPE_CHECKING:
 EXPECTED_QA_COUNT = 25
 MASK_CARDINALITY_BATCH_SIZE = 4
 HELPER_STRATEGY_BATCH_SIZE = 2
+HED_MATRIX_INVERSE_ATOL = 1.0e-12
 
 
 def test_rgb_to_hed_matches_scikit_oracle_channel_first() -> None:
@@ -77,6 +80,29 @@ def test_hed_to_rgb_matches_scikit_oracle_channel_first() -> None:
     actual = hed_to_rgb(hed_nchw).squeeze(0).permute(1, 2, 0).numpy()
 
     np.testing.assert_allclose(actual, expected, atol=1.0e-6, rtol=1.0e-6)
+
+
+def test_locked_hed_matrices_invert_and_match_scikit_constant() -> None:
+    """HED matrices are true inverses and equal the scikit-image 0.26.0 stain matrix."""
+    rgb_from_hed = _as_float64_array(RGB_FROM_HED)
+    hed_from_rgb = _as_float64_array(HED_FROM_RGB)
+    scikit_rgb_from_hed = _as_float64_array(
+        cast("NDArray[np.float64]", skimage_color.rgb_from_hed),
+    )
+
+    np.testing.assert_array_equal(rgb_from_hed, scikit_rgb_from_hed)
+    np.testing.assert_allclose(
+        hed_from_rgb,
+        np.linalg.inv(rgb_from_hed),
+        atol=HED_MATRIX_INVERSE_ATOL,
+        rtol=0.0,
+    )
+    np.testing.assert_allclose(
+        rgb_from_hed @ hed_from_rgb,
+        np.eye(3),
+        atol=HED_MATRIX_INVERSE_ATOL,
+        rtol=0.0,
+    )
 
 
 def test_valid_hed_manifold_rgb_round_trip_is_stable() -> None:
@@ -376,6 +402,77 @@ def test_public_helper_strategies_preserve_semantic_outputs_and_rng() -> None:
     ]
     assert torch.equal(state, after_branchless)
     assert torch.equal(state, torch.get_rng_state())
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    [BRANCHLESS_ALL_STRATEGY, INDEXED_MASKED_STRATEGY],
+)
+def test_corruption_is_invariant_to_batch_rank_order(strategy: str) -> None:
+    """Per-sample corruption tracks the semantic key, not the batch/rank slot.
+
+    Corruption is seeded per sample from the semantic key (which excludes
+    file/rank order), so the same sample must be corrupted byte-identically
+    regardless of its position in the batch. This locks the rank-invariant
+    seeding contract: rank-keyed seeding would make corruption depend on DDP
+    topology and would break this invariant.
+    """
+    profile = StainCorruptionProfile(
+        name="always_on_rank_invariance_test",
+        corrupt_prob=1.0,
+        he_alpha_range=(0.80, 1.20),
+        he_beta_range=(-0.05, 0.05),
+        residual_alpha_range=(0.98, 1.02),
+        residual_beta_range=(-0.01, 0.01),
+        noise_std_range=(0.0, 0.05),
+    )
+    keys = (
+        "train:wsi_a:0:0:0",
+        "train:wsi_b:1:16:16",
+        "train:wsi_c:2:32:32",
+        "train:wsi_d:3:48:48",
+    )
+    generator = torch.Generator().manual_seed(20260703)
+    images = (torch.rand((4, 3, 8, 8), generator=generator) * 2.0) - 1.0
+    permutation = (2, 0, 3, 1)
+
+    base = corrupt_normalized_batch(
+        images,
+        profile=profile,
+        corruption_seed=20260611,
+        split="train",
+        semantic_sample_keys=keys,
+        corruption_step=5,
+        corruption_view="train_corrupted",
+        strategy=strategy,
+    )
+    # Non-vacuity: corrupt_prob=1.0 corrupts every sample, so each permuted row's
+    # byte-identity check exercises the HED/noise path, not clean passthrough.
+    assert all(item.applied for item in base.metadata)
+    permuted = corrupt_normalized_batch(
+        images[torch.tensor(permutation)],
+        profile=profile,
+        corruption_seed=20260611,
+        split="train",
+        semantic_sample_keys=tuple(keys[index] for index in permutation),
+        corruption_step=5,
+        corruption_view="train_corrupted",
+        strategy=strategy,
+    )
+
+    for new_index, original_index in enumerate(permutation):
+        assert torch.equal(
+            permuted.corrupted[new_index],
+            base.corrupted[original_index],
+        )
+        assert (
+            permuted.metadata[new_index].derived_seed
+            == base.metadata[original_index].derived_seed
+        )
+        assert (
+            permuted.metadata[new_index].as_json()
+            == base.metadata[original_index].as_json()
+        )
 
 
 def test_corrupt_normalized_batch_accepts_indexed_masked_strategy() -> None:

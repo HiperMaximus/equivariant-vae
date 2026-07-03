@@ -97,11 +97,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
 - **FU-015 — behavior_inventory_kaggle.md holds live spec-0001 design + stale
   blockers.** `docs/behavior_inventory_kaggle.md:541-649`. Fix: move durable design
   into spec 0001; delete dated slice-status/satisfied-blocker lists. See D-18.
-- **FU-016 — Confirm baseline stain corruptor fixed the historical HED orientation
-  + uses per-sample/rank/step RNG.** Audit warning at
-  `docs/behavior_inventory_kaggle.md:249-255`; cross-check `src/eqvae/corruption/`.
-  Fix: verify the HED/OD matrix convention and seeding; mark the audit resolved or
-  escalate.
 
 ### LOW
 
