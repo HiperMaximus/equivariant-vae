@@ -227,6 +227,67 @@ def test_embedded_synthetic_timing_kernel_survives_single_file_upload_simulation
     assert timing_plan["batch_sizes"] == [2]
 
 
+def test_embedded_selected_runtime_compile_probe_kernel_embeds_probe_payload(
+    tmp_path: Path,
+) -> None:
+    """The compile-probe kernel builds no-attach and embeds the probe module.
+
+    The probe itself needs dual-T4 NCCL, so it is not executed here; this proves the
+    single-file kernel builds, carries the compiled fast-path probe source, launches
+    it under torchrun, and advertises only the non-promotable artifacts.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="selected_runtime_compile_probe",
+        ready_marker="KAGGLE_SELECTED_RUNTIME_COMPILE_PROBE_READY = True",
+    )
+
+    names = _embedded_payload_names(simulation.upload_dir / "run.py")
+    assert "src/eqvae/benchmarking/compiled_fastpath_probe.py" in names
+    metadata = _load_json(simulation.upload_dir / "kernel-metadata.json")
+    assert metadata["id"] == "maximusshtefan/eqvae-selected-runtime-compile-probe"
+    for source_field in (
+        "dataset_sources",
+        "competition_sources",
+        "kernel_sources",
+        "model_sources",
+    ):
+        assert metadata[source_field] == []
+
+    run_text = (simulation.upload_dir / "run.py").read_text(encoding="utf-8")
+    for required_text in (
+        "compiled_fastpath_probe_proof.json",
+        "compiled_fastpath_probe_matrix.csv",
+        "compiled_fastpath_probe_manifest.json",
+        "non_promotable_compiled_fastpath_probe",
+        "kaggle_compiled_fastpath_probe",
+        "torch.distributed.run",
+        "--nproc_per_node=2",
+        "eqvae.benchmarking.compiled_fastpath_probe",
+    ):
+        assert required_text in run_text
+
+
+def test_compile_probe_push_guard_greps_with_end_of_options_separator() -> None:
+    """The compile-probe guard needs `grep -q --` for its dash-prefixed marker.
+
+    Its `required_text` list includes `--nproc_per_node=2`; without the `--`
+    end-of-options separator, grep parses that as an unknown option and the guard
+    fails every push even though the text is present.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    script = (repo_root / "scripts" / "kaggle_kernel.sh").read_text(encoding="utf-8")
+    header = "guard_selected_runtime_compile_probe_push_ready()"
+    start = script.index(header)
+    guard_body = script[start : script.index("\nguard_", start + len(header))]
+
+    assert '"--nproc_per_node=2"' in guard_body
+    assert 'grep -q -- "$required_text"' in guard_body
+    assert 'grep -q "$required_text"' not in guard_body
+
+
 def test_embedded_real_data_runtime_pretest_kernel_import_simulation(
     tmp_path: Path,
 ) -> None:

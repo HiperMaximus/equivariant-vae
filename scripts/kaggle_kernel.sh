@@ -25,6 +25,7 @@ selected_runtime_full_kernel_dir="kaggle/kernels/selected_runtime_full"
 selected_runtime_full_output_dir="runs/kaggle/selected_runtime_full"
 fixed25_selector_kernel_dir="kaggle/kernels/fixed25_selector"
 fixed25_selector_output_dir="runs/kaggle/fixed25_selector"
+selected_runtime_compile_probe_kernel_dir="kaggle/kernels/selected_runtime_compile_probe"
 
 usage() {
   cat <<'EOF'
@@ -542,6 +543,9 @@ embedded_ready_marker() {
     maximusshtefan/eqvae-fixed25-selector)
       printf '%s\n' "KAGGLE_FIXED25_SELECTOR_READY = True"
       ;;
+    maximusshtefan/eqvae-selected-runtime-compile-probe)
+      printf '%s\n' "KAGGLE_SELECTED_RUNTIME_COMPILE_PROBE_READY = True"
+      ;;
     maximusshtefan/non-eq-vae-debug)
       printf '%s\n' "KAGGLE_SMOKE_READY = True"
       ;;
@@ -607,6 +611,11 @@ EOF
 
   if grep -q "KAGGLE_FIXED25_SELECTOR_READY = True" "$kernel_dir/$code_file"; then
     guard_fixed25_selector_push_ready "$kernel_dir" "$metadata"
+    return
+  fi
+
+  if grep -q "KAGGLE_SELECTED_RUNTIME_COMPILE_PROBE_READY = True" "$kernel_dir/$code_file"; then
+    guard_selected_runtime_compile_probe_push_ready "$kernel_dir" "$metadata"
     return
   fi
 
@@ -1083,6 +1092,136 @@ PY
     "wrong_accelerator"; do
     if ! grep -q "$required_text" "$run_file"; then
       echo "error: synthetic timing run.py missing required text: $required_text" >&2
+      exit 1
+    fi
+  done
+}
+
+guard_selected_runtime_compile_probe_push_ready() {
+  local kernel_dir="$1"
+  local metadata="$2"
+
+  if [[ -d "$kernel_dir/payload" ]]; then
+    echo "error: compile probe must be a single generated run.py, not a sibling payload" >&2
+    exit 1
+  fi
+
+  if [[ "${KAGGLE_FULL_DATASET_CONFIRMED:-}" == "1" ]]; then
+    echo "error: do not set KAGGLE_FULL_DATASET_CONFIRMED=1 for the no-dataset compile probe" >&2
+    exit 1
+  fi
+
+  python3 - "$metadata" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+metadata = Path(sys.argv[1])
+data = json.loads(metadata.read_text(encoding="utf-8"))
+errors: list[str] = []
+
+required_values = {
+    "id": "maximusshtefan/eqvae-selected-runtime-compile-probe",
+    "title": "eqvae selected runtime compile probe",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "false",
+    "machine_shape": "NvidiaTeslaT4",
+}
+
+for key, expected in required_values.items():
+    actual = str(data.get(key, ""))
+    comparable = actual.lower() if expected in {"true", "false"} else actual
+    if comparable != expected:
+        errors.append(f"{key} must be {expected!r}")
+
+for source_field in (
+    "dataset_sources",
+    "competition_sources",
+    "kernel_sources",
+    "model_sources",
+):
+    if data.get(source_field) != []:
+        errors.append(f"{source_field} must be an empty list for the compile probe")
+
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+
+  python3 scripts/build_kaggle_embedded_kernel.py \
+    --kernel-dir "$kernel_dir" \
+    --ready-marker "KAGGLE_SELECTED_RUNTIME_COMPILE_PROBE_READY = True" \
+    --verify-only
+
+  local run_file="$kernel_dir/run.py"
+  python3 - "$run_file" <<'PY'
+import base64
+import io
+import re
+import sys
+import zipfile
+from pathlib import Path
+
+run_text = Path(sys.argv[1]).read_text(encoding="utf-8")
+match = re.search(
+    r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""',
+    run_text,
+    flags=re.DOTALL,
+)
+if match is None:
+    print("error: compile probe run.py has no embedded payload", file=sys.stderr)
+    raise SystemExit(1)
+
+payload = base64.b64decode(match.group("payload").encode("ascii"))
+with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+    try:
+        source = archive.read(
+            "src/eqvae/benchmarking/compiled_fastpath_probe.py",
+        ).decode("utf-8")
+    except KeyError:
+        print(
+            "error: compile probe payload is missing compiled_fastpath_probe.py",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from None
+
+required_source_text = (
+    'COMPILED_FASTPATH_PROBE_KIND = "kaggle_compiled_fastpath_probe"',
+    'COMPILED_FASTPATH_PROBE_STATUS_SCOPE = "non_promotable_compiled_fastpath_probe"',
+    "def run_compiled_fastpath_probe(",
+    "def run_negative_control_desync(",
+    "def _reduce_correctness_signals(",
+    "def _write_probe_artifacts_failclosed(",
+)
+missing = [text for text in required_source_text if text not in source]
+if missing:
+    for text in missing:
+        print(
+            f"error: compile probe embedded source missing required text: {text}",
+            file=sys.stderr,
+        )
+    raise SystemExit(1)
+PY
+
+  for required_text in \
+    "compiled_fastpath_probe_proof.json" \
+    "compiled_fastpath_probe_matrix.csv" \
+    "compiled_fastpath_probe_manifest.json" \
+    "non_promotable_compiled_fastpath_probe" \
+    "kaggle_compiled_fastpath_probe" \
+    "kaggle_no_dataset_synthetic_compiled_fastpath" \
+    "blocked_claims" \
+    "/kaggle/working" \
+    "torch.distributed.run" \
+    "--nproc_per_node=2" \
+    "eqvae.benchmarking.compiled_fastpath_probe"; do
+    if ! grep -q -- "$required_text" "$run_file"; then
+      echo "error: compile probe run.py missing required text: $required_text" >&2
       exit 1
     fi
   done

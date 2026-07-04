@@ -215,6 +215,7 @@ kaggle/kernels/runtime_selection/run.py
 kaggle/kernels/selected_runtime_debug/run.py
 kaggle/kernels/selected_runtime_full/run.py
 kaggle/kernels/fixed25_selector/run.py
+kaggle/kernels/selected_runtime_compile_probe/run.py
 
 # Kaggle credentials
 .kaggle/
