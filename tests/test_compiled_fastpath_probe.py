@@ -1,11 +1,12 @@
 # Copyright 2026 HiperMaximus
-"""CPU-only tests for the compiled fast-path probe (fast-path port, step 5b).
+"""CPU-only tests for the compiled fast-path bake-off (fast-path port, step 5b).
 
 The NCCL/DDP/CUDA measurement core (`run_compiled_fastpath_probe`) only runs
 under `torchrun` on GPU and is exercised on Kaggle, not here. These tests cover
 the import-safe, CPU-runnable public surface: the dynamo-counter helpers, the
-negative-control desync guard, the non-promotable payload/artifact builders, the
-correctness-invariant verdict, and the eager step configuration the probe uses.
+negative-control desync guard, the per-recipe pass logic, the winner selection,
+the non-promotable payload/artifact builders (one row per config), and the eager
+step configuration the probe uses.
 """
 
 from __future__ import annotations
@@ -21,13 +22,17 @@ from torch._dynamo.utils import counters  # noqa: PLC2701
 
 from eqvae.benchmarking.compiled_fastpath_probe import (
     BLOCKED_CLAIM_KEYS,
-    COMPILED_FASTPATH_PROBE_COMPILE_SCOPE,
     COMPILED_FASTPATH_PROBE_STATUS_SCOPE,
+    EAGER_BASELINE_NAME,
     PROBE_STATUS_FAIL,
     PROBE_STATUS_PASS,
+    RECIPE_DDP_COMPILE_MODEL,
+    RECIPE_DDP_OPTIMIZER,
+    RECIPE_PYTHON_REDUCER,
     CompiledFastpathProbeEnvironment,
     CompiledFastpathProbeMeasurement,
     CompiledFastpathProbeRequest,
+    RecipeResult,
     build_compiled_fastpath_probe_matrix_rows,
     build_compiled_fastpath_probe_proof,
     graph_break_total,
@@ -51,6 +56,10 @@ _STEP_BATCH = 2
 _STEP_SIZE = 64
 _STEP_SSIM_WEIGHT = 0.1
 _DEFAULT_SYNC_CHECKS = 3
+_EAGER_SAMPLES_SEC = 100.0
+_SLOW_SAMPLES_SEC = 150.0
+_FAST_SAMPLES_SEC = 240.0
+_MATRIX_ROW_COUNT = 4
 
 
 def _request(output_dir: Path) -> CompiledFastpathProbeRequest:
@@ -62,28 +71,72 @@ def _environment() -> CompiledFastpathProbeEnvironment:
         world_size=_WORLD_SIZE,
         nproc_per_node=_WORLD_SIZE,
         gpu_names=("Tesla T4", "Tesla T4"),
+        torch_version="2.12.0+cu124",
     )
 
 
-def _measurement(  # noqa: PLR0913
+def _eager_result(
     *,
+    syncs: bool = True,
+    samples_sec: float = _EAGER_SAMPLES_SEC,
+    nonfinite_loss_count: int = 0,
+) -> RecipeResult:
+    return RecipeResult(
+        name=EAGER_BASELINE_NAME,
+        compiled=False,
+        compile_scope="none",
+        syncs=syncs,
+        graph_break_count=0,
+        recompile_count=0,
+        step_ms_p50=12.0,
+        samples_sec=samples_sec,
+        peak_vram_mb=1000.0,
+        nonfinite_loss_count=nonfinite_loss_count,
+        speedup=1.0,
+    )
+
+
+def _recipe_result(  # noqa: PLR0913
+    name: str,
+    *,
+    compile_scope: str = "step",
+    syncs: bool = True,
     graph_break_count: int = 0,
     recompile_count: int = 0,
-    positive_sync_in_sync: bool = True,
-    negative_control_fired: bool = True,
+    samples_sec: float = _FAST_SAMPLES_SEC,
     nonfinite_loss_count: int = 0,
-    sync_check_steps: int = _DEFAULT_SYNC_CHECKS,
-) -> CompiledFastpathProbeMeasurement:
-    return CompiledFastpathProbeMeasurement(
+) -> RecipeResult:
+    return RecipeResult(
+        name=name,
+        compiled=True,
+        compile_scope=compile_scope,
+        syncs=syncs,
         graph_break_count=graph_break_count,
         recompile_count=recompile_count,
-        positive_sync_in_sync=positive_sync_in_sync,
-        negative_control_fired=negative_control_fired,
-        sync_check_steps=sync_check_steps,
-        compiled_step_ms_p50=10.0,
-        eager_step_ms_p50=12.0,
-        speedup=1.2,
+        step_ms_p50=8.0,
+        samples_sec=samples_sec,
+        peak_vram_mb=1200.0,
         nonfinite_loss_count=nonfinite_loss_count,
+        speedup=samples_sec / _EAGER_SAMPLES_SEC,
+    )
+
+
+def _measurement(
+    *,
+    recipes: tuple[RecipeResult, ...] | None = None,
+    negative_control_fired: bool = True,
+    eager: RecipeResult | None = None,
+) -> CompiledFastpathProbeMeasurement:
+    default_recipes = (
+        _recipe_result(RECIPE_PYTHON_REDUCER, samples_sec=_FAST_SAMPLES_SEC),
+        _recipe_result(RECIPE_DDP_OPTIMIZER, samples_sec=_SLOW_SAMPLES_SEC),
+        _recipe_result(RECIPE_DDP_COMPILE_MODEL, samples_sec=_SLOW_SAMPLES_SEC),
+    )
+    return CompiledFastpathProbeMeasurement(
+        eager=eager if eager is not None else _eager_result(),
+        recipes=recipes if recipes is not None else default_recipes,
+        negative_control_fired=negative_control_fired,
+        sync_check_steps=_DEFAULT_SYNC_CHECKS,
     )
 
 
@@ -159,22 +212,69 @@ def test_negative_control_stays_silent_when_rank_not_desynced(
     )
 
 
-def test_passed_requires_every_correctness_invariant() -> None:
-    """The pass verdict flips when any settle/sync/finiteness invariant breaks."""
-    assert _measurement().passed
-    assert not _measurement(graph_break_count=1).passed
-    assert not _measurement(recompile_count=1).passed
-    assert not _measurement(positive_sync_in_sync=False).passed
-    assert not _measurement(negative_control_fired=False).passed
-    assert not _measurement(nonfinite_loss_count=1).passed
-    assert not _measurement(sync_check_steps=0).passed
+def test_recipe_passes_only_when_synced_stable_and_finite() -> None:
+    """A recipe is a winner candidate only if it synced, settled, and stayed finite."""
+    assert _recipe_result(RECIPE_PYTHON_REDUCER).passed
+    assert not _recipe_result(RECIPE_PYTHON_REDUCER, syncs=False).passed
+    assert not _recipe_result(RECIPE_PYTHON_REDUCER, graph_break_count=1).passed
+    assert not _recipe_result(RECIPE_PYTHON_REDUCER, recompile_count=1).passed
+    assert not _recipe_result(RECIPE_PYTHON_REDUCER, nonfinite_loss_count=1).passed
+    assert not _recipe_result(RECIPE_PYTHON_REDUCER, graph_break_count=1).stable
+    # The eager baseline never counts as a passing recipe candidate.
+    assert not _eager_result().passed
+
+
+def test_winner_is_fastest_passing_recipe() -> None:
+    """The winner is the highest-throughput recipe among those that pass."""
+    measurement = _measurement()
+    winner = measurement.winner
+    assert winner is not None
+    assert winner.name == RECIPE_PYTHON_REDUCER
+    assert measurement.passed
+
+
+def test_winner_skips_faster_but_unstable_recipe() -> None:
+    """A faster recipe that broke stability is disqualified from winning."""
+    measurement = _measurement(
+        recipes=(
+            _recipe_result(
+                RECIPE_PYTHON_REDUCER,
+                samples_sec=_FAST_SAMPLES_SEC,
+                graph_break_count=1,
+            ),
+            _recipe_result(RECIPE_DDP_OPTIMIZER, samples_sec=_SLOW_SAMPLES_SEC),
+        ),
+    )
+    winner = measurement.winner
+    assert winner is not None
+    assert winner.name == RECIPE_DDP_OPTIMIZER
+
+
+def test_measurement_fails_when_no_recipe_passes() -> None:
+    """With every recipe desynced, there is no winner and the verdict is a fail."""
+    measurement = _measurement(
+        recipes=(
+            _recipe_result(RECIPE_PYTHON_REDUCER, syncs=False),
+            _recipe_result(RECIPE_DDP_OPTIMIZER, syncs=False),
+        ),
+    )
+    assert measurement.winner is None
+    assert not measurement.passed
+
+
+def test_measurement_fails_when_negative_control_silent() -> None:
+    """A negative control that never fired flips the pass verdict to fail."""
+    measurement = _measurement(negative_control_fired=False)
+    assert measurement.winner is not None
+    assert not measurement.passed
 
 
 def test_proof_payload_marks_non_promotable(tmp_path: Path) -> None:
     """The proof blocks promotion: no eligibility, no sources, every claim blocked."""
+    measurement = _measurement()
     proof = build_compiled_fastpath_probe_proof(
         request=_request(tmp_path),
-        measurement=_measurement(),
+        measurement=measurement,
         environment=_environment(),
     )
     assert proof["full_run_eligible"] is False
@@ -185,38 +285,67 @@ def test_proof_payload_marks_non_promotable(tmp_path: Path) -> None:
     assert proof["model_sources"] == []
     assert proof["status_scope"] == COMPILED_FASTPATH_PROBE_STATUS_SCOPE
     assert proof["status"] == PROBE_STATUS_PASS
+    assert proof["negative_control_fired"] is True
+    assert proof["torch_version"] == "2.12.0+cu124"
+    assert proof["world_size"] == _WORLD_SIZE
+    assert proof["per_device_batch_size"] == _request(tmp_path).per_device_batch_size
     blocked = cast("dict[str, object]", proof["blocked_claims"])
     assert set(blocked) == set(BLOCKED_CLAIM_KEYS)
     assert all(blocked.values())
-    compile_block = cast("dict[str, object]", proof["compile"])
-    assert compile_block["scope"] == COMPILED_FASTPATH_PROBE_COMPILE_SCOPE
-    assert compile_block["dynamic"] is False
+
+
+def test_proof_records_recipes_eager_and_winner(tmp_path: Path) -> None:
+    """The proof carries every recipe row, the eager baseline, and the winner."""
+    proof = build_compiled_fastpath_probe_proof(
+        request=_request(tmp_path),
+        measurement=_measurement(),
+        environment=_environment(),
+    )
+    recipes = cast("list[dict[str, object]]", proof["recipes"])
+    assert len(recipes) == _MATRIX_ROW_COUNT - 1
+    assert {row["name"] for row in recipes} == {
+        RECIPE_PYTHON_REDUCER,
+        RECIPE_DDP_OPTIMIZER,
+        RECIPE_DDP_COMPILE_MODEL,
+    }
+    eager = cast("dict[str, object]", proof["eager_baseline"])
+    assert eager["name"] == EAGER_BASELINE_NAME
+    assert eager["syncs"] is True
+    winner = cast("dict[str, object]", proof["winner"])
+    assert winner["found"] is True
+    assert winner["name"] == RECIPE_PYTHON_REDUCER
 
 
 def test_proof_status_reflects_failed_measurement(tmp_path: Path) -> None:
-    """A broken correctness invariant marks the proof status as failed."""
+    """A silent negative control marks the proof status as failed."""
     proof = build_compiled_fastpath_probe_proof(
         request=_request(tmp_path),
-        measurement=_measurement(graph_break_count=1),
+        measurement=_measurement(negative_control_fired=False),
         environment=_environment(),
     )
     assert proof["status"] == PROBE_STATUS_FAIL
+    winner = cast("dict[str, object]", proof["winner"])
+    assert winner["found"] is True
 
 
-def test_matrix_row_carries_probe_summary(tmp_path: Path) -> None:
-    """The single matrix row echoes the non-promotable scope and probe status."""
+def test_matrix_has_one_row_per_config_and_flags_winner(tmp_path: Path) -> None:
+    """The matrix echoes eager plus three recipes, marking exactly one winner."""
     rows = build_compiled_fastpath_probe_matrix_rows(
         request=_request(tmp_path),
         measurement=_measurement(),
         environment=_environment(),
     )
-    assert len(rows) == 1
-    row = rows[0]
-    assert row["status_scope"] == COMPILED_FASTPATH_PROBE_STATUS_SCOPE
-    assert row["full_run_eligible"] == "false"
-    assert row["compile_scope"] == COMPILED_FASTPATH_PROBE_COMPILE_SCOPE
-    assert row["status"] == PROBE_STATUS_PASS
-    assert row["negative_control_fired"] == "true"
+    assert len(rows) == _MATRIX_ROW_COUNT
+    assert rows[0]["recipe_name"] == EAGER_BASELINE_NAME
+    assert rows[0]["compiled"] == "false"
+    winners = [row for row in rows if row["is_winner"] == "true"]
+    assert len(winners) == 1
+    assert winners[0]["recipe_name"] == RECIPE_PYTHON_REDUCER
+    for row in rows:
+        assert row["status_scope"] == COMPILED_FASTPATH_PROBE_STATUS_SCOPE
+        assert row["full_run_eligible"] == "false"
+        assert row["status"] == PROBE_STATUS_PASS
+        assert row["negative_control_fired"] == "true"
 
 
 def test_write_artifacts_emits_three_non_promotable_files(tmp_path: Path) -> None:
@@ -248,7 +377,8 @@ def test_write_artifacts_emits_three_non_promotable_files(tmp_path: Path) -> Non
     )
     matrix_text = artifacts.matrix.read_text(encoding="utf-8")
     assert PROBE_STATUS_PASS in matrix_text
-    assert "channels_last" in matrix_text
+    assert RECIPE_PYTHON_REDUCER in matrix_text
+    assert EAGER_BASELINE_NAME in matrix_text
 
 
 def test_probe_step_configuration_backprops_eagerly() -> None:
