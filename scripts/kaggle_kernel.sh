@@ -1193,10 +1193,10 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
 required_source_text = (
     'COMPILED_FASTPATH_PROBE_KIND = "kaggle_compiled_fastpath_probe"',
     'COMPILED_FASTPATH_PROBE_STATUS_SCOPE = "non_promotable_compiled_fastpath_probe"',
+    'RECIPE_PYTHON_REDUCER = "python_reducer_whole_step"',
+    'RECIPE_DDP_OPTIMIZER = "ddp_optimizer_whole_step"',
     "def run_compiled_fastpath_probe(",
     "def run_negative_control_desync(",
-    "def _reduce_correctness_signals(",
-    "def _write_probe_artifacts_failclosed(",
 )
 missing = [text for text in required_source_text if text not in source]
 if missing:
