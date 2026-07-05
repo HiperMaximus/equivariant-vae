@@ -87,6 +87,8 @@ def _launch_dual_t4_probe(*, payload_src: Path, output_dir: Path) -> None:
         COMPILE_PROBE_MODULE,
         "--output-dir",
         str(output_dir),
+        "--batch-sizes",
+        "12,24,48,96",
     )
     subprocess.run(  # noqa: S603
         command,

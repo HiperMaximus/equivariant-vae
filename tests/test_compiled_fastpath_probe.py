@@ -33,6 +33,11 @@ from eqvae.benchmarking.compiled_fastpath_probe import (
     CompiledFastpathProbeMeasurement,
     CompiledFastpathProbeRequest,
     RecipeResult,
+    _binary_search_ceiling,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _sweep_ladder_batches,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _sweep_max_feasible_batch,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _sweep_throughput_optimal,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _SweepPoint,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     build_compiled_fastpath_probe_matrix_rows,
     build_compiled_fastpath_probe_proof,
     graph_break_total,
@@ -60,10 +65,77 @@ _EAGER_SAMPLES_SEC = 100.0
 _SLOW_SAMPLES_SEC = 150.0
 _FAST_SAMPLES_SEC = 240.0
 _MATRIX_ROW_COUNT = 4
+_SWEEP_BATCH_SIZES = (12, 24, 48, 96)
+_SWEEP_OPTIMAL_BATCH = 24
+_SWEEP_MAX_FEASIBLE_BATCH = 48
+_EAGER_MAX_FEASIBLE_BATCH = 12
+# Binary-search ceiling fixtures. _CEILING_GRANULARITY mirrors the source's
+# _SWEEP_CEILING_GRANULARITY; the search must stop within that of the true ceiling.
+_CEILING_LOW_OK = 48
+_CEILING_HIGH_OOM = 384
+_CEILING_TRUE_MAX = 200
+_CEILING_GRANULARITY = 4
+_CEILING_MAX_PROBES = 10
+_CEILING_TIGHT_MAX = 150
+_CEILING_OOM_BOUND = 192
+# Ladder fixtures: base, first doubled rung past the requested seeds, and the cap.
+_LADDER_BASE = 12
+_LADDER_FIRST_DOUBLED = 48
+_LADDER_CAP = 512
 
 
-def _request(output_dir: Path) -> CompiledFastpathProbeRequest:
-    return CompiledFastpathProbeRequest(output_dir=output_dir)
+def _request(
+    output_dir: Path,
+    *,
+    batch_sizes: tuple[int, ...] | None = None,
+) -> CompiledFastpathProbeRequest:
+    if batch_sizes is None:
+        return CompiledFastpathProbeRequest(output_dir=output_dir)
+    return CompiledFastpathProbeRequest(output_dir=output_dir, batch_sizes=batch_sizes)
+
+
+def _sweep_point(  # noqa: PLR0913
+    name: str,
+    batch_size: int,
+    *,
+    samples_sec: float = 0.0,
+    peak_vram_mb: float = 0.0,
+    syncs: bool = True,
+    stable: bool = True,
+    nonfinite: int = 0,
+    oom: bool = False,
+) -> _SweepPoint:
+    return _SweepPoint(
+        name=name,
+        batch_size=batch_size,
+        samples_sec=samples_sec,
+        step_ms_p50=0.0,
+        peak_vram_mb=peak_vram_mb,
+        syncs=syncs,
+        stable=stable,
+        nonfinite=nonfinite,
+        oom=oom,
+    )
+
+
+def _sweep_points() -> tuple[_SweepPoint, ...]:
+    # ddp_optimizer: fastest at batch 24, still feasible (slower) at 48, OOM at 96.
+    # eager and ddp_compile_model each OOM at their second batch.
+    return (
+        _sweep_point(EAGER_BASELINE_NAME, 12, samples_sec=90.0, peak_vram_mb=6000.0),
+        _sweep_point(EAGER_BASELINE_NAME, 24, oom=True),
+        _sweep_point(RECIPE_DDP_OPTIMIZER, 12, samples_sec=130.0, peak_vram_mb=2500.0),
+        _sweep_point(RECIPE_DDP_OPTIMIZER, 24, samples_sec=210.0, peak_vram_mb=4200.0),
+        _sweep_point(RECIPE_DDP_OPTIMIZER, 48, samples_sec=205.0, peak_vram_mb=7800.0),
+        _sweep_point(RECIPE_DDP_OPTIMIZER, 96, oom=True),
+        _sweep_point(
+            RECIPE_DDP_COMPILE_MODEL,
+            12,
+            samples_sec=120.0,
+            peak_vram_mb=2600.0,
+        ),
+        _sweep_point(RECIPE_DDP_COMPILE_MODEL, 24, oom=True),
+    )
 
 
 def _environment() -> CompiledFastpathProbeEnvironment:
@@ -126,6 +198,7 @@ def _measurement(
     recipes: tuple[RecipeResult, ...] | None = None,
     negative_control_fired: bool = True,
     eager: RecipeResult | None = None,
+    sweep_points: tuple[_SweepPoint, ...] = (),
 ) -> CompiledFastpathProbeMeasurement:
     default_recipes = (
         _recipe_result(RECIPE_PYTHON_REDUCER, samples_sec=_FAST_SAMPLES_SEC),
@@ -137,6 +210,7 @@ def _measurement(
         recipes=recipes if recipes is not None else default_recipes,
         negative_control_fired=negative_control_fired,
         sync_check_steps=_DEFAULT_SYNC_CHECKS,
+        sweep_points=sweep_points,
     )
 
 
@@ -346,6 +420,132 @@ def test_matrix_has_one_row_per_config_and_flags_winner(tmp_path: Path) -> None:
         assert row["full_run_eligible"] == "false"
         assert row["status"] == PROBE_STATUS_PASS
         assert row["negative_control_fired"] == "true"
+
+
+def test_sweep_throughput_optimal_picks_highest_feasible_samples_sec() -> None:
+    """The optimal point is the highest-throughput non-OOM batch, not the largest."""
+    points = [
+        _sweep_point(RECIPE_DDP_OPTIMIZER, 12, samples_sec=100.0),
+        _sweep_point(RECIPE_DDP_OPTIMIZER, 24, samples_sec=180.0),
+        _sweep_point(RECIPE_DDP_OPTIMIZER, 48, samples_sec=150.0),
+        _sweep_point(RECIPE_DDP_OPTIMIZER, 96, oom=True),
+    ]
+    optimal = _sweep_throughput_optimal(points)
+    assert optimal is not None
+    assert optimal.batch_size == _SWEEP_OPTIMAL_BATCH
+    # The largest non-OOM batch (48) is feasible but slower than the optimal (24).
+    assert _sweep_max_feasible_batch(points) == _SWEEP_MAX_FEASIBLE_BATCH
+
+
+def test_sweep_ignores_oom_points_when_selecting() -> None:
+    """An all-OOM sweep has neither a throughput optimum nor a feasible batch."""
+    points = [
+        _sweep_point(RECIPE_DDP_OPTIMIZER, 48, oom=True),
+        _sweep_point(RECIPE_DDP_OPTIMIZER, 96, oom=True),
+    ]
+    assert _sweep_throughput_optimal(points) is None
+    assert _sweep_max_feasible_batch(points) is None
+
+
+def test_binary_search_ceiling_pins_largest_feasible_batch() -> None:
+    """The bisection returns the largest feasible batch within the granularity."""
+    probed: list[int] = []
+
+    def feasible(batch_size: int) -> bool:
+        probed.append(batch_size)
+        return batch_size <= _CEILING_TRUE_MAX
+
+    ceiling = _binary_search_ceiling(feasible, low_ok=48, high_oom=384)
+    # Within granularity (4) of the true 200-batch ceiling, never above it.
+    assert ceiling <= _CEILING_TRUE_MAX
+    assert _CEILING_TRUE_MAX - ceiling <= _CEILING_GRANULARITY
+    # A bisection touches O(log range) midpoints, not every candidate batch.
+    assert len(probed) <= _CEILING_MAX_PROBES
+    assert all(_CEILING_LOW_OK <= size <= _CEILING_HIGH_OOM for size in probed)
+
+
+def test_binary_search_ceiling_never_probes_or_returns_the_oom_bound() -> None:
+    """Feasibility is only ever probed strictly below the known-OOM upper bound."""
+    probed: list[int] = []
+
+    def feasible(batch_size: int) -> bool:
+        probed.append(batch_size)
+        return batch_size <= _CEILING_TIGHT_MAX
+
+    ceiling = _binary_search_ceiling(feasible, low_ok=96, high_oom=192)
+    assert ceiling <= _CEILING_TIGHT_MAX
+    # The known-OOM bound is never re-probed (no wasted OOM) and never returned.
+    assert all(size < _CEILING_OOM_BOUND for size in probed)
+    assert ceiling < _CEILING_OOM_BOUND
+
+
+def test_sweep_ladder_auto_extends_past_requested_until_the_cap() -> None:
+    """The ladder keeps doubling past the largest requested size up to the cap."""
+    ladder = _sweep_ladder_batches((12, 24))
+    # Requested sizes are preserved and de-duplicated, ascending.
+    assert ladder[:2] == (12, 24)
+    # It then doubles (48, 96, ...) so the sweep finds the OOM edge on its own.
+    assert ladder[2] == _LADDER_FIRST_DOUBLED
+    assert all(ladder[idx] == ladder[idx - 1] * 2 for idx in range(2, len(ladder)))
+    assert max(ladder) <= _LADDER_CAP
+
+
+def test_sweep_ladder_dedupes_and_defaults_empty_request() -> None:
+    """Duplicate/zero sizes collapse and an empty request falls back to the base."""
+    assert _sweep_ladder_batches((48, 24, 24, 0))[:2] == (24, 48)
+    assert _sweep_ladder_batches(())[0] == _LADDER_BASE
+
+
+def test_proof_batch_sweep_reports_optimal_and_feasible(tmp_path: Path) -> None:
+    """The proof's batch_sweep section carries every point and per-recipe summaries."""
+    points = _sweep_points()
+    proof = build_compiled_fastpath_probe_proof(
+        request=_request(tmp_path, batch_sizes=_SWEEP_BATCH_SIZES),
+        measurement=_measurement(sweep_points=points),
+        environment=_environment(),
+    )
+    sweep = cast("dict[str, object]", proof["batch_sweep"])
+    assert sweep["requested_batch_sizes"] == list(_SWEEP_BATCH_SIZES)
+    rows = cast("list[dict[str, object]]", sweep["points"])
+    assert len(rows) == len(points)
+    assert any(row["oom"] is True for row in rows)
+    recipes = cast("dict[str, dict[str, object]]", sweep["recipes"])
+    ddp = recipes[RECIPE_DDP_OPTIMIZER]
+    optimal = cast("dict[str, object]", ddp["throughput_optimal"])
+    assert optimal["found"] is True
+    assert optimal["batch_size"] == _SWEEP_OPTIMAL_BATCH
+    assert ddp["max_feasible_batch"] == _SWEEP_MAX_FEASIBLE_BATCH
+    eager = recipes[EAGER_BASELINE_NAME]
+    assert eager["max_feasible_batch"] == _EAGER_MAX_FEASIBLE_BATCH
+
+
+def test_proof_batch_sweep_empty_when_no_points(tmp_path: Path) -> None:
+    """A single-batch run with no sweep points yields an empty batch_sweep section."""
+    proof = build_compiled_fastpath_probe_proof(
+        request=_request(tmp_path),
+        measurement=_measurement(),
+        environment=_environment(),
+    )
+    sweep = cast("dict[str, object]", proof["batch_sweep"])
+    assert sweep["points"] == []
+    assert sweep["recipes"] == {}
+
+
+def test_matrix_appends_sweep_rows_with_phase_and_batch(tmp_path: Path) -> None:
+    """Sweep rows extend the four bake-off rows, tagged phase=sweep with a batch."""
+    points = _sweep_points()
+    rows = build_compiled_fastpath_probe_matrix_rows(
+        request=_request(tmp_path, batch_sizes=_SWEEP_BATCH_SIZES),
+        measurement=_measurement(sweep_points=points),
+        environment=_environment(),
+    )
+    bakeoff_rows = [row for row in rows if row["phase"] == "bakeoff"]
+    sweep_rows = [row for row in rows if row["phase"] == "sweep"]
+    assert len(bakeoff_rows) == _MATRIX_ROW_COUNT
+    assert len(sweep_rows) == len(points)
+    assert all(row["batch_size"] for row in sweep_rows)
+    assert any(row["oom"] == "true" for row in sweep_rows)
+    assert all(row["oom"] == "false" for row in bakeoff_rows)
 
 
 def test_write_artifacts_emits_three_non_promotable_files(tmp_path: Path) -> None:
