@@ -11,6 +11,27 @@ Build the repo toward a fair SIPAIM 2026 comparison between:
 2. a continuous `SO(2)` steerable denoising VAE using a repo-owned,
    compile-compatible implementation, with `escnn` as a reference.
 
+Latest handoff, 2026-07-05 — reusable goal-derived runtime + compiled fast-path
+(**Spec 0011**, `docs/specs/0011-reusable-goal-derived-runtime-and-compiled-fastpath.md`):
+the training runtime becomes a REUSABLE per-(model×hardware) SEARCH-then-run
+mechanism (an efficiency search emits `selected_runtime.json`; the full-run config
+carries no batch/LR of its own; validators/gates check relationships, not literals),
+so the future equivariant model re-runs it unchanged. Committed this workstream:
+**B1 `119c8fd`** un-froze the full-run schedule in the config + runner target/save
++ the `selected_runtime_full` kernel `_validate_full_config` (behavior-preserving at
+batch 24: still derives 12500/125000/6250; gate green — ruff/basedpyright/342 pytest;
+adversarial review clean). Known B1 side effect: the build-time packaging validator
+`scripts/kaggle_kernel.sh:2136-2162` (+ in-kernel `run_template.py`
+`_validate_selected_runtime`/`_validate_full_config`, `tests/test_kaggle_embedded_kernel.py`)
+still pins the removed literals — invisible to pytest (shell), only bites at
+full-kernel build; de-pinned in Spec 0011 Phase 1. Design = 17 steps / 4 phases +
+adversarial critique (5 must-fixes) folded into Spec 0011. Decisions: provenance =
+one folded honest generator (probe sweep merged into `runtime_selection_executor`);
+LR = sqrt, per-model reference in the model config; `drop_last=True` kept →
+`updates_per_epoch = floor(P/G)` single-sourced; model seam = one dict registry on
+`model.kind`. **Implementation continues in a NEW window** (per user); Phase 1 is
+local + behavior-preserving @ batch 24. Never push to origin.
+
 Current short state: runtime-selection v5 is the selected fallback runtime
 (`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,
 `27.381321` samples/sec, about 30.4 hours for 10 epochs). Runtime-selection v6
