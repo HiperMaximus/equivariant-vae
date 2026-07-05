@@ -46,9 +46,13 @@ COMPILE_PROBE_REQUIRED_BLOCKED_CLAIMS = {
 }
 DEFAULT_KAGGLE_OUTPUT_DIR = Path("/kaggle/working")
 # The probe needs dual-T4 NCCL, so it only ever runs on Kaggle; a hung run would
-# otherwise burn the whole GPU session, so bound it (mirrors the synthetic-timing
-# child torchrun timeout).
-PROBE_TIMEOUT_SECONDS = 1800
+# otherwise burn the whole GPU session, so bound it. The v3 batch sweep recompiles
+# per distinct batch (dynamic=False) for both the single-GPU feasibility probe and
+# the DDP timed build, across the doubling ladder + bisection of two compiled
+# recipes -- ~25-30 inductor builds on top of the bake-off. That needs well over the
+# old 30 min, so bound it at 3 h: enough for the full sweep, still far under Kaggle's
+# ~12 h GPU-session limit, and a real backstop against a genuine hang.
+PROBE_TIMEOUT_SECONDS = 10800
 EMBEDDED_PAYLOAD_B64 = """
 $embedded_payload_b64
 """
