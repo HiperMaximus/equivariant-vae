@@ -288,12 +288,14 @@ def _validate_full_config(path: Path) -> None:
         raise RuntimeError("full config run.mode mismatch")
     if not isinstance(training, dict):
         raise RuntimeError("full config training must be an object")
+    # The step schedule (optimizer_updates_per_epoch, max_train_steps,
+    # half_epoch_interval_steps, save_every_steps) is DERIVED by the runner from
+    # epochs * ceil(real_train_patch_count / global_batch) via the selected-runtime
+    # plan -- never frozen in this config -- so the builder validates only the run's
+    # goal/qualitative fields here. The derived target is checked against the plan
+    # in _validate_baseline_selected_runtime and recorded in the import artifact.
     expected = {
         "epochs": FULL_EPOCHS,
-        "optimizer_updates_per_epoch": FULL_UPDATES_PER_EPOCH,
-        "max_train_steps": FULL_TARGET_UPDATES,
-        "half_epoch_interval_steps": FULL_HALF_EPOCH_INTERVAL,
-        "save_every_steps": FULL_HALF_EPOCH_INTERVAL,
         "train_reparameterization": "stochastic_seeded",
         "checkpoint_retention": "best_final_latest_four_interval",
         "resume_supported": True,

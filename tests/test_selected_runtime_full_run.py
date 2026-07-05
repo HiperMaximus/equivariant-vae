@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NoReturn, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
 import numpy as np
 import pytest
@@ -177,8 +177,18 @@ def test_full_boundary_logging_waits_at_barrier(
     assert barrier_ranks == [0]
 
 
-def test_full_config_refuses_missing_max_train_steps(tmp_path: Path) -> None:
-    """Full mode fails closed instead of falling back to one optimizer step."""
+def _full_config_payload_with_training_edit(
+    tmp_path: Path,
+    *,
+    filename: str,
+    edit: Callable[[dict[str, object]], object],
+) -> Path:
+    """Write a full config copy with an in-place edit applied to its training block.
+
+    Returns:
+        Path to the written config copy.
+
+    """
     payload = cast(
         "dict[str, object]",
         json.loads(_FULL_CONFIG.read_text(encoding="utf-8")),
@@ -186,12 +196,61 @@ def test_full_config_refuses_missing_max_train_steps(tmp_path: Path) -> None:
     payload["source_config"] = str(
         Path("configs/spec0001/non_eq_vae_model_base.json").resolve(),
     )
-    training = cast("dict[str, object]", payload["training"])
-    training.pop("max_train_steps")
-    config_path = tmp_path / "missing_max_train_steps.json"
+    edit(cast("dict[str, object]", payload["training"]))
+    config_path = tmp_path / filename
     config_path.write_text(json.dumps(payload), encoding="utf-8")
+    return config_path
 
-    with pytest.raises(ValueError, match="must declare max_train_steps"):
+
+def test_full_config_refuses_missing_epochs(tmp_path: Path) -> None:
+    """Full mode fails closed when the schedule's goal input (epochs) is missing.
+
+    The schedule is derived (epochs * steps_per_epoch), so a missing max_train_steps
+    is now fine -- but a missing/zero epochs count leaves the formula undefined and
+    must fail closed instead of silently running one optimizer step.
+    """
+    config_path = _full_config_payload_with_training_edit(
+        tmp_path,
+        filename="missing_epochs.json",
+        edit=lambda training: training.pop("epochs"),
+    )
+
+    with pytest.raises(ValueError, match=r"must declare positive training\.epochs"):
+        selected_runtime_runner._settings(  # noqa: SLF001
+            request=SelectedRuntimeTrainRequest(
+                config_path=config_path,
+                runtime_config=_RUNTIME_CONFIG,
+                output_dir=tmp_path,
+                run_name="spec0009_test",
+                data="synthetic",
+                dry_run=True,
+            ),
+            resolved=resolve_json_config(config_path),
+            plan=parse_selected_runtime_plan(_RUNTIME_CONFIG),
+        )
+
+
+def test_full_config_rejects_max_train_steps_that_contradicts_derived(
+    tmp_path: Path,
+) -> None:
+    """A config MAY still pin max_train_steps, but it must match the derived target.
+
+    This locks the drift guard: a stale hand-edited literal that disagrees with
+    epochs * steps_per_epoch fails closed rather than overriding the real schedule.
+    """
+    config_path = _full_config_payload_with_training_edit(
+        tmp_path,
+        filename="stale_max_train_steps.json",
+        edit=lambda training: training.__setitem__(
+            "max_train_steps",
+            _FULL_TARGET_UPDATES + 1,
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"must equal epochs \* optimizer_updates_per_epoch",
+    ):
         selected_runtime_runner._settings(  # noqa: SLF001
             request=SelectedRuntimeTrainRequest(
                 config_path=config_path,

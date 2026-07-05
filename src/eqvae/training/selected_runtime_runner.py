@@ -1590,7 +1590,6 @@ def _settings(  # noqa: PLR0914
     )
     configured_max_train_steps = _optional_int(training, "max_train_steps")
     target_train_steps = _target_train_steps(
-        training=training,
         requested_epochs=requested_epochs,
         optimizer_updates_per_epoch=optimizer_updates_per_epoch,
         configured_max_train_steps=configured_max_train_steps,
@@ -1627,7 +1626,8 @@ def _settings(  # noqa: PLR0914
         save_every_steps=(
             request.save_every_steps
             if request.save_every_steps is not None
-            else _optional_int(training, "save_every_steps") or 1
+            else _optional_int(training, "save_every_steps")
+            or (half_epoch_interval_steps if full_mode else 1)
         ),
         requested_epochs=requested_epochs,
         optimizer_updates_per_epoch=optimizer_updates_per_epoch,
@@ -1664,7 +1664,6 @@ def _settings(  # noqa: PLR0914
 
 def _target_train_steps(
     *,
-    training: JsonObject,
     requested_epochs: int,
     optimizer_updates_per_epoch: int,
     configured_max_train_steps: int | None,
@@ -1672,27 +1671,30 @@ def _target_train_steps(
 ) -> int:
     if not full_mode:
         return configured_max_train_steps or 1
+    # Goal-derived schedule: the full run is EPOCHS passes over the training set, so
+    # the update target is epochs * steps_per_epoch, where optimizer_updates_per_epoch
+    # already carries ceil(train_patch_count / global_batch) from the selected-runtime
+    # plan (see runtime_selection._selected_runtime_payload). We derive it here rather
+    # than freeze it in the config; the fail-closed guards below fire when the *inputs*
+    # to that formula are missing/invalid, not because a derived literal happens absent.
     if requested_epochs <= 0:
         message = "full-run config must declare positive training.epochs"
         raise ValueError(message)
     if optimizer_updates_per_epoch <= 0:
-        message = "full-run config must declare positive optimizer_updates_per_epoch"
-        raise ValueError(message)
-    derived = requested_epochs * optimizer_updates_per_epoch
-    if configured_max_train_steps is None:
         message = (
-            "full-run config must declare max_train_steps; refusing one-step default"
+            "full-run selected-runtime plan must supply positive "
+            "optimizer_updates_per_epoch"
         )
         raise ValueError(message)
-    if configured_max_train_steps != derived:
+    derived = requested_epochs * optimizer_updates_per_epoch
+    # A config MAY still pin max_train_steps; if so it must equal the derived target, so
+    # a stale hand-edited literal can never silently drift from the real schedule.
+    if configured_max_train_steps is not None and configured_max_train_steps != derived:
         message = (
             "full-run max_train_steps must equal epochs * "
             "optimizer_updates_per_epoch: "
             f"{configured_max_train_steps} != {derived}"
         )
-        raise ValueError(message)
-    if training.get("validate_every") == "half_epoch" and derived % 2 != 0:
-        message = "full-run half-epoch schedule requires an even update target"
         raise ValueError(message)
     return derived
 
