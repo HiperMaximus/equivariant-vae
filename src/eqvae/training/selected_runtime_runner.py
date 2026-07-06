@@ -89,7 +89,6 @@ from eqvae.losses.vae import (
 from eqvae.models.activations import GatedScalarActivation
 from eqvae.models.non_equivariant_vae import (
     DEFAULT_GROUPNORM_GROUPS,
-    LATENT_CHANNELS,
     NonEquivariantVAE,
 )
 from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
@@ -973,6 +972,11 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
         MODEL_KIND_NON_EQ_TRANSLATABLE,
         model_config={"norm_groups": settings.norm_groups},
     )
+    # Reparameterization eps shape follows the built model, never a frozen module
+    # constant, so a future model with a different latent width re-runs this same
+    # machinery unchanged (Spec 0011 R1). Captured here at the concrete-typed seam
+    # before any DDP/compile wrapping, then threaded to every eps builder.
+    latent_channels = model.latent_channels
     model = _place_model(model=model, plan=plan, device=distributed.device)
     optimizer, _ = create_adamw_optimizer(model, config=settings.optimizer_config)
     amp = _amp_execution(plan=plan, distributed=distributed, dry_run=request.dry_run)
@@ -1040,6 +1044,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
         plan=plan,
         model=wrapped_model,
         checkpoint_model=model,
+        latent_channels=latent_channels,
         optimizer=optimizer,
         scaler=scaler,
         amp=amp,
@@ -1103,6 +1108,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
     )
     _write_final_artifacts(
         artifacts=artifacts,
+        latent_channels=latent_channels,
         request=request,
         resolved=resolved,
         settings=settings,
@@ -1148,6 +1154,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
 def _write_final_artifacts(  # noqa: PLR0913
     *,
     artifacts: _RunArtifacts,
+    latent_channels: int,
     request: SelectedRuntimeTrainRequest,
     resolved: ResolvedConfig,
     settings: _RunnerSettings,
@@ -1182,6 +1189,7 @@ def _write_final_artifacts(  # noqa: PLR0913
         try:
             result = _write_final_artifacts_primary(
                 artifacts=artifacts,
+                latent_channels=latent_channels,
                 request=request,
                 resolved=resolved,
                 settings=settings,
@@ -1228,6 +1236,7 @@ def _write_final_artifacts(  # noqa: PLR0913
 def _write_final_artifacts_primary(  # noqa: PLR0913
     *,
     artifacts: _RunArtifacts,
+    latent_channels: int,
     request: SelectedRuntimeTrainRequest,
     resolved: ResolvedConfig,
     settings: _RunnerSettings,
@@ -1316,6 +1325,7 @@ def _write_final_artifacts_primary(  # noqa: PLR0913
         else _write_reconstruction_sample(
             path=artifacts.reconstruction_samples,
             model=model,
+            latent_channels=latent_channels,
             settings=settings,
             data_surface=data_surface,
             device=distributed.device,
@@ -2785,6 +2795,7 @@ def _run_train_steps(  # noqa: C901, PLR0913, PLR0914, PLR0915
     plan: SelectedRuntimePlan,
     model: nn.Module,
     checkpoint_model: nn.Module,
+    latent_channels: int,
     optimizer: torch.optim.Optimizer,
     scaler: GradScaler,
     amp: _AmpExecution,
@@ -2839,6 +2850,7 @@ def _run_train_steps(  # noqa: C901, PLR0913, PLR0914, PLR0915
         batch = next(train_batches)
         result = _run_train_step(
             model=model,
+            latent_channels=latent_channels,
             optimizer=optimizer,
             scaler=scaler,
             settings=settings,
@@ -2896,6 +2908,7 @@ def _run_train_steps(  # noqa: C901, PLR0913, PLR0914, PLR0915
             )
             boundary_rows = _run_scheduled_validation(
                 model=model,
+                latent_channels=latent_channels,
                 settings=settings,
                 plan=plan,
                 amp=amp,
@@ -3828,6 +3841,7 @@ def _advance_batches(
 def _run_train_step(  # noqa: PLR0913, PLR0914
     *,
     model: nn.Module,
+    latent_channels: int,
     optimizer: torch.optim.Optimizer,
     scaler: GradScaler,
     settings: _RunnerSettings,
@@ -3854,6 +3868,7 @@ def _run_train_step(  # noqa: PLR0913, PLR0914
     input_batch = _to_device(corruption.corrupted, device=device, plan=plan)
     eps, eps_proof = _train_eps(
         batch_size=input_batch.shape[0],
+        latent_channels=latent_channels,
         settings=settings,
         train_generator=train_generator,
         device=device,
@@ -4027,6 +4042,7 @@ def _synchronize_full_boundary_completion(
 def _run_scheduled_validation(  # noqa: PLR0913
     *,
     model: nn.Module,
+    latent_channels: int,
     settings: _RunnerSettings,
     plan: SelectedRuntimePlan,
     amp: _AmpExecution,
@@ -4042,6 +4058,7 @@ def _run_scheduled_validation(  # noqa: PLR0913
         rows.extend(
             _validation_view_row(
                 model=model,
+                latent_channels=latent_channels,
                 settings=settings,
                 plan=plan,
                 amp=amp,
@@ -4062,6 +4079,7 @@ def _run_scheduled_validation(  # noqa: PLR0913
 def _validation_view_row(  # noqa: PLR0913
     *,
     model: nn.Module,
+    latent_channels: int,
     settings: _RunnerSettings,
     plan: SelectedRuntimePlan,
     amp: _AmpExecution,
@@ -4097,6 +4115,7 @@ def _validation_view_row(  # noqa: PLR0913
         input_batch = _to_device(input_batch_cpu, device=device, plan=plan)
         eps = _zero_eps(
             batch_size=input_batch.shape[0],
+            latent_channels=latent_channels,
             settings=settings,
             device=device,
         )
@@ -4569,10 +4588,11 @@ def _expected_ddp_progress_status(distributed: _DistributedContext) -> str:
     return "not_applicable_local_single_process"
 
 
-def _write_reconstruction_sample(
+def _write_reconstruction_sample(  # noqa: PLR0913
     *,
     path: Path,
     model: nn.Module,
+    latent_channels: int,
     settings: _RunnerSettings,
     data_surface: _DataSurface,
     device: torch.device,
@@ -4585,7 +4605,7 @@ def _write_reconstruction_sample(
     eps = torch.zeros(
         (
             clean_batch.shape[0],
-            LATENT_CHANNELS,
+            latent_channels,
             settings.image_size // 8,
             settings.image_size // 8,
         ),
@@ -5603,13 +5623,14 @@ def _parameter_update_norm(
 def _zero_eps(
     *,
     batch_size: int,
+    latent_channels: int,
     settings: _RunnerSettings,
     device: torch.device,
 ) -> torch.Tensor:
     return torch.zeros(
         (
             batch_size,
-            LATENT_CHANNELS,
+            latent_channels,
             settings.image_size // 8,
             settings.image_size // 8,
         ),
@@ -5666,13 +5687,14 @@ def _reapply_per_rank_eps_offset_on_resume(
 def _train_eps(
     *,
     batch_size: int,
+    latent_channels: int,
     settings: _RunnerSettings,
     train_generator: torch.Generator,
     device: torch.device,
 ) -> tuple[torch.Tensor, _EpsProof]:
     shape = (
         batch_size,
-        LATENT_CHANNELS,
+        latent_channels,
         settings.image_size // 8,
         settings.image_size // 8,
     )
@@ -5689,7 +5711,12 @@ def _train_eps(
             eps_policy="stochastic_seeded_train_generator",
             eps_seed_source="train_data_torch_generator",
         )
-    eps = _zero_eps(batch_size=batch_size, settings=settings, device=device)
+    eps = _zero_eps(
+        batch_size=batch_size,
+        latent_channels=latent_channels,
+        settings=settings,
+        device=device,
+    )
     return eps, _eps_proof(
         eps.detach().cpu(),
         eps_policy="deterministic_zero",

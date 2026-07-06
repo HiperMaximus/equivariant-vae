@@ -30,7 +30,7 @@ from eqvae.checkpointing import CheckpointMetadata, LoadedCheckpoint
 from eqvae.cli.selected_runtime_train import main as selected_runtime_train_main
 from eqvae.config import resolve_json_config
 from eqvae.losses.vae import VaeLossComponents, beta_for_step
-from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
+from eqvae.models.non_equivariant_vae import LATENT_CHANNELS, build_non_equivariant_vae
 from eqvae.training import selected_runtime_runner
 from eqvae.training.selected_runtime import (
     SelectedRuntimePlan,
@@ -286,6 +286,7 @@ def test_full_train_eps_uses_seeded_stochastic_generator(tmp_path: Path) -> None
 
     eps, proof = selected_runtime_runner._train_eps(  # noqa: SLF001
         batch_size=_LOCAL_DRY_RUN_STEPS,
+        latent_channels=LATENT_CHANNELS,
         settings=settings,
         train_generator=generator,
         device=torch.device("cpu"),
@@ -329,6 +330,7 @@ def test_train_eps_diverges_across_ranks_but_rank0_matches_legacy(
         generator.manual_seed(seed_value)
         eps, proof = selected_runtime_runner._train_eps(  # noqa: SLF001
             batch_size=12,
+            latent_channels=LATENT_CHANNELS,
             settings=settings,
             train_generator=generator,
             device=torch.device("cpu"),
@@ -380,6 +382,7 @@ def test_resume_reapplies_per_rank_eps_offset_under_ddp(tmp_path: Path) -> None:
     def draw(generator: torch.Generator) -> torch.Tensor:
         eps, _ = selected_runtime_runner._train_eps(  # noqa: SLF001
             batch_size=12,
+            latent_channels=LATENT_CHANNELS,
             settings=settings,
             train_generator=generator,
             device=torch.device("cpu"),
@@ -699,6 +702,7 @@ def test_run_train_steps_selects_best_on_denoising_view_end_to_end(  # noqa: PLR
             plan=plan,
             model=model,
             checkpoint_model=model,
+            latent_channels=LATENT_CHANNELS,
             optimizer=optimizer,
             scaler=scaler,
             amp=amp,
@@ -819,6 +823,7 @@ def _validation_row(
 ) -> Mapping[str, str]:
     return selected_runtime_runner._validation_view_row(  # noqa: SLF001
         model=scaffold.model,
+        latent_channels=LATENT_CHANNELS,
         settings=scaffold.settings,
         plan=scaffold.plan,
         amp=scaffold.amp,
@@ -1072,6 +1077,7 @@ def test_fresh_full_run_flushes_metrics_at_first_boundary(  # noqa: PLR0914
             plan=plan,
             model=model,
             checkpoint_model=model,
+            latent_channels=LATENT_CHANNELS,
             optimizer=optimizer,
             scaler=scaler,
             amp=amp,
