@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypedDict, cast
 
@@ -35,6 +36,82 @@ class SpecAdamWConfig:
     weight_decay: float = 1.0e-5
     gradient_clip_global_norm: float = 1.0
     gate_lr_multiplier: float = 0.5
+
+
+_BATCH_LR_SCALING_EXPONENTS: dict[str, float] = {"sqrt": 0.5, "linear": 1.0}
+
+
+@dataclass(frozen=True)
+class BatchLrScaling:
+    """Batch-size to learning-rate scaling policy (Spec 0011).
+
+    Encodes the re-tunable rule that maps a global batch size to a learning-rate
+    multiplier relative to a reference batch, so each (model x hardware) run scales
+    its reference lr to the selected batch by formula rather than a hardcoded
+    number. ``rule="sqrt"`` applies the square-root rule
+    (multiplier = ``sqrt(global / reference)``); ``rule="linear"`` applies linear
+    scaling (multiplier = ``global / reference``).
+    """
+
+    reference_global_batch_size: int
+    rule: str = "sqrt"
+
+    def __post_init__(self) -> None:
+        """Validate the reference batch and rule at construction.
+
+        Raises:
+            ValueError: If the reference batch is not positive, or the rule is not
+                a known scaling rule.
+
+        """
+        if self.reference_global_batch_size <= 0:
+            message = (
+                "reference_global_batch_size must be positive, got "
+                f"{self.reference_global_batch_size}"
+            )
+            raise ValueError(message)
+        if self.rule not in _BATCH_LR_SCALING_EXPONENTS:
+            known = sorted(_BATCH_LR_SCALING_EXPONENTS)
+            message = (
+                f"unknown batch-lr scaling rule {self.rule!r}; known rules: {known}"
+            )
+            raise ValueError(message)
+
+    @property
+    def exponent(self) -> float:
+        """Return the batch-ratio exponent for this rule.
+
+        Returns:
+            The exponent applied to ``global / reference`` (0.5 for ``sqrt``,
+            1.0 for ``linear``).
+
+        """
+        return _BATCH_LR_SCALING_EXPONENTS[self.rule]
+
+
+def scaled_learning_rate(
+    *,
+    reference_lr: float,
+    scaling: BatchLrScaling,
+    global_batch_size: int,
+) -> float:
+    """Scale a reference learning rate to a global batch size (Spec 0011).
+
+    At the reference batch the multiplier is exactly 1.0, so a run at the
+    reference batch is behavior-preserving.
+
+    Returns:
+        ``reference_lr`` scaled by ``(global / reference) ** exponent``.
+
+    Raises:
+        ValueError: If ``global_batch_size`` is not positive.
+
+    """
+    if global_batch_size <= 0:
+        message = f"global_batch_size must be positive, got {global_batch_size}"
+        raise ValueError(message)
+    batch_ratio = global_batch_size / scaling.reference_global_batch_size
+    return reference_lr * math.pow(batch_ratio, scaling.exponent)
 
 
 @dataclass(frozen=True)
@@ -199,9 +276,11 @@ def _gate_parameter_ids(model: nn.Module) -> set[int]:
 
 
 __all__ = [
+    "BatchLrScaling",
     "OptimizerGroupSummary",
     "OptimizerParamGroup",
     "SpecAdamWConfig",
     "build_adamw_parameter_groups",
     "create_adamw_optimizer",
+    "scaled_learning_rate",
 ]
