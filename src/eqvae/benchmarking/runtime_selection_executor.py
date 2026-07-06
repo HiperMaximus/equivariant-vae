@@ -1800,9 +1800,10 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
         collate_patch_training_samples,
     )
     from eqvae.losses.vae import beta_for_step, compute_vae_loss  # noqa: PLC0415
-    from eqvae.models.non_equivariant_vae import (  # noqa: PLC0415
-        LATENT_CHANNELS,
-        build_non_equivariant_vae,
+    from eqvae.models.non_equivariant_vae import LATENT_CHANNELS  # noqa: PLC0415
+    from eqvae.models.registry import (  # noqa: PLC0415
+        MODEL_KIND_NON_EQ_TRANSLATABLE,
+        build_model,
     )
     from eqvae.training.optim import (  # noqa: PLC0415
         SpecAdamWConfig,
@@ -1899,8 +1900,9 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                     collate_fn=collate_patch_training_samples,
                 ),
             )
-            raw_model = build_non_equivariant_vae(
-                norm_groups=settings.norm_groups,
+            raw_model = build_model(
+                MODEL_KIND_NON_EQ_TRANSLATABLE,
+                model_config={"norm_groups": settings.norm_groups},
             ).to(device)
             _set_scalar_gate_precision(
                 model=raw_model,

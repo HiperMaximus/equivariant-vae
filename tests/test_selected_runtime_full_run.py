@@ -673,7 +673,7 @@ def test_run_train_steps_selects_best_on_denoising_view_end_to_end(  # noqa: PLR
     )
     try:
         (output_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
-        model = selected_runtime_runner.build_non_equivariant_vae(
+        model = build_non_equivariant_vae(
             norm_groups=settings.norm_groups,
         )
         optimizer, _ = selected_runtime_runner.create_adamw_optimizer(
@@ -1046,7 +1046,7 @@ def test_fresh_full_run_flushes_metrics_at_first_boundary(  # noqa: PLR0914
     )
     try:
         (output_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
-        model = selected_runtime_runner.build_non_equivariant_vae(
+        model = build_non_equivariant_vae(
             norm_groups=settings.norm_groups,
         )
         optimizer, _ = selected_runtime_runner.create_adamw_optimizer(
@@ -1546,7 +1546,7 @@ def test_full_interval_flush_writes_resume_history_and_partial_artifacts(  # noq
             keep_count=4,
             world_size=1,
         )
-        model = selected_runtime_runner.build_non_equivariant_vae(
+        model = build_non_equivariant_vae(
             norm_groups=settings.norm_groups,
         )
         launch_command = (
@@ -1761,7 +1761,7 @@ def test_full_interval_flush_dedups_resume_prefix_under_simulated_ddp(  # noqa: 
             keep_count=4,
             world_size=2,
         )
-        model = selected_runtime_runner.build_non_equivariant_vae(
+        model = build_non_equivariant_vae(
             norm_groups=settings.norm_groups,
         )
         launch_command = (

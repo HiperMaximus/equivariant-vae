@@ -9,16 +9,22 @@ from eqvae.models.non_equivariant_vae import (
     VaeForwardOutput,
     build_non_equivariant_vae,
 )
+from eqvae.models.registry import (
+    MODEL_KIND_NON_EQ_TRANSLATABLE,
+    build_model,
+)
 from eqvae.models.resampling import (
     FieldwiseBilinearUpsample2x,
     FixedBinomialLowpassDownsample2x,
 )
 
 __all__ = [
+    "MODEL_KIND_NON_EQ_TRANSLATABLE",
     "FieldwiseBilinearUpsample2x",
     "FixedBinomialLowpassDownsample2x",
     "GatedScalarActivation",
     "NonEquivariantVAE",
     "VaeForwardOutput",
+    "build_model",
     "build_non_equivariant_vae",
 ]

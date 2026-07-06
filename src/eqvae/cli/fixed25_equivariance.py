@@ -30,10 +30,8 @@ from eqvae.artifacts.fixed25_equivariance import (
 from eqvae.config import resolve_json_config
 from eqvae.data.roots import resolve_patch_data_paths
 from eqvae.data.training_batches import PatchTrainingDataset, PatchTrainingDatasetSpec
-from eqvae.models.non_equivariant_vae import (
-    DEFAULT_GROUPNORM_GROUPS,
-    build_non_equivariant_vae,
-)
+from eqvae.models.non_equivariant_vae import DEFAULT_GROUPNORM_GROUPS
+from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -134,7 +132,10 @@ def _run(
         validation_shard_spec=shard_spec,
         validation_dataset=validation_dataset,
     )
-    model = build_non_equivariant_vae(norm_groups=norm_groups)
+    model = build_model(
+        MODEL_KIND_NON_EQ_TRANSLATABLE,
+        model_config={"norm_groups": norm_groups},
+    )
     _load_model_weights(model=model, checkpoint=args.checkpoint)
     model.eval()
     device = torch.device("cpu")

@@ -91,8 +91,8 @@ from eqvae.models.non_equivariant_vae import (
     DEFAULT_GROUPNORM_GROUPS,
     LATENT_CHANNELS,
     NonEquivariantVAE,
-    build_non_equivariant_vae,
 )
+from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
 from eqvae.training.ddp_sync_guard import assert_ddp_parameters_in_sync
 from eqvae.training.optim import SpecAdamWConfig, create_adamw_optimizer
 from eqvae.training.selected_runtime import (
@@ -969,7 +969,10 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
         distributed=distributed,
     )
 
-    model = build_non_equivariant_vae(norm_groups=settings.norm_groups)
+    model = build_model(
+        MODEL_KIND_NON_EQ_TRANSLATABLE,
+        model_config={"norm_groups": settings.norm_groups},
+    )
     model = _place_model(model=model, plan=plan, device=distributed.device)
     optimizer, _ = create_adamw_optimizer(model, config=settings.optimizer_config)
     amp = _amp_execution(plan=plan, distributed=distributed, dry_run=request.dry_run)
@@ -4339,7 +4342,10 @@ def _checkpoint_resume_proof(  # noqa: PLR0913
     amp: _AmpExecution,
     distributed: _DistributedContext,
 ) -> JsonObject:
-    model = build_non_equivariant_vae(norm_groups=settings.norm_groups)
+    model = build_model(
+        MODEL_KIND_NON_EQ_TRANSLATABLE,
+        model_config={"norm_groups": settings.norm_groups},
+    )
     model = _place_model(model=model, plan=plan, device=distributed.device)
     optimizer, _ = create_adamw_optimizer(model, config=settings.optimizer_config)
     numpy_generator = np.random.default_rng(settings.global_seed)

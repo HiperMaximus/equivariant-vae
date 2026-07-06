@@ -20,8 +20,8 @@ from eqvae.models.non_equivariant_vae import (
     DEFAULT_LOGVAR_CLAMP_MAX,
     DEFAULT_LOGVAR_CLAMP_MIN,
     LATENT_CHANNELS,
-    build_non_equivariant_vae,
 )
+from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
 from eqvae.training.optim import SpecAdamWConfig, create_adamw_optimizer
 from eqvae.training.step import TrainStepRequest, TrainStepResult, run_train_step
 
@@ -146,7 +146,10 @@ def write_local_model_loss_train_step(
         ),
     )
 
-    model = build_non_equivariant_vae(norm_groups=_norm_groups(effective_config))
+    model = build_model(
+        MODEL_KIND_NON_EQ_TRANSLATABLE,
+        model_config={"norm_groups": _norm_groups(effective_config)},
+    )
     optimizer, optimizer_summary = create_adamw_optimizer(
         model,
         config=settings.optimizer_config,

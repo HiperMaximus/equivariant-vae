@@ -84,7 +84,7 @@ from torch.nn.parallel import DistributedDataParallel
 from eqvae.benchmarking.io import write_csv, write_json
 from eqvae.corruption.inline_stain import InlineStainCorruptor
 from eqvae.corruption.stain import CONSERVATIVE_DEFAULT_PROFILE, profile_from_name
-from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
+from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
 from eqvae.training.ddp_sync_guard import assert_ddp_parameters_in_sync
 from eqvae.training.fastpath_step import make_fastpath_step_fn
 from eqvae.training.optim import SpecAdamWConfig, create_adamw_optimizer
@@ -595,7 +595,7 @@ def run_compiled_fastpath_probe(
     torch.backends.cudnn.deterministic = False
     manual_seed = cast("Callable[[int], torch.Generator]", torch.manual_seed)
     manual_seed(request.seed)
-    reference_state = build_non_equivariant_vae().state_dict()
+    reference_state = build_model(MODEL_KIND_NON_EQ_TRANSLATABLE).state_dict()
     configs = [
         _measure_config(spec, reference_state, request=request, distributed=distributed)
         for spec in (_EAGER_SPEC, *_RECIPE_SPECS)
@@ -1038,7 +1038,7 @@ def _fresh_model(
     device: torch.device,
     channels_last: bool,
 ) -> NonEquivariantVAE:
-    model = build_non_equivariant_vae()
+    model = build_model(MODEL_KIND_NON_EQ_TRANSLATABLE)
     model.load_state_dict(reference_state)
     if channels_last:
         model.to(  # pyright: ignore[reportCallIssue]

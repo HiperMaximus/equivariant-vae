@@ -34,8 +34,8 @@ from eqvae.losses.vae import beta_for_step
 from eqvae.models.non_equivariant_vae import (
     DEFAULT_GROUPNORM_GROUPS,
     LATENT_CHANNELS,
-    build_non_equivariant_vae,
 )
+from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
 from eqvae.training.optim import SpecAdamWConfig, create_adamw_optimizer
 from eqvae.training.step import TrainStepRequest, run_train_step
 
@@ -139,7 +139,10 @@ def write_kaggle_smoke(request: KaggleSmokeRequest) -> Path:
     _seed_runtime(settings)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     _validate_runtime(settings=settings, device=device)
-    model = build_non_equivariant_vae(norm_groups=settings.norm_groups).to(device)
+    model = build_model(
+        MODEL_KIND_NON_EQ_TRANSLATABLE,
+        model_config={"norm_groups": settings.norm_groups},
+    ).to(device)
     optimizer, optimizer_summary = create_adamw_optimizer(
         model,
         config=settings.optimizer_config,

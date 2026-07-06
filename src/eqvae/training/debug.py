@@ -50,8 +50,8 @@ from eqvae.metrics.reconstruction import reconstruction_metric_summaries
 from eqvae.models.non_equivariant_vae import (
     DEFAULT_GROUPNORM_GROUPS,
     LATENT_CHANNELS,
-    build_non_equivariant_vae,
 )
+from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
 from eqvae.training.optim import SpecAdamWConfig, create_adamw_optimizer
 from eqvae.training.progress import TrainingProgressState, record_training_attempt
 from eqvae.training.selected_runtime import (
@@ -307,7 +307,10 @@ def write_debug_training_run(  # noqa: PLR0914, PLR0915
     train_data_generator = torch.Generator(device="cpu")
     train_data_generator.manual_seed(settings.data_seed)
     torch_generators = {"train_data": train_data_generator}
-    model = build_non_equivariant_vae(norm_groups=_norm_groups(resolved))
+    model = build_model(
+        MODEL_KIND_NON_EQ_TRANSLATABLE,
+        model_config={"norm_groups": _norm_groups(resolved)},
+    )
     optimizer, _ = create_adamw_optimizer(
         model,
         config=settings.optimizer_config,

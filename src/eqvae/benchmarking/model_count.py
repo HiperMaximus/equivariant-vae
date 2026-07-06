@@ -16,8 +16,8 @@ from eqvae.models.activations import GatedScalarActivation
 from eqvae.models.non_equivariant_vae import (
     DEFAULT_GROUPNORM_GROUPS,
     NonEquivariantVAE,
-    build_non_equivariant_vae,
 )
+from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
 from eqvae.models.resampling import (
     FieldwiseBilinearUpsample2x,
     FixedBinomialLowpassDownsample2x,
@@ -301,11 +301,14 @@ def build_model_count_payload(
     resolved_config = resolve_json_config(config_path)
     checked_model = model
     if checked_model is None:
-        checked_model = build_non_equivariant_vae(
-            norm_groups=_read_norm_groups(
-                resolved_config.effective_config,
-                config_path=config_path,
-            ),
+        checked_model = build_model(
+            MODEL_KIND_NON_EQ_TRANSLATABLE,
+            model_config={
+                "norm_groups": _read_norm_groups(
+                    resolved_config.effective_config,
+                    config_path=config_path,
+                ),
+            },
         )
     entries = _build_inventory(checked_model)
     observed = _count_inventory(entries=entries.entries, model=checked_model)

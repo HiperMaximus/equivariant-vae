@@ -168,6 +168,11 @@ class NonEquivariantVAE(nn.Module):
         """Initialize the full encoder/decoder topology."""
         super().__init__()
         self.norm_groups = norm_groups
+        # Model-derived latent width. Generic runtime/timing code must read this
+        # from the built model rather than importing the module constant, so the
+        # future equivariant model (different latent width) re-runs the same
+        # machinery unchanged (Spec 0011 MF4/R1).
+        self.latent_channels: int = LATENT_CHANNELS
         self.stem_conv = nn.Conv2d(
             INPUT_CHANNELS,
             STEM_CHANNELS,
