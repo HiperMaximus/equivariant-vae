@@ -132,10 +132,13 @@ _TINY_MIN_IMPROVEMENT_FRACTION = 0.01
 _TINY_RUN_MODE = "kaggle_tiny_overfit"
 _FULL_RUN_MODE = "kaggle_selected_runtime_full_train"
 _FULL_STATUS_SCOPE = "selected_runtime_full_training_run"
+# Policy anchors: the epoch count and validation cadence are DECLARED expectations
+# (a run cannot self-declare a tiny self-consistent schedule to slip past the gate).
+# The schedule sizes (updates_per_epoch/target/half) are NOT anchored to frozen
+# numbers here -- they are validated as goal-derived relationships in
+# _validate_full_run_settings so a different (model x hardware) global batch re-runs
+# this machinery unchanged (Spec 0011).
 _FULL_EPOCHS = 10
-_FULL_UPDATES_PER_EPOCH = 12_500
-_FULL_TARGET_UPDATES = 125_000
-_FULL_HALF_EPOCH_INTERVAL_STEPS = 6_250
 _FULL_VALIDATION_BATCHES_PER_VIEW = 20
 _FULL_VALIDATION_VIEWS = ("clean", "deterministic_denoising")
 # best_model.pt is selected on the paper-relevant denoising view (FU-008), never
@@ -1753,11 +1756,10 @@ def _half_epoch_interval_steps(
     if configured is not None:
         return configured
     if full_mode:
-        if optimizer_updates_per_epoch % 2 != 0:
-            message = (
-                "optimizer_updates_per_epoch must be even for half-epoch validation"
-            )
-            raise ValueError(message)
+        # Floor half-epoch: batch-independent and well-defined for an odd
+        # optimizer_updates_per_epoch (integer // is already floor). Odd schedules
+        # get their terminal boundary from the shared boundary generator (Spec 0011);
+        # at global batch 24 this is 12500 // 2 == 6250, unchanged.
         return optimizer_updates_per_epoch // 2
     return 0
 
@@ -6005,22 +6007,18 @@ def _validate_full_run_settings(
     *,
     dry_run: bool,
 ) -> None:
-    expected = {
-        "requested_epochs": _FULL_EPOCHS,
-        "optimizer_updates_per_epoch": _FULL_UPDATES_PER_EPOCH,
-        "target_train_steps": _FULL_TARGET_UPDATES,
-        "half_epoch_interval_steps": _FULL_HALF_EPOCH_INTERVAL_STEPS,
-        "validation_batches_per_view": _FULL_VALIDATION_BATCHES_PER_VIEW,
+    # Policy anchors stay pinned (epoch count + validation cadence); the schedule
+    # sizes are validated as goal-derived relationships in
+    # _validate_full_run_schedule so a different global batch re-runs this machinery
+    # unchanged (Spec 0011).
+    anchors = {
+        "requested_epochs": (settings.requested_epochs, _FULL_EPOCHS),
+        "validation_batches_per_view": (
+            settings.validation_batches_per_view,
+            _FULL_VALIDATION_BATCHES_PER_VIEW,
+        ),
     }
-    observed = {
-        "requested_epochs": settings.requested_epochs,
-        "optimizer_updates_per_epoch": settings.optimizer_updates_per_epoch,
-        "target_train_steps": settings.target_train_steps,
-        "half_epoch_interval_steps": settings.half_epoch_interval_steps,
-        "validation_batches_per_view": settings.validation_batches_per_view,
-    }
-    for field, expected_value in expected.items():
-        actual = observed[field]
+    for field, (actual, expected_value) in anchors.items():
         if actual != expected_value:
             message = f"full-run {field} must be {expected_value!r}, got {actual!r}"
             raise ValueError(message)
@@ -6041,15 +6039,61 @@ def _validate_full_run_settings(
     if not settings.resume_supported:
         message = "full-run config must declare resume_supported=true"
         raise ValueError(message)
-    if not dry_run and settings.save_every_steps != _FULL_HALF_EPOCH_INTERVAL_STEPS:
+    _validate_full_run_schedule(settings, dry_run=dry_run)
+
+
+def _validate_full_run_schedule(
+    settings: _RunnerSettings,
+    *,
+    dry_run: bool,
+) -> None:
+    """Validate the goal-derived full-run schedule relationships (Spec 0011).
+
+    ``optimizer_updates_per_epoch`` is the free base quantity (the plan's
+    ``floor(P / global_batch)``); the target, half-epoch, save cadence, and beta
+    warmup all follow from it and the epoch count, so a different (model x hardware)
+    global batch re-runs this machinery unchanged. The remote gate (S6)
+    independently anchors ``optimizer_updates_per_epoch`` to ``floor(P / G)`` against
+    the immutable training patch count.
+
+    Raises:
+        ValueError: If any schedule relationship is violated.
+
+    """
+    expected_target = settings.requested_epochs * settings.optimizer_updates_per_epoch
+    if settings.target_train_steps != expected_target:
+        message = (
+            "full-run target_train_steps must equal requested_epochs * "
+            "optimizer_updates_per_epoch "
+            f"({settings.requested_epochs} * {settings.optimizer_updates_per_epoch} "
+            f"= {expected_target}), got {settings.target_train_steps}"
+        )
+        raise ValueError(message)
+    expected_half = settings.optimizer_updates_per_epoch // 2
+    if settings.half_epoch_interval_steps != expected_half:
+        message = (
+            "full-run half_epoch_interval_steps must equal "
+            "optimizer_updates_per_epoch // 2 "
+            f"({settings.optimizer_updates_per_epoch} // 2 = {expected_half}), got "
+            f"{settings.half_epoch_interval_steps}"
+        )
+        raise ValueError(message)
+    if not dry_run and settings.save_every_steps != settings.half_epoch_interval_steps:
         message = "full-run save_every_steps must equal the half-epoch interval"
         raise ValueError(message)
-    resolved_beta_warmup_steps = _resolved_beta_warmup_steps(settings)
-    if resolved_beta_warmup_steps != _FULL_UPDATES_PER_EPOCH:
+    # Beta warmup spans exactly one epoch. Assert the batch-independent POLICY
+    # (warmup_fraction * epochs == 1) rather than a frozen == updates_per_epoch
+    # identity: given target == epochs * updates_per_epoch, this makes the resolved
+    # warmup ceil(fraction * target) collapse to exactly one epoch for any batch
+    # (Spec 0011). A per-model config that desyncs the fraction fails closed here.
+    if not math.isclose(
+        settings.beta_warmup_fraction * settings.requested_epochs,
+        1.0,
+    ):
         message = (
-            "full-run beta warmup must span exactly one epoch: beta_warmup_steps="
-            f"{resolved_beta_warmup_steps!r} != optimizer_updates_per_epoch="
-            f"{_FULL_UPDATES_PER_EPOCH!r}"
+            "full-run beta warmup must span exactly one epoch: beta_warmup_fraction="
+            f"{settings.beta_warmup_fraction!r} * requested_epochs="
+            f"{settings.requested_epochs!r} != 1"
         )
         raise ValueError(message)
 

@@ -48,6 +48,13 @@ _FULL_EPOCHS = 10
 _FULL_UPDATES_PER_EPOCH = 12500
 _FULL_HALF_EPOCH_INTERVAL = 6250
 _FULL_VALIDATION_BATCHES_PER_VIEW = 20
+# A representative larger global batch (96 = 4x the reference 24). floor(300000/96)
+# is 3125 -- odd, so it also exercises the floor half-epoch. The de-pinned validator
+# must accept this schedule purely from the relationships, never the reference
+# literals; target and half are spelled as the relationships they must satisfy.
+_LARGER_BATCH_UPDATES_PER_EPOCH = 3125
+_LARGER_BATCH_TARGET_UPDATES = _FULL_EPOCHS * _LARGER_BATCH_UPDATES_PER_EPOCH
+_LARGER_BATCH_HALF_INTERVAL = _LARGER_BATCH_UPDATES_PER_EPOCH // 2
 _LOCAL_DRY_RUN_STEPS = 2
 _PRIOR_BEST_VALIDATION_METRIC = 0.25
 _FLOAT_TOLERANCE = 1e-12
@@ -138,6 +145,62 @@ def test_full_run_rejects_beta_warmup_not_one_epoch(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="beta warmup must span exactly one epoch"):
         selected_runtime_runner._validate_full_run_settings(  # noqa: SLF001
             desynced,
+            dry_run=True,
+        )
+
+
+def test_full_run_accepts_derived_schedule_at_larger_batch(tmp_path: Path) -> None:
+    """The de-pinned validator accepts any self-consistent goal-derived schedule.
+
+    A larger global batch yields a smaller (here odd) updates_per_epoch; the
+    validator must pass purely from target == epochs * updates_per_epoch and
+    half == updates_per_epoch // 2, never from the reference-batch literals. Running
+    with dry_run=False also exercises the save_every == half-epoch relationship.
+    """
+    settings = _full_settings(tmp_path=tmp_path, max_train_steps=2, save_every=1)
+    larger_batch = replace(
+        settings,
+        optimizer_updates_per_epoch=_LARGER_BATCH_UPDATES_PER_EPOCH,
+        target_train_steps=_LARGER_BATCH_TARGET_UPDATES,
+        half_epoch_interval_steps=_LARGER_BATCH_HALF_INTERVAL,
+        save_every_steps=_LARGER_BATCH_HALF_INTERVAL,
+    )
+
+    selected_runtime_runner._validate_full_run_settings(  # noqa: SLF001
+        larger_batch,
+        dry_run=False,
+    )
+
+
+def test_full_run_rejects_target_not_epochs_times_updates(tmp_path: Path) -> None:
+    """A target_train_steps that is not epochs * updates_per_epoch fails closed."""
+    settings = _full_settings(tmp_path=tmp_path, max_train_steps=2, save_every=1)
+    drifted = replace(settings, target_train_steps=_FULL_TARGET_UPDATES + 1)
+
+    with pytest.raises(
+        ValueError,
+        match=r"target_train_steps must equal requested_epochs",
+    ):
+        selected_runtime_runner._validate_full_run_settings(  # noqa: SLF001
+            drifted,
+            dry_run=True,
+        )
+
+
+def test_full_run_rejects_half_not_floor_of_updates(tmp_path: Path) -> None:
+    """A half_epoch_interval_steps that is not updates_per_epoch // 2 fails closed."""
+    settings = _full_settings(tmp_path=tmp_path, max_train_steps=2, save_every=1)
+    drifted = replace(
+        settings,
+        half_epoch_interval_steps=_FULL_HALF_EPOCH_INTERVAL + 1,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"half_epoch_interval_steps must equal",
+    ):
+        selected_runtime_runner._validate_full_run_settings(  # noqa: SLF001
+            drifted,
             dry_run=True,
         )
 
