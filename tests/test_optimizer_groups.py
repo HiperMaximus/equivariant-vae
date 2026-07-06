@@ -10,12 +10,40 @@ from torch import nn
 
 from eqvae.models.activations import GatedScalarActivation
 from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
-from eqvae.training.optim import build_adamw_parameter_groups
+from eqvae.training.optim import (
+    SpecAdamWConfig,
+    build_adamw_parameter_groups,
+    create_adamw_optimizer,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
 EXPECTED_OPTIMIZER_GROUPS = 3
+
+
+def test_fused_defaults_off_and_is_cuda_guarded() -> None:
+    """The fused flag defaults off; requesting it on a CPU model falls back safely."""
+    assert SpecAdamWConfig().fused is False
+    model = build_non_equivariant_vae()
+    # Default (fused not requested): the optimizer must leave fused as None, NOT
+    # False, so torch keeps auto-selecting the foreach multi-tensor kernels on
+    # CUDA. An explicit False would silently disable that fast path.
+    default_optimizer, _default_summary = create_adamw_optimizer(model)
+    assert all(
+        cast("object", group["fused"]) is None
+        for group in default_optimizer.param_groups
+    )
+    # A CPU model cannot use the fused kernel, so the CUDA guard disables it
+    # rather than raising, again leaving fused as None (not False).
+    guarded_optimizer, _guarded_summary = create_adamw_optimizer(
+        model,
+        config=SpecAdamWConfig(fused=True),
+    )
+    assert all(
+        cast("object", group["fused"]) is None
+        for group in guarded_optimizer.param_groups
+    )
 
 
 def test_semantic_adamw_groups_cover_every_trainable_parameter_once() -> None:

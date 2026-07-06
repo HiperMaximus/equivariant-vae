@@ -36,6 +36,7 @@ class SpecAdamWConfig:
     weight_decay: float = 1.0e-5
     gradient_clip_global_norm: float = 1.0
     gate_lr_multiplier: float = 0.5
+    fused: bool = False
 
 
 _BATCH_LR_SCALING_EXPONENTS: dict[str, float] = {"sqrt": 0.5, "linear": 1.0}
@@ -242,14 +243,30 @@ def create_adamw_optimizer(
         model,
         config=resolved_config,
     )
+    # The fused AdamW kernel requires every parameter to live on CUDA, so it is
+    # gated on the model actually being on a CUDA device; a CPU model (e.g. the
+    # local quality gate) falls back to the default path even when fused is
+    # requested. When not fusing we must pass ``fused=None`` rather than ``False``:
+    # torch only auto-selects the foreach multi-tensor kernels when ``fused is
+    # None`` (``if fused is None and foreach is None``), so an explicit ``False``
+    # would silently drop the foreach fast path on CUDA. ``None`` keeps default
+    # behavior byte-identical to the pre-flag code (Spec 0011 S4).
+    use_fused = resolved_config.fused and _params_on_cuda(model)
     optimizer = torch.optim.AdamW(
         cast("list[dict[str, object]]", parameter_groups),
         lr=resolved_config.learning_rate,
         betas=(resolved_config.beta1, resolved_config.beta2),
         eps=resolved_config.epsilon,
         weight_decay=resolved_config.weight_decay,
+        fused=use_fused or None,
     )
     return optimizer, summary
+
+
+def _params_on_cuda(model: nn.Module) -> bool:
+    for parameter in model.parameters():
+        return parameter.is_cuda
+    return False
 
 
 def _group_name_for_parameter(
