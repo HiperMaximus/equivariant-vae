@@ -1800,7 +1800,6 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
         collate_patch_training_samples,
     )
     from eqvae.losses.vae import beta_for_step, compute_vae_loss  # noqa: PLC0415
-    from eqvae.models.non_equivariant_vae import LATENT_CHANNELS  # noqa: PLC0415
     from eqvae.models.registry import (  # noqa: PLC0415
         MODEL_KIND_NON_EQ_TRANSLATABLE,
         build_model,
@@ -1904,6 +1903,11 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                 MODEL_KIND_NON_EQ_TRANSLATABLE,
                 model_config={"norm_groups": settings.norm_groups},
             ).to(device)
+            # Eps/latent shape follows the built model, never a frozen module
+            # constant, so a future model with a different latent width re-runs this
+            # same timing machinery unchanged (Spec 0011 R1). Read from the raw model
+            # before DDP/compile wrapping, then passed to every per-batch eps builder.
+            latent_channels = raw_model.latent_channels
             _set_scalar_gate_precision(
                 model=raw_model,
                 force_fp32=config.row_spec.precision_policy != AMP_SCALAR_GATE_RELAXED,
@@ -1982,7 +1986,7 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                         settings=settings,
                         step_index=settle_index,
                         row_spec=config.row_spec,
-                        latent_channels=LATENT_CHANNELS,
+                        latent_channels=latent_channels,
                     )
                 torch.cuda.synchronize(device)
                 compile_startup_sec = pretest._elapsed_seconds(settle_start_ns)  # noqa: SLF001
@@ -2005,7 +2009,7 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                     settings=settings,
                     step_index=proof_index,
                     row_spec=config.row_spec,
-                    latent_channels=LATENT_CHANNELS,
+                    latent_channels=latent_channels,
                     beta_for_step_fn=beta_for_step,
                     train_step_request_factory=TrainStepRequest,
                     run_train_step_fn=run_train_step,
@@ -2028,7 +2032,7 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                     settings=settings,
                     step_index=step_index + pretest.REQUIRED_NUMERICAL_FIXED_BATCHES,
                     row_spec=config.row_spec,
-                    latent_channels=LATENT_CHANNELS,
+                    latent_channels=latent_channels,
                     beta_for_step_fn=beta_for_step,
                     train_step_request_factory=TrainStepRequest,
                     run_train_step_fn=run_train_step,
@@ -2056,7 +2060,7 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                     + settings.warmup_steps
                     + pretest.REQUIRED_NUMERICAL_FIXED_BATCHES,
                     row_spec=config.row_spec,
-                    latent_channels=LATENT_CHANNELS,
+                    latent_channels=latent_channels,
                     beta_for_step_fn=beta_for_step,
                     train_step_request_factory=TrainStepRequest,
                     run_train_step_fn=run_train_step,
