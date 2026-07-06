@@ -51,6 +51,10 @@ _FULL_VALIDATION_BATCHES_PER_VIEW = 20
 _LOCAL_DRY_RUN_STEPS = 2
 _PRIOR_BEST_VALIDATION_METRIC = 0.25
 _FLOAT_TOLERANCE = 1e-12
+_LR_REFERENCE_GLOBAL_BATCH = 24
+_LR_QUADRUPLE_GLOBAL_BATCH = 96
+_LR_REFERENCE_LEARNING_RATE = 5.0e-4
+_LR_QUADRUPLE_LEARNING_RATE = 1.0e-3
 _EXPECTED_ROW_ID = (
     "dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__"
     "policy_amp_fp16_conservative"
@@ -298,6 +302,33 @@ def test_full_train_eps_uses_seeded_stochastic_generator(tmp_path: Path) -> None
     assert proof.eps_seed_source == "train_data_torch_generator"
     assert 0.0 <= float(proof.eps_zero_fraction) < 1.0
     assert float(proof.eps_abs_mean) > 0.0
+
+
+def test_optimizer_config_scales_lr_sqrt_with_global_batch() -> None:
+    """The optimizer lr equals the reference at batch 24 and sqrt-scales with batch."""
+    effective = resolve_json_config(_FULL_CONFIG).effective_config
+    at_reference = selected_runtime_runner._optimizer_config(  # noqa: SLF001
+        effective,
+        global_batch_size=_LR_REFERENCE_GLOBAL_BATCH,
+    )
+    at_quadruple = selected_runtime_runner._optimizer_config(  # noqa: SLF001
+        effective,
+        global_batch_size=_LR_QUADRUPLE_GLOBAL_BATCH,
+    )
+    assert math.isclose(at_reference.learning_rate, _LR_REFERENCE_LEARNING_RATE)
+    assert math.isclose(at_quadruple.learning_rate, _LR_QUADRUPLE_LEARNING_RATE)
+
+
+def test_optimizer_config_uses_flat_lr_without_batch_scaling() -> None:
+    """A config without batch_lr_scaling keeps a flat lr at any global batch."""
+    effective = resolve_json_config(
+        Path("configs/spec0001/non_eq_vae_debug_cpu.json"),
+    ).effective_config
+    flat = selected_runtime_runner._optimizer_config(  # noqa: SLF001
+        effective,
+        global_batch_size=_LR_QUADRUPLE_GLOBAL_BATCH,
+    )
+    assert math.isclose(flat.learning_rate, _LR_REFERENCE_LEARNING_RATE)
 
 
 def test_eps_generator_seed_is_per_rank_and_preserves_single_rank() -> None:

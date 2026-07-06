@@ -93,7 +93,12 @@ from eqvae.models.non_equivariant_vae import (
 )
 from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
 from eqvae.training.ddp_sync_guard import assert_ddp_parameters_in_sync
-from eqvae.training.optim import SpecAdamWConfig, create_adamw_optimizer
+from eqvae.training.optim import (
+    BatchLrScaling,
+    SpecAdamWConfig,
+    create_adamw_optimizer,
+    scaled_learning_rate,
+)
 from eqvae.training.selected_runtime import (
     EXPECTED_AMP_APPLICATION_STATUS,
     EXPECTED_DDP_APPLICATION_STATUS,
@@ -1662,7 +1667,10 @@ def _settings(  # noqa: PLR0914
         ssim_weight=_required_float(objective, "ssim_weight"),
         beta_target=_required_float(beta, "target"),
         beta_warmup_fraction=_required_float(beta, "step_limited_warmup_fraction"),
-        optimizer_config=_optimizer_config(effective),
+        optimizer_config=_optimizer_config(
+            effective,
+            global_batch_size=plan.per_device_batch_size * plan.world_size,
+        ),
         global_seed=_seed(effective, "global_seed"),
         data_seed=_seed(effective, "data_seed"),
         corruption_seed=_seed(effective, "corruption_seed"),
@@ -5796,11 +5804,53 @@ def _relative_to_output(path: Path, output_dir: Path) -> str:
         return str(path)
 
 
-def _optimizer_config(effective_config: JsonObject) -> SpecAdamWConfig:
+def _batch_lr_scaling(optimizer: JsonObject) -> tuple[float, BatchLrScaling | None]:
+    """Return the reference lr and its optional batch-scaling policy.
+
+    ``optimizer.learning_rate`` is the reference lr. When
+    ``optimizer.batch_lr_scaling`` is present it is reinterpreted as the reference
+    lr *at* ``reference_global_batch_size`` and the runner scales it to the
+    selected global batch by formula; when absent the lr is used flat (multiplier
+    1.0), so a config that does not opt into batch scaling is unchanged. The
+    full-run validator is what *requires* scaling for a promotable run (Spec 0011).
+
+    Returns:
+        A ``(reference_lr, scaling_or_None)`` pair.
+
+    """
+    reference_lr = _required_float(optimizer, "learning_rate")
+    scaling_config = _optional_object(optimizer, "batch_lr_scaling")
+    if scaling_config is None:
+        return reference_lr, None
+    scaling = BatchLrScaling(
+        reference_global_batch_size=_required_int(
+            scaling_config,
+            "reference_global_batch_size",
+        ),
+        rule=_required_str(scaling_config, "rule"),
+    )
+    return reference_lr, scaling
+
+
+def _optimizer_config(
+    effective_config: JsonObject,
+    *,
+    global_batch_size: int,
+) -> SpecAdamWConfig:
     optimizer = _required_object(effective_config, "optimizer")
     betas = _required_float_list(optimizer, "betas", expected_len=2)
+    reference_lr, scaling = _batch_lr_scaling(optimizer)
+    learning_rate = (
+        reference_lr
+        if scaling is None
+        else scaled_learning_rate(
+            reference_lr=reference_lr,
+            scaling=scaling,
+            global_batch_size=global_batch_size,
+        )
+    )
     return SpecAdamWConfig(
-        learning_rate=_required_float(optimizer, "learning_rate"),
+        learning_rate=learning_rate,
         beta1=betas[0],
         beta2=betas[1],
         epsilon=_required_float(optimizer, "epsilon"),
@@ -6010,6 +6060,14 @@ def _optional_int(payload: JsonObject, key: str) -> int | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int):
+        message = f"Expected integer config field {key}"
+        raise TypeError(message)
+    return value
+
+
+def _required_int(payload: JsonObject, key: str) -> int:
+    value = _optional_int(payload, key)
+    if value is None:
         message = f"Expected integer config field {key}"
         raise TypeError(message)
     return value

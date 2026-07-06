@@ -94,6 +94,10 @@
   "optimizer": {
     "kind": "adamw",
     "learning_rate": 0.0005,
+    "batch_lr_scaling": {
+      "reference_global_batch_size": 24,
+      "rule": "sqrt"
+    },
     "betas": [0.9, 0.999],
     "epsilon": 0.00000001,
     "weight_decay": 0.00001,
