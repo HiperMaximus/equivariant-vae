@@ -331,6 +331,46 @@ def test_optimizer_config_uses_flat_lr_without_batch_scaling() -> None:
     assert math.isclose(flat.learning_rate, _LR_REFERENCE_LEARNING_RATE)
 
 
+def test_optimizer_lr_scaling_provenance_records_relationship() -> None:
+    """The lr-scaling provenance records the reference -> effective lr relationship."""
+    effective = resolve_json_config(_FULL_CONFIG).effective_config
+    provenance = selected_runtime_runner._optimizer_lr_scaling(  # noqa: SLF001
+        effective,
+        global_batch_size=_LR_QUADRUPLE_GLOBAL_BATCH,
+    )
+    assert cast("bool", provenance["scaling_applied"])
+    assert cast("str", provenance["rule"]) == "sqrt"
+    assert cast("int", provenance["global_batch_size"]) == _LR_QUADRUPLE_GLOBAL_BATCH
+    assert math.isclose(
+        cast("float", provenance["reference_learning_rate"]),
+        _LR_REFERENCE_LEARNING_RATE,
+    )
+    assert math.isclose(
+        cast("float", provenance["effective_learning_rate"]),
+        _LR_QUADRUPLE_LEARNING_RATE,
+    )
+
+
+def test_optimizer_lr_scaling_provenance_flat_without_batch_scaling() -> None:
+    """Provenance is flat (effective == reference) when no scaling block is set."""
+    effective = resolve_json_config(
+        Path("configs/spec0001/non_eq_vae_debug_cpu.json"),
+    ).effective_config
+    provenance = selected_runtime_runner._optimizer_lr_scaling(  # noqa: SLF001
+        effective,
+        global_batch_size=_LR_QUADRUPLE_GLOBAL_BATCH,
+    )
+    assert not cast("bool", provenance["scaling_applied"])
+    assert math.isclose(
+        cast("float", provenance["reference_learning_rate"]),
+        _LR_REFERENCE_LEARNING_RATE,
+    )
+    assert math.isclose(
+        cast("float", provenance["effective_learning_rate"]),
+        _LR_REFERENCE_LEARNING_RATE,
+    )
+
+
 def test_eps_generator_seed_is_per_rank_and_preserves_single_rank() -> None:
     """FU-007/FU-012: rank offset diverges eps; rank 0 fresh keeps data_seed."""
     data_seed = 4242

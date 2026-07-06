@@ -363,6 +363,7 @@ class _RunnerSettings:
     beta_target: float
     beta_warmup_fraction: float
     optimizer_config: SpecAdamWConfig
+    optimizer_lr_scaling: JsonObject
     global_seed: int
     data_seed: int
     corruption_seed: int
@@ -1629,6 +1630,7 @@ def _settings(  # noqa: PLR0914
     validation_batches_per_view = (
         _optional_int(training, "validation_batches_per_view") or 0
     )
+    global_batch_size = plan.per_device_batch_size * plan.world_size
     settings = _RunnerSettings(
         run_name=request.run_name or _required_str(run, "name"),
         run_mode=run_mode,
@@ -1669,7 +1671,11 @@ def _settings(  # noqa: PLR0914
         beta_warmup_fraction=_required_float(beta, "step_limited_warmup_fraction"),
         optimizer_config=_optimizer_config(
             effective,
-            global_batch_size=plan.per_device_batch_size * plan.world_size,
+            global_batch_size=global_batch_size,
+        ),
+        optimizer_lr_scaling=_optimizer_lr_scaling(
+            effective,
+            global_batch_size=global_batch_size,
         ),
         global_seed=_seed(effective, "global_seed"),
         data_seed=_seed(effective, "data_seed"),
@@ -3642,6 +3648,7 @@ def _partial_training_summary(
                 "local_amp_status": context.amp.local_amp_status,
                 "fp32_objective_island": True,
             },
+            "optimizer_lr_scaling": context.settings.optimizer_lr_scaling,
             "max_train_steps": context.settings.max_train_steps,
             "target_optimizer_updates": context.settings.target_train_steps,
             "requested_epochs": context.settings.requested_epochs,
@@ -4921,6 +4928,7 @@ def _training_summary(  # noqa: PLR0913
                 "local_amp_status": amp.local_amp_status,
                 "fp32_objective_island": True,
             },
+            "optimizer_lr_scaling": settings.optimizer_lr_scaling,
             "max_train_steps": settings.max_train_steps,
             "target_optimizer_updates": settings.target_train_steps,
             "requested_epochs": settings.requested_epochs,
@@ -5123,6 +5131,7 @@ def _selected_runtime_full_summary(  # noqa: C901, PLR0913
             "runtime_policy_id": plan.runtime_policy_id,
             "per_device_batch_size": settings.batch_size,
             "global_batch_size": plan.global_batch_size,
+            "optimizer_lr_scaling": settings.optimizer_lr_scaling,
             "target_optimizer_updates": settings.target_train_steps,
             "optimizer_steps_completed": completed_steps,
             "requested_epochs": settings.requested_epochs,
@@ -5866,6 +5875,52 @@ def _optimizer_config(
             ),
             "lr_multiplier",
         ),
+    )
+
+
+def _optimizer_lr_scaling(
+    effective_config: JsonObject,
+    *,
+    global_batch_size: int,
+) -> JsonObject:
+    """Return the LR batch-scaling provenance block for the summaries (Spec 0011).
+
+    Records the full relationship the remote gate re-checks: the reference lr and
+    batch, the run's global batch, the rule/exponent, and the resulting effective
+    lr. When no ``batch_lr_scaling`` block is configured the lr is flat and
+    ``scaling_applied`` is ``False``.
+
+    Returns:
+        A JSON-serializable provenance object.
+
+    """
+    optimizer = _required_object(effective_config, "optimizer")
+    reference_lr, scaling = _batch_lr_scaling(optimizer)
+    if scaling is None:
+        return cast(
+            "JsonObject",
+            {
+                "scaling_applied": False,
+                "reference_learning_rate": reference_lr,
+                "global_batch_size": global_batch_size,
+                "effective_learning_rate": reference_lr,
+            },
+        )
+    return cast(
+        "JsonObject",
+        {
+            "scaling_applied": True,
+            "rule": scaling.rule,
+            "reference_learning_rate": reference_lr,
+            "reference_global_batch_size": scaling.reference_global_batch_size,
+            "global_batch_size": global_batch_size,
+            "batch_ratio_exponent": scaling.exponent,
+            "effective_learning_rate": scaled_learning_rate(
+                reference_lr=reference_lr,
+                scaling=scaling,
+                global_batch_size=global_batch_size,
+            ),
+        },
     )
 
 
