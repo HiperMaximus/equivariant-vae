@@ -9,8 +9,8 @@ import pytest
 import torch
 
 from eqvae.models.activations import GatedScalarActivation
+from eqvae.models.latent import LATENT_CHANNELS
 from eqvae.models.non_equivariant_vae import (
-    LATENT_CHANNELS,
     NonEquivariantVAE,
     VaeForwardOutput,
     build_non_equivariant_vae,

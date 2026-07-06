@@ -14,8 +14,8 @@ import torch
 
 from eqvae.cli.benchmark_runtime import main as benchmark_runtime_main
 from eqvae.losses.vae import beta_for_step
+from eqvae.models.latent import LATENT_CHANNELS
 from eqvae.models.non_equivariant_vae import (
-    LATENT_CHANNELS,
     VaeForwardOutput,
     build_non_equivariant_vae,
 )

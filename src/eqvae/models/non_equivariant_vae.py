@@ -10,13 +10,13 @@ import torch
 from torch import nn
 
 from eqvae.models.activations import GatedScalarActivation
+from eqvae.models.latent import LATENT_CHANNELS
 from eqvae.models.resampling import (
     FieldwiseBilinearUpsample2x,
     FixedBinomialLowpassDownsample2x,
 )
 
 DEFAULT_GROUPNORM_GROUPS = 8
-LATENT_CHANNELS = 16
 INPUT_CHANNELS = 3
 OUTPUT_CHANNELS = 3
 STEM_CHANNELS = 32
@@ -448,7 +448,6 @@ __all__ = [
     "DEFAULT_LOGVAR_CLAMP_MAX",
     "DEFAULT_LOGVAR_CLAMP_MIN",
     "INPUT_CHANNELS",
-    "LATENT_CHANNELS",
     "OUTPUT_CHANNELS",
     "STEM_CHANNELS",
     "NonEquivariantVAE",

@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import pytest
 
+from eqvae.models.latent import LATENT_CHANNELS
 from eqvae.models.non_equivariant_vae import (
     DEFAULT_GROUPNORM_GROUPS,
-    LATENT_CHANNELS,
     NonEquivariantVAE,
 )
 from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model

@@ -47,10 +47,8 @@ from eqvae.data.training_batches import (
 )
 from eqvae.losses.vae import beta_for_step
 from eqvae.metrics.reconstruction import reconstruction_metric_summaries
-from eqvae.models.non_equivariant_vae import (
-    DEFAULT_GROUPNORM_GROUPS,
-    LATENT_CHANNELS,
-)
+from eqvae.models.latent import LATENT_CHANNELS
+from eqvae.models.non_equivariant_vae import DEFAULT_GROUPNORM_GROUPS
 from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
 from eqvae.training.optim import SpecAdamWConfig, create_adamw_optimizer
 from eqvae.training.progress import TrainingProgressState, record_training_attempt

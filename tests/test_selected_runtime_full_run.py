@@ -30,7 +30,8 @@ from eqvae.checkpointing import CheckpointMetadata, LoadedCheckpoint
 from eqvae.cli.selected_runtime_train import main as selected_runtime_train_main
 from eqvae.config import resolve_json_config
 from eqvae.losses.vae import VaeLossComponents, beta_for_step
-from eqvae.models.non_equivariant_vae import LATENT_CHANNELS, build_non_equivariant_vae
+from eqvae.models.latent import LATENT_CHANNELS
+from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
 from eqvae.training import selected_runtime_runner
 from eqvae.training.selected_runtime import (
     SelectedRuntimePlan,
