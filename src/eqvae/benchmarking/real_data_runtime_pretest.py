@@ -786,7 +786,6 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: PLR0914, PLR0915
         collate_patch_training_samples,
     )
     from eqvae.losses.vae import beta_for_step  # noqa: PLC0415
-    from eqvae.models.non_equivariant_vae import LATENT_CHANNELS  # noqa: PLC0415
     from eqvae.models.registry import (  # noqa: PLC0415
         MODEL_KIND_NON_EQ_TRANSLATABLE,
         build_model,
@@ -858,6 +857,10 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: PLR0914, PLR0915
         MODEL_KIND_NON_EQ_TRANSLATABLE,
         model_config={"norm_groups": config.settings.norm_groups},
     ).to(device)
+    # Eps/latent shape follows the built model, never a frozen module constant, so a
+    # future model with a different latent width re-runs this pretest unchanged
+    # (Spec 0011 R1). Read from the raw model before compile wrapping.
+    latent_channels = raw_model.latent_channels
     model = _model_for_compile_scope(model=raw_model, row_spec=row_spec)
     optimizer, _summary = create_adamw_optimizer(
         raw_model,
@@ -896,7 +899,7 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: PLR0914, PLR0915
                     settings=config.settings,
                     step_index=step_index,
                     row_spec=row_spec,
-                    latent_channels=LATENT_CHANNELS,
+                    latent_channels=latent_channels,
                     beta_for_step_fn=beta_for_step,
                     train_step_request_factory=TrainStepRequest,
                     run_train_step_fn=run_train_step,
@@ -917,7 +920,7 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: PLR0914, PLR0915
                 settings=config.settings,
                 step_index=step_index + config.settings.compile_settle_steps,
                 row_spec=row_spec,
-                latent_channels=LATENT_CHANNELS,
+                latent_channels=latent_channels,
                 beta_for_step_fn=beta_for_step,
                 train_step_request_factory=TrainStepRequest,
                 run_train_step_fn=run_train_step,
@@ -940,7 +943,7 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: PLR0914, PLR0915
                     + config.settings.warmup_steps
                 ),
                 row_spec=row_spec,
-                latent_channels=LATENT_CHANNELS,
+                latent_channels=latent_channels,
                 beta_for_step_fn=beta_for_step,
                 train_step_request_factory=TrainStepRequest,
                 run_train_step_fn=run_train_step,
@@ -3558,7 +3561,6 @@ def _one_strategy_train_step_evidence(  # noqa: PLR0913, PLR0914
         profile_from_config,
     )
     from eqvae.losses.vae import beta_for_step  # noqa: PLC0415
-    from eqvae.models.non_equivariant_vae import LATENT_CHANNELS  # noqa: PLC0415
     from eqvae.models.registry import (  # noqa: PLC0415
         MODEL_KIND_NON_EQ_TRANSLATABLE,
         build_model,
@@ -3575,6 +3577,10 @@ def _one_strategy_train_step_evidence(  # noqa: PLR0913, PLR0914
         MODEL_KIND_NON_EQ_TRANSLATABLE,
         model_config={"norm_groups": settings.norm_groups},
     ).to(device)
+    # Eps/latent shape follows the built model, never a frozen module constant, so a
+    # future model with a different latent width re-runs this pretest unchanged
+    # (Spec 0011 R1). Read from the raw model before compile wrapping.
+    latent_channels = raw_model.latent_channels
     model = _model_for_compile_scope_name(
         model=raw_model,
         compile_scope=target_row["compile_scope"],
@@ -3612,7 +3618,7 @@ def _one_strategy_train_step_evidence(  # noqa: PLR0913, PLR0914
     eps = torch.zeros(
         (
             shape[0],
-            LATENT_CHANNELS,
+            latent_channels,
             settings.image_size // LATENT_DOWNSAMPLE_FACTOR,
             settings.image_size // LATENT_DOWNSAMPLE_FACTOR,
         ),
