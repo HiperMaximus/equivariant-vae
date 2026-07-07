@@ -39,6 +39,8 @@ from eqvae.data.roots import (
 )
 from eqvae.data.synthetic import SyntheticPatchSpec, write_synthetic_patch_shard
 from eqvae.training.selected_runtime import (
+    EXPECTED_AMP_APPLICATION_STATUS,
+    EXPECTED_DDP_APPLICATION_STATUS,
     SelectedRuntimeApplicationObservation,
     build_plan_applied_proof,
     parse_selected_runtime_plan,
@@ -453,6 +455,7 @@ def test_selected_runtime_plan_applied_proof_rejects_recorded_not_applied() -> N
             torchrun_standalone=False,
             batch_size=1,
             global_batch_size=1,
+            optimizer_updates_per_epoch=plan.optimizer_updates_per_epoch,
             amp_enabled=False,
             grad_scaler_enabled=False,
             fp32_loss=False,
@@ -500,6 +503,7 @@ def test_selected_runtime_plan_applied_proof_rejects_unexecuted_ddp_amp() -> Non
             torchrun_standalone=plan.torchrun_standalone,
             batch_size=plan.per_device_batch_size,
             global_batch_size=plan.global_batch_size,
+            optimizer_updates_per_epoch=plan.optimizer_updates_per_epoch,
             amp_enabled=plan.amp_enabled,
             grad_scaler_enabled=plan.grad_scaler_enabled,
             fp32_loss=plan.fp32_loss,
@@ -526,6 +530,54 @@ def test_selected_runtime_plan_applied_proof_rejects_unexecuted_ddp_amp() -> Non
     mismatches = _string_list(proof["mismatches"])
     assert any("local_ddp_status" in mismatch for mismatch in mismatches)
     assert any("local_amp_status" in mismatch for mismatch in mismatches)
+
+
+def test_selected_runtime_plan_applied_proof_rejects_optimizer_updates_drift() -> None:
+    """Changing optimizer_updates_per_epoch alone fails plan application."""
+    plan = parse_selected_runtime_plan(
+        Path("runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json"),
+    )
+    drifted_updates = plan.optimizer_updates_per_epoch + 1
+    observed = SelectedRuntimeApplicationObservation(
+        selected_row_id=plan.selected_row_id,
+        runtime_policy_id=plan.runtime_policy_id,
+        accelerator_mode=plan.accelerator_mode,
+        machine_shape=plan.machine_shape,
+        world_size=plan.world_size,
+        nproc_per_node=plan.nproc_per_node,
+        torchrun_standalone=plan.torchrun_standalone,
+        batch_size=plan.per_device_batch_size,
+        global_batch_size=plan.global_batch_size,
+        optimizer_updates_per_epoch=drifted_updates,
+        amp_enabled=plan.amp_enabled,
+        grad_scaler_enabled=plan.grad_scaler_enabled,
+        fp32_loss=plan.fp32_loss,
+        autocast_dtype=plan.autocast_dtype,
+        torch_compile_enabled=plan.torch_compile_enabled,
+        compile_scope=plan.compile_scope,
+        dataloader_num_workers=plan.dataloader_num_workers,
+        dataloader_prefetch_factor=plan.dataloader_prefetch_factor,
+        dataloader_pin_memory=plan.dataloader_pin_memory,
+        dataloader_persistent_workers=plan.dataloader_persistent_workers,
+        dataloader_non_blocking_h2d=plan.dataloader_non_blocking_h2d,
+        corruption_strategy=plan.corruption_strategy,
+        memory_format=plan.memory_format,
+        ddp_static_graph=plan.ddp_static_graph,
+        ddp_gradient_as_bucket_view=plan.ddp_gradient_as_bucket_view,
+        zero_grad_set_to_none=plan.zero_grad_set_to_none,
+        local_ddp_status=EXPECTED_DDP_APPLICATION_STATUS,
+        local_amp_status=EXPECTED_AMP_APPLICATION_STATUS,
+    )
+    proof = build_plan_applied_proof(plan=plan, observed=observed)
+
+    assert proof["status"] == "fail"
+    assert proof["plan_applied"] is False
+    expected_mismatch = (
+        f"optimizer_updates_per_epoch: expected "
+        f"{plan.optimizer_updates_per_epoch!r}, observed {drifted_updates!r}"
+    )
+    assert _string_list(proof["mismatches"]) == [expected_mismatch]
+    assert observed.as_json()["optimizer_updates_per_epoch"] == drifted_updates
 
 
 def test_selected_runtime_gate_rejects_fabricated_fixed32_selector(

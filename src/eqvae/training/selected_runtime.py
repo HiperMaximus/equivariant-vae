@@ -121,6 +121,7 @@ class SelectedRuntimeApplicationObservation:
     torchrun_standalone: bool
     batch_size: int
     global_batch_size: int
+    optimizer_updates_per_epoch: int
     amp_enabled: bool
     grad_scaler_enabled: bool
     fp32_loss: bool
@@ -158,6 +159,7 @@ class SelectedRuntimeApplicationObservation:
             "torchrun_standalone": self.torchrun_standalone,
             "per_device_batch_size": self.batch_size,
             "global_batch_size": self.global_batch_size,
+            "optimizer_updates_per_epoch": self.optimizer_updates_per_epoch,
             "amp_enabled": self.amp_enabled,
             "grad_scaler_enabled": self.grad_scaler_enabled,
             "fp32_loss": self.fp32_loss,
@@ -901,6 +903,11 @@ def _application_mismatches(
         ("torchrun_standalone", observed.torchrun_standalone, plan.torchrun_standalone),
         ("per_device_batch_size", observed.batch_size, plan.per_device_batch_size),
         ("global_batch_size", observed.global_batch_size, plan.global_batch_size),
+        (
+            "optimizer_updates_per_epoch",
+            observed.optimizer_updates_per_epoch,
+            plan.optimizer_updates_per_epoch,
+        ),
         ("amp_enabled", observed.amp_enabled, plan.amp_enabled),
         ("grad_scaler_enabled", observed.grad_scaler_enabled, plan.grad_scaler_enabled),
         ("fp32_loss", observed.fp32_loss, plan.fp32_loss),

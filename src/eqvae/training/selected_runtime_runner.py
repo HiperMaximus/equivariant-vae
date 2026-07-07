@@ -4774,6 +4774,7 @@ def _plan_applied_proof(  # noqa: PLR0913
         global_batch_size=(
             settings.batch_size * probe.world_size if ddp_pass else settings.batch_size
         ),
+        optimizer_updates_per_epoch=settings.optimizer_updates_per_epoch,
         amp_enabled=amp.enabled,
         grad_scaler_enabled=amp.grad_scaler_enabled,
         fp32_loss=True,

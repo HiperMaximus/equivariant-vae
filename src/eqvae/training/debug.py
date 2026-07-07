@@ -1245,6 +1245,7 @@ def _plan_applied_proof(  # noqa: PLR0913
         torchrun_standalone=False,
         batch_size=observed_batch_size,
         global_batch_size=observed_batch_size,
+        optimizer_updates_per_epoch=plan.optimizer_updates_per_epoch,
         amp_enabled=False,
         grad_scaler_enabled=False,
         fp32_loss=True,
