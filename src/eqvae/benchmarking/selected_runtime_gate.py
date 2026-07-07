@@ -56,6 +56,7 @@ from eqvae.data.fixed_selectors import (
     load_fixed_selector_document,
 )
 from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
+from eqvae.training.optim import BatchLrScaling, scaled_learning_rate
 from eqvae.training.selected_runtime import (
     EXPECTED_DATASET_SLUG,
     EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE,
@@ -677,6 +678,12 @@ def verify_selected_runtime_full_output(  # noqa: PLR0914
         ),
     )
     blockers.extend(
+        _remote_full_lr_blockers(
+            training_summary,
+            global_batch_size=schedule.global_batch_size,
+        ),
+    )
+    blockers.extend(
         _remote_full_manifest_blockers(
             output_dir=output_dir,
             training_summary=training_summary,
@@ -991,6 +998,75 @@ def _remote_full_train_step_blockers(  # noqa: C901, PLR0912
         for row in successful_rows
     ):
         blockers.append("selected_runtime_full_output_train_steps_not_stochastic")
+    return tuple(blockers)
+
+
+def _is_positive_finite(value: float) -> bool:
+    return math.isfinite(value) and value > 0.0
+
+
+def _remote_full_expected_effective_lr(
+    lr_block: JsonObject,
+    *,
+    reference_lr: float,
+    global_batch_size: int,
+) -> float | None:
+    scaling_applied = lr_block.get("scaling_applied")
+    if scaling_applied is False:
+        # A flat lr keeps the reference at any batch (no batch_lr_scaling configured).
+        return reference_lr
+    if scaling_applied is not True:
+        return None
+    rule = lr_block.get("rule")
+    reference_batch = _int_value(lr_block.get("reference_global_batch_size"))
+    if not isinstance(rule, str) or reference_batch <= 0 or global_batch_size <= 0:
+        return None
+    # Re-derive the effective lr through the SAME primitives the runner used, so the
+    # gate verifies the rule->exponent mapping AND the scaling formula rather than
+    # trusting the recorded number.
+    try:
+        scaling = BatchLrScaling(reference_global_batch_size=reference_batch, rule=rule)
+    except ValueError:
+        return None
+    return scaled_learning_rate(
+        reference_lr=reference_lr,
+        scaling=scaling,
+        global_batch_size=global_batch_size,
+    )
+
+
+def _remote_full_lr_blockers(
+    training_summary: JsonObject,
+    *,
+    global_batch_size: int,
+) -> tuple[str, ...]:
+    block = training_summary.get("optimizer_lr_scaling")
+    if not isinstance(block, dict):
+        return ("selected_runtime_full_output_lr_scaling_missing",)
+    lr_block = cast("JsonObject", block)
+    blockers: list[str] = []
+    if _int_value(lr_block.get("global_batch_size")) != global_batch_size:
+        blockers.append("selected_runtime_full_output_lr_scaling_batch_mismatch")
+    reference_lr = _float_value(lr_block.get("reference_learning_rate"))
+    effective_lr = _float_value(lr_block.get("effective_learning_rate"))
+    if not (_is_positive_finite(reference_lr) and _is_positive_finite(effective_lr)):
+        # Both learning rates must be present and positive-finite. _float_value maps a
+        # missing/garbage field to 0.0, which would otherwise sail through the
+        # relationship check as scaled(0.0) == 0.0 -- a fail-open on a truncated or
+        # tampered summary that drops the learning rates.
+        blockers.append(
+            "selected_runtime_full_output_lr_scaling_learning_rate_invalid",
+        )
+        return tuple(blockers)
+    expected_lr = _remote_full_expected_effective_lr(
+        lr_block,
+        reference_lr=reference_lr,
+        global_batch_size=global_batch_size,
+    )
+    if expected_lr is None or not math.isclose(effective_lr, expected_lr):
+        blockers.append(
+            "selected_runtime_full_output_lr_scaling_relationship_mismatch",
+        )
     return tuple(blockers)
 
 

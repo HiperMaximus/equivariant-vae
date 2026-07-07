@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, NamedTuple, NoReturn, cast
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
+    from eqvae.benchmarking.io import JsonObject
+
 import numpy as np
 import pytest
 import torch
@@ -478,6 +480,87 @@ def test_optimizer_lr_scaling_provenance_flat_without_batch_scaling() -> None:
         cast("float", provenance["effective_learning_rate"]),
         _LR_REFERENCE_LEARNING_RATE,
     )
+
+
+def test_gate_lr_blockers_accept_producer_provenance() -> None:
+    """The gate accepts the exact lr provenance the runner records at a scaled batch.
+
+    Producer and gate share the scaling primitive, so the runner's recorded effective
+    lr (the quadruple lr at global batch 96) re-derives cleanly in the gate.
+    """
+    effective = resolve_json_config(_FULL_CONFIG).effective_config
+    provenance = selected_runtime_runner._optimizer_lr_scaling(  # noqa: SLF001
+        effective,
+        global_batch_size=_LR_QUADRUPLE_GLOBAL_BATCH,
+    )
+    training_summary: JsonObject = {"optimizer_lr_scaling": provenance}
+
+    blockers = selected_runtime_gate._remote_full_lr_blockers(  # noqa: SLF001
+        training_summary,
+        global_batch_size=_LR_QUADRUPLE_GLOBAL_BATCH,
+    )
+
+    assert blockers == ()
+
+
+def test_gate_lr_blockers_reject_effective_lr_off_relationship() -> None:
+    """An effective lr that violates the scaling relationship fails closed."""
+    effective = resolve_json_config(_FULL_CONFIG).effective_config
+    provenance = dict(
+        selected_runtime_runner._optimizer_lr_scaling(  # noqa: SLF001
+            effective,
+            global_batch_size=_LR_QUADRUPLE_GLOBAL_BATCH,
+        ),
+    )
+    # The correct effective lr at global batch 96 is the quadruple lr; the reference
+    # lr violates the sqrt relationship.
+    provenance["effective_learning_rate"] = _LR_REFERENCE_LEARNING_RATE
+    training_summary: JsonObject = {"optimizer_lr_scaling": provenance}
+
+    blockers = selected_runtime_gate._remote_full_lr_blockers(  # noqa: SLF001
+        training_summary,
+        global_batch_size=_LR_QUADRUPLE_GLOBAL_BATCH,
+    )
+
+    assert "selected_runtime_full_output_lr_scaling_relationship_mismatch" in blockers
+
+
+def test_gate_lr_blockers_reject_missing_provenance() -> None:
+    """A summary with no lr-scaling provenance fails closed."""
+    training_summary: JsonObject = {}
+
+    blockers = selected_runtime_gate._remote_full_lr_blockers(  # noqa: SLF001
+        training_summary,
+        global_batch_size=_LR_REFERENCE_GLOBAL_BATCH,
+    )
+
+    assert blockers == ("selected_runtime_full_output_lr_scaling_missing",)
+
+
+def test_gate_lr_blockers_reject_absent_learning_rate_fields() -> None:
+    """A provenance block that drops the learning-rate fields fails closed.
+
+    _float_value maps a missing field to 0.0 and scaled(0.0) == 0.0, so without the
+    positive-finite guard a truncated or tampered summary would pass the relationship
+    check; the gate must reject it.
+    """
+    effective = resolve_json_config(_FULL_CONFIG).effective_config
+    provenance = dict(
+        selected_runtime_runner._optimizer_lr_scaling(  # noqa: SLF001
+            effective,
+            global_batch_size=_LR_REFERENCE_GLOBAL_BATCH,
+        ),
+    )
+    del provenance["reference_learning_rate"]
+    del provenance["effective_learning_rate"]
+    training_summary: JsonObject = {"optimizer_lr_scaling": provenance}
+
+    blockers = selected_runtime_gate._remote_full_lr_blockers(  # noqa: SLF001
+        training_summary,
+        global_batch_size=_LR_REFERENCE_GLOBAL_BATCH,
+    )
+
+    assert "selected_runtime_full_output_lr_scaling_learning_rate_invalid" in blockers
 
 
 def test_eps_generator_seed_is_per_rank_and_preserves_single_rank() -> None:
@@ -2762,6 +2845,15 @@ def _write_full_output_fixture(
             "requested_epochs": contract.epochs,
             "optimizer_updates_per_epoch": contract.updates_per_epoch,
             "half_epoch_interval_steps": contract.half_interval,
+            "optimizer_lr_scaling": {
+                "scaling_applied": True,
+                "rule": "sqrt",
+                "reference_learning_rate": _LR_REFERENCE_LEARNING_RATE,
+                "reference_global_batch_size": _LR_REFERENCE_GLOBAL_BATCH,
+                "global_batch_size": _LR_REFERENCE_GLOBAL_BATCH,
+                "batch_ratio_exponent": 0.5,
+                "effective_learning_rate": _LR_REFERENCE_LEARNING_RATE,
+            },
             "validation_batches_per_view": contract.validation_batches,
             "validation_views": ["clean", "deterministic_denoising"],
             "train_reparameterization": "stochastic_seeded",
