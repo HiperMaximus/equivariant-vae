@@ -28,6 +28,11 @@ TRAIN_BIN_NAME = "ubc_train_shuffled.bin"
 TRAIN_CSV_NAME = "ubc_train_shuffled.csv"
 VALIDATION_BIN_NAME = "ubc_ocean_valid.bin"
 VALIDATION_CSV_NAME = "ubc_ocean_valid.csv"
+# The real UBC pre-shuffled training split holds exactly this many patches. It is the
+# single canonical source for P in the goal-derived schedule floor(P / global_batch)
+# (Spec 0011): the benchmark generators and the remote gate's floor(P / G) anchor all
+# import this one constant instead of re-declaring the number.
+REAL_TRAIN_PATCH_COUNT = 300_000
 REQUIRED_PATCH_FILENAMES = (
     TRAIN_BIN_NAME,
     TRAIN_CSV_NAME,
@@ -408,6 +413,7 @@ __all__ = [
     "KAGGLE_DATASET_OWNER",
     "KAGGLE_INPUT_ROOT",
     "KNOWN_AUTO_DATA_ROOTS",
+    "REAL_TRAIN_PATCH_COUNT",
     "DataRootDiagnosticValue",
     "DataRootDiagnostics",
     "PatchDataPaths",

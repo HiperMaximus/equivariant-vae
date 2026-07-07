@@ -22,7 +22,12 @@ from eqvae.data.fixed_selectors import (
     write_fixed_selector_document,
 )
 from eqvae.data.patch_shards import PatchShardSpec
-from eqvae.data.roots import TRAIN_BIN_NAME, TRAIN_CSV_NAME, resolve_patch_data_paths
+from eqvae.data.roots import (
+    REAL_TRAIN_PATCH_COUNT,
+    TRAIN_BIN_NAME,
+    TRAIN_CSV_NAME,
+    resolve_patch_data_paths,
+)
 from eqvae.data.splits import load_masked_holdout_wsi_ids
 from eqvae.data.synthetic import SyntheticPatchSpec, write_synthetic_patch_shard
 from eqvae.training.selected_runtime import EXPECTED_DATASET_SLUG
@@ -34,7 +39,7 @@ FIXED32_READINESS_SCHEMA_VERSION = "spec0008.fixed32_selector_readiness.v1"
 FIXED32_SELECTOR_STATUS_SCHEMA_VERSION = "spec0008.fixed32_selector_status.v1"
 REMOTE_GENERATE_MODE = "remote_generate"
 LOCAL_SELECTOR_MODE = "local_selector"
-EXPECTED_REAL_TRAIN_PATCH_COUNT = 300_000
+EXPECTED_REAL_TRAIN_PATCH_COUNT = REAL_TRAIN_PATCH_COUNT
 EXPECTED_REAL_TRAIN_CSV_SHA256 = (
     "8fc4959f7de006eed259f818ef2cc4ea03d1f3ec6ba483bf7229c04562f22a52"
 )

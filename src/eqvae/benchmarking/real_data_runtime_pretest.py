@@ -34,6 +34,7 @@ from eqvae.benchmarking.runtime_schema import (
     RUNTIME_MATRIX_COLUMNS,
 )
 from eqvae.config import ResolvedConfig, resolve_json_config
+from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
 from eqvae.models.activations import GatedScalarActivation
 
 if TYPE_CHECKING:
@@ -55,7 +56,7 @@ REAL_DATA_PRETEST_KIND = "real_data_runtime_pretest"
 REAL_DATA_PRETEST_SOURCE = "kaggle_capped_real_data_train_step_pretest"
 REAL_DATA_PRETEST_SCOPE = "non_promotable_real_data_runtime_pretest"
 EXPECTED_DATASET_SLUG = "maximusshtefan/patches-pre-shuffled-ubc-ocean"
-EXPECTED_REAL_TRAIN_PATCH_COUNT = 300_000
+EXPECTED_REAL_TRAIN_PATCH_COUNT = REAL_TRAIN_PATCH_COUNT
 EXPECTED_REAL_VALIDATION_PATCH_COUNT = 30_000
 EXPECTED_REAL_TRAIN_WSI_COUNT = 322
 EXPECTED_REAL_VALIDATION_WSI_COUNT = 39

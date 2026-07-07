@@ -22,6 +22,7 @@ from eqvae.benchmarking.runtime_schema import (
 )
 from eqvae.benchmarking.schedule import training_steps_per_epoch
 from eqvae.config import resolve_json_config
+from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -71,7 +72,7 @@ MAX_RELAXED_PARAM_UPDATE_REL_DELTA = 1.0e-2
 MAX_RELAXED_STATE_ABS_DELTA = 1.0e-2
 RELAXED_NUMERICAL_DELTA_FAILURE_KIND = "dual_t4_numerical_delta_failed"
 STAIN_QA_PROOF_SCOPE = "selected_runtime_stain_corruptor_row_linked_qa"
-REAL_TRAIN_PATCH_COUNT_DEFAULT = 300_000
+REAL_TRAIN_PATCH_COUNT_DEFAULT = REAL_TRAIN_PATCH_COUNT
 V8_REQUIRED_ARTIFACTS = (
     "benchmark/runtime_proof.json",
     "benchmark/runtime_matrix.csv",

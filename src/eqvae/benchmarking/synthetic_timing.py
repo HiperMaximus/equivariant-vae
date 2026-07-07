@@ -42,7 +42,12 @@ from eqvae.data.patch_shards import (
     load_patch_records,
     make_patch_shard_header,
 )
-from eqvae.data.roots import PatchDataPaths, PatchSplit, resolve_patch_data_paths
+from eqvae.data.roots import (
+    REAL_TRAIN_PATCH_COUNT,
+    PatchDataPaths,
+    PatchSplit,
+    resolve_patch_data_paths,
+)
 from eqvae.data.training_batches import (
     PatchTrainingBatch,
     PatchTrainingDataset,
@@ -83,7 +88,6 @@ DEFAULT_SEED = 20260617
 DEFAULT_WRITE_CHUNK_PATCHES = 8
 TEST_SPLIT_PATCHES = 8
 TEST_IMAGE_SIZE = 32
-REAL_TRAIN_PATCH_COUNT = 300_000
 NON_WRAPPING_ELIGIBILITY_STEPS = 30
 DEFAULT_WARMUP_STEPS = 3
 DEFAULT_MEASURED_STEPS = 12
