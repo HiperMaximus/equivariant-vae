@@ -109,6 +109,11 @@ This repo is the paper/research repository for the equivariant VAE work.
     than about 5 minutes, stop active waiting, tell the user a concrete local
     time to prompt with `continue`, and record the suggested cadence in
     `CURRENT.md` or `docs/kaggle_cli_workflow.md` when relevant.
+28. Agent temporary and scratch files go in `.agent_tmp/` (on-disk, gitignored),
+    not the OS `/tmp` scratchpad — `/tmp` here is a small tmpfs, so large writes
+    there trigger `EDQUOT` and cause fake test failures. Leave `TMPDIR` unset for
+    `./scripts/python_quality.sh` so its heavy pytest temp redirects to
+    `runs/local_tmp` on disk. Clean up `.agent_tmp/` when done.
 
 ## Safe Paper Workflow
 

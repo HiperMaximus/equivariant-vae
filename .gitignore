@@ -204,6 +204,9 @@ cython_debug/
 *.xdv
 paper/sipaim2026/main.pdf
 
+# Agent scratch (on-disk temp; use instead of the OS /tmp tmpfs)
+.agent_tmp/
+
 # Experiment and Kaggle run artifacts
 runs/
 kaggle/kernels/*/payload/
