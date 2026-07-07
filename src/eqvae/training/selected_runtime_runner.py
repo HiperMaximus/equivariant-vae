@@ -1703,7 +1703,7 @@ def _target_train_steps(
         return configured_max_train_steps or 1
     # Goal-derived schedule: the full run is EPOCHS passes over the training set, so
     # the update target is epochs * steps_per_epoch, where optimizer_updates_per_epoch
-    # already carries ceil(train_patch_count / global_batch) from the selected-runtime
+    # already carries floor(train_patch_count / global_batch) from the selected-runtime
     # plan (see runtime_selection._selected_runtime_payload). We derive it here rather
     # than freeze it in the config; the fail-closed guards below fire when the *inputs*
     # to that formula are missing/invalid, not because a derived literal happens absent.

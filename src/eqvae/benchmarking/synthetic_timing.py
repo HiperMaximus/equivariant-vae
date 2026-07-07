@@ -26,6 +26,7 @@ from torch import Tensor
 from torch.utils.data import DataLoader, Subset
 
 from eqvae.benchmarking.io import CsvRow, JsonObject, JsonValue, write_csv, write_json
+from eqvae.benchmarking.schedule import training_steps_per_epoch
 from eqvae.data.dataloaders import (
     PatchTensorDataset,
     PatchTensorDatasetSpec,
@@ -1358,7 +1359,10 @@ def _base_row(*, config: ChildRowConfig, accelerator: JsonObject) -> CsvRow:
         global_batch_size * config.non_wrapping_eligibility_steps
         - config.split_patch_count,
     )
-    steps_per_epoch = math.ceil(config.real_train_patch_count / global_batch_size)
+    steps_per_epoch = training_steps_per_epoch(
+        real_train_patch_count=config.real_train_patch_count,
+        global_batch_size=global_batch_size,
+    )
     remainder_samples = config.real_train_patch_count % global_batch_size
     return {
         "run_name": config.run_name,
@@ -1912,7 +1916,10 @@ def _estimated_epoch_minutes(
     global_batch_size: int,
     steady_step_ms_p50: float,
 ) -> float:
-    steps_per_epoch = math.ceil(real_train_patch_count / global_batch_size)
+    steps_per_epoch = training_steps_per_epoch(
+        real_train_patch_count=real_train_patch_count,
+        global_batch_size=global_batch_size,
+    )
     return steps_per_epoch * steady_step_ms_p50 / 60_000.0
 
 

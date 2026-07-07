@@ -20,6 +20,7 @@ from eqvae.benchmarking.runtime_schema import (
     NUMERICAL_CHECK_COLUMNS,
     RUNTIME_MATRIX_COLUMNS,
 )
+from eqvae.benchmarking.schedule import training_steps_per_epoch
 from eqvae.config import resolve_json_config
 
 if TYPE_CHECKING:
@@ -1040,7 +1041,10 @@ def _global_projection_payload(
         steady_ms = _float_or_none(row["steady_step_ms_p50"])
         if steady_ms is None or steady_ms <= 0.0:
             continue
-        steps_per_epoch = math.ceil(settings.real_train_patch_count / global_batch_size)
+        steps_per_epoch = training_steps_per_epoch(
+            real_train_patch_count=settings.real_train_patch_count,
+            global_batch_size=global_batch_size,
+        )
         projections.append({
             "row_id": row["row_id"],
             "runtime_policy_id": _runtime_policy_id(row),
@@ -1863,7 +1867,10 @@ def _selected_runtime_payload(
 ) -> JsonObject:
     global_batch_size = int(selected_row["global_batch_size"])
     steady_ms = _float_or_none(selected_row["steady_step_ms_p50"]) or 0.0
-    steps_per_epoch = math.ceil(settings.real_train_patch_count / global_batch_size)
+    steps_per_epoch = training_steps_per_epoch(
+        real_train_patch_count=settings.real_train_patch_count,
+        global_batch_size=global_batch_size,
+    )
     return {
         "status": PASS_STATUS,
         "benchmark_kind": RUNTIME_SELECTION_KIND,
