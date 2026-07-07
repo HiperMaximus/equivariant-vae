@@ -46,6 +46,7 @@ from eqvae.benchmarking.fixed32_selector_readiness import (
 )
 from eqvae.benchmarking.io import JsonObject, write_csv, write_json
 from eqvae.benchmarking.runtime_schema import GATE_HEALTH_COLUMNS
+from eqvae.benchmarking.schedule import training_steps_per_epoch
 from eqvae.config import ResolvedConfig, resolve_json_config
 from eqvae.data.fixed_selectors import (
     FIXED_32_TRAIN_OVERFIT_KIND,
@@ -54,6 +55,7 @@ from eqvae.data.fixed_selectors import (
     FixedSelectorDocument,
     load_fixed_selector_document,
 )
+from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
 from eqvae.training.selected_runtime import (
     EXPECTED_DATASET_SLUG,
     EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE,
@@ -134,10 +136,12 @@ REMOTE_FULL_REQUIRED_METRIC_ARTIFACTS = frozenset(
 REMOTE_FULL_OPTIONAL_METRIC_ARTIFACTS = frozenset({"equivariance_25.csv"})
 _FIXED25_EXPECTED_SAMPLE_COUNT = "25"
 _FIXED25_EXPECTED_K_VALUES = [0, 1, 2, 3]
-REMOTE_FULL_TARGET_UPDATES = 125000
+# Policy anchors the gate keeps pinned (a run cannot self-declare a tiny schedule to
+# slip past coverage); the schedule sizes (updates/target/half) are re-derived from
+# floor(P / global_batch) in _remote_full_expected_schedule, not frozen here, and
+# world_size is read from the plan -- all so a different global batch re-runs this gate
+# unchanged (Spec 0011).
 REMOTE_FULL_EPOCHS = 10
-REMOTE_FULL_UPDATES_PER_EPOCH = 12500
-REMOTE_FULL_HALF_EPOCH_INTERVAL = 6250
 REMOTE_FULL_VALIDATION_BATCHES_PER_VIEW = 20
 REMOTE_FULL_VALIDATION_VIEWS = ("clean", "deterministic_denoising")
 # best_model.pt must be selected on the denoising view across ranks with a
@@ -146,7 +150,6 @@ REMOTE_FULL_VALIDATION_VIEWS = ("clean", "deterministic_denoising")
 REMOTE_FULL_CHECKPOINT_SELECTION_VIEW = "deterministic_denoising"
 REMOTE_FULL_CHECKPOINT_SELECTION_REDUCTION = "cross_rank_sample_weighted_l1"
 REMOTE_FULL_INTERVAL_CHECKPOINT_KEEP_COUNT = 4
-REMOTE_FULL_WORLD_SIZE = 2
 REMOTE_DEBUG_FINAL_STEP = 8
 REMOTE_DEBUG_RESUME_STEP = 4
 REMOTE_DEBUG_REQUIRED_SUCCESSFUL_STEPS = tuple(
@@ -551,6 +554,55 @@ def verify_selected_runtime_debug_output(  # noqa: PLR0914
     return _dedupe_strings(tuple(blockers))
 
 
+@dataclass(frozen=True)
+class _RemoteFullSchedule:
+    """Goal-derived full-run schedule the gate independently anchors (Spec 0011).
+
+    ``updates_per_epoch`` is ``floor(REAL_TRAIN_PATCH_COUNT / global_batch_size)`` --
+    the gate re-derives it from the immutable patch count and the plan's global batch
+    rather than trusting the summary's number (MF2). ``target`` and ``half`` follow
+    from it and the pinned epoch policy anchor. ``valid`` is False when the runtime
+    payload has a non-positive global batch, in which case the sentinel sizes never
+    match a real summary and the gate fails closed.
+    """
+
+    global_batch_size: int
+    updates_per_epoch: int
+    target_updates: int
+    half_epoch_interval: int
+    valid: bool
+
+
+def _remote_full_expected_schedule(global_batch_size: int) -> _RemoteFullSchedule:
+    updates_per_epoch = (
+        training_steps_per_epoch(
+            real_train_patch_count=REAL_TRAIN_PATCH_COUNT,
+            global_batch_size=global_batch_size,
+        )
+        if global_batch_size > 0
+        else 0
+    )
+    half_epoch_interval = updates_per_epoch // 2
+    # A real full run needs a positive half-epoch boundary (updates_per_epoch >= 2);
+    # otherwise the boundary range() would be degenerate. Fail closed with sentinels
+    # the summary can never match instead of trusting an impossible schedule.
+    if global_batch_size <= 0 or half_epoch_interval < 1:
+        return _RemoteFullSchedule(
+            global_batch_size=global_batch_size,
+            updates_per_epoch=-1,
+            target_updates=-1,
+            half_epoch_interval=-1,
+            valid=False,
+        )
+    return _RemoteFullSchedule(
+        global_batch_size=global_batch_size,
+        updates_per_epoch=updates_per_epoch,
+        target_updates=REMOTE_FULL_EPOCHS * updates_per_epoch,
+        half_epoch_interval=half_epoch_interval,
+        valid=True,
+    )
+
+
 def verify_selected_runtime_full_output(  # noqa: PLR0914
     *,
     output_dir: Path,
@@ -605,6 +657,12 @@ def verify_selected_runtime_full_output(  # noqa: PLR0914
     runtime_payload = _load_json(selected_runtime_path)
     max_batch_size = _int_value(runtime_payload.get("per_device_batch_size"))
     world_size = _int_value(runtime_payload.get("world_size"))
+    # Independent goal-derived schedule (MF2): re-derive updates/target/half from the
+    # immutable patch count and the plan's global batch, so a summary that self-reports
+    # a wrong schedule cannot slip past the gate on its own numbers.
+    schedule = _remote_full_expected_schedule(
+        _int_value(runtime_payload.get("global_batch_size")),
+    )
     blockers.extend(
         _remote_full_json_blockers(
             runtime_sha256=runtime_sha256,
@@ -615,6 +673,7 @@ def verify_selected_runtime_full_output(  # noqa: PLR0914
             gate_health=gate_health,
             artifact_manifest=artifact_manifest,
             output_dir=output_dir,
+            schedule=schedule,
         ),
     )
     blockers.extend(
@@ -632,10 +691,15 @@ def verify_selected_runtime_full_output(  # noqa: PLR0914
             metrics_dir / "train_steps.csv",
             max_batch_size=max_batch_size,
             world_size=world_size,
+            target_updates=schedule.target_updates,
         ),
     )
     blockers.extend(
-        _remote_full_validation_blockers(metrics_dir / "validation_metrics.csv"),
+        _remote_full_validation_blockers(
+            metrics_dir / "validation_metrics.csv",
+            half_epoch_interval=schedule.half_epoch_interval,
+            target_updates=schedule.target_updates,
+        ),
     )
     blockers.extend(_remote_full_fixed25_blockers(output_dir=output_dir))
     return _dedupe_strings(tuple(blockers))
@@ -651,8 +715,11 @@ def _remote_full_json_blockers(  # noqa: PLR0913
     gate_health: JsonObject,
     artifact_manifest: JsonObject,
     output_dir: Path,
+    schedule: _RemoteFullSchedule,
 ) -> tuple[str, ...]:
     blockers: list[str] = []
+    if not schedule.valid:
+        blockers.append("selected_runtime_full_output_runtime_global_batch_invalid")
     runtime_config = training_summary.get("runtime_config")
     runtime_payload = runtime_config if isinstance(runtime_config, dict) else {}
     if runtime_payload.get("sha256") != runtime_sha256:
@@ -663,7 +730,9 @@ def _remote_full_json_blockers(  # noqa: PLR0913
     retained_interval_checkpoint_names = _full_retained_interval_checkpoint_names(
         training_summary,
     )
-    expected_interval_checkpoint_names = _full_expected_interval_checkpoint_names()
+    expected_interval_checkpoint_names = _full_expected_interval_checkpoint_names(
+        schedule,
+    )
     checks: tuple[tuple[bool, str], ...] = (
         (
             training_summary.get("status") == RUNNER_OK_STATUS,
@@ -674,13 +743,12 @@ def _remote_full_json_blockers(  # noqa: PLR0913
             "wrong_run_mode",
         ),
         (
-            training_summary.get("target_optimizer_updates")
-            == REMOTE_FULL_TARGET_UPDATES,
+            training_summary.get("target_optimizer_updates") == schedule.target_updates,
             "target_updates_mismatch",
         ),
         (
             training_summary.get("optimizer_steps_completed")
-            == REMOTE_FULL_TARGET_UPDATES,
+            == schedule.target_updates,
             "completed_updates_mismatch",
         ),
         (
@@ -689,12 +757,12 @@ def _remote_full_json_blockers(  # noqa: PLR0913
         ),
         (
             training_summary.get("optimizer_updates_per_epoch")
-            == REMOTE_FULL_UPDATES_PER_EPOCH,
+            == schedule.updates_per_epoch,
             "updates_per_epoch_mismatch",
         ),
         (
             training_summary.get("half_epoch_interval_steps")
-            == REMOTE_FULL_HALF_EPOCH_INTERVAL,
+            == schedule.half_epoch_interval,
             "half_epoch_interval_mismatch",
         ),
         (
@@ -734,7 +802,7 @@ def _remote_full_json_blockers(  # noqa: PLR0913
         ),
         (full_summary.get("status") == RUNNER_OK_STATUS, "full_summary_not_pass"),
         (
-            full_summary.get("target_optimizer_updates") == REMOTE_FULL_TARGET_UPDATES,
+            full_summary.get("target_optimizer_updates") == schedule.target_updates,
             "full_summary_target_mismatch",
         ),
         (
@@ -816,12 +884,14 @@ def _remote_full_json_blockers(  # noqa: PLR0913
     return tuple(blockers)
 
 
-def _full_expected_interval_checkpoint_names() -> tuple[str, ...]:
+def _full_expected_interval_checkpoint_names(
+    schedule: _RemoteFullSchedule,
+) -> tuple[str, ...]:
     steps = tuple(
         range(
-            REMOTE_FULL_HALF_EPOCH_INTERVAL,
-            REMOTE_FULL_TARGET_UPDATES + 1,
-            REMOTE_FULL_HALF_EPOCH_INTERVAL,
+            schedule.half_epoch_interval,
+            schedule.target_updates + 1,
+            schedule.half_epoch_interval,
         ),
     )
     latest = steps[-REMOTE_FULL_INTERVAL_CHECKPOINT_KEEP_COUNT:]
@@ -848,6 +918,7 @@ def _remote_full_train_step_blockers(  # noqa: C901, PLR0912
     *,
     max_batch_size: int,
     world_size: int,
+    target_updates: int,
 ) -> tuple[str, ...]:
     with path.open(encoding="utf-8", newline="") as csv_file:
         reader = csv.DictReader(csv_file)
@@ -874,11 +945,12 @@ def _remote_full_train_step_blockers(  # noqa: C901, PLR0912
     if not successful_rows:
         blockers.append("selected_runtime_full_output_train_steps_no_successful_rows")
         return tuple(blockers)
-    expected_world_size = REMOTE_FULL_WORLD_SIZE
-    if world_size != REMOTE_FULL_WORLD_SIZE:
-        blockers.append("selected_runtime_full_output_runtime_world_size_mismatch")
+    # world_size is sourced from the plan (not a frozen 2); only a >= 1 floor remains.
+    expected_world_size = world_size
+    if world_size < 1:
+        blockers.append("selected_runtime_full_output_runtime_world_size_invalid")
     expected_ranks = set(range(expected_world_size))
-    expected_successful_row_count = REMOTE_FULL_TARGET_UPDATES * expected_world_size
+    expected_successful_row_count = target_updates * expected_world_size
     if len(successful_rows) != expected_successful_row_count:
         blockers.append("selected_runtime_full_output_train_steps_row_count_mismatch")
     coverage: dict[int, set[int]] = {}
@@ -886,7 +958,7 @@ def _remote_full_train_step_blockers(  # noqa: C901, PLR0912
     for row in successful_rows:
         step = _int_value(row.get("successful_optimizer_update_count"))
         rank = _int_value(row.get("rank"))
-        if not (1 <= step <= REMOTE_FULL_TARGET_UPDATES) or rank not in expected_ranks:
+        if not (1 <= step <= target_updates) or rank not in expected_ranks:
             blockers.append(
                 "selected_runtime_full_output_train_steps_step_or_rank_invalid",
             )
@@ -897,9 +969,8 @@ def _remote_full_train_step_blockers(  # noqa: C901, PLR0912
             continue
         seen_step_ranks.add(step_rank)
         coverage.setdefault(step, set()).add(rank)
-    if len(coverage) != REMOTE_FULL_TARGET_UPDATES or any(
-        coverage.get(step) != expected_ranks
-        for step in range(1, REMOTE_FULL_TARGET_UPDATES + 1)
+    if len(coverage) != target_updates or any(
+        coverage.get(step) != expected_ranks for step in range(1, target_updates + 1)
     ):
         blockers.append("selected_runtime_full_output_train_steps_schedule_incomplete")
     if any(row.get("amp_step_skipped") != "0" for row in rows):
@@ -923,7 +994,12 @@ def _remote_full_train_step_blockers(  # noqa: C901, PLR0912
     return tuple(blockers)
 
 
-def _remote_full_validation_blockers(path: Path) -> tuple[str, ...]:
+def _remote_full_validation_blockers(
+    path: Path,
+    *,
+    half_epoch_interval: int,
+    target_updates: int,
+) -> tuple[str, ...]:
     with path.open(encoding="utf-8", newline="") as csv_file:
         reader = csv.DictReader(csv_file)
         rows = list(reader)
@@ -946,9 +1022,9 @@ def _remote_full_validation_blockers(path: Path) -> tuple[str, ...]:
     }
     expected_steps = tuple(
         range(
-            REMOTE_FULL_HALF_EPOCH_INTERVAL,
-            REMOTE_FULL_TARGET_UPDATES + 1,
-            REMOTE_FULL_HALF_EPOCH_INTERVAL,
+            half_epoch_interval,
+            target_updates + 1,
+            half_epoch_interval,
         ),
     )
     for step in expected_steps:

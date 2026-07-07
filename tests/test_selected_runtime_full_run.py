@@ -55,6 +55,13 @@ _FULL_VALIDATION_BATCHES_PER_VIEW = 20
 _LARGER_BATCH_UPDATES_PER_EPOCH = 3125
 _LARGER_BATCH_TARGET_UPDATES = _FULL_EPOCHS * _LARGER_BATCH_UPDATES_PER_EPOCH
 _LARGER_BATCH_HALF_INTERVAL = _LARGER_BATCH_UPDATES_PER_EPOCH // 2
+# The remote gate derives its schedule from floor(REAL_TRAIN_PATCH_COUNT / global_batch)
+# and REMOTE_FULL_EPOCHS; at the reference batch 24 this is the real 12500/125000/6250.
+_GATE_REFERENCE_GLOBAL_BATCH = 24
+# floor(300000 / 200000) == 1 -> half 0 -> the fail-closed guard trips.
+_GATE_DEGENERATE_GLOBAL_BATCH = 200_000
+_GATE_NEGATIVE_GLOBAL_BATCH = -1
+_GATE_INVALID_SCHEDULE_SENTINEL = -1
 _LOCAL_DRY_RUN_STEPS = 2
 _PRIOR_BEST_VALIDATION_METRIC = 0.25
 _FLOAT_TOLERANCE = 1e-12
@@ -203,6 +210,45 @@ def test_full_run_rejects_half_not_floor_of_updates(tmp_path: Path) -> None:
             drifted,
             dry_run=True,
         )
+
+
+def test_gate_expected_schedule_derives_reference_batch_24() -> None:
+    """The gate re-derives the real 12500/125000/6250 schedule from floor(P / batch).
+
+    This anchors the gate to the dataset independently of the summary (MF2): at the
+    reference global batch 24 the derived schedule equals the former frozen literals,
+    so a real full run is validated identically.
+    """
+    schedule = selected_runtime_gate._remote_full_expected_schedule(  # noqa: SLF001
+        _GATE_REFERENCE_GLOBAL_BATCH,
+    )
+
+    assert schedule.valid is True
+    assert schedule.updates_per_epoch == _FULL_UPDATES_PER_EPOCH
+    assert schedule.target_updates == _FULL_TARGET_UPDATES
+    assert schedule.half_epoch_interval == _FULL_HALF_EPOCH_INTERVAL
+
+
+def test_gate_expected_schedule_fails_closed_on_degenerate_batch() -> None:
+    """A non-positive or too-large global batch yields an invalid, fail-closed schedule.
+
+    A global batch that floors updates_per_epoch below 2 leaves no positive half-epoch
+    boundary, so the gate marks the schedule invalid (sentinel sizes the summary can
+    never match) rather than emitting a degenerate range().
+    """
+    for global_batch in (
+        0,
+        _GATE_NEGATIVE_GLOBAL_BATCH,
+        _GATE_DEGENERATE_GLOBAL_BATCH,
+    ):
+        schedule = selected_runtime_gate._remote_full_expected_schedule(  # noqa: SLF001
+            global_batch,
+        )
+
+        assert schedule.valid is False
+        assert schedule.updates_per_epoch == _GATE_INVALID_SCHEDULE_SENTINEL
+        assert schedule.target_updates == _GATE_INVALID_SCHEDULE_SENTINEL
+        assert schedule.half_epoch_interval == _GATE_INVALID_SCHEDULE_SENTINEL
 
 
 def test_full_boundary_logging_waits_at_barrier(
@@ -2528,22 +2574,23 @@ def _small_full_output_contract(
         keep_count=4,
         world_size=2,
     )
+    # The gate re-derives updates/target/half from
+    # floor(REAL_TRAIN_PATCH_COUNT / global_batch) and reads world_size from the
+    # committed runtime config (global_batch 24, world_size 2). Shrink the schedule to
+    # the contract by patching the patch count so floor(P / global_batch) equals the
+    # contract's updates_per_epoch; epochs stays the policy anchor the gate reads, and
+    # target/half then derive to the contract's 8/2.
+    runtime_payload = cast(
+        "dict[str, object]",
+        json.loads(_RUNTIME_CONFIG.read_text(encoding="utf-8")),
+    )
+    runtime_global_batch = cast("int", runtime_payload["global_batch_size"])
     monkeypatch.setattr(
         selected_runtime_gate,
-        "REMOTE_FULL_TARGET_UPDATES",
-        contract.target_updates,
+        "REAL_TRAIN_PATCH_COUNT",
+        contract.updates_per_epoch * runtime_global_batch,
     )
     monkeypatch.setattr(selected_runtime_gate, "REMOTE_FULL_EPOCHS", contract.epochs)
-    monkeypatch.setattr(
-        selected_runtime_gate,
-        "REMOTE_FULL_UPDATES_PER_EPOCH",
-        contract.updates_per_epoch,
-    )
-    monkeypatch.setattr(
-        selected_runtime_gate,
-        "REMOTE_FULL_HALF_EPOCH_INTERVAL",
-        contract.half_interval,
-    )
     monkeypatch.setattr(
         selected_runtime_gate,
         "REMOTE_FULL_VALIDATION_BATCHES_PER_VIEW",
