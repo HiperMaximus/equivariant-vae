@@ -563,6 +563,50 @@ def test_gate_lr_blockers_reject_absent_learning_rate_fields() -> None:
     assert "selected_runtime_full_output_lr_scaling_learning_rate_invalid" in blockers
 
 
+def _cross_consistency_training_summary() -> JsonObject:
+    return {
+        "target_optimizer_updates": _FULL_TARGET_UPDATES,
+        "optimizer_steps_completed": _FULL_TARGET_UPDATES,
+        "requested_epochs": _FULL_EPOCHS,
+        "optimizer_updates_per_epoch": _FULL_UPDATES_PER_EPOCH,
+        "half_epoch_interval_steps": _FULL_HALF_EPOCH_INTERVAL,
+        "validation_batches_per_view": _FULL_VALIDATION_BATCHES_PER_VIEW,
+        "validation_views": ["clean", "deterministic_denoising"],
+    }
+
+
+def test_gate_cross_consistency_accepts_matching_schedule() -> None:
+    """A full summary that agrees with the training summary schedule passes."""
+    training_summary = _cross_consistency_training_summary()
+    full_summary = dict(training_summary)
+
+    blockers = selected_runtime_gate._remote_full_cross_consistency_blockers(  # noqa: SLF001
+        training_summary=training_summary,
+        full_summary=full_summary,
+    )
+
+    assert blockers == ()
+
+
+def test_gate_cross_consistency_rejects_full_summary_schedule_drift() -> None:
+    """A full summary that drifts on any schedule field fails closed.
+
+    The gate anchors only the full summary's target to the derived schedule, so a full
+    summary that disagrees with the training summary on updates_per_epoch (or half /
+    epochs / cadence) would otherwise go unverified.
+    """
+    training_summary = _cross_consistency_training_summary()
+    full_summary = dict(training_summary)
+    full_summary["optimizer_updates_per_epoch"] = _FULL_UPDATES_PER_EPOCH + 1
+
+    blockers = selected_runtime_gate._remote_full_cross_consistency_blockers(  # noqa: SLF001
+        training_summary=training_summary,
+        full_summary=full_summary,
+    )
+
+    assert blockers == ("selected_runtime_full_output_full_summary_schedule_mismatch",)
+
+
 def test_eps_generator_seed_is_per_rank_and_preserves_single_rank() -> None:
     """FU-007/FU-012: rank offset diverges eps; rank 0 fresh keeps data_seed."""
     data_seed = 4242
@@ -2876,6 +2920,12 @@ def _write_full_output_fixture(
             "status": "local_pass",
             "selected_runtime_full_run_contract_ready": True,
             "target_optimizer_updates": contract.target_updates,
+            "optimizer_steps_completed": contract.target_updates,
+            "requested_epochs": contract.epochs,
+            "optimizer_updates_per_epoch": contract.updates_per_epoch,
+            "half_epoch_interval_steps": contract.half_interval,
+            "validation_batches_per_view": contract.validation_batches,
+            "validation_views": ["clean", "deterministic_denoising"],
             "stochastic_train_eps_proven": True,
             "per_rank_reparameterization_eps_divergent": True,
             "best_validation_selection_view": "deterministic_denoising",

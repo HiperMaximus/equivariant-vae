@@ -684,6 +684,12 @@ def verify_selected_runtime_full_output(  # noqa: PLR0914
         ),
     )
     blockers.extend(
+        _remote_full_cross_consistency_blockers(
+            training_summary=training_summary,
+            full_summary=full_summary,
+        ),
+    )
+    blockers.extend(
         _remote_full_manifest_blockers(
             output_dir=output_dir,
             training_summary=training_summary,
@@ -1068,6 +1074,34 @@ def _remote_full_lr_blockers(
             "selected_runtime_full_output_lr_scaling_relationship_mismatch",
         )
     return tuple(blockers)
+
+
+_REMOTE_FULL_CROSS_CONSISTENCY_KEYS = (
+    "target_optimizer_updates",
+    "optimizer_steps_completed",
+    "requested_epochs",
+    "optimizer_updates_per_epoch",
+    "half_epoch_interval_steps",
+    "validation_batches_per_view",
+    "validation_views",
+)
+
+
+def _remote_full_cross_consistency_blockers(
+    *,
+    training_summary: JsonObject,
+    full_summary: JsonObject,
+) -> tuple[str, ...]:
+    # The full summary must agree with the training summary on every schedule field,
+    # not merely the target the gate independently anchors -- so a full summary that
+    # drifts on updates_per_epoch / half / epochs / the validation cadence is caught
+    # directly rather than slipping through unverified (Spec 0011).
+    if any(
+        full_summary.get(key) != training_summary.get(key)
+        for key in _REMOTE_FULL_CROSS_CONSISTENCY_KEYS
+    ):
+        return ("selected_runtime_full_output_full_summary_schedule_mismatch",)
+    return ()
 
 
 def _remote_full_validation_blockers(
