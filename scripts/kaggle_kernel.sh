@@ -1871,13 +1871,30 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         expected_top_level = {
             "world_size": 2,
             "nproc_per_node": 2,
-            "per_device_batch_size": 12,
-            "global_batch_size": 24,
             "gradient_accumulation_steps": 1,
         }
         for key, expected in expected_top_level.items():
             if selected_runtime.get(key) != expected:
                 errors.append(f"selected runtime {key} must be {expected!r}")
+        # Spec 0011 S8: batch is a measured search output, so validate the relationship
+        # global == per_device * world_size instead of pinning 12/24 (byte-identical @24).
+        debug_per_device = selected_runtime.get("per_device_batch_size")
+        debug_world = selected_runtime.get("world_size")
+        if (
+            isinstance(debug_per_device, bool)
+            or not isinstance(debug_per_device, int)
+            or debug_per_device <= 0
+        ):
+            errors.append(
+                "selected runtime per_device_batch_size must be a positive integer"
+            )
+        elif isinstance(debug_world, bool) or not isinstance(debug_world, int):
+            errors.append("selected runtime world_size must be an integer")
+        elif selected_runtime.get("global_batch_size") != debug_per_device * debug_world:
+            errors.append(
+                "selected runtime global_batch_size must be "
+                f"{debug_per_device * debug_world!r}"
+            )
         mixed_precision = selected_runtime.get("mixed_precision")
         if not isinstance(mixed_precision, dict):
             errors.append("selected runtime mixed_precision must be an object")
@@ -2097,7 +2114,7 @@ PYFULLMETA
   python3 scripts/build_kaggle_embedded_kernel.py "${verify_args[@]}"
 
   local run_file="$kernel_dir/run.py"
-  python3 - "$run_file" <<'PYFULLPAYLOAD'
+  PYTHONPATH=src "$python_bin" - "$run_file" <<'PYFULLPAYLOAD'
 import base64
 import io
 import json
@@ -2105,6 +2122,23 @@ import re
 import sys
 import zipfile
 from pathlib import Path
+
+from eqvae.benchmarking.schedule import training_steps_per_epoch
+from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
+
+
+def _positive_int_or_none(value):
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
+def _int_or_none(value):
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
 run_text = Path(sys.argv[1]).read_text(encoding="utf-8")
 match = re.search(r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""', run_text, flags=re.DOTALL)
 if match is None:
@@ -2130,15 +2164,47 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
     full_config = json.loads(archive.read("configs/spec0001/non_eq_vae_selected_runtime_full.json"))
     selected_runtime = json.loads(archive.read("runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json"))
     training = full_config.get("training") if isinstance(full_config, dict) else None
+    # Spec 0011 S8: derive the schedule from the plan's measured global batch and the
+    # single-sourced patch count instead of pinning the reference literals. At the
+    # reference global batch 24 these reproduce 12500/125000/6250 exactly, so the built
+    # kernel is unchanged; a re-measured non-24 plan is validated by relationship.
+    per_device_batch = _positive_int_or_none(selected_runtime.get("per_device_batch_size"))
+    world_size = _positive_int_or_none(selected_runtime.get("world_size"))
+    global_batch = _positive_int_or_none(selected_runtime.get("global_batch_size"))
+    epochs = _int_or_none(training.get("epochs")) if isinstance(training, dict) else None
+    if isinstance(training, dict) and "epochs" in training and epochs is None:
+        # A present-but-non-int epochs (e.g. JSON 10.0) must fail closed here: it would
+        # otherwise pass the ``!= 10`` anchor pin yet null the derivation, silently
+        # skipping the FULL_TARGET_UPDATES/FULL_HALF_EPOCH_INTERVAL run.py token check.
+        errors.append("full config training.epochs must be an integer")
+    if global_batch is None:
+        errors.append("selected runtime global_batch_size must be a positive integer")
+        derived_updates = None
+    else:
+        derived_updates = training_steps_per_epoch(
+            real_train_patch_count=REAL_TRAIN_PATCH_COUNT,
+            global_batch_size=global_batch,
+        )
+    if global_batch is not None and (
+        per_device_batch is None
+        or world_size is None
+        or global_batch != per_device_batch * world_size
+    ):
+        errors.append(
+            "selected runtime global_batch_size must equal "
+            "per_device_batch_size * world_size"
+        )
+    if derived_updates is None or epochs is None:
+        derived_target = None
+        derived_half = None
+    else:
+        derived_target = epochs * derived_updates
+        derived_half = derived_updates // 2
     if not isinstance(training, dict):
         errors.append("full config training must be an object")
     else:
         expected_training = {
             "epochs": 10,
-            "optimizer_updates_per_epoch": 12500,
-            "max_train_steps": 125000,
-            "half_epoch_interval_steps": 6250,
-            "save_every_steps": 6250,
             "train_reparameterization": "stochastic_seeded",
             "checkpoint_retention": "best_final_latest_four_interval",
             "resume_supported": True,
@@ -2146,8 +2212,23 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         for key, expected in expected_training.items():
             if training.get(key) != expected:
                 errors.append(f"full config training.{key} must be {expected!r}")
-    if selected_runtime.get("optimizer_updates_per_epoch") != 12500:
-        errors.append("selected runtime optimizer_updates_per_epoch must be 12500")
+        for key in (
+            "optimizer_updates_per_epoch",
+            "max_train_steps",
+            "half_epoch_interval_steps",
+            "save_every_steps",
+        ):
+            if key in training:
+                errors.append(
+                    f"full config training must not re-freeze {key}; "
+                    "schedule is runner-derived (Spec 0011)"
+                )
+    if derived_updates is not None and (
+        selected_runtime.get("optimizer_updates_per_epoch") != derived_updates
+    ):
+        errors.append(
+            f"selected runtime optimizer_updates_per_epoch must be {derived_updates!r}"
+        )
     forbidden = (
         "selected_runtime_debug",
         "DEBUG_FINAL_STEP",
@@ -2158,8 +2239,6 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         "KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
         "selected_runtime_full_run_contract_ready",
         "non_eq_vae_selected_runtime_full.json",
-        "FULL_TARGET_UPDATES = 125000",
-        "FULL_HALF_EPOCH_INTERVAL = 6250",
         "torch.distributed.run",
         "--nproc_per_node=2",
         "eqvae.cli.selected_runtime_train",
@@ -2169,6 +2248,13 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
     for token in required_text:
         if token not in run_text:
             errors.append(f"full run.py missing required text: {token}")
+    if derived_target is not None and derived_half is not None:
+        for token in (
+            f"FULL_TARGET_UPDATES = {derived_target}",
+            f"FULL_HALF_EPOCH_INTERVAL = {derived_half}",
+        ):
+            if token not in run_text:
+                errors.append(f"full run.py missing required text: {token}")
     forbidden_command_token = '"--max-train-steps"'
     command_builder = "_selected_runtime_full_torchrun_command"
     command_block_match = re.search(

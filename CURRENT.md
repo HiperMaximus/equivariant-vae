@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-07-02
+Last updated: 2026-07-08
 
 ## Active Workstream
 
@@ -11,16 +11,25 @@ Build the repo toward a fair SIPAIM 2026 comparison between:
 2. a continuous `SO(2)` steerable denoising VAE using a repo-owned,
    compile-compatible implementation, with `escnn` as a reference.
 
-Latest handoff, 2026-07-05 — reusable goal-derived runtime + compiled fast-path
+Latest handoff, 2026-07-08 — reusable goal-derived runtime + compiled fast-path
 (**Spec 0011**, `docs/specs/0011-reusable-goal-derived-runtime-and-compiled-fastpath.md`):
 the training runtime becomes a REUSABLE per-(model×hardware) SEARCH-then-run
 mechanism (an efficiency search emits `selected_runtime.json`; the full-run config
 carries no batch/LR of its own; validators/gates check relationships, not literals),
-so the future equivariant model re-runs it unchanged. Committed this workstream:
-**B1 `119c8fd`** un-froze the full-run schedule in the config + runner target/save
-+ the `selected_runtime_full` kernel `_validate_full_config` (behavior-preserving at
-batch 24: still derives 12500/125000/6250; gate green — ruff/basedpyright/342 pytest;
-adversarial review clean). Known B1 side effect: the build-time packaging validator
+so the future equivariant model re-runs it unchanged. Committed this workstream
+(Phase 1, local-only, each step gate + adversarial-review green): **B1 `119c8fd`**
+un-froze the config + runner schedule derivation; then **S1–S7** built the mechanism
+incrementally — S1 model-registry/latent seam, S2–S4 LR primitives + CUDA-guarded
+fused AdamW, S5–S6 runner + gate schedule/LR relationship validators, and **S7
+`bcc3ec0`** de-pinned the shared plan parser `_launch_errors`
+(`src/eqvae/training/selected_runtime.py`) from the batch/schedule literals to
+goal-derived relationships (`global == per_device × world_size`;
+`updates_per_epoch == floor(REAL_TRAIN_PATCH_COUNT / global)` via single-sourced
+`training_steps_per_epoch`) plus a DDPOptimizer safety invariant (reject
+`optimize_ddp='ddp_optimizer'` paired with `compiled_autograd`/`static_graph`/
+`find_unused_parameters` True; no-op on the v5 plan). Behavior-preserving at batch 24;
+latest gate 390 passed, basedpyright clean; the granular per-step tracker lives in the
+`eqvae-reusable-runtime-mechanism-plan` memory. Known B1 side effect: the build-time packaging validator
 `scripts/kaggle_kernel.sh:2136-2162` (+ in-kernel `run_template.py`
 `_validate_selected_runtime`/`_validate_full_config`, `tests/test_kaggle_embedded_kernel.py`)
 still pins the removed literals — invisible to pytest (shell), only bites at
@@ -29,8 +38,12 @@ adversarial critique (5 must-fixes) folded into Spec 0011. Decisions: provenance
 one folded honest generator (probe sweep merged into `runtime_selection_executor`);
 LR = sqrt, per-model reference in the model config; `drop_last=True` kept →
 `updates_per_epoch = floor(P/G)` single-sourced; model seam = one dict registry on
-`model.kind`. **Implementation continues in a NEW window** (per user); Phase 1 is
-local + behavior-preserving @ batch 24. Never push to origin.
+`model.kind`. **S8 (this window) de-pins the `scripts/kaggle_kernel.sh:2136-2148`
+FULL-guard config loop — the surface B1 actually broke (fails preflight+push); a scout
+correction: `run_template.py` `_validate_baseline_selected_runtime` was NOT broken (it
+reads the untouched plan), so its de-pin is deferred to S8b (lockstep with the shell
+token check). Scope = shell + `tests/test_kaggle_embedded_kernel.py`; run.py byte-identical
+@ batch 24.** Phase 1 stays local + behavior-preserving @ batch 24. Never push to origin.
 
 Current short state: runtime-selection v5 is the selected fallback runtime
 (`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,

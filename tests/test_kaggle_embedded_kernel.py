@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import pytest
 
 from eqvae.benchmarking.fixed32_selector_readiness import fixed32_selector_status
@@ -29,6 +31,7 @@ from eqvae.benchmarking.real_data_runtime_pretest import (
     EXPECTED_DATASET_SLUG,
     REAL_DATA_PRETEST_SOURCE,
 )
+from eqvae.benchmarking.schedule import training_steps_per_epoch
 from eqvae.benchmarking.synthetic_timing import (
     MANIFEST_FILENAME,
     MATRIX_FILENAME,
@@ -46,6 +49,7 @@ from eqvae.data.fixed_selectors import (
 )
 from eqvae.data.patch_shards import PatchShardSpec
 from eqvae.data.roots import (
+    REAL_TRAIN_PATCH_COUNT,
     TRAIN_BIN_NAME,
     TRAIN_CSV_NAME,
     VALIDATION_BIN_NAME,
@@ -95,8 +99,18 @@ _EMBEDDED_PAYLOAD_B64_PATTERN = re.compile(
 )
 _MASKED_HOLDOUT_CSV_PAYLOAD_PATH = "docs/data/ubc_ocean_masked_holdout_ids.csv"
 _EXPECTED_SELECTED_RUNTIME_DEBUG_RUNNER_CALLS = 2
+_FULL_EPOCHS = 10
 _FULL_TARGET_UPDATES = 125000
 _FULL_HALF_EPOCH_INTERVAL = 6250
+_FULL_CONFIG_PAYLOAD_PATH = "configs/spec0001/non_eq_vae_selected_runtime_full.json"
+_SELECTED_RUNTIME_PAYLOAD_PATH = (
+    "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json"
+)
+_FULL_PUSH_GUARD_HEREDOC_PATTERN = re.compile(
+    r"<<'PYFULLPAYLOAD'\n(?P<body>.*?)\nPYFULLPAYLOAD",
+    flags=re.DOTALL,
+)
+_FULL_TARGET_UPDATES_TOKEN = f"FULL_TARGET_UPDATES = {_FULL_TARGET_UPDATES}"
 
 
 @dataclass(frozen=True)
@@ -657,6 +671,141 @@ def test_selected_runtime_full_push_rejects_preflight_dirty_bypass_env(
     assert "fake kaggle" not in completed.stdout
 
 
+def test_full_push_guard_accepts_goal_derived_schedule(tmp_path: Path) -> None:
+    """The de-pinned full push guard passes on a freshly built kernel (Spec 0011 S8).
+
+    B1 removed the frozen schedule keys from the full config, so the guard's old
+    literal ``expected_training`` checks failed closed on every push. This proves the
+    goal-derived guard accepts the current config/plan at the reference batch 24.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="selected_runtime_full",
+        ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
+    )
+    guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
+    result = _run_full_push_guard(
+        guard_py=guard_py,
+        run_py=simulation.upload_dir / "run.py",
+        repo_root=repo_root,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_full_push_guard_rejects_refrozen_schedule_key(tmp_path: Path) -> None:
+    """Re-freezing a runner-derived schedule key fails the guard closed."""
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="selected_runtime_full",
+        ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
+    )
+    run_py = simulation.upload_dir / "run.py"
+    run_py.write_text(
+        _rewrite_embedded_payload(
+            run_py.read_text(encoding="utf-8"),
+            _refreeze_optimizer_updates,
+        ),
+        encoding="utf-8",
+    )
+    guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
+    result = _run_full_push_guard(
+        guard_py=guard_py,
+        run_py=run_py,
+        repo_root=repo_root,
+    )
+    assert result.returncode != 0
+    assert "must not re-freeze" in result.stderr
+
+
+def test_full_push_guard_rejects_off_derivation_updates(tmp_path: Path) -> None:
+    """A plan recording updates != floor(P / global_batch) fails the guard closed."""
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="selected_runtime_full",
+        ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
+    )
+    run_py = simulation.upload_dir / "run.py"
+    run_py.write_text(
+        _rewrite_embedded_payload(
+            run_py.read_text(encoding="utf-8"),
+            _set_off_derivation_updates,
+        ),
+        encoding="utf-8",
+    )
+    guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
+    result = _run_full_push_guard(
+        guard_py=guard_py,
+        run_py=run_py,
+        repo_root=repo_root,
+    )
+    assert result.returncode != 0
+    assert "optimizer_updates_per_epoch must be" in result.stderr
+
+
+def test_full_push_guard_rejects_non_integer_epochs(tmp_path: Path) -> None:
+    """A float ``training.epochs`` (10.0) fails closed, not nulling the derivation.
+
+    Regression for an S8 fail-open: a JSON float epochs passed the ``!= 10`` anchor
+    pin yet made the derived FULL_TARGET_UPDATES/FULL_HALF_EPOCH_INTERVAL token check
+    silently skip, so a drifted run.py token could slip through with exit 0.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="selected_runtime_full",
+        ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
+    )
+    run_py = simulation.upload_dir / "run.py"
+    tampered = _rewrite_embedded_payload(
+        run_py.read_text(encoding="utf-8"),
+        _set_float_epochs,
+    ).replace(_FULL_TARGET_UPDATES_TOKEN, "FULL_TARGET_UPDATES = 999999", 1)
+    run_py.write_text(tampered, encoding="utf-8")
+    guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
+    result = _run_full_push_guard(
+        guard_py=guard_py,
+        run_py=run_py,
+        repo_root=repo_root,
+    )
+    assert result.returncode != 0
+    assert "training.epochs must be an integer" in result.stderr
+
+
+def test_full_push_guard_rejects_off_derivation_run_py_token(tmp_path: Path) -> None:
+    """A run.py whose FULL_TARGET_UPDATES != epochs * derived updates fails closed."""
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="selected_runtime_full",
+        ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
+    )
+    run_py = simulation.upload_dir / "run.py"
+    run_text = run_py.read_text(encoding="utf-8")
+    mutated = run_text.replace(
+        _FULL_TARGET_UPDATES_TOKEN,
+        "FULL_TARGET_UPDATES = 999999",
+        1,
+    )
+    assert mutated != run_text
+    run_py.write_text(mutated, encoding="utf-8")
+    guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
+    result = _run_full_push_guard(
+        guard_py=guard_py,
+        run_py=run_py,
+        repo_root=repo_root,
+    )
+    assert result.returncode != 0
+    assert "missing required text" in result.stderr
+
+
 def test_embedded_selected_runtime_debug_kernel_full_local_fail_closed_simulation(
     tmp_path: Path,
 ) -> None:
@@ -1149,3 +1298,91 @@ def _embedded_payload_names(run_path: Path) -> set[str]:
     zip_bytes = base64.b64decode(match.group("payload").encode("ascii"))
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
         return set(archive.namelist())
+
+
+def _extract_full_push_guard_python(*, repo_root: Path, tmp_path: Path) -> Path:
+    # Run the real PYFULLPAYLOAD guard body verbatim so the test cannot drift from the
+    # shipped shell validator (Spec 0011 S8 de-pinned it to goal-derived relationships).
+    script = (repo_root / "scripts" / "kaggle_kernel.sh").read_text(encoding="utf-8")
+    match = _FULL_PUSH_GUARD_HEREDOC_PATTERN.search(script)
+    if match is None:
+        message = "missing PYFULLPAYLOAD guard heredoc in kaggle_kernel.sh"
+        raise AssertionError(message)
+    guard_py = tmp_path / "full_push_guard.py"
+    guard_py.write_text(match.group("body"), encoding="utf-8")
+    return guard_py
+
+
+def _run_full_push_guard(
+    *,
+    guard_py: Path,
+    run_py: Path,
+    repo_root: Path,
+) -> subprocess.CompletedProcess[str]:
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = "src"
+    return subprocess.run(  # noqa: S603
+        (sys.executable, str(guard_py), str(run_py)),
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        env=environment,
+        check=False,
+    )
+
+
+def _rewrite_embedded_payload(
+    run_text: str,
+    mutate: Callable[[dict[str, bytes]], None],
+) -> str:
+    match = _EMBEDDED_PAYLOAD_B64_PATTERN.search(run_text)
+    if match is None:
+        message = "missing embedded payload"
+        raise AssertionError(message)
+    zip_bytes = base64.b64decode(match.group("payload").encode("ascii"))
+    members: dict[str, bytes] = {}
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+        for name in archive.namelist():
+            members[name] = archive.read(name)
+    mutate(members)
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, data in members.items():
+            archive.writestr(name, data)
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return (
+        run_text[: match.start("payload")] + encoded + run_text[match.end("payload") :]
+    )
+
+
+def _refreeze_optimizer_updates(members: dict[str, bytes]) -> None:
+    config = cast("dict[str, object]", json.loads(members[_FULL_CONFIG_PAYLOAD_PATH]))
+    training = cast("dict[str, object]", config["training"])
+    training["optimizer_updates_per_epoch"] = _FULL_TARGET_UPDATES
+    members[_FULL_CONFIG_PAYLOAD_PATH] = json.dumps(config).encode("utf-8")
+
+
+def _set_float_epochs(members: dict[str, bytes]) -> None:
+    config = cast("dict[str, object]", json.loads(members[_FULL_CONFIG_PAYLOAD_PATH]))
+    training = cast("dict[str, object]", config["training"])
+    training["epochs"] = float(_FULL_EPOCHS)
+    members[_FULL_CONFIG_PAYLOAD_PATH] = json.dumps(config).encode("utf-8")
+
+
+def _set_off_derivation_updates(members: dict[str, bytes]) -> None:
+    plan = cast(
+        "dict[str, object]",
+        json.loads(members[_SELECTED_RUNTIME_PAYLOAD_PATH]),
+    )
+    global_batch = plan["global_batch_size"]
+    if not isinstance(global_batch, int):
+        message = "selected runtime global_batch_size must be an integer"
+        raise TypeError(message)
+    plan["optimizer_updates_per_epoch"] = (
+        training_steps_per_epoch(
+            real_train_patch_count=REAL_TRAIN_PATCH_COUNT,
+            global_batch_size=global_batch,
+        )
+        + 1
+    )
+    members[_SELECTED_RUNTIME_PAYLOAD_PATH] = json.dumps(plan).encode("utf-8")

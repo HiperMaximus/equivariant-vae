@@ -269,17 +269,33 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   carrier blocks (their exact home is not frozen pre-Phase-2). Keep the `runtime_proof`
   hash link + measured-snapshot cross-checks + the 8-step `assert_ddp_parameters_in_sync`
   runtime guard as the anti-fabrication/safety backstop.
-- **S8 De-pin the kernel + packaging validators (MF1 — BROKEN TODAY, not latent):**
-  `scripts/kaggle_kernel.sh:2136-2150` (the `expected_training` dict + the `==12500`
-  check) currently fails-closed at *both* `preflight-selected-runtime-full` and push,
-  because B1 stripped the four config keys the shell still requires (`training.get()`
-  → `None`). Also de-pin the `FULL_TARGET_UPDATES = 125000` /
-  `FULL_HALF_EPOCH_INTERVAL = 6250` required-text tokens (`:2161-2162`). In
-  `run_template.py` the still-pinned function is **`_validate_baseline_selected_runtime`
-  (`:265`)** + the import-artifact asserts (`:326-327`, `:348`) + the `FULL_*`
-  constants (`:48-51`) — NOT `_validate_full_config` (B1 already goal-derived it).
-  `tests/test_kaggle_embedded_kernel.py:98-99` asserts → derive from the plan.
-  Regenerate `run.py` via the build script.
+- **S8 (DONE — this commit) De-pin the shell packaging validators (MF1 — BROKEN
+  TODAY):** scoped to `scripts/kaggle_kernel.sh` + `tests/test_kaggle_embedded_kernel.py`
+  (Option A; `run_template.py` deferred to S8b). The *only* actually-broken surface was
+  the FULL guard's `expected_training` config loop (`:2136-2148`): B1 stripped the four
+  schedule keys the loop still required (`training.get()` → `None`), failing
+  `preflight-selected-runtime-full` **and** push. **Correction to the prior handoff:**
+  `run_template.py` `_validate_baseline_selected_runtime` was **NOT** broken — it reads
+  the untouched `selected_runtime.json` (still 12/24/12500) and passed; the memory/handoff
+  premise was wrong. The de-pin imports the single-sourced
+  `training_steps_per_epoch`/`REAL_TRAIN_PATCH_COUNT` into the PYFULLPAYLOAD heredoc (via
+  `PYTHONPATH=src "$python_bin"`, the launcher line 2050 already uses), drops the 4
+  schedule keys + adds a fail-closed anti-re-freeze guard, derives the `selected_runtime`
+  updates check + the `FULL_TARGET_UPDATES`/`FULL_HALF_EPOCH_INTERVAL` tokens, and converts
+  the debug guard's `12/24` pins to `global==per_device*world_size`. Byte-identical `run.py`
+  @ batch 24; every error-message string preserved; fail-closed on malformed/missing/typed
+  fields. Tests extract the **real** guard heredoc from the script (no drift) and exercise
+  it: pass on a fresh build + three fail-closed rejections (re-freeze, off-derivation
+  updates, off-derivation `run.py` token).
+- **S8b (NEXT) De-pin `run_template.py` + the coupled shell token check:** the `FULL_*`
+  constants (`:48-51`) run BEFORE payload extraction, so they must be de-pinned by
+  build-time `string.Template` substitution in `build_kaggle_embedded_kernel.py` (keeping
+  the batch-24 artifact byte-identical), together with `_validate_baseline_selected_runtime`
+  (`:263-265`, runtime import OK), the import-artifact asserts (`:326-327`, `:348`), and
+  `tests/test_kaggle_embedded_kernel.py:98-99`. This is the **lockstep pair** with the S8
+  shell `FULL_TARGET_UPDATES = {derived}` token check — until it lands, a non-24 FULL batch
+  is still rejected (`run.py` emits the 24-frozen literal). This is what actually unlocks a
+  non-24 full run.
 - **S9 Shared boundary generator + odd-batch test (MF3):** one helper imported by ALL six
   boundary sites — the runner PRODUCERS (interval checkpoint `% save_every` `:2872`,
   scheduled validation `% half` `:3969`) converted to set-membership, AND the CONSUMERS
@@ -400,12 +416,14 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   (currently `False`) + single-source `floor`; the four `ceil(P/G)` sites
   (`runtime_selection.py:1866/1043`, `synthetic_timing.py:1361/1915`) all become the
   floor helper.
-- **Frozen-schedule homes are more than 6 — one is BROKEN today:** `kaggle_kernel.sh`
-  (MF1, fails preflight+push NOW), runner `_validate_full_run_settings:5870-5916` +
-  `_FULL_*` constants + save/beta guards (the primary `src/` home, B1 left it pinned),
-  plan parser `_launch_errors:409`, run_template `_validate_baseline_selected_runtime`
-  (with import-artifact asserts), gate `REMOTE_FULL_*`, generator `ceil`, existing test
-  fixtures. All must be de-pinned or the regenerated plan is rejected.
+- **Frozen-schedule homes — de-pin status:** `kaggle_kernel.sh` (MF1) was the one BROKEN
+  today, and it was the FULL guard's config loop (`:2136-2148`), **not** run_template —
+  **de-pinned in S8** (shell FULL + debug guards). Plan parser `_launch_errors` de-pinned
+  in **S7**; runner `_validate_full_run_settings` in **S5**; gate `REMOTE_FULL_*` +
+  generator `ceil` in **S5b/S6**. Still pinned: run_template
+  `_validate_baseline_selected_runtime` + `FULL_*` constants + import-artifact asserts
+  (**S8b**, lockstep with the S8 shell `FULL_TARGET_UPDATES` token check). All must be
+  de-pinned or the regenerated non-24 plan is rejected.
 - **Gate self-anchor (MF2):** without an independent `updates==floor(P/G)` assert
   against the *immutable single-sourced* P (not the plan number, not the config
   override), a de-pinned gate could certify a self-consistent dataset-coverage shrink.
