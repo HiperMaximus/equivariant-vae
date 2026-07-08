@@ -10,8 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from eqvae.benchmarking.schedule import training_steps_per_epoch
+from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
+
 if TYPE_CHECKING:
-    from eqvae.config import JsonObject
+    from eqvae.config import JsonObject, JsonValue
 
 EXPECTED_DATASET_SLUG = "maximusshtefan/patches-pre-shuffled-ubc-ocean"
 EXPECTED_MACHINE_SHAPE = "NvidiaTeslaT4"
@@ -223,6 +226,7 @@ def selected_runtime_plan_errors(
         *_snapshot_errors(payload.get("selected_row_snapshot")),
         *_safety_errors(payload.get("safety")),
         *_runtime_policy_errors(payload.get("runtime_policy")),
+        *_ddp_optimizer_safety_errors(payload),
         *_torch_compile_errors(payload.get("torch_compile")),
         *_runtime_proof_errors(
             payload=payload,
@@ -400,28 +404,24 @@ def _top_level_errors(payload: JsonObject) -> tuple[str, ...]:
 
 def _launch_errors(payload: JsonObject) -> tuple[str, ...]:
     errors: list[str] = []
+    # Hardware/policy anchors stay pinned: a run cannot self-declare a different
+    # accelerator, topology, or gradient-accumulation policy. The batch and schedule
+    # are de-pinned to goal-derived relationships (Spec 0011 S7) in
+    # _launch_schedule_errors, so a re-measured non-24 batch is accepted.
     expected = {
         "accelerator_mode": "dual_t4_ddp",
         "machine_shape": EXPECTED_MACHINE_SHAPE,
         "world_size": 2,
         "nproc_per_node": 2,
-        "per_device_batch_size": 12,
-        "global_batch_size": 24,
         "gradient_accumulation_steps": 1,
-        "optimizer_updates_per_epoch": 12500,
     }
     error_names = {
         "accelerator_mode": "selected_runtime_top_level_not_dual_t4_ddp",
         "machine_shape": "selected_runtime_top_level_wrong_machine_shape",
         "world_size": "selected_runtime_top_level_wrong_world_size",
         "nproc_per_node": "selected_runtime_top_level_wrong_nproc_per_node",
-        "per_device_batch_size": "selected_runtime_top_level_wrong_per_device_batch",
-        "global_batch_size": "selected_runtime_top_level_wrong_global_batch",
         "gradient_accumulation_steps": (
             "selected_runtime_top_level_wrong_gradient_accumulation"
-        ),
-        "optimizer_updates_per_epoch": (
-            "selected_runtime_top_level_wrong_optimizer_updates_per_epoch"
         ),
     }
     errors.extend(
@@ -429,6 +429,7 @@ def _launch_errors(payload: JsonObject) -> tuple[str, ...]:
         for key, expected_value in expected.items()
         if payload.get(key) != expected_value
     )
+    errors.extend(_launch_schedule_errors(payload))
     mixed_precision = payload.get("mixed_precision")
     if not isinstance(mixed_precision, dict):
         errors.append("selected_runtime_missing_mixed_precision")
@@ -445,6 +446,69 @@ def _launch_errors(payload: JsonObject) -> tuple[str, ...]:
     elif corruption.get("strategy") != "indexed_masked":
         errors.append("selected_runtime_top_level_wrong_corruption_strategy")
     return tuple(errors)
+
+
+def _launch_schedule_errors(payload: JsonObject) -> tuple[str, ...]:
+    """Return goal-derived batch/schedule relationship errors (Spec 0011 S7).
+
+    The batch is a measured output of the runtime search, so the parser no longer pins
+    it to the reference literals. Instead it validates the relationships every plan must
+    satisfy: the per-device batch is a positive integer, the global batch is
+    ``per_device_batch_size * world_size``, and the plan's own recorded
+    ``optimizer_updates_per_epoch`` equals
+    ``floor(REAL_TRAIN_PATCH_COUNT / global_batch_size)`` via the single-sourced
+    ``training_steps_per_epoch`` helper. That last check is the plan-recorded schedule
+    cross-check deferred from S6d: the parser is where the recorded number is validated
+    against the derivation. At the reference global batch 24 these reproduce the
+    committed 12/24/12500 literals exactly, so parsing the committed plan is unchanged.
+
+    Returns:
+        Stable batch/schedule relationship error identifiers.
+
+    """
+    errors: list[str] = []
+    per_device = _launch_positive_int_or_none(payload.get("per_device_batch_size"))
+    world_size = _launch_positive_int_or_none(payload.get("world_size"))
+    global_batch = _launch_positive_int_or_none(payload.get("global_batch_size"))
+    updates = _launch_int_or_none(payload.get("optimizer_updates_per_epoch"))
+    if per_device is None:
+        errors.append("selected_runtime_top_level_wrong_per_device_batch")
+    if not _global_batch_matches_product(global_batch, per_device, world_size):
+        errors.append("selected_runtime_top_level_wrong_global_batch")
+    if not _updates_match_derivation(updates, global_batch):
+        errors.append("selected_runtime_top_level_wrong_optimizer_updates_per_epoch")
+    return tuple(errors)
+
+
+def _global_batch_matches_product(
+    global_batch: int | None,
+    per_device: int | None,
+    world_size: int | None,
+) -> bool:
+    if global_batch is None or per_device is None or world_size is None:
+        return False
+    return global_batch == per_device * world_size
+
+
+def _updates_match_derivation(updates: int | None, global_batch: int | None) -> bool:
+    if updates is None or global_batch is None:
+        return False
+    return updates == training_steps_per_epoch(
+        real_train_patch_count=REAL_TRAIN_PATCH_COUNT,
+        global_batch_size=global_batch,
+    )
+
+
+def _launch_positive_int_or_none(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
+def _launch_int_or_none(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
 
 
 def _mixed_precision_errors(payload: JsonObject) -> tuple[str, ...]:
@@ -585,6 +649,83 @@ def _torch_compile_errors(torch_compile: object) -> tuple[str, ...]:
         for key, expected_value in expected.items()
         if payload.get(key) != expected_value
     )
+
+
+_DDP_OPTIMIZER_RECIPE_VALUE = "ddp_optimizer"
+_RECIPE_CARRIER_BLOCK_KEYS = ("runtime_policy", "torch_compile")
+
+
+def _ddp_optimizer_safety_errors(payload: JsonObject) -> tuple[str, ...]:
+    """Reject a DDPOptimizer plan whose flags break cross-rank gradient sync.
+
+    ``optimize_ddp="ddp_optimizer"`` (DDPOptimizer) splits the backward at DDP bucket
+    boundaries. Three flag pairings break it, per memory
+    ``eqvae-compiled-ddp-optimize-ddp`` and the measured winner ``_DDP_OPTIMIZER_SPEC``
+    (``benchmarking/compiled_fastpath_probe.py``), which pairs DDPOptimizer with
+    ``compiled_autograd=False``:
+
+    - ``compiled_autograd=True`` traces the backward, so DDP's C++ reducer hooks never
+      fire and the grad all_reduce is **silently** dropped -- each rank then trains an
+      independent replica (the empirically caught failure);
+    - ``static_graph=True`` is a **loud** dynamo #93672 "training graph has changed"
+      conflict;
+    - ``find_unused_parameters=True`` is incompatible with the bucket split.
+
+    No plan sets ``optimize_ddp`` today, so this is a no-op on the v5 fallback plan
+    and a fail-closed guard for the Phase 2 compiled plans that carry the recipe knobs.
+
+    Returns:
+        Stable DDPOptimizer safety error identifiers.
+
+    """
+    if _recipe_field(payload, "optimize_ddp") != _DDP_OPTIMIZER_RECIPE_VALUE:
+        return ()
+    errors: list[str] = []
+    if _recipe_flag_enabled(payload, "compiled_autograd"):
+        errors.append("selected_runtime_ddp_optimizer_compiled_autograd_conflict")
+    if _recipe_flag_enabled(payload, "ddp_static_graph", "static_graph"):
+        errors.append("selected_runtime_ddp_optimizer_static_graph_conflict")
+    if _recipe_flag_enabled(
+        payload,
+        "ddp_find_unused_parameters",
+        "find_unused_parameters",
+    ):
+        errors.append(
+            "selected_runtime_ddp_optimizer_find_unused_parameters_conflict",
+        )
+    return tuple(errors)
+
+
+def _recipe_field(payload: JsonObject, key: str) -> JsonValue | None:
+    """Read a recipe field from whichever plan block declares it.
+
+    The Phase 2 compiled plans add DDP/compile recipe knobs whose exact carrier block is
+    not frozen yet, so this reads ``key`` from the known carrier blocks first and falls
+    back to the top level. Returns ``None`` when no block declares the key, which keeps
+    the DDPOptimizer safety check a no-op on today's plans.
+
+    First-carrier-wins assumes each flag is declared in a single home; a plan that
+    contradictorily declares the same flag in two blocks is malformed input the current
+    guard does not reconcile. When S11 freezes the recipe schema, align the read order
+    with each flag's applied home (``ddp_static_graph`` comes from ``runtime_policy``
+    via ``_plan_from_payload``; ``compiled_autograd`` is a dynamo config whose home is
+    ``torch_compile``).
+
+    Returns:
+        The declared recipe value, or ``None`` when absent everywhere.
+
+    """
+    for block_key in _RECIPE_CARRIER_BLOCK_KEYS:
+        block = payload.get(block_key)
+        if isinstance(block, dict):
+            block_payload = cast("JsonObject", block)
+            if key in block_payload:
+                return block_payload.get(key)
+    return payload.get(key)
+
+
+def _recipe_flag_enabled(payload: JsonObject, *keys: str) -> bool:
+    return any(_recipe_field(payload, key) is True for key in keys)
 
 
 def _runtime_proof_errors(  # noqa: PLR0911

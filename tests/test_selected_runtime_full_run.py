@@ -38,6 +38,7 @@ from eqvae.training import selected_runtime_runner
 from eqvae.training.selected_runtime import (
     SelectedRuntimePlan,
     parse_selected_runtime_plan,
+    selected_runtime_plan_errors,
 )
 from eqvae.training.selected_runtime_runner import SelectedRuntimeTrainRequest
 
@@ -605,6 +606,262 @@ def test_gate_cross_consistency_rejects_full_summary_schedule_drift() -> None:
     )
 
     assert blockers == ("selected_runtime_full_output_full_summary_schedule_mismatch",)
+
+
+# --- Spec 0011 S7: plan parser relationship + DDPOptimizer safety checks -------------
+
+_LAUNCH_SCHEDULE_ERROR_NAMES = frozenset(
+    {
+        "selected_runtime_top_level_wrong_per_device_batch",
+        "selected_runtime_top_level_wrong_global_batch",
+        "selected_runtime_top_level_wrong_optimizer_updates_per_epoch",
+    },
+)
+_DDP_OPTIMIZER_CONFLICT_ERROR_NAMES = frozenset(
+    {
+        "selected_runtime_ddp_optimizer_compiled_autograd_conflict",
+        "selected_runtime_ddp_optimizer_static_graph_conflict",
+        "selected_runtime_ddp_optimizer_find_unused_parameters_conflict",
+    },
+)
+
+
+def _committed_runtime_payload() -> JsonObject:
+    return cast(
+        "JsonObject",
+        json.loads(_RUNTIME_CONFIG.read_text(encoding="utf-8")),
+    )
+
+
+def _plan_block(payload: JsonObject, key: str) -> JsonObject:
+    block = payload[key]
+    assert isinstance(block, dict)
+    return cast("JsonObject", block)
+
+
+def test_plan_parser_accepts_reference_batch_schedule() -> None:
+    """The committed batch-24 plan parses with no launch-schedule error (S7 de-pin).
+
+    Called without a path so the linked runtime-proof cross-check is skipped; the whole
+    committed plan is already error-free, so this locks in the behavior-preserving
+    property that de-pinning 12/24/12500 into relationships did not change the reference
+    plan's acceptance.
+    """
+    errors = selected_runtime_plan_errors(_committed_runtime_payload())
+
+    assert errors == ()
+
+
+def test_plan_parser_accepts_relationship_derived_larger_batch() -> None:
+    """A re-measured non-24 batch is accepted purely from the derived relationships.
+
+    global 96 = per-device 48 * world 2, and floor(300000 / 96) == 3125 (odd, so it also
+    exercises the floor derivation). The snapshot is left as the committed winner-row
+    description because re-pointing it is Phase 4 (S17); this isolates the launch
+    relationship, which must no longer emit any batch/schedule error for gb 96.
+    """
+    payload = _committed_runtime_payload()
+    payload["per_device_batch_size"] = 48
+    payload["global_batch_size"] = _LR_QUADRUPLE_GLOBAL_BATCH
+    payload["optimizer_updates_per_epoch"] = _LARGER_BATCH_UPDATES_PER_EPOCH
+
+    errors = selected_runtime_plan_errors(payload)
+
+    assert _LAUNCH_SCHEDULE_ERROR_NAMES.isdisjoint(errors)
+
+
+def test_plan_parser_rejects_recorded_updates_off_derivation() -> None:
+    """A recorded optimizer_updates_per_epoch != floor(P / G) fails the parser.
+
+    This is the plan-recorded schedule cross-check: the plan's own number is validated
+    against the single-sourced derivation, not merely trusted. The global batch still
+    equals per-device * world, so only the updates relationship trips.
+    """
+    payload = _committed_runtime_payload()
+    payload["optimizer_updates_per_epoch"] = _FULL_UPDATES_PER_EPOCH + 1
+
+    errors = selected_runtime_plan_errors(payload)
+
+    assert "selected_runtime_top_level_wrong_optimizer_updates_per_epoch" in errors
+    assert "selected_runtime_top_level_wrong_global_batch" not in errors
+
+
+def test_plan_parser_rejects_global_batch_off_product() -> None:
+    """A global batch that is not per-device * world_size fails the parser."""
+    payload = _committed_runtime_payload()
+    payload["global_batch_size"] = _GATE_REFERENCE_GLOBAL_BATCH + 1
+
+    errors = selected_runtime_plan_errors(payload)
+
+    assert "selected_runtime_top_level_wrong_global_batch" in errors
+
+
+def test_plan_parser_rejects_non_positive_per_device_batch() -> None:
+    """A non-positive per-device batch fails closed on the preserved error id."""
+    payload = _committed_runtime_payload()
+    payload["per_device_batch_size"] = 0
+
+    errors = selected_runtime_plan_errors(payload)
+
+    assert "selected_runtime_top_level_wrong_per_device_batch" in errors
+
+
+def test_plan_parser_accepts_ddp_optimizer_with_safe_flags() -> None:
+    """The measured winner recipe (DDPOptimizer + the three safe flags) passes.
+
+    _DDP_OPTIMIZER_SPEC pairs optimize_ddp="ddp_optimizer" with compiled_autograd=False,
+    static_graph=False, and find_unused_parameters=False; that is the only safe pairing,
+    and the extra recipe keys must not trip any other check, so the plan stays clean.
+    """
+    payload = _committed_runtime_payload()
+    runtime_policy = _plan_block(payload, "runtime_policy")
+    runtime_policy["optimize_ddp"] = "ddp_optimizer"
+    runtime_policy["compiled_autograd"] = False
+    runtime_policy["ddp_static_graph"] = False
+    runtime_policy["ddp_find_unused_parameters"] = False
+
+    errors = selected_runtime_plan_errors(payload)
+
+    assert errors == ()
+
+
+def test_plan_parser_rejects_ddp_optimizer_with_compiled_autograd() -> None:
+    """DDPOptimizer + compiled_autograd is the memory's silent all_reduce drop.
+
+    compiled_autograd=True traces the backward so DDP's C++ reducer hooks never fire and
+    the grad all_reduce is silently dropped (each rank trains an independent replica) --
+    the exact failure _DDP_OPTIMIZER_SPEC avoids with compiled_autograd=False.
+    """
+    payload = _committed_runtime_payload()
+    runtime_policy = _plan_block(payload, "runtime_policy")
+    runtime_policy["optimize_ddp"] = "ddp_optimizer"
+    runtime_policy["compiled_autograd"] = True
+
+    errors = selected_runtime_plan_errors(payload)
+
+    assert errors == ("selected_runtime_ddp_optimizer_compiled_autograd_conflict",)
+
+
+def test_plan_parser_rejects_ddp_optimizer_compiled_autograd_in_torch_compile() -> None:
+    """The compiled-recipe knobs are caught when carried in the torch_compile block.
+
+    compiled_autograd is a dynamo config, so a Phase 2 plan is likely to record it (and
+    optimize_ddp) under torch_compile rather than runtime_policy; the defensive
+    carrier read must still fire the silent-drop conflict there.
+    """
+    payload = _committed_runtime_payload()
+    torch_compile = _plan_block(payload, "torch_compile")
+    torch_compile["optimize_ddp"] = "ddp_optimizer"
+    torch_compile["compiled_autograd"] = True
+
+    errors = selected_runtime_plan_errors(payload)
+
+    assert errors == ("selected_runtime_ddp_optimizer_compiled_autograd_conflict",)
+
+
+def test_plan_parser_rejects_ddp_optimizer_with_static_graph() -> None:
+    """DDPOptimizer + static_graph is the loud dynamo #93672 conflict, so it fails."""
+    payload = _committed_runtime_payload()
+    runtime_policy = _plan_block(payload, "runtime_policy")
+    runtime_policy["optimize_ddp"] = "ddp_optimizer"
+    runtime_policy["ddp_static_graph"] = True
+
+    errors = selected_runtime_plan_errors(payload)
+
+    assert "selected_runtime_ddp_optimizer_static_graph_conflict" in errors
+
+
+def test_plan_parser_rejects_ddp_optimizer_with_find_unused_parameters() -> None:
+    """DDPOptimizer + find_unused_parameters is incompatible with the bucket split."""
+    payload = _committed_runtime_payload()
+    runtime_policy = _plan_block(payload, "runtime_policy")
+    runtime_policy["optimize_ddp"] = "ddp_optimizer"
+    runtime_policy["ddp_find_unused_parameters"] = True
+
+    errors = selected_runtime_plan_errors(payload)
+
+    assert errors == ("selected_runtime_ddp_optimizer_find_unused_parameters_conflict",)
+
+
+def test_plan_parser_ddp_safety_is_noop_without_ddp_optimizer() -> None:
+    """The safety guard is gated on optimize_ddp, not a blanket flag ban.
+
+    A plan with static_graph on but no optimize_ddp must not raise any DDPOptimizer
+    conflict (the flags are only unsafe when paired with DDPOptimizer); the existing
+    runtime policy pin still rejects the flipped flag, proving the guard added nothing
+    spurious.
+    """
+    payload = _committed_runtime_payload()
+    runtime_policy = _plan_block(payload, "runtime_policy")
+    runtime_policy["ddp_static_graph"] = True
+
+    errors = selected_runtime_plan_errors(payload)
+
+    assert _DDP_OPTIMIZER_CONFLICT_ERROR_NAMES.isdisjoint(errors)
+    assert "selected_runtime_runtime_policy_ddp_static_graph_mismatch" in errors
+
+
+@pytest.mark.parametrize("global_value", [0, -1, "24"])
+def test_plan_parser_fails_closed_on_malformed_global_batch(
+    global_value: int | str,
+) -> None:
+    """A malformed global batch fails closed on the preserved id without ever raising.
+
+    The recorded global batch is the divisor in floor(P / G), so a zero, negative, or
+    string value must yield wrong_global_batch (not a ZeroDivisionError or TypeError).
+    Zero in particular proves the derivation never divides by a bad divisor.
+    """
+    payload = _committed_runtime_payload()
+    payload["global_batch_size"] = global_value
+
+    errors = selected_runtime_plan_errors(payload)
+
+    assert "selected_runtime_top_level_wrong_global_batch" in errors
+
+
+def test_plan_parser_fails_closed_on_bool_global_batch() -> None:
+    """A bool global batch is rejected, not coerced (True is an int subclass)."""
+    payload = _committed_runtime_payload()
+    payload["global_batch_size"] = True
+
+    errors = selected_runtime_plan_errors(payload)
+
+    assert "selected_runtime_top_level_wrong_global_batch" in errors
+
+
+def test_plan_parser_fails_closed_on_missing_global_batch() -> None:
+    """A plan missing global_batch_size fails closed rather than raising KeyError."""
+    payload = _committed_runtime_payload()
+    del payload["global_batch_size"]
+
+    errors = selected_runtime_plan_errors(payload)
+
+    assert "selected_runtime_top_level_wrong_global_batch" in errors
+
+
+def test_plan_parser_accepts_non_dividing_batch_with_floored_updates() -> None:
+    """A non-dividing global batch is accepted with floor(P / G) updates, ceil rejected.
+
+    300000 / 7000 == 42.857..., so the recorded updates must be the floored 42 (from the
+    single-sourced training_steps_per_epoch); the ceil value 43 must be rejected. This
+    pins the floor derivation at the parser itself, not only in the schedule helper, on
+    a batch where floor and ceil actually differ.
+    """
+    payload = _committed_runtime_payload()
+    payload["per_device_batch_size"] = 3500
+    payload["global_batch_size"] = 7000
+    payload["optimizer_updates_per_epoch"] = 42
+
+    assert _LAUNCH_SCHEDULE_ERROR_NAMES.isdisjoint(
+        selected_runtime_plan_errors(payload),
+    )
+
+    payload["optimizer_updates_per_epoch"] = 43
+
+    assert (
+        "selected_runtime_top_level_wrong_optimizer_updates_per_epoch"
+        in selected_runtime_plan_errors(payload)
+    )
 
 
 def test_eps_generator_seed_is_per_rank_and_preserves_single_rank() -> None:

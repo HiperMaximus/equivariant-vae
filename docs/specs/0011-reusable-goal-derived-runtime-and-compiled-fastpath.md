@@ -251,14 +251,24 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   `_remote_full_validation_blockers` `:947`) through the shared generator, and ADD the
   direct `training_summary==plan==full_summary` cross-consistency asserts + the
   LR-relationship assert (both net-new; LR needs S3 provenance first).
-- **S7** Plan parser → relationship/structure checks (de-pin `_launch_errors:409`
-  row_id identity, batch **and the `optimizer_updates_per_epoch==12500` schedule
-  literal** → `updates==floor(P/G)`). The DDPOptimizer safety invariants do **not**
-  exist yet (schema has only `ddp_static_graph`) — this is an **ADD**, not a keep:
-  reject any plan with `optimize_ddp=='ddp_optimizer'` while `static_graph` or
-  `find_unused_parameters` is True (a mismatch silently drops the all_reduce). Keep the
-  `runtime_proof` hash link + measured-snapshot cross-checks + the 8-step
-  `assert_ddp_parameters_in_sync` runtime guard as the anti-fabrication/safety backstop.
+- **S7** Plan parser → relationship/structure checks (de-pin the `_launch_errors`
+  `per_device_batch_size==12` / `global_batch_size==24` / `optimizer_updates_per_epoch==12500`
+  literals → `global==per_device*world_size` and `updates==floor(P/G)` via the
+  single-sourced `training_steps_per_epoch`; keep the hardware/policy anchors
+  `accelerator_mode`/`machine_shape`/`world_size`/`nproc_per_node`/`gradient_accumulation_steps`
+  pinned; preserve every error-name identifier; fail-closed on malformed/missing/typed
+  fields — no `ZeroDivisionError`). The DDPOptimizer safety invariants do **not** exist
+  yet (schema has only `ddp_static_graph`) — this is an **ADD**, not a keep: reject any
+  plan with `optimize_ddp=='ddp_optimizer'` paired with **`compiled_autograd`**,
+  `static_graph`, or `find_unused_parameters` True. Per memory
+  `eqvae-compiled-ddp-optimize-ddp` and the measured winner `_DDP_OPTIMIZER_SPEC` (which
+  uses `compiled_autograd=False`), `compiled_autograd=True` is the **silent** all_reduce
+  drop (traced backward → C++ reducer hooks never fire → independent replicas);
+  `static_graph=True` is a **loud** dynamo #93672 conflict; `find_unused_parameters=True`
+  is incompatible with the bucket split. Read the recipe knobs defensively across the
+  carrier blocks (their exact home is not frozen pre-Phase-2). Keep the `runtime_proof`
+  hash link + measured-snapshot cross-checks + the 8-step `assert_ddp_parameters_in_sync`
+  runtime guard as the anti-fabrication/safety backstop.
 - **S8 De-pin the kernel + packaging validators (MF1 — BROKEN TODAY, not latent):**
   `scripts/kaggle_kernel.sh:2136-2150` (the `expected_training` dict + the `==12500`
   check) currently fails-closed at *both* `preflight-selected-runtime-full` and push,
@@ -406,10 +416,16 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   consumers so the terminal is written+validated+expected symmetrically.
 - **DDPOptimizer safety (ADD, not keep):** the parser has NO such invariant today
   (only `ddp_static_graph`). Add: reject `optimize_ddp=='ddp_optimizer'` with
-  `static_graph`/`find_unused_parameters` True (silently drops the all_reduce).
-  `broadcast_buffers=False` is safe for the baseline (6 constant binomial-kernel
-  buffers, verified) but the structural constant-buffer check is mandatory so a future
-  eq model with a mutated buffer flips it to True instead of silently desyncing.
+  **`compiled_autograd`** / `static_graph` / `find_unused_parameters` True. The
+  memory-caught **silent** all_reduce drop (each rank an independent replica) is the
+  `compiled_autograd=True` case — the winner `_DDP_OPTIMIZER_SPEC` pairs DDPOptimizer
+  with `compiled_autograd=False` — so omitting it would leave the exact silent failure
+  the guard exists to catch uncovered (an early draft that guarded only
+  `static_graph`/`find_unused` guarded the *loud* dynamo-#93672 / bucket-split cases and
+  missed the silent one; corrected here). `broadcast_buffers=False` is safe for the
+  baseline (6 constant binomial-kernel buffers, verified) but the structural
+  constant-buffer check is mandatory so a future eq model with a mutated buffer flips it
+  to True instead of silently desyncing.
 - **Honesty:** `full_run_eligible` must be earned by real-data linked proofs (the probe
   is non-promotable; its synthetic timing must never feed the speedup — S14); report
   the gain as a combined recipe+batch improvement over the eager small-batch baseline
