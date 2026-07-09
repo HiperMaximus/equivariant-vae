@@ -68,8 +68,17 @@ default to the eager recipe); the literal value-validators (compiled-plan accept
 observation/`_application_mismatches` mirror (S15) are untouched; S7's `_recipe_field`
 carrier-reconciliation breadcrumb is resolved. Gate 418 passed, basedpyright/ruff clean; adversarial
 review 5 lenses → 1 low test-soundness finding (two safety-adjacent knobs asserted at their eager
-default) fixed with distinguishing values, fold-delta clean.** Phase 1 + S11 stay local +
-behavior-preserving @ batch 24. LOCAL steps left: S12–S13 + S15–S16; Kaggle-only S14/S17/S19;
+default) fixed with distinguishing values, fold-delta clean.** Then **S12 (this commit)
+admits whole-step compile as a first-class selection candidate: `COMPILE_STEP="step"` (the
+plan token S16 keys on, copied verbatim by `_selected_runtime_payload`) is admitted via
+`_STABLE_COMPILE_SCOPES={model_forward, step}` in `_compiled_row_stable`, so both consumers
+(`_enforce_compiled_rows_diagnostic_only`, `_runtime_row_candidate_pass`) accept a
+settle-proven step row on the same fail-closed settle relationship; the diagnostic scopes
+`model_loss`/`train_step_no_optimizer` stay excluded. INERT until S13 adds the `step` grid
+scope and S14 measures it (executor marks non-`{none,model_forward}` scopes
+`compile_scope_implementation_pending`). Gate 421 passed (418+3), basedpyright/ruff clean;
+6-lens adversarial review → 0 surviving findings; +2 tests.** Phase 1 + S11–S12 stay local +
+behavior-preserving @ batch 24. LOCAL steps left: S13 + S15–S16; Kaggle-only S14/S17/S19;
 LR-finder queued after the core seq. Never push to origin.
 
 Current short state: runtime-selection v5 is the selected fallback runtime

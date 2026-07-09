@@ -22,8 +22,14 @@ from eqvae.benchmarking.runtime_schema import (
     RUNTIME_MATRIX_COLUMNS,
 )
 from eqvae.benchmarking.runtime_selection import (
+    COMPILE_MODEL_FORWARD,
+    COMPILE_STEP,
+    INELIGIBLE_STATUS,
+    PASS_STATUS,
     RuntimeSelectionBenchmarkRequest,
     RuntimeSelectionEvidence,
+    _compiled_row_stable,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _enforce_compiled_rows_diagnostic_only,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _selected_runtime_payload,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _SelectionSettings,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     load_runtime_selection_evidence,
@@ -167,6 +173,57 @@ def test_selected_runtime_payload_sources_recipe_knobs_from_measured_row() -> No
     assert runtime_policy["ddp_find_unused_parameters"] is True
     assert runtime_policy["ddp_bucket_cap_mb"] == _RECIPE_BUCKET_CAP_MB
     assert runtime_policy["fused_optimizer"] is True
+
+
+@pytest.mark.parametrize("compile_scope", [COMPILE_MODEL_FORWARD, COMPILE_STEP])
+def test_settle_proven_compiled_row_is_selectable(compile_scope: str) -> None:
+    """A settle-proven compiled row (model-forward/whole-step) is selectable (S12).
+
+    Parametrizing both scopes makes `_STABLE_COMPILE_SCOPES` membership mutation-proof:
+    dropping either scope from the set fails its case. `_runtime_row` gives a compiled
+    row settle_steps=5 / graph_break_count=0 / recompile_count=0, so the fail-closed
+    settle relationship passes for a non-default runtime policy.
+    """
+    row = _runtime_row(
+        accelerator_mode="dual_t4_ddp",
+        per_device_batch_size=12,
+        precision_policy="amp_conservative",
+        compile_scope=compile_scope,
+        corruption_strategy="indexed_masked",
+        world_size=EXPECTED_DUAL_WORLD_SIZE,
+        samples_sec=400.0,
+        runtime_policy_id=f"compile_{compile_scope}_fp32_channels_last",
+    )
+
+    assert _compiled_row_stable(row) is True
+    assert _enforce_compiled_rows_diagnostic_only((row,))[0]["status"] == PASS_STATUS
+
+
+def test_whole_step_row_without_settle_proof_stays_diagnostic_only() -> None:
+    """A whole-step row that fails the settle relationship stays diagnostic-only (S12).
+
+    A recorded graph break breaks the settle proof, so the row is neither stable nor a
+    selection candidate -- it is rewritten to the ineligible status with the settle
+    failure kind, exactly as an unstable model-forward row already was.
+    """
+    row = _runtime_row(
+        accelerator_mode="dual_t4_ddp",
+        per_device_batch_size=12,
+        precision_policy="amp_conservative",
+        compile_scope=COMPILE_STEP,
+        corruption_strategy="indexed_masked",
+        world_size=EXPECTED_DUAL_WORLD_SIZE,
+        samples_sec=400.0,
+        runtime_policy_id="compile_step_fp32_channels_last",
+    )
+    row["graph_break_count"] = "1"
+
+    assert _compiled_row_stable(row) is False
+    normalized = _enforce_compiled_rows_diagnostic_only((row,))[0]
+    assert normalized["status"] == INELIGIBLE_STATUS
+    assert normalized["failure_kind"] == (
+        "compiled_rows_diagnostic_only_until_stable_settle_proof"
+    )
 
 
 def test_runtime_selection_records_v8_shortlist_provenance(tmp_path: Path) -> None:

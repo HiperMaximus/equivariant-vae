@@ -382,14 +382,24 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   test-soundness finding (two safety-adjacent knobs asserted at their eager default = not
   mutation-proof) FIXED with distinguishing values, fold-delta clean. +4 tests (parser
   eager-defaults + carrier-home reads; generator eager-emission + measured-sourcing).
-- **S12** Selector: whole-step compile as a first-class candidate, eligibility gated
-  on the **relationship** (compiled AND strict settle-proof: post-settle
-  `graph_break_count==0`, `recompile_count==0`, `settle_steps>=required`).
-- **S13** Benchmark grid: add compiled whole-step + bigger-batch **candidate** rows;
-  keep the **required** dual-gate rows eager-fp32 at batches that fit eager
-- **S12** Selector: whole-step compile as a first-class candidate, eligibility gated
-  on the **relationship** (compiled AND strict settle-proof: post-settle
-  `graph_break_count==0`, `recompile_count==0`, `settle_steps>=required`).
+- **S12 (DONE — this commit) Selector: whole-step compile as a first-class candidate**,
+  eligibility gated on the **relationship** (compiled AND strict settle-proof: post-settle
+  `graph_break_count==0`, `recompile_count==0`, `settle_steps>=required`). Additive +
+  behavior-preserving-today: adds `COMPILE_STEP="step"` (the plan token S16 keys on;
+  `_selected_runtime_payload` copies `compile_scope` verbatim) admitted via
+  `_STABLE_COMPILE_SCOPES={model_forward, step}` in `_compiled_row_stable`
+  (`benchmarking/runtime_selection.py`), so both consumers
+  (`_enforce_compiled_rows_diagnostic_only`, `_runtime_row_candidate_pass`) accept a
+  settle-proven step row. The set **excludes** the diagnostic scopes
+  `model_loss`/`train_step_no_optimizer` (stay diagnostic-only). INERT until S13 adds the
+  `step` grid scope (config `compile_scopes` today =
+  `none/model_forward/model_loss/train_step_no_optimizer`) and S14 measures it — the
+  executor marks any non-`{none,model_forward}` scope `compile_scope_implementation_pending`
+  (status≠pass), so no step row reaches selection yet. Gate 421 passed (418+3),
+  basedpyright/ruff clean; adversarial review 6 lenses → 0 surviving findings (1 low
+  S13-naming concern refuted as a later-step config item). +2 tests (settle-proven step row
+  selectable, parametrized over both scopes = mutation-proof; whole-step row without
+  settle-proof stays diagnostic-only).
 - **S13** Benchmark grid: add compiled whole-step + bigger-batch **candidate** rows;
   keep the **required** dual-gate rows eager-fp32 at batches that fit eager
   (`[4,8,12]`). Eager bs48 OOMs → bs48 is a compiled candidate, never a required

@@ -49,6 +49,7 @@ AMP_CONSERVATIVE = "amp_conservative"
 AMP_SCALAR_GATE_RELAXED = "amp_scalar_gate_relaxed"
 COMPILE_NONE = "none"
 COMPILE_MODEL_FORWARD = "model_forward"
+COMPILE_STEP = "step"
 BRANCHLESS_ALL = "branchless_all"
 INDEXED_MASKED = "indexed_masked"
 PASS_STATUS = "pass"  # noqa: S105
@@ -63,6 +64,9 @@ DEFAULT_RUNTIME_POLICY_ID = "fp32_eager_default"
 V3_BASELINE_RUNTIME_POLICY_ID = "v3_fp32_eager_baseline"
 DEFAULT_MATERIAL_SPEEDUP_FRACTION = 0.03
 REQUIRED_COMPILE_SETTLE_STEPS = 5
+# Compiled scopes eligible for selection once they pass the settle-proof relationship
+# (Spec 0011 S12). Whole-step compile is the measured winner recipe's scope.
+_STABLE_COMPILE_SCOPES = frozenset({COMPILE_MODEL_FORWARD, COMPILE_STEP})
 REQUIRED_NUMERICAL_BATCH_INDICES = frozenset({"0", "1", "2"})
 REQUIRED_CORRUPTION_SPLITS = frozenset({"train", "validation"})
 MAX_RELAXED_LOSS_ABS_DELTA = 1.0e-2
@@ -816,8 +820,13 @@ def _compiled_row_stable(row: CsvRow) -> bool:
     settle_steps = _optional_csv_int(row.get("compile_settle_steps", ""))
     graph_breaks = _optional_csv_int(row.get("graph_break_count", ""))
     recompiles = _optional_csv_int(row.get("recompile_count", ""))
+    # Spec 0011 S12: whole-step compile (COMPILE_STEP, the measured winner recipe's
+    # scope) joins model-forward as a first-class compiled candidate, gated on the SAME
+    # fail-closed settle relationship (a missing settle/graph-break/recompile field is
+    # None != 0 -> not stable -> stays diagnostic-only). Keeping both lets throughput
+    # decide. Inert until the grid emits step rows (S13) and the executor measures them.
     return (
-        row["compile_scope"] == COMPILE_MODEL_FORWARD
+        row["compile_scope"] in _STABLE_COMPILE_SCOPES
         and _runtime_policy_id(row) != DEFAULT_RUNTIME_POLICY_ID
         and settle_steps is not None
         and settle_steps >= REQUIRED_COMPILE_SETTLE_STEPS
