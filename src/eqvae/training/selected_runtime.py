@@ -66,6 +66,23 @@ class SelectedRuntimePlan:
     ddp_static_graph: bool
     ddp_gradient_as_bucket_view: bool
     zero_grad_set_to_none: bool
+    # Spec 0011 S11 -- compiled fast-path recipe knobs. Optional with eager-v5
+    # defaults so pre-S11 plans (the committed v5 fallback omits every knob below)
+    # parse byte-identically to the eager recipe. Frozen carrier homes mirror
+    # `_plan_from_payload`: the dynamo/inductor knobs live in the `torch_compile`
+    # block, the DDP/optimizer knobs beside the existing `ddp_*` fields in
+    # `runtime_policy`. Nothing consumes these yet -- the runner applies+observes
+    # them in S15, and the literal value-validators that would *accept* a compiled
+    # plan (`_torch_compile_errors`/`_runtime_policy_errors`) are de-pinned later.
+    compile_backend: str = "eager"
+    compile_dynamic: bool = False
+    optimize_ddp: str = ""
+    compiled_autograd: bool = False
+    reorder_compute_comm_overlap: bool = False
+    ddp_broadcast_buffers: bool = True
+    ddp_find_unused_parameters: bool = False
+    ddp_bucket_cap_mb: int | None = None
+    fused_optimizer: bool = False
 
     def expected_application(self) -> JsonObject:
         """Return the expected values a train run must actually apply.
@@ -372,6 +389,29 @@ def _plan_from_payload(*, path: Path, payload: JsonObject) -> SelectedRuntimePla
             "ddp_gradient_as_bucket_view",
         ),
         zero_grad_set_to_none=_bool(runtime_policy, "zero_grad_set_to_none"),
+        # Spec 0011 S11 recipe knobs, from their frozen carrier homes with eager
+        # defaults (absent on the committed v5 plan).
+        compile_backend=_str_or(torch_compile, "backend", "eager"),
+        compile_dynamic=_bool_or(torch_compile, "dynamic", default=False),
+        optimize_ddp=_str_or(torch_compile, "optimize_ddp", ""),
+        compiled_autograd=_bool_or(torch_compile, "compiled_autograd", default=False),
+        reorder_compute_comm_overlap=_bool_or(
+            torch_compile,
+            "reorder_compute_comm_overlap",
+            default=False,
+        ),
+        ddp_broadcast_buffers=_bool_or(
+            runtime_policy,
+            "ddp_broadcast_buffers",
+            default=True,
+        ),
+        ddp_find_unused_parameters=_bool_or(
+            runtime_policy,
+            "ddp_find_unused_parameters",
+            default=False,
+        ),
+        ddp_bucket_cap_mb=_optional_int_field(runtime_policy, "ddp_bucket_cap_mb"),
+        fused_optimizer=_bool_or(runtime_policy, "fused_optimizer", default=False),
     )
 
 
@@ -699,17 +739,20 @@ def _ddp_optimizer_safety_errors(payload: JsonObject) -> tuple[str, ...]:
 def _recipe_field(payload: JsonObject, key: str) -> JsonValue | None:
     """Read a recipe field from whichever plan block declares it.
 
-    The Phase 2 compiled plans add DDP/compile recipe knobs whose exact carrier block is
-    not frozen yet, so this reads ``key`` from the known carrier blocks first and falls
-    back to the top level. Returns ``None`` when no block declares the key, which keeps
-    the DDPOptimizer safety check a no-op on today's plans.
+    Spec 0011 S11 froze the recipe carrier homes, and this ``runtime_policy`` ->
+    ``torch_compile`` -> top-level read order already resolves each knob from its
+    frozen home: the DDP knobs the guard reads (``ddp_static_graph``,
+    ``ddp_find_unused_parameters``) live in ``runtime_policy`` (matched first), and
+    the dynamo knobs (``optimize_ddp``, ``compiled_autograd``) live only in
+    ``torch_compile`` (reached on the ``runtime_policy`` miss). ``_plan_from_payload``
+    parses the same knobs from the same homes, so the pre-parse guard and the parsed
+    plan agree. Returns ``None`` when no block declares the key, which keeps the
+    DDPOptimizer safety check a no-op on the eager v5 plan (it declares no knob).
 
-    First-carrier-wins assumes each flag is declared in a single home; a plan that
-    contradictorily declares the same flag in two blocks is malformed input the current
-    guard does not reconcile. When S11 freezes the recipe schema, align the read order
-    with each flag's applied home (``ddp_static_graph`` comes from ``runtime_policy``
-    via ``_plan_from_payload``; ``compiled_autograd`` is a dynamo config whose home is
-    ``torch_compile``).
+    First-carrier-wins assumes each flag has a single home, which the honest generator
+    guarantees (it emits each knob into exactly one block); a plan that contradictorily
+    declares the same flag in two blocks is malformed input this safety net does not
+    reconcile.
 
     Returns:
         The declared recipe value, or ``None`` when absent everywhere.
@@ -1174,6 +1217,46 @@ def _bool(payload: JsonObject, key: str) -> bool:
         message = f"Expected selected-runtime boolean field {key}"
         raise TypeError(message)
     return value
+
+
+def _str_or(payload: JsonObject, key: str, default: str) -> str:
+    """Return the optional string ``key``, or ``default`` when absent.
+
+    Spec 0011 S11 recipe knobs are optional so pre-S11 plans that omit them parse
+    to the eager default. A present-but-wrong-typed value still fails closed via
+    :func:`_str`.
+
+    Returns:
+        The parsed string value, or ``default`` when the key is absent.
+
+    """
+    if key not in payload:
+        return default
+    return _str(payload, key)
+
+
+def _bool_or(payload: JsonObject, key: str, *, default: bool) -> bool:
+    """Return the optional boolean ``key``, or ``default`` when absent.
+
+    Returns:
+        The parsed boolean value, or ``default`` when the key is absent.
+
+    """
+    if key not in payload:
+        return default
+    return _bool(payload, key)
+
+
+def _optional_int_field(payload: JsonObject, key: str) -> int | None:
+    """Return the optional int-or-null ``key``, or ``None`` when absent.
+
+    Returns:
+        The parsed integer, or ``None`` when the key is absent or explicitly null.
+
+    """
+    if key not in payload:
+        return None
+    return _optional_int(payload, key)
 
 
 def _string_list(value: object) -> list[str]:

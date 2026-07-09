@@ -361,7 +361,32 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
 
 ### Phase 2 — Generator emits the compiled plan
 
-- **S11** Plan schema + generator payload recipe knobs (sourced from measured rows).
+- **S11 (DONE — this commit) Plan schema + generator payload recipe knobs.** Additive only:
+  `SelectedRuntimePlan` (`training/selected_runtime.py`) gains nine OPTIONAL recipe fields with
+  eager-v5 defaults — `compile_backend="eager"`, `compile_dynamic=False`, `optimize_ddp=""`,
+  `compiled_autograd=False`, `reorder_compute_comm_overlap=False`, `ddp_broadcast_buffers=True`,
+  `ddp_find_unused_parameters=False`, `ddp_bucket_cap_mb=None`, `fused_optimizer=False` (defaults
+  verified against the runner DDP wrap `:2737` + probe `_EAGER_SPEC`). `_plan_from_payload` parses
+  them from their **frozen carrier homes** (dynamo knobs → `torch_compile`; DDP/optimizer knobs →
+  `runtime_policy`, beside the existing `ddp_*`), so the committed v5 plan parses byte-identically
+  (every knob absent → eager default). The generator `_selected_runtime_payload`
+  (`benchmarking/runtime_selection.py`) emits the knobs into those blocks, sourced from the measured
+  winner row via `.get(col, eager_default)` — no matrix column exists yet, so today's rows stay
+  eager (S13 adds the columns; `_bool_from_csv`/`_optional_int_from_csv` reused). S7's `_recipe_field`
+  "Phase-2 carrier reconciliation" breadcrumb is resolved (homes frozen; the
+  `runtime_policy`→`torch_compile`→top read order already resolves each knob from its home and stays a
+  no-op on v5). **Deliberately NOT touched** (later steps, not behavior-preserving): the literal
+  value-validators (`_torch_compile_errors`/`_runtime_policy_errors`/`_top_level_errors`) that would
+  *accept* a compiled plan, and the observation/`expected_application`/`_application_mismatches` mirror
+  (S15). Gate 418 passed (414+4), basedpyright/ruff clean; adversarial review 5 lenses → 1 low
+  test-soundness finding (two safety-adjacent knobs asserted at their eager default = not
+  mutation-proof) FIXED with distinguishing values, fold-delta clean. +4 tests (parser
+  eager-defaults + carrier-home reads; generator eager-emission + measured-sourcing).
+- **S12** Selector: whole-step compile as a first-class candidate, eligibility gated
+  on the **relationship** (compiled AND strict settle-proof: post-settle
+  `graph_break_count==0`, `recompile_count==0`, `settle_steps>=required`).
+- **S13** Benchmark grid: add compiled whole-step + bigger-batch **candidate** rows;
+  keep the **required** dual-gate rows eager-fp32 at batches that fit eager
 - **S12** Selector: whole-step compile as a first-class candidate, eligibility gated
   on the **relationship** (compiled AND strict settle-proof: post-settle
   `graph_break_count==0`, `recompile_count==0`, `settle_steps>=required`).

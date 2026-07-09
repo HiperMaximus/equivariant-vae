@@ -37,6 +37,7 @@ from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
 from eqvae.training import selected_runtime_runner
 from eqvae.training.selected_runtime import (
     SelectedRuntimePlan,
+    _plan_from_payload,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     parse_selected_runtime_plan,
     selected_runtime_plan_errors,
 )
@@ -72,6 +73,10 @@ _LR_REFERENCE_GLOBAL_BATCH = 24
 _LR_QUADRUPLE_GLOBAL_BATCH = 96
 _LR_REFERENCE_LEARNING_RATE = 5.0e-4
 _LR_QUADRUPLE_LEARNING_RATE = 1.0e-3
+# Measured winner DDP bucket-cap (probe _DDP_OPTIMIZER_SPEC).
+_RECIPE_BUCKET_CAP_MB = 50
+# The eager-recipe optimize_ddp sentinel (unset dynamo config).
+_EAGER_OPTIMIZE_DDP = ""
 _EXPECTED_ROW_ID = (
     "dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__"
     "policy_amp_fp16_conservative"
@@ -650,6 +655,65 @@ def test_plan_parser_accepts_reference_batch_schedule() -> None:
     errors = selected_runtime_plan_errors(_committed_runtime_payload())
 
     assert errors == ()
+
+
+def test_plan_parser_defaults_recipe_knobs_to_eager() -> None:
+    """The committed v5 plan omits every S11 recipe knob, so all default to eager.
+
+    This is the S11 behavior-preservation guarantee: adding the optional recipe fields
+    must not change how the pre-S11 fallback plan parses. The defaults reproduce the
+    eager v5 recipe (no DDPOptimizer, no compiled autograd, DDP-library defaults for
+    broadcast/find-unused/bucket-cap, fused off).
+    """
+    plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+
+    assert plan.compile_backend == "eager"
+    assert plan.compile_dynamic is False
+    assert plan.optimize_ddp == _EAGER_OPTIMIZE_DDP
+    assert plan.compiled_autograd is False
+    assert plan.reorder_compute_comm_overlap is False
+    assert plan.ddp_broadcast_buffers is True
+    assert plan.ddp_find_unused_parameters is False
+    assert plan.ddp_bucket_cap_mb is None
+    assert plan.fused_optimizer is False
+
+
+def test_plan_parser_reads_recipe_knobs_from_carrier_homes() -> None:
+    """Each S11 recipe knob is parsed from its frozen carrier home.
+
+    Dynamo/inductor knobs live in ``torch_compile``; DDP/optimizer knobs live in
+    ``runtime_policy`` beside the existing ``ddp_*`` fields. ``_plan_from_payload`` is
+    the pure builder (no launch validation / linked-proof cross-check), so a
+    hand-mutated payload proves the home-to-field mapping without a valid proof bundle.
+    """
+    # Every knob is set to a value distinct from its eager default so a dropped or
+    # wrong-home read is caught (mutation-proof). _plan_from_payload does no validation,
+    # so this deliberately artificial combination only exercises the reader; the S7
+    # DDPOptimizer guard is covered by the separate test_plan_parser_rejects_* tests.
+    payload = _committed_runtime_payload()
+    torch_compile = _plan_block(payload, "torch_compile")
+    torch_compile["backend"] = "inductor"
+    torch_compile["dynamic"] = True
+    torch_compile["optimize_ddp"] = "ddp_optimizer"
+    torch_compile["compiled_autograd"] = True
+    torch_compile["reorder_compute_comm_overlap"] = True
+    runtime_policy = _plan_block(payload, "runtime_policy")
+    runtime_policy["ddp_broadcast_buffers"] = False
+    runtime_policy["ddp_find_unused_parameters"] = True
+    runtime_policy["ddp_bucket_cap_mb"] = 50
+    runtime_policy["fused_optimizer"] = True
+
+    plan = _plan_from_payload(path=_RUNTIME_CONFIG, payload=payload)
+
+    assert plan.compile_backend == "inductor"
+    assert plan.compile_dynamic is True
+    assert plan.optimize_ddp == "ddp_optimizer"
+    assert plan.compiled_autograd is True
+    assert plan.reorder_compute_comm_overlap is True
+    assert plan.ddp_broadcast_buffers is False
+    assert plan.ddp_find_unused_parameters is True
+    assert plan.ddp_bucket_cap_mb == _RECIPE_BUCKET_CAP_MB
+    assert plan.fused_optimizer is True
 
 
 def test_plan_parser_accepts_relationship_derived_larger_batch() -> None:

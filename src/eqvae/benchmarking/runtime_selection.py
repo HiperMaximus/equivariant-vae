@@ -1912,6 +1912,15 @@ def _selected_runtime_payload(
             else "eager",
             "scope": selected_row["compile_scope"],
             "dynamic": _bool_from_csv(selected_row.get("compile_dynamic", "false")),
+            # Spec 0011 S11 dynamo/inductor recipe knobs (home = torch_compile);
+            # eager defaults when the measured row has no such column yet (S13).
+            "optimize_ddp": selected_row.get("optimize_ddp", ""),
+            "compiled_autograd": _bool_from_csv(
+                selected_row.get("compiled_autograd", "false"),
+            ),
+            "reorder_compute_comm_overlap": _bool_from_csv(
+                selected_row.get("reorder_compute_comm_overlap", "false"),
+            ),
         },
         "runtime_policy": {
             "memory_format": selected_row.get("memory_format", "contiguous"),
@@ -1931,6 +1940,22 @@ def _selected_runtime_payload(
             ),
             "ddp_gradient_as_bucket_view": _bool_from_csv(
                 selected_row.get("ddp_gradient_as_bucket_view", "false"),
+            ),
+            # Spec 0011 S11 DDP/optimizer recipe knobs (home = runtime_policy,
+            # beside the existing ddp_* fields); eager defaults reproduce the v5
+            # DDP wrap (broadcast_buffers/find_unused/bucket_cap are DDP defaults,
+            # fused off) until the search measures them (S13/S14).
+            "ddp_broadcast_buffers": _bool_from_csv(
+                selected_row.get("ddp_broadcast_buffers", "true"),
+            ),
+            "ddp_find_unused_parameters": _bool_from_csv(
+                selected_row.get("ddp_find_unused_parameters", "false"),
+            ),
+            "ddp_bucket_cap_mb": _optional_int_from_csv(
+                selected_row.get("ddp_bucket_cap_mb", ""),
+            ),
+            "fused_optimizer": _bool_from_csv(
+                selected_row.get("fused_optimizer", "false"),
             ),
             "optimizer_implementation": selected_row.get(
                 "optimizer_implementation",

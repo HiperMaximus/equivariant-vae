@@ -24,10 +24,13 @@ from eqvae.benchmarking.runtime_schema import (
 from eqvae.benchmarking.runtime_selection import (
     RuntimeSelectionBenchmarkRequest,
     RuntimeSelectionEvidence,
+    _selected_runtime_payload,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _SelectionSettings,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     load_runtime_selection_evidence,
     write_runtime_selection_benchmark,
 )
 from eqvae.config import resolve_json_config
+from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
 from eqvae.models.activations import GatedScalarActivation
 from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
 
@@ -36,9 +39,134 @@ RUN_NAME = "runtime_selection_test"
 CORRUPTION_STRATEGIES = ("branchless_all", "indexed_masked")
 EXPECTED_DUAL_RUNTIME_ROWS = 6
 EXPECTED_DUAL_WORLD_SIZE = 2
+# Measured winner DDP bucket-cap (probe _DDP_OPTIMIZER_SPEC).
+_RECIPE_BUCKET_CAP_MB = 50
+# The eager-recipe optimize_ddp sentinel (unset dynamo config).
+_EAGER_OPTIMIZE_DDP = ""
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+
+def _payload_settings() -> _SelectionSettings:
+    """Minimal selection settings for a direct payload-emitter unit test.
+
+    The payload emitter reads only ``real_train_patch_count`` and
+    ``effective_config_hash`` from settings; the rest are inert placeholders.
+
+    Returns:
+        A ``_SelectionSettings`` sufficient to build one selected-runtime payload.
+
+    """
+    return _SelectionSettings(
+        run_name=RUN_NAME,
+        effective_config_hash="unit-config-hash",
+        real_train_patch_count=REAL_TRAIN_PATCH_COUNT,
+        warmup_steps=5,
+        measured_steps=25,
+        repeats=3,
+        v8_artifact_dir=Path("unused-v8"),
+        fp32_batch_sizes=(4, 8, 12),
+        fallback_batch_sizes=(12,),
+        dual_batch_sizes=(12,),
+        corruption_strategies=("indexed_masked",),
+        baseline_selected_runtime_path=None,
+        baseline_selected_row_id="",
+        baseline_runtime_policy_id="",
+        minimum_material_speedup_fraction=0.05,
+        efficiency_accelerator_modes=("dual_t4_ddp",),
+        efficiency_batch_sizes=(12,),
+        efficiency_corruption_strategies=("indexed_masked",),
+        efficiency_policies=(),
+    )
+
+
+def _eager_selected_row() -> dict[str, str]:
+    """Return an eager dual-T4 winner row that carries no S11 recipe columns.
+
+    Returns:
+        A runtime-matrix row for an eager amp-conservative dual-T4 candidate.
+
+    """
+    return _runtime_row(
+        accelerator_mode="dual_t4_ddp",
+        per_device_batch_size=12,
+        precision_policy="amp_conservative",
+        compile_scope="none",
+        corruption_strategy="indexed_masked",
+        world_size=EXPECTED_DUAL_WORLD_SIZE,
+        samples_sec=300.0,
+        runtime_policy_id="amp_fp16_conservative",
+    )
+
+
+def test_selected_runtime_payload_emits_recipe_knobs_at_eager_defaults() -> None:
+    """A winner row without recipe columns yields the eager recipe (S11).
+
+    This is the generator's behavior-preserving branch: today's measured rows have no
+    S11 knob columns (S13 adds them), so ``.get(col, eager_default)`` reproduces the v5
+    recipe -- no DDPOptimizer, no compiled autograd, DDP-library defaults for
+    broadcast/find-unused/bucket-cap, fused off.
+    """
+    selected_row = _eager_selected_row()
+    dataloader_rows = tuple(_dataloader_rows((selected_row,)))
+
+    payload = _selected_runtime_payload(
+        settings=_payload_settings(),
+        selected_row=selected_row,
+        dataloader_rows=dataloader_rows,
+        artifact_hashes={},
+    )
+
+    torch_compile = cast("dict[str, object]", payload["torch_compile"])
+    runtime_policy = cast("dict[str, object]", payload["runtime_policy"])
+    assert torch_compile["optimize_ddp"] == _EAGER_OPTIMIZE_DDP
+    assert torch_compile["compiled_autograd"] is False
+    assert torch_compile["reorder_compute_comm_overlap"] is False
+    assert runtime_policy["ddp_broadcast_buffers"] is True
+    assert runtime_policy["ddp_find_unused_parameters"] is False
+    assert runtime_policy["ddp_bucket_cap_mb"] is None
+    assert runtime_policy["fused_optimizer"] is False
+
+
+def test_selected_runtime_payload_sources_recipe_knobs_from_measured_row() -> None:
+    """The generator sources each recipe knob from its measured winner-row column (S11).
+
+    Proves the ``.get(col, ...)`` reads the real column when present (the forward path
+    S13/S14 populate), routing each knob into its frozen carrier block: dynamo knobs to
+    ``torch_compile``, DDP/optimizer knobs to ``runtime_policy``.
+    """
+    # Every knob column is set to a value distinct from its eager default so a dropped
+    # or wrong-block read is caught (mutation-proof). The emitter does no validation, so
+    # this deliberately artificial combination only exercises the per-column sourcing.
+    selected_row = {
+        **_eager_selected_row(),
+        "optimize_ddp": "ddp_optimizer",
+        "compiled_autograd": "true",
+        "reorder_compute_comm_overlap": "true",
+        "ddp_broadcast_buffers": "false",
+        "ddp_find_unused_parameters": "true",
+        "ddp_bucket_cap_mb": str(_RECIPE_BUCKET_CAP_MB),
+        "fused_optimizer": "true",
+    }
+    dataloader_rows = tuple(_dataloader_rows((selected_row,)))
+
+    payload = _selected_runtime_payload(
+        settings=_payload_settings(),
+        selected_row=selected_row,
+        dataloader_rows=dataloader_rows,
+        artifact_hashes={},
+    )
+
+    torch_compile = cast("dict[str, object]", payload["torch_compile"])
+    runtime_policy = cast("dict[str, object]", payload["runtime_policy"])
+    assert torch_compile["optimize_ddp"] == "ddp_optimizer"
+    assert torch_compile["compiled_autograd"] is True
+    assert torch_compile["reorder_compute_comm_overlap"] is True
+    assert runtime_policy["ddp_broadcast_buffers"] is False
+    assert runtime_policy["ddp_find_unused_parameters"] is True
+    assert runtime_policy["ddp_bucket_cap_mb"] == _RECIPE_BUCKET_CAP_MB
+    assert runtime_policy["fused_optimizer"] is True
 
 
 def test_runtime_selection_records_v8_shortlist_provenance(tmp_path: Path) -> None:

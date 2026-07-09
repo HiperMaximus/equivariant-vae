@@ -51,15 +51,26 @@ routed all eight full-run schedule boundaries (2 runner producers + 4 runner con
 is a genuine boundary on BOTH the producer and consumer sides (never consumer-only, which
 would false-reject a resume) — byte-identical @ batch 24, off-grid-verified by a tiny
 `epochs=1/updates_per_epoch=5` CPU run; adversarial review closed a vacuous-consumer-test
-finding with three mutation-proven off-grid tests.** Finally, **S10 (this commit)
+finding with three mutation-proven off-grid tests.** Then **S10 `23d6854`
 extracted the shared fast-path recipe module `training/fastpath_recipe.py` from the probe —
 one source for the grouped/CUDA-gated fused optimizer, the DDP wrap, and the dynamo config,
 taking plain scalar knobs so the runner adopts it bit-identically in S15; the probe's fused
 optimizer, formerly a bespoke FLAT ungrouped AdamW that decayed norms/gates, now routes the
-grouped path (matching the runner). Probe-only by design (runner wiring is S15,
-`runtime_selection_executor` folds in at S14); gate 414 passed, review 6 lenses 0 findings,
-mutation-proven.** Phase 1 stays local +
-behavior-preserving @ batch 24. Never push to origin.
+grouped path (matching the runner).** Phase 1 (S1–S10) is DONE. **Phase 2 opens with S11
+(this commit): the `SelectedRuntimePlan` schema + the honest generator payload
+(`_selected_runtime_payload`) now carry the nine compiled fast-path recipe knobs
+(`optimize_ddp`, `compiled_autograd`, `reorder_compute_comm_overlap`, compile `backend`/`dynamic`,
+`ddp_broadcast_buffers`/`ddp_find_unused_parameters`/`ddp_bucket_cap_mb`, `fused_optimizer`) as
+OPTIONAL fields with eager-v5 defaults, parsed from frozen carrier homes (dynamo → `torch_compile`,
+DDP/optimizer → `runtime_policy`) and sourced from the measured winner row via
+`.get(col, eager_default)`. Additive only: the committed v5 plan parses byte-identically (all nine
+default to the eager recipe); the literal value-validators (compiled-plan acceptance) and the
+observation/`_application_mismatches` mirror (S15) are untouched; S7's `_recipe_field`
+carrier-reconciliation breadcrumb is resolved. Gate 418 passed, basedpyright/ruff clean; adversarial
+review 5 lenses → 1 low test-soundness finding (two safety-adjacent knobs asserted at their eager
+default) fixed with distinguishing values, fold-delta clean.** Phase 1 + S11 stay local +
+behavior-preserving @ batch 24. LOCAL steps left: S12–S13 + S15–S16; Kaggle-only S14/S17/S19;
+LR-finder queued after the core seq. Never push to origin.
 
 Current short state: runtime-selection v5 is the selected fallback runtime
 (`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,
