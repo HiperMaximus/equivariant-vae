@@ -43,6 +43,7 @@ from eqvae.artifacts.fixed25_equivariance import (
     write_originals,
 )
 from eqvae.benchmarking.runtime_schema import GATE_HEALTH_COLUMNS
+from eqvae.benchmarking.schedule import boundary_steps
 from eqvae.checkpointing import (
     CheckpointMetadata,
     LoadedCheckpoint,
@@ -2251,11 +2252,12 @@ def _validate_full_resume_validation_prefix(
     start_step: int,
 ) -> None:
     expected_steps = tuple(
-        range(
-            settings.half_epoch_interval_steps,
-            min(start_step, settings.target_train_steps) + 1,
-            settings.half_epoch_interval_steps,
-        ),
+        step
+        for step in boundary_steps(
+            interval_steps=settings.half_epoch_interval_steps,
+            target_train_steps=settings.target_train_steps,
+        )
+        if step <= start_step
     )
     observed = {
         (_csv_int(row, "optimizer_step", default=-1), row.get("view", ""))
@@ -2289,11 +2291,12 @@ def _validate_full_resume_equivariance_prefix(
     if not rows or settings.half_epoch_interval_steps <= 0:
         return
     expected_steps = tuple(
-        range(
-            settings.half_epoch_interval_steps,
-            min(start_step, settings.target_train_steps) + 1,
-            settings.half_epoch_interval_steps,
-        ),
+        step
+        for step in boundary_steps(
+            interval_steps=settings.half_epoch_interval_steps,
+            target_train_steps=settings.target_train_steps,
+        )
+        if step <= start_step
     )
     measured_angles = tuple(str(DEGREES_PER_K * k) for k in MEASURED_K_VALUES)
     observed = {
@@ -2326,12 +2329,9 @@ def _validate_full_resume_checkpoint_prefix(
     settings: _RunnerSettings,
     start_step: int,
 ) -> None:
-    final_interval_steps = tuple(
-        range(
-            settings.half_epoch_interval_steps,
-            settings.target_train_steps + 1,
-            settings.half_epoch_interval_steps,
-        ),
+    final_interval_steps = boundary_steps(
+        interval_steps=settings.half_epoch_interval_steps,
+        target_train_steps=settings.target_train_steps,
     )[-_FULL_INTERVAL_CHECKPOINT_KEEP_COUNT:]
     required_existing_steps = {
         step for step in final_interval_steps if step <= start_step
@@ -2900,7 +2900,11 @@ def _run_train_steps(  # noqa: C901, PLR0913, PLR0914, PLR0915
         checkpoint_boundary = (
             not amp_step_skipped
             and successful_count > 0
-            and successful_count % settings.save_every_steps == 0
+            and successful_count
+            in boundary_steps(
+                interval_steps=settings.save_every_steps,
+                target_train_steps=settings.target_train_steps,
+            )
         )
         scheduled_validation_due = (
             not amp_step_skipped
@@ -4001,7 +4005,11 @@ def _should_run_scheduled_validation(
     return (
         _writes_validation_metrics(settings)
         and optimizer_step > 0
-        and optimizer_step % settings.half_epoch_interval_steps == 0
+        and optimizer_step
+        in boundary_steps(
+            interval_steps=settings.half_epoch_interval_steps,
+            target_train_steps=settings.target_train_steps,
+        )
     )
 
 
@@ -5376,12 +5384,9 @@ def _validation_schedule_complete(
 ) -> bool:
     if not _writes_validation_metrics(settings):
         return True
-    expected_steps = tuple(
-        range(
-            settings.half_epoch_interval_steps,
-            settings.target_train_steps + 1,
-            settings.half_epoch_interval_steps,
-        ),
+    expected_steps = boundary_steps(
+        interval_steps=settings.half_epoch_interval_steps,
+        target_train_steps=settings.target_train_steps,
     )
     observed = {
         (int(row["optimizer_step"]), row["view"])

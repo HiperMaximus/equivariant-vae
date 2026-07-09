@@ -316,19 +316,27 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   torch-free-build test was **deliberately skipped** (torch is pre-imported in the pytest
   venv, so a robust guard needs a subprocess — low value); the bare-`python3` build path is
   instead exercised by the real `preflight-selected-runtime-full`.
-- **S9 Shared boundary generator + odd-batch test (MF3):** one helper imported by ALL six
-  boundary sites — the runner PRODUCERS (interval checkpoint `% save_every` `:2872`,
-  scheduled validation `% half` `:3969`) converted to set-membership, AND the CONSUMERS
-  (runner `:2225/2263/2300/5334`, gate `:819/947`). Per the *validate-the-terminal*
+- **S9 (DONE — this commit) Shared boundary generator + odd-batch test (MF3):** one
+  helper (`boundary_steps`, in the stdlib-only `schedule.py` leaf) imported by ALL eight
+  boundary sites — the runner PRODUCERS (interval checkpoint `% save_every` `:2904`,
+  scheduled validation `% half` `:4009`) converted to set-membership, AND the CONSUMERS
+  (runner `:2256/2295/2332/5387`, gate `:903/1130`). Per the *validate-the-terminal*
   decision, `| {target}` makes the terminal a real boundary on **both** sides
   (written + validated + best-selection-eligible) — never consumer-only (that
-  false-rejects). The literal global-96 e2e test is **not CPU-runnable** (full mode
-  forbids capping below target without `--dry-run`, requires `completed_steps==target`,
-  and `world_size=2` needs CUDA+nccl). Instead: (a) a pure-function unit test of the
-  shared generator (`half=1562,target=31250 →` grid ends `31240`, terminal `31250`
-  force-included); plus (b) a **tiny** odd full config CPU run
+  false-rejects). Byte-identical @ batch 24 (`half=6250,target=125000`: `∪{target}` is a
+  no-op, so the whole existing suite still passes). The literal global-96 e2e test is
+  **not CPU-runnable** (full mode forbids capping below target without `--dry-run`,
+  requires `completed_steps==target`, and `world_size=2` needs CUDA+nccl). Instead: (a) a
+  pure-function unit test of the shared generator (`half=1562,target=31250 →` grid ends
+  `31240`, terminal `31250` force-included); plus (b) a **tiny** odd full config CPU run
   (`epochs=1, updates_per_epoch=5 → half=2, target=5`, terminal off-grid) reproducing
   the topology in 5 steps single-process. World_size=2 stays a Kaggle-only observation.
+  Post-review hardening folded in: an adversarial jury flagged the consumer tests as
+  **vacuous** (they only ran on-grid schedules, so a consumer-only regression would pass
+  silently) — closed with three off-grid consumer tests (runner schedule-complete +
+  resume-prefix, gate interval-checkpoint names, gate validation-CSV blockers), each
+  **mutation-proven**: reverting either the runner Site-D consumer or the gate
+  checkpoint-names makes its guarding test fail.
 - **S10** Extract the shared fast-path recipe module (`training/fastpath_recipe.py`)
   from the probe (grouped fused-AdamW path, `_wrap_ddp`, `_apply_dynamo_config`) so
   probe and runner are bit-identical.

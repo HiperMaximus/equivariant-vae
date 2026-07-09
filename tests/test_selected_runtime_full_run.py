@@ -1313,6 +1313,268 @@ def test_run_train_steps_selects_best_on_denoising_view_end_to_end(  # noqa: PLR
     assert abs(min(clean_l1) - min(denoising_l1)) > _FLOAT_TOLERANCE
 
 
+# Odd schedule (Spec 0011 S9 / MF3): a non-dividing global batch makes
+# updates_per_epoch odd, so target = epochs * updates_per_epoch is OFF the
+# half-epoch grid. Here epochs=1, updates_per_epoch=5 -> half=2, target=5, and 5 is
+# not a multiple of 2. The half-grid is {2, 4}; the terminal 5 must be force-included
+# as a boundary on the producer side by the shared generator.
+_ODD_TARGET_STEPS = 5
+_ODD_HALF_EPOCH_INTERVAL = 2
+_ODD_SAVE_EVERY = 2
+_ODD_BOUNDARY_STEPS = frozenset({2, 4, 5})
+# floor(300000 / 60000) == 5 == updates_per_epoch: an honest odd schedule for the gate.
+_ODD_GLOBAL_BATCH = 60_000
+
+
+def test_run_train_steps_checkpoints_and_validates_off_grid_terminal(  # noqa: PLR0914
+    tmp_path: Path,
+) -> None:
+    """Spec 0011 S9: the off-grid terminal is a genuine boundary on the producer side.
+
+    With half=2 and target=5 the terminal (5) is off the {2, 4} half-grid, so the old
+    modulo producers dropped it: step 5 was never validated, never checkpointed, and
+    never best-selection-eligible. Routing the producers through the shared boundary
+    generator makes 5 a real boundary, while the interior boundaries {2, 4} are kept.
+    """
+    output_dir = tmp_path / "odd_terminal"
+    request = SelectedRuntimeTrainRequest(
+        config_path=_FULL_CONFIG,
+        runtime_config=_RUNTIME_CONFIG,
+        output_dir=output_dir,
+        run_name="spec0011_odd_terminal",
+        data="synthetic",
+        max_train_steps=_ODD_TARGET_STEPS,
+        save_every_steps=_ODD_SAVE_EVERY,
+        dry_run=True,
+    )
+    plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+    resolved = resolve_json_config(_FULL_CONFIG)
+    # Drive the full odd schedule (max == target == 5, half == save_every == 2)
+    # single-process on CPU. _run_train_steps does not re-run the full-run validator,
+    # so replace() installs the odd schedule directly (an odd global batch would fail
+    # dual-T4 collectives locally; world_size=1 keeps this CPU-only).
+    settings = replace(
+        selected_runtime_runner._settings(  # noqa: SLF001
+            request=request,
+            resolved=resolved,
+            plan=plan,
+        ),
+        max_train_steps=_ODD_TARGET_STEPS,
+        target_train_steps=_ODD_TARGET_STEPS,
+        half_epoch_interval_steps=_ODD_HALF_EPOCH_INTERVAL,
+        save_every_steps=_ODD_SAVE_EVERY,
+        validation_batches_per_view=1,
+    )
+    local = _local_distributed_context()
+    data_surface = selected_runtime_runner._prepare_data_surface(  # noqa: SLF001
+        request=request,
+        settings=settings,
+        plan=plan,
+        distributed=local,
+    )
+    try:
+        (output_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
+        model = build_non_equivariant_vae(
+            norm_groups=settings.norm_groups,
+        )
+        optimizer, _ = selected_runtime_runner.create_adamw_optimizer(
+            model,
+            config=settings.optimizer_config,
+        )
+        amp = selected_runtime_runner._amp_execution(  # noqa: SLF001
+            plan=plan,
+            distributed=local,
+            dry_run=True,
+        )
+        scaler = selected_runtime_runner.GradScaler(
+            "cuda",
+            init_scale=amp.grad_scaler_init_scale,
+            enabled=amp.grad_scaler_enabled,
+        )
+        train_generator = torch.Generator(device="cpu")
+        train_generator.manual_seed(settings.data_seed)
+        train_loop = selected_runtime_runner._run_train_steps(  # noqa: SLF001
+            request=request,
+            resolved=resolved,
+            settings=settings,
+            plan=plan,
+            model=model,
+            checkpoint_model=model,
+            latent_channels=LATENT_CHANNELS,
+            optimizer=optimizer,
+            scaler=scaler,
+            amp=amp,
+            data_surface=data_surface,
+            distributed=local,
+            numpy_generator=np.random.default_rng(settings.global_seed),
+            train_generator=train_generator,
+            runtime_identity=selected_runtime_runner._runtime_identity(plan),  # noqa: SLF001
+            start_step=0,
+            initial_best_validation_metric=None,
+            resume_history=selected_runtime_runner._ResumeArtifactHistory(  # noqa: SLF001
+                metric_rows=(),
+                validation_rows=(),
+                interval_checkpoints=(),
+                best_checkpoint=None,
+                best_validation_metric=None,
+            ),
+            write_checkpoints=True,
+            interval_flush=None,
+            fixed25=None,
+        )
+    finally:
+        selected_runtime_runner._close_data_surface(data_surface)  # noqa: SLF001
+
+    # Every boundary is validated, INCLUDING the off-grid terminal 5 (pre-S9 the modulo
+    # producer stopped at 4); the interior boundaries {2, 4} are preserved.
+    validated_steps = {int(row["optimizer_step"]) for row in train_loop.validation_rows}
+    assert validated_steps == _ODD_BOUNDARY_STEPS
+    terminal_views = {
+        row["view"]
+        for row in train_loop.validation_rows
+        if int(row["optimizer_step"]) == _ODD_TARGET_STEPS
+    }
+    assert terminal_views == {"clean", "deterministic_denoising"}
+    # The terminal is a genuine interval checkpoint (distinct from final.pt).
+    assert (output_dir / "checkpoints" / f"step_{_ODD_TARGET_STEPS:06d}.pt").exists()
+    # ...and best-selection-eligible (the terminal can now win best_model.pt).
+    assert train_loop.best_validation_checkpoint is not None
+    assert (output_dir / "checkpoints" / "best_model.pt").exists()
+
+
+def test_off_grid_runner_consumers_demand_the_terminal_boundary(tmp_path: Path) -> None:
+    """Spec 0011 S9 lockstep: the runner CONSUMERS also demand the off-grid terminal.
+
+    The producer test above proves half the MF3 invariant; this proves the other half.
+    A producer-only S9 change (reverting a consumer to the old open-coded ``range``)
+    would drop the terminal at an odd batch while the producers still emit it. With
+    half=2/target=5 the completeness checker (_validation_schedule_complete) and the
+    resume-prefix validator (_validate_full_resume_validation_prefix) must both require
+    step 5, which is off the {2, 4} grid (on an on-grid batch both pass either way).
+    """
+    request = SelectedRuntimeTrainRequest(
+        config_path=_FULL_CONFIG,
+        runtime_config=_RUNTIME_CONFIG,
+        output_dir=tmp_path / "odd_consumers",
+        run_name="spec0011_odd_consumers",
+        data="synthetic",
+        max_train_steps=_ODD_TARGET_STEPS,
+        save_every_steps=_ODD_SAVE_EVERY,
+        dry_run=True,
+    )
+    plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+    settings = replace(
+        selected_runtime_runner._settings(  # noqa: SLF001
+            request=request,
+            resolved=resolve_json_config(_FULL_CONFIG),
+            plan=plan,
+        ),
+        target_train_steps=_ODD_TARGET_STEPS,
+        half_epoch_interval_steps=_ODD_HALF_EPOCH_INTERVAL,
+    )
+    complete_rows: list[dict[str, str]] = [
+        {"optimizer_step": str(step), "view": view}
+        for step in sorted(_ODD_BOUNDARY_STEPS)
+        for view in settings.validation_views
+    ]
+    without_terminal = [
+        row for row in complete_rows if int(row["optimizer_step"]) != _ODD_TARGET_STEPS
+    ]
+
+    # Completeness consumer: the off-grid terminal is required, so dropping its rows
+    # flips the schedule from complete to incomplete.
+    assert selected_runtime_runner._validation_schedule_complete(  # noqa: SLF001
+        settings,
+        complete_rows,
+    )
+    assert not selected_runtime_runner._validation_schedule_complete(  # noqa: SLF001
+        settings,
+        without_terminal,
+    )
+    # Resume-prefix consumer at start_step == target: the terminal rows must be present.
+    selected_runtime_runner._validate_full_resume_validation_prefix(  # noqa: SLF001
+        rows=complete_rows,
+        settings=settings,
+        start_step=_ODD_TARGET_STEPS,
+    )
+    with pytest.raises(ValueError, match="missing validation rows"):
+        selected_runtime_runner._validate_full_resume_validation_prefix(  # noqa: SLF001
+            rows=without_terminal,
+            settings=settings,
+            start_step=_ODD_TARGET_STEPS,
+        )
+
+
+def test_off_grid_gate_expects_the_terminal_interval_checkpoint() -> None:
+    """Spec 0011 S9 lockstep: the gate expects the off-grid terminal checkpoint name."""
+    schedule = selected_runtime_gate._RemoteFullSchedule(  # noqa: SLF001
+        global_batch_size=_ODD_GLOBAL_BATCH,
+        updates_per_epoch=_ODD_TARGET_STEPS,
+        target_updates=_ODD_TARGET_STEPS,
+        half_epoch_interval=_ODD_HALF_EPOCH_INTERVAL,
+        valid=True,
+    )
+    names = selected_runtime_gate._full_expected_interval_checkpoint_names(  # noqa: SLF001
+        schedule,
+    )
+    assert names == ("step_000002.pt", "step_000004.pt", "step_000005.pt")
+    assert f"step_{_ODD_TARGET_STEPS:06d}.pt" in names
+
+
+def test_off_grid_gate_flags_a_missing_terminal_validation_row(tmp_path: Path) -> None:
+    """Spec 0011 S9 lockstep: the gate flags a missing terminal validation row."""
+    columns = (
+        "optimizer_step",
+        "view",
+        "batch_count",
+        "l1_loss",
+        "deterministic_eps_used",
+        "corruption_strategy",
+    )
+
+    def _write_validation_csv(path: Path, steps: list[int]) -> None:
+        with path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=columns)
+            writer.writeheader()
+            for step in steps:
+                for view in selected_runtime_gate.REMOTE_FULL_VALIDATION_VIEWS:
+                    writer.writerow(
+                        {
+                            "optimizer_step": str(step),
+                            "view": view,
+                            "batch_count": str(
+                                selected_runtime_gate.REMOTE_FULL_VALIDATION_BATCHES_PER_VIEW,
+                            ),
+                            "l1_loss": "0.1",
+                            "deterministic_eps_used": "true",
+                            "corruption_strategy": "indexed_masked",
+                        },
+                    )
+
+    all_steps = sorted(_ODD_BOUNDARY_STEPS)
+    complete = tmp_path / "validation_complete.csv"
+    _write_validation_csv(complete, all_steps)
+    missing_terminal = tmp_path / "validation_missing_terminal.csv"
+    _write_validation_csv(
+        missing_terminal,
+        [step for step in all_steps if step != _ODD_TARGET_STEPS],
+    )
+    incomplete = "selected_runtime_full_output_validation_schedule_incomplete"
+
+    # Every boundary present (incl. the off-grid terminal) -> no schedule blocker.
+    assert incomplete not in selected_runtime_gate._remote_full_validation_blockers(  # noqa: SLF001
+        complete,
+        half_epoch_interval=_ODD_HALF_EPOCH_INTERVAL,
+        target_updates=_ODD_TARGET_STEPS,
+    )
+    # Terminal row dropped -> the gate demands it and fails closed.
+    assert incomplete in selected_runtime_gate._remote_full_validation_blockers(  # noqa: SLF001
+        missing_terminal,
+        half_epoch_interval=_ODD_HALF_EPOCH_INTERVAL,
+        target_updates=_ODD_TARGET_STEPS,
+    )
+
+
 class _ValidationScaffold(NamedTuple):
     """Minimal setup for a direct ``_validation_view_row`` call (FU-017)."""
 

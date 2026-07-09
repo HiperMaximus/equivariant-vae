@@ -46,7 +46,7 @@ from eqvae.benchmarking.fixed32_selector_readiness import (
 )
 from eqvae.benchmarking.io import JsonObject, write_csv, write_json
 from eqvae.benchmarking.runtime_schema import GATE_HEALTH_COLUMNS
-from eqvae.benchmarking.schedule import training_steps_per_epoch
+from eqvae.benchmarking.schedule import boundary_steps, training_steps_per_epoch
 from eqvae.config import ResolvedConfig, resolve_json_config
 from eqvae.data.fixed_selectors import (
     FIXED_32_TRAIN_OVERFIT_KIND,
@@ -900,12 +900,9 @@ def _remote_full_json_blockers(  # noqa: PLR0913
 def _full_expected_interval_checkpoint_names(
     schedule: _RemoteFullSchedule,
 ) -> tuple[str, ...]:
-    steps = tuple(
-        range(
-            schedule.half_epoch_interval,
-            schedule.target_updates + 1,
-            schedule.half_epoch_interval,
-        ),
+    steps = boundary_steps(
+        interval_steps=schedule.half_epoch_interval,
+        target_train_steps=schedule.target_updates,
     )
     latest = steps[-REMOTE_FULL_INTERVAL_CHECKPOINT_KEEP_COUNT:]
     return tuple(f"step_{step:06d}.pt" for step in latest)
@@ -1130,12 +1127,9 @@ def _remote_full_validation_blockers(
     observed = {
         (_int_value(row.get("optimizer_step")), row.get("view", "")) for row in rows
     }
-    expected_steps = tuple(
-        range(
-            half_epoch_interval,
-            target_updates + 1,
-            half_epoch_interval,
-        ),
+    expected_steps = boundary_steps(
+        interval_steps=half_epoch_interval,
+        target_train_steps=target_updates,
     )
     for step in expected_steps:
         for view in REMOTE_FULL_VALIDATION_VIEWS:
@@ -1178,16 +1172,16 @@ def _remote_full_fixed25_blockers(*, output_dir: Path) -> tuple[str, ...]:
             prefix=prefix,
         ),
     )
-    manifest_blockers, boundary_steps = _fixed25_manifest_blockers(
+    manifest_blockers, manifest_boundary_steps = _fixed25_manifest_blockers(
         fixed25_dir / MANIFEST_JSON,
         prefix=prefix,
     )
     blockers.extend(manifest_blockers)
-    if boundary_steps:
+    if manifest_boundary_steps:
         blockers.extend(
             _fixed25_boundary_blockers(
                 fixed25_dir=fixed25_dir,
-                optimizer_step=max(boundary_steps),
+                optimizer_step=max(manifest_boundary_steps),
                 prefix=prefix,
             ),
         )

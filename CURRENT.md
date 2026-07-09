@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-07-08
+Last updated: 2026-07-09
 
 ## Active Workstream
 
@@ -11,14 +11,14 @@ Build the repo toward a fair SIPAIM 2026 comparison between:
 2. a continuous `SO(2)` steerable denoising VAE using a repo-owned,
    compile-compatible implementation, with `escnn` as a reference.
 
-Latest handoff, 2026-07-08 — reusable goal-derived runtime + compiled fast-path
+Latest handoff, 2026-07-09 — reusable goal-derived runtime + compiled fast-path
 (**Spec 0011**, `docs/specs/0011-reusable-goal-derived-runtime-and-compiled-fastpath.md`):
 the training runtime becomes a REUSABLE per-(model×hardware) SEARCH-then-run
 mechanism (an efficiency search emits `selected_runtime.json`; the full-run config
 carries no batch/LR of its own; validators/gates check relationships, not literals),
 so the future equivariant model re-runs it unchanged. Committed this workstream
 (Phase 1, local-only, each step gate + adversarial-review green): **B1 `119c8fd`**
-un-froze the config + runner schedule derivation; then **S1–S8b** built the mechanism
+un-froze the config + runner schedule derivation; then **S1–S9** built the mechanism
 incrementally — S1 model-registry/latent seam, S2–S4 LR primitives + CUDA-guarded
 fused AdamW, S5–S6 runner + gate schedule/LR relationship validators, and **S7
 `bcc3ec0`** de-pinned the shared plan parser `_launch_errors`
@@ -28,7 +28,7 @@ goal-derived relationships (`global == per_device × world_size`;
 `training_steps_per_epoch`) plus a DDPOptimizer safety invariant (reject
 `optimize_ddp='ddp_optimizer'` paired with `compiled_autograd`/`static_graph`/
 `find_unused_parameters` True; no-op on the v5 plan). Behavior-preserving at batch 24;
-latest gate 395 passed, basedpyright clean; the granular per-step tracker lives in the
+latest gate 408 passed, basedpyright clean; the granular per-step tracker lives in the
 `eqvae-reusable-runtime-mechanism-plan` memory. Known B1 side effect: the build-time packaging validator
 `scripts/kaggle_kernel.sh:2136-2162` (+ in-kernel `run_template.py`
 `_validate_selected_runtime`/`_validate_full_config`, `tests/test_kaggle_embedded_kernel.py`)
@@ -40,12 +40,18 @@ LR = sqrt, per-model reference in the model config; `drop_last=True` kept →
 `updates_per_epoch = floor(P/G)` single-sourced; model seam = one dict registry on
 `model.kind`. **S8 `208c92f` de-pinned the `scripts/kaggle_kernel.sh` build-time push
 guards (the FULL-guard config loop B1 actually broke → un-broke preflight+push; a scout
-correction: `run_template.py` was NOT broken), and S8b (this commit) de-pinned
+correction: `run_template.py` was NOT broken), and S8b `0ae0188` de-pinned
 `run_template.py` itself — the kernel builder now regex-derives the baked
 `FULL_TARGET_UPDATES`/`FULL_HALF_EPOCH_INTERVAL` from `floor(P/global)` (loading the
 stdlib-only `schedule.py`/`roots.py` leaves by file path so the torch-less build reuses
 the single source), and the run.py validator checks the batch/updates relationships — so a
-re-measured non-24 full batch is now accepted end-to-end.** Phase 1 stays local +
+re-measured non-24 full batch is now accepted end-to-end.** Finally, **S9 (this commit)
+routed all eight full-run schedule boundaries (2 runner producers + 4 runner consumers +
+2 gate consumers) through one shared `boundary_steps` generator, so the terminal update
+is a genuine boundary on BOTH the producer and consumer sides (never consumer-only, which
+would false-reject a resume) — byte-identical @ batch 24, off-grid-verified by a tiny
+`epochs=1/updates_per_epoch=5` CPU run; adversarial review closed a vacuous-consumer-test
+finding with three mutation-proven off-grid tests.** Phase 1 stays local +
 behavior-preserving @ batch 24. Never push to origin.
 
 Current short state: runtime-selection v5 is the selected fallback runtime
