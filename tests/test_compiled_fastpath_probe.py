@@ -19,8 +19,11 @@ import pytest
 import torch
 import torch._dynamo as torch_dynamo  # noqa: PLC2701
 from torch._dynamo.utils import counters  # noqa: PLC2701
+from torch._inductor import config as inductor_config  # noqa: PLC2701
 
 from eqvae.benchmarking.compiled_fastpath_probe import (
+    _DDP_OPTIMIZER_SPEC,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _PYTHON_REDUCER_SPEC,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     BLOCKED_CLAIM_KEYS,
     COMPILED_FASTPATH_PROBE_STATUS_SCOPE,
     EAGER_BASELINE_NAME,
@@ -33,11 +36,14 @@ from eqvae.benchmarking.compiled_fastpath_probe import (
     CompiledFastpathProbeMeasurement,
     CompiledFastpathProbeRequest,
     RecipeResult,
+    _apply_dynamo_config,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _binary_search_ceiling,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _build_optimizer,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _sweep_ladder_batches,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _sweep_max_feasible_batch,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _sweep_throughput_optimal,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _SweepPoint,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _wrap_ddp,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     build_compiled_fastpath_probe_matrix_rows,
     build_compiled_fastpath_probe_proof,
     graph_break_total,
@@ -48,7 +54,7 @@ from eqvae.benchmarking.compiled_fastpath_probe import (
 from eqvae.corruption.inline_stain import InlineStainCorruptor
 from eqvae.corruption.stain import CONSERVATIVE_DEFAULT_PROFILE, profile_from_name
 from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
-from eqvae.training import ddp_sync_guard
+from eqvae.training import ddp_sync_guard, fastpath_recipe
 from eqvae.training.fastpath_step import make_fastpath_step_fn
 
 if TYPE_CHECKING:
@@ -634,3 +640,80 @@ def test_probe_step_stays_finite_on_degenerate_batch() -> None:
     output = step_fn(x_clean, eps, torch.tensor(1.0))
 
     assert bool(torch.isfinite(output.loss).item())
+
+
+def test_probe_build_optimizer_routes_through_the_grouped_builder() -> None:
+    """The probe's fused optimizer is grouped, matching the runner's eager path.
+
+    A regression to a flat ``torch.optim.AdamW(model.parameters(), fused=True)``
+    would collapse to a single parameter group (and raise on this CPU model).
+    """
+    model = build_non_equivariant_vae()
+
+    optimizer = _build_optimizer(model, fused=True)
+
+    assert {cast("str", group["name"]) for group in optimizer.param_groups} == {
+        "decay",
+        "no_decay",
+        "gate_no_decay",
+    }
+    assert all(
+        cast("object", group["fused"]) is None for group in optimizer.param_groups
+    )
+
+
+def test_probe_wrap_ddp_forwards_the_spec_ddp_knobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_wrap_ddp` maps the recipe spec's DDP knobs and find_unused=False to DDP."""
+    captured: dict[str, object] = {}
+
+    def fake_ddp(model: object, **kwargs: object) -> object:
+        captured["model"] = model
+        captured["kwargs"] = kwargs
+        return "wrapped"
+
+    monkeypatch.setattr(fastpath_recipe, "DistributedDataParallel", fake_ddp)
+    model = build_non_equivariant_vae()
+
+    result = _wrap_ddp(model, spec=_DDP_OPTIMIZER_SPEC, local_rank=0)
+
+    assert result == "wrapped"
+    assert captured["model"] is model
+    assert captured["kwargs"] == {
+        "device_ids": [0],
+        "output_device": 0,
+        "static_graph": _DDP_OPTIMIZER_SPEC.ddp_static_graph,
+        "gradient_as_bucket_view": _DDP_OPTIMIZER_SPEC.ddp_gradient_as_bucket_view,
+        "broadcast_buffers": _DDP_OPTIMIZER_SPEC.ddp_broadcast_buffers,
+        "find_unused_parameters": False,
+        "bucket_cap_mb": _DDP_OPTIMIZER_SPEC.ddp_bucket_cap_mb,
+    }
+
+
+def test_probe_apply_dynamo_config_forwards_the_spec_knobs() -> None:
+    """`_apply_dynamo_config` writes the recipe spec's dynamo/inductor knobs."""
+    original_optimize_ddp = cast("object", torch_dynamo.config.optimize_ddp)
+    original_compiled_autograd = cast("object", torch_dynamo.config.compiled_autograd)
+    original_reorder = cast(
+        "object",
+        inductor_config.reorder_for_compute_comm_overlap,
+    )
+    try:
+        _apply_dynamo_config(_PYTHON_REDUCER_SPEC)
+        assert (
+            cast("object", torch_dynamo.config.optimize_ddp)
+            == _PYTHON_REDUCER_SPEC.optimize_ddp
+        )
+        assert (
+            cast("object", torch_dynamo.config.compiled_autograd)
+            == _PYTHON_REDUCER_SPEC.compiled_autograd
+        )
+        assert (
+            cast("object", inductor_config.reorder_for_compute_comm_overlap)
+            == _PYTHON_REDUCER_SPEC.reorder_compute_comm_overlap
+        )
+    finally:
+        torch_dynamo.config.optimize_ddp = original_optimize_ddp
+        torch_dynamo.config.compiled_autograd = original_compiled_autograd
+        inductor_config.reorder_for_compute_comm_overlap = original_reorder

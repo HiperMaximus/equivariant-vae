@@ -18,7 +18,7 @@ mechanism (an efficiency search emits `selected_runtime.json`; the full-run conf
 carries no batch/LR of its own; validators/gates check relationships, not literals),
 so the future equivariant model re-runs it unchanged. Committed this workstream
 (Phase 1, local-only, each step gate + adversarial-review green): **B1 `119c8fd`**
-un-froze the config + runner schedule derivation; then **S1–S9** built the mechanism
+un-froze the config + runner schedule derivation; then **S1–S10** built the mechanism
 incrementally — S1 model-registry/latent seam, S2–S4 LR primitives + CUDA-guarded
 fused AdamW, S5–S6 runner + gate schedule/LR relationship validators, and **S7
 `bcc3ec0`** de-pinned the shared plan parser `_launch_errors`
@@ -28,7 +28,7 @@ goal-derived relationships (`global == per_device × world_size`;
 `training_steps_per_epoch`) plus a DDPOptimizer safety invariant (reject
 `optimize_ddp='ddp_optimizer'` paired with `compiled_autograd`/`static_graph`/
 `find_unused_parameters` True; no-op on the v5 plan). Behavior-preserving at batch 24;
-latest gate 408 passed, basedpyright clean; the granular per-step tracker lives in the
+latest gate 414 passed, basedpyright clean; the granular per-step tracker lives in the
 `eqvae-reusable-runtime-mechanism-plan` memory. Known B1 side effect: the build-time packaging validator
 `scripts/kaggle_kernel.sh:2136-2162` (+ in-kernel `run_template.py`
 `_validate_selected_runtime`/`_validate_full_config`, `tests/test_kaggle_embedded_kernel.py`)
@@ -45,13 +45,20 @@ correction: `run_template.py` was NOT broken), and S8b `0ae0188` de-pinned
 `FULL_TARGET_UPDATES`/`FULL_HALF_EPOCH_INTERVAL` from `floor(P/global)` (loading the
 stdlib-only `schedule.py`/`roots.py` leaves by file path so the torch-less build reuses
 the single source), and the run.py validator checks the batch/updates relationships — so a
-re-measured non-24 full batch is now accepted end-to-end.** Finally, **S9 (this commit)
+re-measured non-24 full batch is now accepted end-to-end.** Then **S9 `35e40be`
 routed all eight full-run schedule boundaries (2 runner producers + 4 runner consumers +
 2 gate consumers) through one shared `boundary_steps` generator, so the terminal update
 is a genuine boundary on BOTH the producer and consumer sides (never consumer-only, which
 would false-reject a resume) — byte-identical @ batch 24, off-grid-verified by a tiny
 `epochs=1/updates_per_epoch=5` CPU run; adversarial review closed a vacuous-consumer-test
-finding with three mutation-proven off-grid tests.** Phase 1 stays local +
+finding with three mutation-proven off-grid tests.** Finally, **S10 (this commit)
+extracted the shared fast-path recipe module `training/fastpath_recipe.py` from the probe —
+one source for the grouped/CUDA-gated fused optimizer, the DDP wrap, and the dynamo config,
+taking plain scalar knobs so the runner adopts it bit-identically in S15; the probe's fused
+optimizer, formerly a bespoke FLAT ungrouped AdamW that decayed norms/gates, now routes the
+grouped path (matching the runner). Probe-only by design (runner wiring is S15,
+`runtime_selection_executor` folds in at S14); gate 414 passed, review 6 lenses 0 findings,
+mutation-proven.** Phase 1 stays local +
 behavior-preserving @ batch 24. Never push to origin.
 
 Current short state: runtime-selection v5 is the selected fallback runtime

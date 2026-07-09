@@ -77,21 +77,26 @@ import torch.distributed as dist
 from torch import Tensor, nn
 from torch._dynamo import compiled_autograd  # noqa: PLC2701
 from torch._dynamo.utils import counters  # noqa: PLC2701
-from torch._inductor import config as inductor_config  # noqa: PLC2701
 from torch.amp.grad_scaler import GradScaler
-from torch.nn.parallel import DistributedDataParallel
 
 from eqvae.benchmarking.io import write_csv, write_json
 from eqvae.corruption.inline_stain import InlineStainCorruptor
 from eqvae.corruption.stain import CONSERVATIVE_DEFAULT_PROFILE, profile_from_name
 from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
 from eqvae.training.ddp_sync_guard import assert_ddp_parameters_in_sync
+from eqvae.training.fastpath_recipe import (
+    apply_fastpath_dynamo_config,
+    build_fastpath_optimizer,
+    wrap_fastpath_ddp,
+)
 from eqvae.training.fastpath_step import make_fastpath_step_fn
-from eqvae.training.optim import SpecAdamWConfig, create_adamw_optimizer
+from eqvae.training.optim import SpecAdamWConfig
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from contextlib import AbstractContextManager
+
+    from torch.nn.parallel import DistributedDataParallel
 
     from eqvae.benchmarking.io import CsvRow, JsonObject
     from eqvae.models.non_equivariant_vae import NonEquivariantVAE
@@ -913,9 +918,11 @@ def _measure_config(
 
 
 def _apply_dynamo_config(spec: _RecipeSpec) -> None:
-    torch_dynamo.config.optimize_ddp = spec.optimize_ddp
-    torch_dynamo.config.compiled_autograd = spec.compiled_autograd
-    inductor_config.reorder_for_compute_comm_overlap = spec.reorder_compute_comm_overlap
+    apply_fastpath_dynamo_config(
+        optimize_ddp=spec.optimize_ddp,
+        compiled_autograd=spec.compiled_autograd,
+        reorder_compute_comm_overlap=spec.reorder_compute_comm_overlap,
+    )
 
 
 def _build_config_context(  # noqa: PLR0913
@@ -1000,18 +1007,10 @@ def _build_optimizer(
     *,
     fused: bool,
 ) -> torch.optim.Optimizer:
-    config = SpecAdamWConfig()
-    if not fused:
-        optimizer, _ = create_adamw_optimizer(model, config=config)
-        return optimizer
-    return torch.optim.AdamW(
-        model.parameters(),
-        lr=config.learning_rate,
-        betas=(config.beta1, config.beta2),
-        eps=config.epsilon,
-        weight_decay=config.weight_decay,
-        fused=True,
-    )
+    # Route through the shared grouped builder so the fused kernel is applied to the
+    # SAME spec-0001 parameter groups (decay / no-decay / gate-no-decay) as the eager
+    # path, not a flat ungrouped model.parameters() set; fused is CUDA-gated inside.
+    return build_fastpath_optimizer(model, config=SpecAdamWConfig(fused=fused))
 
 
 def _wrap_ddp(
@@ -1020,10 +1019,9 @@ def _wrap_ddp(
     spec: _RecipeSpec,
     local_rank: int,
 ) -> DistributedDataParallel:
-    return DistributedDataParallel(
+    return wrap_fastpath_ddp(
         model,
-        device_ids=[local_rank],
-        output_device=local_rank,
+        local_rank=local_rank,
         static_graph=spec.ddp_static_graph,
         gradient_as_bucket_view=spec.ddp_gradient_as_bucket_view,
         broadcast_buffers=spec.ddp_broadcast_buffers,

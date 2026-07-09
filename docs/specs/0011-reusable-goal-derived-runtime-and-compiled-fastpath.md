@@ -337,9 +337,27 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   resume-prefix, gate interval-checkpoint names, gate validation-CSV blockers), each
   **mutation-proven**: reverting either the runner Site-D consumer or the gate
   checkpoint-names makes its guarding test fail.
-- **S10** Extract the shared fast-path recipe module (`training/fastpath_recipe.py`)
-  from the probe (grouped fused-AdamW path, `_wrap_ddp`, `_apply_dynamo_config`) so
-  probe and runner are bit-identical.
+- **S10 (DONE — this commit) Extract the shared fast-path recipe module
+  (`training/fastpath_recipe.py`) from the probe.** One source for the three recipe
+  components — `build_fastpath_optimizer` (grouped, CUDA-gated fused via
+  `create_adamw_optimizer`), `apply_fastpath_dynamo_config`, `wrap_fastpath_ddp` — taking
+  plain scalar knobs (source-agnostic, so both the probe's `_RecipeSpec` and the future
+  runner's `SelectedRuntimePlan` drive them, never depending on each other's types). The
+  probe delegates through thin adapters (`_build_optimizer`/`_apply_dynamo_config`/`_wrap_ddp`).
+  LOAD-BEARING FIX: the probe's fused optimizer was a bespoke FLAT ungrouped
+  `torch.optim.AdamW(model.parameters(), fused=True)` — it weight-decayed norms/biases/gates
+  and dropped the 0.5x gate LR; it now uses the grouped path, matching the runner (which
+  already builds via `create_adamw_optimizer`). Non-fused path byte-identical
+  (`SpecAdamWConfig(fused=False)` == default). Probe-only by design: the runner's DDP/fused
+  wiring + the structural `broadcast_buffers` rule is S15; `runtime_selection_executor`'s own
+  DDP/optimizer folds in at S14 (its optimizer already groups and has foreach/fused/default
+  variants the minimal helper does not model). Packaging: the kernel builder bundles the whole
+  `src/eqvae` tree, so the new module ships automatically (all `run.py` gitignored). Import
+  hygiene: dropped the orphaned `inductor_config`/`create_adamw_optimizer` from the probe,
+  moved `DistributedDataParallel` to `TYPE_CHECKING` (now annotation-only). Gate 414 passed,
+  basedpyright/ruff clean; adversarial review 6 lenses 0 findings; mutation-proven (a
+  flat-optimizer revert fails the grouped-optimizer guard, a dropped DDP knob fails both
+  DDP-knob guards). +6 tests (3 shared-module units, 3 probe-adapter).
 
 ### Phase 2 — Generator emits the compiled plan
 
