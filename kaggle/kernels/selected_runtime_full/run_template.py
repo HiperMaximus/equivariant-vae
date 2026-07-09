@@ -45,10 +45,12 @@ BASELINE_SELECTED_RUNTIME = Path(
     "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
 )
 FULL_CONFIG = Path("configs/spec0001/non_eq_vae_selected_runtime_full.json")
+# FULL_TARGET_UPDATES / FULL_HALF_EPOCH_INTERVAL are DERIVED per selected plan at build
+# time from floor(REAL_TRAIN_PATCH_COUNT / global_batch) in the kernel builder; the
+# literals here are the batch-24 default the builder rewrites for a non-24 plan.
 FULL_TARGET_UPDATES = 125000
 FULL_HALF_EPOCH_INTERVAL = 6250
 FULL_EPOCHS = 10
-FULL_UPDATES_PER_EPOCH = 12500
 IMPORT_ARTIFACT = "selected_runtime_full_import.json"
 EMBEDDED_PAYLOAD_B64 = """
 $embedded_payload_b64
@@ -260,13 +262,51 @@ def _validate_baseline_selected_runtime(path: Path) -> None:
         "runtime_policy_id": EXPECTED_RUNTIME_POLICY_ID,
         "world_size": 2,
         "nproc_per_node": 2,
-        "per_device_batch_size": 12,
-        "global_batch_size": 24,
-        "optimizer_updates_per_epoch": FULL_UPDATES_PER_EPOCH,
     }
     for key, expected_value in expected.items():
         if payload.get(key) != expected_value:
             raise RuntimeError(f"selected runtime {key} mismatch")
+    # Spec 0011 S8b: batch is a measured search output, so validate the relationships
+    # (global == per_device * world_size; recorded updates == the single-sourced
+    # floor(REAL_TRAIN_PATCH_COUNT / global_batch) derivation) instead of pinning 12/24.
+    from eqvae.benchmarking.schedule import (  # noqa: PLC0415
+        training_steps_per_epoch,
+    )
+    from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT  # noqa: PLC0415
+
+    per_device = payload.get("per_device_batch_size")
+    world_size = payload.get("world_size")
+    global_batch = payload.get("global_batch_size")
+    if (
+        not isinstance(per_device, int)
+        or isinstance(per_device, bool)
+        or per_device <= 0
+    ):
+        raise RuntimeError(
+            "selected runtime per_device_batch_size must be a positive integer",
+        )
+    if not isinstance(world_size, int) or isinstance(world_size, bool):
+        raise RuntimeError("selected runtime world_size mismatch")
+    if (
+        not isinstance(global_batch, int)
+        or isinstance(global_batch, bool)
+        or global_batch != per_device * world_size
+    ):
+        raise RuntimeError(
+            "selected runtime global_batch_size must equal "
+            "per_device_batch_size * world_size",
+        )
+    recorded_updates = payload.get("optimizer_updates_per_epoch")
+    if (
+        not isinstance(recorded_updates, int)
+        or isinstance(recorded_updates, bool)
+        or recorded_updates
+        != training_steps_per_epoch(
+            real_train_patch_count=REAL_TRAIN_PATCH_COUNT,
+            global_batch_size=global_batch,
+        )
+    ):
+        raise RuntimeError("selected runtime optimizer_updates_per_epoch mismatch")
     if payload.get("full_run_eligible") is not True:
         raise RuntimeError("selected runtime must be full-run eligible")
     mixed_precision = payload.get("mixed_precision")
@@ -290,7 +330,7 @@ def _validate_full_config(path: Path) -> None:
         raise RuntimeError("full config training must be an object")
     # The step schedule (optimizer_updates_per_epoch, max_train_steps,
     # half_epoch_interval_steps, save_every_steps) is DERIVED by the runner from
-    # epochs * ceil(real_train_patch_count / global_batch) via the selected-runtime
+    # epochs * floor(real_train_patch_count / global_batch) via the selected-runtime
     # plan -- never frozen in this config -- so the builder validates only the run's
     # goal/qualitative fields here. The derived target is checked against the plan
     # in _validate_baseline_selected_runtime and recorded in the import artifact.

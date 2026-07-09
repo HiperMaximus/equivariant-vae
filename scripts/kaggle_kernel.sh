@@ -2223,8 +2223,11 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
                     f"full config training must not re-freeze {key}; "
                     "schedule is runner-derived (Spec 0011)"
                 )
+    recorded_updates = selected_runtime.get("optimizer_updates_per_epoch")
     if derived_updates is not None and (
-        selected_runtime.get("optimizer_updates_per_epoch") != derived_updates
+        not isinstance(recorded_updates, int)
+        or isinstance(recorded_updates, bool)
+        or recorded_updates != derived_updates
     ):
         errors.append(
             f"selected runtime optimizer_updates_per_epoch must be {derived_updates!r}"

@@ -287,15 +287,35 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   fields. Tests extract the **real** guard heredoc from the script (no drift) and exercise
   it: pass on a fresh build + three fail-closed rejections (re-freeze, off-derivation
   updates, off-derivation `run.py` token).
-- **S8b (NEXT) De-pin `run_template.py` + the coupled shell token check:** the `FULL_*`
-  constants (`:48-51`) run BEFORE payload extraction, so they must be de-pinned by
-  build-time `string.Template` substitution in `build_kaggle_embedded_kernel.py` (keeping
-  the batch-24 artifact byte-identical), together with `_validate_baseline_selected_runtime`
-  (`:263-265`, runtime import OK), the import-artifact asserts (`:326-327`, `:348`), and
-  `tests/test_kaggle_embedded_kernel.py:98-99`. This is the **lockstep pair** with the S8
-  shell `FULL_TARGET_UPDATES = {derived}` token check — until it lands, a non-24 FULL batch
-  is still rejected (`run.py` emits the 24-frozen literal). This is what actually unlocks a
-  non-24 full run.
+- **S8b (DONE — this commit) De-pin `run_template.py`; unlock a non-24 full batch.** The
+  `FULL_TARGET_UPDATES`/`FULL_HALF_EPOCH_INTERVAL` constants stay baked literals in `run.py`
+  (the S8 shell token check greps them) but are now **build-derived**: the kernel builder
+  regex-rewrites them from `floor(REAL_TRAIN_PATCH_COUNT / plan.global_batch)` × epochs.
+  Two deviations from the draft plan, both forced by the code: (1) a **`string.Template`
+  bare-`$` placeholder would break `run_template.py` as valid Python** (it is ruff-linted;
+  the existing `$` placeholders are all inside string literals) — so the builder uses an
+  anchored **regex substitution** (`FULL_TARGET_UPDATES_PATTERN`), fail-closed if either
+  constant is not rewritten exactly once; (2) the builder runs under **bare `python3` (no
+  torch)**, and importing `eqvae.benchmarking.schedule` pulls torch via the package
+  `__init__` — so it **loads the two stdlib-only leaves (`schedule.py`, `roots.py`) by file
+  path** (`_load_leaf_attr`, `sys.modules`-registered) to reuse the single source without
+  torch (never re-inlines `P`). `_validate_baseline_selected_runtime` de-pinned to a
+  runtime relationship (`global == per_device·world_size`; `updates == training_steps_per_epoch(...)`
+  imported after `sys.path.insert`), so the now-unused `FULL_UPDATES_PER_EPOCH` constant was
+  **deleted**. `FULL_EPOCHS = 10` stays (goal). The S8 shell token check needed **no change**
+  (already derived). Byte-identical `run.py` @ batch 24; the import-artifact validators
+  consume the build-substituted constants unchanged. Tests: import the builder + template
+  modules to exercise the non-24 path — `_derive_full_schedule` @24 → 12500/125000/6250,
+  `_apply_full_schedule_substitution` @96 → 3125/31250/1562 (+ fail-closed), and the
+  de-pinned validator accepts `96 == 48·2` / rejects off-product + off-updates.
+  Post-review hardenings folded in: the builder's substitution gate fires on **either**
+  schedule pattern (a lone surviving constant then trips the fail-closed exactly-once
+  assert); `optimizer_updates_per_epoch` is int-strict in both the run.py validator and
+  the shell guard (mirroring the sibling fields); and a non-24 end-to-end
+  `_derive_full_schedule` test (global-batch 96 → 3125/31250/1562). A dedicated
+  torch-free-build test was **deliberately skipped** (torch is pre-imported in the pytest
+  venv, so a robust guard needs a subprocess — low value); the bare-`python3` build path is
+  instead exercised by the real `preflight-selected-runtime-full`.
 - **S9 Shared boundary generator + odd-batch test (MF3):** one helper imported by ALL six
   boundary sites — the runner PRODUCERS (interval checkpoint `% save_every` `:2872`,
   scheduled validation `% half` `:3969`) converted to set-membership, AND the CONSUMERS
@@ -416,14 +436,14 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   (currently `False`) + single-source `floor`; the four `ceil(P/G)` sites
   (`runtime_selection.py:1866/1043`, `synthetic_timing.py:1361/1915`) all become the
   floor helper.
-- **Frozen-schedule homes — de-pin status:** `kaggle_kernel.sh` (MF1) was the one BROKEN
-  today, and it was the FULL guard's config loop (`:2136-2148`), **not** run_template —
-  **de-pinned in S8** (shell FULL + debug guards). Plan parser `_launch_errors` de-pinned
+- **Frozen-schedule homes — de-pin status (all Phase-1 homes now converted):**
+  `kaggle_kernel.sh` (MF1) was the one BROKEN today — the FULL guard's config loop
+  (`:2136-2148`), **not** run_template — **de-pinned in S8**. Plan parser `_launch_errors`
   in **S7**; runner `_validate_full_run_settings` in **S5**; gate `REMOTE_FULL_*` +
-  generator `ceil` in **S5b/S6**. Still pinned: run_template
-  `_validate_baseline_selected_runtime` + `FULL_*` constants + import-artifact asserts
-  (**S8b**, lockstep with the S8 shell `FULL_TARGET_UPDATES` token check). All must be
-  de-pinned or the regenerated non-24 plan is rejected.
+  generator `ceil` in **S5b/S6**; run_template `_validate_baseline_selected_runtime` + the
+  `FULL_*` constants (now build-derived) in **S8b**. A re-measured non-24 plan is now
+  accepted end-to-end — the builder, the shell guard, and the run.py validator all derive
+  the schedule from it.
 - **Gate self-anchor (MF2):** without an independent `updates==floor(P/G)` assert
   against the *immutable single-sourced* P (not the plan number, not the config
   override), a de-pinned gate could certify a self-consistent dataset-coverage shrink.

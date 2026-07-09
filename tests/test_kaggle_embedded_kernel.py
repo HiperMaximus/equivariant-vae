@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import importlib.util
 import io
 import json
 import os
@@ -18,6 +19,7 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import ModuleType
 
     import pytest
 
@@ -111,6 +113,17 @@ _FULL_PUSH_GUARD_HEREDOC_PATTERN = re.compile(
     flags=re.DOTALL,
 )
 _FULL_TARGET_UPDATES_TOKEN = f"FULL_TARGET_UPDATES = {_FULL_TARGET_UPDATES}"
+_FULL_UPDATES_PER_EPOCH = 12500
+_BUILD_SCRIPT_MODULE = "build_kaggle_embedded_kernel"
+_FULL_RUN_TEMPLATE_MODULE = "selected_runtime_full_run_template"
+# A NON-dividing batch (64 does not divide REAL_TRAIN_PATCH_COUNT=300000): floor
+# 300000//64 = 4687 differs from ceil 4688, so the derive test genuinely guards floor.
+_NON_REFERENCE_GLOBAL_BATCH = 64
+_NON_REFERENCE_PER_DEVICE_BATCH = 32
+_NON_REFERENCE_UPDATES = 4687
+_NON_REFERENCE_TARGET_UPDATES = 46870
+_NON_REFERENCE_HALF_EPOCH_INTERVAL = 2343
+_OFF_PRODUCT_PER_DEVICE_BATCH = 12
 
 
 @dataclass(frozen=True)
@@ -806,6 +819,160 @@ def test_full_push_guard_rejects_off_derivation_run_py_token(tmp_path: Path) -> 
     assert "missing required text" in result.stderr
 
 
+def test_build_derives_reference_full_schedule() -> None:
+    """The builder derives the batch-24 schedule from the plan via the single source."""
+    repo_root = Path(__file__).resolve().parents[1]
+    build_module = _load_script_module(
+        _BUILD_SCRIPT_MODULE,
+        repo_root / "scripts" / "build_kaggle_embedded_kernel.py",
+    )
+    derive = cast(
+        "Callable[[Path], tuple[int, int, int]]",
+        build_module.__dict__["_derive_full_schedule"],
+    )
+    assert derive(repo_root) == (
+        _FULL_UPDATES_PER_EPOCH,
+        _FULL_TARGET_UPDATES,
+        _FULL_HALF_EPOCH_INTERVAL,
+    )
+
+
+def test_build_derives_non_reference_full_schedule(tmp_path: Path) -> None:
+    """_derive_full_schedule floors a non-24 plan end-to-end from the single source."""
+    repo_root = Path(__file__).resolve().parents[1]
+    build_module = _load_script_module(
+        _BUILD_SCRIPT_MODULE,
+        repo_root / "scripts" / "build_kaggle_embedded_kernel.py",
+    )
+    derive = cast(
+        "Callable[[Path], tuple[int, int, int]]",
+        build_module.__dict__["_derive_full_schedule"],
+    )
+    fake_repo = tmp_path / "repo"
+    (fake_repo / "src").mkdir(parents=True)
+    (fake_repo / "src" / "eqvae").symlink_to(repo_root / "src" / "eqvae")
+    plan_path = (
+        fake_repo
+        / "runs"
+        / "kaggle"
+        / "runtime_selection_v5"
+        / "benchmark"
+        / "selected_runtime.json"
+    )
+    plan_path.parent.mkdir(parents=True)
+    plan_path.write_text(
+        json.dumps({"global_batch_size": _NON_REFERENCE_GLOBAL_BATCH}),
+        encoding="utf-8",
+    )
+    config_path = (
+        fake_repo / "configs" / "spec0001" / "non_eq_vae_selected_runtime_full.json"
+    )
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({"training": {"epochs": _FULL_EPOCHS}}),
+        encoding="utf-8",
+    )
+    assert derive(fake_repo) == (
+        _NON_REFERENCE_UPDATES,
+        _NON_REFERENCE_TARGET_UPDATES,
+        _NON_REFERENCE_HALF_EPOCH_INTERVAL,
+    )
+
+
+def test_build_substitutes_non_reference_full_schedule() -> None:
+    """A non-24 batch rewrites the schedule constants; a missing one fails closed."""
+    repo_root = Path(__file__).resolve().parents[1]
+    build_module = _load_script_module(
+        _BUILD_SCRIPT_MODULE,
+        repo_root / "scripts" / "build_kaggle_embedded_kernel.py",
+    )
+    apply_substitution = cast(
+        "Callable[..., str]",
+        build_module.__dict__["_apply_full_schedule_substitution"],
+    )
+    original = (
+        f"FULL_TARGET_UPDATES = {_FULL_TARGET_UPDATES}\n"
+        f"FULL_HALF_EPOCH_INTERVAL = {_FULL_HALF_EPOCH_INTERVAL}\n"
+    )
+    rewritten = apply_substitution(
+        original,
+        target=_NON_REFERENCE_TARGET_UPDATES,
+        half=_NON_REFERENCE_HALF_EPOCH_INTERVAL,
+    )
+    assert f"FULL_TARGET_UPDATES = {_NON_REFERENCE_TARGET_UPDATES}" in rewritten
+    assert (
+        f"FULL_HALF_EPOCH_INTERVAL = {_NON_REFERENCE_HALF_EPOCH_INTERVAL}" in rewritten
+    )
+    raised = False
+    try:
+        apply_substitution("no schedule constants here", target=1, half=1)
+    except RuntimeError:
+        raised = True
+    assert raised
+
+
+def test_full_run_template_validator_accepts_non_reference_batch(
+    tmp_path: Path,
+) -> None:
+    """The de-pinned run.py validator accepts a measured non-24 plan by relationship."""
+    repo_root = Path(__file__).resolve().parents[1]
+    run_template = _load_script_module(
+        _FULL_RUN_TEMPLATE_MODULE,
+        repo_root / "kaggle" / "kernels" / "selected_runtime_full" / "run_template.py",
+    )
+    validate = cast(
+        "Callable[[Path], None]",
+        run_template.__dict__["_validate_baseline_selected_runtime"],
+    )
+    plan_path = _write_baseline_plan(
+        tmp_path / "plan.json",
+        run_template,
+        per_device_batch_size=_NON_REFERENCE_PER_DEVICE_BATCH,
+        global_batch_size=_NON_REFERENCE_GLOBAL_BATCH,
+        optimizer_updates_per_epoch=_NON_REFERENCE_UPDATES,
+    )
+    validate(plan_path)
+
+
+def test_full_run_template_validator_rejects_off_relationship(
+    tmp_path: Path,
+) -> None:
+    """A non-product batch or off-derivation updates fails the validator closed."""
+    repo_root = Path(__file__).resolve().parents[1]
+    run_template = _load_script_module(
+        _FULL_RUN_TEMPLATE_MODULE,
+        repo_root / "kaggle" / "kernels" / "selected_runtime_full" / "run_template.py",
+    )
+    validate = cast(
+        "Callable[[Path], None]",
+        run_template.__dict__["_validate_baseline_selected_runtime"],
+    )
+    off_product = _write_baseline_plan(
+        tmp_path / "off_product.json",
+        run_template,
+        per_device_batch_size=_OFF_PRODUCT_PER_DEVICE_BATCH,
+        global_batch_size=_NON_REFERENCE_GLOBAL_BATCH,
+        optimizer_updates_per_epoch=_NON_REFERENCE_UPDATES,
+    )
+    off_updates = _write_baseline_plan(
+        tmp_path / "off_updates.json",
+        run_template,
+        per_device_batch_size=_NON_REFERENCE_PER_DEVICE_BATCH,
+        global_batch_size=_NON_REFERENCE_GLOBAL_BATCH,
+        optimizer_updates_per_epoch=_NON_REFERENCE_UPDATES + 1,
+    )
+    for bad_plan, expected in (
+        (off_product, "must equal per_device_batch_size * world_size"),
+        (off_updates, "optimizer_updates_per_epoch mismatch"),
+    ):
+        raised = ""
+        try:
+            validate(bad_plan)
+        except RuntimeError as error:
+            raised = str(error)
+        assert expected in raised
+
+
 def test_embedded_selected_runtime_debug_kernel_full_local_fail_closed_simulation(
     tmp_path: Path,
 ) -> None:
@@ -1367,6 +1534,47 @@ def _set_float_epochs(members: dict[str, bytes]) -> None:
     training = cast("dict[str, object]", config["training"])
     training["epochs"] = float(_FULL_EPOCHS)
     members[_FULL_CONFIG_PAYLOAD_PATH] = json.dumps(config).encode("utf-8")
+
+
+def _load_script_module(name: str, path: Path) -> ModuleType:
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        message = f"cannot load module {name}"
+        raise AssertionError(message)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _write_baseline_plan(
+    path: Path,
+    run_template: ModuleType,
+    *,
+    per_device_batch_size: int,
+    global_batch_size: int,
+    optimizer_updates_per_epoch: int,
+) -> Path:
+    plan = {
+        "status": "pass",
+        "selected_row_id": cast(
+            "str",
+            run_template.__dict__["EXPECTED_SELECTED_ROW_ID"],
+        ),
+        "runtime_policy_id": cast(
+            "str",
+            run_template.__dict__["EXPECTED_RUNTIME_POLICY_ID"],
+        ),
+        "world_size": 2,
+        "nproc_per_node": 2,
+        "per_device_batch_size": per_device_batch_size,
+        "global_batch_size": global_batch_size,
+        "optimizer_updates_per_epoch": optimizer_updates_per_epoch,
+        "full_run_eligible": True,
+        "mixed_precision": {"policy": "amp_conservative"},
+    }
+    path.write_text(json.dumps(plan), encoding="utf-8")
+    return path
 
 
 def _set_off_derivation_updates(members: dict[str, bytes]) -> None:

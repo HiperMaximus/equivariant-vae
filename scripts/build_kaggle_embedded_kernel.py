@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import importlib.util
 import io
 import json
 import re
@@ -17,7 +18,10 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from string import Template
-from typing import cast
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 PAYLOAD_SCHEMA_VERSION = "spec0001.kaggle_payload_manifest.v1"
 DEFAULT_KERNEL_DIR = Path("kaggle/kernels/setup_smoke")
@@ -42,6 +46,11 @@ RUNTIME_SELECTION_BASELINE_ARTIFACTS = (
     Path("runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json"),
     Path("runs/kaggle/runtime_selection_v5/benchmark/runtime_proof.json"),
 )
+SELECTED_RUNTIME_FULL_CONFIG = Path(
+    "configs/spec0001/non_eq_vae_selected_runtime_full.json",
+)
+FULL_TARGET_UPDATES_PATTERN = re.compile(r"(?m)^FULL_TARGET_UPDATES = \d+$")
+FULL_HALF_EPOCH_INTERVAL_PATTERN = re.compile(r"(?m)^FULL_HALF_EPOCH_INTERVAL = \d+$")
 EMBEDDED_B64_PATTERN = re.compile(
     r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""',
     flags=re.DOTALL,
@@ -114,7 +123,115 @@ def build_run_text(args: BuildArgs) -> str:
         ).hexdigest(),
     }
     template = Template(args.template_path.read_text(encoding="utf-8"))
-    return template.safe_substitute(substitutions)
+    run_text = template.safe_substitute(substitutions)
+    if (
+        FULL_TARGET_UPDATES_PATTERN.search(run_text) is not None
+        or FULL_HALF_EPOCH_INTERVAL_PATTERN.search(run_text) is not None
+    ):
+        _, target, half = _derive_full_schedule(args.repo_root)
+        run_text = _apply_full_schedule_substitution(
+            run_text,
+            target=target,
+            half=half,
+        )
+    return run_text
+
+
+def _load_leaf_attr(repo_root: Path, relative: str, attribute: str) -> object:
+    # Load a stdlib-only eqvae leaf module by file path so the torch-less kernel BUILD
+    # can reuse the single-sourced schedule helper / patch count without importing the
+    # torch-dependent eqvae package (eqvae.benchmarking.__init__ pulls in torch).
+    module_name = f"_eqvae_leaf_{attribute}"
+    spec = importlib.util.spec_from_file_location(
+        module_name,
+        repo_root / "src" / relative,
+    )
+    if spec is None or spec.loader is None:
+        message = f"cannot load eqvae leaf module: {relative}"
+        raise RuntimeError(message)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return cast("object", getattr(module, attribute))
+
+
+def _derive_full_schedule(repo_root: Path) -> tuple[int, int, int]:
+    # Spec 0011 S8b: (updates, target, half) derived from the selected plan's global
+    # batch and the config epochs via the single-sourced floor helper. Raises on a
+    # malformed plan/config so a bad full-kernel build fails closed.
+    training_steps_per_epoch = cast(
+        "Callable[..., int]",
+        _load_leaf_attr(
+            repo_root,
+            "eqvae/benchmarking/schedule.py",
+            "training_steps_per_epoch",
+        ),
+    )
+    real_train_patch_count = cast(
+        "int",
+        _load_leaf_attr(repo_root, "eqvae/data/roots.py", "REAL_TRAIN_PATCH_COUNT"),
+    )
+    plan = cast(
+        "dict[str, object]",
+        json.loads(
+            (repo_root / RUNTIME_SELECTION_BASELINE_ARTIFACTS[0]).read_text(
+                encoding="utf-8",
+            ),
+        ),
+    )
+    config = cast(
+        "dict[str, object]",
+        json.loads(
+            (repo_root / SELECTED_RUNTIME_FULL_CONFIG).read_text(encoding="utf-8"),
+        ),
+    )
+    global_batch = plan.get("global_batch_size")
+    training = config.get("training")
+    epochs = (
+        cast("dict[str, object]", training).get("epochs")
+        if isinstance(training, dict)
+        else None
+    )
+    if (
+        not isinstance(global_batch, int)
+        or isinstance(global_batch, bool)
+        or global_batch <= 0
+    ):
+        message = "selected plan global_batch_size must be a positive integer"
+        raise RuntimeError(message)
+    if not isinstance(epochs, int) or isinstance(epochs, bool) or epochs <= 0:
+        message = "full config training.epochs must be a positive integer"
+        raise RuntimeError(message)
+    updates = training_steps_per_epoch(
+        real_train_patch_count=real_train_patch_count,
+        global_batch_size=global_batch,
+    )
+    return updates, epochs * updates, updates // 2
+
+
+def _apply_full_schedule_substitution(
+    run_text: str,
+    *,
+    target: int,
+    half: int,
+) -> str:
+    # Spec 0011 S8b: bake the plan-derived schedule into the full kernel's run.py so the
+    # constants track a non-24 batch; fail closed if either is not rewritten once.
+    run_text, target_count = FULL_TARGET_UPDATES_PATTERN.subn(
+        f"FULL_TARGET_UPDATES = {target}",
+        run_text,
+    )
+    run_text, half_count = FULL_HALF_EPOCH_INTERVAL_PATTERN.subn(
+        f"FULL_HALF_EPOCH_INTERVAL = {half}",
+        run_text,
+    )
+    if target_count != 1 or half_count != 1:
+        message = (
+            "full schedule substitution must rewrite each constant exactly once "
+            f"(target={target_count}, half={half_count})"
+        )
+        raise RuntimeError(message)
+    return run_text
 
 
 def verify_run_file(args: BuildArgs) -> None:
