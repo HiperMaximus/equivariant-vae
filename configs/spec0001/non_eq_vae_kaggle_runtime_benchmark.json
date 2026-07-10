@@ -266,7 +266,8 @@
           "none",
           "model_forward",
           "model_loss",
-          "train_step_no_optimizer"
+          "train_step_no_optimizer",
+          "step"
         ],
         "corruption_strategies": ["branchless_all", "indexed_masked"],
         "output": "stable_fp32_compile_corruption_candidates"
@@ -284,15 +285,16 @@
       "none",
       "model_forward",
       "model_loss",
-      "train_step_no_optimizer"
+      "train_step_no_optimizer",
+      "step"
     ],
-    "full_train_step_with_optimizer": "out_of_scope_until_spec_update",
+    "full_train_step_with_optimizer": "in_scope_as_compile_scope_step",
     "precision_policies": {
       "stage_1": ["amp_off_fp32"],
       "stage_2": ["amp_conservative", "amp_scalar_gate_relaxed"]
     },
     "corruption_strategies": ["branchless_all", "indexed_masked"],
-    "candidate_per_device_batch_sizes": [4, 8, 12, 32],
+    "candidate_per_device_batch_sizes": [4, 8, 12, 32, 48],
     "drop_last": false,
     "compile_settle_policy": {
       "compile_settle_steps": 5,

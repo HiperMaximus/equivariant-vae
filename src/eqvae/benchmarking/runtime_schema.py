@@ -51,6 +51,13 @@ RUNTIME_MATRIX_COLUMNS: Final[tuple[str, ...]] = (
     "zero_grad_set_to_none",
     "gradient_clip_foreach",
     "compile_dynamic",
+    "optimize_ddp",
+    "compiled_autograd",
+    "reorder_compute_comm_overlap",
+    "ddp_broadcast_buffers",
+    "ddp_find_unused_parameters",
+    "ddp_bucket_cap_mb",
+    "fused_optimizer",
     "corruption_strategy",
     "per_device_batch_size",
     "global_batch_size",
@@ -79,6 +86,23 @@ RUNTIME_MATRIX_COLUMNS: Final[tuple[str, ...]] = (
     "failure_kind",
     "failure_message_hash",
 )
+
+# Spec 0011 S13: eager-default cell values for the compiled fast-path recipe-knob
+# columns the efficiency search measures (S11 added the generator reads; S14 measures
+# them on real dual-T4). Every RUNTIME_MATRIX_COLUMNS producer spreads these so a
+# written-then-reloaded row never carries an empty bool cell that ``_bool_from_csv``
+# would reject; the values reproduce the eager v5 plan (no DDPOptimizer, no compiled
+# autograd, DDP-library defaults for broadcast/find-unused/bucket-cap, fused off).
+# Key order matches RUNTIME_MATRIX_COLUMNS so a spread keeps producer column order.
+EAGER_RECIPE_KNOB_COLUMNS: Final[dict[str, str]] = {
+    "optimize_ddp": "",
+    "compiled_autograd": "false",
+    "reorder_compute_comm_overlap": "false",
+    "ddp_broadcast_buffers": "true",
+    "ddp_find_unused_parameters": "false",
+    "ddp_bucket_cap_mb": "",
+    "fused_optimizer": "false",
+}
 
 DATALOADER_MATRIX_COLUMNS: Final[tuple[str, ...]] = (
     "run_name",
@@ -395,6 +419,7 @@ def _runtime_rows(
                 "zero_grad_set_to_none": "true",
                 "gradient_clip_foreach": "false",
                 "compile_dynamic": "false",
+                **EAGER_RECIPE_KNOB_COLUMNS,
                 "corruption_strategy": corruption_strategy,
                 "per_device_batch_size": str(DEFAULT_LOCAL_BATCH_SIZE),
                 "global_batch_size": str(DEFAULT_LOCAL_BATCH_SIZE),

@@ -21,6 +21,7 @@ from eqvae.benchmarking.real_data_runtime_pretest import (
     write_real_data_runtime_pretest,
 )
 from eqvae.benchmarking.runtime_schema import (
+    EAGER_RECIPE_KNOB_COLUMNS,
     RUNTIME_MATRIX_COLUMNS,
     write_synthetic_benchmark_artifacts,
 )
@@ -49,6 +50,7 @@ from eqvae.benchmarking.synthetic_timing import (
 )
 
 __all__ = [
+    "EAGER_RECIPE_KNOB_COLUMNS",
     "REPEAT_SHORTLIST_MEASURED_STEPS",
     "REPEAT_SHORTLIST_WARMUP_STEPS",
     "RUNTIME_MATRIX_COLUMNS",

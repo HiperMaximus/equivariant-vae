@@ -16,6 +16,7 @@ from eqvae.benchmarking.model_count import write_model_count
 from eqvae.benchmarking.runtime_schema import (
     CORRUPTION_CHECK_COLUMNS,
     DATALOADER_MATRIX_COLUMNS,
+    EAGER_RECIPE_KNOB_COLUMNS,
     GATE_HEALTH_COLUMNS,
     NUMERICAL_CHECK_COLUMNS,
     RUNTIME_MATRIX_COLUMNS,
@@ -657,6 +658,9 @@ def _runtime_row(  # noqa: PLR0913
         "zero_grad_set_to_none": "true",
         "gradient_clip_foreach": "false",
         "compile_dynamic": "false",
+        # Spec 0011 S13: eager recipe knobs (local/default rows carry no measured
+        # recipe; S14's real dual-T4 search sources these on the winner row).
+        **EAGER_RECIPE_KNOB_COLUMNS,
         "corruption_strategy": corruption_strategy,
         "per_device_batch_size": str(per_device_batch_size),
         "global_batch_size": str(global_batch_size),

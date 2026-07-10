@@ -410,6 +410,30 @@ def test_kaggle_pull_guard_requires_remote_confirmation(tmp_path: Path) -> None:
     assert "fake kaggle" not in completed.stdout
 
 
+def test_grid_step_scope_is_enumerated_into_row_specs() -> None:
+    """The declared "step" scope is enumerated into row specs (S13 effectiveness).
+
+    S13 adds "step" to the grid ``runtime_matrix.compile_scopes``, which the pretest
+    enumerates for every seeded candidate, so the S12 selector can eventually see a step
+    row. The complementary fail-closed guarantee -- that the executor implements only
+    ``model_forward`` and marks any other scope ``compile_scope_implementation_pending``
+    until S14 -- is asserted by ``_assert_tiny_runtime_proof_linked_evidence``
+    (``implemented_compile_scopes == ['model_forward']``).
+    """
+    config_path = Path("configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json")
+    settings = pretest._settings(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        resolve_json_config(config_path),
+        data_root_override=None,
+    )
+    assert "step" in settings.compile_scopes
+    specs = pretest._stage1_row_specs(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        settings,
+    )
+    assert any(spec.compile_scope == "step" for spec in specs), (
+        "step must be enumerated for the seeded candidates"
+    )
+
+
 def test_train_step_target_rows_prioritize_eager_before_compiled() -> None:
     """Candidate evidence spends coverage on eager smaller batches first."""
     rows = [

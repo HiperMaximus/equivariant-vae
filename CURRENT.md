@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-07-09
+Last updated: 2026-07-10
 
 ## Active Workstream
 
@@ -77,9 +77,26 @@ settle-proven step row on the same fail-closed settle relationship; the diagnost
 `model_loss`/`train_step_no_optimizer` stay excluded. INERT until S13 adds the `step` grid
 scope and S14 measures it (executor marks non-`{none,model_forward}` scopes
 `compile_scope_implementation_pending`). Gate 421 passed (418+3), basedpyright/ruff clean;
-6-lens adversarial review → 0 surviving findings; +2 tests.** Phase 1 + S11–S12 stay local +
-behavior-preserving @ batch 24. LOCAL steps left: S13 + S15–S16; Kaggle-only S14/S17/S19;
-LR-finder queued after the core seq. Never push to origin.
+6-lens adversarial review → 0 surviving findings; +2 tests.** Then **S13 (this commit)**
+declares the whole-step + bigger-batch candidates in the benchmark grid and makes
+`RUNTIME_MATRIX_COLUMNS` carry the 7 S11 recipe knobs: `"step"` added to top-level
+`runtime_matrix.compile_scopes` (the one pretest-read scope field → a per-seeded `step`
+row, fail-closed to `compile_scope_implementation_pending` by the guard, like the other
+diagnostic scopes) + the fp32-screen list (doc-sync); `48` added to the declarative
+`candidate_per_device_batch_sizes` pool (bs32 precedent, no code reader); the
+`full_train_step_with_optimizer` marker flipped to `in_scope_as_compile_scope_step`; the
+required eager `dual_t4_train_step_gate` untouched at `[4,8,12] × ["none"]`; ZERO executor
+edits (whole-step EXECUTION is S14 — the `_runtime_policies:406` hard-raise is never fed
+`step`). A shared `EAGER_RECIPE_KNOB_COLUMNS` (eager v5 values; `compile_backend` omitted
+as derived-not-`.get`-read) spread into all 5 producers closes the `write_csv`
+`restval=''` → `_bool_from_csv('')` reload-crash trap. Behavior-preserving on the eager
+path (runtime-decision fields byte-identical; a regenerated plan's provenance
+snapshot/`runtime_matrix_sha256` grow with the additive columns, harmless). Gate 424,
+basedpyright/ruff clean; 6-lens review → 4 test-quality findings (0 source) fixed +
+fix-delta review 0 findings; the real-producer CSV round-trip guard is mutation-proven
+across all 4 producers. Phase 1 + S11–S13 stay local + behavior-preserving @ batch 24.
+LOCAL steps left: S15–S16; Kaggle-only S14/S17/S19; LR-finder queued after the core seq.
+Never push to origin.
 
 Current short state: runtime-selection v5 is the selected fallback runtime
 (`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,

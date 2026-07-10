@@ -123,13 +123,18 @@ def test_kaggle_runtime_config_does_not_inherit_local_pretest_fields() -> None:
     assert isinstance(runtime, dict)
     assert runtime["machine_shape"] == "NvidiaTeslaT4"
     assert "compile_options" not in runtime
+    # Spec 0011 S13: "step" (whole-step compile) is now a declared scope; the executor
+    # still fail-closes it to pending until S14 measures it. bs48 joins the candidate
+    # pool as the bigger-batch compiled candidate (like bs32, absent from eager gates).
     assert runtime["compile_scopes"] == [
         "none",
         "model_forward",
         "model_loss",
         "train_step_no_optimizer",
+        "step",
     ]
-    assert runtime["candidate_per_device_batch_sizes"] == [4, 8, 12, 32]
+    assert runtime["candidate_per_device_batch_sizes"] == [4, 8, 12, 32, 48]
+    assert runtime["full_train_step_with_optimizer"] == "in_scope_as_compile_scope_step"
     assert runtime["warmup_steps"] == EXPECTED_REAL_PRETEST_WARMUP_STEPS
     assert runtime["measured_steps"] == EXPECTED_REAL_PRETEST_MEASURED_STEPS
     compile_settle_policy = runtime["compile_settle_policy"]
@@ -195,6 +200,7 @@ def test_runtime_config_stage_order_and_shortlist_provenance() -> None:
         "model_forward",
         "model_loss",
         "train_step_no_optimizer",
+        "step",
     ]
     assert amp_stage["candidate_source"] == "stable_fp32_compile_corruption_candidates"
 

@@ -14,12 +14,25 @@ import torch
 
 from eqvae.benchmarking import runtime_selection_executor
 from eqvae.benchmarking.io import JsonObject, write_csv, write_json
+from eqvae.benchmarking.real_data_runtime_pretest import (
+    _base_row as _pretest_base_row,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+)
+from eqvae.benchmarking.real_data_runtime_pretest import (
+    _settings as _pretest_settings,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+)
+from eqvae.benchmarking.real_data_runtime_pretest import (
+    _stage1_row_specs as _pretest_stage1_row_specs,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+)
 from eqvae.benchmarking.runtime_schema import (
     CORRUPTION_CHECK_COLUMNS,
     DATALOADER_MATRIX_COLUMNS,
+    EAGER_RECIPE_KNOB_COLUMNS,
     GATE_HEALTH_COLUMNS,
     NUMERICAL_CHECK_COLUMNS,
     RUNTIME_MATRIX_COLUMNS,
+)
+from eqvae.benchmarking.runtime_schema import (
+    _runtime_rows as _synthetic_runtime_rows,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
 )
 from eqvae.benchmarking.runtime_selection import (
     COMPILE_MODEL_FORWARD,
@@ -28,12 +41,20 @@ from eqvae.benchmarking.runtime_selection import (
     PASS_STATUS,
     RuntimeSelectionBenchmarkRequest,
     RuntimeSelectionEvidence,
+    _bool_from_csv,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _compiled_row_stable,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _enforce_compiled_rows_diagnostic_only,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _optional_int_from_csv,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _selected_runtime_payload,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _SelectionSettings,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     load_runtime_selection_evidence,
     write_runtime_selection_benchmark,
+)
+from eqvae.benchmarking.runtime_selection import (
+    _runtime_row as _src_runtime_row,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+)
+from eqvae.benchmarking.runtime_selection_executor import (
+    _base_selection_row as _executor_base_selection_row,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
 )
 from eqvae.config import resolve_json_config
 from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
@@ -88,7 +109,12 @@ def _payload_settings() -> _SelectionSettings:
 
 
 def _eager_selected_row() -> dict[str, str]:
-    """Return an eager dual-T4 winner row that carries no S11 recipe columns.
+    """Return an eager dual-T4 winner row carrying the eager recipe columns.
+
+    Post-S13 the shared ``_runtime_row`` spreads ``EAGER_RECIPE_KNOB_COLUMNS``, so this
+    row carries all seven knob columns at their eager values. The absent-column ``.get``
+    fallback (pre-S13 CSVs) is covered by
+    ``test_selected_runtime_payload_reads_eager_recipe_from_legacy_row``.
 
     Returns:
         A runtime-matrix row for an eager amp-conservative dual-T4 candidate.
@@ -107,12 +133,14 @@ def _eager_selected_row() -> dict[str, str]:
 
 
 def test_selected_runtime_payload_emits_recipe_knobs_at_eager_defaults() -> None:
-    """A winner row without recipe columns yields the eager recipe (S11).
+    """A winner row carrying eager recipe columns yields the eager recipe (S11/S13).
 
-    This is the generator's behavior-preserving branch: today's measured rows have no
-    S11 knob columns (S13 adds them), so ``.get(col, eager_default)`` reproduces the v5
+    Post-S13 every produced row carries the recipe-knob columns at their eager values
+    (``EAGER_RECIPE_KNOB_COLUMNS``), so ``_selected_runtime_payload`` reproduces the v5
     recipe -- no DDPOptimizer, no compiled autograd, DDP-library defaults for
-    broadcast/find-unused/bucket-cap, fused off.
+    broadcast/find-unused/bucket-cap, fused off. The absent-column ``.get`` fallback for
+    pre-S13 CSVs is covered by
+    ``test_selected_runtime_payload_reads_eager_recipe_from_legacy_row``.
     """
     selected_row = _eager_selected_row()
     dataloader_rows = tuple(_dataloader_rows((selected_row,)))
@@ -173,6 +201,130 @@ def test_selected_runtime_payload_sources_recipe_knobs_from_measured_row() -> No
     assert runtime_policy["ddp_find_unused_parameters"] is True
     assert runtime_policy["ddp_bucket_cap_mb"] == _RECIPE_BUCKET_CAP_MB
     assert runtime_policy["fused_optimizer"] is True
+
+
+def test_selected_runtime_payload_reads_eager_recipe_from_legacy_row() -> None:
+    """A pre-S13 winner row (no recipe columns) still yields the eager recipe (S11).
+
+    Proves the additive contract survives old artifacts: a row missing every recipe
+    column (e.g. a committed pre-S13 ``runtime_matrix.csv``) resolves each knob through
+    the ``.get(col, eager_default)`` fallback, so the emitted plan matches the eager v5
+    recipe. This is the absent-key branch the post-S13 producers no longer exercise.
+    """
+    legacy_row = {
+        key: value
+        for key, value in _eager_selected_row().items()
+        if key not in EAGER_RECIPE_KNOB_COLUMNS
+    }
+    assert not (EAGER_RECIPE_KNOB_COLUMNS.keys() & legacy_row.keys())
+    dataloader_rows = tuple(_dataloader_rows((legacy_row,)))
+
+    payload = _selected_runtime_payload(
+        settings=_payload_settings(),
+        selected_row=legacy_row,
+        dataloader_rows=dataloader_rows,
+        artifact_hashes={},
+    )
+
+    torch_compile = cast("dict[str, object]", payload["torch_compile"])
+    runtime_policy = cast("dict[str, object]", payload["runtime_policy"])
+    assert torch_compile["optimize_ddp"] == _EAGER_OPTIMIZE_DDP
+    assert torch_compile["compiled_autograd"] is False
+    assert runtime_policy["ddp_broadcast_buffers"] is True
+    assert runtime_policy["ddp_bucket_cap_mb"] is None
+    assert runtime_policy["fused_optimizer"] is False
+
+
+def _real_producer_runtime_rows() -> dict[str, dict[str, str]]:
+    """One runtime-matrix row from each of the four real column producers.
+
+    Returns:
+        A mapping from producer name to a freshly built runtime-matrix row.
+
+    """
+    pretest_settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+    pretest_row_spec = _pretest_stage1_row_specs(pretest_settings)[0]
+    return {
+        "runtime_schema._runtime_rows": dict(
+            _synthetic_runtime_rows(
+                run_name=RUN_NAME,
+                max_benchmark_rows=1,
+                warmup_steps=5,
+                measured_steps=25,
+            )[0],
+        ),
+        "real_data_runtime_pretest._base_row": dict(
+            _pretest_base_row(settings=pretest_settings, row_spec=pretest_row_spec),
+        ),
+        "runtime_selection_executor._base_selection_row": dict(
+            _executor_base_selection_row(
+                settings=pretest_settings,
+                row_spec=pretest_row_spec,
+            ),
+        ),
+        "runtime_selection._runtime_row": dict(
+            _src_runtime_row(
+                settings=_payload_settings(),
+                row_id="dual_t4_ddp__bs12__amp_off_fp32__compile_none__branchless_all",
+                accelerator_mode="dual_t4_ddp",
+                per_device_batch_size=12,
+                precision_policy="amp_off_fp32",
+                compile_scope="none",
+                corruption_strategy="branchless_all",
+                world_size=EXPECTED_DUAL_WORLD_SIZE,
+                nproc_per_node=EXPECTED_DUAL_WORLD_SIZE,
+                status="pass",
+                samples_sec=300.0,
+                steady_step_ms_p50=25.0,
+                steady_step_ms_p95=30.0,
+            ),
+        ),
+    }
+
+
+def test_real_producers_emit_parseable_recipe_knobs_through_csv_roundtrip(
+    tmp_path: Path,
+) -> None:
+    """Real RUNTIME_MATRIX_COLUMNS producers survive a CSV round-trip parse (S13).
+
+    The DictWriter ``restval=''`` trap bites the SOURCE producers, not only the in-test
+    helper: a produced ``runtime_matrix.csv`` is later reloaded (e.g. Kaggle replay via
+    ``load_runtime_selection_evidence`` -> ``_selected_runtime_payload`` ->
+    ``_bool_from_csv``). Had any producer omitted the recipe columns, the reloaded bool
+    cells would be ``''`` and ``_bool_from_csv('')`` would raise. Driving all four real
+    producers through the round-trip makes a reverted src spread fail HERE, not just on
+    Kaggle.
+    """
+    produced = _real_producer_runtime_rows()
+    reloaded_rows: dict[str, dict[str, str]] = {}
+    for name, row in produced.items():
+        matrix_path = tmp_path / f"{name.replace('.', '__')}.csv"
+        write_csv(matrix_path, RUNTIME_MATRIX_COLUMNS, (row,))
+        with matrix_path.open(encoding="utf-8", newline="") as handle:
+            reloaded = next(iter(csv.DictReader(handle)))
+        reloaded_rows[name] = reloaded
+        for column, eager_value in EAGER_RECIPE_KNOB_COLUMNS.items():
+            assert reloaded[column] == eager_value, (name, column)
+        # The exact operation that raises on an omitted bool column ('' -> ValueError).
+        assert _bool_from_csv(reloaded["compiled_autograd"]) is False
+        assert _bool_from_csv(reloaded["ddp_broadcast_buffers"]) is True
+        assert _bool_from_csv(reloaded["fused_optimizer"]) is False
+        assert _optional_int_from_csv(reloaded["ddp_bucket_cap_mb"]) is None
+
+    # End-to-end: the reloaded pass winner still builds the eager plan without crashing.
+    winner = reloaded_rows["runtime_selection._runtime_row"]
+    payload = _selected_runtime_payload(
+        settings=_payload_settings(),
+        selected_row=winner,
+        dataloader_rows=tuple(_dataloader_rows((winner,))),
+        artifact_hashes={},
+    )
+    runtime_policy = cast("dict[str, object]", payload["runtime_policy"])
+    assert runtime_policy["fused_optimizer"] is False
+    assert runtime_policy["ddp_broadcast_buffers"] is True
 
 
 @pytest.mark.parametrize("compile_scope", [COMPILE_MODEL_FORWARD, COMPILE_STEP])
@@ -1943,6 +2095,8 @@ def _runtime_row(  # noqa: PLR0913
         "zero_grad_set_to_none": "true",
         "gradient_clip_foreach": "false",
         "compile_dynamic": "false",
+        # Spec 0011 S13: eager recipe knobs, matching the production row producers.
+        **EAGER_RECIPE_KNOB_COLUMNS,
         "corruption_strategy": corruption_strategy,
         "per_device_batch_size": str(per_device_batch_size),
         "global_batch_size": str(per_device_batch_size * world_size),

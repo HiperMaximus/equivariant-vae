@@ -29,6 +29,7 @@ from eqvae.benchmarking.io import CsvRow, JsonObject, JsonValue, write_csv, writ
 from eqvae.benchmarking.runtime_schema import (
     CORRUPTION_CHECK_COLUMNS,
     DATALOADER_MATRIX_COLUMNS,
+    EAGER_RECIPE_KNOB_COLUMNS,
     GATE_HEALTH_COLUMNS,
     NUMERICAL_CHECK_COLUMNS,
     RUNTIME_MATRIX_COLUMNS,
@@ -1374,6 +1375,9 @@ def _base_row(*, settings: RealDataRuntimePretestSettings, row_spec: RowSpec) ->
         "zero_grad_set_to_none": _format_bool(value=row_spec.zero_grad_set_to_none),
         "gradient_clip_foreach": _format_bool(value=row_spec.gradient_clip_foreach),
         "compile_dynamic": _format_bool(value=row_spec.compile_dynamic),
+        # Spec 0011 S13: eager recipe knobs (the executor applies none of these yet;
+        # S14 measures the compiled fast-path recipe and overwrites the winner row).
+        **EAGER_RECIPE_KNOB_COLUMNS,
         "corruption_strategy": row_spec.corruption_strategy,
         "per_device_batch_size": str(row_spec.per_device_batch_size),
         "global_batch_size": str(row_spec.per_device_batch_size * row_spec.world_size),

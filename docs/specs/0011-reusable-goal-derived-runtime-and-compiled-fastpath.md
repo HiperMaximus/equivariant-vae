@@ -400,10 +400,37 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   S13-naming concern refuted as a later-step config item). +2 tests (settle-proven step row
   selectable, parametrized over both scopes = mutation-proof; whole-step row without
   settle-proof stays diagnostic-only).
-- **S13** Benchmark grid: add compiled whole-step + bigger-batch **candidate** rows;
-  keep the **required** dual-gate rows eager-fp32 at batches that fit eager
-  (`[4,8,12]`). Eager bs48 OOMs → bs48 is a compiled candidate, never a required
-  eager gate row.
+- **S13 (DONE — this commit) Grid declares the whole-step + bigger-batch candidates;
+  schema carries the recipe knobs.** GRID
+  (`configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json`): `"step"` added to
+  top-level `runtime_matrix.compile_scopes` — the ONE field the pretest reads
+  (`real_data_runtime_pretest.py:1131`), so it enumerates a `step` row per seeded
+  candidate, fail-closed to `compile_scope_implementation_pending` by the guard `:700`
+  exactly like `model_loss`/`train_step_no_optimizer` — plus the `fp32_compile_corruption_screen`
+  list (doc-sync; that top-level `stages` array + `candidate_per_device_batch_sizes` have
+  NO code reader). `48` added to `candidate_per_device_batch_sizes` (declarative, like the
+  un-executed bs32 precedent). `full_train_step_with_optimizer` flipped
+  `out_of_scope_until_spec_update` → `in_scope_as_compile_scope_step`. The **required**
+  eager `dual_t4_train_step_gate` stays `[4,8,12] × ["none"]` — untouched. **ZERO executor
+  edits**: the selection executor's `_runtime_policies:406` hard-raise is never fed `step`
+  (it reads `efficiency_followup.policies`, all `none`); whole-step EXECUTION stays S14.
+  SCHEMA: `RUNTIME_MATRIX_COLUMNS` (`runtime_schema.py`) gains the 7 recipe-knob columns
+  the S11 generator `.get`-reads (`optimize_ddp, compiled_autograd,
+  reorder_compute_comm_overlap, ddp_broadcast_buffers, ddp_find_unused_parameters,
+  ddp_bucket_cap_mb, fused_optimizer`), contiguous after `compile_dynamic`;
+  `compile_backend` DELIBERATELY omitted (derived from `compile_scope` at `:1919`, never
+  `.get`-read → would be an inert column). A new shared `EAGER_RECIPE_KNOB_COLUMNS` (eager
+  v5 cell values) is spread into all 5 producers (`_runtime_rows`, pretest `_base_row`,
+  executor `_base_selection_row`, `runtime_selection._runtime_row`, and the test helper)
+  to close the `write_csv` `restval=''` → `_bool_from_csv('')` reload-crash trap.
+  Behavior-preserving on the eager v5 path (runtime-decision fields byte-identical; a
+  *regenerated* plan's provenance `selected_row_snapshot`/`runtime_matrix_sha256`
+  legitimately grow with the additive columns — harmless, all consumers use fixed-subset
+  `.get`). Gate 424 passed, basedpyright/ruff clean; 6-lens adversarial review → 4
+  test-quality findings (0 source): the real-producer CSV round-trip guard (mutation-proven
+  across all 4 producers), a de-tautologized step-scope enumeration test, and two stale
+  docstrings — all fixed; fix-delta review 0 findings. +tests (real-producer round-trip,
+  legacy absent-column fallback, step-scope enumeration).
 - **S14** [Kaggle] Fold the probe's single-GPU feasibility sweep (physical-free-VRAM
   gate, 1GB margin) + winner-recipe DDP timing into `runtime_selection_executor` as
   ONE generator that emits the full linked-proof graph. Honor the Plan-provenance
