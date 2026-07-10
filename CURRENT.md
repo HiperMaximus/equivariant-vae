@@ -95,7 +95,7 @@ snapshot/`runtime_matrix_sha256` grow with the additive columns, harmless). Gate
 basedpyright/ruff clean; 6-lens review → 4 test-quality findings (0 source) fixed +
 fix-delta review 0 findings; the real-producer CSV round-trip guard is mutation-proven
 across all 4 producers. Phase 1 + S11–S13 stay local + behavior-preserving @ batch 24.
-**S15 (this commit, local-only):** the runner now
+**S15 (`357ada6`, local-only):** the runner now
 CONSUMES the plan's DDP recipe + fused-optimizer knobs via `training/fastpath_recipe.py`.
 `_maybe_wrap_ddp` routes through `wrap_fastpath_ddp` with `broadcast_buffers =
 plan.ddp_broadcast_buffers OR _model_requires_buffer_broadcast(model)` — a new structural,
@@ -119,8 +119,8 @@ Never push to origin.
 > It reads present-tense but is superseded by the Latest handoff above. In particular,
 > the FU-039 / FU-041 / DDP-correctness (FU-007/008/012/020) work this zone labels
 > "uncommitted / awaiting commit approval" is in fact COMMITTED — it is an ancestor of
-> the S1–S13 Spec 0011 chain (HEAD `8e14650`). The current state and next step (S15) are
-> the Latest handoff above.
+> the active S1–S15 Spec 0011 chain (Spec 0011 S15 = `357ada6`). The current state and
+> next step (now S16) are the Latest handoff above.
 
 Current short state: runtime-selection v5 is the selected fallback runtime
 (`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,
