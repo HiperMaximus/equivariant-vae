@@ -1,9 +1,9 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) DONE, committed local-only through `8e14650`
-Implementation readiness: Phase 3 (S15–S16) local, implementation-ready; Kaggle phases S14/S17/S19 gated (user-driven)
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) DONE committed through `8e14650`; Phase 3 S15 DONE (this commit, local-only)
+Implementation readiness: Phase 3 S16 local, implementation-ready; Kaggle phases S14/S17/S19 gated (user-driven)
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-10 (S13 committed; NEXT = S15). The per-step `(DONE — …)` tags in the body are the state of record.
+Last updated: 2026-07-10 (S15 done; NEXT = S16). The per-step `(DONE — …)` tags in the body are the state of record.
 
 ## Purpose
 
@@ -378,7 +378,7 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   no-op on v5). **Deliberately NOT touched** (later steps, not behavior-preserving): the literal
   value-validators (`_torch_compile_errors`/`_runtime_policy_errors`/`_top_level_errors`) that would
   *accept* a compiled plan, and the observation/`expected_application`/`_application_mismatches` mirror
-  (S15). Gate 418 passed (414+4), basedpyright/ruff clean; adversarial review 5 lenses → 1 low
+  (deferred past S15; see the S15 entry). Gate 418 passed (414+4), basedpyright/ruff clean; adversarial review 5 lenses → 1 low
   test-soundness finding (two safety-adjacent knobs asserted at their eager default = not
   mutation-proof) FIXED with distinguishing values, fold-delta clean. +4 tests (parser
   eager-defaults + carrier-home reads; generator eager-emission + measured-sourcing).
@@ -441,9 +441,32 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
 
 ### Phase 3 — Runner consumes the recipe (plan-gated, behavior-preserving off)
 
-- **S15** DDP recipe wiring + fused enable via `fastpath_recipe.py`; `broadcast_buffers`
-  by a **structural** model-agnostic rule (False only when every persistent buffer is
-  a non-trainable rank-identical constant; else True). Keep `assert_ddp_parameters_in_sync`.
+- **S15 (DONE — this commit) Runner consumes the DDP recipe + fused enable via
+  `fastpath_recipe.py`.** `_maybe_wrap_ddp` now routes through `wrap_fastpath_ddp`, consuming
+  the plan's DDP knobs; `broadcast_buffers = plan.ddp_broadcast_buffers OR
+  _model_requires_buffer_broadcast(model)` — a new structural, model-agnostic rule returning
+  True iff any persistent buffer leaf is a torch running-stat name
+  (`running_mean`/`running_var`/`num_batches_tracked`), so the OR can only force broadcasting
+  **on** (never off): the non-eq VAE (GroupNorm + constant binomial `kernel` buffers) → False,
+  a running-stat norm → True, a norm with `track_running_stats=False` → False (`named_buffers`
+  drops `None` buffers). Fused: `_optimizer_config` gained `fused=plan.fused_optimizer`
+  (threaded from `_settings`); **both** optimizer build sites (main run +
+  `_checkpoint_resume_proof` rebuild) route through `build_fastpath_optimizer` (the now-unused
+  `create_adamw_optimizer`/`DistributedDataParallel` runner imports were dropped; 3 test sites
+  re-pointed). `assert_ddp_parameters_in_sync` kept. **Behavior-preserving** at the eager-v5
+  plan: torch-2.12 DDP defaults (`broadcast_buffers=True`, `find_unused_parameters=False`,
+  `bucket_cap_mb=None`) exactly match the eager values the old wrap omitted, and
+  `fused=False → fused=None` (foreach path unchanged); the DDP branch is Kaggle-only
+  (`world_size==1` early-returns unchanged). **Deferred (documented in `selected_runtime.py`):**
+  the plan-applied **observation mirror** for the new knobs (a naive `observed == plan` check
+  would false-flag the legitimate structural `broadcast_buffers` override) and the **dynamo
+  config** (`optimize_ddp`/`compiled_autograd`/`reorder` — inert without `torch.compile`, folds
+  into S16). Gate 431 passed (424+7), basedpyright/ruff clean; 6-lens adversarial review → 0
+  confirmed (2 raw findings both refuted: the name-based rule is inert for every plan the runner
+  consumes + safe for the planned statistics-free eq norm; the stale mirror breadcrumb is
+  reconciled here). +7 tests, each mutation-proof via a `wrap_fastpath_ddp` spy (structural rule
+  3-case; DDP-wrap eager behavior-preserving + distinguishing knobs + structural-override +
+  single-process passthrough; fused threading ×2).
 - **S16** Compiled step (`torch.compile(step, dynamic=False)` when `plan.compile_scope=='step'`)
   with train-only inline corruption (drop blake2b on train; keep it on
   validation/deterministic). **Flip the shared `_loader` to `drop_last=True`** for BOTH

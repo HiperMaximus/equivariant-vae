@@ -73,6 +73,7 @@ _LR_REFERENCE_GLOBAL_BATCH = 24
 _LR_QUADRUPLE_GLOBAL_BATCH = 96
 _LR_REFERENCE_LEARNING_RATE = 5.0e-4
 _LR_QUADRUPLE_LEARNING_RATE = 1.0e-3
+_S15_RECIPE_BUCKET_CAP_MB = 50
 # Measured winner DDP bucket-cap (probe _DDP_OPTIMIZER_SPEC).
 _RECIPE_BUCKET_CAP_MB = 50
 # The eager-recipe optimize_ddp sentinel (unset dynamo config).
@@ -446,6 +447,179 @@ def test_optimizer_config_uses_flat_lr_without_batch_scaling() -> None:
         global_batch_size=_LR_QUADRUPLE_GLOBAL_BATCH,
     )
     assert math.isclose(flat.learning_rate, _LR_REFERENCE_LEARNING_RATE)
+
+
+def test_optimizer_config_threads_fused_flag_default_off() -> None:
+    """`_optimizer_config` defaults fused off and threads the requested flag (S15)."""
+    effective = resolve_json_config(_FULL_CONFIG).effective_config
+    default = selected_runtime_runner._optimizer_config(  # noqa: SLF001
+        effective,
+        global_batch_size=_LR_REFERENCE_GLOBAL_BATCH,
+    )
+    fused = selected_runtime_runner._optimizer_config(  # noqa: SLF001
+        effective,
+        global_batch_size=_LR_REFERENCE_GLOBAL_BATCH,
+        fused=True,
+    )
+    assert default.fused is False
+    assert fused.fused is True
+
+
+def test_settings_threads_plan_fused_optimizer_flag(tmp_path: Path) -> None:
+    """`_settings` threads `plan.fused_optimizer` into the optimizer config (S15).
+
+    The eager-v5 plan keeps fused off (behavior-preserving); a plan that requests
+    fused flows through to `SpecAdamWConfig.fused`.
+    """
+    base_plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+    resolved = resolve_json_config(_FULL_CONFIG)
+    request = SelectedRuntimeTrainRequest(
+        config_path=_FULL_CONFIG,
+        runtime_config=_RUNTIME_CONFIG,
+        output_dir=tmp_path,
+        run_name="s15_fused_threading",
+        data="synthetic",
+        max_train_steps=2,
+        save_every_steps=1,
+        dry_run=True,
+    )
+    eager = selected_runtime_runner._settings(  # noqa: SLF001
+        request=request,
+        resolved=resolved,
+        plan=base_plan,
+    )
+    fused = selected_runtime_runner._settings(  # noqa: SLF001
+        request=request,
+        resolved=resolved,
+        plan=replace(base_plan, fused_optimizer=True),
+    )
+    assert eager.optimizer_config.fused is False
+    assert fused.optimizer_config.fused is True
+
+
+def test_model_requires_buffer_broadcast_is_structural() -> None:
+    """The broadcast rule keys on running-stat buffers, not a hardcoded flag (S15)."""
+    requires = selected_runtime_runner._model_requires_buffer_broadcast  # noqa: SLF001
+    non_eq = build_non_equivariant_vae(norm_groups=8)
+    running_stats = torch.nn.BatchNorm2d(4)
+    stateless_norm = torch.nn.BatchNorm2d(4, track_running_stats=False)
+    assert requires(non_eq) is False
+    assert requires(running_stats) is True
+    assert requires(stateless_norm) is False
+
+
+def _spy_on_wrap_ddp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[dict[str, object]]:
+    """Replace `wrap_fastpath_ddp` with a spy and expose its captured kwargs.
+
+    Returns:
+        The list each `wrap_fastpath_ddp` call appends its keyword arguments to.
+
+    """
+    calls: list[dict[str, object]] = []
+
+    def spy(model: torch.nn.Module, **kwargs: object) -> torch.nn.Module:
+        calls.append(kwargs)
+        return model
+
+    monkeypatch.setattr(selected_runtime_runner, "wrap_fastpath_ddp", spy)
+    return calls
+
+
+def test_maybe_wrap_ddp_single_process_returns_model_unwrapped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Single-process runs return the raw model; the DDP wrap is never built (S15)."""
+    calls = _spy_on_wrap_ddp(monkeypatch)
+    model = build_non_equivariant_vae(norm_groups=8)
+    plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+    wrapped = selected_runtime_runner._maybe_wrap_ddp(  # noqa: SLF001
+        model=model,
+        distributed=_local_distributed_context(),
+        plan=plan,
+    )
+    assert wrapped is model
+    assert calls == []
+
+
+def test_maybe_wrap_ddp_forwards_eager_recipe_behavior_preserving(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With the eager-v5 plan the DDP wrap gets torch-default knob values (S15)."""
+    calls = _spy_on_wrap_ddp(monkeypatch)
+    model = build_non_equivariant_vae(norm_groups=8)
+    plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+    selected_runtime_runner._maybe_wrap_ddp(  # noqa: SLF001
+        model=model,
+        distributed=_ddp_distributed_context(rank=0),
+        plan=plan,
+    )
+    captured = calls[-1]
+    assert captured["local_rank"] == 0
+    assert captured["static_graph"] == plan.ddp_static_graph
+    assert captured["gradient_as_bucket_view"] == plan.ddp_gradient_as_bucket_view
+    assert captured["broadcast_buffers"] is True
+    assert captured["find_unused_parameters"] is False
+    assert captured["bucket_cap_mb"] is None
+
+
+def test_maybe_wrap_ddp_consumes_distinguishing_recipe_knobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A measured recipe's DDP knobs flow through to the wrap unchanged (S15).
+
+    The model has only constant buffers, so the structural rule contributes nothing
+    and the plan's `ddp_broadcast_buffers=False` passes straight through.
+    """
+    calls = _spy_on_wrap_ddp(monkeypatch)
+    model = build_non_equivariant_vae(norm_groups=8)
+    plan = replace(
+        parse_selected_runtime_plan(_RUNTIME_CONFIG),
+        ddp_static_graph=False,
+        ddp_gradient_as_bucket_view=True,
+        ddp_broadcast_buffers=False,
+        ddp_find_unused_parameters=True,
+        ddp_bucket_cap_mb=_S15_RECIPE_BUCKET_CAP_MB,
+    )
+    selected_runtime_runner._maybe_wrap_ddp(  # noqa: SLF001
+        model=model,
+        distributed=_ddp_distributed_context(rank=1),
+        plan=plan,
+    )
+    captured = calls[-1]
+    assert captured["local_rank"] == 1
+    assert captured["gradient_as_bucket_view"] is True
+    assert captured["broadcast_buffers"] is False
+    assert captured["find_unused_parameters"] is True
+    assert captured["bucket_cap_mb"] == _S15_RECIPE_BUCKET_CAP_MB
+
+
+def test_maybe_wrap_ddp_structural_rule_forces_broadcast_buffers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A model that needs broadcasting overrides a plan that would disable it (S15)."""
+    calls = _spy_on_wrap_ddp(monkeypatch)
+
+    def always_broadcast(_model: torch.nn.Module) -> bool:
+        return True
+
+    monkeypatch.setattr(
+        selected_runtime_runner,
+        "_model_requires_buffer_broadcast",
+        always_broadcast,
+    )
+    model = build_non_equivariant_vae(norm_groups=8)
+    plan = replace(
+        parse_selected_runtime_plan(_RUNTIME_CONFIG),
+        ddp_broadcast_buffers=False,
+    )
+    selected_runtime_runner._maybe_wrap_ddp(  # noqa: SLF001
+        model=model,
+        distributed=_ddp_distributed_context(rank=0),
+        plan=plan,
+    )
+    assert calls[-1]["broadcast_buffers"] is True
 
 
 def test_optimizer_lr_scaling_provenance_records_relationship() -> None:
@@ -1269,7 +1443,7 @@ def test_assert_ddp_parameters_in_sync_treats_identical_nan_as_synced(
         )
 
 
-def test_run_train_steps_selects_best_on_denoising_view_end_to_end(  # noqa: PLR0914
+def test_run_train_steps_selects_best_on_denoising_view_end_to_end(
     tmp_path: Path,
 ) -> None:
     """FU-008 end-to-end: best_model.pt is saved from the denoising-view metric."""
@@ -1308,7 +1482,7 @@ def test_run_train_steps_selects_best_on_denoising_view_end_to_end(  # noqa: PLR
         model = build_non_equivariant_vae(
             norm_groups=settings.norm_groups,
         )
-        optimizer, _ = selected_runtime_runner.create_adamw_optimizer(
+        optimizer = selected_runtime_runner.build_fastpath_optimizer(
             model,
             config=settings.optimizer_config,
         )
@@ -1390,7 +1564,7 @@ _ODD_BOUNDARY_STEPS = frozenset({2, 4, 5})
 _ODD_GLOBAL_BATCH = 60_000
 
 
-def test_run_train_steps_checkpoints_and_validates_off_grid_terminal(  # noqa: PLR0914
+def test_run_train_steps_checkpoints_and_validates_off_grid_terminal(
     tmp_path: Path,
 ) -> None:
     """Spec 0011 S9: the off-grid terminal is a genuine boundary on the producer side.
@@ -1441,7 +1615,7 @@ def test_run_train_steps_checkpoints_and_validates_off_grid_terminal(  # noqa: P
         model = build_non_equivariant_vae(
             norm_groups=settings.norm_groups,
         )
-        optimizer, _ = selected_runtime_runner.create_adamw_optimizer(
+        optimizer = selected_runtime_runner.build_fastpath_optimizer(
             model,
             config=settings.optimizer_config,
         )
@@ -1945,7 +2119,7 @@ def test_fresh_full_run_flushes_metrics_at_first_boundary(  # noqa: PLR0914
         model = build_non_equivariant_vae(
             norm_groups=settings.norm_groups,
         )
-        optimizer, _ = selected_runtime_runner.create_adamw_optimizer(
+        optimizer = selected_runtime_runner.build_fastpath_optimizer(
             model,
             config=settings.optimizer_config,
         )

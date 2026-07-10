@@ -95,7 +95,23 @@ snapshot/`runtime_matrix_sha256` grow with the additive columns, harmless). Gate
 basedpyright/ruff clean; 6-lens review → 4 test-quality findings (0 source) fixed +
 fix-delta review 0 findings; the real-producer CSV round-trip guard is mutation-proven
 across all 4 producers. Phase 1 + S11–S13 stay local + behavior-preserving @ batch 24.
-LOCAL steps left: S15–S16; Kaggle-only S14/S17/S19; LR-finder queued after the core seq.
+**S15 (this commit, local-only):** the runner now
+CONSUMES the plan's DDP recipe + fused-optimizer knobs via `training/fastpath_recipe.py`.
+`_maybe_wrap_ddp` routes through `wrap_fastpath_ddp` with `broadcast_buffers =
+plan.ddp_broadcast_buffers OR _model_requires_buffer_broadcast(model)` — a new structural,
+name-based rule (True iff a persistent buffer leaf is a torch running-stat name, so the OR
+only forces broadcasting ON; the non-eq VAE's GroupNorm + constant binomial `kernel` buffers
+→ False). Both optimizer build sites (main + `_checkpoint_resume_proof`) route through
+`build_fastpath_optimizer` with `fused = plan.fused_optimizer` (threaded via
+`_optimizer_config`, CUDA-gated inside `create_adamw_optimizer`); the now-unused
+`create_adamw_optimizer`/`DistributedDataParallel` runner imports were dropped and 3 test
+sites re-pointed. `assert_ddp_parameters_in_sync` kept. Behavior-preserving at the eager-v5
+plan (torch-2.12 DDP defaults `broadcast_buffers=True`/`find_unused=False`/`bucket_cap_mb=None`
+match the old omitted-kwarg wrap; `fused=False → None`). Deferred (noted in
+`selected_runtime.py`): the plan-applied observation mirror (the structural override would
+false-flag a naive `observed == plan` check) and the dynamo config (inert without compile →
+S16). Gate 431 passed (424+7), basedpyright/ruff clean; 6-lens adversarial review → 0
+confirmed. LOCAL step left: S16; Kaggle-only S14/S17/S19; LR-finder queued after the core seq.
 Never push to origin.
 
 > **Everything from here down to the `Historical provenance follows.` marker below is

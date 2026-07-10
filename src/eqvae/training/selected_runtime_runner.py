@@ -18,7 +18,6 @@ import torch
 import torch.distributed as dist
 from torch import nn
 from torch.amp.grad_scaler import GradScaler
-from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import (
     DataLoader,
     Dataset,
@@ -94,10 +93,10 @@ from eqvae.models.non_equivariant_vae import (
 )
 from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
 from eqvae.training.ddp_sync_guard import assert_ddp_parameters_in_sync
+from eqvae.training.fastpath_recipe import build_fastpath_optimizer, wrap_fastpath_ddp
 from eqvae.training.optim import (
     BatchLrScaling,
     SpecAdamWConfig,
-    create_adamw_optimizer,
     scaled_learning_rate,
 )
 from eqvae.training.selected_runtime import (
@@ -988,7 +987,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
     # before any DDP/compile wrapping, then threaded to every eps builder.
     latent_channels = model.latent_channels
     model = _place_model(model=model, plan=plan, device=distributed.device)
-    optimizer, _ = create_adamw_optimizer(model, config=settings.optimizer_config)
+    optimizer = build_fastpath_optimizer(model, config=settings.optimizer_config)
     amp = _amp_execution(plan=plan, distributed=distributed, dry_run=request.dry_run)
     scaler = GradScaler(
         "cuda",
@@ -1676,6 +1675,7 @@ def _settings(  # noqa: PLR0914
         optimizer_config=_optimizer_config(
             effective,
             global_batch_size=global_batch_size,
+            fused=plan.fused_optimizer,
         ),
         optimizer_lr_scaling=_optimizer_lr_scaling(
             effective,
@@ -2726,6 +2726,46 @@ def _place_model(
     return model
 
 
+# Leaf names of the persistent buffers DDP would have to broadcast from rank 0 every
+# forward to keep replicas identical: the running statistics that every standard
+# PyTorch normalization (BatchNorm*/SyncBatchNorm/InstanceNorm* with
+# track_running_stats) registers and mutates per batch, so they diverge across ranks
+# unless broadcast.
+_RANK_DIVERGENT_BUFFER_LEAVES = frozenset(
+    {"running_mean", "running_var", "num_batches_tracked"},
+)
+
+
+def _model_requires_buffer_broadcast(model: nn.Module) -> bool:
+    """Return whether DDP must broadcast this model's buffers from rank 0.
+
+    Disabling ``broadcast_buffers`` is only safe when every persistent buffer is a
+    non-trainable, rank-identical constant that no forward pass mutates, so it can
+    never diverge across ranks. The standard modules that violate this are the
+    running-statistics normalizations, whose ``running_mean``/``running_var``/
+    ``num_batches_tracked`` buffers accumulate per-rank batch statistics and would
+    silently desync the replicas with ``broadcast_buffers=False``. This is a
+    structural, model-agnostic rule rather than a flag hardcoded for one model: the
+    non-equivariant baseline (GroupNorm plus the constant binomial downsample
+    kernels) registers no such buffer and needs no broadcast, while a future model
+    that introduces a running-stat buffer flips the result to ``True`` instead of
+    training divergent replicas. Detection is by the standard torch running-stat
+    buffer names, so a model that maintains rank-divergent state under a different
+    buffer name must request ``ddp_broadcast_buffers=True`` in its plan (or extend
+    this rule). ``named_buffers`` omits ``None``-valued buffers, so a normalization
+    with ``track_running_stats=False`` correctly contributes nothing.
+
+    Returns:
+        ``True`` if any persistent buffer holds mutable running statistics; ``False``
+        when every buffer is a rank-identical constant.
+
+    """
+    return any(
+        name.rsplit(".", 1)[-1] in _RANK_DIVERGENT_BUFFER_LEAVES
+        for name, _ in model.named_buffers()
+    )
+
+
 def _maybe_wrap_ddp(
     *,
     model: NonEquivariantVAE,
@@ -2734,12 +2774,23 @@ def _maybe_wrap_ddp(
 ) -> nn.Module:
     if not distributed.should_use_ddp:
         return model
-    return DistributedDataParallel(
+    # ``broadcast_buffers`` is the plan's requested value OR-ed with the structural
+    # requirement. The structural check can only force broadcasting *on* (a model with
+    # rank-divergent running-stat buffers); it can never turn it off. So the eager-v5
+    # plan (``ddp_broadcast_buffers=True``) stays behavior-preserving, a measured
+    # recipe may disable it for a constant-buffer model, and a plan measured on such a
+    # model can never silently disable broadcasting for a future model that needs it.
+    broadcast_buffers = plan.ddp_broadcast_buffers or _model_requires_buffer_broadcast(
         model,
-        device_ids=[distributed.local_rank],
-        output_device=distributed.local_rank,
+    )
+    return wrap_fastpath_ddp(
+        model,
+        local_rank=distributed.local_rank,
         static_graph=plan.ddp_static_graph,
         gradient_as_bucket_view=plan.ddp_gradient_as_bucket_view,
+        broadcast_buffers=broadcast_buffers,
+        find_unused_parameters=plan.ddp_find_unused_parameters,
+        bucket_cap_mb=plan.ddp_bucket_cap_mb,
     )
 
 
@@ -4391,7 +4442,7 @@ def _checkpoint_resume_proof(  # noqa: PLR0913
         model_config={"norm_groups": settings.norm_groups},
     )
     model = _place_model(model=model, plan=plan, device=distributed.device)
-    optimizer, _ = create_adamw_optimizer(model, config=settings.optimizer_config)
+    optimizer = build_fastpath_optimizer(model, config=settings.optimizer_config)
     numpy_generator = np.random.default_rng(settings.global_seed)
     probe_scaler = GradScaler(
         "cuda",
@@ -5853,6 +5904,7 @@ def _optimizer_config(
     effective_config: JsonObject,
     *,
     global_batch_size: int,
+    fused: bool = False,
 ) -> SpecAdamWConfig:
     optimizer = _required_object(effective_config, "optimizer")
     betas = _required_float_list(optimizer, "betas", expected_len=2)
@@ -5883,6 +5935,7 @@ def _optimizer_config(
             ),
             "lr_multiplier",
         ),
+        fused=fused,
     )
 
 

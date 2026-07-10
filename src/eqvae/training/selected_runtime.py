@@ -71,9 +71,13 @@ class SelectedRuntimePlan:
     # parse byte-identically to the eager recipe. Frozen carrier homes mirror
     # `_plan_from_payload`: the dynamo/inductor knobs live in the `torch_compile`
     # block, the DDP/optimizer knobs beside the existing `ddp_*` fields in
-    # `runtime_policy`. Nothing consumes these yet -- the runner applies+observes
-    # them in S15, and the literal value-validators that would *accept* a compiled
-    # plan (`_torch_compile_errors`/`_runtime_policy_errors`) are de-pinned later.
+    # `runtime_policy`. Spec 0011 S15 wires the runner to *apply* the DDP-wrap and
+    # fused-optimizer knobs via `training.fastpath_recipe`; the plan-applied
+    # observation mirror for them is a scoped follow-up (the structural
+    # `broadcast_buffers` override may legitimately diverge the effective value from
+    # the plan, so a naive `observed == plan` mirror would false-flag it). The literal
+    # value-validators that would *accept* a compiled plan
+    # (`_torch_compile_errors`/`_runtime_policy_errors`) are de-pinned later.
     compile_backend: str = "eager"
     compile_dynamic: bool = False
     optimize_ddp: str = ""

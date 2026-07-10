@@ -153,8 +153,8 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
 - Current status pointer (2026-07-10): Spec 0009's frozen schedule is SUPERSEDED by
   Spec 0010 (fixed-25 protocol, committed) and Spec 0011 (reusable goal-derived
   runtime + compiled fast-path, ACTIVE). Spec 0011 makes batch/LR/schedule a reusable
-  per-(model × hardware) search-then-run mechanism; steps S1–S13 are done and committed
-  local-only (HEAD `8e14650`), and the next local step is S15. This GOAL file states the
+  per-(model × hardware) search-then-run mechanism; steps S1–S15 are done and committed
+  local-only, and the next local step is S16. This GOAL file states the
   north star, not the frontier — for current status and the next step always read
   `CURRENT.md` and
   `docs/specs/0011-reusable-goal-derived-runtime-and-compiled-fastpath.md`.
