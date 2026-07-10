@@ -1,6 +1,6 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) DONE committed through `8e14650`; Phase 3 S15+S16 DONE (local-only)
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) DONE committed through `8e14650`; Phase 3 S15 (`357ada6`) + S16 (`3298a57`) DONE (local-only)
 Implementation readiness: Phase 3 COMPLETE (local); Kaggle phases S14/S17/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
 Last updated: 2026-07-10 (S16 done; NEXT = Kaggle S14/S17/S19 + LR-finder). The per-step `(DONE — …)` tags in the body are the state of record.
@@ -467,7 +467,7 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   reconciled here). +7 tests, each mutation-proof via a `wrap_fastpath_ddp` spy (structural rule
   3-case; DDP-wrap eager behavior-preserving + distinguishing knobs + structural-override +
   single-process passthrough; fused threading ×2).
-- **S16 (DONE — this commit, local-only) Runner compiled whole-step path + drop_last flip
+- **S16 (DONE — `3298a57`, local-only) Runner compiled whole-step path + drop_last flip
   + dynamo wire.** `_maybe_build_compiled_step` (main wiring, over the DDP-wrapped model)
   returns `None` on the eager v5 plan (`torch_compile_enabled` False / scope `"none"`) so
   the eager `_run_train_step` is byte-identical; when `plan.torch_compile_enabled AND

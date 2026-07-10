@@ -111,7 +111,7 @@ match the old omitted-kwarg wrap; `fused=False → None`). Deferred (noted in
 `selected_runtime.py`): the plan-applied observation mirror (the structural override would
 false-flag a naive `observed == plan` check) and the dynamo config (inert without compile →
 S16). Gate 431 passed (424+7), basedpyright/ruff clean; 6-lens adversarial review → 0
-confirmed. **S16 (local-only, COMMIT PROPOSED — awaiting approval):** the runner now has the
+confirmed. **S16 (`3298a57`, local-only):** the runner now has the
 plan-gated compiled whole-step path. `_maybe_build_compiled_step` (main wiring, over the
 DDP-wrapped model) returns `None` on the eager v5 plan (`torch_compile_enabled` False, scope
 `"none"`) so the eager `_run_train_step` is byte-identical; when
