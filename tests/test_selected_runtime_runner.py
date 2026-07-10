@@ -289,10 +289,17 @@ def test_selected_runtime_runner_consumes_fixed_train_selector(
     assert debug_summary["fixed_train_patch_count"] == FIXED_32_TRAIN_OVERFIT_COUNT
 
 
-def test_selected_runtime_runner_sizes_eps_from_partial_batch(
+def test_selected_runtime_runner_drops_tail_batch_under_drop_last(
     tmp_path: Path,
 ) -> None:
-    """Fixed-32 debug proof handles the final 8-sample batch under bs12."""
+    """Spec 0011 S16 drop_last=True yields only full bs12 batches from the selector.
+
+    Before the flip the fixed-32 selector under bs12 produced a ``12, 12, 8`` cycle;
+    the ``drop_last=True`` flip drops the size-8 tail so every batch is full (the
+    static shape the compiled step needs). The realized-batch eps sizing this
+    integration test used to exercise is now covered directly by
+    ``test_train_eps_sizes_from_realized_batch``.
+    """
     config_path = _runner_config(tmp_path)
     runtime_config = _runtime_config(tmp_path)
     data_root = _synthetic_ubc_root(tmp_path / "ubc-root")
@@ -333,7 +340,7 @@ def test_selected_runtime_runner_sizes_eps_from_partial_batch(
 
     assert summary["optimizer_steps_completed"] == PARTIAL_BATCH_TRAIN_STEPS
     assert summary["fixed_train_patch_count"] == FIXED_32_TRAIN_OVERFIT_COUNT
-    assert [row["batch_size"] for row in train_rows] == ["12", "12", "8"]
+    assert [row["batch_size"] for row in train_rows] == ["12", "12", "12"]
 
 
 def test_fixed_selector_full_batch_indices_pad_ddp_tiny_batches() -> None:

@@ -1,9 +1,9 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) DONE committed through `8e14650`; Phase 3 S15 DONE (`357ada6`, local-only)
-Implementation readiness: Phase 3 S16 local, implementation-ready; Kaggle phases S14/S17/S19 gated (user-driven)
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) DONE committed through `8e14650`; Phase 3 S15+S16 DONE (local-only)
+Implementation readiness: Phase 3 COMPLETE (local); Kaggle phases S14/S17/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-10 (S15 done; NEXT = S16). The per-step `(DONE — …)` tags in the body are the state of record.
+Last updated: 2026-07-10 (S16 done; NEXT = Kaggle S14/S17/S19 + LR-finder). The per-step `(DONE — …)` tags in the body are the state of record.
 
 ## Purpose
 
@@ -467,17 +467,40 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   reconciled here). +7 tests, each mutation-proof via a `wrap_fastpath_ddp` spy (structural rule
   3-case; DDP-wrap eager behavior-preserving + distinguishing knobs + structural-override +
   single-process passthrough; fused threading ×2).
-- **S16** Compiled step (`torch.compile(step, dynamic=False)` when `plan.compile_scope=='step'`)
-  with train-only inline corruption (drop blake2b on train; keep it on
-  validation/deterministic). **Flip the shared `_loader` to `drop_last=True`** for BOTH
-  train and validation (currently `False` — a real change, not a keep; user decision:
-  1 dropped step/epoch is meaningless, and validation is a capped relative probe whose
-  `sum(l1*n)/sum(n)` reduction stays correct with even shards). The real payoff is
-  avoiding a short tail batch that would recompile the `dynamic=False` step — the DDP
-  path stays symmetric either way (the sampler pads ranks equally, so no desync).
-  Correctness comes from `updates_per_epoch = floor(P/G)` single-sourced (Phase 1), so
-  the static batch dim needs no padding. Eager `_run_train_step` retained when compile
-  is off. (100% coverage is the future test evaluator's job, not these loops.)
+- **S16 (DONE — this commit, local-only) Runner compiled whole-step path + drop_last flip
+  + dynamo wire.** `_maybe_build_compiled_step` (main wiring, over the DDP-wrapped model)
+  returns `None` on the eager v5 plan (`torch_compile_enabled` False / scope `"none"`) so
+  the eager `_run_train_step` is byte-identical; when `plan.torch_compile_enabled AND
+  compile_scope=='step'` it sets the dynamo config (`apply_fastpath_dynamo_config`, the
+  S15-deferred wire), builds the SAME `make_fastpath_step_fn` closure the probe measured
+  (`InlineStainCorruptor` train-only inline blake2b-free corruption + AMP forward + FP32
+  loss island; `autocast_enabled=amp.enabled` matches the eager path's gating — new shared
+  `make_fastpath_step_fn` kwarg, probe byte-identical at its default `True`), and
+  `torch.compile(step, dynamic=False, backend=plan.compile_backend)`. `_run_compiled_train_step`
+  drives it: backward/GradScaler/clip/optimizer stay eager (backward inside a shared
+  `compiled_autograd_context` extracted into `fastpath_recipe.py`, probe repointed), telemetry
+  reconstructed field-by-field to match the eager `_SelectedRuntimeStepResult`. The compiled
+  path is exercised only via directly-constructed plans in tests (the parser still REJECTS a
+  compiled plan → S17 acceptance de-pin + observation mirror + corruption-label accuracy are
+  DEFERRED). **drop_last flip:** the shared `_loader` computes `drop_last` via a new
+  `_safe_drop_last` guard (True for the flip; falls back to False only when a per-rank shard
+  would be smaller than one batch, so a degenerate shard can never silently empty
+  `_cycle_batches` → hang); applied to BOTH the `DistributedSampler` and the `DataLoader`.
+  Honest provenance: the DDP sampler-policy label (`_DEFAULT_DDP_SAMPLER_POLICY` →
+  `..._drop_last_true`, `_DDP_SAMPLER_POLICY_NO_DROP_LAST` added) and
+  `_effective_train_epoch_samples` (floor if drop_last else ceil) both track the realized
+  `_safe_drop_last` decision, not a hardcoded True. Behavior-preserving @ bs24 (train divides
+  evenly, no tail; validation's leading batches full; floor==ceil). Gate 441 (was 431),
+  basedpyright/ruff clean. Adversarial Workflow review (6 lenses → 3 findings, all
+  mutation-backed; 4 lenses [behavior-preservation, recipe-fidelity, step-correctness,
+  probe-repoint] ZERO): 2 test-coverage gaps + 1 honesty-label decoupling — all fixed and
+  re-mutation-proven (kl mis-map, autocast-hardcode, sampler-label-hardcode each caught by
+  its guarding test). GOTCHA for next agent: the review Workflow ran in the NON-isolated
+  working tree and LEFT one mutation (`ssim_weight=0.0, autocast_enabled=True`) in the source
+  — audited the whole diff + reverted; use `isolation:'worktree'` OR forbid source edits in
+  future review workflows (a worktree sees only committed state, so it can't review
+  uncommitted work — forbid-edits is the tool for uncommitted diffs). Eager `_run_train_step`
+  retained when compile off. (100% coverage is the future test evaluator's job, not these loops.)
 
 ### Phase 4 — Activate (values flip) + full run
 

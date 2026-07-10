@@ -61,7 +61,6 @@ CPU-testable; the GPU/NCCL core is skipped on CPU.
 from __future__ import annotations
 
 import argparse
-import contextlib
 import gc
 import hashlib
 import os
@@ -75,7 +74,6 @@ import torch
 import torch._dynamo as torch_dynamo  # noqa: PLC2701
 import torch.distributed as dist
 from torch import Tensor, nn
-from torch._dynamo import compiled_autograd  # noqa: PLC2701
 from torch._dynamo.utils import counters  # noqa: PLC2701
 from torch.amp.grad_scaler import GradScaler
 
@@ -87,6 +85,7 @@ from eqvae.training.ddp_sync_guard import assert_ddp_parameters_in_sync
 from eqvae.training.fastpath_recipe import (
     apply_fastpath_dynamo_config,
     build_fastpath_optimizer,
+    compiled_autograd_context,
     wrap_fastpath_ddp,
 )
 from eqvae.training.fastpath_step import make_fastpath_step_fn
@@ -94,7 +93,6 @@ from eqvae.training.optim import SpecAdamWConfig
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
-    from contextlib import AbstractContextManager
 
     from torch.nn.parallel import DistributedDataParallel
 
@@ -1081,23 +1079,6 @@ def _latent_eps_shape(model: NonEquivariantVAE, x_clean: Tensor) -> torch.Size:
     return mu.shape
 
 
-def _autograd_context(
-    *,
-    compiled_autograd_enabled: bool,
-) -> AbstractContextManager[None]:
-    # Engage compiled autograd around the eager backward so the DDP python-reducer
-    # all-reduce is traced into a compiled backward graph (comm/compute overlap). The
-    # global config flag alone only covers the compiled forward call, so the backward
-    # -- which runs after the compiled step returns -- needs this explicit context.
-    if not compiled_autograd_enabled:
-        return contextlib.nullcontext()
-    compiler = cast("Callable[..., object]", torch.compile)
-    return cast(
-        "AbstractContextManager[None]",
-        compiled_autograd._enable(compiler),  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-    )
-
-
 def _run_optimizer_step(context: _StepContext) -> Tensor:
     eps = torch.randn(
         context.latent_shape,
@@ -1106,7 +1087,7 @@ def _run_optimizer_step(context: _StepContext) -> Tensor:
         dtype=torch.float32,
     )
     context.optimizer.zero_grad(set_to_none=True)
-    with _autograd_context(compiled_autograd_enabled=context.compiled_autograd):
+    with compiled_autograd_context(enabled=context.compiled_autograd):
         output = context.step_fn(context.x_clean, eps, context.beta)
         loss = output.loss
         cast("Callable[[], None]", context.scaler.scale(loss).backward)()

@@ -154,7 +154,8 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   Spec 0010 (fixed-25 protocol, committed) and Spec 0011 (reusable goal-derived
   runtime + compiled fast-path, ACTIVE). Spec 0011 makes batch/LR/schedule a reusable
   per-(model × hardware) search-then-run mechanism; steps S1–S15 are done and committed
-  local-only, and the next local step is S16. This GOAL file states the
-  north star, not the frontier — for current status and the next step always read
+  local-only, and S16 (the last local step, completing Phase 3) is done local-only with
+  its commit proposed — the remaining steps are Kaggle-only and user-driven. This GOAL
+  file states the north star, not the frontier — for current status and the next step read
   `CURRENT.md` and
   `docs/specs/0011-reusable-goal-derived-runtime-and-compiled-fastpath.md`.

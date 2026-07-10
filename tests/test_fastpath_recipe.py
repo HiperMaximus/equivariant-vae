@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import math
 from typing import TYPE_CHECKING, cast
 
@@ -14,6 +15,7 @@ from eqvae.training import fastpath_recipe
 from eqvae.training.fastpath_recipe import (
     apply_fastpath_dynamo_config,
     build_fastpath_optimizer,
+    compiled_autograd_context,
     wrap_fastpath_ddp,
 )
 from eqvae.training.optim import SpecAdamWConfig
@@ -126,3 +128,25 @@ def test_wrap_fastpath_ddp_forwards_every_recipe_knob_to_ddp(
         "find_unused_parameters": False,
         "bucket_cap_mb": 25,
     }
+
+
+def test_compiled_autograd_context_is_a_noop_when_disabled() -> None:
+    """A recipe without compiled autograd pays nothing (Spec 0011 S16).
+
+    The ``ddp_optimizer`` winner pairs with ``compiled_autograd=False``, so the runner's
+    eager backward must run under a plain no-op context.
+    """
+    ctx = compiled_autograd_context(enabled=False)
+
+    assert isinstance(ctx, contextlib.nullcontext)
+    with ctx:
+        pass
+
+
+def test_compiled_autograd_context_engages_when_enabled() -> None:
+    """When enabled the context is a real (non-no-op) compiled-autograd scope."""
+    ctx = compiled_autograd_context(enabled=True)
+
+    assert not isinstance(ctx, contextlib.nullcontext)
+    with ctx:
+        pass

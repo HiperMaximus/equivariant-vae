@@ -52,6 +52,7 @@ from eqvae.checkpointing import (
     validate_checkpoint_resume_metadata,
 )
 from eqvae.config import ResolvedConfig, resolve_json_config
+from eqvae.corruption.inline_stain import InlineStainCorruptor
 from eqvae.corruption.stain import (
     StainCorruptionProfile,
     clean_validation_passthrough,
@@ -93,7 +94,13 @@ from eqvae.models.non_equivariant_vae import (
 )
 from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
 from eqvae.training.ddp_sync_guard import assert_ddp_parameters_in_sync
-from eqvae.training.fastpath_recipe import build_fastpath_optimizer, wrap_fastpath_ddp
+from eqvae.training.fastpath_recipe import (
+    apply_fastpath_dynamo_config,
+    build_fastpath_optimizer,
+    compiled_autograd_context,
+    wrap_fastpath_ddp,
+)
+from eqvae.training.fastpath_step import make_fastpath_step_fn
 from eqvae.training.optim import (
     BatchLrScaling,
     SpecAdamWConfig,
@@ -116,6 +123,15 @@ if TYPE_CHECKING:
     from numpy.random import Generator
 
     from eqvae.benchmarking.io import CsvRow, JsonObject, JsonValue
+    from eqvae.training.fastpath_step import FastpathStepOutput
+
+    # The compiled whole-step closure the runner consumes (Spec 0011 S16): it takes the
+    # clean normalized batch, per-rank eps, and the 0-dim beta tensor, and returns the
+    # grad-attached loss plus detached telemetry, matching the probe's compiled step.
+    CompiledStepFn = Callable[
+        [torch.Tensor, torch.Tensor, torch.Tensor],
+        FastpathStepOutput,
+    ]
 
 
 _BENCHMARK_KIND = "kaggle_selected_runtime_real_ubc_runner"
@@ -124,6 +140,10 @@ _STATUS_SCOPE = "local_selected_runtime_runner"
 _LOCAL_STATUS = "local_pass"
 _FAIL = "fail"
 _TRAIN_CORRUPTION_VIEW = "train_corrupted"
+# The plan `compile_scope` token that selects the compiled whole-step fast path (Spec
+# 0011 S16). Matches the probe's `_COMPILE_SCOPE_STEP` and the plan token the generator
+# copies verbatim; the runner compiles the step only for this scope.
+_COMPILE_SCOPE_STEP = "step"
 _GATE_LOW_SATURATION_THRESHOLD = 0.01
 _GATE_HIGH_SATURATION_THRESHOLD = 0.99
 _TINY_MAX_OPTIMIZER_STEPS = 128
@@ -142,8 +162,10 @@ _FULL_EPOCHS = 10
 _FULL_VALIDATION_BATCHES_PER_VIEW = 20
 _FULL_VALIDATION_VIEWS = ("clean", "deterministic_denoising")
 # best_model.pt is selected on the paper-relevant denoising view (FU-008), never
-# the easier clean view, and across ranks with a sample-weighted reduction because
-# DDP validation shards are uneven under drop_last=False.
+# the easier clean view, and across ranks with a sample-weighted reduction so it stays
+# correct whether DDP validation shards are even (the Spec 0011 S16 drop_last=True flip)
+# or uneven (the `_safe_drop_last` guard keeps drop_last=False when a small shard would
+# otherwise empty a rank's loader).
 _CHECKPOINT_SELECTION_VIEW = "deterministic_denoising"
 _CHECKPOINT_SELECTION_REDUCTION = "cross_rank_sample_weighted_l1"
 # When no validation boundary selected a best (e.g. a dry run shorter than one
@@ -165,7 +187,12 @@ _FULL_DETERMINISTIC_EPS_ALLOWED_FOR = (
 _FULL_INTERVAL_CHECKPOINT_KEEP_COUNT = 4
 SELECTED_RUNTIME_AMP_GRAD_SCALER_INIT_SCALE = EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE
 _DEFAULT_SEQUENTIAL_SAMPLER_POLICY = "sequential_sampler"
-_DEFAULT_DDP_SAMPLER_POLICY = "distributed_sampler_shuffle_false_drop_last_false"
+# The DDP sampler-policy label tracks the drop_last the loader ACTUALLY built (Spec 0011
+# S16): the flip makes it "..._true" on every planned run, but the `_safe_drop_last`
+# guard falls back to `drop_last=False` (padding, keeping the tail) when a per-rank
+# shard is smaller than one batch, so the emitted proof must not claim "true" then.
+_DEFAULT_DDP_SAMPLER_POLICY = "distributed_sampler_shuffle_false_drop_last_true"
+_DDP_SAMPLER_POLICY_NO_DROP_LAST = "distributed_sampler_shuffle_false_drop_last_false"
 _FIXED32_TINY_FULL_BATCH_SAMPLER_POLICY = "fixed32_tiny_full_batch_repeated"
 _SUPPORTED_DATA = frozenset({"synthetic", "ubc-pre-shuffled"})
 _TRAIN_STEP_COLUMNS = (
@@ -1036,6 +1063,16 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
         distributed=distributed,
         plan=plan,
     )
+    # Build the compiled whole-step closure once, over the wrapped model, when the plan
+    # selects the step fast path (Spec 0011 S16); None on the eager v5 plan keeps the
+    # eager `_run_train_step`.
+    compiled_step_fn = _maybe_build_compiled_step(
+        model=wrapped_model,
+        plan=plan,
+        settings=settings,
+        amp=amp,
+        device=distributed.device,
+    )
     write_artifacts = _is_primary_rank(distributed)
     fixed25 = _prepare_fixed25_runtime(
         request=request,
@@ -1053,6 +1090,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
         plan=plan,
         model=wrapped_model,
         checkpoint_model=model,
+        compiled_step_fn=compiled_step_fn,
         latent_channels=latent_channels,
         optimizer=optimizer,
         scaler=scaler,
@@ -2582,6 +2620,40 @@ def _validated_fixed_train_row_indices(
     return tuple(row_indices)
 
 
+def _safe_drop_last(
+    *,
+    dataset_size: int,
+    batch_size: int,
+    distributed: _DistributedContext,
+    full_batch_repeated: bool,
+) -> bool:
+    """Return ``drop_last``, disabling it only when it would empty a rank's loader.
+
+    Spec 0011 S16 flips the shared loader to ``drop_last=True``: the compiled
+    ``dynamic=False`` train step needs a static batch shape (a short tail batch would
+    force a recompile), and validation is a capped relative probe whose sample-weighted
+    reduction stays correct with even shards. This guard keeps the flip from silently
+    emptying a loader -- which would hang ``_cycle_batches``'s ``while True: yield from
+    loader`` forever -- when a (per-rank) shard holds fewer than one full batch. It
+    never fires on a planned run (the train shard is the full patch set; validation is
+    at least one global batch), only on a degenerate tiny shard.
+
+    Returns:
+        Whether the loader should drop its last incomplete batch.
+
+    """
+    if full_batch_repeated:
+        # The fixed-selector sampler pads indices to whole batches, so dropping the last
+        # batch removes nothing.
+        return True
+    per_rank = (
+        dataset_size // distributed.world_size
+        if distributed.should_use_ddp
+        else dataset_size
+    )
+    return per_rank >= batch_size
+
+
 def _loader(
     *,
     dataset: PatchTrainingDataset | _SelectedPatchTrainingDataset,
@@ -2590,6 +2662,12 @@ def _loader(
     distributed: _DistributedContext,
     full_batch_repeated: bool,
 ) -> DataLoader[PatchTrainingBatch]:
+    drop_last = _safe_drop_last(
+        dataset_size=len(dataset),
+        batch_size=batch_size,
+        distributed=distributed,
+        full_batch_repeated=full_batch_repeated,
+    )
     sampler: Sampler[int]
     if full_batch_repeated:
         sampler = cast(
@@ -2609,7 +2687,7 @@ def _loader(
                 num_replicas=distributed.world_size,
                 rank=distributed.rank,
                 shuffle=False,
-                drop_last=False,
+                drop_last=drop_last,
             ),
         )
     else:
@@ -2626,7 +2704,7 @@ def _loader(
         pin_memory=plan.dataloader_pin_memory,
         persistent_workers=plan.dataloader_persistent_workers,
         collate_fn=collate_patch_training_samples,
-        drop_last=False,
+        drop_last=drop_last,
     )
     return cast("DataLoader[PatchTrainingBatch]", loader)
 
@@ -2654,6 +2732,15 @@ def _train_sampler_plan(
         settings=settings,
         fixed_train_patch_count=fixed_train_patch_count,
     )
+    # The realized drop_last the loader will build (Spec 0011 S16); the policy label and
+    # the effective epoch-sample count both derive from THIS so the emitted proof always
+    # matches the sampler that actually ran (never a hardcoded "drop_last=True").
+    drop_last = _safe_drop_last(
+        dataset_size=dataset_size,
+        batch_size=batch_size,
+        distributed=distributed,
+        full_batch_repeated=full_batch_repeated,
+    )
     (
         effective_global_epoch_samples,
         effective_per_rank_epoch_samples,
@@ -2662,11 +2749,13 @@ def _train_sampler_plan(
         batch_size=batch_size,
         distributed=distributed,
         full_batch_repeated=full_batch_repeated,
+        drop_last=drop_last,
     )
     return _TrainSamplerPlan(
         policy=_train_sampler_policy(
             distributed=distributed,
             full_batch_repeated=full_batch_repeated,
+            drop_last=drop_last,
         ),
         full_batch_repeated=full_batch_repeated,
         effective_global_epoch_samples=effective_global_epoch_samples,
@@ -2678,11 +2767,16 @@ def _train_sampler_policy(
     *,
     distributed: _DistributedContext,
     full_batch_repeated: bool,
+    drop_last: bool,
 ) -> str:
     if full_batch_repeated:
         return _FIXED32_TINY_FULL_BATCH_SAMPLER_POLICY
     if distributed.should_use_ddp:
-        return _DEFAULT_DDP_SAMPLER_POLICY
+        return (
+            _DEFAULT_DDP_SAMPLER_POLICY
+            if drop_last
+            else _DDP_SAMPLER_POLICY_NO_DROP_LAST
+        )
     return _DEFAULT_SEQUENTIAL_SAMPLER_POLICY
 
 
@@ -2692,6 +2786,7 @@ def _effective_train_epoch_samples(
     batch_size: int,
     distributed: _DistributedContext,
     full_batch_repeated: bool,
+    drop_last: bool,
 ) -> tuple[int, int]:
     world_size = distributed.world_size if distributed.should_use_ddp else 1
     if full_batch_repeated:
@@ -2705,7 +2800,16 @@ def _effective_train_epoch_samples(
         )
         return per_rank * world_size, per_rank
     if distributed.should_use_ddp:
-        per_rank = math.ceil(dataset_size / world_size)
+        # Match the realized DistributedSampler (Spec 0011 S16): drop_last=True yields
+        # floor(dataset_size / world_size) per rank (dropping the remainder), while the
+        # `_safe_drop_last` fallback (drop_last=False) pads to ceil(dataset_size /
+        # world_size). Exact at every planned batch (24/48/96 all divide the 300k train
+        # set, so floor == ceil); honest for a future non-dividing eq-model batch.
+        per_rank = (
+            dataset_size // world_size
+            if drop_last
+            else math.ceil(dataset_size / world_size)
+        )
         return per_rank * world_size, per_rank
     return dataset_size, dataset_size
 
@@ -2794,6 +2898,52 @@ def _maybe_wrap_ddp(
     )
 
 
+def _maybe_build_compiled_step(
+    *,
+    model: nn.Module,
+    plan: SelectedRuntimePlan,
+    settings: _RunnerSettings,
+    amp: _AmpExecution,
+    device: torch.device,
+) -> CompiledStepFn | None:
+    """Build the compiled whole-step closure when the plan selects the step fast path.
+
+    Returns ``None`` on the eager v5 plan (``torch_compile_enabled`` False, scope
+    ``"none"``) so the runner keeps the eager ``_run_train_step`` -- the behavior-
+    preserving default. When the plan selects ``compile_scope == "step"`` this sets the
+    process-global dynamo/inductor knobs and compiles the SAME ``make_fastpath_step_fn``
+    closure the probe measured (inline blake2b-free corruption fused into the graph, the
+    AMP forward, and the FP32 loss island), so a measured throughput/VRAM number
+    transfers to the real run. ``model`` is the wrapped (DDP or raw) model, invoked via
+    ``__call__`` inside the closure so DDP / compiled-autograd hooks fire; the dynamo
+    config takes effect only under this compile (inert on the eager path).
+
+    Returns:
+        The compiled step closure, or ``None`` when compile is off.
+
+    """
+    if not (plan.torch_compile_enabled and plan.compile_scope == _COMPILE_SCOPE_STEP):
+        return None
+    apply_fastpath_dynamo_config(
+        optimize_ddp=plan.optimize_ddp,
+        compiled_autograd=plan.compiled_autograd,
+        reorder_compute_comm_overlap=plan.reorder_compute_comm_overlap,
+    )
+    corruptor = InlineStainCorruptor(settings.corruption_profile).to(device=device)
+    step_fn = make_fastpath_step_fn(
+        model,
+        corruptor,
+        ssim_weight=settings.ssim_weight,
+        autocast_dtype=_autocast_dtype(plan.autocast_dtype),
+        autocast_enabled=amp.enabled,
+    )
+    return torch.compile(  # pyright: ignore[reportUnknownMemberType]
+        step_fn,
+        dynamic=False,
+        backend=plan.compile_backend,
+    )
+
+
 def _amp_execution(
     *,
     plan: SelectedRuntimePlan,
@@ -2854,7 +3004,7 @@ def _restore_checkpoint_if_requested(  # noqa: PLR0913
     )
 
 
-def _run_train_steps(  # noqa: C901, PLR0913, PLR0914, PLR0915
+def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
     *,
     request: SelectedRuntimeTrainRequest,
     resolved: ResolvedConfig,
@@ -2877,6 +3027,7 @@ def _run_train_steps(  # noqa: C901, PLR0913, PLR0914, PLR0915
     write_checkpoints: bool,
     interval_flush: _IntervalFlushContext | None,
     fixed25: _Fixed25Runtime | None = None,
+    compiled_step_fn: CompiledStepFn | None = None,
 ) -> _TrainLoopResult:
     rows: list[CsvRow] = []
     validation_rows: list[CsvRow] = []
@@ -2915,20 +3066,37 @@ def _run_train_steps(  # noqa: C901, PLR0913, PLR0914, PLR0915
             )
             raise RuntimeError(message)
         batch = next(train_batches)
-        result = _run_train_step(
-            model=model,
-            latent_channels=latent_channels,
-            optimizer=optimizer,
-            scaler=scaler,
-            settings=settings,
-            plan=plan,
-            amp=amp,
-            batch=batch,
-            optimizer_step_index=successful_count,
-            successful_optimizer_update_count=successful_count + 1,
-            train_generator=train_generator,
-            device=distributed.device,
-        )
+        if compiled_step_fn is not None:
+            result = _run_compiled_train_step(
+                compiled_step_fn=compiled_step_fn,
+                model=model,
+                latent_channels=latent_channels,
+                optimizer=optimizer,
+                scaler=scaler,
+                settings=settings,
+                plan=plan,
+                amp=amp,
+                batch=batch,
+                optimizer_step_index=successful_count,
+                successful_optimizer_update_count=successful_count + 1,
+                train_generator=train_generator,
+                device=distributed.device,
+            )
+        else:
+            result = _run_train_step(
+                model=model,
+                latent_channels=latent_channels,
+                optimizer=optimizer,
+                scaler=scaler,
+                settings=settings,
+                plan=plan,
+                amp=amp,
+                batch=batch,
+                optimizer_step_index=successful_count,
+                successful_optimizer_update_count=successful_count + 1,
+                train_generator=train_generator,
+                device=distributed.device,
+            )
         last_result = result
         # The AMP-skip decision gates the half-epoch boundary block, which runs
         # collectives (the FU-008 validation-selection all-gather, interval-flush
@@ -4019,6 +4187,116 @@ def _run_train_step(  # noqa: PLR0913, PLR0914
     )
 
 
+def _run_compiled_train_step(  # noqa: PLR0913
+    *,
+    compiled_step_fn: CompiledStepFn,
+    model: nn.Module,
+    latent_channels: int,
+    optimizer: torch.optim.Optimizer,
+    scaler: GradScaler,
+    settings: _RunnerSettings,
+    plan: SelectedRuntimePlan,
+    amp: _AmpExecution,
+    batch: PatchTrainingBatch,
+    optimizer_step_index: int,
+    successful_optimizer_update_count: int,
+    train_generator: torch.Generator,
+    device: torch.device,
+) -> _SelectedRuntimeStepResult:
+    # The compiled step fuses inline (blake2b-free) corruption + the AMP forward + the
+    # FP32 loss island into one graph; backward, GradScaler, gradient clipping, and the
+    # optimizer step stay eager here, exactly as the probe measures the recipe. Only the
+    # clean batch crosses the host boundary -- corruption runs on-device in the graph
+    # (train-only inline corruption; validation/deterministic paths keep blake2b).
+    clean_batch = _to_device(
+        normalize_uint8_batch(batch.images_uint8),
+        device=device,
+        plan=plan,
+    )
+    eps, eps_proof = _train_eps(
+        batch_size=clean_batch.shape[0],
+        latent_channels=latent_channels,
+        settings=settings,
+        train_generator=train_generator,
+        device=device,
+    )
+    beta_value = beta_for_step(
+        optimizer_step_index=optimizer_step_index,
+        max_optimizer_steps=settings.max_train_steps,
+        target_beta=settings.beta_target,
+        warmup_fraction=settings.beta_warmup_fraction,
+    )
+    # beta crosses the compiled graph boundary as a 0-dim tensor so the warmup schedule
+    # changing its value never forces a ``dynamic=False`` recompile.
+    beta = torch.tensor(beta_value, dtype=torch.float32, device=device)
+    optimizer.zero_grad(set_to_none=plan.zero_grad_set_to_none)
+    before_params = _clone_trainable_parameters(model)
+    old_scale = float(scaler.get_scale()) if amp.grad_scaler_enabled else 1.0
+    with compiled_autograd_context(enabled=plan.compiled_autograd):
+        output = compiled_step_fn(clean_batch, eps, beta)
+        if amp.grad_scaler_enabled:
+            scaled_backward = cast(
+                "Callable[[], None]",
+                scaler.scale(output.loss).backward,
+            )
+            scaled_backward()
+        else:
+            backward = cast("Callable[[], None]", output.loss.backward)
+            backward()
+    if amp.grad_scaler_enabled:
+        scaler.unscale_(optimizer)
+    nonfinite_count = _nonfinite_gradient_count(model)
+    grad_norm = _global_grad_norm(model)
+    if settings.optimizer_config.gradient_clip_global_norm > 0.0:
+        nn.utils.clip_grad_norm_(
+            list(model.parameters()),
+            max_norm=settings.optimizer_config.gradient_clip_global_norm,
+            foreach=True,
+        )
+    if amp.grad_scaler_enabled:
+        scaler.step(optimizer)
+        scaler.update()
+        amp_step_skipped = float(scaler.get_scale()) < old_scale
+    else:
+        optimizer.step()
+        amp_step_skipped = False
+    recon_stats = _reconstruction_output_stats(output.reconstruction)
+    losses = VaeLossComponents(
+        loss=output.loss,
+        recon_loss=output.recon_loss,
+        l1_loss=output.l1_loss,
+        ssim_loss=output.ssim_loss,
+        ssim_metric=output.ssim_metric,
+        kl_loss=output.kl_loss,
+        beta=beta_value,
+    )
+    return _SelectedRuntimeStepResult(
+        optimizer_step_index=optimizer_step_index,
+        successful_optimizer_update_count=(
+            optimizer_step_index
+            if amp_step_skipped
+            else successful_optimizer_update_count
+        ),
+        losses=losses,
+        grad_norm=grad_norm,
+        param_update_norm=_parameter_update_norm(model, before_params),
+        nonfinite_count=nonfinite_count,
+        batch_size=clean_batch.shape[0],
+        amp_step_skipped=amp_step_skipped,
+        zero_grad_set_to_none=plan.zero_grad_set_to_none,
+        train_reparameterization=settings.train_reparameterization,
+        eps_policy=eps_proof.eps_policy,
+        eps_seed_source=eps_proof.eps_seed_source,
+        eps_zero_fraction=eps_proof.eps_zero_fraction,
+        eps_abs_mean=eps_proof.eps_abs_mean,
+        recon_output_rms=recon_stats.recon_output_rms,
+        x_hat_min=recon_stats.x_hat_min,
+        x_hat_max=recon_stats.x_hat_max,
+        frac_x_hat_lt_minus1=recon_stats.frac_x_hat_lt_minus1,
+        frac_x_hat_gt_1=recon_stats.frac_x_hat_gt_1,
+    )
+
+
 def _to_device(
     tensor: torch.Tensor,
     *,
@@ -4266,10 +4544,12 @@ def _boundary_selection_metric(
 
     ``best_model.pt`` must be selected on the paper-relevant
     ``deterministic_denoising`` view (not the easier ``clean`` view) and on the
-    GLOBAL validation set. DDP validation shards are uneven under
-    ``drop_last=False``, so we all-reduce ``sum(l1 * n)`` and ``sum(n)`` for the
-    selection view across ranks and divide, rather than averaging rank-0's local
-    shard or averaging per-view/per-rank means. The caller invokes this inside the
+    GLOBAL validation set. DDP validation shards can differ in sample count across
+    ranks (even under the Spec 0011 S16 ``drop_last=True`` flip, the ``_safe_drop_last``
+    guard falls back to ``drop_last=False`` for a small shard, leaving them uneven), so
+    we all-reduce ``sum(l1 * n)`` and ``sum(n)`` for the selection view across ranks and
+    divide, rather than averaging rank-0's local shard or averaging per-view/per-rank
+    means. The caller invokes this inside the
     half-epoch boundary block, which every rank enters together because
     ``_synchronized_amp_step_skipped`` forces the ranks to agree on
     ``scheduled_validation_due``; the gathered metric is therefore identical on all

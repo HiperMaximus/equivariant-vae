@@ -44,6 +44,7 @@ def make_fastpath_step_fn(
     *,
     ssim_weight: float,
     autocast_dtype: torch.dtype,
+    autocast_enabled: bool = True,
 ) -> Callable[[Tensor, Tensor, Tensor], FastpathStepOutput]:
     """Return the compile-ready `step_fn(x_clean, eps, beta)` closure.
 
@@ -51,6 +52,11 @@ def make_fastpath_step_fn(
     input produced eagerly per rank by the caller. The model is invoked via ``__call__``
     (not ``.forward``) so DDP / compiled-autograd hooks fire; corruption runs branchless
     under its own ``no_grad``; the loss island runs in FP32 outside autocast.
+
+    ``autocast_enabled`` gates the forward autocast so a CPU caller (or any run with AMP
+    off) forwards in plain FP32 -- matching the eager runner path, which gates its own
+    autocast on ``amp.enabled``. The GPU probe (and the real AMP fast path) leaves it at
+    the default ``True``, so the measured compiled graph is unchanged.
 
     Returns:
         The `step_fn` closure returning a `FastpathStepOutput`.
@@ -62,6 +68,7 @@ def make_fastpath_step_fn(
         with torch.autocast(
             device_type=x_clean.device.type,
             dtype=autocast_dtype,
+            enabled=autocast_enabled,
             cache_enabled=False,
         ):
             output = cast("VaeForwardOutput", model(x_in, eps=eps))

@@ -1,7 +1,7 @@
 # Agentic Review Workflow
 
 Status: active workflow
-Last updated: 2026-06-05
+Last updated: 2026-07-10
 
 Use adversarial subagent reviews for important changes where future mistakes
 would be expensive, especially:
@@ -45,6 +45,32 @@ For substantial planning or workflow changes:
 6. Record the outcome.
    - Update `CURRENT.md` when the active state, blockers, or next steps change.
    - Update this workflow if the review process itself changes.
+
+## Code-Review Working-Tree Safety
+
+Reviews that let subagents run or mutation-test code (not just read it) can
+CONTAMINATE the working tree. A subagent that edits a tracked source file to prove
+a point — for example, mutation-testing whether a test catches a bug — and does not
+revert leaves that edit in the tree. When the review targets UNCOMMITTED work this
+is dangerous: the leftover mutation ships in the change under review, and the
+quality gate may not catch it (if the gate reliably caught it, the review would be
+unnecessary — the coverage gap is often the very finding). This actually happened in
+Spec 0011 S16: a review agent left `autocast_enabled=True` in the source and the gate
+passed because the missing coverage was the finding.
+
+Rules for review workflows over uncommitted changes:
+
+- Forbid tracked-source edits in the subagent brief. Have reviewers REASON about
+  mutations ("would test X catch mutation Y?") and report them, not apply them. If a
+  reviewer must actually run a mutation, it does so on a scratch copy, never the
+  tracked file.
+- `git`-worktree isolation does NOT solve this: a fresh worktree is built from the
+  committed `HEAD`, so it cannot see the uncommitted diff under review. Isolation is
+  for parallel agents mutating COMMITTED code, not for reviewing a working diff.
+- After any code-review workflow, audit the source diff hunk-by-hunk against intent
+  before committing, and re-run the mutation checks yourself: read the file, mutate
+  in memory, run the guarding test, restore from the saved string — never
+  `git checkout` uncommitted work.
 
 ## State File Policy
 

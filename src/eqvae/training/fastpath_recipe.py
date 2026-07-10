@@ -20,16 +20,21 @@ them from its own recipe carrier without depending on the other's types.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import contextlib
+from contextlib import AbstractContextManager
+from typing import TYPE_CHECKING, cast
 
+import torch
 import torch._dynamo as torch_dynamo  # noqa: PLC2701
+from torch._dynamo import compiled_autograd  # noqa: PLC2701
 from torch._inductor import config as inductor_config  # noqa: PLC2701
 from torch.nn.parallel import DistributedDataParallel
 
 from eqvae.training.optim import create_adamw_optimizer
 
 if TYPE_CHECKING:
-    import torch
+    from collections.abc import Callable
+
     from torch import nn
 
     from eqvae.training.optim import SpecAdamWConfig
@@ -84,6 +89,33 @@ def apply_fastpath_dynamo_config(
     inductor_config.reorder_for_compute_comm_overlap = reorder_compute_comm_overlap
 
 
+def compiled_autograd_context(*, enabled: bool) -> AbstractContextManager[None]:
+    """Return the eager-backward context that engages compiled autograd for one recipe.
+
+    Compiled autograd traces the eager backward (so the DDP python-reducer all_reduce
+    folds into a compiled backward graph for compute/comm overlap). The process-global
+    ``torch._dynamo.config.compiled_autograd`` flag only covers the compiled forward
+    call; the backward runs after the compiled step returns, so it needs this explicit
+    context. ``enabled=False`` returns a no-op so a recipe that does not use compiled
+    autograd (the measured ``ddp_optimizer`` winner pairs it with
+    ``compiled_autograd=False``) pays nothing.
+
+    Args:
+        enabled: Whether to engage compiled autograd around the backward.
+
+    Returns:
+        A context manager to wrap the eager backward.
+
+    """
+    if not enabled:
+        return contextlib.nullcontext()
+    compiler = cast("Callable[..., object]", torch.compile)
+    return cast(
+        "AbstractContextManager[None]",
+        compiled_autograd._enable(compiler),  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    )
+
+
 def wrap_fastpath_ddp(  # noqa: PLR0913
     model: nn.Module,
     *,
@@ -124,5 +156,6 @@ def wrap_fastpath_ddp(  # noqa: PLR0913
 __all__ = [
     "apply_fastpath_dynamo_config",
     "build_fastpath_optimizer",
+    "compiled_autograd_context",
     "wrap_fastpath_ddp",
 ]

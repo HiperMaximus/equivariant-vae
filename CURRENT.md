@@ -111,8 +111,34 @@ match the old omitted-kwarg wrap; `fused=False → None`). Deferred (noted in
 `selected_runtime.py`): the plan-applied observation mirror (the structural override would
 false-flag a naive `observed == plan` check) and the dynamo config (inert without compile →
 S16). Gate 431 passed (424+7), basedpyright/ruff clean; 6-lens adversarial review → 0
-confirmed. LOCAL step left: S16; Kaggle-only S14/S17/S19; LR-finder queued after the core seq.
-Never push to origin.
+confirmed. **S16 (local-only, COMMIT PROPOSED — awaiting approval):** the runner now has the
+plan-gated compiled whole-step path. `_maybe_build_compiled_step` (main wiring, over the
+DDP-wrapped model) returns `None` on the eager v5 plan (`torch_compile_enabled` False, scope
+`"none"`) so the eager `_run_train_step` is byte-identical; when
+`plan.torch_compile_enabled AND compile_scope=='step'` it applies the dynamo config
+(`apply_fastpath_dynamo_config`, the S15-deferred wire), builds the SAME `make_fastpath_step_fn`
+closure the probe measured (`InlineStainCorruptor` train-only inline blake2b-free corruption +
+AMP forward + FP32 loss island; `autocast_enabled=amp.enabled` matches the eager path's autocast
+gating — a new shared-module kwarg, probe byte-identical at its default `True`), and
+`torch.compile(step, dynamic=False, backend=plan.compile_backend)`. `_run_compiled_train_step`
+drives it (backward/GradScaler/clip/optimizer stay eager, backward inside a shared
+`compiled_autograd_context` extracted into `fastpath_recipe.py` with the probe repointed;
+telemetry reconstructed field-by-field to match the eager step). The compiled path is exercised
+only via directly-constructed plans in tests — the parser still REJECTS a compiled plan, so
+acceptance + the observation mirror + corruption-strategy label accuracy stay DEFERRED to S17.
+The shared `_loader` is flipped to `drop_last=True` via a new `_safe_drop_last` guard (falls back
+to `False` only when a per-rank shard would be smaller than one batch, so a degenerate shard can
+never silently empty `_cycle_batches` → hang); the DDP sampler-policy label
+(`..._drop_last_true`/`..._drop_last_false`) and `_effective_train_epoch_samples` (floor/ceil)
+both track the realized `_safe_drop_last` decision, not a hardcoded value. Behavior-preserving at
+bs24 (train divides evenly; validation leading batches full; floor==ceil). Gate 441 passed (was
+431), basedpyright/ruff clean. 6-lens adversarial Workflow review → 3 mutation-backed findings
+(2 test-coverage gaps + 1 honesty-label decoupling; the other 4 lenses — behavior-preservation,
+recipe-fidelity, step-correctness, probe-repoint — ZERO); all 3 fixed and re-mutation-proven.
+Provenance note: that review Workflow ran in the NON-isolated working tree and left one source
+mutation, which the gate did not catch (it was the missing-coverage finding); the full diff was
+audited and the mutation reverted. Phase 3 is now COMPLETE. Remaining: Kaggle-only S14/S17/S19
+(user-driven) + the queued LR-finder. Never push to origin.
 
 > **Everything from here down to the `Historical provenance follows.` marker below is
 > PRE-Spec-0011 status (runtime-selection v5, Spec 0006–0009), retained for reference.**

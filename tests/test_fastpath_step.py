@@ -77,3 +77,40 @@ def test_fastpath_step_fn_runs_eagerly_and_backprops() -> None:
     assert bool(torch.isfinite(out.loss).item())
     assert out.loss.requires_grad
     cast("Callable[[], None]", out.loss.backward)()
+
+
+def test_fastpath_step_fn_autocast_enabled_gates_forward_precision() -> None:
+    """`autocast_enabled` gates the forward autocast (Spec 0011 S16).
+
+    With it off the forward runs in FP32 -- what a CPU caller (or AMP-off run) needs,
+    matching the eager runner path that gates its own autocast on ``amp.enabled``. The
+    GPU probe leaves it at the default ``True``, so the measured graph is unchanged; a
+    mutation that ignored the flag would still autocast and produce a low-precision
+    reconstruction in the disabled case.
+    """
+    model = build_non_equivariant_vae()
+    corruptor = InlineStainCorruptor(profile_from_name(CONSERVATIVE_DEFAULT_PROFILE))
+    generator = torch.Generator().manual_seed(0)
+    x_clean = (torch.rand((2, 3, 64, 64), generator=generator) * 2.0) - 1.0
+    with torch.no_grad():
+        mu_shape = model.forward(x_clean).mu.shape
+    eps = torch.randn(mu_shape, generator=generator)
+
+    enabled = make_fastpath_step_fn(
+        model,
+        corruptor,
+        ssim_weight=0.1,
+        autocast_dtype=torch.bfloat16,
+        autocast_enabled=True,
+    )(x_clean, eps, torch.tensor(1.0))
+    disabled = make_fastpath_step_fn(
+        model,
+        corruptor,
+        ssim_weight=0.1,
+        autocast_dtype=torch.bfloat16,
+        autocast_enabled=False,
+    )(x_clean, eps, torch.tensor(1.0))
+
+    assert enabled.reconstruction.dtype == torch.bfloat16
+    assert disabled.reconstruction.dtype == torch.float32
+    assert disabled.loss.dtype == torch.float32

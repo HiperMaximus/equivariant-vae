@@ -16,6 +16,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from eqvae.benchmarking.io import JsonObject
+    from eqvae.corruption.stain import StainCorruptionProfile
+    from eqvae.data.training_batches import PatchTrainingBatch
+    from eqvae.training.fastpath_step import FastpathStepOutput
 
 import numpy as np
 import pytest
@@ -30,11 +33,16 @@ from eqvae.benchmarking.runtime_schema import GATE_HEALTH_COLUMNS
 from eqvae.benchmarking.selected_runtime_gate import verify_selected_runtime_full_output
 from eqvae.checkpointing import CheckpointMetadata, LoadedCheckpoint
 from eqvae.cli.selected_runtime_train import main as selected_runtime_train_main
-from eqvae.config import resolve_json_config
+from eqvae.config import ResolvedConfig, resolve_json_config
+from eqvae.corruption.inline_stain import InlineStainCorruptor
 from eqvae.losses.vae import VaeLossComponents, beta_for_step
 from eqvae.models.latent import LATENT_CHANNELS
-from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
+from eqvae.models.non_equivariant_vae import (
+    NonEquivariantVAE,
+    build_non_equivariant_vae,
+)
 from eqvae.training import selected_runtime_runner
+from eqvae.training.fastpath_step import make_fastpath_step_fn
 from eqvae.training.selected_runtime import (
     SelectedRuntimePlan,
     _plan_from_payload,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
@@ -4087,3 +4095,495 @@ def _write_csv(
 
 def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+# --- Spec 0011 S16: compiled whole-step path + drop_last flip ------------------------
+
+_S16_SMALL_SHARD_PER_RANK = 11  # ceil(21 / 2), the padded drop_last=False yield
+_S16_AMPLE_SHARD_PER_RANK = 24  # 49 // 2, the floored drop_last=True yield
+_S16_COMPILED_UPDATE_COUNT = 2  # optimizer_step_index 1 -> update count 2
+_S16_MIN_STOCHASTIC_EPS_ABS_MEAN = 0.1  # stochastic |eps| mean is ~0.8
+
+
+class _RunnerContext(NamedTuple):
+    """The runner pieces a compiled-step test drives, built on synthetic CPU data."""
+
+    request: SelectedRuntimeTrainRequest
+    resolved: ResolvedConfig
+    settings: selected_runtime_runner._RunnerSettings
+    plan: SelectedRuntimePlan
+    distributed: selected_runtime_runner._DistributedContext
+    data_surface: selected_runtime_runner._DataSurface
+    model: NonEquivariantVAE
+    optimizer: torch.optim.Optimizer
+    amp: selected_runtime_runner._AmpExecution
+    scaler: selected_runtime_runner.GradScaler
+    train_generator: torch.Generator
+
+
+def _runner_context(output_dir: Path, *, max_train_steps: int = 2) -> _RunnerContext:
+    request = SelectedRuntimeTrainRequest(
+        config_path=_FULL_CONFIG,
+        runtime_config=_RUNTIME_CONFIG,
+        output_dir=output_dir,
+        run_name="spec0011_s16_compiled",
+        data="synthetic",
+        max_train_steps=max_train_steps,
+        save_every_steps=1,
+        dry_run=True,
+    )
+    plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+    resolved = resolve_json_config(_FULL_CONFIG)
+    settings = replace(
+        selected_runtime_runner._settings(  # noqa: SLF001
+            request=request,
+            resolved=resolved,
+            plan=plan,
+        ),
+        half_epoch_interval_steps=1,
+        validation_batches_per_view=1,
+    )
+    distributed = _local_distributed_context()
+    data_surface = selected_runtime_runner._prepare_data_surface(  # noqa: SLF001
+        request=request,
+        settings=settings,
+        plan=plan,
+        distributed=distributed,
+    )
+    (output_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
+    model = build_non_equivariant_vae(norm_groups=settings.norm_groups)
+    optimizer = selected_runtime_runner.build_fastpath_optimizer(
+        model,
+        config=settings.optimizer_config,
+    )
+    amp = selected_runtime_runner._amp_execution(  # noqa: SLF001
+        plan=plan,
+        distributed=distributed,
+        dry_run=True,
+    )
+    scaler = selected_runtime_runner.GradScaler(
+        "cuda",
+        init_scale=amp.grad_scaler_init_scale,
+        enabled=amp.grad_scaler_enabled,
+    )
+    train_generator = torch.Generator(device="cpu")
+    train_generator.manual_seed(settings.data_seed)
+    return _RunnerContext(
+        request=request,
+        resolved=resolved,
+        settings=settings,
+        plan=plan,
+        distributed=distributed,
+        data_surface=data_surface,
+        model=model,
+        optimizer=optimizer,
+        amp=amp,
+        scaler=scaler,
+        train_generator=train_generator,
+    )
+
+
+def test_safe_drop_last_disables_only_when_a_shard_lacks_a_full_batch() -> None:
+    """Spec 0011 S16 keeps drop_last=True unless it would empty a (per-rank) loader.
+
+    The flip gives the compiled step a static batch shape; the guard prevents it from
+    silently emptying a loader (which would hang ``_cycle_batches`` forever) --
+    including the compounded DDP case where the per-rank shard, floor(dataset /
+    world_size), is itself smaller than one batch.
+    """
+    local = _local_distributed_context()
+    ddp = _ddp_distributed_context(rank=0)
+    safe_drop_last = selected_runtime_runner._safe_drop_last  # noqa: SLF001
+
+    assert safe_drop_last(
+        dataset_size=32,
+        batch_size=12,
+        distributed=local,
+        full_batch_repeated=False,
+    )
+    assert not safe_drop_last(
+        dataset_size=8,
+        batch_size=12,
+        distributed=local,
+        full_batch_repeated=False,
+    )
+    # DDP shards to floor(dataset / 2): 32 -> 16 >= 12 (keep), 20 -> 10 < 12 (disable).
+    assert safe_drop_last(
+        dataset_size=32,
+        batch_size=12,
+        distributed=ddp,
+        full_batch_repeated=False,
+    )
+    assert not safe_drop_last(
+        dataset_size=20,
+        batch_size=12,
+        distributed=ddp,
+        full_batch_repeated=False,
+    )
+    # The fixed-selector sampler pads to whole batches, so dropping never empties it.
+    assert safe_drop_last(
+        dataset_size=8,
+        batch_size=12,
+        distributed=local,
+        full_batch_repeated=True,
+    )
+
+
+def test_train_eps_sizes_from_realized_batch(tmp_path: Path) -> None:
+    """Reparameterization eps is sized from the passed batch (Spec 0011 S16).
+
+    Preserves the realized-batch coverage the old partial-batch integration test gave,
+    directly and independent of drop_last: a smaller batch yields a smaller eps tensor.
+    """
+    context = _runner_context(tmp_path / "eps")
+    for batch_size in (context.settings.batch_size, 8):
+        eps, _proof = selected_runtime_runner._train_eps(  # noqa: SLF001
+            batch_size=batch_size,
+            latent_channels=LATENT_CHANNELS,
+            settings=context.settings,
+            train_generator=context.train_generator,
+            device=context.distributed.device,
+        )
+        assert eps.shape[0] == batch_size
+        assert eps.shape[1] == LATENT_CHANNELS
+        assert eps.shape[2] == context.settings.image_size // 8
+
+
+def test_train_sampler_plan_telemetry_tracks_realized_drop_last(tmp_path: Path) -> None:
+    """The emitted sampler policy + epoch-sample count reflect the realized drop_last.
+
+    Spec 0011 S16: on a DDP shard smaller than one per-rank batch, ``_safe_drop_last``
+    falls back to ``drop_last=False`` (padding), so the proof must report
+    ``..._drop_last_false`` and the padded ceil count -- never the hardcoded
+    ``..._true`` / floor. The odd shard sizes make floor and ceil differ.
+    """
+    context = _runner_context(tmp_path / "sampler")
+    ddp = _ddp_distributed_context(rank=0)
+
+    # Small shard: floor(21/2)=10 < batch 12 -> drop_last=False (padded to ceil).
+    small = selected_runtime_runner._train_sampler_plan(  # noqa: SLF001
+        settings=context.settings,
+        fixed_train_patch_count=21,
+        dataset_size=21,
+        batch_size=12,
+        distributed=ddp,
+    )
+    assert small.policy == "distributed_sampler_shuffle_false_drop_last_false"
+    assert small.effective_per_rank_epoch_samples == _S16_SMALL_SHARD_PER_RANK
+
+    # Ample shard: floor(49/2)=24 >= batch 12 -> drop_last=True (floor).
+    ample = selected_runtime_runner._train_sampler_plan(  # noqa: SLF001
+        settings=context.settings,
+        fixed_train_patch_count=49,
+        dataset_size=49,
+        batch_size=12,
+        distributed=ddp,
+    )
+    assert ample.policy == "distributed_sampler_shuffle_false_drop_last_true"
+    assert ample.effective_per_rank_epoch_samples == _S16_AMPLE_SHARD_PER_RANK
+
+
+def test_maybe_build_compiled_step_returns_none_off_the_step_scope(
+    tmp_path: Path,
+) -> None:
+    """Compile stays off unless the plan sets both the enable flag and step scope."""
+    context = _runner_context(tmp_path / "off")
+    build = selected_runtime_runner._maybe_build_compiled_step  # noqa: SLF001
+
+    # The committed eager v5 plan: torch_compile disabled, scope "none".
+    assert (
+        build(
+            model=context.model,
+            plan=context.plan,
+            settings=context.settings,
+            amp=context.amp,
+            device=context.distributed.device,
+        )
+        is None
+    )
+    # Enabled but a non-step scope stays eager.
+    assert (
+        build(
+            model=context.model,
+            plan=replace(
+                context.plan,
+                torch_compile_enabled=True,
+                compile_scope="model_forward",
+            ),
+            settings=context.settings,
+            amp=context.amp,
+            device=context.distributed.device,
+        )
+        is None
+    )
+    # Step scope but the enable flag off stays eager (the both-flags gate).
+    assert (
+        build(
+            model=context.model,
+            plan=replace(
+                context.plan,
+                torch_compile_enabled=False,
+                compile_scope="step",
+            ),
+            settings=context.settings,
+            amp=context.amp,
+            device=context.distributed.device,
+        )
+        is None
+    )
+
+
+def test_maybe_build_compiled_step_applies_recipe_and_compiles(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The step-scope build sets the dynamo recipe, inline corruption, and compiles.
+
+    Mutation-proof via spies: the dynamo config carries the plan's knobs, the
+    corruptor is the inline (blake2b-free) one built from the configured profile,
+    make_fastpath_step_fn gets the recipe knobs (esp. autocast_enabled=amp.enabled),
+    and torch.compile is invoked with dynamic=False and the plan's backend.
+    """
+    context = _runner_context(tmp_path / "build")
+    compiled_plan = replace(
+        context.plan,
+        torch_compile_enabled=True,
+        compile_scope="step",
+        compile_backend="eager",
+        optimize_ddp="ddp_optimizer",
+        compiled_autograd=False,
+        reorder_compute_comm_overlap=True,
+    )
+    dynamo_calls: list[dict[str, object]] = []
+
+    def record_dynamo(**kwargs: object) -> None:
+        dynamo_calls.append(kwargs)
+
+    monkeypatch.setattr(
+        selected_runtime_runner,
+        "apply_fastpath_dynamo_config",
+        record_dynamo,
+    )
+    corruptor_profiles: list[StainCorruptionProfile] = []
+    real_inline = selected_runtime_runner.InlineStainCorruptor
+
+    def spy_inline(profile: StainCorruptionProfile) -> InlineStainCorruptor:
+        corruptor_profiles.append(profile)
+        return real_inline(profile)
+
+    monkeypatch.setattr(selected_runtime_runner, "InlineStainCorruptor", spy_inline)
+    make_calls: list[dict[str, object]] = []
+    real_make = selected_runtime_runner.make_fastpath_step_fn
+
+    def spy_make(
+        model: torch.nn.Module,
+        corruptor: torch.nn.Module,
+        *,
+        ssim_weight: float,
+        autocast_dtype: torch.dtype,
+        autocast_enabled: bool,
+    ) -> Callable[[torch.Tensor, torch.Tensor, torch.Tensor], FastpathStepOutput]:
+        make_calls.append(
+            {
+                "model": model,
+                "ssim_weight": ssim_weight,
+                "autocast_dtype": autocast_dtype,
+                "autocast_enabled": autocast_enabled,
+            },
+        )
+        return real_make(
+            model,
+            corruptor,
+            ssim_weight=ssim_weight,
+            autocast_dtype=autocast_dtype,
+            autocast_enabled=autocast_enabled,
+        )
+
+    monkeypatch.setattr(selected_runtime_runner, "make_fastpath_step_fn", spy_make)
+    compile_calls: list[dict[str, object]] = []
+
+    def fake_compile(step_fn: object, **kwargs: object) -> object:
+        compile_calls.append(kwargs)
+        return step_fn
+
+    monkeypatch.setattr(selected_runtime_runner.torch, "compile", fake_compile)
+
+    step_fn = selected_runtime_runner._maybe_build_compiled_step(  # noqa: SLF001
+        model=context.model,
+        plan=compiled_plan,
+        settings=context.settings,
+        amp=context.amp,
+        device=context.distributed.device,
+    )
+
+    assert step_fn is not None
+    assert dynamo_calls == [
+        {
+            "optimize_ddp": "ddp_optimizer",
+            "compiled_autograd": False,
+            "reorder_compute_comm_overlap": True,
+        },
+    ]
+    assert corruptor_profiles == [context.settings.corruption_profile]
+    assert compile_calls == [{"dynamic": False, "backend": "eager"}]
+    # The step_fn is built with the exact recipe knobs, above all
+    # autocast_enabled=amp.enabled (the eager-parity / CPU-testability knob).
+    assert len(make_calls) == 1
+    assert make_calls[0]["model"] is context.model
+    assert make_calls[0]["ssim_weight"] == context.settings.ssim_weight
+    assert make_calls[0]["autocast_dtype"] == selected_runtime_runner._autocast_dtype(  # noqa: SLF001
+        compiled_plan.autocast_dtype,
+    )
+    assert make_calls[0]["autocast_enabled"] is context.amp.enabled
+
+
+def test_run_compiled_train_step_populates_telemetry(tmp_path: Path) -> None:
+    """The compiled step maps every telemetry field, not just a finite loss.
+
+    Driven with an UNCOMPILED ``make_fastpath_step_fn`` closure (the spec's CPU
+    "compile off" path). Mutation-proof for the hand-written result construction: a
+    column swap (e.g. ``kl_loss=output.recon_loss``) breaks the loss identities below.
+    The identities hold exactly within the single forward (independent of the random
+    corruption values), and run at ``optimizer_step_index=1`` so beta=1.0 makes the KL
+    term load-bearing.
+    """
+    context = _runner_context(tmp_path / "step")
+    batch = cast("PatchTrainingBatch", next(iter(context.data_surface.train_loader)))
+    corruptor = InlineStainCorruptor(context.settings.corruption_profile)
+    step_fn = make_fastpath_step_fn(
+        context.model,
+        corruptor,
+        ssim_weight=context.settings.ssim_weight,
+        autocast_dtype=torch.float32,
+        autocast_enabled=context.amp.enabled,
+    )
+    beta_value = beta_for_step(
+        optimizer_step_index=1,
+        max_optimizer_steps=context.settings.max_train_steps,
+        target_beta=context.settings.beta_target,
+        warmup_fraction=context.settings.beta_warmup_fraction,
+    )
+
+    result = selected_runtime_runner._run_compiled_train_step(  # noqa: SLF001
+        compiled_step_fn=step_fn,
+        model=context.model,
+        latent_channels=LATENT_CHANNELS,
+        optimizer=context.optimizer,
+        scaler=context.scaler,
+        settings=context.settings,
+        plan=context.plan,
+        amp=context.amp,
+        batch=batch,
+        optimizer_step_index=1,
+        successful_optimizer_update_count=2,
+        train_generator=context.train_generator,
+        device=context.distributed.device,
+    )
+
+    assert result.batch_size == context.settings.batch_size
+    assert math.isfinite(result.grad_norm)
+    assert math.isfinite(result.param_update_norm)
+    assert result.nonfinite_count == 0
+    # No GradScaler on the CPU dry run, so the optimizer step is never skipped.
+    assert result.amp_step_skipped is False
+    assert result.successful_optimizer_update_count == _S16_COMPILED_UPDATE_COUNT
+
+    # Loss-component mapping: the identities that define the composite VAE loss. A
+    # swapped/dropped component (kl<->recon, ssim_loss<->ssim_metric, etc.) breaks one.
+    total = float(result.losses.loss.detach())
+    recon = float(result.losses.recon_loss.detach())
+    l1 = float(result.losses.l1_loss.detach())
+    ssim_loss = float(result.losses.ssim_loss.detach())
+    ssim_metric = float(result.losses.ssim_metric.detach())
+    kl = float(result.losses.kl_loss.detach())
+    assert math.isclose(result.losses.beta, beta_value)
+    assert math.isclose(
+        recon,
+        l1 + context.settings.ssim_weight * ssim_loss,
+        rel_tol=1e-4,
+        abs_tol=1e-6,
+    )
+    assert math.isclose(ssim_loss, 1.0 - ssim_metric, rel_tol=1e-4, abs_tol=1e-6)
+    assert math.isclose(
+        total,
+        recon + result.losses.beta * kl,
+        rel_tol=1e-4,
+        abs_tol=1e-6,
+    )
+    # Eps-proof mapping: the full config reparameterizes stochastically.
+    assert result.eps_policy == "stochastic_seeded_train_generator"
+    assert result.eps_abs_mean > _S16_MIN_STOCHASTIC_EPS_ABS_MEAN
+
+
+def test_run_train_steps_takes_the_compiled_branch_when_a_step_fn_is_present(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With a compiled step_fn the loop drives the compiled step, never the eager one.
+
+    Guards against a vacuous pass: the eager ``_run_train_step`` is forbidden, so a
+    completed run can only have driven the compiled branch every step.
+    """
+    context = _runner_context(tmp_path / "loop")
+    compiled_plan = replace(
+        context.plan,
+        torch_compile_enabled=True,
+        compile_scope="step",
+        compile_backend="eager",
+    )
+    corruptor = InlineStainCorruptor(context.settings.corruption_profile)
+    step_fn = make_fastpath_step_fn(
+        context.model,
+        corruptor,
+        ssim_weight=context.settings.ssim_weight,
+        autocast_dtype=torch.float32,
+        autocast_enabled=context.amp.enabled,
+    )
+    # Forbid the eager step: taking the eager branch raises, so a completed run with
+    # valid telemetry proves the compiled branch drove every step (the loop calls one
+    # branch per step, and _run_compiled_train_step runs unpatched).
+
+    def forbid_eager(**_kwargs: object) -> object:
+        message = "the eager step must not run when a compiled step_fn is present"
+        raise AssertionError(message)
+
+    monkeypatch.setattr(selected_runtime_runner, "_run_train_step", forbid_eager)
+
+    try:
+        train_loop = selected_runtime_runner._run_train_steps(  # noqa: SLF001
+            request=context.request,
+            resolved=context.resolved,
+            settings=context.settings,
+            plan=compiled_plan,
+            model=context.model,
+            checkpoint_model=context.model,
+            compiled_step_fn=step_fn,
+            latent_channels=LATENT_CHANNELS,
+            optimizer=context.optimizer,
+            scaler=context.scaler,
+            amp=context.amp,
+            data_surface=context.data_surface,
+            distributed=context.distributed,
+            numpy_generator=np.random.default_rng(context.settings.global_seed),
+            train_generator=context.train_generator,
+            runtime_identity=selected_runtime_runner._runtime_identity(  # noqa: SLF001
+                compiled_plan,
+            ),
+            start_step=0,
+            initial_best_validation_metric=None,
+            resume_history=selected_runtime_runner._ResumeArtifactHistory(  # noqa: SLF001
+                metric_rows=(),
+                validation_rows=(),
+                interval_checkpoints=(),
+                best_checkpoint=None,
+                best_validation_metric=None,
+            ),
+            write_checkpoints=True,
+            interval_flush=None,
+            fixed25=None,
+        )
+    finally:
+        selected_runtime_runner._close_data_surface(context.data_surface)  # noqa: SLF001
+
+    assert train_loop.last_result.batch_size == context.settings.batch_size
+    assert math.isfinite(train_loop.last_result.grad_norm)
