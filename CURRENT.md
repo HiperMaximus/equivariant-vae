@@ -145,8 +145,8 @@ audited and the mutation reverted. Phase 3 is now COMPLETE. Remaining: Kaggle-on
 > It reads present-tense but is superseded by the Latest handoff above. In particular,
 > the FU-039 / FU-041 / DDP-correctness (FU-007/008/012/020) work this zone labels
 > "uncommitted / awaiting commit approval" is in fact COMMITTED — it is an ancestor of
-> the active S1–S15 Spec 0011 chain (Spec 0011 S15 = `357ada6`). The current state and
-> next step (now S16) are the Latest handoff above.
+> the active S1–S16 Spec 0011 chain (Spec 0011 S16 = `3298a57`). The current state (Phase 3
+> COMPLETE; next = Kaggle-only S14/S17/S19 + LR-finder) is the Latest handoff above.
 
 Current short state: runtime-selection v5 is the selected fallback runtime
 (`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,
