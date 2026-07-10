@@ -11,7 +11,7 @@ Build the repo toward a fair SIPAIM 2026 comparison between:
 2. a continuous `SO(2)` steerable denoising VAE using a repo-owned,
    compile-compatible implementation, with `escnn` as a reference.
 
-Latest handoff, 2026-07-09 — reusable goal-derived runtime + compiled fast-path
+Latest handoff, 2026-07-09/10 — reusable goal-derived runtime + compiled fast-path
 (**Spec 0011**, `docs/specs/0011-reusable-goal-derived-runtime-and-compiled-fastpath.md`):
 the training runtime becomes a REUSABLE per-(model×hardware) SEARCH-then-run
 mechanism (an efficiency search emits `selected_runtime.json`; the full-run config
@@ -77,7 +77,7 @@ settle-proven step row on the same fail-closed settle relationship; the diagnost
 `model_loss`/`train_step_no_optimizer` stay excluded. INERT until S13 adds the `step` grid
 scope and S14 measures it (executor marks non-`{none,model_forward}` scopes
 `compile_scope_implementation_pending`). Gate 421 passed (418+3), basedpyright/ruff clean;
-6-lens adversarial review → 0 surviving findings; +2 tests.** Then **S13 (this commit)**
+6-lens adversarial review → 0 surviving findings; +2 tests.** Then **S13 (`8e14650`, 2026-07-10)**
 declares the whole-step + bigger-batch candidates in the benchmark grid and makes
 `RUNTIME_MATRIX_COLUMNS` carry the 7 S11 recipe knobs: `"step"` added to top-level
 `runtime_matrix.compile_scopes` (the one pretest-read scope field → a per-seeded `step`
@@ -97,6 +97,14 @@ fix-delta review 0 findings; the real-producer CSV round-trip guard is mutation-
 across all 4 producers. Phase 1 + S11–S13 stay local + behavior-preserving @ batch 24.
 LOCAL steps left: S15–S16; Kaggle-only S14/S17/S19; LR-finder queued after the core seq.
 Never push to origin.
+
+> **Everything from here down to the `Historical provenance follows.` marker below is
+> PRE-Spec-0011 status (runtime-selection v5, Spec 0006–0009), retained for reference.**
+> It reads present-tense but is superseded by the Latest handoff above. In particular,
+> the FU-039 / FU-041 / DDP-correctness (FU-007/008/012/020) work this zone labels
+> "uncommitted / awaiting commit approval" is in fact COMMITTED — it is an ancestor of
+> the S1–S13 Spec 0011 chain (HEAD `8e14650`). The current state and next step (S15) are
+> the Latest handoff above.
 
 Current short state: runtime-selection v5 is the selected fallback runtime
 (`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,

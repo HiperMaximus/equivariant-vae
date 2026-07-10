@@ -91,7 +91,10 @@ This repo is the paper/research repository for the equivariant VAE work.
     back. The script intentionally uses the existing repo-local `.venv` and does
     not run `uv sync` or download dependencies. If the environment needs to be
     created or refreshed, ask the user first, then run
-    `uv sync --locked --python 3.12 --group dev`.
+    `uv sync --locked --python 3.12 --group dev`. Run the gate in the
+    FOREGROUND (~7 min): a backgrounded run gets reaped mid-pytest (~57%,
+    consistently) and never completes. For a bare `.venv/bin/python -m pytest`,
+    set `PYTHONPATH=src`.
 23. Python quality is intentionally strict: Ruff selects `ALL`, BasedPyright is
     strict, no global ignores are allowed, and tests may ignore only Ruff `S101`
     for bare `assert`.

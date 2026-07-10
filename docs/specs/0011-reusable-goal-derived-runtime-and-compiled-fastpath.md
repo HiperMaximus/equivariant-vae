@@ -1,9 +1,9 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active
-Implementation readiness: locked / implementation-ready (Phase 1); Kaggle phases gated on prior phases
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) DONE, committed local-only through `8e14650`
+Implementation readiness: Phase 3 (S15–S16) local, implementation-ready; Kaggle phases S14/S17/S19 gated (user-driven)
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-06 (adversarial re-review correction pass — factual fixes vs code)
+Last updated: 2026-07-10 (S13 committed; NEXT = S15). The per-step `(DONE — …)` tags in the body are the state of record.
 
 ## Purpose
 
