@@ -29,7 +29,6 @@ from eqvae.benchmarking.io import CsvRow, JsonObject, JsonValue, write_json
 from eqvae.benchmarking.runtime_schema import (
     CORRUPTION_CHECK_COLUMNS,
     DATALOADER_MATRIX_COLUMNS,
-    EAGER_RECIPE_KNOB_COLUMNS,
     GATE_HEALTH_COLUMNS,
     NUMERICAL_CHECK_COLUMNS,
 )
@@ -122,6 +121,16 @@ class _RuntimePolicy:
     zero_grad_set_to_none: bool = True
     gradient_clip_foreach: bool = False
     compile_dynamic: bool = False
+    # Spec 0011 S14a: compiled fast-path recipe knobs. Eager-v5 defaults keep every
+    # existing policy byte-identical; the efficiency search declares a compiled winner
+    # policy that overrides them, and _row_spec threads them onto the RowSpec.
+    optimize_ddp: str = ""
+    compiled_autograd: bool = False
+    reorder_compute_comm_overlap: bool = False
+    ddp_broadcast_buffers: bool = True
+    ddp_find_unused_parameters: bool = False
+    ddp_bucket_cap_mb: int | None = None
+    fused_optimizer: bool = False
 
 
 @dataclass(frozen=True)
@@ -463,6 +472,33 @@ def _runtime_policies(items: Sequence[JsonObject]) -> tuple[_RuntimePolicy, ...]
                     default=False,
                 ),
                 compile_dynamic=_optional_bool(item, "compile_dynamic", default=False),
+                optimize_ddp=_optional_str(item, "optimize_ddp") or "",
+                compiled_autograd=_optional_bool(
+                    item,
+                    "compiled_autograd",
+                    default=False,
+                ),
+                reorder_compute_comm_overlap=_optional_bool(
+                    item,
+                    "reorder_compute_comm_overlap",
+                    default=False,
+                ),
+                ddp_broadcast_buffers=_optional_bool(
+                    item,
+                    "ddp_broadcast_buffers",
+                    default=True,
+                ),
+                ddp_find_unused_parameters=_optional_bool(
+                    item,
+                    "ddp_find_unused_parameters",
+                    default=False,
+                ),
+                ddp_bucket_cap_mb=_optional_int(item, "ddp_bucket_cap_mb"),
+                fused_optimizer=_optional_bool(
+                    item,
+                    "fused_optimizer",
+                    default=False,
+                ),
             ),
         )
     return tuple(policies)
@@ -578,6 +614,13 @@ def _row_spec(
         zero_grad_set_to_none=runtime_policy.zero_grad_set_to_none,
         gradient_clip_foreach=runtime_policy.gradient_clip_foreach,
         compile_dynamic=runtime_policy.compile_dynamic,
+        optimize_ddp=runtime_policy.optimize_ddp,
+        compiled_autograd=runtime_policy.compiled_autograd,
+        reorder_compute_comm_overlap=runtime_policy.reorder_compute_comm_overlap,
+        ddp_broadcast_buffers=runtime_policy.ddp_broadcast_buffers,
+        ddp_find_unused_parameters=runtime_policy.ddp_find_unused_parameters,
+        ddp_bucket_cap_mb=runtime_policy.ddp_bucket_cap_mb,
+        fused_optimizer=runtime_policy.fused_optimizer,
     )
 
 
@@ -1014,9 +1057,11 @@ def _base_selection_row(
             value=row_spec.gradient_clip_foreach,
         ),
         "compile_dynamic": pretest._format_bool(value=row_spec.compile_dynamic),  # noqa: SLF001
-        # Spec 0011 S13: eager recipe knobs (the selection executor applies none yet;
-        # S14 folds the probe to measure the compiled fast-path recipe).
-        **EAGER_RECIPE_KNOB_COLUMNS,
+        # Spec 0011 S14a: emit the recipe knobs from the row via the shared producer
+        # helper (pretest._recipe_knob_columns). An eager row emits the eager-v5
+        # defaults (byte-identical to the old EAGER_RECIPE_KNOB_COLUMNS spread); a
+        # compiled winner emits its measured knobs, read into the plan by S14b.
+        **pretest._recipe_knob_columns(row_spec=row_spec),  # noqa: SLF001
         "corruption_strategy": row_spec.corruption_strategy,
         "per_device_batch_size": str(row_spec.per_device_batch_size),
         "global_batch_size": str(row_spec.per_device_batch_size * row_spec.world_size),
@@ -2766,37 +2811,7 @@ def _encode_ddp_config(config: _DdpRowConfig) -> str:
         "config_path": str(config.config_path),
         "output_dir": str(config.output_dir),
         "data_root": config.data_root,
-        "row_spec": {
-            "row_id": config.row_spec.row_id,
-            "accelerator_mode": config.row_spec.accelerator_mode,
-            "per_device_batch_size": config.row_spec.per_device_batch_size,
-            "precision_policy": config.row_spec.precision_policy,
-            "compile_scope": config.row_spec.compile_scope,
-            "corruption_strategy": config.row_spec.corruption_strategy,
-            "parent_synthetic_row_id": config.row_spec.parent_synthetic_row_id,
-            "candidate_role": config.row_spec.candidate_role,
-            "world_size": config.row_spec.world_size,
-            "nproc_per_node": config.row_spec.nproc_per_node,
-            "cuda_visible_devices": config.row_spec.cuda_visible_devices,
-            "runtime_policy_id": config.row_spec.runtime_policy_id,
-            "memory_format": config.row_spec.memory_format,
-            "autocast_dtype": config.row_spec.autocast_dtype,
-            "fp32_loss": config.row_spec.fp32_loss,
-            "grad_scaler_enabled": config.row_spec.grad_scaler_enabled,
-            "cudnn_benchmark": config.row_spec.cudnn_benchmark,
-            "cudnn_deterministic": config.row_spec.cudnn_deterministic,
-            "deterministic_algorithms": config.row_spec.deterministic_algorithms,
-            "tf32_enabled": config.row_spec.tf32_enabled,
-            "matmul_precision": config.row_spec.matmul_precision,
-            "ddp_static_graph": config.row_spec.ddp_static_graph,
-            "ddp_gradient_as_bucket_view": (
-                config.row_spec.ddp_gradient_as_bucket_view
-            ),
-            "optimizer_implementation": config.row_spec.optimizer_implementation,
-            "zero_grad_set_to_none": config.row_spec.zero_grad_set_to_none,
-            "gradient_clip_foreach": config.row_spec.gradient_clip_foreach,
-            "compile_dynamic": config.row_spec.compile_dynamic,
-        },
+        "row_spec": pretest._row_spec_payload(config.row_spec),  # noqa: SLF001
     }
     return base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
 
@@ -2884,6 +2899,16 @@ def _optional_bool(
     if isinstance(value, bool):
         return value
     message = f"Expected optional boolean field: {key}"
+    raise TypeError(message)
+
+
+def _optional_int(payload: Mapping[str, JsonValue], key: str) -> int | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    message = f"Expected optional integer field: {key}"
     raise TypeError(message)
 
 

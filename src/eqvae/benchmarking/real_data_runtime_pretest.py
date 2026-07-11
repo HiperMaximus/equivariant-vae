@@ -29,7 +29,6 @@ from eqvae.benchmarking.io import CsvRow, JsonObject, JsonValue, write_csv, writ
 from eqvae.benchmarking.runtime_schema import (
     CORRUPTION_CHECK_COLUMNS,
     DATALOADER_MATRIX_COLUMNS,
-    EAGER_RECIPE_KNOB_COLUMNS,
     GATE_HEALTH_COLUMNS,
     NUMERICAL_CHECK_COLUMNS,
     RUNTIME_MATRIX_COLUMNS,
@@ -332,6 +331,16 @@ class RowSpec:
     zero_grad_set_to_none: bool = True
     gradient_clip_foreach: bool = False
     compile_dynamic: bool = False
+    # Spec 0011 S14a: compiled fast-path recipe knobs measured by the efficiency
+    # search. Eager-v5 defaults keep every existing (eager) row byte-identical; a
+    # compiled winner row overrides them from its policy (see the executor RowSpec).
+    optimize_ddp: str = ""
+    compiled_autograd: bool = False
+    reorder_compute_comm_overlap: bool = False
+    ddp_broadcast_buffers: bool = True
+    ddp_find_unused_parameters: bool = False
+    ddp_bucket_cap_mb: int | None = None
+    fused_optimizer: bool = False
 
 
 @dataclass(frozen=True)
@@ -1375,9 +1384,8 @@ def _base_row(*, settings: RealDataRuntimePretestSettings, row_spec: RowSpec) ->
         "zero_grad_set_to_none": _format_bool(value=row_spec.zero_grad_set_to_none),
         "gradient_clip_foreach": _format_bool(value=row_spec.gradient_clip_foreach),
         "compile_dynamic": _format_bool(value=row_spec.compile_dynamic),
-        # Spec 0011 S13: eager recipe knobs (the executor applies none of these yet;
-        # S14 measures the compiled fast-path recipe and overwrites the winner row).
-        **EAGER_RECIPE_KNOB_COLUMNS,
+        # Spec 0011 S14a: recipe knobs from the row via the shared producer helper.
+        **_recipe_knob_columns(row_spec=row_spec),
         "corruption_strategy": row_spec.corruption_strategy,
         "per_device_batch_size": str(row_spec.per_device_batch_size),
         "global_batch_size": str(row_spec.per_device_batch_size * row_spec.world_size),
@@ -6194,6 +6202,13 @@ def _row_spec_payload(row_spec: RowSpec) -> JsonObject:
         "zero_grad_set_to_none": row_spec.zero_grad_set_to_none,
         "gradient_clip_foreach": row_spec.gradient_clip_foreach,
         "compile_dynamic": row_spec.compile_dynamic,
+        "optimize_ddp": row_spec.optimize_ddp,
+        "compiled_autograd": row_spec.compiled_autograd,
+        "reorder_compute_comm_overlap": row_spec.reorder_compute_comm_overlap,
+        "ddp_broadcast_buffers": row_spec.ddp_broadcast_buffers,
+        "ddp_find_unused_parameters": row_spec.ddp_find_unused_parameters,
+        "ddp_bucket_cap_mb": row_spec.ddp_bucket_cap_mb,
+        "fused_optimizer": row_spec.fused_optimizer,
     }
 
 
@@ -6252,6 +6267,25 @@ def _row_spec_from_payload(payload: JsonObject) -> RowSpec:
             default=False,
         ),
         compile_dynamic=_optional_bool(payload, "compile_dynamic", default=False),
+        optimize_ddp=_optional_str(payload, "optimize_ddp") or "",
+        compiled_autograd=_optional_bool(payload, "compiled_autograd", default=False),
+        reorder_compute_comm_overlap=_optional_bool(
+            payload,
+            "reorder_compute_comm_overlap",
+            default=False,
+        ),
+        ddp_broadcast_buffers=_optional_bool(
+            payload,
+            "ddp_broadcast_buffers",
+            default=True,
+        ),
+        ddp_find_unused_parameters=_optional_bool(
+            payload,
+            "ddp_find_unused_parameters",
+            default=False,
+        ),
+        ddp_bucket_cap_mb=_optional_int(payload, "ddp_bucket_cap_mb"),
+        fused_optimizer=_optional_bool(payload, "fused_optimizer", default=False),
     )
 
 
@@ -6415,6 +6449,37 @@ def _rounded_float(value: float) -> float:
 
 def _format_bool(*, value: bool) -> str:
     return "true" if value else "false"
+
+
+def _format_optional_int(value: int | None) -> str:
+    return "" if value is None else str(value)
+
+
+def _recipe_knob_columns(*, row_spec: RowSpec) -> dict[str, str]:
+    """Emit the recipe-knob CSV cells from a RowSpec (Spec 0011 S14a).
+
+    Shared by every RUNTIME_MATRIX_COLUMNS producer that owns a RowSpec -- the pretest
+    ``_base_row`` and the executor ``_base_selection_row`` -- so an eager RowSpec emits
+    the eager-v5 defaults (byte-identical to ``EAGER_RECIPE_KNOB_COLUMNS``) and a
+    compiled winner RowSpec emits its measured knobs.
+
+    Returns:
+        The seven recipe-knob column cells for ``row_spec``.
+
+    """
+    return {
+        "optimize_ddp": row_spec.optimize_ddp,
+        "compiled_autograd": _format_bool(value=row_spec.compiled_autograd),
+        "reorder_compute_comm_overlap": _format_bool(
+            value=row_spec.reorder_compute_comm_overlap,
+        ),
+        "ddp_broadcast_buffers": _format_bool(value=row_spec.ddp_broadcast_buffers),
+        "ddp_find_unused_parameters": _format_bool(
+            value=row_spec.ddp_find_unused_parameters,
+        ),
+        "ddp_bucket_cap_mb": _format_optional_int(row_spec.ddp_bucket_cap_mb),
+        "fused_optimizer": _format_bool(value=row_spec.fused_optimizer),
+    }
 
 
 def _required_object(payload: JsonObject, key: str) -> JsonObject:

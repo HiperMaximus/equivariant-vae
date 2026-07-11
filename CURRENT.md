@@ -137,8 +137,28 @@ bs24 (train divides evenly; validation leading batches full; floor==ceil). Gate 
 recipe-fidelity, step-correctness, probe-repoint — ZERO); all 3 fixed and re-mutation-proven.
 Provenance note: that review Workflow ran in the NON-isolated working tree and left one source
 mutation, which the gate did not catch (it was the missing-coverage finding); the full diff was
-audited and the mutation reverted. Phase 3 is now COMPLETE. Remaining: Kaggle-only S14/S17/S19
-(user-driven) + the queued LR-finder. Never push to origin.
+audited and the mutation reverted. Phase 3 is now COMPLETE. **S14a (local-only):** S14 (fold the
+probe into the executor + run a compiled `step` row) is being authored locally in gated sub-steps
+ahead of the paid Kaggle run. S14a threads the seven measured compiled fast-path recipe knobs
+(`optimize_ddp`, `compiled_autograd`, `reorder_compute_comm_overlap`, `ddp_broadcast_buffers`,
+`ddp_find_unused_parameters`, `ddp_bucket_cap_mb`, `fused_optimizer`) from the efficiency-search
+policy config through `_RuntimePolicy` → `RowSpec` → the selection CSV row via ONE shared
+`_recipe_knob_columns(row_spec)` producer helper (replacing the hardcoded
+`EAGER_RECIPE_KNOB_COLUMNS` spread in BOTH the pretest `_base_row` and the executor
+`_base_selection_row`), so a compiled winner row carries its MEASURED recipe into
+`_selected_runtime_payload` (S11 read the columns, S13 emitted eager defaults, S14a emits the
+measured values); `_encode_ddp_config` reuses `_row_spec_payload` (de-duplicated → the dual-rank
+child rebuilds the measured RowSpec). Behavior-preserving on the eager path: the compile-scope
+guards still fail-close `'step'` and no execution path changes. Gate 446 passed, basedpyright/ruff
+clean; adversarial review clean (2 fresh clean-context reviewers, 0 confirmed; 5 threading seams
+mutation-proven). **NEXT (local, new window per step):** S14b = the compiled-whole-step EXECUTION
+branch in the executor's dual-rank path (open the guards + mirror the runner S16
+`make_fastpath_step_fn`/`torch.compile(step_fn)` code + shared recipe helpers; the GPU-coupled
+slice with no local execution path to validate against), then S14c = fold the probe VRAM
+feasibility sweep + the grid `efficiency_followup` step-policy wiring. Then Kaggle-only
+(user-driven): S17 (run the generator on dual-T4 → new compiled `selected_runtime.json` + de-pin
+the plan value-validators + activate the observation mirror), S19 (~30h full run); plus the queued
+LR-finder. Never push to origin.
 
 > **Everything from here down to the `Historical provenance follows.` marker below is
 > PRE-Spec-0011 status (runtime-selection v5, Spec 0006–0009), retained for reference.**

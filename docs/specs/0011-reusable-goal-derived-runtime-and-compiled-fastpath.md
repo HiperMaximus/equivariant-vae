@@ -1,9 +1,9 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) DONE committed through `8e14650`; Phase 3 S15 (`357ada6`) + S16 (`3298a57`) DONE (local-only)
-Implementation readiness: Phase 3 COMPLETE (local); Kaggle phases S14/S17/S19 gated (user-driven); LR-finder queued
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) DONE (committed local-only through `3298a57`); S14 decomposed into local sub-steps — S14a DONE (local); S14b/S14c local-authorable next
+Implementation readiness: Phase 3 COMPLETE (local); S14a done; S14b/S14c authorable + gated locally (GPU-validated on Kaggle); Kaggle phases S17/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-10 (S16 done; NEXT = Kaggle S14/S17/S19 + LR-finder). The per-step `(DONE — …)` tags in the body are the state of record.
+Last updated: 2026-07-10 (S14a done local; NEXT = S14b/S14c local, then Kaggle S17/S19 + LR-finder). The per-step `(DONE — …)` tags in the body are the state of record.
 
 ## Purpose
 
@@ -431,13 +431,45 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   across all 4 producers), a de-tautologized step-scope enumeration test, and two stale
   docstrings — all fixed; fix-delta review 0 findings. +tests (real-producer round-trip,
   legacy absent-column fallback, step-scope enumeration).
-- **S14** [Kaggle] Fold the probe's single-GPU feasibility sweep (physical-free-VRAM
-  gate, 1GB margin) + winner-recipe DDP timing into `runtime_selection_executor` as
-  ONE generator that emits the full linked-proof graph. Honor the Plan-provenance
-  real-data requirement above: the compiled candidate rows' `samples_sec` (the numbers
-  feeding `material_speedup_over_baseline`) are measured on the **same real-data DDP
-  loader** as the eager baseline; the probe's synthetic `no_dataset` path is reused
-  ONLY for the VRAM feasibility sweep, never for the throughput number.
+- **S14** Fold the probe's feasibility sweep + winner-recipe DDP timing into
+  `runtime_selection_executor` as ONE generator that emits the full linked-proof graph.
+  The *executor authoring* is local + gated (behavior-preserving on the eager path);
+  only the *measured dual-T4 run* is Kaggle (that run is S17). Decomposed into gated
+  local sub-steps:
+  - **S14a (DONE — this commit) Thread the measured recipe knobs config → plan.** The
+    seven compiled fast-path recipe knobs (`optimize_ddp`, `compiled_autograd`,
+    `reorder_compute_comm_overlap`, `ddp_broadcast_buffers`, `ddp_find_unused_parameters`,
+    `ddp_bucket_cap_mb`, `fused_optimizer`) are added to `RowSpec` + `_RuntimePolicy`
+    (eager-v5 defaults), parsed in `_runtime_policies`, threaded in `_row_spec`, and
+    emitted into the selection CSV row via ONE shared `_recipe_knob_columns(row_spec)`
+    producer helper — replacing the hardcoded `EAGER_RECIPE_KNOB_COLUMNS` constant spread
+    in BOTH the pretest `_base_row` and the executor `_base_selection_row` — so a compiled
+    winner row carries its MEASURED recipe into `_selected_runtime_payload` (S11 read the
+    columns; S13 emitted eager defaults; S14a emits the measured values). `_encode_ddp_config`
+    reuses `_row_spec_payload` (de-duplicated; the dual-rank child rebuilds the measured
+    RowSpec, not an eager one). Behavior-preserving on the eager path: an eager RowSpec
+    emits byte-identical cells, the compile-scope guards still fail-close `'step'`, and NO
+    execution path changes. Gate 446 passed (ruff + basedpyright clean); adversarial review
+    clean (2 fresh clean-context reviewers, 0 confirmed; all 5 threading seams
+    mutation-proven, both producers guarded by the shared helper).
+  - **S14b Compiled whole-step EXECUTION branch (executor dual-rank path).** Open the
+    executor's two compile-scope guards (`_runtime_policies`, `_compile_ddp_model_if_requested`)
+    + the pretest step guards for `'step'`; add the compiled-whole-step branch to
+    `_run_ddp_rank_row`, mirroring the proven runner S16 code (`make_fastpath_step_fn` +
+    `torch.compile(step_fn, dynamic=False)`, `compiled_autograd_context`,
+    `apply_fastpath_dynamo_config`) + the shared recipe helpers, consuming the S14a-threaded
+    knobs (DDP wrap / fused / dynamo). Authored + unit-gated locally; the compiled-step
+    throughput / zero-graph-break is a Kaggle observation (S17). This is the GPU-coupled
+    slice with no local execution path to validate against.
+  - **S14c Feasibility sweep + grid wiring.** Fold the probe's synthetic single-GPU-no-DDP
+    VRAM sweep (`mem_get_info` + 1 GB margin + binary-search ceiling) into the executor to
+    decide feasible batches + populate `oom` — reuse the probe's `_sweep_*` seam, NEVER its
+    throughput; add the `'step'` + winner-recipe policy to the grid
+    `efficiency_followup.policies` (+ bs48) so the executor enumerates + measures the
+    compiled winner. Honor the Plan-provenance real-data requirement: the compiled rows'
+    `samples_sec` (feeding `material_speedup_over_baseline`) are measured on the **same
+    real-data DDP loader** as the eager baseline; the synthetic `no_dataset` path is reused
+    ONLY for the VRAM feasibility verdict, never for the throughput number.
 
 ### Phase 3 — Runner consumes the recipe (plan-gated, behavior-preserving off)
 

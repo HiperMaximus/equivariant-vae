@@ -56,6 +56,18 @@ from eqvae.benchmarking.runtime_selection import (
 from eqvae.benchmarking.runtime_selection_executor import (
     _base_selection_row as _executor_base_selection_row,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
 )
+from eqvae.benchmarking.runtime_selection_executor import (
+    _DdpRowConfig,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _decode_ddp_config,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _encode_ddp_config,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _runtime_policies,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+)
+from eqvae.benchmarking.runtime_selection_executor import (
+    _row_spec as _executor_row_spec,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+)
+from eqvae.benchmarking.runtime_selection_executor import (
+    _RuntimePolicy as _ExecutorRuntimePolicy,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+)
 from eqvae.config import resolve_json_config
 from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
 from eqvae.models.activations import GatedScalarActivation
@@ -325,6 +337,195 @@ def test_real_producers_emit_parseable_recipe_knobs_through_csv_roundtrip(
     runtime_policy = cast("dict[str, object]", payload["runtime_policy"])
     assert runtime_policy["fused_optimizer"] is False
     assert runtime_policy["ddp_broadcast_buffers"] is True
+
+
+def _measured_recipe_policy() -> _ExecutorRuntimePolicy:
+    """Build a compiled-recipe policy whose knobs differ from their eager defaults.
+
+    The distinct-from-eager combination is deliberately artificial (real winners keep
+    ``compiled_autograd`` off): it only proves each knob is threaded/emitted from its
+    own field, so a dropped or mis-keyed knob is caught (mutation-proof). The
+    ``compile_scope`` is ``model_forward`` because ``_runtime_policies`` still rejects
+    ``"step"`` (S14b opens it); the knobs are scope-independent.
+
+    Returns:
+        A ``_RuntimePolicy`` carrying all seven recipe knobs at non-eager values.
+
+    """
+    return _ExecutorRuntimePolicy(
+        runtime_policy_id="compiled_whole_step_ddp_optimizer",
+        precision_policy="amp_off_fp32",
+        compile_scope=COMPILE_MODEL_FORWARD,
+        optimize_ddp="ddp_optimizer",
+        compiled_autograd=True,
+        reorder_compute_comm_overlap=True,
+        ddp_broadcast_buffers=False,
+        ddp_find_unused_parameters=True,
+        ddp_bucket_cap_mb=_RECIPE_BUCKET_CAP_MB,
+        fused_optimizer=True,
+    )
+
+
+def test_runtime_policies_parses_measured_recipe_knobs() -> None:
+    """``_runtime_policies`` reads each recipe knob from the policy config (S14a).
+
+    The efficiency search declares a compiled winner policy carrying the seven recipe
+    knobs; every value differs from its eager default so a dropped or mis-keyed parse
+    is caught (mutation-proof).
+    """
+    (policy,) = _runtime_policies([
+        {
+            "runtime_policy_id": "compiled_whole_step_ddp_optimizer",
+            "precision_policy": "amp_off_fp32",
+            "compile_scope": COMPILE_MODEL_FORWARD,
+            "optimize_ddp": "ddp_optimizer",
+            "compiled_autograd": True,
+            "reorder_compute_comm_overlap": True,
+            "ddp_broadcast_buffers": False,
+            "ddp_find_unused_parameters": True,
+            "ddp_bucket_cap_mb": _RECIPE_BUCKET_CAP_MB,
+            "fused_optimizer": True,
+        },
+    ])
+
+    assert policy.optimize_ddp == "ddp_optimizer"
+    assert policy.compiled_autograd is True
+    assert policy.reorder_compute_comm_overlap is True
+    assert policy.ddp_broadcast_buffers is False
+    assert policy.ddp_find_unused_parameters is True
+    assert policy.ddp_bucket_cap_mb == _RECIPE_BUCKET_CAP_MB
+    assert policy.fused_optimizer is True
+
+
+def test_runtime_policies_defaults_recipe_knobs_to_eager_when_absent() -> None:
+    """A policy that declares no recipe knobs parses to the eager-v5 defaults (S14a).
+
+    Guards behaviour-preservation: today's efficiency policy carries none of the seven
+    knobs, so it must default to the eager recipe (empty ``optimize_ddp``, fused off,
+    DDP library defaults) -- byte-identical to the pre-S14a policy.
+    """
+    (policy,) = _runtime_policies([
+        {
+            "runtime_policy_id": "amp_fp16_scalar_gate_relaxed",
+            "precision_policy": "amp_scalar_gate_relaxed",
+            "compile_scope": "none",
+        },
+    ])
+
+    assert policy.optimize_ddp == _EAGER_OPTIMIZE_DDP
+    assert policy.compiled_autograd is False
+    assert policy.reorder_compute_comm_overlap is False
+    assert policy.ddp_broadcast_buffers is True
+    assert policy.ddp_find_unused_parameters is False
+    assert policy.ddp_bucket_cap_mb is None
+    assert policy.fused_optimizer is False
+
+
+def test_executor_base_selection_row_emits_measured_recipe_knobs() -> None:
+    """A compiled policy threads its knobs onto the RowSpec and the row emits them.
+
+    Closes the producer gap the S11 payload test left open (S14a): S11 proved the plan
+    emitter *reads* the knob columns, S13 proved every producer emits *eager* values;
+    here the executor selection row emits the *measured* winner values (not the eager
+    defaults), so ``_selected_runtime_payload`` reads the real recipe off a compiled
+    winner row. Every knob differs from its eager default -> mutation-proof.
+    """
+    settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+    row_spec = _executor_row_spec(
+        settings=settings,
+        accelerator_mode="dual_t4_ddp",
+        batch_size=48,
+        corruption_strategy="indexed_masked",
+        candidate_role="selected_runtime_efficiency_followup",
+        policy=_measured_recipe_policy(),
+    )
+    assert row_spec.optimize_ddp == "ddp_optimizer"
+    assert row_spec.ddp_bucket_cap_mb == _RECIPE_BUCKET_CAP_MB
+    assert row_spec.fused_optimizer is True
+
+    row = _executor_base_selection_row(settings=settings, row_spec=row_spec)
+
+    assert row["optimize_ddp"] == "ddp_optimizer"
+    assert row["compiled_autograd"] == "true"
+    assert row["reorder_compute_comm_overlap"] == "true"
+    assert row["ddp_broadcast_buffers"] == "false"
+    assert row["ddp_find_unused_parameters"] == "true"
+    assert row["ddp_bucket_cap_mb"] == str(_RECIPE_BUCKET_CAP_MB)
+    assert row["fused_optimizer"] == "true"
+
+
+def test_encode_ddp_config_round_trips_measured_recipe_knobs(tmp_path: Path) -> None:
+    """The recipe knobs survive the RowSpec base64 round-trip to the child (S14a).
+
+    ``_run_dual_row`` ships the RowSpec to the ``torchrun`` child as base64 JSON via
+    ``_row_spec_payload`` (S14a routes ``_encode_ddp_config`` through it); had a knob
+    been omitted from ``_row_spec_payload`` or ``_row_spec_from_payload`` the child
+    would rebuild an eager RowSpec and silently measure the wrong recipe. Every knob
+    differs from its eager default -> a dropped serialization field is caught here.
+    """
+    settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+    row_spec = _executor_row_spec(
+        settings=settings,
+        accelerator_mode="dual_t4_ddp",
+        batch_size=48,
+        corruption_strategy="indexed_masked",
+        candidate_role="selected_runtime_efficiency_followup",
+        policy=_measured_recipe_policy(),
+    )
+    config = _DdpRowConfig(
+        config_path=CONFIG_PATH,
+        output_dir=tmp_path,
+        data_root="/unit/data/root",
+        row_spec=row_spec,
+    )
+
+    decoded = _decode_ddp_config(_encode_ddp_config(config))
+
+    assert decoded.row_spec.optimize_ddp == "ddp_optimizer"
+    assert decoded.row_spec.compiled_autograd is True
+    assert decoded.row_spec.reorder_compute_comm_overlap is True
+    assert decoded.row_spec.ddp_broadcast_buffers is False
+    assert decoded.row_spec.ddp_find_unused_parameters is True
+    assert decoded.row_spec.ddp_bucket_cap_mb == _RECIPE_BUCKET_CAP_MB
+    assert decoded.row_spec.fused_optimizer is True
+
+
+def test_pretest_base_row_emits_measured_recipe_knobs() -> None:
+    """The pretest ``_base_row`` emits a RowSpec's measured recipe knobs (S14a).
+
+    Both RowSpec-owning producers share ``_recipe_knob_columns``, so the pretest row --
+    like the executor selection row -- must reflect a compiled RowSpec's knobs, not the
+    eager constant. A revert to the constant spread fails here. Every knob differs from
+    its eager default -> mutation-proof.
+    """
+    settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+    row_spec = _executor_row_spec(
+        settings=settings,
+        accelerator_mode="dual_t4_ddp",
+        batch_size=48,
+        corruption_strategy="indexed_masked",
+        candidate_role="selected_runtime_efficiency_followup",
+        policy=_measured_recipe_policy(),
+    )
+
+    row = _pretest_base_row(settings=settings, row_spec=row_spec)
+
+    assert row["optimize_ddp"] == "ddp_optimizer"
+    assert row["compiled_autograd"] == "true"
+    assert row["reorder_compute_comm_overlap"] == "true"
+    assert row["ddp_broadcast_buffers"] == "false"
+    assert row["ddp_find_unused_parameters"] == "true"
+    assert row["ddp_bucket_cap_mb"] == str(_RECIPE_BUCKET_CAP_MB)
+    assert row["fused_optimizer"] == "true"
 
 
 @pytest.mark.parametrize("compile_scope", [COMPILE_MODEL_FORWARD, COMPILE_STEP])
