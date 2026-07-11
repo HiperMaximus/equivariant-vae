@@ -1,6 +1,6 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) DONE (committed local-only through `3298a57`); S14 decomposed into local sub-steps — S14a DONE (local); S14b/S14c local-authorable next
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) DONE (committed local-only through `3298a57`); S14 decomposed into local sub-steps — S14a DONE (`1dc3901`, local); S14b/S14c local-authorable next
 Implementation readiness: Phase 3 COMPLETE (local); S14a done; S14b/S14c authorable + gated locally (GPU-validated on Kaggle); Kaggle phases S17/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
 Last updated: 2026-07-10 (S14a done local; NEXT = S14b/S14c local, then Kaggle S17/S19 + LR-finder). The per-step `(DONE — …)` tags in the body are the state of record.
@@ -436,7 +436,7 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   The *executor authoring* is local + gated (behavior-preserving on the eager path);
   only the *measured dual-T4 run* is Kaggle (that run is S17). Decomposed into gated
   local sub-steps:
-  - **S14a (DONE — this commit) Thread the measured recipe knobs config → plan.** The
+  - **S14a (DONE — `1dc3901`) Thread the measured recipe knobs config → plan.** The
     seven compiled fast-path recipe knobs (`optimize_ddp`, `compiled_autograd`,
     `reorder_compute_comm_overlap`, `ddp_broadcast_buffers`, `ddp_find_unused_parameters`,
     `ddp_bucket_cap_mb`, `fused_optimizer`) are added to `RowSpec` + `_RuntimePolicy`

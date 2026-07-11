@@ -137,7 +137,7 @@ bs24 (train divides evenly; validation leading batches full; floor==ceil). Gate 
 recipe-fidelity, step-correctness, probe-repoint — ZERO); all 3 fixed and re-mutation-proven.
 Provenance note: that review Workflow ran in the NON-isolated working tree and left one source
 mutation, which the gate did not catch (it was the missing-coverage finding); the full diff was
-audited and the mutation reverted. Phase 3 is now COMPLETE. **S14a (local-only):** S14 (fold the
+audited and the mutation reverted. Phase 3 is now COMPLETE. **S14a (`1dc3901`, local-only):** S14 (fold the
 probe into the executor + run a compiled `step` row) is being authored locally in gated sub-steps
 ahead of the paid Kaggle run. S14a threads the seven measured compiled fast-path recipe knobs
 (`optimize_ddp`, `compiled_autograd`, `reorder_compute_comm_overlap`, `ddp_broadcast_buffers`,
