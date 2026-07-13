@@ -1,9 +1,9 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) DONE (committed local-only through `3298a57`); S14 decomposed into local sub-steps — S14a DONE (`1dc3901`, local); S14b/S14c local-authorable next
-Implementation readiness: Phase 3 COMPLETE (local); S14a done; S14b/S14c authorable + gated locally (GPU-validated on Kaggle); Kaggle phases S17/S19 gated (user-driven); LR-finder queued
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) DONE (committed local-only through `3298a57`); S14 decomposed into local sub-steps — S14a DONE (`1dc3901`, local); S14b dual-T4 executor branch DONE (`7256cd3`, local); S14b single-GPU pretest surface + S14c local-authorable next
+Implementation readiness: Phase 3 COMPLETE (local); S14a done; S14b dual-T4 executor branch done; S14b pretest single-GPU surface + S14c authorable + gated locally (GPU-validated on Kaggle); Kaggle phases S17/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-10 (S14a done local; NEXT = S14b/S14c local, then Kaggle S17/S19 + LR-finder). The per-step `(DONE — …)` tags in the body are the state of record.
+Last updated: 2026-07-13 (S14b dual-T4 executor branch done local `7256cd3`; NEXT = S14b single-GPU pretest surface + S14c local, then Kaggle S17/S19 + LR-finder). The per-step `(DONE — …)` tags in the body are the state of record.
 
 ## Purpose
 
@@ -452,15 +452,37 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
     execution path changes. Gate 446 passed (ruff + basedpyright clean); adversarial review
     clean (2 fresh clean-context reviewers, 0 confirmed; all 5 threading seams
     mutation-proven, both producers guarded by the shared helper).
-  - **S14b Compiled whole-step EXECUTION branch (executor dual-rank path).** Open the
-    executor's two compile-scope guards (`_runtime_policies`, `_compile_ddp_model_if_requested`)
-    + the pretest step guards for `'step'`; add the compiled-whole-step branch to
-    `_run_ddp_rank_row`, mirroring the proven runner S16 code (`make_fastpath_step_fn` +
-    `torch.compile(step_fn, dynamic=False)`, `compiled_autograd_context`,
-    `apply_fastpath_dynamo_config`) + the shared recipe helpers, consuming the S14a-threaded
-    knobs (DDP wrap / fused / dynamo). Authored + unit-gated locally; the compiled-step
-    throughput / zero-graph-break is a Kaggle observation (S17). This is the GPU-coupled
-    slice with no local execution path to validate against.
+  - **S14b Compiled whole-step EXECUTION branch (executor dual-rank path).**
+    - **Dual-T4 executor branch (DONE — `7256cd3`, local).** Opened the executor's two
+      compile-scope guards (`_runtime_policies`, `_compile_ddp_model_if_requested`) for
+      `'step'` and added the compiled-whole-step branch to `_run_ddp_rank_row`, mirroring
+      the proven runner S16 code (`make_fastpath_step_fn` +
+      `torch.compile(step_fn, dynamic=False, backend="inductor")`,
+      `compiled_autograd_context`, `apply_fastpath_dynamo_config`) via the shared recipe
+      helpers, consuming the S14a-threaded knobs (DDP wrap / fused / dynamo). Loop split:
+      the settle loop drives the COMPILED step (so the first trace is warmed before the
+      dynamo-counter reset — a forward-only settle would score the row as recompiling →
+      permanently ineligible); the numerical-proof loop stays byte-identical eager (its
+      mu/logvar/corruption-hash/gate lanes cannot come from the compiled
+      `FastpathStepOutput`); warmup/measured route through the reduced-telemetry compiled
+      step. Extracted `_build_eager_ddp_optimizer` (old inline construction verbatim) so
+      the eager path is behavior-preserving. Promoted `model_requires_buffer_broadcast`
+      to the shared `fastpath_recipe` module (executor + runner drive DDP
+      `broadcast_buffers` from one structural rule). Two fail-closed preconditions in
+      `_build_compiled_ddp_step` keep the measured recipe faithful to what the runner
+      consumes: `precision_policy == amp_off_fp32` only (the compiled closure hardcodes
+      fp32 / no GradScaler) and `ddp_static_graph == False` only (a step row interleaves
+      an eager proof backward between compiled backwards on one DDP module, which
+      static_graph forbids; the committed `model_forward` path is immune). Gate 452
+      passed (ruff + basedpyright clean); adversarial review (read-only, default-refute)
+      0 confirmed defects, the two latent divergence risks hardened into the guards above.
+      Authored + unit-gated locally; the compiled-step throughput / zero-graph-break is a
+      Kaggle observation (S17).
+    - **Single-GPU pretest surface (NEXT — deferred).** The `'step'` compile-scope guards
+      + compiled-whole-step branch on the single-GPU pretest pre-screen path
+      (`real_data_runtime_pretest`) are still eager-only. This surface is fully
+      independent of the dual-T4 executor branch (the dual-T4 branch alone measures +
+      selects the winner), so it is authorable as its own gated commit.
   - **S14c Feasibility sweep + grid wiring.** Fold the probe's synthetic single-GPU-no-DDP
     VRAM sweep (`mem_get_info` + 1 GB margin + binary-search ceiling) into the executor to
     decide feasible batches + populate `oom` — reuse the probe's `_sweep_*` seam, NEVER its

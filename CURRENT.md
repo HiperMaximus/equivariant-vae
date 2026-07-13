@@ -151,11 +151,28 @@ measured values); `_encode_ddp_config` reuses `_row_spec_payload` (de-duplicated
 child rebuilds the measured RowSpec). Behavior-preserving on the eager path: the compile-scope
 guards still fail-close `'step'` and no execution path changes. Gate 446 passed, basedpyright/ruff
 clean; adversarial review clean (2 fresh clean-context reviewers, 0 confirmed; 5 threading seams
-mutation-proven). **NEXT (local, new window per step):** S14b = the compiled-whole-step EXECUTION
-branch in the executor's dual-rank path (open the guards + mirror the runner S16
-`make_fastpath_step_fn`/`torch.compile(step_fn)` code + shared recipe helpers; the GPU-coupled
-slice with no local execution path to validate against), then S14c = fold the probe VRAM
-feasibility sweep + the grid `efficiency_followup` step-policy wiring. Then Kaggle-only
+mutation-proven). **S14b dual-T4 executor branch (`7256cd3`, local-only):** opened the executor's
+two compile-scope guards (`_runtime_policies`, `_compile_ddp_model_if_requested`) for `'step'` and
+added the compiled-whole-step branch to `_run_ddp_rank_row`, mirroring the runner S16 code
+(`make_fastpath_step_fn` + `torch.compile(step_fn, dynamic=False, backend="inductor")`,
+`compiled_autograd_context`, `apply_fastpath_dynamo_config`) via the shared recipe helpers and
+consuming the S14a-threaded knobs. Loop split: the settle loop drives the COMPILED step (warms the
+first trace before the dynamo-counter reset — a forward-only settle would score the row as
+recompiling → permanently ineligible); the numerical-proof loop stays byte-identical eager (its
+mu/logvar/corruption-hash/gate lanes cannot come from the compiled `FastpathStepOutput`);
+warmup/measured route through the reduced-telemetry compiled step. Extracted
+`_build_eager_ddp_optimizer` (eager path byte-preserving) and promoted
+`model_requires_buffer_broadcast` to the shared `fastpath_recipe` module. Two fail-closed
+preconditions in `_build_compiled_ddp_step` keep the measured recipe faithful to what the runner
+consumes: `precision_policy == amp_off_fp32` only (compiled closure hardcodes fp32 / no GradScaler)
+and `ddp_static_graph == False` only (a step row interleaves an eager proof backward between
+compiled backwards on one DDP module; the committed `model_forward` path is immune). Gate 452
+passed, basedpyright/ruff clean; adversarial review (read-only, default-refute) → 0 confirmed, the
+two latent divergence risks hardened into the guards above. **NEXT (local, new window per step):**
+S14b single-GPU pretest surface = the `'step'` guards + compiled-whole-step branch on the
+single-GPU pre-screen path (`real_data_runtime_pretest`), fully independent of the dual-T4 branch
+(which alone measures + selects the winner), so it is its own gated commit; then S14c = fold the
+probe VRAM feasibility sweep + the grid `efficiency_followup` step-policy wiring. Then Kaggle-only
 (user-driven): S17 (run the generator on dual-T4 → new compiled `selected_runtime.json` + de-pin
 the plan value-validators + activate the observation mirror), S19 (~30h full run); plus the queued
 LR-finder. Never push to origin.
@@ -166,7 +183,8 @@ LR-finder. Never push to origin.
 > the FU-039 / FU-041 / DDP-correctness (FU-007/008/012/020) work this zone labels
 > "uncommitted / awaiting commit approval" is in fact COMMITTED — it is an ancestor of
 > the active S1–S16 Spec 0011 chain (Spec 0011 S16 = `3298a57`). The current state (Phase 3
-> COMPLETE; next = Kaggle-only S14/S17/S19 + LR-finder) is the Latest handoff above.
+> COMPLETE; S14a + S14b dual-T4 executor branch done local; next = S14b single-GPU pretest
+> surface + S14c local, then Kaggle-only S17/S19 + LR-finder) is the Latest handoff above.
 
 Current short state: runtime-selection v5 is the selected fallback runtime
 (`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,
