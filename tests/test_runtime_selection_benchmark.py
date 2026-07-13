@@ -14,6 +14,7 @@ import torch
 
 from eqvae.benchmarking import runtime_selection_executor
 from eqvae.benchmarking.io import JsonObject, write_csv, write_json
+from eqvae.benchmarking.real_data_runtime_pretest import RowSpec
 from eqvae.benchmarking.real_data_runtime_pretest import (
     _base_row as _pretest_base_row,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
 )
@@ -54,13 +55,16 @@ from eqvae.benchmarking.runtime_selection import (
     _runtime_row as _src_runtime_row,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
 )
 from eqvae.benchmarking.runtime_selection_executor import (
-    _base_selection_row as _executor_base_selection_row,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
-)
-from eqvae.benchmarking.runtime_selection_executor import (
+    _STEP_COMPILE_BACKEND,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _build_compiled_ddp_step,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _compile_ddp_model_if_requested,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _DdpRowConfig,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _decode_ddp_config,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _encode_ddp_config,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _runtime_policies,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+)
+from eqvae.benchmarking.runtime_selection_executor import (
+    _base_selection_row as _executor_base_selection_row,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
 )
 from eqvae.benchmarking.runtime_selection_executor import (
     _row_spec as _executor_row_spec,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
@@ -345,8 +349,9 @@ def _measured_recipe_policy() -> _ExecutorRuntimePolicy:
     The distinct-from-eager combination is deliberately artificial (real winners keep
     ``compiled_autograd`` off): it only proves each knob is threaded/emitted from its
     own field, so a dropped or mis-keyed knob is caught (mutation-proof). The
-    ``compile_scope`` is ``model_forward`` because ``_runtime_policies`` still rejects
-    ``"step"`` (S14b opens it); the knobs are scope-independent.
+    ``compile_scope`` is ``model_forward`` (a stable knob-carrying scope); the recipe
+    knobs are scope-independent, and S14b's whole-step admission is covered separately
+    by ``test_runtime_policies_admits_whole_step_compile_scope``.
 
     Returns:
         A ``_RuntimePolicy`` carrying all seven recipe knobs at non-eager values.
@@ -577,6 +582,208 @@ def test_whole_step_row_without_settle_proof_stays_diagnostic_only() -> None:
     assert normalized["failure_kind"] == (
         "compiled_rows_diagnostic_only_until_stable_settle_proof"
     )
+
+
+def test_runtime_policies_admits_whole_step_compile_scope() -> None:
+    """``_runtime_policies`` accepts a whole-step efficiency policy (S14b executor).
+
+    S12/S13 opened the *selection* side to ``compile_scope == "step"``; S14b opens the
+    *executor* so the efficiency search can time the compiled whole-step recipe.
+    Dropping ``COMPILE_STEP`` from the accepted set makes this raise
+    ``Unsupported compile_scope``.
+    """
+    (policy,) = _runtime_policies([
+        {
+            "runtime_policy_id": "compiled_whole_step_ddp_optimizer",
+            "precision_policy": "amp_off_fp32",
+            "compile_scope": COMPILE_STEP,
+        },
+    ])
+
+    assert policy.compile_scope == COMPILE_STEP
+
+
+def test_runtime_policies_rejects_unknown_compile_scope() -> None:
+    """An unrecognized compile scope still fails closed after S14b opened ``step``.
+
+    Guards the widened accepted set: only none/model_forward/step are executable, so a
+    scope the executor cannot run (e.g. ``train_step_no_optimizer``) must raise rather
+    than silently fall through to an eager measurement mislabeled as that scope.
+    """
+    with pytest.raises(ValueError, match="Unsupported compile_scope"):
+        _runtime_policies([
+            {
+                "runtime_policy_id": "compiled_train_step_no_optimizer",
+                "precision_policy": "amp_off_fp32",
+                "compile_scope": "train_step_no_optimizer",
+            },
+        ])
+
+
+def test_compile_ddp_model_if_requested_leaves_whole_step_uncompiled() -> None:
+    """Whole-step rows pass the model through uncompiled; model-forward rows compile it.
+
+    The whole-step recipe compiles the train-*step* closure
+    (``_build_compiled_ddp_step``), not the model object, so
+    ``_compile_ddp_model_if_requested`` must return a step row's model untouched --
+    compiling here would wrap the model a second time. The model-forward case proves the
+    pass-through is scope-specific rather than an unconditional no-op: a mutation that
+    also routed ``COMPILE_STEP`` into ``torch.compile`` would return the sentinel
+    instead of the model.
+    """
+    model = object()
+    compiled_sentinel = object()
+
+    class _StubTorch:
+        @staticmethod
+        def compile(module: object, *, dynamic: bool) -> object:
+            del module, dynamic
+            return compiled_sentinel
+
+    settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+
+    def _row_spec_for(compile_scope: str) -> RowSpec:
+        return _executor_row_spec(
+            settings=settings,
+            accelerator_mode="dual_t4_ddp",
+            batch_size=12,
+            corruption_strategy="indexed_masked",
+            candidate_role="selected_runtime_efficiency_followup",
+            policy=_ExecutorRuntimePolicy(
+                runtime_policy_id=f"compile_{compile_scope}_fp32_channels_last",
+                precision_policy="amp_off_fp32",
+                compile_scope=compile_scope,
+            ),
+        )
+
+    step_result = _compile_ddp_model_if_requested(
+        torch_module=_StubTorch(),
+        model=model,
+        row_spec=_row_spec_for(COMPILE_STEP),
+    )
+    forward_result = _compile_ddp_model_if_requested(
+        torch_module=_StubTorch(),
+        model=model,
+        row_spec=_row_spec_for(COMPILE_MODEL_FORWARD),
+    )
+
+    assert step_result is model
+    assert forward_result is compiled_sentinel
+
+
+def test_step_compile_backend_matches_selected_runtime_payload() -> None:
+    """The executor's compiled-step backend equals the plan the generator emits (S14b).
+
+    ``_build_compiled_ddp_step`` compiles with ``_STEP_COMPILE_BACKEND``, and the
+    generator derives the consumed plan's backend from the winner row's compile scope
+    (``_selected_runtime_payload``: any compiled scope -> ``"inductor"``). The measured
+    recipe only transfers to the real run if these agree, so a mutation of either
+    constant is caught here.
+    """
+    step_row = _runtime_row(
+        accelerator_mode="dual_t4_ddp",
+        per_device_batch_size=12,
+        precision_policy="amp_off_fp32",
+        compile_scope=COMPILE_STEP,
+        corruption_strategy="indexed_masked",
+        world_size=EXPECTED_DUAL_WORLD_SIZE,
+        samples_sec=400.0,
+        runtime_policy_id="compile_step_fp32_channels_last",
+    )
+    dataloader_rows = tuple(_dataloader_rows((step_row,)))
+
+    payload = _selected_runtime_payload(
+        settings=_payload_settings(),
+        selected_row=step_row,
+        dataloader_rows=dataloader_rows,
+        artifact_hashes={},
+    )
+
+    torch_compile = cast("dict[str, object]", payload["torch_compile"])
+    assert torch_compile["scope"] == COMPILE_STEP
+    assert torch_compile["backend"] == _STEP_COMPILE_BACKEND
+    assert _STEP_COMPILE_BACKEND == "inductor"
+
+
+def test_build_compiled_ddp_step_rejects_amp_precision() -> None:
+    """The compiled-step probe fails closed on an AMP precision policy (S14b).
+
+    The compiled closure hardcodes fp32 (no autocast, no GradScaler) to mirror the
+    runner's fp32 fast path, so a step row paired with an AMP precision must raise
+    rather than silently measure fp32 throughput/VRAM the runner would never run under
+    AMP. The guard runs before any DDP/CUDA construction, so the check is CPU-safe.
+    """
+    settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+    amp_step_spec = _executor_row_spec(
+        settings=settings,
+        accelerator_mode="dual_t4_ddp",
+        batch_size=12,
+        corruption_strategy="indexed_masked",
+        candidate_role="selected_runtime_efficiency_followup",
+        policy=_ExecutorRuntimePolicy(
+            runtime_policy_id="compile_step_amp_conservative",
+            precision_policy="amp_conservative",
+            compile_scope=COMPILE_STEP,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="precision_policy must be"):
+        _build_compiled_ddp_step(
+            raw_model=object(),
+            local_rank=0,
+            device=object(),
+            profile=object(),
+            settings=settings,
+            row_spec=amp_step_spec,
+            torch_module=object(),
+        )
+
+
+def test_build_compiled_ddp_step_rejects_static_graph() -> None:
+    """The compiled-step probe fails closed on ``ddp_static_graph=True`` (S14b).
+
+    A step row interleaves an eager numerical-proof backward between the compiled settle
+    and compiled throughput backwards on one DDP module; ``static_graph=True`` locks the
+    backward graph structure on the first (compiled) iteration and cannot tolerate the
+    differently-structured eager proof backward. The measured winner keeps
+    ``static_graph=False``, so this guards a silently divergent (or crashing)
+    measurement. The guard runs before any DDP/CUDA construction, so the check is
+    CPU-safe.
+    """
+    settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+    static_graph_step_spec = _executor_row_spec(
+        settings=settings,
+        accelerator_mode="dual_t4_ddp",
+        batch_size=12,
+        corruption_strategy="indexed_masked",
+        candidate_role="selected_runtime_efficiency_followup",
+        policy=_ExecutorRuntimePolicy(
+            runtime_policy_id="compile_step_static_graph",
+            precision_policy="amp_off_fp32",
+            compile_scope=COMPILE_STEP,
+            ddp_static_graph=True,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="ddp_static_graph must be False"):
+        _build_compiled_ddp_step(
+            raw_model=object(),
+            local_rank=0,
+            device=object(),
+            profile=object(),
+            settings=settings,
+            row_spec=static_graph_step_spec,
+            torch_module=object(),
+        )
 
 
 def test_runtime_selection_records_v8_shortlist_provenance(tmp_path: Path) -> None:

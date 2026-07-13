@@ -153,9 +153,55 @@ def wrap_fastpath_ddp(  # noqa: PLR0913
     )
 
 
+# Leaf names of the persistent buffers DDP would have to broadcast from rank 0 every
+# forward to keep replicas identical: the running statistics that every standard
+# PyTorch normalization (BatchNorm*/SyncBatchNorm/InstanceNorm* with
+# track_running_stats) registers and mutates per batch, so they diverge across ranks
+# unless broadcast.
+_RANK_DIVERGENT_BUFFER_LEAVES = frozenset(
+    {"running_mean", "running_var", "num_batches_tracked"},
+)
+
+
+def model_requires_buffer_broadcast(model: nn.Module) -> bool:
+    """Return whether DDP must broadcast this model's buffers from rank 0.
+
+    Shared by the runner that *consumes* the recipe
+    (``training.selected_runtime_runner``) and the efficiency generator that
+    *measures* it (``benchmarking.runtime_selection_executor``), so the DDP wrap is
+    driven by the same ``broadcast_buffers`` value in both places.
+
+    Disabling ``broadcast_buffers`` is only safe when every persistent buffer is a
+    non-trainable, rank-identical constant that no forward pass mutates, so it can
+    never diverge across ranks. The standard modules that violate this are the
+    running-statistics normalizations, whose ``running_mean``/``running_var``/
+    ``num_batches_tracked`` buffers accumulate per-rank batch statistics and would
+    silently desync the replicas with ``broadcast_buffers=False``. This is a
+    structural, model-agnostic rule rather than a flag hardcoded for one model: the
+    non-equivariant baseline (GroupNorm plus the constant binomial downsample
+    kernels) registers no such buffer and needs no broadcast, while a future model
+    that introduces a running-stat buffer flips the result to ``True`` instead of
+    training divergent replicas. Detection is by the standard torch running-stat
+    buffer names, so a model that maintains rank-divergent state under a different
+    buffer name must request ``ddp_broadcast_buffers=True`` in its plan (or extend
+    this rule). ``named_buffers`` omits ``None``-valued buffers, so a normalization
+    with ``track_running_stats=False`` correctly contributes nothing.
+
+    Returns:
+        ``True`` if any persistent buffer holds mutable running statistics; ``False``
+        when every buffer is a rank-identical constant.
+
+    """
+    return any(
+        name.rsplit(".", 1)[-1] in _RANK_DIVERGENT_BUFFER_LEAVES
+        for name, _ in model.named_buffers()
+    )
+
+
 __all__ = [
     "apply_fastpath_dynamo_config",
     "build_fastpath_optimizer",
     "compiled_autograd_context",
+    "model_requires_buffer_broadcast",
     "wrap_fastpath_ddp",
 ]

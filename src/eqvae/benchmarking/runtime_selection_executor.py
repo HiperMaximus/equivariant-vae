@@ -39,6 +39,7 @@ from eqvae.benchmarking.runtime_selection import (
     BRANCHLESS_ALL,
     COMPILE_MODEL_FORWARD,
     COMPILE_NONE,
+    COMPILE_STEP,
     DEFAULT_RUNTIME_POLICY_ID,
     DUAL_T4_DDP,
     EXPECTED_DUAL_T4_COUNT,
@@ -413,7 +414,7 @@ def _runtime_policies(items: Sequence[JsonObject]) -> tuple[_RuntimePolicy, ...]
         }:
             message = f"Unsupported precision_policy: {precision_policy}"
             raise ValueError(message)
-        if compile_scope not in {COMPILE_NONE, COMPILE_MODEL_FORWARD}:
+        if compile_scope not in {COMPILE_NONE, COMPILE_MODEL_FORWARD, COMPILE_STEP}:
             message = f"Unsupported compile_scope: {compile_scope}"
             raise ValueError(message)
         policies.append(
@@ -1853,11 +1854,6 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
         MODEL_KIND_NON_EQ_TRANSLATABLE,
         build_model,
     )
-    from eqvae.training.optim import (  # noqa: PLC0415
-        SpecAdamWConfig,
-        build_adamw_parameter_groups,
-        create_adamw_optimizer,
-    )
     from eqvae.training.step import TrainStepRequest, run_train_step  # noqa: PLC0415
 
     rank_dir = Path(os.environ["EQVAE_RUNTIME_SELECTION_RANK_DIR"])
@@ -1963,57 +1959,45 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
             )
             if config.row_spec.memory_format == "channels_last":
                 raw_model = raw_model.to(memory_format=torch.channels_last)
-            ddp_model = DistributedDataParallel(
-                raw_model,
-                device_ids=[local_rank],
-                output_device=local_rank,
-                static_graph=config.row_spec.ddp_static_graph,
-                gradient_as_bucket_view=config.row_spec.ddp_gradient_as_bucket_view,
-            )
-            model = _compile_ddp_model_if_requested(
-                torch_module=torch,
-                model=cast("object", ddp_model),
-                row_spec=config.row_spec,
-            )
-            optimizer_config = SpecAdamWConfig(
-                learning_rate=settings.learning_rate,
-                weight_decay=settings.weight_decay,
-                gate_lr_multiplier=1.0,
-                gradient_clip_global_norm=settings.gradient_clip_global_norm,
-                beta1=0.9,
-                beta2=0.999,
-            )
-            if config.row_spec.optimizer_implementation == "adamw_default":
-                optimizer, _summary = create_adamw_optimizer(
-                    raw_model,
-                    config=optimizer_config,
+            profile = profile_from_config(settings.corruption_config)
+            # COMPILE_STEP measures the compiled whole-step recipe (Spec 0011 S14b): the
+            # DDP wrap, fused optimizer, and dynamo config come from the S14a-threaded
+            # recipe knobs, and inline corruption + forward + FP32 loss fuse into one
+            # ``torch.compile`` graph. Every other row keeps ``compiled_step_fn`` None
+            # and the byte-identical eager DDP + ``_compile_ddp_model_if_requested``
+            # path.
+            compiled_step_fn: object | None = None
+            if config.row_spec.compile_scope == COMPILE_STEP:
+                ddp_model, optimizer, compiled_step_fn = _build_compiled_ddp_step(
+                    raw_model=cast("object", raw_model),
+                    local_rank=local_rank,
+                    device=device,
+                    profile=profile,
+                    settings=settings,
+                    row_spec=config.row_spec,
+                    torch_module=torch,
                 )
+                model = cast("object", ddp_model)
             else:
-                parameter_groups, _summary = build_adamw_parameter_groups(
+                ddp_model = DistributedDataParallel(
                     raw_model,
-                    config=optimizer_config,
+                    device_ids=[local_rank],
+                    output_device=local_rank,
+                    static_graph=config.row_spec.ddp_static_graph,
+                    gradient_as_bucket_view=config.row_spec.ddp_gradient_as_bucket_view,
                 )
-                optimizer_kwargs: dict[str, object] = {}
-                if config.row_spec.optimizer_implementation == "adamw_foreach":
-                    optimizer_kwargs["foreach"] = True
-                elif config.row_spec.optimizer_implementation == "adamw_fused":
-                    optimizer_kwargs["fused"] = True
-                else:
-                    message = (
-                        "Unsupported optimizer_implementation: "
-                        f"{config.row_spec.optimizer_implementation}"
-                    )
-                    raise ValueError(message)
-                optimizer = torch.optim.AdamW(
-                    cast("list[dict[str, object]]", parameter_groups),
-                    lr=optimizer_config.learning_rate,
-                    betas=(optimizer_config.beta1, optimizer_config.beta2),
-                    eps=optimizer_config.epsilon,
-                    weight_decay=optimizer_config.weight_decay,
-                    **optimizer_kwargs,
+                model = _compile_ddp_model_if_requested(
+                    torch_module=torch,
+                    model=cast("object", ddp_model),
+                    row_spec=config.row_spec,
+                )
+                optimizer = _build_eager_ddp_optimizer(
+                    torch_module=torch,
+                    raw_model=cast("object", raw_model),
+                    settings=settings,
+                    row_spec=config.row_spec,
                 )
             scaler = _grad_scaler(torch_module=torch, row_spec=config.row_spec)
-            profile = profile_from_config(settings.corruption_config)
             compile_startup_sec = 0.0
             dynamo_counter_source_available = False
             settle_counter_snapshot: JsonObject = {}
@@ -2025,18 +2009,38 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                 settle_start_ns = time.perf_counter_ns()
                 settle_iterator = iter(cast("object", train_loader))
                 for settle_index in range(settings.compile_settle_steps):
-                    _run_ddp_forward_settle_batch(
-                        iterator=settle_iterator,
-                        model=model,
-                        device=device,
-                        profile=profile,
-                        normalize_uint8_batch_fn=normalize_uint8_batch,
-                        corrupt_normalized_batch_fn=corrupt_normalized_batch,
-                        settings=settings,
-                        step_index=settle_index,
-                        row_spec=config.row_spec,
-                        latent_channels=latent_channels,
-                    )
+                    if compiled_step_fn is not None:
+                        # The whole-step graph must be warmed by the *compiled step*
+                        # (grad + optimizer), not a forward-only pass: a forward-only
+                        # settle leaves first-trace compilation for the post-settle
+                        # window, scoring the row as recompiling and making it
+                        # permanently ineligible (Spec 0011 S14b).
+                        _run_compiled_ddp_step_batch(
+                            iterator=settle_iterator,
+                            compiled_step_fn=compiled_step_fn,
+                            optimizer=optimizer,
+                            model=model,
+                            device=device,
+                            normalize_uint8_batch_fn=normalize_uint8_batch,
+                            settings=settings,
+                            step_index=settle_index,
+                            row_spec=config.row_spec,
+                            latent_channels=latent_channels,
+                            beta_for_step_fn=beta_for_step,
+                        )
+                    else:
+                        _run_ddp_forward_settle_batch(
+                            iterator=settle_iterator,
+                            model=model,
+                            device=device,
+                            profile=profile,
+                            normalize_uint8_batch_fn=normalize_uint8_batch,
+                            corrupt_normalized_batch_fn=corrupt_normalized_batch,
+                            settings=settings,
+                            step_index=settle_index,
+                            row_spec=config.row_spec,
+                            latent_channels=latent_channels,
+                        )
                 torch.cuda.synchronize(device)
                 compile_startup_sec = pretest._elapsed_seconds(settle_start_ns)  # noqa: SLF001
                 settle_counter_snapshot = pretest._dynamo_counter_summary()  # noqa: SLF001
@@ -2044,6 +2048,49 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
             iterator = iter(cast("object", train_loader))
             proof_steps = []
             amp_step_skipped_count = 0
+
+            def run_throughput_batch(step_index: int) -> JsonObject:
+                # Warmup + measured (timed) batches. For a COMPILE_STEP row this drives
+                # the reduced-telemetry compiled step; only observed_batch_size and
+                # amp_step_skipped are consumed here. The full-telemetry proof loop
+                # stays eager (its per-batch mu/logvar/corruption-hash/gate fields feed
+                # the numerical/corruption/gate lanes, which the compiled step cannot
+                # emit). Every non-step row keeps the eager `_run_one_ddp_batch` path.
+                if compiled_step_fn is not None:
+                    return _run_compiled_ddp_step_batch(
+                        iterator=iterator,
+                        compiled_step_fn=compiled_step_fn,
+                        optimizer=optimizer,
+                        model=model,
+                        device=device,
+                        normalize_uint8_batch_fn=normalize_uint8_batch,
+                        settings=settings,
+                        step_index=step_index,
+                        row_spec=config.row_spec,
+                        latent_channels=latent_channels,
+                        beta_for_step_fn=beta_for_step,
+                    )
+                return _run_one_ddp_batch(
+                    iterator=iterator,
+                    model=model,
+                    raw_model=raw_model,
+                    optimizer=optimizer,
+                    scaler=scaler,
+                    device=device,
+                    profile=profile,
+                    normalize_uint8_batch_fn=normalize_uint8_batch,
+                    corrupt_normalized_batch_fn=corrupt_normalized_batch,
+                    settings=settings,
+                    step_index=step_index,
+                    row_spec=config.row_spec,
+                    latent_channels=latent_channels,
+                    beta_for_step_fn=beta_for_step,
+                    train_step_request_factory=TrainStepRequest,
+                    run_train_step_fn=run_train_step,
+                    compute_vae_loss_fn=compute_vae_loss,
+                    capture_gate_rows=False,
+                )
+
             for proof_index in range(pretest.REQUIRED_NUMERICAL_FIXED_BATCHES):
                 proof = _run_one_ddp_batch(
                     iterator=iterator,
@@ -2068,25 +2115,8 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                 amp_step_skipped_count += int(bool(proof.get("amp_step_skipped")))
                 proof_steps.append(proof)
             for step_index in range(settings.warmup_steps):
-                warmup = _run_one_ddp_batch(
-                    iterator=iterator,
-                    model=model,
-                    raw_model=raw_model,
-                    optimizer=optimizer,
-                    scaler=scaler,
-                    device=device,
-                    profile=profile,
-                    normalize_uint8_batch_fn=normalize_uint8_batch,
-                    corrupt_normalized_batch_fn=corrupt_normalized_batch,
-                    settings=settings,
-                    step_index=step_index + pretest.REQUIRED_NUMERICAL_FIXED_BATCHES,
-                    row_spec=config.row_spec,
-                    latent_channels=latent_channels,
-                    beta_for_step_fn=beta_for_step,
-                    train_step_request_factory=TrainStepRequest,
-                    run_train_step_fn=run_train_step,
-                    compute_vae_loss_fn=compute_vae_loss,
-                    capture_gate_rows=False,
+                warmup = run_throughput_batch(
+                    step_index + pretest.REQUIRED_NUMERICAL_FIXED_BATCHES,
                 )
                 amp_step_skipped_count += int(bool(warmup.get("amp_step_skipped")))
             torch.cuda.reset_peak_memory_stats(device)
@@ -2094,27 +2124,10 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
             samples = 0
             for step_index in range(settings.measured_steps):
                 start_ns = time.perf_counter_ns()
-                measured = _run_one_ddp_batch(
-                    iterator=iterator,
-                    model=model,
-                    raw_model=raw_model,
-                    optimizer=optimizer,
-                    scaler=scaler,
-                    device=device,
-                    profile=profile,
-                    normalize_uint8_batch_fn=normalize_uint8_batch,
-                    corrupt_normalized_batch_fn=corrupt_normalized_batch,
-                    settings=settings,
-                    step_index=step_index
+                measured = run_throughput_batch(
+                    step_index
                     + settings.warmup_steps
                     + pretest.REQUIRED_NUMERICAL_FIXED_BATCHES,
-                    row_spec=config.row_spec,
-                    latent_channels=latent_channels,
-                    beta_for_step_fn=beta_for_step,
-                    train_step_request_factory=TrainStepRequest,
-                    run_train_step_fn=run_train_step,
-                    compute_vae_loss_fn=compute_vae_loss,
-                    capture_gate_rows=False,
                 )
                 torch.cuda.synchronize(device)
                 step_ms.append(pretest._elapsed_ms(start_ns))  # noqa: SLF001
@@ -2536,13 +2549,266 @@ def _compile_ddp_model_if_requested(
     model: object,
     row_spec: pretest.RowSpec,
 ) -> object:
-    if row_spec.compile_scope == COMPILE_NONE:
+    # COMPILE_STEP compiles the whole train-step closure (see
+    # `_build_compiled_ddp_step`), not the model object, so the DDP model is returned
+    # unchanged here and invoked eagerly in the full-telemetry proof loop.
+    if row_spec.compile_scope in {COMPILE_NONE, COMPILE_STEP}:
         return model
     if row_spec.compile_scope != COMPILE_MODEL_FORWARD:
         message = f"Unsupported compile_scope: {row_spec.compile_scope}"
         raise ValueError(message)
     compile_fn = cast("object", torch_module).compile
     return compile_fn(model, dynamic=row_spec.compile_dynamic)
+
+
+def _build_eager_ddp_optimizer(
+    *,
+    torch_module: object,
+    raw_model: object,
+    settings: pretest.RealDataRuntimePretestSettings,
+    row_spec: pretest.RowSpec,
+) -> object:
+    """Build the eager-path AdamW optimizer selected by ``optimizer_implementation``.
+
+    Returns:
+        The grouped AdamW optimizer for the dual-T4 timing row.
+
+    """
+    from eqvae.training.optim import (  # noqa: PLC0415
+        SpecAdamWConfig,
+        build_adamw_parameter_groups,
+        create_adamw_optimizer,
+    )
+
+    optimizer_config = SpecAdamWConfig(
+        learning_rate=settings.learning_rate,
+        weight_decay=settings.weight_decay,
+        gate_lr_multiplier=1.0,
+        gradient_clip_global_norm=settings.gradient_clip_global_norm,
+        beta1=0.9,
+        beta2=0.999,
+    )
+    if row_spec.optimizer_implementation == "adamw_default":
+        optimizer, _summary = create_adamw_optimizer(raw_model, config=optimizer_config)
+        return cast("object", optimizer)
+    parameter_groups, _summary = build_adamw_parameter_groups(
+        raw_model,
+        config=optimizer_config,
+    )
+    optimizer_kwargs: dict[str, object] = {}
+    if row_spec.optimizer_implementation == "adamw_foreach":
+        optimizer_kwargs["foreach"] = True
+    elif row_spec.optimizer_implementation == "adamw_fused":
+        optimizer_kwargs["fused"] = True
+    else:
+        message = (
+            f"Unsupported optimizer_implementation: {row_spec.optimizer_implementation}"
+        )
+        raise ValueError(message)
+    return cast("object", torch_module).optim.AdamW(
+        cast("list[dict[str, object]]", parameter_groups),
+        lr=optimizer_config.learning_rate,
+        betas=(optimizer_config.beta1, optimizer_config.beta2),
+        eps=optimizer_config.epsilon,
+        weight_decay=optimizer_config.weight_decay,
+        **optimizer_kwargs,
+    )
+
+
+# The compiled whole-step backend. Matches the generator's derived plan value
+# (`runtime_selection._selected_runtime_payload`: any compiled scope -> "inductor"), so
+# the measured settle/throughput reflect the backend the runner consumes.
+_STEP_COMPILE_BACKEND = "inductor"
+
+
+def _build_compiled_ddp_step(
+    *,
+    raw_model: object,
+    local_rank: int,
+    device: object,
+    profile: object,
+    settings: pretest.RealDataRuntimePretestSettings,
+    row_spec: pretest.RowSpec,
+    torch_module: object,
+) -> tuple[object, object, object]:
+    """Build the DDP model, fused optimizer, and compiled whole-step closure.
+
+    Mirrors the runner's ``_maybe_build_compiled_step`` (Spec 0011 S16): the DDP wrap,
+    fused AdamW, and process-global dynamo config are driven by the S14a-threaded
+    recipe knobs, and branchless inline corruption + the AMP forward + the FP32 loss
+    island fuse into one ``torch.compile(dynamic=False)`` graph, so the measured
+    throughput and the zero-graph-break settle proof match what the runner later
+    consumes. The returned DDP model is invoked eagerly in the full-telemetry proof
+    loop; the compiled closure drives the settle/warmup/measured loops.
+
+    Two fail-closed preconditions keep the measured recipe faithful to what the runner
+    consumes (a silently divergent measurement is exactly what Spec 0011 forbids):
+
+    * ``amp_off_fp32`` only -- the closure hardcodes ``autocast_enabled=False`` and no
+      GradScaler, mirroring the runner's fp32 fast path; an AMP precision policy would
+      measure a recipe (fp32) the runner never runs under that policy.
+    * ``static_graph=False`` only -- a ``step`` row interleaves an eager numerical-proof
+      backward between the compiled settle and compiled throughput backwards on the same
+      DDP module. ``static_graph=True`` locks the backward graph structure on the first
+      (compiled) iteration, which the differently-structured eager proof backward
+      violates. (The committed ``model_forward`` path is immune: its settle is
+      forward-only and every backward routes through the same eager reducer.)
+
+    Returns:
+        A ``(ddp_model, optimizer, compiled_step_fn)`` triple.
+
+    Raises:
+        ValueError: If the ``step`` row requests AMP or ``static_graph=True``, which the
+            compiled-step measurement path cannot faithfully mirror to the runner.
+
+    """
+    if row_spec.precision_policy != AMP_OFF_FP32:
+        message = (
+            "Compiled whole-step measurement mirrors the runner's fp32 fast path only "
+            "(autocast and the GradScaler are not wired into the compiled-step probe), "
+            f"so precision_policy must be {AMP_OFF_FP32!r}; got "
+            f"{row_spec.precision_policy!r}."
+        )
+        raise ValueError(message)
+    if row_spec.ddp_static_graph:
+        message = (
+            "Compiled whole-step rows interleave an eager numerical-proof backward "
+            "between the compiled settle and compiled throughput backwards on one DDP "
+            "module, so ddp_static_graph must be False (it locks the backward graph "
+            "structure on the first compiled iteration)."
+        )
+        raise ValueError(message)
+    from eqvae.corruption.inline_stain import InlineStainCorruptor  # noqa: PLC0415
+    from eqvae.training.fastpath_recipe import (  # noqa: PLC0415
+        apply_fastpath_dynamo_config,
+        build_fastpath_optimizer,
+        model_requires_buffer_broadcast,
+        wrap_fastpath_ddp,
+    )
+    from eqvae.training.fastpath_step import make_fastpath_step_fn  # noqa: PLC0415
+    from eqvae.training.optim import SpecAdamWConfig  # noqa: PLC0415
+
+    ddp_model = wrap_fastpath_ddp(
+        raw_model,
+        local_rank=local_rank,
+        static_graph=row_spec.ddp_static_graph,
+        gradient_as_bucket_view=row_spec.ddp_gradient_as_bucket_view,
+        broadcast_buffers=row_spec.ddp_broadcast_buffers
+        or model_requires_buffer_broadcast(raw_model),
+        find_unused_parameters=row_spec.ddp_find_unused_parameters,
+        bucket_cap_mb=row_spec.ddp_bucket_cap_mb,
+    )
+    optimizer = build_fastpath_optimizer(
+        raw_model,
+        config=SpecAdamWConfig(
+            learning_rate=settings.learning_rate,
+            weight_decay=settings.weight_decay,
+            gate_lr_multiplier=1.0,
+            gradient_clip_global_norm=settings.gradient_clip_global_norm,
+            beta1=0.9,
+            beta2=0.999,
+            fused=row_spec.fused_optimizer,
+        ),
+    )
+    apply_fastpath_dynamo_config(
+        optimize_ddp=row_spec.optimize_ddp,
+        compiled_autograd=row_spec.compiled_autograd,
+        reorder_compute_comm_overlap=row_spec.reorder_compute_comm_overlap,
+    )
+    corruptor = InlineStainCorruptor(profile).to(device=device)
+    step_fn = make_fastpath_step_fn(
+        cast("object", ddp_model),
+        corruptor,
+        ssim_weight=settings.ssim_weight,
+        autocast_dtype=cast("object", torch_module).float32,
+        autocast_enabled=False,
+    )
+    compiled_step_fn = cast("object", torch_module).compile(
+        step_fn,
+        dynamic=False,
+        backend=_STEP_COMPILE_BACKEND,
+    )
+    return cast("object", ddp_model), cast("object", optimizer), compiled_step_fn
+
+
+def _run_compiled_ddp_step_batch(
+    *,
+    iterator: object,
+    compiled_step_fn: object,
+    optimizer: object,
+    model: object,
+    device: object,
+    normalize_uint8_batch_fn: object,
+    settings: pretest.RealDataRuntimePretestSettings,
+    step_index: int,
+    row_spec: pretest.RowSpec,
+    latent_channels: int,
+    beta_for_step_fn: object,
+) -> JsonObject:
+    """Drive one compiled whole-step batch (settle / warmup / measured).
+
+    The compiled closure fuses inline corruption + the forward + the FP32 loss; the
+    backward (eager, or compiled-autograd per the recipe), gradient clipping, and the
+    optimizer step stay eager here, exactly as the runner drives the recipe. Only the
+    clean batch, ``eps``, and a 0-dim ``beta`` tensor cross the graph boundary. ``step``
+    rows are ``amp_off_fp32`` (no GradScaler), so a step is never AMP-skipped.
+
+    Returns:
+        The minimal telemetry the throughput loops consume: the observed batch size and
+        the (always-False) AMP-skip flag.
+
+    """
+    import torch  # noqa: PLC0415
+
+    from eqvae.training.fastpath_recipe import (  # noqa: PLC0415
+        compiled_autograd_context,
+    )
+
+    batch = next(cast("object", iterator))
+    clean = _move_clean_batch_to_device(
+        torch_module=torch,
+        clean=cast("object", normalize_uint8_batch_fn)(batch.images_uint8),
+        device=device,
+        row_spec=row_spec,
+    )
+    shape = cast("tuple[int, int, int, int]", tuple(clean.shape))
+    eps = torch.zeros(
+        (
+            shape[0],
+            latent_channels,
+            settings.image_size // pretest.LATENT_DOWNSAMPLE_FACTOR,
+            settings.image_size // pretest.LATENT_DOWNSAMPLE_FACTOR,
+        ),
+        dtype=torch.float32,
+        device=device,
+    )
+    if row_spec.memory_format == "channels_last":
+        eps = eps.contiguous(memory_format=torch.channels_last)
+    beta_value = cast("object", beta_for_step_fn)(
+        optimizer_step_index=step_index,
+        max_optimizer_steps=settings.warmup_steps + settings.measured_steps + 1,
+        target_beta=settings.beta_target,
+        warmup_fraction=settings.beta_warmup_fraction,
+    )
+    # beta crosses the compiled graph boundary as a 0-dim tensor so the warmup schedule
+    # changing its value never forces a ``dynamic=False`` recompile.
+    beta = torch.tensor(float(beta_value), dtype=torch.float32, device=device)
+    cast("object", optimizer).zero_grad(set_to_none=row_spec.zero_grad_set_to_none)
+    with compiled_autograd_context(enabled=row_spec.compiled_autograd):
+        output = cast("object", compiled_step_fn)(clean, eps, beta)
+        cast("object", output.loss).backward()
+    if settings.gradient_clip_global_norm > 0.0:
+        _clip_grad_norm(
+            torch_module=torch,
+            parameters=list(cast("object", model).parameters()),
+            max_norm=settings.gradient_clip_global_norm,
+            foreach=row_spec.gradient_clip_foreach,
+        )
+    cast("object", optimizer).step()
+    return {
+        "observed_batch_size": int(shape[0]),
+        "amp_step_skipped": False,
+    }
 
 
 def _set_scalar_gate_precision(*, model: object, force_fp32: bool) -> int:

@@ -507,7 +507,7 @@ def test_settings_threads_plan_fused_optimizer_flag(tmp_path: Path) -> None:
 
 def test_model_requires_buffer_broadcast_is_structural() -> None:
     """The broadcast rule keys on running-stat buffers, not a hardcoded flag (S15)."""
-    requires = selected_runtime_runner._model_requires_buffer_broadcast  # noqa: SLF001
+    requires = selected_runtime_runner.model_requires_buffer_broadcast
     non_eq = build_non_equivariant_vae(norm_groups=8)
     running_stats = torch.nn.BatchNorm2d(4)
     stateless_norm = torch.nn.BatchNorm2d(4, track_running_stats=False)
@@ -614,7 +614,7 @@ def test_maybe_wrap_ddp_structural_rule_forces_broadcast_buffers(
 
     monkeypatch.setattr(
         selected_runtime_runner,
-        "_model_requires_buffer_broadcast",
+        "model_requires_buffer_broadcast",
         always_broadcast,
     )
     model = build_non_equivariant_vae(norm_groups=8)
