@@ -168,11 +168,27 @@ consumes: `precision_policy == amp_off_fp32` only (compiled closure hardcodes fp
 and `ddp_static_graph == False` only (a step row interleaves an eager proof backward between
 compiled backwards on one DDP module; the committed `model_forward` path is immune). Gate 452
 passed, basedpyright/ruff clean; adversarial review (read-only, default-refute) → 0 confirmed, the
-two latent divergence risks hardened into the guards above. **NEXT (local, new window per step):**
-S14b single-GPU pretest surface = the `'step'` guards + compiled-whole-step branch on the
-single-GPU pre-screen path (`real_data_runtime_pretest`), fully independent of the dual-T4 branch
-(which alone measures + selects the winner), so it is its own gated commit; then S14c = fold the
-probe VRAM feasibility sweep + the grid `efficiency_followup` step-policy wiring. Then Kaggle-only
+two latent divergence risks hardened into the guards above. **S14b single-GPU pretest surface
+(`aabd886`, local-only):** added `compile_scope=='step'` support to `real_data_runtime_pretest`,
+mirroring the dual-T4 branch on the single-GPU pre-screen path — `COMPILE_STEP`/
+`_STEP_COMPILE_BACKEND`, a widened `_run_stage1_rows` guard (step no longer
+`compile_scope_implementation_pending`), and single-GPU `_build_compiled_step`/
+`_run_compiled_step_batch` (no DDP; fused optimizer + `apply_fastpath_dynamo_config` +
+`make_fastpath_step_fn(autocast_enabled=False)` + `torch.compile(dynamic=False, backend="inductor")`).
+`_run_child_row` grows a `run_one_step(step_index, iterator)` dispatch (iterator passed, not captured,
+so `finally: del iterator` stays; settle drives the compiled step to warm the trace before the
+counter reset); the eager `none`/`model_forward` path is byte-identical. `_model_for_compile_scope_name`
+returns step unwrapped so the paired numerical proof (`_one_strategy_train_step_evidence`, a separate
+model) stays eager. Secondary surfaces widened (`_unique_train_step_target_rows`,
+`_compile_evidence_pass_for_row` step==model_forward parity, `implemented_compile_scopes`,
+`_compile_settle_proof` `configured_pass`); fail-closed ceiling preserved — step stays ineligible
+exactly like model_forward (`settle_coverage_pass=False` hardcoded). One guard: `amp_off_fp32` only
+(the executor's `static_graph` guard is N/A single-GPU — no DDP, no interleaved eager backward). Gate
+459 (was 452), basedpyright/ruff clean; 4-lens read-only adversarial review (behavior-preservation 0,
+compiled-fidelity 0, completeness 1 LOW fixed [`configured_pass` symmetry], test-soundness gap fixed
+with a mutation-proven recipe-wiring spy test); the compiled EXECUTION throughput / zero-graph-break is
+a Kaggle observation (S17). +7 CPU tests. **NEXT (local, new window per step):** S14c = fold the probe
+VRAM feasibility sweep + the grid `efficiency_followup` step-policy wiring (+bs48). Then Kaggle-only
 (user-driven): S17 (run the generator on dual-T4 → new compiled `selected_runtime.json` + de-pin
 the plan value-validators + activate the observation mirror), S19 (~30h full run); plus the queued
 LR-finder. Never push to origin.

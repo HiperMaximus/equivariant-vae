@@ -1,9 +1,9 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) DONE (committed local-only through `3298a57`); S14 decomposed into local sub-steps — S14a DONE (`1dc3901`, local); S14b dual-T4 executor branch DONE (`7256cd3`, local); S14b single-GPU pretest surface + S14c local-authorable next
-Implementation readiness: Phase 3 COMPLETE (local); S14a done; S14b dual-T4 executor branch done; S14b pretest single-GPU surface + S14c authorable + gated locally (GPU-validated on Kaggle); Kaggle phases S17/S19 gated (user-driven); LR-finder queued
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) DONE (committed local-only through `3298a57`); S14 decomposed into local sub-steps — S14a DONE (`1dc3901`, local); S14b dual-T4 executor branch DONE (`7256cd3`, local); S14b single-GPU pretest surface DONE (`aabd886`, local); S14c local-authorable next
+Implementation readiness: Phase 3 COMPLETE (local); S14a done; S14b dual-T4 executor branch + single-GPU pretest surface both done; S14c authorable + gated locally (GPU-validated on Kaggle); Kaggle phases S17/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-13 (S14b dual-T4 executor branch done local `7256cd3`; NEXT = S14b single-GPU pretest surface + S14c local, then Kaggle S17/S19 + LR-finder). The per-step `(DONE — …)` tags in the body are the state of record.
+Last updated: 2026-07-13 (S14b single-GPU pretest surface done local `aabd886`; NEXT = S14c local, then Kaggle S17/S19 + LR-finder). The per-step `(DONE — …)` tags in the body are the state of record.
 
 ## Purpose
 
@@ -478,17 +478,32 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       0 confirmed defects, the two latent divergence risks hardened into the guards above.
       Authored + unit-gated locally; the compiled-step throughput / zero-graph-break is a
       Kaggle observation (S17).
-    - **Single-GPU pretest surface (NEXT — deferred).** The `'step'` compile-scope guards
-      + compiled-whole-step branch on the single-GPU pretest pre-screen path
-      (`real_data_runtime_pretest`) are still eager-only. This surface is fully
-      independent of the dual-T4 executor branch (the dual-T4 branch alone measures +
-      selects the winner), so it is authorable as its own gated commit.
+    - **Single-GPU pretest surface (DONE — `aabd886`, local).** Added `compile_scope=='step'`
+      support to `real_data_runtime_pretest`: `COMPILE_STEP`/`_STEP_COMPILE_BACKEND`, a widened
+      `_run_stage1_rows` guard (step is no longer `compile_scope_implementation_pending`), and
+      single-GPU `_build_compiled_step`/`_run_compiled_step_batch` (no DDP) mirroring the dual-T4
+      branch's fused optimizer + `apply_fastpath_dynamo_config` + `make_fastpath_step_fn` +
+      `torch.compile(dynamic=False, backend="inductor")`. `_run_child_row` grows a
+      `run_one_step(step_index, iterator)` dispatch (settle drives the compiled step so the trace
+      warms before the counter reset); the eager `none`/`model_forward` path is byte-identical.
+      `_model_for_compile_scope_name` returns the step model unwrapped so the paired numerical proof
+      stays eager. The secondary evidence surfaces are widened (`_unique_train_step_target_rows`,
+      `_compile_evidence_pass_for_row` step==model_forward parity, `implemented_compile_scopes`,
+      `_compile_settle_proof` `configured_pass`), and the fail-closed ceiling is preserved: step stays
+      ineligible exactly like model_forward (`settle_coverage_pass=False` is hardcoded). One fail-closed
+      guard: `amp_off_fp32` only (the executor's `static_graph` guard is N/A — single-GPU has no DDP and
+      the child runs no interleaved eager backward). Gate 459 (was 452), basedpyright/ruff clean; 4-lens
+      read-only adversarial review → 1 LOW (`configured_pass` symmetry) fixed + 1 test-gap (compiled-step
+      recipe wiring) fixed with a mutation-proven spy test; the compiled *execution* throughput /
+      zero-graph-break stays a Kaggle observation (S17). +7 CPU tests.
   - **S14c Feasibility sweep + grid wiring.** Fold the probe's synthetic single-GPU-no-DDP
     VRAM sweep (`mem_get_info` + 1 GB margin + binary-search ceiling) into the executor to
     decide feasible batches + populate `oom` — reuse the probe's `_sweep_*` seam, NEVER its
-    throughput; add the `'step'` + winner-recipe policy to the grid
-    `efficiency_followup.policies` (+ bs48) so the executor enumerates + measures the
-    compiled winner. Honor the Plan-provenance real-data requirement: the compiled rows'
+    throughput; add the `'step'` + winner-recipe policy to the grid at
+    `runtime_matrix.selection_benchmark_slice.efficiency_followup.policies` (the exact path the
+    executor `_runtime_policies` reads; +bs48; the new policy is `precision_policy=amp_off_fp32`
+    + `compile_scope=step` to satisfy the S14b `_build_compiled_ddp_step` guards) so the executor
+    enumerates + measures the compiled winner. Honor the Plan-provenance real-data requirement: the compiled rows'
     `samples_sec` (feeding `material_speedup_over_baseline`) are measured on the **same
     real-data DDP loader** as the eager baseline; the synthetic `no_dataset` path is reused
     ONLY for the VRAM feasibility verdict, never for the throughput number.
