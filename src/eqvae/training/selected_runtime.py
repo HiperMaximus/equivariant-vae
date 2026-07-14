@@ -494,6 +494,37 @@ def _selected_identity_errors(payload: JsonObject) -> tuple[str, ...]:
     return tuple(errors)
 
 
+def composed_selected_runtime_identity(
+    payload: JsonObject,
+) -> tuple[str | None, str | None]:
+    """Recompose (selected_row_id, runtime_policy_id) from a plan payload's own fields.
+
+    The single source for what a plan's identity *is*: every cross-check that compares a
+    recorded identity against the plan -- the runtime proof here, a downloaded
+    ``gate_health.csv`` in the gate -- derives its expectation from this, so a
+    re-measured winner (a bigger batch, the compiled amp-off recipe) is accepted without
+    a Kaggle re-point while an inconsistent bundle still fails closed (Spec 0011 S17b).
+    ``selected_row_id`` is recomposed structurally from the plan's own fields (None when
+    any composing field is missing or wrongly typed); ``runtime_policy_id`` is the
+    recorded free label (None when missing, empty, or non-string -- an empty label
+    identifies nothing, so it must not satisfy a cross-check). A None component makes
+    the caller's identity check fail closed rather than silently accept.
+
+    Returns:
+        The structurally composed selected row_id (or None) and the recorded runtime
+        policy id (or None).
+
+    """
+    composed = _composed_selected_row_id(payload)
+    runtime_policy_id = payload.get("runtime_policy_id")
+    policy = (
+        runtime_policy_id
+        if isinstance(runtime_policy_id, str) and runtime_policy_id
+        else None
+    )
+    return composed, policy
+
+
 def _top_level_errors(payload: JsonObject) -> tuple[str, ...]:
     expected = {
         "status": "pass",
@@ -969,8 +1000,7 @@ def _runtime_proof_errors(  # noqa: PLR0911
     except (OSError, TypeError, ValueError):
         return ("selected_runtime_runtime_proof_unreadable",)
 
-    expected_row_id = _composed_selected_row_id(payload)
-    expected_policy_id = _str_or_none(payload.get("runtime_policy_id"))
+    expected_row_id, expected_policy_id = composed_selected_runtime_identity(payload)
     proof_errors = _runtime_proof_payload_errors(
         proof_payload,
         expected_row_id=expected_row_id,
@@ -1525,6 +1555,7 @@ __all__ = [
     "SelectedRuntimeApplicationObservation",
     "SelectedRuntimePlan",
     "build_plan_applied_proof",
+    "composed_selected_runtime_identity",
     "fail_closed_plan_applied_proof",
     "parse_selected_runtime_plan",
     "selected_runtime_identity_payload",

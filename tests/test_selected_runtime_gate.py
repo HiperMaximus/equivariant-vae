@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -57,6 +58,19 @@ REMOTE_TINY_EFFECTIVE_GLOBAL_EPOCH_SAMPLES = 48
 REMOTE_TINY_EFFECTIVE_PER_RANK_EPOCH_SAMPLES = 24
 SELECTED_RUNTIME_BATCH_SIZE = 12
 MASKED_HOLDOUT_WSI = "synthetic_wsi_0000"
+# A re-measured plan's identity: the policy a Kaggle re-mint would select, and the
+# row_id its own fields then compose. Used to prove the gate compares gate-health rows
+# against the loaded plan rather than the frozen eager-v5 literal (Spec 0011 S17b-2).
+_REPLANNED_POLICY_ID = "compile_step_ddp_optimizer_fp32_channels_last"
+_REPLANNED_ROW_ID = (
+    f"dual_t4_ddp__bs{SELECTED_RUNTIME_BATCH_SIZE}__amp_conservative__compile_none__"
+    f"indexed_masked__policy_{_REPLANNED_POLICY_ID}"
+)
+_GATE_HEALTH_ROW_BLOCKER = "selected_runtime_output_gate_health_row_id_mismatch"
+_GATE_HEALTH_CANDIDATE_BLOCKER = (
+    "selected_runtime_output_gate_health_candidate_mismatch"
+)
+_GATE_HEALTH_POLICY_BLOCKER = "selected_runtime_output_gate_health_policy_mismatch"
 
 
 def test_selected_runtime_gate_writes_fail_closed_contract(tmp_path: Path) -> None:
@@ -833,6 +847,151 @@ def test_selected_runtime_verify_output_rejects_thin_gate_health_csv(
     )
 
 
+def test_gate_health_identity_accepts_rows_matching_the_expected_identity(
+    tmp_path: Path,
+) -> None:
+    """Gate-health rows matching the expected identity raise no blocker.
+
+    The no-false-positive control for the cases below: without it, a check that blocked
+    unconditionally would satisfy every one of them.
+    """
+    assert (
+        _gate_health_blockers(
+            tmp_path,
+            expected_row_id=EXPECTED_SELECTED_ROW_ID,
+            expected_policy_id=EXPECTED_RUNTIME_POLICY_ID,
+        )
+        == ()
+    )
+
+
+@pytest.mark.parametrize(
+    ("expected_row_id", "expected_policy_id", "expected_blockers"),
+    [
+        pytest.param(
+            _REPLANNED_ROW_ID,
+            EXPECTED_RUNTIME_POLICY_ID,
+            (_GATE_HEALTH_ROW_BLOCKER, _GATE_HEALTH_CANDIDATE_BLOCKER),
+            id="row_id_of_a_different_plan",
+        ),
+        pytest.param(
+            EXPECTED_SELECTED_ROW_ID,
+            _REPLANNED_POLICY_ID,
+            (_GATE_HEALTH_POLICY_BLOCKER,),
+            id="policy_id_of_a_different_plan",
+        ),
+        pytest.param(
+            None,
+            EXPECTED_RUNTIME_POLICY_ID,
+            (_GATE_HEALTH_ROW_BLOCKER, _GATE_HEALTH_CANDIDATE_BLOCKER),
+            id="uncomposable_row_id_fails_closed",
+        ),
+        pytest.param(
+            EXPECTED_SELECTED_ROW_ID,
+            None,
+            (_GATE_HEALTH_POLICY_BLOCKER,),
+            id="unusable_policy_id_fails_closed",
+        ),
+    ],
+)
+def test_gate_health_identity_is_checked_against_the_caller_supplied_identity(
+    tmp_path: Path,
+    expected_row_id: str | None,
+    expected_policy_id: str | None,
+    expected_blockers: tuple[str, ...],
+) -> None:
+    """Identity blockers track the caller's identity, never a fixed row.
+
+    The rows on disk always carry the committed v5 identity, so an expectation drawn
+    from a different plan must reject them, and an expectation the plan could not
+    compose (None) must fail closed rather than match whatever the rows happen to say.
+    """
+    blockers = _gate_health_blockers(
+        tmp_path,
+        expected_row_id=expected_row_id,
+        expected_policy_id=expected_policy_id,
+    )
+
+    assert set(blockers) == set(expected_blockers)
+
+
+def test_selected_runtime_verify_output_accepts_a_replanned_identity(
+    tmp_path: Path,
+) -> None:
+    """A re-minted plan verifies clean on its own identity (Spec 0011 S17b).
+
+    A plan carrying a different policy -- and therefore a different composed row_id --
+    passes the downloaded-output verifier once it parses and its gate-health rows carry
+    that identity. Re-measuring the runtime on Kaggle is therefore a data change, not a
+    source change.
+    """
+    output_dir, _runtime_path = _write_complete_remote_output_fixture(tmp_path)
+    replanned_path = _replan_remote_output_fixture(tmp_path, output_dir)
+
+    blockers = selected_runtime_gate.verify_selected_runtime_debug_output(
+        output_dir=output_dir,
+        selected_runtime_path=replanned_path,
+    )
+
+    assert blockers == ()
+
+
+def test_selected_runtime_verify_output_rejects_stale_identity_after_replan(
+    tmp_path: Path,
+) -> None:
+    """Rows still carrying the old plan's identity are rejected after a re-plan.
+
+    Which identity is expected is plan-derived; that it is checked at all is not
+    negotiable. A bundle whose gate-health rows were produced under a previous plan must
+    not verify against a re-minted one.
+    """
+    output_dir, _runtime_path = _write_complete_remote_output_fixture(tmp_path)
+    replanned_path = _replan_remote_output_fixture(
+        tmp_path,
+        output_dir,
+        gate_health_identity=(EXPECTED_SELECTED_ROW_ID, EXPECTED_RUNTIME_POLICY_ID),
+    )
+
+    blockers = selected_runtime_gate.verify_selected_runtime_debug_output(
+        output_dir=output_dir,
+        selected_runtime_path=replanned_path,
+    )
+
+    assert _GATE_HEALTH_ROW_BLOCKER in blockers
+    assert _GATE_HEALTH_CANDIDATE_BLOCKER in blockers
+    assert _GATE_HEALTH_POLICY_BLOCKER in blockers
+
+
+def test_selected_runtime_verify_output_rejects_a_plan_the_parser_rejects(
+    tmp_path: Path,
+) -> None:
+    """A plan that self-declares different hardware is rejected on the remote path.
+
+    The identity the verifier expects is derived from the plan, so the plan must first
+    satisfy the parser's hardware/topology anchors -- otherwise a bundle could
+    re-declare its own accelerator and have every gate-health row agree with the
+    re-declaration. The anchors live in the parser, so the remote path has to run it.
+    """
+    output_dir, _runtime_path = _write_complete_remote_output_fixture(tmp_path)
+    replanned_path = _write_replanned_runtime_tree(tmp_path)
+    payload = _load_json(replanned_path)
+    payload["accelerator_mode"] = "single_t4"
+    payload["world_size"] = 1
+    row_id = _REPLANNED_ROW_ID.replace("dual_t4_ddp__", "single_t4__", 1)
+    payload["selected_row_id"] = row_id
+    _write_json(replanned_path, payload)
+    _replan_gate_health_rows(output_dir, row_id, _REPLANNED_POLICY_ID)
+    _relink_remote_output_plan(output_dir, replanned_path)
+
+    blockers = selected_runtime_gate.verify_selected_runtime_debug_output(
+        output_dir=output_dir,
+        selected_runtime_path=replanned_path,
+    )
+
+    assert "selected_runtime_top_level_not_dual_t4_ddp" in blockers
+    assert "selected_runtime_top_level_wrong_world_size" in blockers
+
+
 def test_selected_runtime_verify_output_requires_tiny_sampler_evidence(
     tmp_path: Path,
 ) -> None:
@@ -1254,6 +1413,127 @@ def _canonical_fixed32_selector_payload() -> dict[str, object]:
         },
         "selectors": selectors,
     }
+
+
+def _write_replanned_runtime_tree(tmp_path: Path) -> Path:
+    """Re-mint the committed plan tree under a new runtime policy, kept parse-clean.
+
+    A real Kaggle re-mint rewrites the plan, the snapshot cells that echo its identity,
+    and the runtime-proof artifact the plan hash-links to. Copying the whole committed
+    tree keeps those sibling links resolvable, so the result is a plan the parser
+    accepts on its own merits -- the only honest way to prove the gate accepts a
+    re-minted identity rather than accepting an unparseable plan.
+
+    Returns:
+        The path of the re-minted plan inside the copied tree.
+
+    """
+    tree = tmp_path / "replanned_runtime_selection"
+    shutil.copytree(Path("runs/kaggle/runtime_selection_v5"), tree)
+    plan_path = tree / "benchmark" / "selected_runtime.json"
+    payload = _load_json(plan_path)
+    payload["runtime_policy_id"] = _REPLANNED_POLICY_ID
+    payload["selected_row_id"] = _REPLANNED_ROW_ID
+    snapshot = cast("dict[str, object]", payload["selected_row_snapshot"])
+    snapshot["runtime_policy_id"] = _REPLANNED_POLICY_ID
+    snapshot["row_id"] = _REPLANNED_ROW_ID
+
+    artifacts = cast("dict[str, object]", payload["artifacts"])
+    proof_path = tree / cast("str", artifacts["runtime_proof"])
+    proof = _load_json(proof_path)
+    write_decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+    write_decision["selected_row_id"] = _REPLANNED_ROW_ID
+    efficiency = cast("dict[str, object]", proof["efficiency_followup"])
+    efficiency["selected_row_id"] = _REPLANNED_ROW_ID
+    efficiency["selected_runtime_policy_id"] = _REPLANNED_POLICY_ID
+    _write_json(proof_path, proof)
+    artifacts["runtime_proof_sha256"] = _sha256(proof_path)
+    _write_json(plan_path, payload)
+    return plan_path
+
+
+def _replan_remote_output_fixture(
+    tmp_path: Path,
+    output_dir: Path,
+    *,
+    gate_health_identity: tuple[str, str] = (_REPLANNED_ROW_ID, _REPLANNED_POLICY_ID),
+) -> Path:
+    """Repoint a downloaded-output fixture at a re-minted plan carrying a new identity.
+
+    Rewrites exactly what a real Kaggle re-mint would change and nothing else: the plan
+    tree (see ``_write_replanned_runtime_tree``), the gate-health rows that must carry
+    the re-minted identity, the training summary's hash link to the plan, and the
+    artifact manifest the gate replays. ``gate_health_identity`` defaults to the
+    re-minted identity; pass the old one to model a stale bundle.
+
+    Returns:
+        The path of the re-minted plan.
+
+    """
+    replanned_path = _write_replanned_runtime_tree(tmp_path)
+    row_id, policy_id = gate_health_identity
+    _replan_gate_health_rows(output_dir, row_id, policy_id)
+    _relink_remote_output_plan(output_dir, replanned_path)
+    return replanned_path
+
+
+def _replan_gate_health_rows(output_dir: Path, row_id: str, policy_id: str) -> None:
+    """Rewrite the downloaded gate-health rows to carry the given identity."""
+    row = _gate_health_row()
+    row.update(
+        {
+            "row_id": row_id,
+            "candidate_row_id": row_id,
+            "runtime_policy_id": policy_id,
+        },
+    )
+    _write_csv_rows(
+        output_dir / "metrics" / "gate_health.csv",
+        selected_runtime_gate.GATE_HEALTH_COLUMNS,
+        [row],
+    )
+
+
+def _relink_remote_output_plan(output_dir: Path, plan_path: Path) -> None:
+    """Re-point the summary's plan hash link and replay the manifest hashes.
+
+    Keeps the bundle's own integrity chain intact around a re-minted plan, so a test
+    reaches the identity check instead of tripping the hash-link blockers first.
+    """
+    summary_path = output_dir / "benchmark" / "training_summary.json"
+    summary = _load_json(summary_path)
+    summary["runtime_config"] = {"sha256": _sha256(plan_path)}
+    _write_json(summary_path, summary)
+
+    manifest_path = output_dir / "benchmark" / "artifact_manifest.json"
+    manifest = _load_json(manifest_path)
+    manifest["artifact_hashes"] = _remote_manifest_hashes(output_dir)
+    _write_json(manifest_path, manifest)
+
+
+def _gate_health_blockers(
+    tmp_path: Path,
+    *,
+    expected_row_id: str | None,
+    expected_policy_id: str | None,
+) -> tuple[str, ...]:
+    """Run the gate-health blocker check over one committed-v5-identity row.
+
+    Returns:
+        The blockers raised for rows carrying the committed v5 identity.
+
+    """
+    path = tmp_path / "gate_health.csv"
+    _write_csv_rows(
+        path,
+        selected_runtime_gate.GATE_HEALTH_COLUMNS,
+        [_gate_health_row()],
+    )
+    return selected_runtime_gate._remote_output_gate_health_blockers(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        path,
+        expected_row_id=expected_row_id,
+        expected_policy_id=expected_policy_id,
+    )
 
 
 def _gate_health_row() -> dict[str, str]:

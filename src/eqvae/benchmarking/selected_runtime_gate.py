@@ -62,6 +62,7 @@ from eqvae.training.selected_runtime import (
     EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE,
     EXPECTED_RUNTIME_POLICY_ID,
     EXPECTED_SELECTED_ROW_ID,
+    composed_selected_runtime_identity,
     fail_closed_plan_applied_proof,
     selected_runtime_identity_payload,
     selected_runtime_plan_errors,
@@ -499,6 +500,18 @@ def verify_selected_runtime_debug_output(  # noqa: PLR0914
     runtime_sha256 = _sha256_file(selected_runtime_path)
     max_batch_size = _int_value(runtime_payload.get("per_device_batch_size"))
     global_batch_size = _int_value(runtime_payload.get("global_batch_size"))
+    # The identity below is derived from this plan, so the plan itself must parse: the
+    # hardware/topology anchors that bound the de-pin live in the parser, not here, and
+    # expectations may only be derived from a plan that satisfies them (Spec 0011 S17b).
+    blockers.extend(
+        _selected_runtime_errors(
+            runtime_payload,
+            selected_runtime_path=selected_runtime_path,
+        ),
+    )
+    expected_row_id, expected_policy_id = composed_selected_runtime_identity(
+        runtime_payload,
+    )
     training_summary = _load_json(benchmark_dir / "training_summary.json")
     debug_summary = _load_json(benchmark_dir / "selected_runtime_debug_summary.json")
     plan_applied = _load_json(benchmark_dir / "selected_runtime_plan_applied.json")
@@ -537,7 +550,11 @@ def verify_selected_runtime_debug_output(  # noqa: PLR0914
         ),
     )
     blockers.extend(
-        _remote_output_gate_health_blockers(metrics_dir / "gate_health.csv"),
+        _remote_output_gate_health_blockers(
+            metrics_dir / "gate_health.csv",
+            expected_row_id=expected_row_id,
+            expected_policy_id=expected_policy_id,
+        ),
     )
     blockers.extend(
         _remote_output_train_step_blockers(
@@ -658,6 +675,18 @@ def verify_selected_runtime_full_output(  # noqa: PLR0914
     runtime_payload = _load_json(selected_runtime_path)
     max_batch_size = _int_value(runtime_payload.get("per_device_batch_size"))
     world_size = _int_value(runtime_payload.get("world_size"))
+    # The identity below is derived from this plan, so the plan itself must parse: the
+    # hardware/topology anchors that bound the de-pin live in the parser, not here, and
+    # expectations may only be derived from a plan that satisfies them (Spec 0011 S17b).
+    blockers.extend(
+        _selected_runtime_errors(
+            runtime_payload,
+            selected_runtime_path=selected_runtime_path,
+        ),
+    )
+    expected_row_id, expected_policy_id = composed_selected_runtime_identity(
+        runtime_payload,
+    )
     # Independent goal-derived schedule (MF2): re-derive updates/target/half from the
     # immutable patch count and the plan's global batch, so a summary that self-reports
     # a wrong schedule cannot slip past the gate on its own numbers.
@@ -697,7 +726,11 @@ def verify_selected_runtime_full_output(  # noqa: PLR0914
         ),
     )
     blockers.extend(
-        _remote_output_gate_health_blockers(metrics_dir / "gate_health.csv"),
+        _remote_output_gate_health_blockers(
+            metrics_dir / "gate_health.csv",
+            expected_row_id=expected_row_id,
+            expected_policy_id=expected_policy_id,
+        ),
     )
     blockers.extend(
         _remote_full_train_step_blockers(
@@ -1782,7 +1815,12 @@ def _manifest_artifact_path(*, output_dir: Path, name: str) -> Path | None:
     return legacy.get(name)
 
 
-def _remote_output_gate_health_blockers(path: Path) -> tuple[str, ...]:
+def _remote_output_gate_health_blockers(
+    path: Path,
+    *,
+    expected_row_id: str | None,
+    expected_policy_id: str | None,
+) -> tuple[str, ...]:
     with path.open(encoding="utf-8", newline="") as csv_file:
         reader = csv.DictReader(csv_file)
         rows = list(reader)
@@ -1795,11 +1833,21 @@ def _remote_output_gate_health_blockers(path: Path) -> tuple[str, ...]:
     blockers: list[str] = []
     if any(row.get("gate_health_status") != "pass" for row in rows):
         blockers.append("selected_runtime_output_gate_health_row_not_pass")
-    if any(row.get("row_id") != EXPECTED_SELECTED_ROW_ID for row in rows):
+    # Identity is de-pinned from the eager v5 literal (Spec 0011 S17b): the CSV's
+    # recorded row/policy must match the loaded plan's own structurally-composed
+    # identity, so a re-measured winner passes without a Kaggle re-point. A None
+    # expected id (an unusable plan) fails closed rather than accepting any row.
+    if expected_row_id is None or any(
+        row.get("row_id") != expected_row_id for row in rows
+    ):
         blockers.append("selected_runtime_output_gate_health_row_id_mismatch")
-    if any(row.get("candidate_row_id") != EXPECTED_SELECTED_ROW_ID for row in rows):
+    if expected_row_id is None or any(
+        row.get("candidate_row_id") != expected_row_id for row in rows
+    ):
         blockers.append("selected_runtime_output_gate_health_candidate_mismatch")
-    if any(row.get("runtime_policy_id") != EXPECTED_RUNTIME_POLICY_ID for row in rows):
+    if expected_policy_id is None or any(
+        row.get("runtime_policy_id") != expected_policy_id for row in rows
+    ):
         blockers.append("selected_runtime_output_gate_health_policy_mismatch")
     if any(
         not _is_finite_float(row.get(column, ""))

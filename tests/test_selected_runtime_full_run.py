@@ -45,6 +45,7 @@ from eqvae.models.non_equivariant_vae import (
 from eqvae.training import selected_runtime_runner
 from eqvae.training.fastpath_step import make_fastpath_step_fn
 from eqvae.training.selected_runtime import (
+    EXPECTED_RUNTIME_POLICY_ID,
     EXPECTED_RUNTIME_PROOF_WRITE_POLICY,
     EXPECTED_SELECTED_ROW_ID,
     SelectedRuntimePlan,
@@ -54,6 +55,7 @@ from eqvae.training.selected_runtime import (
     _runtime_proof_efficiency_errors,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _runtime_proof_write_decision_errors,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _torch_compile_errors,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    composed_selected_runtime_identity,
     parse_selected_runtime_plan,
     selected_runtime_plan_errors,
 )
@@ -1476,6 +1478,106 @@ def test_runtime_proof_efficiency_identity_is_structural() -> None:
     )
     assert row_mismatch in fail_closed
     assert policy_mismatch in fail_closed
+
+
+def test_composed_identity_of_committed_plan_equals_frozen_constants() -> None:
+    """The committed v5 plan recomposes to exactly the two frozen identity constants.
+
+    Two identity vocabularies coexist: the constants, still published for callers and
+    tests, and the identity every cross-check now derives from the plan itself. This
+    pins them together on the committed plan, so the constants cannot quietly come to
+    name something the plan no longer says.
+    """
+    assert composed_selected_runtime_identity(_committed_runtime_payload()) == (
+        EXPECTED_SELECTED_ROW_ID,
+        EXPECTED_RUNTIME_POLICY_ID,
+    )
+
+
+def test_composed_identity_of_compiled_winner_is_its_own_identity() -> None:
+    """A re-measured compiled winner composes to its own id, not the v5 literal."""
+    identity = composed_selected_runtime_identity(_consistent_compiled_winner_payload())
+
+    assert identity == (_COMPILED_WINNER_ROW_ID, _WINNER_POLICY_ID)
+
+
+def test_composed_identity_ignores_the_recorded_row_id_field() -> None:
+    """Identity is composed from the plan's fields, never read off its recorded id.
+
+    A tampered ``selected_row_id`` must not be able to tell the gate which rows to
+    accept, so composition ignores the recorded field entirely.
+    """
+    payload = _consistent_compiled_winner_payload()
+    payload["selected_row_id"] = "attacker_supplied_row_id"
+
+    composed, _policy = composed_selected_runtime_identity(payload)
+
+    assert composed == _COMPILED_WINNER_ROW_ID
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("per_device_batch_size", "48"),
+        ("per_device_batch_size", None),
+        # A bool is an int in Python: unguarded, this composes "bsTrue", not None.
+        ("per_device_batch_size", True),
+        ("mixed_precision", {}),
+        ("mixed_precision", {"policy": 48}),
+        ("torch_compile", "compiled"),
+        ("torch_compile", {"scope": None}),
+        ("corruption", "indexed_masked"),
+        ("corruption", {"strategy": ["indexed_masked"]}),
+        ("accelerator_mode", None),
+        ("runtime_policy_id", 48),
+    ],
+)
+def test_composed_identity_fails_closed_on_unusable_plan(
+    field: str,
+    value: JsonValue,
+) -> None:
+    """A plan missing or mistyping any composing field composes to None (fail closed).
+
+    The gate turns a None into an identity blocker, so a plan it cannot understand is
+    rejected rather than matching whatever the CSV happens to record.
+    """
+    payload = _consistent_compiled_winner_payload()
+    payload[field] = value
+
+    composed, _policy = composed_selected_runtime_identity(payload)
+
+    assert composed is None
+
+
+@pytest.mark.parametrize("value", [None, "", 48, ["policy"]])
+def test_composed_identity_policy_fails_closed_on_unusable_label(
+    value: JsonValue,
+) -> None:
+    """A missing, empty, or non-string runtime_policy_id composes to None."""
+    payload = _consistent_compiled_winner_payload()
+    payload["runtime_policy_id"] = value
+
+    _composed, policy = composed_selected_runtime_identity(payload)
+
+    assert policy is None
+
+
+def test_composed_identity_policy_half_catches_what_the_row_id_cannot() -> None:
+    """An empty policy still composes a row_id, so the policy half is what rejects it.
+
+    The row_id suppresses the policy suffix for an empty label, making it identical to a
+    legitimately suffixless one -- the row_id comparison alone cannot tell them apart,
+    which is why identity carries a separately-checked policy half.
+    """
+    payload = _consistent_compiled_winner_payload()
+    payload["runtime_policy_id"] = ""
+
+    composed, policy = composed_selected_runtime_identity(payload)
+
+    assert composed == _COMPILED_WINNER_ROW_ID.removesuffix(
+        f"__policy_{_WINNER_POLICY_ID}",
+    )
+    assert policy is None
 
 
 def test_mixed_precision_validator_accepts_both_profiles() -> None:
@@ -3601,6 +3703,64 @@ def test_full_output_verifier_accepts_strict_artifact_contract(
     )
 
     assert blockers == ()
+
+
+def test_full_output_verifier_checks_gate_health_identity_against_the_plan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The full verifier's gate-health identity comes from the plan, not a fixed row.
+
+    The fixture's rows carry the committed plan's identity, so a plan naming a different
+    policy must reject them. This is the full-run twin of the debug-path check: both
+    verifiers derive the expectation the same way, and an unpinned copy would drift.
+    """
+    contract = _small_full_output_contract(monkeypatch)
+    output_dir = tmp_path / "full_output"
+    _write_full_output_fixture(output_dir=output_dir, contract=contract)
+    payload = _committed_runtime_payload()
+    payload["runtime_policy_id"] = _WINNER_POLICY_ID
+    payload["selected_row_id"] = _EXPECTED_ROW_ID.replace(
+        "policy_amp_fp16_conservative",
+        f"policy_{_WINNER_POLICY_ID}",
+    )
+    replanned_path = tmp_path / "replanned_selected_runtime.json"
+    _write_json(replanned_path, payload)
+
+    blockers = verify_selected_runtime_full_output(
+        output_dir=output_dir,
+        selected_runtime_path=replanned_path,
+    )
+
+    assert "selected_runtime_output_gate_health_row_id_mismatch" in blockers
+    assert "selected_runtime_output_gate_health_candidate_mismatch" in blockers
+    assert "selected_runtime_output_gate_health_policy_mismatch" in blockers
+
+
+def test_full_output_verifier_rejects_a_plan_the_parser_rejects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The full verifier keeps the hardware anchors the de-pinned identity relies on.
+
+    The expected identity is derived from the plan, so a plan that self-declares a
+    different accelerator must be rejected here exactly as on the debug path -- the
+    anchors live in the parser, which this path therefore has to run.
+    """
+    contract = _small_full_output_contract(monkeypatch)
+    output_dir = tmp_path / "full_output"
+    _write_full_output_fixture(output_dir=output_dir, contract=contract)
+    payload = _committed_runtime_payload()
+    payload["accelerator_mode"] = "single_t4"
+    tampered_path = tmp_path / "single_t4_selected_runtime.json"
+    _write_json(tampered_path, payload)
+
+    blockers = verify_selected_runtime_full_output(
+        output_dir=output_dir,
+        selected_runtime_path=tampered_path,
+    )
+
+    assert "selected_runtime_top_level_not_dual_t4_ddp" in blockers
 
 
 def test_full_output_verifier_rejects_collapsed_eps_and_wrong_selection_view(
