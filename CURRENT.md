@@ -215,14 +215,26 @@ write forever; the amp_off_fp32 step winner passes); **Fix C** broadened `is_oom
 cuBLAS/cuDNN alloc failures for symmetric cross-rank classification — and **Fix D**'s one LOW
 del-list omission (the trailing `FastpathStepOutput` outliving `empty_cache`) is closed (added to
 the del + `output=None` pre-init). Behavior-preserving on the eager path (no step row selected
-yet). The compiled-step EXECUTION / feasibility verdict is a Kaggle observation. **NEXT: KAGGLE-ONLY
-(user-driven, needs exact remote cmd + `KAGGLE_PUSH_CONFIRMED=1`):** S17 (run the generator on
-dual-T4 → new compiled `selected_runtime.json` + de-pin the plan value-validators + activate the
-S15/S16-deferred observation mirror + corruption-label), S19 (~30h + ~30 min staging full run);
-plus the queued LR-finder (~200–300 lines, needs real dual-T4). **Kick off S17 in a FRESH window**
-(decided 2026-07-14) — land via the canonical sequence first, then have the exact Kaggle remote
-command + `KAGGLE_PUSH_CONFIRMED=1` ready. The **S19 full run is push-then-monitor** (push, then
-poll/check-in), NOT a held ~30h session. Never push to origin.
+yet). The compiled-step EXECUTION / feasibility verdict is a Kaggle observation. **S17a DONE
+(`3ed4ba6`, 2026-07-14, local-only):** the S17 parser-acceptance de-pin is S14-sized, so decomposed
+into local gated sub-steps ahead of the paid run; S17a de-pinned the recipe value-validators
+(`_mixed_precision_errors` / `_torch_compile_errors` / `_runtime_policy_errors` in
+`training/selected_runtime.py`) from the eager v5 literals to a coherence model that ACCEPTS both the
+eager fallback and the amp_off_fp32 compiled-step winner (allowed-set + internal-consistency), while
+keeping every safety anchor pinned (fp32-loss island required in each profile, `ddp_static_graph`
+False, `zero_grad_set_to_none` True, `_ddp_optimizer_safety_errors` untouched; the `!=`→`is` switch
+tightened it). Behavior-preserving: the committed v5 plan still parses with zero errors. Identity
+(`selected_row_id` / `runtime_policy_id`) + the snapshot batch/precision literals are deferred to
+S17b + the Kaggle mint. Gate 497/1, basedpyright/ruff clean; 4 read-only adversarial reviewers
+(behavior-preservation / coherence-vs-emitter / test-soundness / fix-delta) all clean.
+**NEXT LOCAL: S17b** (de-pin `_snapshot_errors` batch/precision literals → cross-consistency with the
+plan's own top-level fields; carries a USER-DECISION FORK — the row_id/policy_id identity anchors
+STRUCTURAL-now vs Kaggle-gated literal re-point; ask before implementing that half) then **S17c**
+(observation mirror + corruption-label accuracy). **THEN KAGGLE-ONLY (user-driven, FRESH window,
+needs exact remote cmd + `KAGGLE_PUSH_CONFIRMED=1`):** the S17 generator run → new compiled
+`selected_runtime.json` + re-point every row_id anchor to the minted literal; S19 (~30h + ~30 min
+staging, push-then-monitor, NOT a held session); plus the queued LR-finder (~200–300 lines, needs
+real dual-T4). Never push to origin.
 
 > **Everything from here down to the `Historical provenance follows.` marker below is
 > PRE-Spec-0011 status (runtime-selection v5, Spec 0006–0009), retained for reference.**
@@ -230,8 +242,8 @@ poll/check-in), NOT a held ~30h session. Never push to origin.
 > the FU-039 / FU-041 / DDP-correctness (FU-007/008/012/020) work this zone labels
 > "uncommitted / awaiting commit approval" is in fact COMMITTED — it is an ancestor of
 > the active S1–S16 Spec 0011 chain (Spec 0011 S16 = `3298a57`). The current state (Phase 3
-> COMPLETE; S14a + S14b + S14c all done local through `c59856e`; next = Kaggle-only S17/S19
-> + LR-finder) is the Latest handoff above.
+> COMPLETE; S14a/b/c + S17a done local through `3ed4ba6`; next local = S17b/S17c, then
+> Kaggle-only S17-run/S19 + LR-finder) is the Latest handoff above.
 
 Current short state: runtime-selection v5 is the selected fallback runtime
 (`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,
