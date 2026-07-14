@@ -219,7 +219,10 @@ yet). The compiled-step EXECUTION / feasibility verdict is a Kaggle observation.
 (user-driven, needs exact remote cmd + `KAGGLE_PUSH_CONFIRMED=1`):** S17 (run the generator on
 dual-T4 → new compiled `selected_runtime.json` + de-pin the plan value-validators + activate the
 S15/S16-deferred observation mirror + corruption-label), S19 (~30h + ~30 min staging full run);
-plus the queued LR-finder (~200–300 lines, needs real dual-T4). Never push to origin.
+plus the queued LR-finder (~200–300 lines, needs real dual-T4). **Kick off S17 in a FRESH window**
+(decided 2026-07-14) — land via the canonical sequence first, then have the exact Kaggle remote
+command + `KAGGLE_PUSH_CONFIRMED=1` ready. The **S19 full run is push-then-monitor** (push, then
+poll/check-in), NOT a held ~30h session. Never push to origin.
 
 > **Everything from here down to the `Historical provenance follows.` marker below is
 > PRE-Spec-0011 status (runtime-selection v5, Spec 0006–0009), retained for reference.**
