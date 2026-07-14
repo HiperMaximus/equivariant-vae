@@ -187,11 +187,39 @@ exactly like model_forward (`settle_coverage_pass=False` hardcoded). One guard: 
 459 (was 452), basedpyright/ruff clean; 4-lens read-only adversarial review (behavior-preservation 0,
 compiled-fidelity 0, completeness 1 LOW fixed [`configured_pass` symmetry], test-soundness gap fixed
 with a mutation-proven recipe-wiring spy test); the compiled EXECUTION throughput / zero-graph-break is
-a Kaggle observation (S17). +7 CPU tests. **NEXT (local, new window per step):** S14c = fold the probe
-VRAM feasibility sweep + the grid `efficiency_followup` step-policy wiring (+bs48). Then Kaggle-only
-(user-driven): S17 (run the generator on dual-T4 → new compiled `selected_runtime.json` + de-pin
-the plan value-validators + activate the observation mirror), S19 (~30h full run); plus the queued
-LR-finder. Never push to origin.
+a Kaggle observation (S17). +7 CPU tests. **S14c DONE (two commits, local-only, 2026-07-14;
+gate 472 + fix-delta adversarial review both green): `2927293` (C1) + `c59856e` (C2+C3).**
+C1 extracts the probe's OOM-safe VRAM primitives into a shared seam
+`src/eqvae/benchmarking/vram_feasibility.py` (`feasibility_ladder`/
+`binary_search_feasible_ceiling`/`probe_headroom_bytes` = `min(free, total − peak_reserved)`
+via `cuda.mem_get_info`/`headroom_below_margin` @ `VRAM_MARGIN_MB=1024`/`is_oom_error` spanning
+CUDA-OOM + cuBLAS/cuDNN alloc-failed/`NO_OOM`+`OOM` reduce sentinels) and repoints the probe
+(deletes its private copies), behavior-preserving. C2+C3: the executor screens each grid
+`compile_scope=='step'` row for single-GPU no-DDP VRAM feasibility in the DDP CHILD BEFORE the
+DDP build (`_screen_compiled_step_vram_feasibility`: fresh model + fused optimizer +
+`make_fastpath_step_fn(autocast_enabled=False)` + `torch.compile`, 2 synthetic-zeros steps,
+headroom read at peak — synthetic ONLY for the verdict, NEVER throughput), `_all_reduce_int`
+SUM-reduces the per-rank infeasible flag so BOTH ranks take the identical skip/continue branch,
+and an infeasible batch writes a clean `oom` FAIL payload (`_vram_infeasible_rank_payload`) +
+`dist.barrier()` + return instead of a hard failure; the `oom` column propagates through
+`_dual_row_from_rank_payloads`→`_failure_row(oom=)` and `runtime_selection._runtime_row_candidate_pass`
+rejects any `oom == "true"` row. The grid `efficiency_followup` gains bs48 + a 2nd policy
+`compile_step_ddp_optimizer_fp32_channels_last` (precision_policy=amp_off_fp32, compile_scope=step,
+channels_last, fused, bucket_cap 50 from `_DDP_OPTIMIZER_SPEC`) satisfying the S14b
+`_build_compiled_ddp_step` guards. Fix-delta adversarial review (read-only, default-refute):
+Fixes A/B/C SURVIVED refutation with documented attempts — **Fix A** gates `rank_payloads` to `()`
+unless the dual row is PASS + PASS-guards the two consumer loops (an oom row can no longer crash
+dual-evidence aggregation); **Fix B** `_efficiency_row_enumerable` drops an AMP policy row whose
+batch is not in the fp32-eager `dual_batch_sizes` (else amp@48 with no fp32 companion blocks the
+write forever; the amp_off_fp32 step winner passes); **Fix C** broadened `is_oom_error` to
+cuBLAS/cuDNN alloc failures for symmetric cross-rank classification — and **Fix D**'s one LOW
+del-list omission (the trailing `FastpathStepOutput` outliving `empty_cache`) is closed (added to
+the del + `output=None` pre-init). Behavior-preserving on the eager path (no step row selected
+yet). The compiled-step EXECUTION / feasibility verdict is a Kaggle observation. **NEXT: KAGGLE-ONLY
+(user-driven, needs exact remote cmd + `KAGGLE_PUSH_CONFIRMED=1`):** S17 (run the generator on
+dual-T4 → new compiled `selected_runtime.json` + de-pin the plan value-validators + activate the
+S15/S16-deferred observation mirror + corruption-label), S19 (~30h + ~30 min staging full run);
+plus the queued LR-finder (~200–300 lines, needs real dual-T4). Never push to origin.
 
 > **Everything from here down to the `Historical provenance follows.` marker below is
 > PRE-Spec-0011 status (runtime-selection v5, Spec 0006–0009), retained for reference.**
@@ -199,8 +227,8 @@ LR-finder. Never push to origin.
 > the FU-039 / FU-041 / DDP-correctness (FU-007/008/012/020) work this zone labels
 > "uncommitted / awaiting commit approval" is in fact COMMITTED — it is an ancestor of
 > the active S1–S16 Spec 0011 chain (Spec 0011 S16 = `3298a57`). The current state (Phase 3
-> COMPLETE; S14a + S14b dual-T4 executor branch done local; next = S14b single-GPU pretest
-> surface + S14c local, then Kaggle-only S17/S19 + LR-finder) is the Latest handoff above.
+> COMPLETE; S14a + S14b + S14c all done local through `c59856e`; next = Kaggle-only S17/S19
+> + LR-finder) is the Latest handoff above.
 
 Current short state: runtime-selection v5 is the selected fallback runtime
 (`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,

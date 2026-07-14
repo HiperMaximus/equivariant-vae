@@ -1,9 +1,9 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) DONE (committed local-only through `3298a57`); S14 decomposed into local sub-steps — S14a DONE (`1dc3901`, local); S14b dual-T4 executor branch DONE (`7256cd3`, local); S14b single-GPU pretest surface DONE (`aabd886`, local); S14c local-authorable next
-Implementation readiness: Phase 3 COMPLETE (local); S14a done; S14b dual-T4 executor branch + single-GPU pretest surface both done; S14c authorable + gated locally (GPU-validated on Kaggle); Kaggle phases S17/S19 gated (user-driven); LR-finder queued
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) DONE (committed local-only through `3298a57`); S14 decomposed into local sub-steps — S14a DONE (`1dc3901`, local); S14b dual-T4 executor branch DONE (`7256cd3`, local); S14b single-GPU pretest surface DONE (`aabd886`, local); S14c DONE (`2927293` + `c59856e`, local); all local sub-steps complete → next is Kaggle-only S17/S19 + LR-finder
+Implementation readiness: Phase 3 COMPLETE (local); S14a/S14b/S14c all done + gated locally (compiled EXECUTION GPU-validated on Kaggle); Kaggle phases S17/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-13 (S14b single-GPU pretest surface done local `aabd886`; NEXT = S14c local, then Kaggle S17/S19 + LR-finder). The per-step `(DONE — …)` tags in the body are the state of record.
+Last updated: 2026-07-14 (S14c done local `2927293` + `c59856e`; NEXT = Kaggle-only S17/S19 + LR-finder). The per-step `(DONE — …)` tags in the body are the state of record.
 
 ## Purpose
 
@@ -496,17 +496,38 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       read-only adversarial review → 1 LOW (`configured_pass` symmetry) fixed + 1 test-gap (compiled-step
       recipe wiring) fixed with a mutation-proven spy test; the compiled *execution* throughput /
       zero-graph-break stays a Kaggle observation (S17). +7 CPU tests.
-  - **S14c Feasibility sweep + grid wiring.** Fold the probe's synthetic single-GPU-no-DDP
-    VRAM sweep (`mem_get_info` + 1 GB margin + binary-search ceiling) into the executor to
-    decide feasible batches + populate `oom` — reuse the probe's `_sweep_*` seam, NEVER its
-    throughput; add the `'step'` + winner-recipe policy to the grid at
-    `runtime_matrix.selection_benchmark_slice.efficiency_followup.policies` (the exact path the
-    executor `_runtime_policies` reads; +bs48; the new policy is `precision_policy=amp_off_fp32`
-    + `compile_scope=step` to satisfy the S14b `_build_compiled_ddp_step` guards) so the executor
-    enumerates + measures the compiled winner. Honor the Plan-provenance real-data requirement: the compiled rows'
-    `samples_sec` (feeding `material_speedup_over_baseline`) are measured on the **same
-    real-data DDP loader** as the eager baseline; the synthetic `no_dataset` path is reused
-    ONLY for the VRAM feasibility verdict, never for the throughput number.
+  - **S14c (DONE — two commits, local-only, 2026-07-14; gate 472 + fix-delta adversarial
+    review both green): `2927293` (C1, seam extraction) + `c59856e` (C2+C3, executor screen +
+    grid + fix-delta) Feasibility sweep + grid wiring.** C1 extracted the probe's synthetic
+    single-GPU-no-DDP VRAM primitives (`mem_get_info` min(free, total−peak_reserved) + 1 GB
+    margin + binary-search ceiling + doubling ladder + `is_oom_error` spanning CUDA-OOM +
+    cuBLAS/cuDNN alloc-failed + `NO_OOM`/`OOM` reduce sentinels) into the shared seam
+    `benchmarking/vram_feasibility.py` and repointed the probe (deleting its private
+    `_sweep_*`/`_binary_search_ceiling`/`_is_oom_error` copies), behavior-preserving. C2+C3: the
+    executor screens each grid `compile_scope=='step'` row for VRAM feasibility in the DDP CHILD
+    BEFORE the DDP build (`_screen_compiled_step_vram_feasibility`: fresh model + fused optimizer
+    + `make_fastpath_step_fn(autocast_enabled=False)` + `torch.compile`, 2 synthetic-zeros steps,
+    `probe_headroom_bytes` read at peak), `_all_reduce_int` SUM-reduces the per-rank infeasible
+    flag so BOTH ranks take the identical skip/continue branch, and an infeasible batch writes a
+    clean `oom` FAIL payload (`_vram_infeasible_rank_payload`) + `dist.barrier()` + return instead
+    of a hard failure; the `oom` column propagates through `_dual_row_from_rank_payloads`→
+    `_failure_row(oom=)` and `runtime_selection._runtime_row_candidate_pass` rejects any
+    `oom == "true"` row. The grid gains the `'step'` + winner-recipe policy at
+    `runtime_matrix.selection_benchmark_slice.efficiency_followup.policies`
+    (`compile_step_ddp_optimizer_fp32_channels_last`; +bs48; `precision_policy=amp_off_fp32` +
+    `compile_scope=step` + channels_last + fused + bucket_cap 50 from `_DDP_OPTIMIZER_SPEC`,
+    satisfying the S14b `_build_compiled_ddp_step` guards) so the executor enumerates + measures
+    the compiled winner. Fix-delta adversarial review (read-only, default-refute): Fixes A/B/C
+    survived refutation — **A** gates `rank_payloads` to `()` unless the dual row is PASS +
+    PASS-guards the two consumer loops (an oom row can no longer crash dual-evidence aggregation);
+    **B** `_efficiency_row_enumerable` drops an AMP policy row whose batch is not in the fp32-eager
+    `dual_batch_sizes` (else amp@48 with no fp32 companion blocks the write forever); **C**
+    broadened `is_oom_error` for symmetric cross-rank classification — and **D**'s one LOW del-list
+    omission (the trailing `FastpathStepOutput` outliving `empty_cache`) is closed (`del output`
+    + `output=None` pre-init). Honor the Plan-provenance real-data requirement: the compiled rows'
+    `samples_sec` (feeding `material_speedup_over_baseline`) are measured on the **same real-data
+    DDP loader** as the eager baseline; the synthetic `no_dataset` path is reused ONLY for the VRAM
+    feasibility verdict, never for the throughput number (a Kaggle observation, S17).
 
 ### Phase 3 — Runner consumes the recipe (plan-gated, behavior-preserving off)
 
