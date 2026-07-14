@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from eqvae.data.roots import PatchDataPaths, PatchSplitPaths
     from eqvae.data.training_batches import PatchTrainingBatch
     from eqvae.models.non_equivariant_vae import NonEquivariantVAE
+    from eqvae.training.fastpath_step import FastpathStepOutput
     from eqvae.training.step import TrainStepRequest, TrainStepResult
 
     type TensorPayload = dict[str, torch.Tensor]
@@ -89,6 +90,7 @@ DUAL_T4_DDP = "dual_t4_ddp"
 AMP_OFF_FP32 = "amp_off_fp32"
 COMPILE_NONE = "none"
 COMPILE_MODEL_FORWARD = "model_forward"
+COMPILE_STEP = "step"
 BRANCHLESS_ALL = "branchless_all"
 INDEXED_MASKED = "indexed_masked"
 PASS_STATUS = "pass"  # noqa: S105
@@ -707,7 +709,11 @@ def _run_stage1_rows(
                     ),
                 )
                 continue
-            if row_spec.compile_scope not in {COMPILE_NONE, COMPILE_MODEL_FORWARD}:
+            if row_spec.compile_scope not in {
+                COMPILE_NONE,
+                COMPILE_MODEL_FORWARD,
+                COMPILE_STEP,
+            }:
                 rows.append(
                     _unsupported_row(
                         settings=settings,
@@ -780,7 +786,7 @@ def _run_single_child_row(config: ChildRowConfig) -> CsvRow:
     return _row_from_child_payload(settings=config.settings, payload=payload)
 
 
-def _run_child_row(config: ChildRowConfig) -> None:  # noqa: PLR0914, PLR0915
+def _run_child_row(config: ChildRowConfig) -> None:  # noqa: C901, PLR0914, PLR0915
     # Torch and dependent modules are intentionally imported only in row helpers.
     import torch  # noqa: PLC0415
     from torch.utils.data import DataLoader, Subset  # noqa: PLC0415
@@ -872,20 +878,76 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: PLR0914, PLR0915
     # future model with a different latent width re-runs this pretest unchanged
     # (Spec 0011 R1). Read from the raw model before compile wrapping.
     latent_channels = raw_model.latent_channels
-    model = _model_for_compile_scope(model=raw_model, row_spec=row_spec)
-    optimizer, _summary = create_adamw_optimizer(
-        raw_model,
-        config=SpecAdamWConfig(
-            learning_rate=config.settings.learning_rate,
-            weight_decay=config.settings.weight_decay,
-            gate_lr_multiplier=1.0,
-            gradient_clip_global_norm=config.settings.gradient_clip_global_norm,
-            beta1=0.9,
-            beta2=0.999,
-        ),
-    )
     profile = profile_from_config(config.settings.corruption_config)
+    # COMPILE_STEP measures the compiled whole-step recipe single-GPU (Spec 0011 S14b).
+    # The fused optimizer + dynamo config come from the S14a-threaded recipe knobs, and
+    # inline corruption + forward + FP32 loss fuse into one torch.compile graph -- the
+    # single-GPU mirror of the dual-T4 executor branch and the runner S16 compiled step.
+    # Every other scope keeps compiled_step_fn None and the byte-identical eager
+    # _model_for_compile_scope + grouped-optimizer + _run_one_train_batch path.
+    compiled_step_fn: object | None = None
+    if row_spec.compile_scope == COMPILE_STEP:
+        model, optimizer, compiled_step_fn = _build_compiled_step(
+            raw_model=raw_model,
+            device=device,
+            profile=profile,
+            settings=config.settings,
+            row_spec=row_spec,
+        )
+    else:
+        model = _model_for_compile_scope(model=raw_model, row_spec=row_spec)
+        optimizer, _summary = create_adamw_optimizer(
+            raw_model,
+            config=SpecAdamWConfig(
+                learning_rate=config.settings.learning_rate,
+                weight_decay=config.settings.weight_decay,
+                gate_lr_multiplier=1.0,
+                gradient_clip_global_norm=config.settings.gradient_clip_global_norm,
+                beta1=0.9,
+                beta2=0.999,
+            ),
+        )
     iterator = iter(loader)
+
+    def run_one_step(
+        step_index: int,
+        iterator: Iterator[PatchTrainingBatch],
+    ) -> int:
+        # A COMPILE_STEP row drives the compiled whole-step closure; every other scope
+        # keeps the byte-identical eager train step (``compiled_step_fn`` is None). The
+        # loader iterator is passed in (not captured) so the ``finally`` block can still
+        # ``del`` it before ``dataset.close()``.
+        if compiled_step_fn is not None:
+            return _run_compiled_step_batch(
+                iterator=iterator,
+                compiled_step_fn=compiled_step_fn,
+                optimizer=optimizer,
+                model=model,
+                device=device,
+                normalize_uint8_batch_fn=normalize_uint8_batch,
+                settings=config.settings,
+                step_index=step_index,
+                row_spec=row_spec,
+                latent_channels=latent_channels,
+                beta_for_step_fn=beta_for_step,
+            )
+        return _run_one_train_batch(
+            iterator=iterator,
+            model=model,
+            optimizer=optimizer,
+            device=device,
+            profile=profile,
+            normalize_uint8_batch_fn=normalize_uint8_batch,
+            corrupt_normalized_batch_fn=corrupt_normalized_batch,
+            settings=config.settings,
+            step_index=step_index,
+            row_spec=row_spec,
+            latent_channels=latent_channels,
+            beta_for_step_fn=beta_for_step,
+            train_step_request_factory=TrainStepRequest,
+            run_train_step_fn=run_train_step,
+        )
+
     step_ms: list[float] = []
     samples = 0
     compile_startup_sec = 0.0
@@ -899,65 +961,26 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: PLR0914, PLR0915
             dynamo_counter_source_available = _reset_dynamo_counters()
             settle_start_ns = time.perf_counter_ns()
             for step_index in range(config.settings.compile_settle_steps):
-                _run_one_train_batch(
-                    iterator=iterator,
-                    model=model,
-                    optimizer=optimizer,
-                    device=device,
-                    profile=profile,
-                    normalize_uint8_batch_fn=normalize_uint8_batch,
-                    corrupt_normalized_batch_fn=corrupt_normalized_batch,
-                    settings=config.settings,
-                    step_index=step_index,
-                    row_spec=row_spec,
-                    latent_channels=latent_channels,
-                    beta_for_step_fn=beta_for_step,
-                    train_step_request_factory=TrainStepRequest,
-                    run_train_step_fn=run_train_step,
-                )
+                # The whole-step graph must be warmed by the *compiled step* (grad +
+                # optimizer), not a forward-only pass: a forward-only settle leaves
+                # first-trace compilation for the post-settle window, scoring the row as
+                # recompiling (Spec 0011 S14b). run_one_step drives the compiled step
+                # for a COMPILE_STEP row and the eager step for every other scope.
+                run_one_step(step_index, iterator)
             torch.cuda.synchronize(device)
             compile_startup_sec = _elapsed_seconds(settle_start_ns)
             settle_counter_snapshot = _dynamo_counter_summary()
             _reset_dynamo_counters()
         for step_index in range(config.settings.warmup_steps):
-            _run_one_train_batch(
-                iterator=iterator,
-                model=model,
-                optimizer=optimizer,
-                device=device,
-                profile=profile,
-                normalize_uint8_batch_fn=normalize_uint8_batch,
-                corrupt_normalized_batch_fn=corrupt_normalized_batch,
-                settings=config.settings,
-                step_index=step_index + config.settings.compile_settle_steps,
-                row_spec=row_spec,
-                latent_channels=latent_channels,
-                beta_for_step_fn=beta_for_step,
-                train_step_request_factory=TrainStepRequest,
-                run_train_step_fn=run_train_step,
-            )
+            run_one_step(step_index + config.settings.compile_settle_steps, iterator)
         torch.cuda.reset_peak_memory_stats(device)
         for step_index in range(config.settings.measured_steps):
             start_ns = time.perf_counter_ns()
-            batch_size = _run_one_train_batch(
-                iterator=iterator,
-                model=model,
-                optimizer=optimizer,
-                device=device,
-                profile=profile,
-                normalize_uint8_batch_fn=normalize_uint8_batch,
-                corrupt_normalized_batch_fn=corrupt_normalized_batch,
-                settings=config.settings,
-                step_index=(
-                    step_index
-                    + config.settings.compile_settle_steps
-                    + config.settings.warmup_steps
-                ),
-                row_spec=row_spec,
-                latent_channels=latent_channels,
-                beta_for_step_fn=beta_for_step,
-                train_step_request_factory=TrainStepRequest,
-                run_train_step_fn=run_train_step,
+            batch_size = run_one_step(
+                step_index
+                + config.settings.compile_settle_steps
+                + config.settings.warmup_steps,
+                iterator,
             )
             torch.cuda.synchronize(device)
             step_ms.append(_elapsed_ms(start_ns))
@@ -1073,6 +1096,175 @@ def _run_one_train_batch(  # noqa: PLR0913
     return shape[0]
 
 
+# The compiled whole-step backend. Matches the generator's derived plan value
+# (`runtime_selection._selected_runtime_payload`: any compiled scope -> "inductor") and
+# the dual-T4 executor's ``_STEP_COMPILE_BACKEND``, so the single-GPU stability screen
+# compiles the step under the same backend the dual-T4 measurement and the runner use.
+_STEP_COMPILE_BACKEND = "inductor"
+
+
+def _build_compiled_step(
+    *,
+    raw_model: NonEquivariantVAE,
+    device: torch.device,
+    profile: StainCorruptionProfile,
+    settings: RealDataRuntimePretestSettings,
+    row_spec: RowSpec,
+) -> tuple[NonEquivariantVAE, torch.optim.AdamW, object]:
+    """Build the fused optimizer and compiled whole-step closure for a step row.
+
+    Single-GPU mirror of the dual-T4 executor's ``_build_compiled_ddp_step`` (and the
+    runner's ``_maybe_build_compiled_step``, Spec 0011 S16): the fused AdamW and the
+    process-global dynamo config come from the S14a-threaded recipe knobs, and inline
+    corruption + the fp32 forward + the FP32 loss island fuse into one
+    ``torch.compile(dynamic=False)`` graph, so the single-GPU pre-screen exercises the
+    same compiled step the dual-T4 executor measures and the runner consumes. There is
+    no ``DistributedDataParallel`` wrap (this path is single-GPU), so the model is
+    returned unwrapped and the ``ddp_static_graph`` interleaving concern does not arise:
+    this child measures timing only; the eager numerical proof lives in
+    ``_one_strategy_train_step_evidence``.
+
+    The one fail-closed precondition mirrors the executor: ``amp_off_fp32`` only, since
+    the closure hardcodes ``autocast_enabled=False`` and no GradScaler.
+    ``_run_stage1_rows`` already screens non-fp32 rows, so the guard is defense-in-depth
+    and an honest failure if that contract ever changes.
+
+    Returns:
+        A ``(model, optimizer, compiled_step_fn)`` triple; ``model`` is the raw model
+        the compiled closure and the optimizer share.
+
+    Raises:
+        ValueError: If the step row requests an AMP precision policy the compiled-step
+            screen cannot faithfully mirror to the runner.
+
+    """
+    import torch  # noqa: PLC0415
+
+    from eqvae.corruption.inline_stain import InlineStainCorruptor  # noqa: PLC0415
+    from eqvae.training.fastpath_recipe import (  # noqa: PLC0415
+        apply_fastpath_dynamo_config,
+        build_fastpath_optimizer,
+    )
+    from eqvae.training.fastpath_step import make_fastpath_step_fn  # noqa: PLC0415
+    from eqvae.training.optim import SpecAdamWConfig  # noqa: PLC0415
+
+    if row_spec.precision_policy != AMP_OFF_FP32:
+        message = (
+            "Compiled whole-step measurement mirrors the runner's fp32 fast path only "
+            "(autocast and GradScaler are not wired into the compiled-step screen), "
+            f"so precision_policy must be {AMP_OFF_FP32!r}; got "
+            f"{row_spec.precision_policy!r}."
+        )
+        raise ValueError(message)
+    optimizer = build_fastpath_optimizer(
+        raw_model,
+        config=SpecAdamWConfig(
+            learning_rate=settings.learning_rate,
+            weight_decay=settings.weight_decay,
+            gate_lr_multiplier=1.0,
+            gradient_clip_global_norm=settings.gradient_clip_global_norm,
+            beta1=0.9,
+            beta2=0.999,
+            fused=row_spec.fused_optimizer,
+        ),
+    )
+    apply_fastpath_dynamo_config(
+        optimize_ddp=row_spec.optimize_ddp,
+        compiled_autograd=row_spec.compiled_autograd,
+        reorder_compute_comm_overlap=row_spec.reorder_compute_comm_overlap,
+    )
+    corruptor = InlineStainCorruptor(profile).to(device=device)
+    step_fn = make_fastpath_step_fn(
+        raw_model,
+        corruptor,
+        ssim_weight=settings.ssim_weight,
+        autocast_dtype=torch.float32,
+        autocast_enabled=False,
+    )
+    compiled_step_fn = cast("Callable[..., object]", torch.compile)(
+        step_fn,
+        dynamic=False,
+        backend=_STEP_COMPILE_BACKEND,
+    )
+    return raw_model, optimizer, compiled_step_fn
+
+
+def _run_compiled_step_batch(  # noqa: PLR0913
+    *,
+    iterator: Iterator[PatchTrainingBatch],
+    compiled_step_fn: object,
+    optimizer: torch.optim.Optimizer,
+    model: NonEquivariantVAE,
+    device: torch.device,
+    normalize_uint8_batch_fn: NormalizeUint8BatchFn,
+    settings: RealDataRuntimePretestSettings,
+    step_index: int,
+    row_spec: RowSpec,
+    latent_channels: int,
+    beta_for_step_fn: BetaForStepFn,
+) -> int:
+    """Drive one compiled whole-step batch (settle / warmup / measured), single-GPU.
+
+    Single-GPU mirror of the executor's ``_run_compiled_ddp_step_batch``: the compiled
+    closure fuses inline corruption + the forward + the FP32 loss; the backward, grad
+    clipping, and the optimizer step stay eager here, exactly as the runner drives the
+    recipe. Only the clean batch, ``eps``, and a 0-dim ``beta`` tensor cross the graph
+    boundary. Step rows are ``amp_off_fp32`` (no GradScaler), so no AMP-skip exists.
+    Pretest rows are always ``memory_format="contiguous"`` (``_stage1_row_specs`` never
+    sets channels_last), so there is no layout conversion here (unlike the executor,
+    whose rows can be channels_last).
+
+    Returns:
+        The observed batch size, matching ``_run_one_train_batch`` so the measured loop
+        accumulates ``samples`` identically.
+
+    """
+    import torch  # noqa: PLC0415
+
+    from eqvae.training.fastpath_recipe import (  # noqa: PLC0415
+        compiled_autograd_context,
+    )
+
+    batch = next(iterator)
+    clean = normalize_uint8_batch_fn(batch.images_uint8).to(device=device)
+    shape = cast("tuple[int, int, int, int]", tuple(clean.shape))
+    eps = torch.zeros(
+        (
+            shape[0],
+            latent_channels,
+            settings.image_size // LATENT_DOWNSAMPLE_FACTOR,
+            settings.image_size // LATENT_DOWNSAMPLE_FACTOR,
+        ),
+        dtype=torch.float32,
+        device=device,
+    )
+    beta_value = beta_for_step_fn(
+        optimizer_step_index=step_index,
+        max_optimizer_steps=settings.warmup_steps + settings.measured_steps,
+        target_beta=settings.beta_target,
+        warmup_fraction=settings.beta_warmup_fraction,
+    )
+    # beta crosses the compiled graph boundary as a 0-dim tensor so the warmup schedule
+    # changing its value never forces a ``dynamic=False`` recompile.
+    beta = torch.tensor(float(beta_value), dtype=torch.float32, device=device)
+    optimizer.zero_grad(set_to_none=row_spec.zero_grad_set_to_none)
+    with compiled_autograd_context(enabled=row_spec.compiled_autograd):
+        output = cast(
+            "FastpathStepOutput",
+            cast("Callable[..., object]", compiled_step_fn)(clean, eps, beta),
+        )
+        backward = cast("Callable[[], None]", output.loss.backward)
+        backward()
+    if settings.gradient_clip_global_norm > 0.0:
+        cast("Callable[..., object]", torch.nn.utils.clip_grad_norm_)(
+            list(model.parameters()),
+            settings.gradient_clip_global_norm,
+            foreach=row_spec.gradient_clip_foreach,
+        )
+    optimizer.step()
+    return shape[0]
+
+
 def _model_for_compile_scope(
     *,
     model: NonEquivariantVAE,
@@ -1089,7 +1281,13 @@ def _model_for_compile_scope_name(
     model: NonEquivariantVAE,
     compile_scope: str,
 ) -> NonEquivariantVAE:
-    if compile_scope == COMPILE_NONE:
+    # COMPILE_STEP compiles the whole train-step closure (see ``_build_compiled_step``),
+    # not the model object, so the model is returned unwrapped here and invoked eagerly.
+    # This keeps the paired numerical proof (``_one_strategy_train_step_evidence``) on
+    # the eager path for a step row -- the compiled ``FastpathStepOutput`` cannot emit
+    # the mu/logvar/corruption-hash/gate telemetry that lane records -- mirroring the
+    # dual-T4 executor's ``_compile_ddp_model_if_requested``.
+    if compile_scope in {COMPILE_NONE, COMPILE_STEP}:
         return model
     if compile_scope == COMPILE_MODEL_FORWARD:
         compile_fn = cast("Callable[..., object]", torch.compile)
@@ -2568,6 +2766,9 @@ def _compile_settle_proof(
         settings.compile_settle_steps == REQUIRED_COMPILE_SETTLE_STEPS
         and COMPILE_NONE in settings.compile_scopes
         and COMPILE_MODEL_FORWARD in settings.compile_scopes
+        # COMPILE_STEP is implemented + measured (see implemented_compile_scopes), so
+        # the grid-completeness contract requires it, like model_forward.
+        and COMPILE_STEP in settings.compile_scopes
         and "model_loss" in settings.compile_scopes
         and "train_step_no_optimizer" in settings.compile_scopes
         and counter_source_available
@@ -2626,10 +2827,10 @@ def _compile_settle_proof(
         "full_compile_settle_coverage_required_for_canonical_pass": True,
         "canonical_pass_requires_measured_counter_deltas": True,
         "notes": (
-            "The model_forward compile scope is measured in this pretest. "
-            "Canonical pass requires measured compiled rows with child-process "
-            "Dynamo counter availability, full settle-path coverage, and zero "
-            "post-settle graph breaks/recompiles. Full coverage remains "
+            "The model_forward and whole-step (step) compile scopes are measured in "
+            "this pretest. Canonical pass requires measured compiled rows with "
+            "child-process Dynamo counter availability, full settle-path coverage, and "
+            "zero post-settle graph breaks/recompiles. Full coverage remains "
             "implementation-pending, so compiled rows stay ineligible."
         ),
     }
@@ -4288,7 +4489,11 @@ def _unique_train_step_target_rows(rows: Sequence[CsvRow]) -> list[CsvRow]:
             continue
         if row["precision_policy"] != AMP_OFF_FP32:
             continue
-        if row["compile_scope"] not in {COMPILE_NONE, COMPILE_MODEL_FORWARD}:
+        if row["compile_scope"] not in {
+            COMPILE_NONE,
+            COMPILE_MODEL_FORWARD,
+            COMPILE_STEP,
+        }:
             continue
         key = (
             row["accelerator_mode"],
@@ -4308,7 +4513,7 @@ def _unique_train_step_target_rows(rows: Sequence[CsvRow]) -> list[CsvRow]:
         for row in rows
         if row["accelerator_mode"] == SINGLE_VISIBLE_T4
         and row["precision_policy"] == AMP_OFF_FP32
-        and row["compile_scope"] in {COMPILE_NONE, COMPILE_MODEL_FORWARD}
+        and row["compile_scope"] in {COMPILE_NONE, COMPILE_MODEL_FORWARD, COMPILE_STEP}
     ][:1]
 
 
@@ -5260,7 +5465,11 @@ def _compile_evidence_pass_for_row(
             _csv_int_or_zero(row, "graph_break_count") == 0
             and _csv_int_or_zero(row, "recompile_count") == 0
         )
-    if row["compile_scope"] != COMPILE_MODEL_FORWARD:
+    # COMPILE_STEP (whole-step compile) is screened on the same relationship as
+    # COMPILE_MODEL_FORWARD: a PASS compile-settle lane plus zero post-settle graph
+    # breaks/recompiles. Both are measured but kept ineligible until full settle-path
+    # coverage lands (see ``_compile_settle_proof``).
+    if row["compile_scope"] not in {COMPILE_MODEL_FORWARD, COMPILE_STEP}:
         return False
     compile_settle = _required_object(linked_evidence, "compile_settle")
     return (
@@ -5591,7 +5800,7 @@ def _runtime_proof_payload(
                 "compile_settle_steps": settings.compile_settle_steps,
                 "counter_source": "torch._dynamo.utils.counters_with_reset_per_row",
                 "implemented_in_this_runner": True,
-                "implemented_compile_scopes": [COMPILE_MODEL_FORWARD],
+                "implemented_compile_scopes": [COMPILE_MODEL_FORWARD, COMPILE_STEP],
                 "contract_proof_available": True,
                 "status": _linked_status(linked_evidence, "compile_settle"),
                 "proof": _required_object(linked_evidence, "compile_settle"),

@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess  # noqa: S404
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -39,6 +40,9 @@ _CANONICAL_WINDOW_PATCHES = 2_048
 _CANONICAL_VALIDATION_WINDOW_PATCHES = 1_024
 _TEST_GATE_QUANTILE_CAP = 4
 _FLOAT_TOLERANCE = 1.0e-6
+_RUNTIME_BENCHMARK_CONFIG = Path(
+    "configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json",
+)
 
 
 def test_real_data_runtime_pretest_local_wrong_accelerator_artifacts(
@@ -415,10 +419,12 @@ def test_grid_step_scope_is_enumerated_into_row_specs() -> None:
 
     S13 adds "step" to the grid ``runtime_matrix.compile_scopes``, which the pretest
     enumerates for every seeded candidate, so the S12 selector can eventually see a step
-    row. The complementary fail-closed guarantee -- that the executor implements only
-    ``model_forward`` and marks any other scope ``compile_scope_implementation_pending``
-    until S14 -- is asserted by ``_assert_tiny_runtime_proof_linked_evidence``
-    (``implemented_compile_scopes == ['model_forward']``).
+    row. As of S14b the single-GPU pretest also *implements* the whole-step scope, so
+    ``_assert_tiny_runtime_proof_linked_evidence`` asserts
+    ``implemented_compile_scopes == ['model_forward', 'step']``; scopes outside that set
+    (``model_loss``/``train_step_no_optimizer``) still fail closed to
+    ``compile_scope_implementation_pending`` (see
+    ``test_stage1_admits_single_gpu_step_row_and_rejects_unimplemented_scope``).
     """
     config_path = Path("configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json")
     settings = pretest._settings(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
@@ -473,6 +479,323 @@ def test_train_step_target_rows_prioritize_eager_before_compiled() -> None:
         "compiled_bs4",
         "compiled_bs8",
     ]
+
+
+def _first_single_visible_step_row_spec(
+    settings: pretest.RealDataRuntimePretestSettings,
+) -> pretest.RowSpec:
+    for spec in pretest._stage1_row_specs(settings):  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        if (
+            spec.compile_scope == "step"
+            and spec.accelerator_mode == "single_visible_t4"
+        ):
+            return spec
+    message = "no single-GPU step row spec was enumerated from the grid"
+    raise AssertionError(message)
+
+
+def test_model_for_compile_scope_leaves_whole_step_uncompiled() -> None:
+    """The whole-step scope returns the model uncompiled; model_forward compiles it.
+
+    The whole-step recipe compiles the train-*step* closure (``_build_compiled_step``),
+    not the model object, so ``_model_for_compile_scope_name`` must return a step row's
+    model untouched -- otherwise the paired numerical proof
+    (``_one_strategy_train_step_evidence``) would run a compiled model whose
+    ``FastpathStepOutput`` cannot emit the mu/logvar/hash telemetry that lane records.
+    The ``model_forward`` case proves the pass-through is scope-specific: a mutation
+    that also routed ``step`` into ``torch.compile`` would fail the identity check.
+    """
+    from eqvae.models.registry import (  # noqa: PLC0415
+        MODEL_KIND_NON_EQ_TRANSLATABLE,
+        build_model,
+    )
+
+    settings = pretest._settings(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        resolve_json_config(_RUNTIME_BENCHMARK_CONFIG),
+        data_root_override=None,
+    )
+    model = build_model(
+        MODEL_KIND_NON_EQ_TRANSLATABLE,
+        model_config={"norm_groups": settings.norm_groups},
+    )
+
+    step_result = pretest._model_for_compile_scope_name(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        model=model,
+        compile_scope="step",
+    )
+    forward_result = pretest._model_for_compile_scope_name(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        model=model,
+        compile_scope="model_forward",
+    )
+
+    assert step_result is model
+    assert forward_result is not model
+
+
+def test_build_compiled_step_rejects_amp_precision() -> None:
+    """The single-GPU compiled-step builder fails closed on an AMP precision (S14b).
+
+    The compiled closure hardcodes fp32 (no autocast, no GradScaler) to mirror the
+    runner's fp32 fast path, so an AMP precision must raise rather than silently screen
+    fp32. The guard runs before any CUDA work, so this is CPU-safe.
+    """
+    from eqvae.corruption.stain import profile_from_config  # noqa: PLC0415
+    from eqvae.models.registry import (  # noqa: PLC0415
+        MODEL_KIND_NON_EQ_TRANSLATABLE,
+        build_model,
+    )
+
+    settings = pretest._settings(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        resolve_json_config(_RUNTIME_BENCHMARK_CONFIG),
+        data_root_override=None,
+    )
+    amp_step_spec = replace(
+        _first_single_visible_step_row_spec(settings),
+        precision_policy="amp_conservative",
+    )
+    model = build_model(
+        MODEL_KIND_NON_EQ_TRANSLATABLE,
+        model_config={"norm_groups": settings.norm_groups},
+    )
+    profile = profile_from_config(settings.corruption_config)
+
+    with pytest.raises(ValueError, match="precision_policy must be"):
+        pretest._build_compiled_step(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+            raw_model=model,
+            device=torch.device("cpu"),
+            profile=profile,
+            settings=settings,
+            row_spec=amp_step_spec,
+        )
+
+
+def test_build_compiled_step_wires_the_measured_recipe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_build_compiled_step threads the S14a recipe into the compiled step (S14b).
+
+    Spies on the three recipe seams (dynamo config, the step-fn factory, torch.compile)
+    prove the single-GPU builder wires the row's knobs, forwards fp32/no-autocast,
+    returns the model unwrapped, and compiles ``dynamic=False`` on the inductor backend
+    -- the same recipe the dual-T4 executor measures and the runner consumes. CPU-safe:
+    ``torch.compile`` and the factory are stubbed, so nothing is actually traced.
+    """
+    from eqvae.corruption.stain import profile_from_config  # noqa: PLC0415
+    from eqvae.models.registry import (  # noqa: PLC0415
+        MODEL_KIND_NON_EQ_TRANSLATABLE,
+        build_model,
+    )
+    from eqvae.training import fastpath_recipe, fastpath_step  # noqa: PLC0415
+
+    settings = pretest._settings(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        resolve_json_config(_RUNTIME_BENCHMARK_CONFIG),
+        data_root_override=None,
+    )
+    step_spec = _first_single_visible_step_row_spec(settings)
+    model = build_model(
+        MODEL_KIND_NON_EQ_TRANSLATABLE,
+        model_config={"norm_groups": settings.norm_groups},
+    )
+    profile = profile_from_config(settings.corruption_config)
+
+    dynamo_calls: list[dict[str, object]] = []
+    make_calls: list[dict[str, object]] = []
+    compile_calls: list[tuple[object, object, object]] = []
+
+    def spy_dynamo(**kwargs: object) -> None:
+        dynamo_calls.append(kwargs)
+
+    def spy_make(
+        model_arg: object,
+        corruptor_arg: object,
+        *,
+        ssim_weight: float,
+        autocast_dtype: object,
+        autocast_enabled: bool,
+    ) -> str:
+        make_calls.append({
+            "model": model_arg,
+            "corruptor": corruptor_arg,
+            "ssim_weight": ssim_weight,
+            "autocast_dtype": autocast_dtype,
+            "autocast_enabled": autocast_enabled,
+        })
+        return "step_fn_sentinel"
+
+    def spy_compile(fn: object, *, dynamic: object, backend: object) -> str:
+        compile_calls.append((fn, dynamic, backend))
+        return "compiled_sentinel"
+
+    monkeypatch.setattr(fastpath_recipe, "apply_fastpath_dynamo_config", spy_dynamo)
+    monkeypatch.setattr(fastpath_step, "make_fastpath_step_fn", spy_make)
+    monkeypatch.setattr(torch, "compile", spy_compile)
+
+    returned_model, optimizer, compiled_step_fn = pretest._build_compiled_step(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        raw_model=model,
+        device=torch.device("cpu"),
+        profile=profile,
+        settings=settings,
+        row_spec=step_spec,
+    )
+
+    assert returned_model is model
+    assert isinstance(optimizer, torch.optim.AdamW)
+    assert compiled_step_fn == "compiled_sentinel"
+    assert dynamo_calls == [
+        {
+            "optimize_ddp": step_spec.optimize_ddp,
+            "compiled_autograd": step_spec.compiled_autograd,
+            "reorder_compute_comm_overlap": step_spec.reorder_compute_comm_overlap,
+        },
+    ]
+    assert len(make_calls) == 1
+    assert make_calls[0]["model"] is model
+    assert make_calls[0]["autocast_enabled"] is False
+    assert make_calls[0]["autocast_dtype"] is torch.float32
+    assert make_calls[0]["ssim_weight"] == settings.ssim_weight
+    assert compile_calls == [
+        ("step_fn_sentinel", False, pretest._STEP_COMPILE_BACKEND),  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    ]
+
+
+def test_step_compile_backend_matches_dual_t4_executor() -> None:
+    """The pretest's compiled-step backend equals the dual-T4 executor's (S14b).
+
+    Both the single-GPU pre-screen and the dual-T4 measurement must compile the step
+    under the same backend the generator bakes into the plan
+    (``_selected_runtime_payload``: any compiled scope -> ``"inductor"``), or the
+    stability screen would exercise a different backend than the measured/consumed one.
+    """
+    from eqvae.benchmarking.runtime_selection_executor import (  # noqa: PLC0415
+        _STEP_COMPILE_BACKEND as _EXECUTOR_STEP_COMPILE_BACKEND,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    )
+
+    assert pretest._STEP_COMPILE_BACKEND == "inductor"  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    assert (
+        _EXECUTOR_STEP_COMPILE_BACKEND == pretest._STEP_COMPILE_BACKEND  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    )
+
+
+def test_unique_train_step_target_rows_admits_step_scope() -> None:
+    """The candidate train-step evidence filter admits whole-step rows (S14b).
+
+    Before S14b the filter dropped every scope but ``none``/``model_forward``, so a step
+    row could never be joined to its numerical evidence. Eager rows still sort first.
+    """
+    rows = [
+        _train_step_target_row(row_id="eager_bs8", batch_size=8, compile_scope="none"),
+        _train_step_target_row(row_id="step_bs8", batch_size=8, compile_scope="step"),
+    ]
+
+    ordered = pretest._unique_train_step_target_rows(rows)  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+
+    scopes = [row["compile_scope"] for row in ordered]
+    assert "step" in scopes
+    assert ordered[0]["compile_scope"] == "none"
+
+
+def test_compile_evidence_pass_treats_step_like_model_forward() -> None:
+    """A whole-step row passes compile evidence like ``model_forward`` (S14b).
+
+    A step row clears the lane exactly when the shared ``compile_settle`` lane passes
+    and it recorded zero post-settle graph breaks/recompiles; a graph break or a
+    non-pass settle lane fails it -- identical to ``model_forward``.
+    """
+    settle_pass = cast("JsonObject", {"compile_settle": {"status": "pass"}})
+    clean_step_row = cast(
+        "CsvRow",
+        {
+            **_train_step_target_row(
+                row_id="step_bs8",
+                batch_size=8,
+                compile_scope="step",
+            ),
+            "graph_break_count": "0",
+            "recompile_count": "0",
+        },
+    )
+
+    assert (
+        pretest._compile_evidence_pass_for_row(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+            row=clean_step_row,
+            linked_evidence=settle_pass,
+        )
+        is True
+    )
+    broken_step_row = cast("CsvRow", {**clean_step_row, "graph_break_count": "1"})
+    assert (
+        pretest._compile_evidence_pass_for_row(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+            row=broken_step_row,
+            linked_evidence=settle_pass,
+        )
+        is False
+    )
+    recompiled_step_row = cast("CsvRow", {**clean_step_row, "recompile_count": "1"})
+    assert (
+        pretest._compile_evidence_pass_for_row(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+            row=recompiled_step_row,
+            linked_evidence=settle_pass,
+        )
+        is False
+    )
+    settle_fail = cast(
+        "JsonObject",
+        {"compile_settle": {"status": "skipped_unsupported"}},
+    )
+    assert (
+        pretest._compile_evidence_pass_for_row(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+            row=clean_step_row,
+            linked_evidence=settle_fail,
+        )
+        is False
+    )
+
+
+def test_stage1_admits_single_gpu_step_row_and_rejects_unimplemented_scope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stage 1 runs a single-GPU step row and still fails closed on other scopes (S14b).
+
+    The widened ``compile_scope_implementation_pending`` guard admits ``step`` (now
+    implemented single-GPU) while still screening out the scopes that are not
+    (``model_loss``). ``_run_single_child_row`` is stubbed so the assertion is CPU-safe.
+    """
+    settings = pretest._settings(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        resolve_json_config(_RUNTIME_BENCHMARK_CONFIG),
+        data_root_override=None,
+    )
+    specs = pretest._stage1_row_specs(settings)  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    step_spec = _first_single_visible_step_row_spec(settings)
+    pending_spec = next(
+        spec
+        for spec in specs
+        if spec.compile_scope == "model_loss"
+        and spec.accelerator_mode == "single_visible_t4"
+    )
+
+    reached: list[str] = []
+
+    def fake_child(config: pretest.ChildRowConfig) -> CsvRow:
+        reached.append(config.row_spec.row_id)
+        return pretest._base_row(settings=settings, row_spec=config.row_spec)  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+
+    monkeypatch.setattr(pretest, "_run_single_child_row", fake_child)
+
+    rows = pretest._run_stage1_rows(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        request=RealDataRuntimePretestRequest(
+            config_path=_RUNTIME_BENCHMARK_CONFIG,
+            output_dir=tmp_path,
+        ),
+        settings=settings,
+        row_specs=(step_spec, pending_spec),
+        phase_timings=pretest.PhaseTimingRecorder(),
+    )
+
+    assert step_spec.row_id in reached
+    assert pending_spec.row_id not in reached
+    pending_row = next(row for row in rows if row["row_id"] == pending_spec.row_id)
+    assert pending_row["failure_kind"] == "compile_scope_implementation_pending"
 
 
 def test_gate_quantiles_use_exact_small_tensor_path() -> None:
@@ -925,7 +1248,7 @@ def _assert_tiny_runtime_proof_linked_evidence(
     assert runtime_proof["linked_evidence_status"] == "skipped_unsupported"
     compile_policy = cast("dict[str, object]", runtime_proof["compile_settle_policy"])
     assert compile_policy["implemented_in_this_runner"] is True
-    assert compile_policy["implemented_compile_scopes"] == ["model_forward"]
+    assert compile_policy["implemented_compile_scopes"] == ["model_forward", "step"]
     assert compile_policy["contract_proof_available"] is True
     assert compile_policy["status"] == "skipped_unsupported"
     assert runtime_proof["paired_numerical_status"] == "local_pass"
