@@ -37,9 +37,7 @@ from eqvae.benchmarking.compiled_fastpath_probe import (
     CompiledFastpathProbeRequest,
     RecipeResult,
     _apply_dynamo_config,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
-    _binary_search_ceiling,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _build_optimizer,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
-    _sweep_ladder_batches,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _sweep_max_feasible_batch,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _sweep_throughput_optimal,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _SweepPoint,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
@@ -75,19 +73,6 @@ _SWEEP_BATCH_SIZES = (12, 24, 48, 96)
 _SWEEP_OPTIMAL_BATCH = 24
 _SWEEP_MAX_FEASIBLE_BATCH = 48
 _EAGER_MAX_FEASIBLE_BATCH = 12
-# Binary-search ceiling fixtures. _CEILING_GRANULARITY mirrors the source's
-# _SWEEP_CEILING_GRANULARITY; the search must stop within that of the true ceiling.
-_CEILING_LOW_OK = 48
-_CEILING_HIGH_OOM = 384
-_CEILING_TRUE_MAX = 200
-_CEILING_GRANULARITY = 4
-_CEILING_MAX_PROBES = 10
-_CEILING_TIGHT_MAX = 150
-_CEILING_OOM_BOUND = 192
-# Ladder fixtures: base, first doubled rung past the requested seeds, and the cap.
-_LADDER_BASE = 12
-_LADDER_FIRST_DOUBLED = 48
-_LADDER_CAP = 512
 
 
 def _request(
@@ -451,55 +436,6 @@ def test_sweep_ignores_oom_points_when_selecting() -> None:
     ]
     assert _sweep_throughput_optimal(points) is None
     assert _sweep_max_feasible_batch(points) is None
-
-
-def test_binary_search_ceiling_pins_largest_feasible_batch() -> None:
-    """The bisection returns the largest feasible batch within the granularity."""
-    probed: list[int] = []
-
-    def feasible(batch_size: int) -> bool:
-        probed.append(batch_size)
-        return batch_size <= _CEILING_TRUE_MAX
-
-    ceiling = _binary_search_ceiling(feasible, low_ok=48, high_oom=384)
-    # Within granularity (4) of the true 200-batch ceiling, never above it.
-    assert ceiling <= _CEILING_TRUE_MAX
-    assert _CEILING_TRUE_MAX - ceiling <= _CEILING_GRANULARITY
-    # A bisection touches O(log range) midpoints, not every candidate batch.
-    assert len(probed) <= _CEILING_MAX_PROBES
-    assert all(_CEILING_LOW_OK <= size <= _CEILING_HIGH_OOM for size in probed)
-
-
-def test_binary_search_ceiling_never_probes_or_returns_the_oom_bound() -> None:
-    """Feasibility is only ever probed strictly below the known-OOM upper bound."""
-    probed: list[int] = []
-
-    def feasible(batch_size: int) -> bool:
-        probed.append(batch_size)
-        return batch_size <= _CEILING_TIGHT_MAX
-
-    ceiling = _binary_search_ceiling(feasible, low_ok=96, high_oom=192)
-    assert ceiling <= _CEILING_TIGHT_MAX
-    # The known-OOM bound is never re-probed (no wasted OOM) and never returned.
-    assert all(size < _CEILING_OOM_BOUND for size in probed)
-    assert ceiling < _CEILING_OOM_BOUND
-
-
-def test_sweep_ladder_auto_extends_past_requested_until_the_cap() -> None:
-    """The ladder keeps doubling past the largest requested size up to the cap."""
-    ladder = _sweep_ladder_batches((12, 24))
-    # Requested sizes are preserved and de-duplicated, ascending.
-    assert ladder[:2] == (12, 24)
-    # It then doubles (48, 96, ...) so the sweep finds the OOM edge on its own.
-    assert ladder[2] == _LADDER_FIRST_DOUBLED
-    assert all(ladder[idx] == ladder[idx - 1] * 2 for idx in range(2, len(ladder)))
-    assert max(ladder) <= _LADDER_CAP
-
-
-def test_sweep_ladder_dedupes_and_defaults_empty_request() -> None:
-    """Duplicate/zero sizes collapse and an empty request falls back to the base."""
-    assert _sweep_ladder_batches((48, 24, 24, 0))[:2] == (24, 48)
-    assert _sweep_ladder_batches(())[0] == _LADDER_BASE
 
 
 def test_proof_batch_sweep_reports_optimal_and_feasible(tmp_path: Path) -> None:

@@ -78,6 +78,17 @@ from torch._dynamo.utils import counters  # noqa: PLC2701
 from torch.amp.grad_scaler import GradScaler
 
 from eqvae.benchmarking.io import write_csv, write_json
+from eqvae.benchmarking.vram_feasibility import (
+    BYTES_PER_MB,
+    NO_OOM,
+    OOM,
+    VRAM_MARGIN_MB,
+    binary_search_feasible_ceiling,
+    feasibility_ladder,
+    headroom_below_margin,
+    is_oom_error,
+    probe_headroom_bytes,
+)
 from eqvae.corruption.inline_stain import InlineStainCorruptor
 from eqvae.corruption.stain import CONSERVATIVE_DEFAULT_PROFILE, profile_from_name
 from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
@@ -184,32 +195,15 @@ _RECIPE_BUCKET_CAP_MB = 50
 _PRIMARY_RANK = 0
 _DESYNC_RANK = 0
 _MS_PER_SECOND = 1000.0
-_BYTES_PER_MB = 1.0e6
 _STABLE_DELTA = 0
 _MIN_SYNC_CHECK_STEPS = 1
 _SIGNALS_PER_CONFIG = 3
 _SWEEP_PHASE_BAKEOFF = "bakeoff"
 _SWEEP_PHASE_SWEEP = "sweep"
-# torch raises either ``torch.cuda.OutOfMemoryError`` or a plain ``RuntimeError`` whose
-# message carries this fragment; the sweep treats both as an out-of-memory point.
-_OOM_MESSAGE_FRAGMENT = "out of memory"
-_NO_OOM = 0
-# Batch-sweep ceiling search. The timed doubling ladder starts at the base and keeps
-# doubling (up to the safety cap) until a config is infeasible, bracketing the ceiling;
-# a feasibility bisection then pins it to within the granularity. The cap only backstops
-# a bug -- these recipes hit the VRAM budget far below it on a 16 GB T4.
-_SWEEP_BASE_BATCH = _DEFAULT_BATCH_SIZE
-_SWEEP_MAX_BATCH = 512
-_SWEEP_CEILING_GRANULARITY = 4
-# A batch is "feasible" only if the single-GPU probe leaves at least this much PHYSICAL
-# free VRAM (via cuda.mem_get_info, which already accounts for the CUDA context + cuDNN/
-# Triton modules + NCCL buffers that max_memory_reserved does NOT). The margin is the
-# extra footprint the real DDP timed run adds on top of the probe -- gradient buckets,
-# NCCL comm buffers, the DDP-split graph, and allocator fragmentation -- so a batch that
-# passes cannot OOM when re-run under DDP (which would risk an asymmetric mid-grad-sync
-# OOM -> NCCL hang). Probe reserved is held (allocator does not shrink) when free is
-# read, so the reading is the true headroom at the probe's peak.
-_SWEEP_VRAM_MARGIN_MB = 1024.0
+# The OOM-safe batch-feasibility seam (doubling ladder, ceiling bisection, physical
+# free-VRAM query, margin verdict, OOM classifier, and their constants) is
+# single-sourced in ``vram_feasibility`` so the executor can screen grid batches with
+# the exact same rule (wired in Spec 0011 S14c).
 # The feasibility probe must actually run a step (allocate activations + optimizer state
 # + compile scratch) or its free-VRAM reading is meaningless; never let a low
 # --warmup-steps skip that.
@@ -891,7 +885,7 @@ def _measure_config(
     )
     step_ms, timing_nonfinite = _time_steps(context, steps=request.measured_steps)
     peak_vram_mb = float(torch.cuda.max_memory_allocated(distributed.device))
-    peak_vram_mb /= _BYTES_PER_MB
+    peak_vram_mb /= BYTES_PER_MB
     step_ms_p50 = statistics.median(step_ms)
     return _ConfigMeasurement(
         name=spec.name,
@@ -1179,7 +1173,10 @@ def _sweep_spec(
     points: list[_SweepPoint] = []
     low_ok: int | None = None
     high_oom: int | None = None
-    for batch_size in _sweep_ladder_batches(request.batch_sizes):
+    for batch_size in feasibility_ladder(
+        request.batch_sizes,
+        base_batch=_DEFAULT_BATCH_SIZE,
+    ):
         point = _sweep_measure_symmetric(
             spec,
             reference_state,
@@ -1211,19 +1208,6 @@ def _sweep_spec(
     return points
 
 
-def _sweep_ladder_batches(batch_sizes: tuple[int, ...]) -> tuple[int, ...]:
-    # The requested sizes seed the throughput curve; the ladder then keeps doubling
-    # past the largest requested size (up to a hard safety cap) so the sweep finds the
-    # OOM edge on its own -- no need to enumerate every size by hand.
-    requested = sorted({size for size in batch_sizes if size > 0})
-    ladder = requested or [_SWEEP_BASE_BATCH]
-    nxt = ladder[-1] * 2
-    while nxt <= _SWEEP_MAX_BATCH:
-        ladder.append(nxt)
-        nxt *= 2
-    return tuple(ladder)
-
-
 def _sweep_ceiling_point(
     spec: _RecipeSpec,
     reference_state: dict[str, Tensor],
@@ -1243,7 +1227,11 @@ def _sweep_ceiling_point(
             distributed=distributed,
         )
 
-    ceiling = _binary_search_ceiling(feasible, low_ok=low_ok, high_oom=high_oom)
+    ceiling = binary_search_feasible_ceiling(
+        feasible,
+        low_ok=low_ok,
+        high_oom=high_oom,
+    )
     if ceiling <= low_ok:
         # The bisection found nothing larger than the ladder point already measured.
         return None
@@ -1256,32 +1244,6 @@ def _sweep_ceiling_point(
         request=request,
         distributed=distributed,
     )
-
-
-def _binary_search_ceiling(
-    feasible: Callable[[int], bool],
-    *,
-    low_ok: int,
-    high_oom: int,
-) -> int:
-    """Return the largest batch known feasible in ``[low_ok, high_oom)``.
-
-    Invariant on entry: ``feasible(low_ok)`` is True and ``feasible(high_oom)`` is
-    False. ``feasible`` MUST return a value both ranks agree on (a cross-rank-reduced
-    OOM flag), so both ranks probe the identical midpoint sequence and never diverge
-    into mismatched collectives.
-
-    Returns:
-        The largest batch size proven feasible.
-
-    """
-    while high_oom - low_ok > _SWEEP_CEILING_GRANULARITY:
-        mid = (low_ok + high_oom) // 2
-        if feasible(mid):
-            low_ok = mid
-        else:
-            high_oom = mid
-    return low_ok
 
 
 def _sweep_feasible(
@@ -1302,7 +1264,7 @@ def _sweep_feasible(
         distributed=distributed,
     )
     reduced = _all_reduce_int(infeasible, device=distributed.device)
-    return reduced == _NO_OOM
+    return reduced == NO_OOM
 
 
 def _sweep_feasibility_attempt(
@@ -1337,38 +1299,24 @@ def _sweep_feasibility_attempt(
             wrap_ddp=False,
         )
         _warmup(context, steps=probe_warmup_steps)
-        headroom = _sweep_probe_headroom_bytes(device)
+        headroom = probe_headroom_bytes(device)
     except torch.cuda.OutOfMemoryError:
         gc.collect()
         torch.cuda.empty_cache()
-        return 1
+        return OOM
     except RuntimeError as error:
-        if not _is_oom_error(error):
+        if not is_oom_error(error):
             raise
         gc.collect()
         torch.cuda.empty_cache()
-        return 1
-    under_margin = headroom < int(_SWEEP_VRAM_MARGIN_MB * _BYTES_PER_MB)
+        return OOM
+    under_margin = headroom_below_margin(headroom)
     # Free the probe replica before the next probe / the timed rebuild so its footprint
     # does not inflate the following point's reading.
     del context
     gc.collect()
     torch.cuda.empty_cache()
-    return 1 if under_margin else _NO_OOM
-
-
-def _sweep_probe_headroom_bytes(device: torch.device) -> int:
-    # Physical free VRAM left for the DDP timed build's extra footprint, read at the
-    # probe's peak. Take the min of two bounds so it stays safe under either allocator:
-    #   - free: exact when the allocator holds its peak reserved segments at read time
-    #     (expandable_segments OFF, the default). It already subtracts the CUDA context,
-    #     cuDNN / Triton / NCCL resident set that max_memory_reserved does not see.
-    #   - (total - reserved): an allocator-independent bound valid even if
-    #     expandable_segments returned segments to the OS between the activation peak
-    #     and this read (so `free` alone could over-read the steady footprint).
-    free_bytes, total_bytes = torch.cuda.mem_get_info(device)
-    peak_reserved = torch.cuda.max_memory_reserved(device)
-    return min(free_bytes, total_bytes - peak_reserved)
+    return OOM if under_margin else NO_OOM
 
 
 def _sweep_measure_symmetric(
@@ -1390,7 +1338,7 @@ def _sweep_measure_symmetric(
         distributed=distributed,
     )
     reduced = _all_reduce_int(infeasible, device=distributed.device)
-    if reduced > _NO_OOM:
+    if reduced > NO_OOM:
         return _oom_sweep_point(spec.name, batch_size=batch_size)
     # Feasible on both ranks with a VRAM margin -> a fresh DDP build (parameters loaded
     # from the shared reference_state, so the replicas start bit-identical -- no resync
@@ -1460,7 +1408,7 @@ def _sweep_measure(
     settle_nonfinite = _run_settle_no_sync(context, steps=request.settle_steps)
     step_ms, timing_nonfinite = _time_steps(context, steps=request.measured_steps)
     peak_vram_mb = float(torch.cuda.max_memory_allocated(context.device))
-    peak_vram_mb /= _BYTES_PER_MB
+    peak_vram_mb /= BYTES_PER_MB
     graph_break_count = (
         graph_break_total() - graph_break_before if spec.compiled else _STABLE_DELTA
     )
@@ -1492,10 +1440,6 @@ def _all_reduce_int(value: int, *, device: torch.device) -> int:
     all_reduce = cast("Callable[[Tensor], object]", dist.all_reduce)
     all_reduce(flag)
     return int(flag.item())
-
-
-def _is_oom_error(error: RuntimeError) -> bool:
-    return _OOM_MESSAGE_FRAGMENT in str(error).lower()
 
 
 def _oom_sweep_point(name: str, *, batch_size: int) -> _SweepPoint:
@@ -1762,7 +1706,7 @@ def _batch_sweep_payload(
             # A batch is feasible only if the single-GPU probe leaves at least this much
             # PHYSICAL free VRAM, so max_feasible_batch is the largest batch that fits
             # with this headroom -- the safe batch to train, not the hard OOM edge.
-            "vram_margin_mb": _SWEEP_VRAM_MARGIN_MB,
+            "vram_margin_mb": VRAM_MARGIN_MB,
             "points": [_sweep_point_payload(point) for point in sweep_points],
             "recipes": {
                 name: _sweep_recipe_summary(points) for name, points in grouped.items()
