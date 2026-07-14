@@ -177,7 +177,9 @@ def test_selected_runtime_gate_marks_fabricated_runtime_failed(
     selected_runtime = _object(summary, "selected_runtime")
     component_status = _object(summary, "component_status")
     assert component_status["selected_runtime_transport"] == "fail"
-    assert "selected_runtime_row_not_v5_fallback" in _string_list(
+    # Spec 0011 S17b: the identity is structural -- a fabricated row_id no longer
+    # matches the id recomposed from the plan's own (still-v5) fields.
+    assert "selected_runtime_selected_row_id_not_self_consistent" in _string_list(
         selected_runtime["validation_errors"],
     )
     assert "selected_runtime_transport_validation_failed" in _string_list(

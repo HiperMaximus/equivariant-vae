@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, cast
 
 from eqvae.benchmarking import real_data_runtime_pretest as pretest
 from eqvae.benchmarking.io import CsvRow, JsonObject, JsonValue, write_json
+from eqvae.benchmarking.row_id import compose_selected_row_id
 from eqvae.benchmarking.runtime_schema import (
     CORRUPTION_CHECK_COLUMNS,
     DATALOADER_MATRIX_COLUMNS,
@@ -1868,13 +1869,14 @@ def _row_id(
     corruption_strategy: str,
     runtime_policy_id: str,
 ) -> str:
-    base = (
-        f"{accelerator_mode}__bs{batch_size}__{precision_policy}"
-        f"__compile_{compile_scope}__{corruption_strategy}"
+    return compose_selected_row_id(
+        accelerator_mode=accelerator_mode,
+        batch_size=batch_size,
+        precision_policy=precision_policy,
+        compile_scope=compile_scope,
+        corruption_strategy=corruption_strategy,
+        runtime_policy_id=runtime_policy_id,
     )
-    if runtime_policy_id in {"", DEFAULT_RUNTIME_POLICY_ID}:
-        return base
-    return f"{base}__policy_{runtime_policy_id}"
 
 
 def main(argv: Sequence[str] | None = None) -> int:

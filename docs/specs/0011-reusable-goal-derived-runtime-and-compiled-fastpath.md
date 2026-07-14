@@ -1,9 +1,9 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; S17b (snapshot cross-consistency) + S17c (observation mirror + corruption-label) queued locally; S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
-Implementation readiness: Phase 3 COMPLETE (local); S14a/S14b/S14c done + gated locally; S17a done + gated locally (parser now ACCEPTS a compiled plan's recipe; identity/snapshot deferred to S17b/Kaggle); compiled EXECUTION + the row_id mint are Kaggle observations; Kaggle phases S17-Kaggle/S19 gated (user-driven); LR-finder queued
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; S17b-2 (gate CSV-row pin) + S17b-3 (run_template copies) + S17c (observation mirror + corruption-label) queued locally; S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
+Implementation readiness: Phase 3 COMPLETE (local); S14a/S14b/S14c done + gated locally; S17a + S17b-1 done + gated locally (parser now ACCEPTS a self-consistent compiled plan — recipe AND structural identity/snapshot; identity is self-consistent so no Kaggle re-point is needed); compiled EXECUTION + the row_id mint are Kaggle observations; Kaggle phases S17-Kaggle/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-14 (S17a done local: coherence-model recipe de-pin; NEXT local = S17b/S17c; NEXT Kaggle = S17 generator run + S19). The per-step `(DONE — …)` tags in the body are the state of record.
+Last updated: 2026-07-14 (S17b-1 done local: parser structural identity + snapshot cross-consistency; NEXT local = S17b-2 gate CSV pin, S17b-3 run_template, S17c; NEXT Kaggle = S17 generator run + S19). The per-step `(DONE — …)` tags in the body are the state of record.
 
 ## Purpose
 
@@ -624,10 +624,34 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
     non-dict sentinel) + 1 coherence tightening (amp_off must reject an AMP autocast
     dtype) — all fixed and re-verified mutation-resistant; fixture-carrier fidelity
     aligned to the S11 frozen homes.
-  - **S17b** Snapshot cross-consistency: de-pin `_snapshot_errors` from the
-    `bs12`/`24`/`amp_conservative`/`float16`/`grad_scaler` literals to cross-consistency
-    with the plan's own top-level fields; keep `row_id`/`runtime_policy_id` identity
-    pinned (Kaggle mint).
+  - **S17b** Make the identity STRUCTURAL (user decision 2026-07-14: structural-now
+    over Kaggle-gated re-point) + de-pin the snapshot batch/precision literals to
+    cross-consistency. Decomposed into three gated local commits:
+    - **S17b-1 (DONE — this commit) Parser structural identity + snapshot
+      cross-consistency.** A new stdlib-only leaf `benchmarking/row_id.py` single-sources
+      the selected-runtime row_id formula (`compose_row_id_base` /
+      `compose_selected_row_id` / `DEFAULT_RUNTIME_POLICY_ID`); the three emitters
+      (`runtime_selection`, `real_data_runtime_pretest`, `runtime_selection_executor`
+      `_row_id`) delegate to it (byte-identical). In `training/selected_runtime.py`,
+      `_top_level_errors`, `_snapshot_errors`, and the two `_runtime_proof_*` validators
+      now check the recorded `selected_row_id` / `runtime_policy_id` against the id
+      recomposed from the plan's own fields (`_composed_selected_row_id`), and the
+      snapshot `bs`/`amp_conservative`/`float16`/`grad_scaler` cells cross-check the
+      plan's own top-level fields; the hardware/status anchors (accelerator, machine
+      shape, world size, nproc, corruption, status) stay pinned. The two top-level
+      identity error ids were renamed `*_not_v5_fallback` → structural
+      (`selected_runtime_selected_row_id_not_self_consistent` /
+      `selected_runtime_runtime_policy_id_missing`); all snapshot/proof ids preserved.
+      Behavior-preserving: the committed v5 plan recomposes to the frozen literal and
+      still parses with zero errors. Gate 522 passed/1 skipped (497→522),
+      basedpyright/ruff clean; 4 read-only adversarial reviewers (behavior/fail-open,
+      emitter↔parser contract, snapshot edges, test-soundness) → 0 confirmed.
+    - **S17b-2** Gate `_remote_output_gate_health_blockers` CSV-row pin → compare the
+      `gate_health.csv` `row_id`/`candidate_row_id`/`runtime_policy_id` cells against the
+      loaded plan's own identity, not `EXPECTED_SELECTED_ROW_ID`.
+    - **S17b-3** The three `run_template.py` embedded `EXPECTED_SELECTED_ROW_ID` copies
+      (`selected_runtime_full`, `selected_runtime_debug`, `runtime_selection`) → derived
+      / structural, so a compiled plan builds and validates at push time.
   - **S17c** Observation mirror + corruption-label: add the nine S11 recipe knobs to
     `SelectedRuntimeApplicationObservation` / `expected_application` /
     `_application_mismatches` with the structural `broadcast_buffers`-override tolerance;
@@ -635,10 +659,11 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
     corruption label accurate (blake2b dropped, `InlineStainCorruptor` applied inline).
   - **S17-Kaggle** [Kaggle] Run the S14 generator on dual-T4 → new compiled
     `selected_runtime.json` (winner row_id
-    `dual_t4_ddp__bs48__amp_off_fp32__compile_step__indexed_masked__policy_…`). Re-point
-    every row_id/policy_id anchor — parser (`_top_level_errors`, `_snapshot_errors`, the
-    two `_runtime_proof_*`), gate (`_remote_output_gate_health_blockers`), and the embedded
-    `run_template` copy — to the minted literal; the de-pinned consumers accept it.
+    `dual_t4_ddp__bs48__amp_off_fp32__compile_step__indexed_masked__policy_…`). With the
+    identity made STRUCTURAL in S17b (parser done in S17b-1; gate/`run_template` in
+    S17b-2/3), NO anchor re-point is needed — the de-pinned consumers accept the minted
+    id because it is self-consistent with the plan's own fields. Only the emitted plan
+    itself is new.
 - **S18** Docs: de-pin Spec 0009 schedule passages to formulas (bs24 as a worked
   example only); add decision record `docs/decisions/0010-...` framing the mechanism
   as reusable across architectures; update CURRENT.md / specs README / open_follow_ups.

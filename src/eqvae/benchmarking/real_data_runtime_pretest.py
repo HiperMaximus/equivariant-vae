@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
 import torch
 
 from eqvae.benchmarking.io import CsvRow, JsonObject, JsonValue, write_csv, write_json
+from eqvae.benchmarking.row_id import compose_row_id_base
 from eqvae.benchmarking.runtime_schema import (
     CORRUPTION_CHECK_COLUMNS,
     DATALOADER_MATRIX_COLUMNS,
@@ -1425,9 +1426,12 @@ def _row_id(
     compile_scope: str,
     corruption_strategy: str,
 ) -> str:
-    return (
-        f"{accelerator_mode}__bs{per_device_batch_size}__{precision_policy}"
-        f"__compile_{compile_scope}__{corruption_strategy}"
+    return compose_row_id_base(
+        accelerator_mode=accelerator_mode,
+        batch_size=per_device_batch_size,
+        precision_policy=precision_policy,
+        compile_scope=compile_scope,
+        corruption_strategy=corruption_strategy,
     )
 
 

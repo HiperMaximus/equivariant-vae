@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, NamedTuple, NoReturn, cast
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-    from eqvae.benchmarking.io import JsonObject
+    from eqvae.benchmarking.io import JsonObject, JsonValue
     from eqvae.corruption.stain import StainCorruptionProfile
     from eqvae.data.training_batches import PatchTrainingBatch
     from eqvae.training.fastpath_step import FastpathStepOutput
@@ -35,6 +35,7 @@ from eqvae.checkpointing import CheckpointMetadata, LoadedCheckpoint
 from eqvae.cli.selected_runtime_train import main as selected_runtime_train_main
 from eqvae.config import ResolvedConfig, resolve_json_config
 from eqvae.corruption.inline_stain import InlineStainCorruptor
+from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
 from eqvae.losses.vae import VaeLossComponents, beta_for_step
 from eqvae.models.latent import LATENT_CHANNELS
 from eqvae.models.non_equivariant_vae import (
@@ -44,10 +45,14 @@ from eqvae.models.non_equivariant_vae import (
 from eqvae.training import selected_runtime_runner
 from eqvae.training.fastpath_step import make_fastpath_step_fn
 from eqvae.training.selected_runtime import (
+    EXPECTED_RUNTIME_PROOF_WRITE_POLICY,
+    EXPECTED_SELECTED_ROW_ID,
     SelectedRuntimePlan,
     _mixed_precision_errors,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _plan_from_payload,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _runtime_policy_errors,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _runtime_proof_efficiency_errors,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _runtime_proof_write_decision_errors,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _torch_compile_errors,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     parse_selected_runtime_plan,
     selected_runtime_plan_errors,
@@ -1139,8 +1144,8 @@ _RECIPE_COHERENCE_ERROR_NAMES = frozenset(
         "selected_runtime_runtime_policy_zero_grad_set_to_none_mismatch",
     },
 )
-# The shape of the compiled winner's composed row_id (bs48 amp-off compile-step), which
-# the identity pins still reject until the Kaggle run mints it (Spec 0011 S17b).
+# The compiled winner's composed row_id (bs48 amp-off compile-step). S17b accepts it
+# structurally when the plan's own fields recompose to it (see the S17b section below).
 _COMPILED_WINNER_ROW_ID = (
     "dual_t4_ddp__bs48__amp_off_fp32__compile_step__indexed_masked__"
     "policy_compile_step_ddp_optimizer_fp32_channels_last"
@@ -1214,14 +1219,14 @@ def _compiled_winner_payload() -> JsonObject:
     return payload
 
 
-def test_full_parser_accepts_compiled_recipe_but_still_pins_identity() -> None:
-    """The compiled recipe clears the recipe validators; identity stays Kaggle-gated.
+def test_full_parser_rejects_compiled_recipe_with_inconsistent_identity() -> None:
+    """A compiled recipe whose row_id disagrees with its own fields is rejected.
 
-    S17a de-pins only the recipe value validators. A payload carrying the compiled
-    winner recipe emits NONE of the recipe-coherence errors, yet flipping the row_id to
-    the (not-yet-minted) compiled winner id still trips the identity pin -- so a
-    compiled plan is accepted on its recipe but correctly rejected until its identity is
-    re-pointed (Spec 0011 S17b / the Kaggle row_id mint).
+    S17b makes identity structural. ``_compiled_winner_payload`` swaps only the recipe
+    blocks (its batch and policy id stay eager), so labeling it with the fully-shaped
+    bs48 winner row_id is self-inconsistent and correctly rejected -- while the recipe
+    validators still pass, proving recipe acceptance and identity enforcement are
+    independent.
     """
     payload = _compiled_winner_payload()
     payload["selected_row_id"] = _COMPILED_WINNER_ROW_ID
@@ -1229,7 +1234,248 @@ def test_full_parser_accepts_compiled_recipe_but_still_pins_identity() -> None:
     errors = selected_runtime_plan_errors(payload)
 
     assert _RECIPE_COHERENCE_ERROR_NAMES.isdisjoint(errors)
-    assert "selected_runtime_row_not_v5_fallback" in errors
+    assert "selected_runtime_selected_row_id_not_self_consistent" in errors
+
+
+# --- Spec 0011 S17b: structural identity + snapshot cross-consistency ----------------
+
+_WINNER_POLICY_ID = "compile_step_ddp_optimizer_fp32_channels_last"
+_WINNER_PER_DEVICE_BATCH = 48
+_WINNER_GLOBAL_BATCH = 96
+
+
+def _consistent_compiled_winner_payload() -> JsonObject:
+    """Return a fully self-consistent compiled winner plan (Spec 0011 S17b).
+
+    Extends ``_compiled_winner_payload`` (which swaps only the recipe blocks) so every
+    identity, batch, and snapshot field agrees: the bs48 amp-off-fp32 compile-step
+    winner id, its per-device/global batch and derived schedule, its policy id, and a
+    snapshot rebuilt to the winner's string cells. The whole plan therefore parses with
+    no error, proving the parser accepts a re-measured compiled winner end to end.
+
+    Returns:
+        A compiled winner plan whose identity, batch, and snapshot are self-consistent.
+
+    """
+    payload = _compiled_winner_payload()
+    payload["selected_row_id"] = _COMPILED_WINNER_ROW_ID
+    payload["runtime_policy_id"] = _WINNER_POLICY_ID
+    payload["per_device_batch_size"] = _WINNER_PER_DEVICE_BATCH
+    payload["global_batch_size"] = _WINNER_GLOBAL_BATCH
+    payload["optimizer_updates_per_epoch"] = (
+        REAL_TRAIN_PATCH_COUNT // _WINNER_GLOBAL_BATCH
+    )
+    snapshot = _plan_block(payload, "selected_row_snapshot")
+    snapshot.update(
+        {
+            "row_id": _COMPILED_WINNER_ROW_ID,
+            "runtime_policy_id": _WINNER_POLICY_ID,
+            "precision_policy": "amp_off_fp32",
+            "per_device_batch_size": str(_WINNER_PER_DEVICE_BATCH),
+            "global_batch_size": str(_WINNER_GLOBAL_BATCH),
+            "grad_scaler_enabled": "false",
+            "autocast_dtype": "",
+        },
+    )
+    return payload
+
+
+def test_full_parser_accepts_fully_consistent_compiled_winner() -> None:
+    """The parser accepts a self-consistent re-measured compiled winner.
+
+    S17b de-pins identity and the snapshot batch/precision cells to cross-consistency
+    with the plan's own fields, so a fully-shaped bs48 amp-off compile-step winner
+    (recipe + identity + batch + snapshot all agreeing) parses with zero errors -- the
+    acceptance the Kaggle row_id mint needs, proven locally without a mint.
+    """
+    errors = selected_runtime_plan_errors(_consistent_compiled_winner_payload())
+
+    assert errors == ()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("per_device_batch_size", 12),
+        ("runtime_policy_id", "amp_fp16_conservative"),
+        ("selected_row_id", EXPECTED_SELECTED_ROW_ID),
+    ],
+)
+def test_structural_identity_rejects_inconsistent_row_id(
+    field: str,
+    value: JsonValue,
+) -> None:
+    """Flipping any composing field away from the recorded row_id is rejected."""
+    payload = _consistent_compiled_winner_payload()
+    payload[field] = value
+
+    assert (
+        "selected_runtime_selected_row_id_not_self_consistent"
+        in selected_runtime_plan_errors(payload)
+    )
+
+
+def test_structural_identity_rejects_empty_policy_id() -> None:
+    """An empty runtime_policy_id is rejected as a missing free identifier."""
+    payload = _consistent_compiled_winner_payload()
+    payload["runtime_policy_id"] = ""
+
+    assert "selected_runtime_runtime_policy_id_missing" in selected_runtime_plan_errors(
+        payload,
+    )
+
+
+@pytest.mark.parametrize(
+    ("cell", "value", "expected_error"),
+    [
+        (
+            "per_device_batch_size",
+            "12",
+            "selected_runtime_snapshot_wrong_per_device_batch",
+        ),
+        ("global_batch_size", "24", "selected_runtime_snapshot_wrong_global_batch"),
+        (
+            "precision_policy",
+            "amp_conservative",
+            "selected_runtime_snapshot_wrong_precision_policy",
+        ),
+        ("grad_scaler_enabled", "true", "selected_runtime_snapshot_missing_scaler"),
+        (
+            "autocast_dtype",
+            "float16",
+            "selected_runtime_snapshot_wrong_autocast_dtype",
+        ),
+        (
+            "runtime_policy_id",
+            "amp_fp16_conservative",
+            "selected_runtime_snapshot_policy_mismatch",
+        ),
+        ("row_id", EXPECTED_SELECTED_ROW_ID, "selected_runtime_snapshot_row_mismatch"),
+    ],
+)
+def test_snapshot_cross_consistency_rejects_cell_drift(
+    cell: str,
+    value: str,
+    expected_error: str,
+) -> None:
+    """A snapshot cell that disagrees with the plan's own field is rejected.
+
+    Each case drifts one snapshot cell away from the winner plan's own field, proving
+    the de-pinned cells are genuinely cross-checked (not merely dropped).
+    """
+    payload = _consistent_compiled_winner_payload()
+    snapshot = _plan_block(payload, "selected_row_snapshot")
+    snapshot[cell] = value
+
+    assert expected_error in selected_runtime_plan_errors(payload)
+
+
+@pytest.mark.parametrize(
+    ("cell", "value", "expected_error"),
+    [
+        (
+            "accelerator_mode",
+            "single_visible_t4",
+            "selected_runtime_snapshot_not_dual_t4_ddp",
+        ),
+        (
+            "machine_shape",
+            "NvidiaA100",
+            "selected_runtime_snapshot_wrong_machine_shape",
+        ),
+        ("status", "fail", "selected_runtime_snapshot_status_not_pass"),
+        ("nproc_per_node", "1", "selected_runtime_snapshot_wrong_nproc_per_node"),
+        (
+            "corruption_strategy",
+            "branchless_all",
+            "selected_runtime_snapshot_wrong_corruption_strategy",
+        ),
+        ("world_size", "1", "selected_runtime_snapshot_wrong_world_size"),
+    ],
+)
+def test_snapshot_still_pins_hardware_anchors(
+    cell: str,
+    value: str,
+    expected_error: str,
+) -> None:
+    """The hardware/status/corruption anchors stay pinned after the S17b de-pin."""
+    payload = _consistent_compiled_winner_payload()
+    snapshot = _plan_block(payload, "selected_row_snapshot")
+    snapshot[cell] = value
+
+    assert expected_error in selected_runtime_plan_errors(payload)
+
+
+def test_runtime_proof_write_decision_identity_is_structural() -> None:
+    """The proof write-decision selected_row_id is checked against the plan's own id."""
+    decision: JsonObject = {
+        "allowed": True,
+        "policy": EXPECTED_RUNTIME_PROOF_WRITE_POLICY,
+        "selected_row_id": _COMPILED_WINNER_ROW_ID,
+        "stain_corruptor_qa_status": "pass",
+        "blockers": [],
+        "linked_pass_row_failures": [],
+        "stain_corruptor_qa_missing_candidate_row_ids": [],
+    }
+    mismatch = "selected_runtime_runtime_proof_write_decision_selected_row_id_mismatch"
+
+    assert (
+        _runtime_proof_write_decision_errors(
+            decision,
+            expected_row_id=_COMPILED_WINNER_ROW_ID,
+        )
+        == ()
+    )
+    assert mismatch in _runtime_proof_write_decision_errors(
+        decision,
+        expected_row_id=EXPECTED_SELECTED_ROW_ID,
+    )
+    # Fail closed when the plan's own id could not be composed.
+    assert mismatch in _runtime_proof_write_decision_errors(
+        decision,
+        expected_row_id=None,
+    )
+
+
+def test_runtime_proof_efficiency_identity_is_structural() -> None:
+    """The proof efficiency block's row_id and policy id match the plan's own values."""
+    efficiency: JsonObject = {
+        "status": "pass",
+        "material_speedup_over_baseline": True,
+        "selected_row_id": _COMPILED_WINNER_ROW_ID,
+        "selected_runtime_policy_id": _WINNER_POLICY_ID,
+    }
+    row_mismatch = "selected_runtime_runtime_proof_efficiency_selected_row_id_mismatch"
+    policy_mismatch = (
+        "selected_runtime_runtime_proof_efficiency_selected_runtime_policy_id_mismatch"
+    )
+
+    assert (
+        _runtime_proof_efficiency_errors(
+            efficiency,
+            expected_row_id=_COMPILED_WINNER_ROW_ID,
+            expected_policy_id=_WINNER_POLICY_ID,
+        )
+        == ()
+    )
+    assert row_mismatch in _runtime_proof_efficiency_errors(
+        efficiency,
+        expected_row_id=EXPECTED_SELECTED_ROW_ID,
+        expected_policy_id=_WINNER_POLICY_ID,
+    )
+    assert policy_mismatch in _runtime_proof_efficiency_errors(
+        efficiency,
+        expected_row_id=_COMPILED_WINNER_ROW_ID,
+        expected_policy_id="amp_fp16_conservative",
+    )
+    # Fail closed when either plan-side value could not be composed.
+    fail_closed = _runtime_proof_efficiency_errors(
+        efficiency,
+        expected_row_id=None,
+        expected_policy_id=None,
+    )
+    assert row_mismatch in fail_closed
+    assert policy_mismatch in fail_closed
 
 
 def test_mixed_precision_validator_accepts_both_profiles() -> None:

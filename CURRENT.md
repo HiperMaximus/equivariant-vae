@@ -227,14 +227,32 @@ tightened it). Behavior-preserving: the committed v5 plan still parses with zero
 (`selected_row_id` / `runtime_policy_id`) + the snapshot batch/precision literals are deferred to
 S17b + the Kaggle mint. Gate 497/1, basedpyright/ruff clean; 4 read-only adversarial reviewers
 (behavior-preservation / coherence-vs-emitter / test-soundness / fix-delta) all clean.
-**NEXT LOCAL: S17b** (de-pin `_snapshot_errors` batch/precision literals → cross-consistency with the
-plan's own top-level fields; carries a USER-DECISION FORK — the row_id/policy_id identity anchors
-STRUCTURAL-now vs Kaggle-gated literal re-point; ask before implementing that half) then **S17c**
-(observation mirror + corruption-label accuracy). **THEN KAGGLE-ONLY (user-driven, FRESH window,
-needs exact remote cmd + `KAGGLE_PUSH_CONFIRMED=1`):** the S17 generator run → new compiled
-`selected_runtime.json` + re-point every row_id anchor to the minted literal; S19 (~30h + ~30 min
-staging, push-then-monitor, NOT a held session); plus the queued LR-finder (~200–300 lines, needs
-real dual-T4). Never push to origin.
+**S17b-1 DONE (this commit, 2026-07-14, local-only; user chose STRUCTURAL-now over Kaggle-gated
+re-point):** the parser identity is now STRUCTURAL, not literal-pinned. A new stdlib-only leaf
+`benchmarking/row_id.py` single-sources the selected-runtime row_id formula (`compose_row_id_base` /
+`compose_selected_row_id` / `DEFAULT_RUNTIME_POLICY_ID`); the three emitters (`runtime_selection`,
+`real_data_runtime_pretest`, `runtime_selection_executor` `_row_id`) delegate to it (byte-identical).
+In `training/selected_runtime.py`, `_top_level_errors` / `_snapshot_errors` / the two
+`_runtime_proof_*` validators check the recorded `selected_row_id` / `runtime_policy_id` against the
+id recomposed from the plan's own fields (`_composed_selected_row_id`), and the snapshot
+batch/precision cells cross-check the plan's own top-level fields; the hardware/status anchors
+(accelerator, machine shape, world size, nproc, corruption, status) stay pinned. The two top-level
+identity error ids were renamed `*_not_v5_fallback` → structural
+(`selected_runtime_selected_row_id_not_self_consistent` /
+`selected_runtime_runtime_policy_id_missing`); all snapshot/proof ids preserved. Behavior-preserving:
+the committed v5 plan recomposes to the frozen literal and parses with zero errors. Gate 522/1
+(497→522), basedpyright/ruff clean; 4 read-only adversarial reviewers (behavior/fail-open,
+emitter↔parser contract, snapshot edges, test-soundness) → 0 confirmed. **NEXT LOCAL: S17b-2** (gate
+`_remote_output_gate_health_blockers` CSV-row pin → compare the `gate_health.csv`
+`row_id`/`candidate_row_id`/`runtime_policy_id` cells against the loaded plan's own identity, not
+`EXPECTED_SELECTED_ROW_ID`), then **S17b-3** (the three `run_template.py` embedded
+`EXPECTED_SELECTED_ROW_ID` copies → derived/structural so a compiled plan builds/validates at push
+time), then **S17c** (observation mirror + corruption-label accuracy). Because identity is now
+STRUCTURAL, the Kaggle-minted compiled id needs NO anchor re-point — the de-pinned consumers accept
+it as self-consistent. **THEN KAGGLE-ONLY (user-driven, FRESH window, needs exact remote cmd +
+`KAGGLE_PUSH_CONFIRMED=1`):** the S17 generator run → new compiled `selected_runtime.json`; S19
+(~30h + ~30 min staging, push-then-monitor, NOT a held session); plus the queued LR-finder (~200–300
+lines, needs real dual-T4). Never push to origin.
 
 > **Everything from here down to the `Historical provenance follows.` marker below is
 > PRE-Spec-0011 status (runtime-selection v5, Spec 0006–0009), retained for reference.**

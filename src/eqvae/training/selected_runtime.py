@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from eqvae.benchmarking.row_id import compose_selected_row_id
 from eqvae.benchmarking.schedule import training_steps_per_epoch
 from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
 
@@ -244,7 +245,7 @@ def selected_runtime_plan_errors(
     return (
         *_top_level_errors(payload),
         *_launch_errors(payload),
-        *_snapshot_errors(payload.get("selected_row_snapshot")),
+        *_snapshot_errors(payload),
         *_safety_errors(payload.get("safety")),
         *_runtime_policy_errors(payload.get("runtime_policy")),
         *_ddp_optimizer_safety_errors(payload),
@@ -419,26 +420,97 @@ def _plan_from_payload(*, path: Path, payload: JsonObject) -> SelectedRuntimePla
     )
 
 
+def _composed_selected_row_id(payload: JsonObject) -> str | None:
+    """Recompose the canonical selected row_id from the plan's own fields.
+
+    The generator EMITS this id from the winning row's shape; the parser recomposes
+    it from the plan's parsed fields and requires the recorded id to match, so the
+    identity is self-consistent rather than pinned to the eager v5 literal (Spec 0011
+    S17b) -- a re-measured winner (a bigger batch, the compiled amp-off recipe) is
+    accepted only when its recorded id agrees with its own fields. Returns None when
+    any composing field is missing or wrongly typed, so the identity checks fail closed:
+    a plan whose own fields cannot compose an id is rejected, never silently accepted.
+
+    Returns:
+        The composed selected row_id, or None when a composing field is unusable.
+
+    """
+    accelerator_mode = payload.get("accelerator_mode")
+    batch_size = payload.get("per_device_batch_size")
+    runtime_policy_id = payload.get("runtime_policy_id")
+    mixed_precision = payload.get("mixed_precision")
+    torch_compile = payload.get("torch_compile")
+    corruption = payload.get("corruption")
+    if not (isinstance(accelerator_mode, str) and isinstance(runtime_policy_id, str)):
+        return None
+    if isinstance(batch_size, bool) or not isinstance(batch_size, int):
+        return None
+    if not (
+        isinstance(mixed_precision, dict)
+        and isinstance(torch_compile, dict)
+        and isinstance(corruption, dict)
+    ):
+        return None
+    precision_policy = cast("JsonObject", mixed_precision).get("policy")
+    compile_scope = cast("JsonObject", torch_compile).get("scope")
+    corruption_strategy = cast("JsonObject", corruption).get("strategy")
+    if not (
+        isinstance(precision_policy, str)
+        and isinstance(compile_scope, str)
+        and isinstance(corruption_strategy, str)
+    ):
+        return None
+    return compose_selected_row_id(
+        accelerator_mode=accelerator_mode,
+        batch_size=batch_size,
+        precision_policy=precision_policy,
+        compile_scope=compile_scope,
+        corruption_strategy=corruption_strategy,
+        runtime_policy_id=runtime_policy_id,
+    )
+
+
+def _selected_identity_errors(payload: JsonObject) -> tuple[str, ...]:
+    """Return structural identity errors for the plan's own row_id / policy id.
+
+    Spec 0011 S17b de-pins the identity from the eager v5 literal: the recorded
+    ``selected_row_id`` must equal the id recomposed from the plan's own fields (so a
+    re-measured winner is accepted only when its id is self-consistent), and the
+    ``runtime_policy_id`` -- the free label the row_id encodes -- must be a non-empty
+    string. The hardware/status anchors stay pinned in ``_launch_errors``, so identity
+    de-pinning cannot admit a different accelerator or topology.
+
+    Returns:
+        Structural identity error identifiers.
+
+    """
+    errors: list[str] = []
+    composed = _composed_selected_row_id(payload)
+    if composed is None or payload.get("selected_row_id") != composed:
+        errors.append("selected_runtime_selected_row_id_not_self_consistent")
+    runtime_policy_id = payload.get("runtime_policy_id")
+    if not isinstance(runtime_policy_id, str) or not runtime_policy_id:
+        errors.append("selected_runtime_runtime_policy_id_missing")
+    return tuple(errors)
+
+
 def _top_level_errors(payload: JsonObject) -> tuple[str, ...]:
     expected = {
         "status": "pass",
         "benchmark_kind": "kaggle_runtime_selection",
         "benchmark_source": "kaggle_runtime_benchmark",
-        "selected_row_id": EXPECTED_SELECTED_ROW_ID,
-        "runtime_policy_id": EXPECTED_RUNTIME_POLICY_ID,
     }
     error_names = {
         "status": "selected_runtime_status_not_pass",
         "benchmark_kind": "selected_runtime_wrong_benchmark_kind",
         "benchmark_source": "selected_runtime_wrong_benchmark_source",
-        "selected_row_id": "selected_runtime_row_not_v5_fallback",
-        "runtime_policy_id": "selected_runtime_policy_not_v5_fallback",
     }
     errors = [
         error_names[key]
         for key, expected_value in expected.items()
         if payload.get(key) != expected_value
     ]
+    errors.extend(_selected_identity_errors(payload))
     if payload.get("full_run_eligible") is not True:
         errors.append("selected_runtime_not_full_run_eligible")
     if payload.get("full_training_launch_ready") is not False:
@@ -639,23 +711,43 @@ def _dataloader_errors(payload: JsonObject) -> tuple[str, ...]:
     return tuple(errors)
 
 
-def _snapshot_errors(snapshot: object) -> tuple[str, ...]:
+def _snapshot_errors(payload: JsonObject) -> tuple[str, ...]:
+    """Return selected-row snapshot coherence errors (Spec 0011 S17b).
+
+    The snapshot embeds the winning benchmark row for provenance; every cell is a
+    string. The identity and batch/precision cells are cross-checked against the plan's
+    own parsed fields (so a re-measured winner whose snapshot agrees with its plan is
+    accepted), while the hardware/status anchors -- accelerator, machine shape, world
+    size, nproc, corruption, status -- stay pinned. A None expected value (an unusable
+    plan field) fails that cell closed.
+
+    Returns:
+        Stable selected-row snapshot coherence error identifiers.
+
+    """
+    snapshot = payload.get("selected_row_snapshot")
     if not isinstance(snapshot, dict):
         return ("selected_runtime_missing_snapshot",)
     snapshot_payload = cast("dict[str, object]", snapshot)
-    expected = {
-        "row_id": EXPECTED_SELECTED_ROW_ID,
-        "runtime_policy_id": EXPECTED_RUNTIME_POLICY_ID,
+    mixed_precision = payload.get("mixed_precision")
+    mixed: JsonObject = (
+        cast("JsonObject", mixed_precision) if isinstance(mixed_precision, dict) else {}
+    )
+    expected: dict[str, object | None] = {
+        "row_id": _composed_selected_row_id(payload),
+        "runtime_policy_id": _str_or_none(payload.get("runtime_policy_id")),
         "status": "pass",
         "accelerator_mode": "dual_t4_ddp",
         "machine_shape": EXPECTED_MACHINE_SHAPE,
-        "precision_policy": "amp_conservative",
+        "precision_policy": _str_or_none(mixed.get("policy")),
         "corruption_strategy": "indexed_masked",
         "nproc_per_node": "2",
-        "per_device_batch_size": "12",
-        "global_batch_size": "24",
-        "grad_scaler_enabled": "true",
-        "autocast_dtype": "float16",
+        "per_device_batch_size": _int_as_snapshot_str(
+            payload.get("per_device_batch_size"),
+        ),
+        "global_batch_size": _int_as_snapshot_str(payload.get("global_batch_size")),
+        "grad_scaler_enabled": _bool_as_snapshot_str(mixed.get("grad_scaler_enabled")),
+        "autocast_dtype": _str_or_none(mixed.get("autocast_dtype")),
     }
     error_names = {
         "row_id": "selected_runtime_snapshot_row_mismatch",
@@ -674,7 +766,7 @@ def _snapshot_errors(snapshot: object) -> tuple[str, ...]:
     errors = [
         error_names[key]
         for key, expected_value in expected.items()
-        if snapshot_payload.get(key) != expected_value
+        if expected_value is None or snapshot_payload.get(key) != expected_value
     ]
     if snapshot_payload.get("world_size") not in {2, "2"}:
         errors.append("selected_runtime_snapshot_wrong_world_size")
@@ -877,12 +969,23 @@ def _runtime_proof_errors(  # noqa: PLR0911
     except (OSError, TypeError, ValueError):
         return ("selected_runtime_runtime_proof_unreadable",)
 
-    proof_errors = _runtime_proof_payload_errors(proof_payload)
+    expected_row_id = _composed_selected_row_id(payload)
+    expected_policy_id = _str_or_none(payload.get("runtime_policy_id"))
+    proof_errors = _runtime_proof_payload_errors(
+        proof_payload,
+        expected_row_id=expected_row_id,
+        expected_policy_id=expected_policy_id,
+    )
     command_errors = _runtime_proof_launch_command_errors(proof_payload)
     return (*proof_errors, *command_errors)
 
 
-def _runtime_proof_payload_errors(payload: JsonObject) -> tuple[str, ...]:
+def _runtime_proof_payload_errors(
+    payload: JsonObject,
+    *,
+    expected_row_id: str | None,
+    expected_policy_id: str | None,
+) -> tuple[str, ...]:
     errors: list[str] = []
     expected_top_level = {
         "schema_version": "spec0001.runtime_selection.v1",
@@ -911,9 +1014,16 @@ def _runtime_proof_payload_errors(payload: JsonObject) -> tuple[str, ...]:
     errors.extend(
         _runtime_proof_write_decision_errors(
             payload.get("selected_runtime_write_decision"),
+            expected_row_id=expected_row_id,
         ),
     )
-    errors.extend(_runtime_proof_efficiency_errors(payload.get("efficiency_followup")))
+    errors.extend(
+        _runtime_proof_efficiency_errors(
+            payload.get("efficiency_followup"),
+            expected_row_id=expected_row_id,
+            expected_policy_id=expected_policy_id,
+        ),
+    )
     errors.extend(
         _runtime_proof_amp_followup_errors(payload.get("amp_followup_policy")),
     )
@@ -987,14 +1097,17 @@ def _runtime_proof_environment_errors(environment: object) -> tuple[str, ...]:
     return tuple(errors)
 
 
-def _runtime_proof_write_decision_errors(decision: object) -> tuple[str, ...]:
+def _runtime_proof_write_decision_errors(
+    decision: object,
+    *,
+    expected_row_id: str | None,
+) -> tuple[str, ...]:
     if not isinstance(decision, dict):
         return ("selected_runtime_runtime_proof_missing_write_decision",)
     payload = cast("JsonObject", decision)
     expected = {
         "allowed": True,
         "policy": EXPECTED_RUNTIME_PROOF_WRITE_POLICY,
-        "selected_row_id": EXPECTED_SELECTED_ROW_ID,
         "stain_corruptor_qa_status": "pass",
     }
     errors = [
@@ -1002,6 +1115,12 @@ def _runtime_proof_write_decision_errors(decision: object) -> tuple[str, ...]:
         for key, expected_value in expected.items()
         if payload.get(key) != expected_value
     ]
+    # Spec 0011 S17b: the proof's selected_row_id must match the id recomposed from the
+    # plan's own fields, not the eager v5 literal.
+    if expected_row_id is None or payload.get("selected_row_id") != expected_row_id:
+        errors.append(
+            "selected_runtime_runtime_proof_write_decision_selected_row_id_mismatch",
+        )
     errors.extend(
         f"selected_runtime_runtime_proof_write_decision_{key}_not_empty"
         for key in (
@@ -1014,21 +1133,38 @@ def _runtime_proof_write_decision_errors(decision: object) -> tuple[str, ...]:
     return tuple(errors)
 
 
-def _runtime_proof_efficiency_errors(efficiency: object) -> tuple[str, ...]:
+def _runtime_proof_efficiency_errors(
+    efficiency: object,
+    *,
+    expected_row_id: str | None,
+    expected_policy_id: str | None,
+) -> tuple[str, ...]:
     if not isinstance(efficiency, dict):
         return ("selected_runtime_runtime_proof_missing_efficiency_followup",)
     payload = cast("JsonObject", efficiency)
     expected = {
         "status": "pass",
         "material_speedup_over_baseline": True,
-        "selected_row_id": EXPECTED_SELECTED_ROW_ID,
-        "selected_runtime_policy_id": EXPECTED_RUNTIME_POLICY_ID,
     }
-    return tuple(
+    errors = [
         f"selected_runtime_runtime_proof_efficiency_{key}_mismatch"
         for key, expected_value in expected.items()
         if payload.get(key) != expected_value
-    )
+    ]
+    # Spec 0011 S17b: the efficiency block's identity must match the plan's own
+    # recomposed row_id and its runtime_policy_id, not the eager v5 literals.
+    if expected_row_id is None or payload.get("selected_row_id") != expected_row_id:
+        errors.append(
+            "selected_runtime_runtime_proof_efficiency_selected_row_id_mismatch",
+        )
+    if expected_policy_id is None or (
+        payload.get("selected_runtime_policy_id") != expected_policy_id
+    ):
+        errors.append(
+            "selected_runtime_runtime_proof_efficiency_"
+            "selected_runtime_policy_id_mismatch",
+        )
+    return tuple(errors)
 
 
 def _runtime_proof_amp_followup_errors(amp_followup: object) -> tuple[str, ...]:
@@ -1343,6 +1479,38 @@ def _string_list(value: object) -> list[str]:
 
 def _string_value(value: object) -> str:
     return value if isinstance(value, str) else ""
+
+
+def _str_or_none(value: object) -> str | None:
+    # Return the string as-is, else None so a cross-check against it fails closed.
+    return value if isinstance(value, str) else None
+
+
+def _int_as_snapshot_str(value: object) -> str | None:
+    """Return the CSV-cell string an integer plan field serializes to, else None.
+
+    The selected-row snapshot stores every cell as a string, so a plan integer field
+    cross-checks against ``str(value)``. Booleans are rejected (not batch ints).
+
+    Returns:
+        ``str(value)`` for a plain integer, else None so the cross-check fails closed.
+
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return str(value)
+
+
+def _bool_as_snapshot_str(value: object) -> str | None:
+    """Return the CSV-cell string a boolean plan field serializes to, else None.
+
+    Returns:
+        ``"true"``/``"false"`` for a boolean, else None so the cross-check fails closed.
+
+    """
+    if not isinstance(value, bool):
+        return None
+    return "true" if value else "false"
 
 
 def _sha256_file(path: Path) -> str:

@@ -13,6 +13,10 @@ from typing import TYPE_CHECKING, cast
 
 from eqvae.benchmarking.io import CsvRow, JsonObject, JsonValue, write_csv, write_json
 from eqvae.benchmarking.model_count import write_model_count
+from eqvae.benchmarking.row_id import (
+    DEFAULT_RUNTIME_POLICY_ID,
+    compose_row_id_base,
+)
 from eqvae.benchmarking.runtime_schema import (
     CORRUPTION_CHECK_COLUMNS,
     DATALOADER_MATRIX_COLUMNS,
@@ -61,7 +65,8 @@ EXPECTED_MACHINE_SHAPE = "NvidiaTeslaT4"
 EXPECTED_DUAL_T4_COUNT = 2
 MAX_DATA_WAIT_FRACTION = 0.20
 MIN_LOADER_TRAINER_THROUGHPUT_RATIO = 1.25
-DEFAULT_RUNTIME_POLICY_ID = "fp32_eager_default"
+# DEFAULT_RUNTIME_POLICY_ID is single-sourced in `row_id.py` (imported above) and
+# re-exported here for the existing importers.
 V3_BASELINE_RUNTIME_POLICY_ID = "v3_fp32_eager_baseline"
 DEFAULT_MATERIAL_SPEEDUP_FRACTION = 0.03
 REQUIRED_COMPILE_SETTLE_STEPS = 5
@@ -2067,9 +2072,12 @@ def _row_id(
     compile_scope: str,
     corruption_strategy: str,
 ) -> str:
-    return (
-        f"{accelerator_mode}__bs{batch_size}__{precision_policy}"
-        f"__compile_{compile_scope}__{corruption_strategy}"
+    return compose_row_id_base(
+        accelerator_mode=accelerator_mode,
+        batch_size=batch_size,
+        precision_policy=precision_policy,
+        compile_scope=compile_scope,
+        corruption_strategy=corruption_strategy,
     )
 
 
