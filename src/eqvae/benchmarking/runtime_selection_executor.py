@@ -58,6 +58,13 @@ from eqvae.benchmarking.runtime_selection import (
     RuntimeSelectionEvidence,
     write_runtime_selection_benchmark,
 )
+from eqvae.benchmarking.vram_feasibility import (
+    NO_OOM,
+    OOM,
+    headroom_below_margin,
+    is_oom_error,
+    probe_headroom_bytes,
+)
 from eqvae.config import ResolvedConfig, resolve_json_config
 
 if TYPE_CHECKING:
@@ -524,6 +531,33 @@ def _single_row_specs(
     )
 
 
+def _efficiency_row_enumerable(
+    *,
+    policy: _RuntimePolicy,
+    batch_size: int,
+    stage: _SelectionStageSettings,
+) -> bool:
+    """Return whether this (policy, batch) efficiency row may be enumerated (S14c).
+
+    An AMP efficiency row (``amp_conservative`` / ``amp_scalar_gate_relaxed``) is
+    trusted by the amp follow-up gate (``runtime_selection._amp_followup_policy``) ONLY
+    when the identical config passed fp32-eager first, and the fp32-eager gate measures
+    ``dual_batch_sizes`` only. So an AMP row at a candidate batch outside that set (e.g.
+    bs48) has no fp32 companion and makes the amp follow-up fail-closed UNCONDITIONALLY,
+    blocking the whole ``selected_runtime.json`` write -- even if the row itself fits
+    and is fastest. This structural guard keeps such a row from ever being enumerated. A
+    non-AMP policy (``amp_off_fp32``, e.g. the compiled step winner) needs no companion,
+    so it runs at every efficiency candidate batch, including the bigger ones.
+
+    Returns:
+        True unless the policy is AMP and the batch has no fp32-eager companion.
+
+    """
+    if policy.precision_policy not in {AMP_CONSERVATIVE, AMP_SCALAR_GATE_RELAXED}:
+        return True
+    return batch_size in stage.dual_batch_sizes
+
+
 def _dual_row_specs(
     *,
     settings: pretest.RealDataRuntimePretestSettings,
@@ -552,6 +586,7 @@ def _dual_row_specs(
         for batch_size in stage.efficiency_batch_sizes
         for corruption_strategy in stage.efficiency_corruption_strategies
         for policy in stage.efficiency_policies
+        if _efficiency_row_enumerable(policy=policy, batch_size=batch_size, stage=stage)
     ]
     seen: set[str] = set()
     unique: list[pretest.RowSpec] = []
@@ -856,7 +891,13 @@ def _run_dual_row(
     )
     return _DdpLaunchResult(
         row=row,
-        rank_payloads=rank_payloads,
+        # Evidence consumers (dataloader / numerical / corruption / gate / environment)
+        # assume a carried rank payload is a PASS payload with the full field set. A
+        # non-PASS row -- a torchrun failure (already ()) OR the S14c returncode-0 oom
+        # skip (payloads present but missing dataloader/proof_step) -- contributes no
+        # such evidence, so it carries no payloads: the row still lands in the matrix
+        # (from ``result.row``), the consumers just skip it.
+        rank_payloads=rank_payloads if row["status"] == PASS_STATUS else (),
         command_display=command_display,
         returncode=completed.returncode,
         failure_kind="" if row["status"] == PASS_STATUS else row["failure_kind"],
@@ -882,6 +923,10 @@ def _dual_row_from_rank_payloads(
             if rank_failures
             else "missing_rank_payload"
         )
+        # The VRAM feasibility screen writes oom=true payloads (Spec 0011 S14c); carry
+        # that onto the row's oom cell so an infeasible batch reads as a clean "does not
+        # fit" verdict, not an anonymous benchmark failure.
+        oom = any(bool(payload.get("oom")) for payload in rank_payloads)
         return _failure_row(
             settings=settings,
             row_spec=row_spec,
@@ -889,6 +934,7 @@ def _dual_row_from_rank_payloads(
             status=FAIL_STATUS,
             failure_kind=failure_kind,
             failure_message=failure_kind,
+            oom=oom,
         )
     step_samples = _global_step_ms(rank_payloads)
     steady_p50 = pretest._percentile(step_samples, 0.50)  # noqa: SLF001
@@ -982,6 +1028,7 @@ def _failure_row(
     status: str,
     failure_kind: str,
     failure_message: str,
+    oom: bool = False,
 ) -> CsvRow:
     row = _base_selection_row(settings=settings, row_spec=row_spec)
     row.update({
@@ -992,6 +1039,9 @@ def _failure_row(
             pretest._required_int(accelerator, "cuda_device_count"),
         ),  # noqa: SLF001
         "gpu_names": json.dumps(pretest._required_str_list(accelerator, "gpu_names")),  # noqa: SLF001
+        # The base row hardcodes oom=false; the VRAM feasibility screen (Spec 0011 S14c)
+        # overrides it to true so an infeasible batch reads as a clean "does not fit".
+        "oom": pretest._format_bool(value=oom),  # noqa: SLF001
         "status": status,
         "failure_kind": failure_kind,
         "failure_message_hash": pretest._hash_text(failure_message),  # noqa: SLF001
@@ -1104,6 +1154,11 @@ def _dual_dataloader_rows(
 ) -> list[CsvRow]:
     rows: list[CsvRow] = []
     for result in results:
+        # Only PASS results carry full-fielded rank payloads; a non-PASS result (a
+        # torchrun failure or the S14c oom skip) carries none, so this guard both skips
+        # them and keeps the reader robust to a stray non-PASS payload (Spec 0011 S14c).
+        if result.row["status"] != PASS_STATUS:
+            continue
         runtime_row = result.row
         for payload in result.rank_payloads:
             rank = str(pretest._required_int(payload, "rank"))  # noqa: SLF001
@@ -1765,6 +1820,11 @@ def _rank0_proof_steps_by_row_id(
 ) -> dict[str, tuple[JsonObject, ...]]:
     proofs: dict[str, tuple[JsonObject, ...]] = {}
     for result in results:
+        # Non-PASS results (torchrun failure or the S14c oom skip) carry no proof
+        # payloads; skipping them keeps the else-branch ``_required_object(proof_step)``
+        # from raising on a payload that never ran a proof step (Spec 0011 S14c).
+        if result.row["status"] != PASS_STATUS:
+            continue
         for payload in result.rank_payloads:
             if pretest._required_int(payload, "rank") != 0:  # noqa: SLF001
                 continue
@@ -1960,6 +2020,42 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
             if config.row_spec.memory_format == "channels_last":
                 raw_model = raw_model.to(memory_format=torch.channels_last)
             profile = profile_from_config(settings.corruption_config)
+            # VRAM feasibility screen (Spec 0011 S14c): before the collective-issuing
+            # DDP build, a compiled step row runs a single-GPU no-DDP synthetic probe of
+            # THIS batch. Both ranks agree via ``_all_reduce_int`` (deterministic, so no
+            # desync), and an infeasible batch writes an oom rank payload and exits 0 --
+            # a clean "does not fit" verdict rather than a wasted DDP compile+timing
+            # that would OOM. Only compile step rows (the bigger-batch candidates) are
+            # screened; eager rows keep their byte-identical path. Screening BEFORE the
+            # DDP wrap keeps a classified OOM collective-free, so it cannot desync the
+            # peer (a re-raised unexpected error is bounded by the subprocess timeout).
+            if config.row_spec.compile_scope == COMPILE_STEP:
+                infeasible = _all_reduce_int(
+                    _screen_compiled_step_vram_feasibility(
+                        device=device,
+                        settings=settings,
+                        row_spec=config.row_spec,
+                        latent_channels=latent_channels,
+                        profile=profile,
+                    ),
+                    device=device,
+                )
+                if infeasible > NO_OOM:
+                    write_json(
+                        rank_dir / f"rank_{rank}.json",
+                        _vram_infeasible_rank_payload(
+                            rank=rank,
+                            local_rank=local_rank,
+                            row_id=config.row_spec.row_id,
+                            torch_module=torch,
+                            dist_module=dist,
+                        ),
+                    )
+                    # Both ranks agreed via the reduce, so both reach this barrier and
+                    # tear the group down together in the ``finally`` -- matching the
+                    # PASS path's pre-teardown barrier, never an asymmetric destroy.
+                    dist.barrier()
+                    return
             # COMPILE_STEP measures the compiled whole-step recipe (Spec 0011 S14b): the
             # DDP wrap, fused optimizer, and dynamo config come from the S14a-threaded
             # recipe knobs, and inline corruption + forward + FP32 loss fuse into one
@@ -2619,6 +2715,250 @@ def _build_eager_ddp_optimizer(
 # (`runtime_selection._selected_runtime_payload`: any compiled scope -> "inductor"), so
 # the measured settle/throughput reflect the backend the runner consumes.
 _STEP_COMPILE_BACKEND = "inductor"
+
+# The failure_kind stamped on a dual row whose per-device batch is VRAM-infeasible: the
+# single-GPU no-DDP screen OOM'd or left under the shared margin. Distinct from a real
+# crash so the row carries oom=true (a clean "does not fit", not a benchmark bug).
+_VRAM_INFEASIBLE_FAILURE_KIND = "dual_t4_ddp_vram_infeasible_oom"
+# Steps the feasibility screen runs so the compiled first-trace scratch + fused
+# optimizer state land in the peak reading (step 1 compiles, step 2 is steady); mirrors
+# the probe's minimum warmup so the free-VRAM read is not taken before real allocation.
+_FEASIBILITY_PROBE_STEPS = 2
+
+
+def _all_reduce_int(value: int, *, device: object) -> int:
+    """Sum ``value`` across the DDP ranks so both agree on the reduced flag.
+
+    Used to reduce the per-rank single-GPU feasibility flag: ``NO_OOM`` (0) sums to 0
+    only when every rank was feasible, so any rank's ``OOM`` (1) makes the batch
+    infeasible for all -- and because both ranks that RETURN a flag call this
+    collective, they take the identical skip-or-continue branch (Spec 0011 S14c). The
+    screen catches every classified VRAM failure and returns a flag, so the only way a
+    rank misses this reduce is a truly-unexpected re-raised error, whose one-sided exit
+    the ``_run_dual_row`` subprocess timeout bounds.
+
+    Returns:
+        The cross-rank sum of ``value``.
+
+    """
+    import torch  # noqa: PLC0415
+    import torch.distributed as dist  # noqa: PLC0415
+
+    flag = torch.tensor(value, device=device, dtype=torch.int64)
+    dist.all_reduce(flag)
+    return int(flag.item())
+
+
+def _screen_compiled_step_vram_feasibility(
+    *,
+    device: object,
+    settings: pretest.RealDataRuntimePretestSettings,
+    row_spec: pretest.RowSpec,
+    latent_channels: int,
+    profile: object,
+) -> int:
+    """Return ``OOM``/``NO_OOM`` for a compiled step row via a single-GPU no-DDP probe.
+
+    Builds a FRESH model (so the real-timing ``raw_model`` stays pristine) plus the SAME
+    compiled fused whole-step the DDP timing runs, but with NO DDP wrap: a *classified*
+    VRAM failure here (see :func:`is_oom_error`) issues no collective, so it is returned
+    as a flag the caller reduces (the only cross-rank op) and cannot desync the peer; a
+    truly-unexpected error re-raises instead. Synthetic zero tensors drive
+    ``_FEASIBILITY_PROBE_STEPS`` full steps so the inductor first-trace scratch, the
+    activations, the gradients, and the fused optimizer state all land in the physical
+    free-VRAM reading. A batch is infeasible if the probe OOMs or leaves less than the
+    shared ``VRAM_MARGIN_MB`` -- the DDP-only footprint (buckets, NCCL buffers, split
+    graph) the real dual-T4 timing adds on top. The synthetic no-dataset path is reused
+    ONLY for this feasibility verdict, never for the throughput number (Spec 0011 S14c).
+
+    On a feasible verdict the fresh model + compiled artifacts are ``del``'d and then
+    the dynamo cache + peak memory stats reset, so the following real DDP build on this
+    rank compiles from a clean cache and measures a peak untouched by this screen.
+
+    Returns:
+        ``OOM`` when the batch OOMs or leaves under the margin, else ``NO_OOM``.
+
+    """
+    import gc  # noqa: PLC0415
+
+    import torch  # noqa: PLC0415
+    import torch._dynamo as torch_dynamo  # noqa: PLC0415, PLC2701
+
+    from eqvae.corruption.inline_stain import InlineStainCorruptor  # noqa: PLC0415
+    from eqvae.models.registry import (  # noqa: PLC0415
+        MODEL_KIND_NON_EQ_TRANSLATABLE,
+        build_model,
+    )
+    from eqvae.training.fastpath_recipe import (  # noqa: PLC0415
+        apply_fastpath_dynamo_config,
+        build_fastpath_optimizer,
+    )
+    from eqvae.training.fastpath_step import make_fastpath_step_fn  # noqa: PLC0415
+    from eqvae.training.optim import SpecAdamWConfig  # noqa: PLC0415
+
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats(device)
+    channels_last = row_spec.memory_format == "channels_last"
+    try:
+        apply_fastpath_dynamo_config(
+            optimize_ddp=row_spec.optimize_ddp,
+            compiled_autograd=row_spec.compiled_autograd,
+            reorder_compute_comm_overlap=row_spec.reorder_compute_comm_overlap,
+        )
+        model = build_model(
+            MODEL_KIND_NON_EQ_TRANSLATABLE,
+            model_config={"norm_groups": settings.norm_groups},
+        ).to(device)
+        _set_scalar_gate_precision(
+            model=model,
+            force_fp32=row_spec.precision_policy != AMP_SCALAR_GATE_RELAXED,
+        )
+        if channels_last:
+            model = model.to(memory_format=torch.channels_last)
+        optimizer = build_fastpath_optimizer(
+            model,
+            config=SpecAdamWConfig(
+                learning_rate=settings.learning_rate,
+                weight_decay=settings.weight_decay,
+                gate_lr_multiplier=1.0,
+                gradient_clip_global_norm=settings.gradient_clip_global_norm,
+                beta1=0.9,
+                beta2=0.999,
+                fused=row_spec.fused_optimizer,
+            ),
+        )
+        corruptor = InlineStainCorruptor(profile).to(device=device)
+        step_fn = make_fastpath_step_fn(
+            model,
+            corruptor,
+            ssim_weight=settings.ssim_weight,
+            autocast_dtype=torch.float32,
+            autocast_enabled=False,
+        )
+        compiled_step_fn = torch.compile(
+            step_fn,
+            dynamic=False,
+            backend=_STEP_COMPILE_BACKEND,
+        )
+        latent_size = settings.image_size // pretest.LATENT_DOWNSAMPLE_FACTOR
+        x_clean = torch.zeros(
+            (
+                row_spec.per_device_batch_size,
+                settings.channels,
+                settings.image_size,
+                settings.image_size,
+            ),
+            device=device,
+        )
+        eps = torch.zeros(
+            (row_spec.per_device_batch_size, latent_channels, latent_size, latent_size),
+            dtype=torch.float32,
+            device=device,
+        )
+        if channels_last:
+            x_clean = x_clean.contiguous(memory_format=torch.channels_last)
+            eps = eps.contiguous(memory_format=torch.channels_last)
+        beta = torch.zeros((), device=device)
+        # Bound before the loop so the feasible-path ``del output`` below stays defined
+        # even to a checker that cannot prove range(_FEASIBILITY_PROBE_STEPS) iterates;
+        # the loop always rebinds it to the last step's real output.
+        output = None
+        for _ in range(_FEASIBILITY_PROBE_STEPS):
+            optimizer.zero_grad(set_to_none=True)
+            output = compiled_step_fn(x_clean, eps, beta)
+            output.loss.backward()
+            optimizer.step()
+        headroom = probe_headroom_bytes(device)
+    except torch.cuda.OutOfMemoryError:
+        # Infeasible: no real DDP build follows on this rank, so the (partial) locals
+        # are freed on return; just reset the process dynamo cache + peak stats.
+        return _reset_after_feasibility_probe(
+            torch,
+            torch_dynamo,
+            device=device,
+            flag=OOM,
+        )
+    except RuntimeError as error:
+        if not is_oom_error(error):
+            raise
+        return _reset_after_feasibility_probe(
+            torch,
+            torch_dynamo,
+            device=device,
+            flag=OOM,
+        )
+    flag = OOM if headroom_below_margin(headroom) else NO_OOM
+    # Feasible: a real DDP build follows on THIS rank, so drop the frame's references
+    # to the fresh model + compiled artifacts BEFORE the reset's empty_cache -- only
+    # then can empty_cache release those blocks (and defragment) for the real build.
+    # ``output`` (the last step's FastpathStepOutput, holding a full [B, C, H, W]
+    # ``reconstruction``) is always bound here since _FEASIBILITY_PROBE_STEPS >= 1, and
+    # must be dropped too or its block outlives empty_cache.
+    del model, optimizer, corruptor, step_fn, compiled_step_fn
+    del x_clean, eps, beta, output
+    return _reset_after_feasibility_probe(torch, torch_dynamo, device=device, flag=flag)
+
+
+def _reset_after_feasibility_probe(
+    torch_module: object,
+    torch_dynamo_module: object,
+    *,
+    device: object,
+    flag: int,
+) -> int:
+    """Reset the process dynamo cache + CUDA peak stats after a probe; return ``flag``.
+
+    Clears the dynamo compile cache and resets the peak memory stats so the real DDP
+    build that follows on a feasible rank compiles from a clean cache and measures a
+    peak untouched by the screen. The caller must ``del`` the probe's
+    model/optimizer/compiled locals BEFORE calling this on the feasible path, so
+    ``empty_cache`` can actually reclaim their blocks (this helper holds no references).
+
+    Returns:
+        The feasibility ``flag`` passed in (``OOM`` or ``NO_OOM``).
+
+    """
+    import gc  # noqa: PLC0415
+
+    torch_dynamo_module.reset()
+    gc.collect()
+    torch_module.cuda.empty_cache()
+    torch_module.cuda.reset_peak_memory_stats(device)
+    return flag
+
+
+def _vram_infeasible_rank_payload(
+    *,
+    rank: int,
+    local_rank: int,
+    row_id: str,
+    torch_module: object,
+    dist_module: object,
+) -> JsonObject:
+    """Build the rank payload for a batch the single-GPU screen found VRAM-infeasible.
+
+    Written by BOTH ranks (they agreed via ``_all_reduce_int``) then the child exits 0,
+    so ``_run_dual_row`` parses the payloads instead of discarding a non-zero child as a
+    generic ``torchrun_failed``. Carries ``oom=true`` so
+    ``_dual_row_from_rank_payloads`` stamps the row's ``oom`` cell -- a clean verdict.
+
+    Returns:
+        The infeasible rank payload dict.
+
+    """
+    return {
+        "status": FAIL_STATUS,
+        "rank": rank,
+        "local_rank": local_rank,
+        "current_device": int(torch_module.cuda.current_device()),
+        "world_size": int(dist_module.get_world_size()),
+        "row_id": row_id,
+        "device_name": torch_module.cuda.get_device_name(local_rank),
+        "failure_kind": _VRAM_INFEASIBLE_FAILURE_KIND,
+        "failure_message_hash": pretest._hash_text(_VRAM_INFEASIBLE_FAILURE_KIND),  # noqa: SLF001
+        "oom": True,
+    }
 
 
 def _build_compiled_ddp_step(

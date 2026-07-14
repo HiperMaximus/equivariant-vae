@@ -1263,6 +1263,10 @@ def _runtime_row_candidate_pass(row: CsvRow) -> bool:
     vram_headroom = _float_or_none(row.get("vram_headroom_fraction", ""))
     return (
         row["status"] == PASS_STATUS
+        # A batch the VRAM feasibility screen marked infeasible (Spec 0011 S14c) is
+        # never selectable, defensively even if a future path leaves it status=pass:
+        # an oom row does not fit the GPU with the DDP-run margin.
+        and row.get("oom", "false") != "true"
         and row["precision_policy"]
         in {
             AMP_OFF_FP32,

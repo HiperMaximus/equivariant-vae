@@ -165,7 +165,7 @@
         "baseline_runtime_policy_id": "amp_fp16_conservative",
         "minimum_material_speedup_fraction": 0.03,
         "accelerator_modes": ["dual_t4_ddp"],
-        "per_device_batch_sizes": [12],
+        "per_device_batch_sizes": [12, 48],
         "corruption_strategies": ["indexed_masked"],
         "policies": [
           {
@@ -175,6 +175,23 @@
             "autocast_dtype": "float16",
             "fp32_loss": true,
             "grad_scaler_enabled": true
+          },
+          {
+            "runtime_policy_id": "compile_step_ddp_optimizer_fp32_channels_last",
+            "precision_policy": "amp_off_fp32",
+            "compile_scope": "step",
+            "memory_format": "channels_last",
+            "fp32_loss": true,
+            "grad_scaler_enabled": false,
+            "ddp_static_graph": false,
+            "ddp_gradient_as_bucket_view": true,
+            "optimize_ddp": "ddp_optimizer",
+            "compiled_autograd": false,
+            "reorder_compute_comm_overlap": false,
+            "ddp_broadcast_buffers": false,
+            "ddp_find_unused_parameters": false,
+            "ddp_bucket_cap_mb": 50,
+            "fused_optimizer": true
           }
         ]
       },

@@ -43,6 +43,8 @@ EXPECTED_REAL_PRETEST_TRAIN_PATCHES = 8192
 EXPECTED_REAL_PRETEST_VALIDATION_PATCHES = 2048
 EXPECTED_REAL_PRETEST_WARMUP_STEPS = 5
 EXPECTED_DUAL_T4_DEVICE_COUNT = 2
+# Spec 0011 S14c compiled winner DDP bucket cap (compile-probe v3 measured recipe).
+EXPECTED_WINNER_BUCKET_CAP_MB = 50
 SPEC_TOTAL_LEARNED_PARAMETERS = 3_958_435
 
 
@@ -366,11 +368,18 @@ def test_runtime_config_v5_relaxed_amp_followup_uses_v5_fallback() -> None:
         "dual_t4_ddp__bs12__amp_conservative__compile_none"
         "__indexed_masked__policy_amp_fp16_conservative"
     )
+    # The efficiency search enumerates the compiled bigger-batch winner alongside the
+    # kept amp follow-up (Spec 0011 S14c): bs48 is added and a compile_scope=step policy
+    # carrying the measured winner recipe joins the amp policy.
+    assert efficiency["per_device_batch_sizes"] == [12, 48]
     policies = efficiency["policies"]
     assert isinstance(policies, list)
     assert [
         policy["runtime_policy_id"] for policy in policies if isinstance(policy, dict)
-    ] == ["amp_fp16_scalar_gate_relaxed"]
+    ] == [
+        "amp_fp16_scalar_gate_relaxed",
+        "compile_step_ddp_optimizer_fp32_channels_last",
+    ]
     policy_by_id = {
         policy["runtime_policy_id"]: policy
         for policy in policies
@@ -382,6 +391,20 @@ def test_runtime_config_v5_relaxed_amp_followup_uses_v5_fallback() -> None:
     assert relaxed["autocast_dtype"] == "float16"
     assert relaxed["fp32_loss"] is True
     assert relaxed["grad_scaler_enabled"] is True
+    # The compiled winner policy must satisfy the S14b guards (amp_off_fp32 +
+    # static_graph=False) and carry the compile-probe v3 winner recipe knobs.
+    winner = policy_by_id["compile_step_ddp_optimizer_fp32_channels_last"]
+    assert winner["precision_policy"] == "amp_off_fp32"
+    assert winner["compile_scope"] == "step"
+    assert winner["memory_format"] == "channels_last"
+    assert winner["optimize_ddp"] == "ddp_optimizer"
+    assert winner["compiled_autograd"] is False
+    assert winner["ddp_static_graph"] is False
+    assert winner["ddp_gradient_as_bucket_view"] is True
+    assert winner["ddp_broadcast_buffers"] is False
+    assert winner["ddp_find_unused_parameters"] is False
+    assert winner["ddp_bucket_cap_mb"] == EXPECTED_WINNER_BUCKET_CAP_MB
+    assert winner["fused_optimizer"] is True
 
 
 def test_model_count_resolves_source_config_without_repo_cwd(

@@ -46,6 +46,7 @@ from eqvae.benchmarking.runtime_selection import (
     _compiled_row_stable,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _enforce_compiled_rows_diagnostic_only,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _optional_int_from_csv,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _runtime_row_candidate_pass,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _selected_runtime_payload,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _SelectionSettings,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     load_runtime_selection_evidence,
@@ -56,12 +57,23 @@ from eqvae.benchmarking.runtime_selection import (
 )
 from eqvae.benchmarking.runtime_selection_executor import (
     _STEP_COMPILE_BACKEND,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _VRAM_INFEASIBLE_FAILURE_KIND,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _build_compiled_ddp_step,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _compile_ddp_model_if_requested,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _DdpLaunchResult,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _DdpRowConfig,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _decode_ddp_config,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _dual_corruption_rows,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _dual_dataloader_rows,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _dual_numerical_rows,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _dual_row_from_rank_payloads,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _dual_row_specs,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _efficiency_row_enumerable,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _encode_ddp_config,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _failure_row,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _runtime_policies,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _selection_stage_settings,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _vram_infeasible_rank_payload,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
 )
 from eqvae.benchmarking.runtime_selection_executor import (
     _base_selection_row as _executor_base_selection_row,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
@@ -82,6 +94,11 @@ RUN_NAME = "runtime_selection_test"
 CORRUPTION_STRATEGIES = ("branchless_all", "indexed_masked")
 EXPECTED_DUAL_RUNTIME_ROWS = 6
 EXPECTED_DUAL_WORLD_SIZE = 2
+# Spec 0011 S14c: the compiled bigger-batch winner candidate and its DDP bucket cap,
+# plus the efficiency slice's policy count (kept amp follow-up + the compiled winner).
+_WINNER_BATCH_SIZE = 48
+_WINNER_BUCKET_CAP_MB = 50
+_EFFICIENCY_POLICY_COUNT = 2
 # Measured winner DDP bucket-cap (probe _DDP_OPTIMIZER_SPEC).
 _RECIPE_BUCKET_CAP_MB = 50
 # The eager-recipe optimize_ddp sentinel (unset dynamo config).
@@ -786,6 +803,355 @@ def test_build_compiled_ddp_step_rejects_static_graph() -> None:
         )
 
 
+class _FakeCudaModule:
+    @staticmethod
+    def current_device() -> int:
+        return 0
+
+    @staticmethod
+    def get_device_name(index: int) -> str:
+        del index
+        return "Tesla T4"
+
+
+class _FakeTorchModule:
+    cuda = _FakeCudaModule()
+
+
+class _FakeDistModule:
+    @staticmethod
+    def get_world_size() -> int:
+        return EXPECTED_DUAL_WORLD_SIZE
+
+
+def _dual_accelerator() -> JsonObject:
+    return cast(
+        "JsonObject",
+        {
+            "visible_device_count": EXPECTED_DUAL_WORLD_SIZE,
+            "cuda_device_count": EXPECTED_DUAL_WORLD_SIZE,
+            "gpu_names": ["Tesla T4", "Tesla T4"],
+        },
+    )
+
+
+def _dual_step_row_spec() -> RowSpec:
+    settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+    return _executor_row_spec(
+        settings=settings,
+        accelerator_mode="dual_t4_ddp",
+        batch_size=48,
+        corruption_strategy="indexed_masked",
+        candidate_role="selected_runtime_efficiency_followup",
+        policy=_ExecutorRuntimePolicy(
+            runtime_policy_id="compile_step_fp32_channels_last",
+            precision_policy="amp_off_fp32",
+            compile_scope=COMPILE_STEP,
+        ),
+    )
+
+
+def test_vram_infeasible_rank_payload_is_a_clean_oom_verdict() -> None:
+    """The screen's infeasible payload is a non-pass, oom=true, parseable rank record.
+
+    Both ranks write this then exit 0, so ``_run_dual_row`` parses it instead of
+    discarding a non-zero child; it must carry ``status != pass`` (never selectable),
+    ``oom=True`` (the clean verdict), and the fields the row parser reads
+    (``rank``/``failure_kind``). CPU-safe via fake torch/dist modules.
+    """
+    payload = _vram_infeasible_rank_payload(
+        rank=1,
+        local_rank=1,
+        row_id="dual_t4_ddp__bs48__amp_off_fp32__compile_step",
+        torch_module=_FakeTorchModule(),
+        dist_module=_FakeDistModule(),
+    )
+
+    assert payload["status"] != PASS_STATUS
+    assert payload["oom"] is True
+    assert payload["failure_kind"] == _VRAM_INFEASIBLE_FAILURE_KIND
+    assert payload["rank"] == 1
+    assert payload["world_size"] == EXPECTED_DUAL_WORLD_SIZE
+
+
+def test_dual_row_from_infeasible_payloads_stamps_oom_true() -> None:
+    """An infeasible-screen dual row reads oom=true, not an anonymous failure (S14c).
+
+    Feeds the exact payloads ``_vram_infeasible_rank_payload`` writes through
+    ``_dual_row_from_rank_payloads`` (the producer->consumer path a returncode-0 child
+    exercises). The row must be non-pass with the oom cell set, so the selector skips it
+    as a clean "does not fit" verdict. Dropping the ``oom=oom`` propagation makes the
+    ``oom == 'true'`` assertion fail.
+    """
+    settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+    payloads = [
+        _vram_infeasible_rank_payload(
+            rank=rank,
+            local_rank=rank,
+            row_id="dual_t4_ddp__bs48__amp_off_fp32__compile_step",
+            torch_module=_FakeTorchModule(),
+            dist_module=_FakeDistModule(),
+        )
+        for rank in range(EXPECTED_DUAL_WORLD_SIZE)
+    ]
+
+    row = _dual_row_from_rank_payloads(
+        settings=settings,
+        row_spec=_dual_step_row_spec(),
+        accelerator=_dual_accelerator(),
+        rank_payloads=payloads,
+    )
+
+    assert row["status"] != PASS_STATUS
+    assert row["oom"] == "true"
+    assert row["failure_kind"] == _VRAM_INFEASIBLE_FAILURE_KIND
+
+
+def test_dual_row_from_non_oom_failure_keeps_oom_false() -> None:
+    """A non-oom rank failure leaves oom=false, so the flag is not a false positive.
+
+    A generic crash payload (no ``oom`` key) must NOT stamp the oom cell, or every dual
+    failure would masquerade as an infeasible batch. Guards the ``any(bool(...))``
+    detection against over-broad matching.
+    """
+    settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+    payloads = [
+        cast(
+            "JsonObject",
+            {
+                "status": "fail",
+                "rank": rank,
+                "failure_kind": "ddp_rank_RuntimeError",
+            },
+        )
+        for rank in range(EXPECTED_DUAL_WORLD_SIZE)
+    ]
+
+    row = _dual_row_from_rank_payloads(
+        settings=settings,
+        row_spec=_dual_step_row_spec(),
+        accelerator=_dual_accelerator(),
+        rank_payloads=payloads,
+    )
+
+    assert row["status"] != PASS_STATUS
+    assert row["oom"] == "false"
+    assert row["failure_kind"] == "ddp_rank_RuntimeError"
+
+
+def test_failure_row_stamps_oom_only_when_requested() -> None:
+    """``_failure_row`` sets the oom cell from its flag, overriding the base false.
+
+    The base selection row hardcodes oom=false; a VRAM-infeasible failure must override
+    it to true while every other failure stays false. Re-hardcoding the cell to a
+    literal breaks one of the two assertions.
+    """
+    row_spec = _dual_step_row_spec()
+    settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+    infeasible = _failure_row(
+        settings=settings,
+        row_spec=row_spec,
+        accelerator=_dual_accelerator(),
+        status="fail",
+        failure_kind=_VRAM_INFEASIBLE_FAILURE_KIND,
+        failure_message=_VRAM_INFEASIBLE_FAILURE_KIND,
+        oom=True,
+    )
+    crashed = _failure_row(
+        settings=settings,
+        row_spec=row_spec,
+        accelerator=_dual_accelerator(),
+        status="fail",
+        failure_kind="torchrun_failed",
+        failure_message="boom",
+    )
+
+    assert infeasible["oom"] == "true"
+    assert crashed["oom"] == "false"
+
+
+def test_oom_row_is_never_a_selection_candidate() -> None:
+    """A row flagged oom=true is excluded from selection even if otherwise passing.
+
+    An infeasible batch must never win the runtime, defensively even if a future path
+    leaves it status=pass with a positive throughput (Spec 0011 S14c). Dropping the oom
+    gate in ``_runtime_row_candidate_pass`` lets the flipped row pass, failing the
+    second assertion.
+    """
+    row = _runtime_row(
+        accelerator_mode="dual_t4_ddp",
+        per_device_batch_size=12,
+        precision_policy="amp_off_fp32",
+        compile_scope="none",
+        corruption_strategy="indexed_masked",
+        world_size=EXPECTED_DUAL_WORLD_SIZE,
+        samples_sec=100.0,
+    )
+
+    assert _runtime_row_candidate_pass(row)
+    row["oom"] = "true"
+    assert not _runtime_row_candidate_pass(row)
+
+
+def test_grid_enumerates_compiled_winner_step_row_at_bs48() -> None:
+    """The committed grid drives a compiled step bs48 row with the winner recipe (S14c).
+
+    The efficiency slice adds bs48 and a compile_scope=step policy, so the executor
+    enumerates a step@48 RowSpec carrying the measured winner recipe knobs. Guards the
+    config->_runtime_policies->_dual_row_specs path end to end; dropping either the bs48
+    or the step policy from the config drops this row.
+    """
+    resolved = resolve_json_config(CONFIG_PATH)
+    settings = _pretest_settings(resolved, data_root_override=None)
+    stage = _selection_stage_settings(resolved.effective_config)
+
+    assert _WINNER_BATCH_SIZE in stage.efficiency_batch_sizes
+    step_policies = [
+        policy
+        for policy in stage.efficiency_policies
+        if policy.compile_scope == COMPILE_STEP
+    ]
+    assert len(step_policies) == 1
+    winner = step_policies[0]
+    assert winner.precision_policy == "amp_off_fp32"
+    assert winner.optimize_ddp == "ddp_optimizer"
+    assert winner.fused_optimizer is True
+    assert winner.ddp_gradient_as_bucket_view is True
+    assert winner.ddp_bucket_cap_mb == _WINNER_BUCKET_CAP_MB
+    assert winner.ddp_broadcast_buffers is False
+    assert winner.compiled_autograd is False
+    assert winner.ddp_static_graph is False
+    assert winner.memory_format == "channels_last"
+
+    specs = _dual_row_specs(settings=settings, stage=stage)
+    step_bs48 = [
+        spec
+        for spec in specs
+        if spec.compile_scope == COMPILE_STEP
+        and spec.per_device_batch_size == _WINNER_BATCH_SIZE
+    ]
+    assert len(step_bs48) == 1
+    assert step_bs48[0].precision_policy == "amp_off_fp32"
+    assert step_bs48[0].fused_optimizer is True
+    assert step_bs48[0].ddp_bucket_cap_mb == _WINNER_BUCKET_CAP_MB
+    # The AMP follow-up policy must NOT be enumerated at bs48: it has no fp32-eager
+    # companion (the fp32 gate measures [4,8,12]), so amp@48 would make the amp
+    # follow-up fail-closed and block the write. Only the fp32 compiled step gets bs48.
+    amp_bs48 = [
+        spec
+        for spec in specs
+        if spec.precision_policy == "amp_scalar_gate_relaxed"
+        and spec.per_device_batch_size == _WINNER_BATCH_SIZE
+    ]
+    assert amp_bs48 == []
+
+
+def test_amp_efficiency_row_needs_an_fp32_companion_batch() -> None:
+    """AMP efficiency rows are only enumerable at fp32-eager companion batches (S14c).
+
+    ``_efficiency_row_enumerable`` structurally prevents an AMP row at a batch the fp32
+    gate never measured (no companion for ``_amp_followup_policy`` -> unconditional
+    write block). The fp32 compiled step needs no companion. Removing the AMP branch of
+    the guard makes the bs48 assertion fail.
+    """
+    stage = _selection_stage_settings(
+        resolve_json_config(CONFIG_PATH).effective_config,
+    )
+    amp = next(
+        policy
+        for policy in stage.efficiency_policies
+        if policy.precision_policy == "amp_scalar_gate_relaxed"
+    )
+    step = next(
+        policy
+        for policy in stage.efficiency_policies
+        if policy.compile_scope == COMPILE_STEP
+    )
+    companion_batch = stage.dual_batch_sizes[-1]
+
+    assert _efficiency_row_enumerable(
+        policy=amp,
+        batch_size=companion_batch,
+        stage=stage,
+    )
+    assert not _efficiency_row_enumerable(
+        policy=amp,
+        batch_size=_WINNER_BATCH_SIZE,
+        stage=stage,
+    )
+    assert _efficiency_row_enumerable(
+        policy=step,
+        batch_size=_WINNER_BATCH_SIZE,
+        stage=stage,
+    )
+
+
+def test_oom_result_does_not_crash_dual_evidence_aggregation() -> None:
+    """A returncode-0 oom result must not crash the dual evidence consumers (S14c).
+
+    The oom skip is the first case where a returncode-0 child yields non-PASS rank
+    payloads (missing ``dataloader``/``proof_step``). The PASS-status guards in
+    ``_dual_dataloader_rows`` and ``_rank0_proof_steps_by_row_id`` skip it; removing
+    either guard makes the corresponding consumer raise ``TypeError`` on the missing
+    key.
+    """
+    settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+    oom_row = _failure_row(
+        settings=settings,
+        row_spec=_dual_step_row_spec(),
+        accelerator=_dual_accelerator(),
+        status="fail",
+        failure_kind=_VRAM_INFEASIBLE_FAILURE_KIND,
+        failure_message=_VRAM_INFEASIBLE_FAILURE_KIND,
+        oom=True,
+    )
+    oom_payloads = tuple(
+        _vram_infeasible_rank_payload(
+            rank=rank,
+            local_rank=rank,
+            row_id=oom_row["row_id"],
+            torch_module=_FakeTorchModule(),
+            dist_module=_FakeDistModule(),
+        )
+        for rank in range(EXPECTED_DUAL_WORLD_SIZE)
+    )
+    # Directly carry the oom payloads (as a returncode-0 child would) to exercise the
+    # consumer guards, not the _run_dual_row choke point that also empties them.
+    oom_result = _DdpLaunchResult(
+        row=oom_row,
+        rank_payloads=oom_payloads,
+        command_display="torchrun --standalone --nproc_per_node=2",
+        returncode=0,
+        failure_kind=_VRAM_INFEASIBLE_FAILURE_KIND,
+        failure_message_hash="",
+    )
+
+    assert _dual_dataloader_rows(settings=settings, results=[oom_result]) == []
+    assert isinstance(
+        _dual_numerical_rows(settings=settings, results=[oom_result]),
+        list,
+    )
+    assert isinstance(
+        _dual_corruption_rows(settings=settings, results=[oom_result]),
+        list,
+    )
+
+
 def test_runtime_selection_records_v8_shortlist_provenance(tmp_path: Path) -> None:
     """The selected-runtime path records v8 hashes without promoting v8 rows."""
     v8_dir = _write_fake_v8_artifacts(tmp_path / "v8")
@@ -1386,7 +1752,14 @@ def test_runtime_selection_fails_closed_when_v5_fallback_identity_mismatches(
 
 
 def test_runtime_selection_executor_materializes_relaxed_amp_policy() -> None:
-    """Executor policy parsing must create the compact relaxed AMP row."""
+    """Executor policy parsing creates the relaxed AMP row at bs12 ONLY.
+
+    Spec 0011 S14c added the bigger batch and the compiled winner policy (two policies
+    now), but the AMP follow-up policy materializes only at bs12: bs48 has no
+    fp32-eager companion (the fp32 gate measures dual_batch_sizes = [4,8,12]), so
+    ``_efficiency_row_enumerable`` filters out amp@48 -- otherwise the amp follow-up
+    gate would fail-closed and block the write.
+    """
     resolved = resolve_json_config(CONFIG_PATH)
 
     stage = runtime_selection_executor._selection_stage_settings(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
@@ -1410,7 +1783,7 @@ def test_runtime_selection_executor_materializes_relaxed_amp_policy() -> None:
         if row.runtime_policy_id == "amp_fp16_scalar_gate_relaxed"
     ]
 
-    assert len(stage.efficiency_policies) == 1
+    assert len(stage.efficiency_policies) == _EFFICIENCY_POLICY_COUNT
     assert relaxed.precision_policy == "amp_scalar_gate_relaxed"
     assert relaxed.compile_scope == "none"
     assert relaxed.autocast_dtype == "float16"
