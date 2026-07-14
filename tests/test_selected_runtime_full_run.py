@@ -45,7 +45,10 @@ from eqvae.training import selected_runtime_runner
 from eqvae.training.fastpath_step import make_fastpath_step_fn
 from eqvae.training.selected_runtime import (
     SelectedRuntimePlan,
+    _mixed_precision_errors,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _plan_from_payload,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _runtime_policy_errors,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _torch_compile_errors,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     parse_selected_runtime_plan,
     selected_runtime_plan_errors,
 )
@@ -1108,6 +1111,310 @@ def test_plan_parser_accepts_non_dividing_batch_with_floored_updates() -> None:
         "selected_runtime_top_level_wrong_optimizer_updates_per_epoch"
         in selected_runtime_plan_errors(payload)
     )
+
+
+# --- Spec 0011 S17a: recipe value validators accept the compiled winner profile ------
+
+# Every recipe-coherence error id the three de-pinned validators emit for a well-formed
+# (dict) recipe payload -- a compiled winner payload must trip NONE of these. The two
+# non-dict sentinels (missing_torch_compile / missing_runtime_policy) are unreachable
+# from the coherent integration payload and so are not listed. Identity/snapshot pins
+# are a separate re-point (Spec 0011 S17b / Kaggle row_id mint), not in this set.
+_RECIPE_COHERENCE_ERROR_NAMES = frozenset(
+    {
+        "selected_runtime_mixed_precision_missing_fp32_loss",
+        "selected_runtime_mixed_precision_not_enabled",
+        "selected_runtime_mixed_precision_wrong_dtype",
+        "selected_runtime_mixed_precision_missing_scaler",
+        "selected_runtime_mixed_precision_amp_off_not_disabled",
+        "selected_runtime_mixed_precision_amp_off_scaler_enabled",
+        "selected_runtime_mixed_precision_amp_off_autocast_dtype",
+        "selected_runtime_mixed_precision_wrong_policy",
+        "selected_runtime_torch_compile_enabled_mismatch",
+        "selected_runtime_torch_compile_scope_mismatch",
+        "selected_runtime_torch_compile_dynamic_mismatch",
+        "selected_runtime_torch_compile_backend_mismatch",
+        "selected_runtime_runtime_policy_memory_format_mismatch",
+        "selected_runtime_runtime_policy_ddp_static_graph_mismatch",
+        "selected_runtime_runtime_policy_zero_grad_set_to_none_mismatch",
+    },
+)
+# The shape of the compiled winner's composed row_id (bs48 amp-off compile-step), which
+# the identity pins still reject until the Kaggle run mints it (Spec 0011 S17b).
+_COMPILED_WINNER_ROW_ID = (
+    "dual_t4_ddp__bs48__amp_off_fp32__compile_step__indexed_masked__"
+    "policy_compile_step_ddp_optimizer_fp32_channels_last"
+)
+
+
+def _amp_conservative_block() -> JsonObject:
+    return {
+        "enabled": True,
+        "policy": "amp_conservative",
+        "autocast_dtype": "float16",
+        "fp32_loss": True,
+        "grad_scaler_enabled": True,
+    }
+
+
+def _compiled_winner_mixed_precision() -> JsonObject:
+    return {
+        "enabled": False,
+        "policy": "amp_off_fp32",
+        "autocast_dtype": "",
+        "fp32_loss": True,
+        "grad_scaler_enabled": False,
+    }
+
+
+def _compiled_winner_torch_compile() -> JsonObject:
+    # The dynamo knobs (optimize_ddp / compiled_autograd / reorder) live in the
+    # torch_compile carrier block, matching the real emitter's block placement.
+    return {
+        "enabled": True,
+        "scope": "step",
+        "dynamic": False,
+        "backend": "inductor",
+        "optimize_ddp": "ddp_optimizer",
+        "compiled_autograd": False,
+        "reorder_compute_comm_overlap": False,
+    }
+
+
+def _compiled_winner_runtime_policy() -> JsonObject:
+    # The DDP-wrap / optimizer knobs live in runtime_policy beside the existing ddp_*.
+    return {
+        "memory_format": "channels_last",
+        "ddp_static_graph": False,
+        "ddp_gradient_as_bucket_view": True,
+        "zero_grad_set_to_none": True,
+        "ddp_broadcast_buffers": False,
+        "ddp_find_unused_parameters": False,
+        "ddp_bucket_cap_mb": _RECIPE_BUCKET_CAP_MB,
+        "fused_optimizer": True,
+    }
+
+
+def _compiled_winner_payload() -> JsonObject:
+    """Return the committed plan with the three recipe blocks set to the winner recipe.
+
+    Only the recipe blocks (mixed_precision / torch_compile / runtime_policy) are
+    swapped to the amp-off compiled winner; identity and snapshot stay at the eager
+    committed values, so this isolates the S17a recipe-coherence surface the way the S7
+    larger-batch test isolates the schedule relationship.
+
+    Returns:
+        The committed plan payload carrying the compiled winner recipe blocks.
+
+    """
+    payload = _committed_runtime_payload()
+    payload["mixed_precision"] = _compiled_winner_mixed_precision()
+    payload["torch_compile"] = _compiled_winner_torch_compile()
+    payload["runtime_policy"] = _compiled_winner_runtime_policy()
+    return payload
+
+
+def test_full_parser_accepts_compiled_recipe_but_still_pins_identity() -> None:
+    """The compiled recipe clears the recipe validators; identity stays Kaggle-gated.
+
+    S17a de-pins only the recipe value validators. A payload carrying the compiled
+    winner recipe emits NONE of the recipe-coherence errors, yet flipping the row_id to
+    the (not-yet-minted) compiled winner id still trips the identity pin -- so a
+    compiled plan is accepted on its recipe but correctly rejected until its identity is
+    re-pointed (Spec 0011 S17b / the Kaggle row_id mint).
+    """
+    payload = _compiled_winner_payload()
+    payload["selected_row_id"] = _COMPILED_WINNER_ROW_ID
+
+    errors = selected_runtime_plan_errors(payload)
+
+    assert _RECIPE_COHERENCE_ERROR_NAMES.isdisjoint(errors)
+    assert "selected_runtime_row_not_v5_fallback" in errors
+
+
+def test_mixed_precision_validator_accepts_both_profiles() -> None:
+    """amp_conservative, amp_scalar_gate_relaxed, and amp_off_fp32 all parse clean."""
+    conservative = _amp_conservative_block()
+    relaxed = {**conservative, "policy": "amp_scalar_gate_relaxed"}
+
+    assert _mixed_precision_errors(conservative) == ()
+    assert _mixed_precision_errors(relaxed) == ()
+    assert _mixed_precision_errors(_compiled_winner_mixed_precision()) == ()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_error"),
+    [
+        ({"policy": "amp_bogus"}, "selected_runtime_mixed_precision_wrong_policy"),
+        ({"fp32_loss": False}, "selected_runtime_mixed_precision_missing_fp32_loss"),
+        (
+            {"grad_scaler_enabled": False},
+            "selected_runtime_mixed_precision_missing_scaler",
+        ),
+        ({"enabled": False}, "selected_runtime_mixed_precision_not_enabled"),
+        (
+            {"autocast_dtype": "bfloat16"},
+            "selected_runtime_mixed_precision_wrong_dtype",
+        ),
+    ],
+)
+def test_mixed_precision_validator_fails_closed_on_amp_profile(
+    mutation: JsonObject,
+    expected_error: str,
+) -> None:
+    """Each broken field of the AMP profile fails closed on its stable error id."""
+    block = _amp_conservative_block()
+    block.update(mutation)
+
+    assert expected_error in _mixed_precision_errors(block)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_error"),
+    [
+        ({"enabled": True}, "selected_runtime_mixed_precision_amp_off_not_disabled"),
+        (
+            {"grad_scaler_enabled": True},
+            "selected_runtime_mixed_precision_amp_off_scaler_enabled",
+        ),
+        (
+            {"autocast_dtype": "float16"},
+            "selected_runtime_mixed_precision_amp_off_autocast_dtype",
+        ),
+        ({"fp32_loss": False}, "selected_runtime_mixed_precision_missing_fp32_loss"),
+    ],
+)
+def test_mixed_precision_validator_fails_closed_on_amp_off_profile(
+    mutation: JsonObject,
+    expected_error: str,
+) -> None:
+    """amp_off_fp32 with AMP re-enabled, a scaler on, or no fp32 island fails closed."""
+    block = _compiled_winner_mixed_precision()
+    block.update(mutation)
+
+    assert expected_error in _mixed_precision_errors(block)
+
+
+def test_torch_compile_validator_accepts_eager_and_compiled_profiles() -> None:
+    """Eager none and the stable model_forward / step inductor profiles parse clean."""
+    eager = {"enabled": False, "scope": "none", "dynamic": False, "backend": "eager"}
+    model_forward = {
+        "enabled": True,
+        "scope": "model_forward",
+        "dynamic": False,
+        "backend": "inductor",
+    }
+
+    assert _torch_compile_errors(eager) == ()
+    assert _torch_compile_errors(_compiled_winner_torch_compile()) == ()
+    assert _torch_compile_errors(model_forward) == ()
+
+
+@pytest.mark.parametrize(
+    ("block", "expected_error"),
+    [
+        (
+            {"enabled": True, "scope": "none", "dynamic": False, "backend": "inductor"},
+            "selected_runtime_torch_compile_scope_mismatch",
+        ),
+        (
+            {"enabled": True, "scope": "step", "dynamic": False, "backend": "eager"},
+            "selected_runtime_torch_compile_backend_mismatch",
+        ),
+        (
+            {
+                "enabled": False,
+                "scope": "none",
+                "dynamic": False,
+                "backend": "inductor",
+            },
+            "selected_runtime_torch_compile_backend_mismatch",
+        ),
+        (
+            {"enabled": False, "scope": "step", "dynamic": False, "backend": "eager"},
+            "selected_runtime_torch_compile_scope_mismatch",
+        ),
+        (
+            {
+                "enabled": True,
+                "scope": "model_loss",
+                "dynamic": False,
+                "backend": "inductor",
+            },
+            "selected_runtime_torch_compile_scope_mismatch",
+        ),
+        (
+            {"enabled": True, "scope": "step", "dynamic": True, "backend": "inductor"},
+            "selected_runtime_torch_compile_dynamic_mismatch",
+        ),
+        (
+            {
+                "enabled": "yes",
+                "scope": "step",
+                "dynamic": False,
+                "backend": "inductor",
+            },
+            "selected_runtime_torch_compile_enabled_mismatch",
+        ),
+    ],
+)
+def test_torch_compile_validator_fails_closed(
+    block: JsonObject,
+    expected_error: str,
+) -> None:
+    """Incoherent compile plans (scope/backend/dynamic/enabled) fail closed."""
+    assert expected_error in _torch_compile_errors(block)
+
+
+def test_torch_compile_validator_rejects_non_dict() -> None:
+    """A missing torch_compile block fails closed on the preserved id."""
+    assert _torch_compile_errors(None) == ("selected_runtime_missing_torch_compile",)
+
+
+def test_runtime_policy_validator_accepts_both_memory_formats() -> None:
+    """Contiguous eager and channels_last compiled runtime policies parse clean."""
+    eager = {
+        "memory_format": "contiguous",
+        "ddp_static_graph": False,
+        "ddp_gradient_as_bucket_view": False,
+        "zero_grad_set_to_none": True,
+    }
+
+    assert _runtime_policy_errors(eager) == ()
+    assert _runtime_policy_errors(_compiled_winner_runtime_policy()) == ()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_error"),
+    [
+        (
+            {"memory_format": "nhwc_bogus"},
+            "selected_runtime_runtime_policy_memory_format_mismatch",
+        ),
+        (
+            {"ddp_static_graph": True},
+            "selected_runtime_runtime_policy_ddp_static_graph_mismatch",
+        ),
+        (
+            {"zero_grad_set_to_none": False},
+            "selected_runtime_runtime_policy_zero_grad_set_to_none_mismatch",
+        ),
+    ],
+)
+def test_runtime_policy_validator_fails_closed(
+    mutation: JsonObject,
+    expected_error: str,
+) -> None:
+    """A garbage memory_format, static_graph on, or zero_grad off fails closed."""
+    block = _compiled_winner_runtime_policy()
+    block.update(mutation)
+
+    assert expected_error in _runtime_policy_errors(block)
+
+
+def test_runtime_policy_validator_rejects_non_dict() -> None:
+    """A missing runtime_policy block fails closed on the preserved id."""
+    assert _runtime_policy_errors(None) == ("selected_runtime_missing_runtime_policy",)
 
 
 def test_eps_generator_seed_is_per_rank_and_preserves_single_rank() -> None:

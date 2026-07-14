@@ -1,9 +1,9 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) DONE (committed local-only through `3298a57`); S14 decomposed into local sub-steps — S14a DONE (`1dc3901`, local); S14b dual-T4 executor branch DONE (`7256cd3`, local); S14b single-GPU pretest surface DONE (`aabd886`, local); S14c DONE (`2927293` + `c59856e`, local); all local sub-steps complete → next is Kaggle-only S17/S19 + LR-finder
-Implementation readiness: Phase 3 COMPLETE (local); S14a/S14b/S14c all done + gated locally (compiled EXECUTION GPU-validated on Kaggle); Kaggle phases S17/S19 gated (user-driven); LR-finder queued
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; S17b (snapshot cross-consistency) + S17c (observation mirror + corruption-label) queued locally; S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
+Implementation readiness: Phase 3 COMPLETE (local); S14a/S14b/S14c done + gated locally; S17a done + gated locally (parser now ACCEPTS a compiled plan's recipe; identity/snapshot deferred to S17b/Kaggle); compiled EXECUTION + the row_id mint are Kaggle observations; Kaggle phases S17-Kaggle/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-14 (S14c done local `2927293` + `c59856e`; NEXT = Kaggle-only S17/S19 + LR-finder). The per-step `(DONE — …)` tags in the body are the state of record.
+Last updated: 2026-07-14 (S17a done local: coherence-model recipe de-pin; NEXT local = S17b/S17c; NEXT Kaggle = S17 generator run + S19). The per-step `(DONE — …)` tags in the body are the state of record.
 
 ## Purpose
 
@@ -594,9 +594,51 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
 
 ### Phase 4 — Activate (values flip) + full run
 
-- **S17** [Kaggle] Run the S14 generator on dual-T4 → new `selected_runtime.json`
-  (winner = compiled bigger-batch row; new row_id). Re-point every row_id anchor.
-  The reusable generator produces the artifact; de-pinned consumers accept it.
+- **S17** Accept the compiled plan + activate the deferred observation, then run the
+  generator on Kaggle. The parser-acceptance de-pin is authored **locally in gated
+  sub-steps** (behavior-preserving on the committed v5 fallback), mirroring the S14 arc;
+  only the row_id mint + the measured dual-T4 run are Kaggle.
+  - **S17a (DONE — this commit) De-pin the recipe value-validators to a coherence
+    model.** `_mixed_precision_errors`, `_torch_compile_errors`, `_runtime_policy_errors`
+    (`training/selected_runtime.py`) now accept BOTH the eager v5 fallback profile
+    (`amp_conservative` / `contiguous` / `compile none` / `eager` backend) AND the
+    compiled winner profile (`amp_off_fp32` / `channels_last` / `compile step` /
+    `inductor` backend) via allowed-set + internal-consistency checks instead of the
+    eager literals: the AMP fields must agree with the declared precision policy
+    (`amp_conservative` / `amp_scalar_gate_relaxed` require fp16 autocast + grad scaler;
+    `amp_off_fp32` requires both off and forbids an AMP autocast dtype); torch.compile's
+    enabled/scope/backend must be internally coherent (`enabled ⇒ scope ∈ {model_forward,
+    step}` + `inductor`; `disabled ⇒ scope none` + `eager`) with `dynamic` always False;
+    `memory_format ∈ {contiguous, channels_last}` and `ddp_gradient_as_bucket_view`
+    de-pinned. Safety anchors stay pinned: the FP32 loss island is required in every
+    profile, `ddp_static_graph` stays False, `zero_grad_set_to_none` stays True, and
+    `_ddp_optimizer_safety_errors` is untouched; the identity comparisons tightened
+    `!=`→`is` (a fail-closed improvement). Corruption strategy stays `indexed_masked`
+    for both profiles (the compiled slice keeps that label; its train-fast-path label
+    accuracy is S17c). Behavior-preserving: the committed v5 plan still parses with zero
+    errors. **Identity (`selected_row_id` / `runtime_policy_id`) and the snapshot
+    batch/precision literals are NOT touched here** — deferred to S17b + the Kaggle mint.
+    Gate 497 passed (494→497), basedpyright/ruff clean; 4 read-only adversarial reviewers
+    (behavior-preservation, coherence-vs-emitter, test-soundness, fix-delta) → 2 sound,
+    test-soundness 2 gaps (untested `enabled=False` scope check + missing `runtime_policy`
+    non-dict sentinel) + 1 coherence tightening (amp_off must reject an AMP autocast
+    dtype) — all fixed and re-verified mutation-resistant; fixture-carrier fidelity
+    aligned to the S11 frozen homes.
+  - **S17b** Snapshot cross-consistency: de-pin `_snapshot_errors` from the
+    `bs12`/`24`/`amp_conservative`/`float16`/`grad_scaler` literals to cross-consistency
+    with the plan's own top-level fields; keep `row_id`/`runtime_policy_id` identity
+    pinned (Kaggle mint).
+  - **S17c** Observation mirror + corruption-label: add the nine S11 recipe knobs to
+    `SelectedRuntimeApplicationObservation` / `expected_application` /
+    `_application_mismatches` with the structural `broadcast_buffers`-override tolerance;
+    make `local_amp_status` plan-derived (amp-off aware); make the compiled train-fast-path
+    corruption label accurate (blake2b dropped, `InlineStainCorruptor` applied inline).
+  - **S17-Kaggle** [Kaggle] Run the S14 generator on dual-T4 → new compiled
+    `selected_runtime.json` (winner row_id
+    `dual_t4_ddp__bs48__amp_off_fp32__compile_step__indexed_masked__policy_…`). Re-point
+    every row_id/policy_id anchor — parser (`_top_level_errors`, `_snapshot_errors`, the
+    two `_runtime_proof_*`), gate (`_remote_output_gate_health_blockers`), and the embedded
+    `run_template` copy — to the minted literal; the de-pinned consumers accept it.
 - **S18** Docs: de-pin Spec 0009 schedule passages to formulas (bs24 as a worked
   example only); add decision record `docs/decisions/0010-...` framing the mechanism
   as reusable across architectures; update CURRENT.md / specs README / open_follow_ups.

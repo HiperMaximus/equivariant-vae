@@ -555,26 +555,65 @@ def _launch_int_or_none(value: object) -> int | None:
     return value
 
 
+# Spec 0011 S17a -- coherence-based recipe value validators. The runtime search emits
+# the measured winner profile: either the eager AMP small-batch fallback or the compiled
+# bigger-batch recipe. So these validators accept any internally coherent member of that
+# measured profile space instead of pinning the eager v5 literals. The safety anchors
+# stay pinned: the FP32 loss island is always required, ddp_static_graph stays False
+# (DDPOptimizer forbids it, and the compiled whole-step interleaves an eager proof
+# backward on one DDP module), zero_grad_set_to_none stays True, and the DDPOptimizer
+# flag guard (_ddp_optimizer_safety_errors) keeps firing. Identity (row_id /
+# runtime_policy_id) and the snapshot batch/precision literals are re-pointed separately
+# (Spec 0011 S17b / Kaggle row_id mint), not here.
+_AMP_ON_PRECISION_POLICIES = frozenset({"amp_conservative", "amp_scalar_gate_relaxed"})
+_AMP_OFF_PRECISION_POLICY = "amp_off_fp32"
+_AMP_AUTOCAST_DTYPE = "float16"
+# Autocast dtypes only an AMP-on profile may declare; an amp-off plan claiming one is
+# internally incoherent (autocast is disabled, so the dtype would never be consumed).
+_AMP_AUTOCAST_DTYPES = frozenset({"float16", "bfloat16"})
+_COMPILE_EAGER_BACKEND = "eager"
+_COMPILE_INDUCTOR_BACKEND = "inductor"
+_COMPILE_SCOPE_NONE = "none"
+_STABLE_COMPILE_SCOPES = frozenset({"model_forward", "step"})
+_ALLOWED_MEMORY_FORMATS = frozenset({"contiguous", "channels_last"})
+
+
 def _mixed_precision_errors(payload: JsonObject) -> tuple[str, ...]:
-    expected = {
-        "enabled": True,
-        "policy": "amp_conservative",
-        "autocast_dtype": "float16",
-        "fp32_loss": True,
-        "grad_scaler_enabled": True,
-    }
-    error_names = {
-        "enabled": "selected_runtime_mixed_precision_not_enabled",
-        "policy": "selected_runtime_mixed_precision_wrong_policy",
-        "autocast_dtype": "selected_runtime_mixed_precision_wrong_dtype",
-        "fp32_loss": "selected_runtime_mixed_precision_missing_fp32_loss",
-        "grad_scaler_enabled": "selected_runtime_mixed_precision_missing_scaler",
-    }
-    return tuple(
-        error_names[key]
-        for key, expected_value in expected.items()
-        if payload.get(key) != expected_value
-    )
+    """Return mixed-precision coherence errors (Spec 0011 S17a).
+
+    The runtime search emits the winner precision profile, which is either an AMP
+    profile (``amp_conservative`` / ``amp_scalar_gate_relaxed`` -- fp16 autocast with a
+    grad scaler) or the compiled winner's ``amp_off_fp32`` (autocast and scaler off).
+    Both keep the FP32 loss island, so this validator requires ``fp32_loss`` in every
+    profile and checks the AMP fields against the declared policy instead of pinning the
+    eager v5 AMP literals. An unknown policy, or AMP fields that contradict the policy,
+    fails closed.
+
+    Returns:
+        Stable mixed-precision coherence error identifiers.
+
+    """
+    errors: list[str] = []
+    if payload.get("fp32_loss") is not True:
+        errors.append("selected_runtime_mixed_precision_missing_fp32_loss")
+    policy = payload.get("policy")
+    if policy in _AMP_ON_PRECISION_POLICIES:
+        if payload.get("enabled") is not True:
+            errors.append("selected_runtime_mixed_precision_not_enabled")
+        if payload.get("autocast_dtype") != _AMP_AUTOCAST_DTYPE:
+            errors.append("selected_runtime_mixed_precision_wrong_dtype")
+        if payload.get("grad_scaler_enabled") is not True:
+            errors.append("selected_runtime_mixed_precision_missing_scaler")
+    elif policy == _AMP_OFF_PRECISION_POLICY:
+        if payload.get("enabled") is not False:
+            errors.append("selected_runtime_mixed_precision_amp_off_not_disabled")
+        if payload.get("grad_scaler_enabled") is not False:
+            errors.append("selected_runtime_mixed_precision_amp_off_scaler_enabled")
+        if payload.get("autocast_dtype") in _AMP_AUTOCAST_DTYPES:
+            errors.append("selected_runtime_mixed_precision_amp_off_autocast_dtype")
+    else:
+        errors.append("selected_runtime_mixed_precision_wrong_policy")
+    return tuple(errors)
 
 
 def _dataloader_errors(payload: JsonObject) -> tuple[str, ...]:
@@ -663,36 +702,68 @@ def _safety_errors(safety: object) -> tuple[str, ...]:
 
 
 def _runtime_policy_errors(policy: object) -> tuple[str, ...]:
+    """Return runtime-policy coherence errors (Spec 0011 S17a).
+
+    ``memory_format`` may be the eager ``contiguous`` or the compiled winner's
+    ``channels_last``, and ``ddp_gradient_as_bucket_view`` is a measured performance
+    flag (the winner enables it), so neither is pinned to the eager literal.
+    ``ddp_static_graph`` stays pinned False -- DDPOptimizer forbids it and the compiled
+    whole-step interleaves an eager proof backward on one DDP module -- and
+    ``zero_grad_set_to_none`` stays True.
+
+    Returns:
+        Stable runtime-policy coherence error identifiers.
+
+    """
     if not isinstance(policy, dict):
         return ("selected_runtime_missing_runtime_policy",)
     payload = cast("JsonObject", policy)
-    expected = {
-        "memory_format": "contiguous",
-        "ddp_static_graph": False,
-        "ddp_gradient_as_bucket_view": False,
-        "zero_grad_set_to_none": True,
-    }
-    return tuple(
-        f"selected_runtime_runtime_policy_{key}_mismatch"
-        for key, expected_value in expected.items()
-        if payload.get(key) != expected_value
-    )
+    errors: list[str] = []
+    if payload.get("memory_format") not in _ALLOWED_MEMORY_FORMATS:
+        errors.append("selected_runtime_runtime_policy_memory_format_mismatch")
+    if payload.get("ddp_static_graph") is not False:
+        errors.append("selected_runtime_runtime_policy_ddp_static_graph_mismatch")
+    if payload.get("zero_grad_set_to_none") is not True:
+        errors.append(
+            "selected_runtime_runtime_policy_zero_grad_set_to_none_mismatch",
+        )
+    return tuple(errors)
 
 
 def _torch_compile_errors(torch_compile: object) -> tuple[str, ...]:
+    """Return torch.compile coherence errors (Spec 0011 S17a).
+
+    Accepts the eager profile (disabled, scope ``none``, ``eager`` backend) or a stable
+    compiled profile (enabled, scope in the settle-proven set ``{model_forward, step}``,
+    ``inductor`` backend). ``dynamic`` must stay False in both because the compiled step
+    is traced with static shapes, so a dynamic plan would recompile every batch. The
+    enabled/scope/backend fields must agree, so a plan cannot claim compilation while
+    carrying an eager backend or a diagnostic scope, or vice versa.
+
+    Returns:
+        Stable torch.compile coherence error identifiers.
+
+    """
     if not isinstance(torch_compile, dict):
         return ("selected_runtime_missing_torch_compile",)
     payload = cast("JsonObject", torch_compile)
-    expected = {
-        "enabled": False,
-        "scope": "none",
-        "dynamic": False,
-    }
-    return tuple(
-        f"selected_runtime_torch_compile_{key}_mismatch"
-        for key, expected_value in expected.items()
-        if payload.get(key) != expected_value
-    )
+    errors: list[str] = []
+    if payload.get("dynamic") is not False:
+        errors.append("selected_runtime_torch_compile_dynamic_mismatch")
+    enabled = payload.get("enabled")
+    if enabled is False:
+        if payload.get("scope") != _COMPILE_SCOPE_NONE:
+            errors.append("selected_runtime_torch_compile_scope_mismatch")
+        if payload.get("backend") != _COMPILE_EAGER_BACKEND:
+            errors.append("selected_runtime_torch_compile_backend_mismatch")
+    elif enabled is True:
+        if payload.get("scope") not in _STABLE_COMPILE_SCOPES:
+            errors.append("selected_runtime_torch_compile_scope_mismatch")
+        if payload.get("backend") != _COMPILE_INDUCTOR_BACKEND:
+            errors.append("selected_runtime_torch_compile_backend_mismatch")
+    else:
+        errors.append("selected_runtime_torch_compile_enabled_mismatch")
+    return tuple(errors)
 
 
 _DDP_OPTIMIZER_RECIPE_VALUE = "ddp_optimizer"
