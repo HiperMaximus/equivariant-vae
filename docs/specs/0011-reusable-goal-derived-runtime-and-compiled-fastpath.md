@@ -1,9 +1,9 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; S17b-3 (kernel/push-guard parser mirrors — scope re-measured, ~S17b-2-sized) + S17c (observation mirror + corruption-label) queued locally; S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; S17b-3 (kernel/push-guard parser mirrors — scope re-measured, ~S17b-2-sized) + S17c (observation mirror + corruption-label) + S17d (bounded dataloader search axis — the dataloader is NOT searched today; read S17d's traps before touching `_dataloader_errors`) queued locally; S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
 Implementation readiness: Phase 3 COMPLETE (local); S14a/S14b/S14c done + gated locally; S17a + S17b-1 done + gated locally (parser now ACCEPTS a self-consistent compiled plan — recipe AND structural identity/snapshot; identity is self-consistent so no Kaggle re-point is needed); compiled EXECUTION + the row_id mint are Kaggle observations; Kaggle phases S17-Kaggle/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-14 (S17b-2 done local: remote-output gate identity de-pinned to the loaded plan; the literal also incidentally anchored accelerator/topology there, so both verifiers now run the parser before deriving expectations from a plan. NEXT local = S17b-3 (fresh window — scope re-measured to 4 surfaces incl. the `kaggle_kernel.sh` push guard; identity AND recipe both required), then S17c; NEXT Kaggle = S17 generator run + S19). The per-step `(DONE — …)` tags in the body are the state of record.
+Last updated: 2026-07-15 (S17d ADDED, no code change: an attempted `_dataloader_errors` de-pin was reverted after adversarial review — the dataloader is NOT a searched axis (the executor stamps constants), `DATALOADER_MATRIX_COLUMNS` is a CSV record schema not a grid, and the config's `dataloader.candidates` is dead config; de-pinning to bare torch coherence removed the only real check (`_application_mismatches` is an `x == x` plan echo until S17c) while three mirrors still pin. S17d captures the real work + the user's hardware ground truth (T4 x2 / P100 only; `num_workers ≤ cpu_count // world_size`, measured at runtime). NEXT local = S17b-3 (4 surfaces incl. the `kaggle_kernel.sh` push guard; identity AND recipe both required), then S17c, then S17d; NEXT Kaggle = S17 generator run + S19). The per-step `(DONE — …)` tags in the body are the state of record.
 
 ## Purpose
 
@@ -708,6 +708,77 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
     `_application_mismatches` with the structural `broadcast_buffers`-override tolerance;
     make `local_amp_status` plan-derived (amp-off aware); make the compiled train-fast-path
     corruption label accurate (blake2b dropped, `InlineStainCorruptor` applied inline).
+  - **S17d** Dataloader search axis (bounded, hardware-derived). The dataloader is the
+    one runtime block that is still frozen at a literal while genuinely depending on the
+    box — but it is NOT currently searched, and the code says otherwise in two places
+    that have already caused one false de-pin. Read this before touching it:
+    - **It is not measured today.** `runtime_matrix` has NO dataloader axis; the winner
+      `row_id` carries no dataloader term. `runtime_selection_executor.py:1186` stamps
+      all five cells from `real_data_runtime_pretest.DEFAULT_DATALOADER_*` constants
+      (`0 / "" / False / False / True` — value-equivalent to the reverted pins, not
+      literally identical: the `""` becomes plan `null` via `_optional_int_from_csv` at
+      `runtime_selection.py:1454`), and the measuring loaders it builds at `:3349`
+      and `:2005` hardcode `num_workers=DEFAULT_DATALOADER_NUM_WORKERS` and never pass
+      `pin_memory` / `persistent_workers` / `prefetch_factor` at all.
+    - **Two traps.** `runtime_schema.DATALOADER_MATRIX_COLUMNS` is the CSV column schema
+      of a measurement RECORD, not a search grid — misreading it as a grid is what
+      motivated a bogus parser de-pin on 2026-07-15 (reverted). And the `candidates`
+      grid at `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json:39-45` is DEAD
+      config: its only would-be reader (`dataloader_pretest.py:175`) reads a different
+      key (`dataloader_pretest`) that this config does not define.
+    - **Hardware ground truth (user, 2026-07-15).** `num_workers` is CPU-bound (~4 max on
+      the box) and the DDP ranks SHARE one CPU budget, so the per-rank ceiling falls as
+      `world_size` rises. That makes the bound DERIVED, not frozen:
+      `num_workers_per_rank ≤ cpu_count // world_size`. Both worked answers are IN SCOPE
+      and come from one formula — `machine_shape` is fixed at `NvidiaTeslaT4` and the
+      searched axis is `accelerator_modes = ["single_visible_t4", "dual_t4_ddp"]` (config
+      `:48`, `runtime_selection.py:50`), i.e. 1-vs-2 visible GPUs on the SAME box:
+      `single_visible_t4` → `world_size=1` → ceiling ~4; `dual_t4_ddp` → `world_size=2` →
+      ceiling ~2. Never freeze `4` — it is exactly the hardware literal this spec exists
+      to eliminate and it goes stale if Kaggle re-specs the instance.
+    - **P100 is OUT OF SCOPE — do not "fix" the runner to admit it.** Kaggle also offers a
+      P100 (16GB, `world_size=1`), but this plan ANCHORS dual-T4: the parser pins
+      `accelerator_mode: "dual_t4_ddp"` + `machine_shape: EXPECTED_MACHINE_SHAPE`
+      (`= "NvidiaTeslaT4"`) at `selected_runtime.py:771-772` and `world_size ∈ {2, "2"}`
+      at `:802-803`, and `tests/test_selected_runtime_runner.py:528` asserts a P100
+      machine shape is REJECTED (the only other `P100` string in the repo). Admitting it
+      is a SEPARATE step that must move those anchors deliberately. S17d must not touch
+      them: hardware stays an anchor.
+    - **Reading `cpu_count`.** Prefer torch's own helper `torch._utils.cpu_count()`
+      (`torch/_utils.py:777-787` — `sched_getaffinity` first, `os.cpu_count` fallback);
+      torch's DataLoader over-count warning already consumes it (`dataloader.py:607`).
+      `os.cpu_count()` reports the HOST and can overshoot a cgroup-limited container —
+      the exact failure the bound exists to prevent — and `sched_getaffinity` does not
+      read cgroup CPU quota either, so treat the number as approximate and let the
+      MEASUREMENT decide.
+    - **The ceiling is an upper SEARCH bound, not a recommendation.** At `cpu_count=4,
+      world_size=2` it yields 2 workers/rank = 4 worker procs + 2 main procs on 4 vCPUs —
+      already oversubscribed; `(cpu_count - world_size) // world_size` is the tighter
+      form. Evidence for a TIGHT budget: the historical dual-T4 notebook ran
+      `num_workers: 1` (2 total workers across 2 ranks) and set `OMP_NUM_THREADS=1` /
+      `MKL_NUM_THREADS=1` before `torchrun --nproc_per_node=2`
+      (`docs/behavior_inventory_kaggle.md:157-158`, `:194`). One datapoint cannot
+      establish the ceiling in either direction — sweep and measure, do not assume 4 is
+      reachable.
+    - **Work.** (a) Add the bounded axis to `runtime_matrix`; (b) make the executor
+      actually sweep it and emit MEASURED cells instead of stamped constants;
+      (c) reconcile the prefetch rule — `dataloader_pretest.py:253-254` raises
+      "prefetch_factor is required when num_workers is positive" and an IDENTICAL second
+      site exists at `:421` (fix BOTH, or the two validators still disagree); torch by
+      contrast silently defaults `prefetch_factor=2` at `dataloader.py:285-286`, so pick
+      one model deliberately; (d) ONLY THEN replace the parser's `_dataloader_errors`
+      pins (this step owns that de-pin — it is not a separate step).
+    - **Ordering.** (d) is gated on (a)+(b)+(c) AND on S17c ending the
+      `_application_mismatches` tautology (`selected_runtime_runner.py:5084-5088` echoes
+      `plan.*`, so the dataloader cells compare `x == x`; contrast `:5089-5092`, where
+      `corruption_strategy` uses a REAL `metric_rows` observation). The replacement must
+      carry the derived bound, NOT bare torch coherence: torch only rejects negatives
+      (`dataloader.py:287-288`), so an unbounded model accepts `num_workers=64,
+      prefetch_factor=1000` — strictly less safety than the pins, with no new capability,
+      which is precisely why the 2026-07-15 attempt was reverted. Note the real boundary
+      is `prefetch_factor < 1`, not `< 0`: the constructor rejects `< 0` at `:287-288`
+      but `_MultiProcessingDataLoaderIter` rejects `<= 0` at `:1104-1106`, so a `0`
+      constructs cleanly and detonates on the FIRST batch, deep into a paid run.
   - **S17-Kaggle** [Kaggle] Run the S14 generator on dual-T4 → new compiled
     `selected_runtime.json` (winner row_id
     `dual_t4_ddp__bs48__amp_off_fp32__compile_step__indexed_masked__policy_…`). With the

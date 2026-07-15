@@ -261,9 +261,13 @@ the spec body under S17b-3): both `run_template.py` files pin identity **and** r
 was never listed; the `runtime_selection` copy previously named here **does not exist**. BOTH axes
 are required — identity alone leaves the `amp_off_fp32` winner failing `kaggle_kernel.sh:1867` and
 `run_template:315`, so the step would read as done while the run stayed blocked. Then **S17c**
-(observation mirror + corruption-label accuracy). Because identity is now STRUCTURAL, the
+(observation mirror + corruption-label accuracy), then **S17d** (bounded dataloader search axis —
+NEW 2026-07-15, spec-only so far). Because identity is now STRUCTURAL, the
 Kaggle-minted compiled id needs NO anchor re-point — the de-pinned consumers accept it as
-self-consistent. **THEN KAGGLE-ONLY (user-driven, FRESH window, needs exact remote cmd +
+self-consistent.
+**A `_dataloader_errors` de-pin was attempted 2026-07-15 and REVERTED (adversarial review): the
+dataloader is NOT a searched axis. Do not retry it — read S17d's traps in the spec first.**
+**THEN KAGGLE-ONLY (user-driven, FRESH window, needs exact remote cmd +
 `KAGGLE_PUSH_CONFIRMED=1`):** the S17 generator run → new compiled `selected_runtime.json`; S19
 (~30h + ~30 min staging, push-then-monitor, NOT a held session); plus the queued LR-finder (~200–300
 lines, needs real dual-T4). Never push to origin.
@@ -275,7 +279,8 @@ lines, needs real dual-T4). Never push to origin.
 > "uncommitted / awaiting commit approval" is in fact COMMITTED — it is an ancestor of
 > the active S1–S16 Spec 0011 chain (Spec 0011 S16 = `3298a57`). The current state (Phase 3
 > COMPLETE; S14a/b/c + S17a/S17b-1/S17b-2 done local through `3b72534`; next local = S17b-3
-> (fresh window) then S17c, then Kaggle-only S17-run/S19 + LR-finder) is the Latest handoff above.
+> (fresh window) then S17c then S17d, then Kaggle-only S17-run/S19 + LR-finder) is the Latest
+> handoff above.
 
 Current short state: runtime-selection v5 is the selected fallback runtime
 (`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,
