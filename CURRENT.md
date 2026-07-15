@@ -242,14 +242,28 @@ identity error ids were renamed `*_not_v5_fallback` → structural
 `selected_runtime_runtime_policy_id_missing`); all snapshot/proof ids preserved. Behavior-preserving:
 the committed v5 plan recomposes to the frozen literal and parses with zero errors. Gate 522/1
 (497→522), basedpyright/ruff clean; 4 read-only adversarial reviewers (behavior/fail-open,
-emitter↔parser contract, snapshot edges, test-soundness) → 0 confirmed. **NEXT LOCAL: S17b-2** (gate
-`_remote_output_gate_health_blockers` CSV-row pin → compare the `gate_health.csv`
-`row_id`/`candidate_row_id`/`runtime_policy_id` cells against the loaded plan's own identity, not
-`EXPECTED_SELECTED_ROW_ID`), then **S17b-3** (the three `run_template.py` embedded
-`EXPECTED_SELECTED_ROW_ID` copies → derived/structural so a compiled plan builds/validates at push
-time), then **S17c** (observation mirror + corruption-label accuracy). Because identity is now
-STRUCTURAL, the Kaggle-minted compiled id needs NO anchor re-point — the de-pinned consumers accept
-it as self-consistent. **THEN KAGGLE-ONLY (user-driven, FRESH window, needs exact remote cmd +
+emitter↔parser contract, snapshot edges, test-soundness) → 0 confirmed.
+**S17b-2 DONE (`3b72534` + docs `d600465`, 2026-07-14, local-only):** the gate's downloaded
+`gate_health.csv` `row_id`/`candidate_row_id`/`runtime_policy_id` cells are compared against the
+loaded plan's own identity via a NEW public `composed_selected_runtime_identity` (single-sources
+plan identity; `_runtime_proof_errors` derives through it too). A None component fails closed;
+byte-identical on the committed v5 plan, which composes back to both frozen constants (pinned by a
+test). **Review caught an anchor regression, fixed in-step:** the literal also INCIDENTALLY pinned
+accelerator/topology there (it encodes the whole row shape) and the remote-output verifiers never
+ran the parser — so a self-declared `single_t4`/`world_size=1` plan verified CLEAN (reproduced,
+then re-blocked). Both verifiers now run `_selected_runtime_errors` BEFORE deriving identity,
+restoring the `_launch_errors` anchors the de-pin's own rationale already assumed. Gate 551/1
+(522→551); 3 read-only reviewers → 4 adopted / 2 refuted; every new test mutation-proven.
+**NEXT LOCAL: S17b-3** — de-pin the kernel/push-side MIRRORS of the parser. **Scope re-measured
+2026-07-14: this is ~S17b-2-sized, not a constant swap, and spans FOUR surfaces** (accurate map in
+the spec body under S17b-3): both `run_template.py` files pin identity **and** recipe, and the real
+"validates at push time" gate is the Python heredoc at `scripts/kaggle_kernel.sh:1854-1904`, which
+was never listed; the `runtime_selection` copy previously named here **does not exist**. BOTH axes
+are required — identity alone leaves the `amp_off_fp32` winner failing `kaggle_kernel.sh:1867` and
+`run_template:315`, so the step would read as done while the run stayed blocked. Then **S17c**
+(observation mirror + corruption-label accuracy). Because identity is now STRUCTURAL, the
+Kaggle-minted compiled id needs NO anchor re-point — the de-pinned consumers accept it as
+self-consistent. **THEN KAGGLE-ONLY (user-driven, FRESH window, needs exact remote cmd +
 `KAGGLE_PUSH_CONFIRMED=1`):** the S17 generator run → new compiled `selected_runtime.json`; S19
 (~30h + ~30 min staging, push-then-monitor, NOT a held session); plus the queued LR-finder (~200–300
 lines, needs real dual-T4). Never push to origin.
@@ -260,8 +274,8 @@ lines, needs real dual-T4). Never push to origin.
 > the FU-039 / FU-041 / DDP-correctness (FU-007/008/012/020) work this zone labels
 > "uncommitted / awaiting commit approval" is in fact COMMITTED — it is an ancestor of
 > the active S1–S16 Spec 0011 chain (Spec 0011 S16 = `3298a57`). The current state (Phase 3
-> COMPLETE; S14a/b/c + S17a done local through `3ed4ba6`; next local = S17b/S17c, then
-> Kaggle-only S17-run/S19 + LR-finder) is the Latest handoff above.
+> COMPLETE; S14a/b/c + S17a/S17b-1/S17b-2 done local through `3b72534`; next local = S17b-3
+> (fresh window) then S17c, then Kaggle-only S17-run/S19 + LR-finder) is the Latest handoff above.
 
 Current short state: runtime-selection v5 is the selected fallback runtime
 (`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,
