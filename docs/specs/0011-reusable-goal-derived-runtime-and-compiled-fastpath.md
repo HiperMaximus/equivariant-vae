@@ -1,9 +1,9 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; S17b-2 (gate CSV-row pin) + S17b-3 (run_template copies) + S17c (observation mirror + corruption-label) queued locally; S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; S17b-3 (kernel/push-guard parser mirrors — scope re-measured, ~S17b-2-sized) + S17c (observation mirror + corruption-label) queued locally; S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
 Implementation readiness: Phase 3 COMPLETE (local); S14a/S14b/S14c done + gated locally; S17a + S17b-1 done + gated locally (parser now ACCEPTS a self-consistent compiled plan — recipe AND structural identity/snapshot; identity is self-consistent so no Kaggle re-point is needed); compiled EXECUTION + the row_id mint are Kaggle observations; Kaggle phases S17-Kaggle/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-14 (S17b-1 done local: parser structural identity + snapshot cross-consistency; NEXT local = S17b-2 gate CSV pin, S17b-3 run_template, S17c; NEXT Kaggle = S17 generator run + S19). The per-step `(DONE — …)` tags in the body are the state of record.
+Last updated: 2026-07-14 (S17b-2 done local: remote-output gate identity de-pinned to the loaded plan; the literal also incidentally anchored accelerator/topology there, so both verifiers now run the parser before deriving expectations from a plan. NEXT local = S17b-3 (fresh window — scope re-measured to 4 surfaces incl. the `kaggle_kernel.sh` push guard; identity AND recipe both required), then S17c; NEXT Kaggle = S17 generator run + S19). The per-step `(DONE — …)` tags in the body are the state of record.
 
 ## Purpose
 
@@ -646,12 +646,63 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       still parses with zero errors. Gate 522 passed/1 skipped (497→522),
       basedpyright/ruff clean; 4 read-only adversarial reviewers (behavior/fail-open,
       emitter↔parser contract, snapshot edges, test-soundness) → 0 confirmed.
-    - **S17b-2** Gate `_remote_output_gate_health_blockers` CSV-row pin → compare the
-      `gate_health.csv` `row_id`/`candidate_row_id`/`runtime_policy_id` cells against the
-      loaded plan's own identity, not `EXPECTED_SELECTED_ROW_ID`.
-    - **S17b-3** The three `run_template.py` embedded `EXPECTED_SELECTED_ROW_ID` copies
-      (`selected_runtime_full`, `selected_runtime_debug`, `runtime_selection`) → derived
-      / structural, so a compiled plan builds and validates at push time.
+    - **S17b-2** (DONE — `3b72534`, 2026-07-14, local-only) Gate
+      `_remote_output_gate_health_blockers` CSV-row pin → the
+      `gate_health.csv` `row_id`/`candidate_row_id`/`runtime_policy_id` cells are now
+      compared against the loaded plan's own identity, not `EXPECTED_SELECTED_ROW_ID`,
+      via a NEW public `composed_selected_runtime_identity` that single-sources what a
+      plan's identity IS (`_runtime_proof_errors` derives through it too — its empty
+      `runtime_policy_id` case tightens `""`→`None` inside an already-failing payload).
+      A None component fails closed. Byte-identical on the committed v5 plan, which
+      parses clean and composes back to BOTH frozen constants (pinned by a test, so the
+      still-published constants cannot drift from what the plan says). The gate keeps the
+      `EXPECTED_*` import + `__all__` re-export (inert; tests import them from the gate,
+      per the `EXPECTED_DATASET_SLUG` precedent) — zero validation logic reads them.
+      **Anchor regression found by review and fixed in-step:** the literal also
+      INCIDENTALLY pinned accelerator/topology on the remote path (it encodes the whole
+      row shape), and the remote-output verifiers never ran the parser — so de-pinning
+      identity alone let a self-declared `single_t4`/`world_size=1` plan verify CLEAN
+      (reproduced, then re-blocked). Both verifiers now
+      `blockers.extend(_selected_runtime_errors(payload, selected_runtime_path=...))`
+      BEFORE deriving identity, restoring the `_launch_errors` anchors the de-pin's own
+      rationale already assumed and enforcing strictly more than the literal did. Fixture
+      lesson: the parser resolves+hash-checks `artifacts.runtime_proof` relative to the
+      plan path, so a parse-clean re-mint must `copytree` the real tree and update plan +
+      snapshot + proof (`selected_runtime_write_decision`/`efficiency_followup`) +
+      `runtime_proof_sha256`. Gate 551 passed/1 skipped (522→551), ruff/basedpyright
+      clean; 3 read-only adversarial reviewers → 4 findings adopted (anchor regression,
+      a single-source divergence with `_str_or_none`, an unprotected full-output identity
+      site, missing `bool`-guard coverage), 2 refuted, 1 reviewer disagreement resolved
+      by direct check. Every new test mutation-proven.
+    - **S17b-3** De-pin the kernel-side and push-side **mirrors of the parser**, so a
+      compiled plan builds and validates at push time. Scope re-measured 2026-07-14 —
+      this is ~S17b-2-sized, not a constant swap, and spans **four** surfaces:
+      - `kaggle/kernels/selected_runtime_full/run_template.py` — identity (`:22`/`:26`)
+        **and** recipe (`:315` rejects `mixed_precision.policy != "amp_conservative"`).
+      - `kaggle/kernels/selected_runtime_debug/run_template.py` — identity (`:31`/`:35`,
+        used at `:712`/`:794`) **and** recipe (`:763` AMP block, `:799`
+        `precision_policy`).
+      - `scripts/kaggle_kernel.sh:1854-1904` — the push guard (Python in a shell
+        heredoc) pins `selected_row_id`, `runtime_policy_id`, `snapshot.row_id`,
+        `snapshot.precision_policy`, and the AMP block. NOT previously listed here; it
+        is the actual "validates at push time" gate.
+      - `scripts/build_kaggle_embedded_kernel.py` — the derive/substitute seam.
+      The `runtime_selection` copy this step used to name **does not exist**; only the
+      two kernels above carry the constants.
+      Both axes are required: identity alone does NOT unblock the run, because the
+      `amp_off_fp32` winner still fails the recipe pins at `kaggle_kernel.sh:1867` and
+      `run_template:315`. Recipe de-pinning mirrors the S17a coherence model; identity
+      mirrors S17b-1's structural check.
+      Mechanism available: the builder already derives per-plan constants at build time
+      (`_derive_full_schedule` + `FULL_TARGET_UPDATES_PATTERN.subn`, the S8b precedent),
+      loading stdlib-only leaves by file path via `_load_leaf_attr` because the kernel
+      BUILD must stay torch-less (`eqvae.benchmarking.__init__` imports torch, so
+      `training/selected_runtime.py` and its `composed_selected_runtime_identity` are
+      NOT loadable there — compose via the `benchmarking/row_id.py` leaf instead).
+      Baking the composed id is not circular: the builder composes from the plan's
+      FIELDS while the kernel checks the plan's RECORDED id, so a self-inconsistent plan
+      fails the build. Generated `run.py` is git-ignored and unlinted, so a long
+      substituted line is fine.
   - **S17c** Observation mirror + corruption-label: add the nine S11 recipe knobs to
     `SelectedRuntimeApplicationObservation` / `expected_application` /
     `_application_mismatches` with the structural `broadcast_buffers`-override tolerance;
