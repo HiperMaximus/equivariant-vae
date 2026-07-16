@@ -250,7 +250,7 @@ checkpointing, fixed-selector generation from real Kaggle CSVs, dashboards,
 artifact writers, Kaggle payload changes, Kaggle remote execution, or paper
 claims. The slice may be called `data_metrics_ready` only when local focused
 tests pass, artifacts are clearly local/synthetic when applicable, and no
-metric implementation imports `pytorch-msssim` or historical `src/nn` code. The
+metric implementation imports `pytorch-msssim` or historical `reference/nn` code. The
 slice must lock the exact binary header/CRC contract, canonical `file_index`,
 `row_index`, and `sample_id` semantics, synthetic-versus-real split validation
 status semantics, explicit metric column domains, exact SSIM formula details,
@@ -1609,7 +1609,7 @@ Runtime benchmark requirement before the first full Kaggle run:
     local-pretest, model/loss train-step, and corruption slices are locked and
     verified, dataloader, corruption-check, numerical-check, and gate-health
     artifacts are produced by real local code, strict production Python quality
-    passes, no active `src/eqvae` code imports historical `src.nn`, and no
+    passes, no active `src/eqvae` code imports historical `nn`, and no
     undeclared `pytorch-msssim` dependency remains;
   - `runtime_selected`: the permission-gated real Kaggle benchmark has produced
     `benchmark/selected_runtime.json` with `status = "pass"` and
@@ -3140,12 +3140,15 @@ Package/import policy:
 - Kaggle launchers must insert `payload/src` into `sys.path` before importing
   `eqvae` — UNCHANGED and still required: Kaggle has no venv and no internet, so
   the payload is the only source of `eqvae` there;
-- the editable install emits a naive `.pth` pointing at `<repo>/src`, so the WHOLE
-  src tree is importable locally and `src/nn` resolves as top-level `nn` even
-  though the payload ships only `src/eqvae`. `dev-mode-exact = true` does NOT fix
-  this (its finder imports `editables` at runtime, which the venv lacks, breaking
-  `import eqvae` outright). The divergence is guarded by
-  `test_eqvae_never_imports_the_leaked_top_level_nn_package`;
+- **`src/` must contain ONLY `eqvae`.** The editable install emits a naive `.pth`
+  pointing at `<repo>/src`, so every directory under `src/` is importable in the
+  venv — while the payload ships only `src/eqvae`. Any sibling would therefore
+  import locally and raise `ModuleNotFoundError` on Kaggle. Reference-only code
+  lives in `reference/` for exactly this reason (`src/nn` was moved to
+  `reference/nn` on 2026-07-15). `dev-mode-exact = true` is NOT the fix: its
+  finder imports `editables` at runtime, which the venv lacks, breaking
+  `import eqvae` outright. Enforced by
+  `test_src_contains_only_the_shipped_eqvae_package`;
 - the kernel BUILD may import `eqvae` freely. Any claim that it "must stay
   torch-less" is FALSE — that was a consequence of invoking the builder with bare
   `python3`, never a requirement;
@@ -3166,11 +3169,11 @@ Config and dependency policy:
   the offline/compiled SSIM policy;
 - `pytorch-msssim` is no longer a direct dependency in `pyproject.toml` or
   `uv.lock`; the remaining `pytorch_msssim` import is inside user-retained
-  historical `src/nn` reference code and must not be imported by `src/eqvae`;
-- historical `src/nn` is excluded from Ruff/BasedPyright production scopes by
+  historical `reference/nn` reference code and must not be imported by `src/eqvae`;
+- historical `reference/nn` is excluded from Ruff/BasedPyright production scopes by
   spec 0002 decision and may remain as reference material; benchmark CLIs are
   not implementation-ready unless `./scripts/python_quality.sh` passes for the
-  production scope and no active `src/eqvae` code imports `src.nn`.
+  production scope and no active `src/eqvae` code imports `nn`.
 
 Local CPU smoke policy:
 
@@ -3330,7 +3333,7 @@ General repo checks:
 ```
 
 Spec 0001 uses the spec 0002 production boundary: historical exploratory
-`src/nn` is excluded from Ruff/BasedPyright and may remain as reference
+`reference/nn` is excluded from Ruff/BasedPyright and may remain as reference
 material, while production Python under `src/eqvae` and tests must pass
 `./scripts/python_quality.sh`. Empty `main.py` was deleted on 2026-06-12. Do
 not weaken global Ruff/BasedPyright settings and do not add global ignores.
@@ -3926,8 +3929,8 @@ Implementation-relock blockers:
 8. Strict quality route must follow spec 0002's production-boundary decision:
    extract any needed behavior into `src/eqvae`, keep the removed
    `pytorch-msssim` dependency out of active dependency truth, exclude
-   historical `src/nn` from production Ruff/BasedPyright scopes, and forbid
-   active code from importing `src.nn`. Keep global Ruff/BasedPyright strictness
+   historical `reference/nn` from production Ruff/BasedPyright scopes, and forbid
+   active code from importing `nn`. Keep global Ruff/BasedPyright strictness
    intact.
 9. JSON config/dependency policy must remain locked, or a later spec must
    explicitly justify changing config format and dependencies.

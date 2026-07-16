@@ -27,7 +27,9 @@ Rules to keep this file from rotting (the problem it exists to fix):
 - Benchmark code/CLIs/kernels/tests (`synthetic_timing`, `real_data_runtime_pretest`,
   `runtime_selection*`) — FINISHED but still imported/wired; retire only as one
   coordinated change (see FU-031), not in a doc pass.
-- `src/nn/` (user decision), all `configs/spec0001/*.json`,
+- `reference/nn/` (user decision; moved out of `src/` on 2026-07-15 so the editable
+  .pth cannot expose it — the retention decision itself stands, see spec 0002),
+  all `configs/spec0001/*.json`,
   `docs/repo_goal_and_requirements.md`, `docs/issue_image_inventory.md`,
   `docs/spec_driven_development.md`, `docs/agentic_review_workflow.md` — keep.
 
@@ -89,19 +91,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
   restart, both first-promotable-full-run blockers are now cleared.
 
 ### MED
-
-- **FU-042 — `src/nn` is dead code with a dead dependency, and the editable
-  install leaks it.** Nothing imports it; it is excluded from ruff AND
-  basedpyright; the Kaggle payload does not ship it; and `src/nn/layers.py:50`
-  imports `pytorch_msssim`, which `ff54009` dropped from `pyproject.toml`
-  dependencies — so it has been broken on any fresh `uv sync` for months (the
-  local venv only had it as unpruned drift until 2026-07-15). Meanwhile the
-  editable `.pth` puts all of `<repo>/src` on `sys.path`, so `import nn` resolves
-  locally but would raise `ModuleNotFoundError` on Kaggle. Guarded for now by
-  `test_eqvae_never_imports_the_leaked_top_level_nn_package`. Fix: delete
-  `src/nn`, or move it out of `src/` to reference-only, or declare the dep and
-  own it. NB: SSIM used by the LOSS is repo-owned and pure-torch
-  (`eqvae/metrics/reconstruction.py:120`) — unrelated to `pytorch_msssim`.
 
 - **FU-044 — `uv build` silently emits an EMPTY wheel if any symlink to
   `src/eqvae` exists anywhere in the tree.** Reproduced 2026-07-15. hatchling's

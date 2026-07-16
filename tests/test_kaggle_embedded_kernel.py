@@ -880,31 +880,30 @@ def test_build_derives_non_reference_full_schedule(tmp_path: Path) -> None:
     )
 
 
-def test_eqvae_never_imports_the_leaked_top_level_nn_package() -> None:
-    """`src/eqvae` must never import `nn`: it resolves locally but is absent on Kaggle.
+def test_src_contains_only_the_shipped_eqvae_package() -> None:
+    """`src/` must hold nothing but `eqvae`, or local imports diverge from Kaggle.
 
-    The editable install's .pth puts the whole `<repo>/src` on sys.path, so
-    `import nn` works in the venv -- but the payload ships only `src/eqvae`, and
-    `src/nn` is excluded from ruff AND basedpyright, so nothing else would catch
-    such an import. It would pass every local check, then raise
-    ModuleNotFoundError on Kaggle after the GPU slot was committed. (`src/nn` is
-    also dead: nothing imports it, and it needs pytorch-msssim, which commit
-    ff54009 dropped from the dependencies.)
+    The editable install emits a naive .pth containing `<repo>/src`, so EVERY
+    directory under src/ becomes importable in the venv -- while the Kaggle payload
+    ships only `src/eqvae` (build_kaggle_embedded_kernel.py `_payload_files`). Any
+    sibling would therefore import locally and raise ModuleNotFoundError on Kaggle,
+    after the GPU slot was committed. `src/nn` was exactly that until it moved to
+    `reference/nn`.
+
+    Keeping src/ single-child makes the divergence structurally impossible instead
+    of relying on someone noticing. This asserts the invariant the .pth depends on;
+    reference-only code belongs in `reference/` (spec 0002).
     """
     repo_root = Path(__file__).resolve().parents[1]
-    pattern = re.compile(r"^\s*(?:import\s+nn\b|from\s+nn[\s.])")
-    offenders = [
-        f"{path.relative_to(repo_root)}:{number}"
-        for path in sorted((repo_root / "src" / "eqvae").rglob("*.py"))
-        for number, line in enumerate(
-            path.read_text(encoding="utf-8").splitlines(),
-            start=1,
-        )
-        if pattern.match(line)
-    ]
-    assert not offenders, (
-        f"src/eqvae imports the top-level `nn` package, which the Kaggle payload "
-        f"does not ship: {offenders}"
+    children = sorted(
+        path.name
+        for path in (repo_root / "src").iterdir()
+        if not path.name.startswith((".", "__"))
+    )
+    assert children == ["eqvae"], (
+        f"src/ must contain only the package the Kaggle payload ships, but holds "
+        f"{children}. The editable .pth exposes all of src/, so a sibling imports "
+        f"locally and dies on Kaggle. Put reference-only code in reference/."
     )
 
 

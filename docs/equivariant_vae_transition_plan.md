@@ -77,7 +77,7 @@ operator design, not the planned runtime dependency.
   lives in `kaggle/dataset_generation` and
   `kaggle/generate_dataset_Classification_With_Masks`. These need to become
   references, not executable source-of-truth files.
-- `src/nn/layers.py` and `src/nn/resnet18.py` contain useful architectural
+- `reference/nn/layers.py` and `reference/nn/resnet18.py` contain useful architectural
   explorations, but also operations that should not be carried forward blindly:
   GroupNorm, depthwise/MBConv, squeeze-excite, nearest upsampling, 1x1-heavy
   projections, and non-field-aware channel logic.

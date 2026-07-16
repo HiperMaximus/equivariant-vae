@@ -24,14 +24,17 @@ build-backend = "hatchling.build"
 # dependencies but never the project, so `eqvae` was absent from the venv and every entry
 # point needed PYTHONPATH=src.
 #
-# `packages` excludes src/nn from the WHEEL only. The editable install emits a naive .pth
-# containing `<repo>/src`, so the WHOLE src/ tree is on sys.path locally and `src/nn` IS
-# importable as top-level `nn` here -- while the Kaggle payload ships only src/eqvae. Do
-# NOT paper over this with `dev-mode-exact = true`: that swaps the .pth for a finder that
-# imports `editables` at RUNTIME, which is a build-time dep absent from the venv, so
-# `import eqvae` dies with ModuleNotFoundError: No module named 'editables' (verified
-# 2026-07-15). The divergence is instead guarded by a test asserting src/eqvae never
-# imports nn.
+# The editable install emits a naive .pth containing `<repo>/src`, putting that whole
+# directory on sys.path -- so anything living beside eqvae under src/ would be importable
+# locally but ABSENT from the Kaggle payload, which ships only src/eqvae. `src/` is
+# therefore kept single-child (reference code lives in reference/, see spec 0002), which
+# makes that divergence structurally impossible rather than merely guarded. Enforced by
+# test_src_contains_only_the_shipped_eqvae_package.
+#
+# Do NOT try to solve it with `dev-mode-exact = true` instead: that swaps the .pth for a
+# finder importing `editables` at RUNTIME, which is a build-time dep absent from the venv,
+# so `import eqvae` dies with ModuleNotFoundError: No module named 'editables' (verified
+# 2026-07-15).
 [tool.hatch.build.targets.wheel]
 packages = ["src/eqvae"]
 
@@ -54,7 +57,7 @@ dev = [
 ]
 
 [tool.ruff]
-extend-exclude = ["src/nn", "kaggle/fsq_train_reference.py"]
+extend-exclude = ["reference", "kaggle/fsq_train_reference.py"]
 fix = false
 line-length = 88
 preview = true
@@ -83,7 +86,7 @@ exclude = [
     "dist",
     "kaggle",
     "paper",
-    "src/nn",
+    "reference",
 ]
 include = [
     "src/eqvae",

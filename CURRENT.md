@@ -1310,7 +1310,7 @@ The local uv environment is CPU-only for PyTorch. Strict Ruff settings are
 canonical in `pyproject.toml`; do not add `ruff.toml`. The no-sync quality gate
 verified Python 3.12, `torch==2.12.0+cpu`, and CUDA unavailable. Strict Ruff
 autofixed 14 historical formatting issues in an earlier run. Empty `main.py`
-was deleted on 2026-06-12. Historical exploratory `src/nn` remains on disk by
+was deleted on 2026-06-12. Historical exploratory `reference/nn` remains on disk by
 user decision as reference material, but it is now excluded from Ruff and
 BasedPyright production scopes and must not be imported by `src/eqvae`.
 Spec 0002 records this production-boundary decision: active Python quality
@@ -1611,7 +1611,7 @@ Local scaffold status from 2026-06-12:
   for the next slice; current schema-smoke artifacts still use `schema_pass`.
 - Added `tests/test_spec0001_benchmark_scaffold.py`.
 - Deleted empty `main.py`; removed `pytorch-msssim` from `pyproject.toml` and
-  `uv.lock`. Historical `src/nn` remains as excluded reference material and is
+  `uv.lock`. Historical `reference/nn` remains as excluded reference material and is
   forbidden as an import source for active `src/eqvae` code.
 
 Kaggle-specific handoff: Kaggle authentication is a user-local secret and must
@@ -1702,8 +1702,8 @@ The review process lives in `docs/agentic_review_workflow.md`.
   non-exhaustive, so test generation and later supervised experiments must not
   treat unmasked regions as exhaustive negative labels.
 - Strict Python quality now has a production boundary: `src/eqvae` and tests are
-  strict, while historical `src/nn` is excluded as reference-only. New work must
-  not add debt or import from `src.nn`.
+  strict, while historical `reference/nn` is excluded as reference-only. New work must
+  not add debt or import from `reference/nn`.
 
 ## Latest Verification
 
@@ -1754,7 +1754,7 @@ The review process lives in `docs/agentic_review_workflow.md`.
 - Clean-context adversarial subagents reviewed code, docs, and quality policy.
   Their findings were fixed in this slice: raw invoked/source config hashes now
   use file bytes, `source_config` resolution is not repo-cwd-dependent,
-  milestone/status text was refreshed, and historical `src/nn` quality debt was
+  milestone/status text was refreshed, and historical `reference/nn` quality debt was
   documented. The later `data_metrics_ready` slice is now separately
   implemented and recorded above.
 - `env PYTHONPATH=src .venv/bin/python -m eqvae.cli.benchmark_runtime ...`
@@ -1767,7 +1767,7 @@ The review process lives in `docs/agentic_review_workflow.md`.
   offline lock refresh could not resolve uncached packages; it removed
   `pytorch-msssim v1.0.0` from `uv.lock`.
 - Earlier `./scripts/python_quality.sh` runs failed on retained historical
-  `src/nn` before the production-boundary decision. That reference tree now
+  `reference/nn` before the production-boundary decision. That reference tree now
   remains on disk but is excluded from production Ruff/BasedPyright scopes by
   spec 0002, and active code must not import it.
 - The next blocking choices before final paper claims are the exact sealed
@@ -1822,7 +1822,7 @@ The review process lives in `docs/agentic_review_workflow.md`.
   with 16 tests. The broader active-package check also passed with 43 tests.
 - Full `./scripts/python_quality.sh` now passes for the production scope: Ruff
   format/check, 43 pytest tests with `PYTHONPATH=src`, and BasedPyright all
-  completed successfully. Historical `src/nn` remains excluded reference-only
+  completed successfully. Historical `reference/nn` remains excluded reference-only
   code.
   `./scripts/agent_preflight.sh` passed and noted only the expected dirty
   worktree.

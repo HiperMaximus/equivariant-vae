@@ -1,6 +1,6 @@
 # Spec 0002: Strict Python Quality Gate
 
-Status: active gate installed; production scope excludes historical `src/nn`
+Status: active gate installed; production scope excludes historical `reference/nn`
 Implementation readiness: active and passing for production Python work
 Owner/workstream: agentic Python quality and local CPU verification
 Last updated: 2026-06-12
@@ -17,7 +17,7 @@ handing them back to the user.
   exploratory code.
 - Do not add global Ruff ignores.
 - Do not add global BasedPyright suppressions.
-- Do not import historical `src/nn` from production `src/eqvae` code.
+- Do not import historical `reference/nn` from production `src/eqvae` code.
 - Do not solve PyTorch typing limitations until the comparable VAE package
   structure is implemented.
 
@@ -37,9 +37,9 @@ handing them back to the user.
 - Runtime dependencies currently include `torch` and `numpy`. The historical
   `pytorch-msssim` direct dependency was removed from `pyproject.toml` and
   `uv.lock` on 2026-06-12 because spec 0001 requires repo-owned Torch SSIM.
-  User-retained exploratory `src/nn/layers.py` still contains a reference-only
+  User-retained exploratory `reference/nn/layers.py` still contains a reference-only
   `pytorch_msssim` import; production `src/eqvae` code must not import
-  `src.nn` or `pytorch_msssim`.
+  `nn` or `pytorch_msssim`.
 - Developer tools:
   - Ruff for formatting and linting;
   - BasedPyright for strict static typing;
@@ -49,7 +49,7 @@ handing them back to the user.
 
 - `select = ["ALL"]`.
 - No global `ignore`.
-- `extend-exclude = ["src/nn"]` because `src/nn` is retained as historical
+- `extend-exclude = ["reference"]` because `reference/nn` is retained as historical
   reference material, not production Python.
 - All Ruff autofixes are allowed.
 - Tests may ignore only `S101` for bare `assert`.
@@ -81,7 +81,7 @@ Do not use `ruff.toml`; it shadows the strict settings in `pyproject.toml`.
 - Missing imports and missing type stubs are errors.
 - `reportAny` and ignore comments without explicit rules are errors.
 - BasedPyright production `include` / `strict` scopes are `src/eqvae` and
-  `tests`; `src/nn` is excluded as historical reference material.
+  `tests`; `reference/nn` is excluded as historical reference material.
 
 If PyTorch or `torch.nn.Module` typing blocks strict checks, do not loosen the
 global config. Instead, write a small spec for the typed adapter/wrapper strategy
@@ -103,11 +103,11 @@ Production Python for this gate is:
 
 Historical/reference Python currently excluded from production checks:
 
-- `src/nn`.
+- `reference/nn`.
 
-`src/nn` is intentionally left on disk for reference while the comparable VAE
+`reference/nn` is intentionally left on disk for reference while the comparable VAE
 implementation is built. It is not a supported import target, not part of the
-quality gate, and not a source of runtime truth. Any useful idea from `src/nn`
+quality gate, and not a source of runtime truth. Any useful idea from `reference/nn`
 must be ported into typed, lint-clean `src/eqvae` code with tests before active
 benchmark, training, or paper-claim code may depend on it.
 
@@ -121,10 +121,10 @@ As of 2026-06-12:
 - Strict Ruff settings live in `pyproject.toml`. A stale `ruff.toml` previously
   shadowed them and has been removed.
 - Empty `main.py` was deleted on 2026-06-12.
-- Historical exploratory `src/nn` remains by user decision as reference
+- Historical exploratory `reference/nn` remains by user decision as reference
   material. On 2026-06-12 the user approved excluding it from Ruff and
   BasedPyright production scopes instead of converting or deleting it now.
-- `pyproject.toml` excludes `src/nn` from Ruff and BasedPyright, and
+- `pyproject.toml` excludes `reference/nn` from Ruff and BasedPyright, and
   BasedPyright `include` / `strict` scopes are `src/eqvae` and `tests`.
 - `scripts/python_quality.sh` runs pytest with `PYTHONPATH=src`. As of 2026-07-15
   this is REDUNDANT (harmless): the repo now has a packaging backend and `uv sync`
@@ -133,11 +133,11 @@ As of 2026-06-12:
 - The latest `./scripts/python_quality.sh` run passed: Ruff format/check,
   pytest with 75 tests, and BasedPyright with 0 errors.
 - `pytorch-msssim` is no longer a direct dependency; any missing-import/type
-  noise caused by its remaining reference-only import in `src/nn` is part of
+  noise caused by its remaining reference-only import in `reference/nn` is part of
   the same retained historical debt, not a reason to re-add the dependency.
 
 This is a production-boundary decision, not a global-ignore decision: strict
-Ruff/BasedPyright settings still apply to active code, and `src/nn` remains
+Ruff/BasedPyright settings still apply to active code, and `reference/nn` remains
 forbidden as a production import source.
 
 Current policy:
@@ -155,15 +155,15 @@ Benchmark-unblock route:
 
 - implement the new comparable VAE work only under `src/eqvae`, with tests under
   `tests`;
-- extract any still-useful behavior from exploratory `src/nn` into
-  typed `src/eqvae` modules instead of importing `src.nn`;
+- extract any still-useful behavior from exploratory `reference/nn` into
+  typed `src/eqvae` modules instead of importing `nn`;
 - empty `main.py` has been removed;
-- `src/nn` may remain as excluded historical reference material until the user
+- `reference/nn` may remain as excluded historical reference material until the user
   later chooses to port, delete, or convert it to non-importable documentation;
 - keep `ruff format .` and `ruff check --fix .` in `scripts/python_quality.sh`.
   Do not add Ruff global ignores for historical code;
 - keep the removed `pytorch-msssim` direct dependency out of `pyproject.toml`
-  and `uv.lock`; do not re-add it for historical `src/nn`;
+  and `uv.lock`; do not re-add it for historical `reference/nn`;
 - `./scripts/python_quality.sh` must pass for the production Python scope before
   benchmark CLIs are considered implementation-ready.
 
