@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-07-15
+Last updated: 2026-07-16
 
 ## Active Workstream
 
@@ -275,7 +275,32 @@ dataloader is NOT a searched axis. Do not retry it — read S17d's traps in the 
 **THEN KAGGLE-ONLY (user-driven, FRESH window, needs exact remote cmd +
 `KAGGLE_PUSH_CONFIRMED=1`):** the S17 generator run → new compiled `selected_runtime.json`; S19
 (~30h + ~30 min staging, push-then-monitor, NOT a held session); plus the queued LR-finder (~200–300
-lines, needs real dual-T4). Never push to origin.
+lines, needs real dual-T4).
+**PACKAGING PREREQUISITE DONE (2026-07-16) — 4 commits, local, ahead of `origin/main` @
+`87e05c8`, NOT yet pushed.** `a09027c` gave `pyproject.toml` a hatchling `[build-system]` so
+`uv sync` **editable-installs** `eqvae`: `import eqvae` now resolves from `.venv/bin/python`
+for any invocation, so `PYTHONPATH=src` is redundant (harmless, not swept). This removed the
+root cause of four workarounds — including the builder's file-path `_load_leaf_attr` loader
+(deleted; it now `import eqvae` normally) and the self-inflicted "the BUILD must stay
+torch-less" premise: the builder runs on the venv interpreter via `kaggle_kernel.sh`'s
+`build_kernel_py()`, which fails closed if the venv lacks torch+eqvae. `43a2d24` recorded the
+backend in Spec 0001 (which had MANDATED a spec update when a backend was added) and Spec 0002.
+`64b781a` **moved `src/nn` → `reference/nn`** so the editable `.pth` cannot leak it into import
+space — it is RETAINED reference material (a user decision; Spec 0002 rationale), NOT dead code
+(its symptoms — nothing imports it, the gates exclude it, the payload skips it — are the
+deliberate policy). `e2bbedb` added `docs/decisions/0010` (verify the premise before changing a
+pin), indexed and cited by AGENTS.md rule 29. Gate green throughout (552 passed/1 skipped, ruff
+and basedpyright clean); each change adversarially reviewed.
+**STILL OWED — the one thing local verification cannot prove:** a `setup_smoke` Kaggle push
+(zero datasets, no GPU, no ~30-min staging) to confirm the payload unzips and imports `eqvae`
+where NO venv exists. User-approved; needs the exact remote command + `KAGGLE_PUSH_CONFIRMED=1`.
+**PUSH-TO-ORIGIN STANCE UPDATED 2026-07-16:** the user granted STANDING permission to push to
+`origin` ON REQUEST (previously forbidden). Still never a bare `git push` (could resolve to the
+`overleaf` remote) — use `git push origin <branch>`; Kaggle/Overleaf writes still need their own
+confirm flags. The 4 packaging commits are ready to push when asked.
+**Next sequence:** origin push (on request) → `setup_smoke` Kaggle proof → dependency upgrade as
+its OWN gated step (`uv lock --upgrade`; ahead of S17b-3 because Kaggle rides near-latest torch
+and drift bites the compiled fast-path) → S17b-3.
 
 > **Everything from here down to the `Historical provenance follows.` marker below is
 > PRE-Spec-0011 status (runtime-selection v5, Spec 0006–0009), retained for reference.**
