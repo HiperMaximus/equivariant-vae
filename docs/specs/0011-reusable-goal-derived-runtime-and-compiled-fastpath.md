@@ -295,11 +295,15 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   bare-`$` placeholder would break `run_template.py` as valid Python** (it is ruff-linted;
   the existing `$` placeholders are all inside string literals) — so the builder uses an
   anchored **regex substitution** (`FULL_TARGET_UPDATES_PATTERN`), fail-closed if either
-  constant is not rewritten exactly once; (2) the builder runs under **bare `python3` (no
-  torch)**, and importing `eqvae.benchmarking.schedule` pulls torch via the package
-  `__init__` — so it **loads the two stdlib-only leaves (`schedule.py`, `roots.py`) by file
-  path** (`_load_leaf_attr`, `sys.modules`-registered) to reuse the single source without
-  torch (never re-inlines `P`). `_validate_baseline_selected_runtime` de-pinned to a
+  constant is not rewritten exactly once; (2) the builder imports
+  `eqvae.benchmarking.schedule` + `eqvae.data.roots` NORMALLY to reuse the single source
+  (never re-inlines `P`), and `_assert_eqvae_is_repo_root` fails the build closed if the
+  imported `eqvae` is not the tree the payload ships. **SUPERSEDED 2026-07-15:** this step
+  originally ran the builder under bare `python3` (no torch, no `eqvae`) and therefore
+  loaded the two leaves BY FILE PATH via `_load_leaf_attr`. That is gone: `eqvae` is now
+  editable-installed and `scripts/kaggle_kernel.sh` builds via `build_kernel_py()` on the
+  venv interpreter. The "torch-less build" was never a requirement — only a consequence of
+  picking the system interpreter. `_validate_baseline_selected_runtime` de-pinned to a
   runtime relationship (`global == per_device·world_size`; `updates == training_steps_per_epoch(...)`
   imported after `sys.path.insert`), so the now-unused `FULL_UPDATES_PER_EPOCH` constant was
   **deleted**. `FULL_EPOCHS = 10` stays (goal). The S8 shell token check needed **no change**
@@ -710,11 +714,14 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
         `kaggle_kernel.sh`'s `grep -q` calls (`:572-612`) are READY-flag checks only. The
         surviving required-text anchors (`dual_t4_ddp`, `--nproc_per_node=2`) are
         hardware/topology anchors and survive de-pinning untouched.
-      Rejected alternative — baking the composed id via `_load_leaf_attr` +
-      `PATTERN.subn`: it needs a SECOND copy of the composition formula in the builder
-      (exactly what single-sourcing `benchmarking/row_id.py` exists to prevent), forces
-      new substitution plumbing into the debug kernel, and cannot express the recipe axis
-      at all. `scripts/build_kaggle_embedded_kernel.py` therefore likely needs NO CHANGE
+      Rejected alternative — baking the composed id at build time via `PATTERN.subn`: it
+      needs a SECOND copy of the composition formula in the builder (exactly what
+      single-sourcing `benchmarking/row_id.py` exists to prevent), forces new substitution
+      plumbing into the debug kernel, and cannot express the recipe axis at all. (Its
+      original rationale — that the torch-less BUILD could not reach
+      `composed_selected_runtime_identity` — is moot since 2026-07-15: the builder runs on
+      the venv interpreter and imports `eqvae` normally. `_load_leaf_attr` no longer
+      exists.) `scripts/build_kaggle_embedded_kernel.py` therefore likely needs NO CHANGE
       — confirm before assuming, but do not build the derive/substitute seam by default.
       Delete the now-unused `EXPECTED_SELECTED_ROW_ID` / `EXPECTED_RUNTIME_POLICY_ID`
       template constants once the validators compose.

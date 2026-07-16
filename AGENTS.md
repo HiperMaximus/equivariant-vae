@@ -91,10 +91,28 @@ This repo is the paper/research repository for the equivariant VAE work.
     back. The script intentionally uses the existing repo-local `.venv` and does
     not run `uv sync` or download dependencies. If the environment needs to be
     created or refreshed, ask the user first, then run
-    `uv sync --locked --python 3.12 --group dev`. Run the gate in the
-    FOREGROUND (~7 min): a backgrounded run gets reaped mid-pytest (~57%,
-    consistently) and never completes. For a bare `.venv/bin/python -m pytest`,
-    set `PYTHONPATH=src`.
+    `uv sync --locked --python 3.12 --group dev`. The gate now takes ~10 min, so
+    a foreground run may exceed an agent's tool timeout and get backgrounded
+    anyway — where it is reaped mid-pytest (observed twice at ~63%, matching the
+    long-standing ~57% report). The reaper kills the caller's process group, so
+    DETACH the gate instead (verified 2026-07-15: survived three poller kills):
+
+    ```bash
+    setsid bash -c 'cd <repo>; unset TMPDIR; ./scripts/python_quality.sh \
+      > .agent_tmp/gate.log 2>&1; echo "GATE_EXIT=$?" >> .agent_tmp/gate.log' \
+      < /dev/null > /dev/null 2>&1 &
+    # then poll: until grep -q GATE_EXIT .agent_tmp/gate.log; do sleep 30; done
+    ```
+
+    Always capture the exit code as above. Do NOT pipe the gate into `tail`/`head`
+    to read it: the pipeline's status is the LAST command's, so a failing gate
+    reports success (this masked 13 ruff errors on 2026-07-15). `eqvae` is
+    editable-installed as of
+    2026-07-15, so a bare `.venv/bin/python -m pytest` no longer needs
+    `PYTHONPATH=src`. Prefer NOT to set it: `PYTHONPATH=src` makes `eqvae`
+    resolvable from any interpreter, which masks a torch-less one until the
+    import that needs torch. Always use the venv interpreter: bare `python3` is
+    the system one and has neither torch nor `eqvae`.
 23. Python quality is intentionally strict: Ruff selects `ALL`, BasedPyright is
     strict, no global ignores are allowed, and tests may ignore only Ruff `S101`
     for bare `assert`.

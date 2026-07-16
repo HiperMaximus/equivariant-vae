@@ -42,9 +42,10 @@ LR = sqrt, per-model reference in the model config; `drop_last=True` kept →
 guards (the FULL-guard config loop B1 actually broke → un-broke preflight+push; a scout
 correction: `run_template.py` was NOT broken), and S8b `0ae0188` de-pinned
 `run_template.py` itself — the kernel builder now regex-derives the baked
-`FULL_TARGET_UPDATES`/`FULL_HALF_EPOCH_INTERVAL` from `floor(P/global)` (loading the
-stdlib-only `schedule.py`/`roots.py` leaves by file path so the torch-less build reuses
-the single source), and the run.py validator checks the batch/updates relationships — so a
+`FULL_TARGET_UPDATES`/`FULL_HALF_EPOCH_INTERVAL` from `floor(P/global)` (importing
+`schedule.py`/`roots.py` normally — the file-path `_load_leaf_attr` loader and the
+"torch-less build" premise are GONE as of 2026-07-15; see the spec 0001 package/import
+policy), and the run.py validator checks the batch/updates relationships — so a
 re-measured non-24 full batch is now accepted end-to-end.** Then **S9 `35e40be`
 routed all eight full-run schedule boundaries (2 runner producers + 4 runner consumers +
 2 gate consumers) through one shared `boundary_steps` generator, so the terminal update
@@ -261,9 +262,10 @@ the spec body under S17b-3): both `run_template.py` files pin identity **and** r
 was never listed; the `runtime_selection` copy previously named here **does not exist**. BOTH axes
 are required — identity alone leaves the `amp_off_fp32` winner failing `kaggle_kernel.sh:1867` and
 `run_template:315`, so the step would read as done while the run stayed blocked. **MECHANISM =
-compose at RUNTIME in the kernel, NOT bake at build time (user decision; the "build is torch-less"
-argument is a build/run-time conflation — validators run on Kaggle with torch on `sys.path`). Full
-evidence in the spec's S17b-3 body; do not re-derive it.** Then **S17c**
+compose at RUNTIME in the kernel, NOT bake at build time (user decision). The old "build is
+torch-less" argument was doubly wrong: a build/run-time conflation (validators run on Kaggle with
+torch on `sys.path`) AND a self-inflicted premise (the builder now imports `eqvae` normally as of
+2026-07-15). Full evidence in the spec's S17b-3 body; do not re-derive it.** Then **S17c**
 (observation mirror + corruption-label accuracy), then **S17d** (bounded dataloader search axis —
 NEW 2026-07-15, spec-only so far). Because identity is now STRUCTURAL, the
 Kaggle-minted compiled id needs NO anchor re-point — the de-pinned consumers accept it as

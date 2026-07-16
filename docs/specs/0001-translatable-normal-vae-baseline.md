@@ -3129,11 +3129,27 @@ on Kaggle.
 Package/import policy:
 
 - use `src/eqvae` as the implementation package root;
-- local commands use `PYTHONPATH=src` until a packaging backend is explicitly
-  added;
+- the packaging backend IS now added (2026-07-15), which this policy anticipated:
+  `[build-system]` = `hatchling==1.31.0` (pinned — build requirements are NOT
+  recorded in `uv.lock`) + `[tool.hatch.build.targets.wheel] packages =
+  ["src/eqvae"]`. `uv sync` editable-installs `eqvae`, so `import eqvae` works
+  from `.venv/bin/python` for ANY invocation style. `PYTHONPATH=src` is therefore
+  no longer required; it remains in `scripts/python_quality.sh:71` as redundant
+  and harmless. Local commands must use the venv interpreter — bare `python3` is
+  the system interpreter and has neither torch nor `eqvae`;
 - Kaggle launchers must insert `payload/src` into `sys.path` before importing
-  `eqvae`;
-- adding a build backend or package-discovery metadata requires updating this
+  `eqvae` — UNCHANGED and still required: Kaggle has no venv and no internet, so
+  the payload is the only source of `eqvae` there;
+- the editable install emits a naive `.pth` pointing at `<repo>/src`, so the WHOLE
+  src tree is importable locally and `src/nn` resolves as top-level `nn` even
+  though the payload ships only `src/eqvae`. `dev-mode-exact = true` does NOT fix
+  this (its finder imports `editables` at runtime, which the venv lacks, breaking
+  `import eqvae` outright). The divergence is guarded by
+  `test_eqvae_never_imports_the_leaked_top_level_nn_package`;
+- the kernel BUILD may import `eqvae` freely. Any claim that it "must stay
+  torch-less" is FALSE — that was a consequence of invoking the builder with bare
+  `python3`, never a requirement;
+- changing the build backend or package-discovery metadata requires updating this
   spec and the lockfile.
 
 Config and dependency policy:

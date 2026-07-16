@@ -126,8 +126,10 @@ As of 2026-06-12:
   BasedPyright production scopes instead of converting or deleting it now.
 - `pyproject.toml` excludes `src/nn` from Ruff and BasedPyright, and
   BasedPyright `include` / `strict` scopes are `src/eqvae` and `tests`.
-- `scripts/python_quality.sh` runs pytest with `PYTHONPATH=src`, matching the
-  spec 0001 local import policy while the repo has no packaging backend.
+- `scripts/python_quality.sh` runs pytest with `PYTHONPATH=src`. As of 2026-07-15
+  this is REDUNDANT (harmless): the repo now has a packaging backend and `uv sync`
+  editable-installs `eqvae`, so `import eqvae` resolves without it. See the spec
+  0001 package/import policy.
 - The latest `./scripts/python_quality.sh` run passed: Ruff format/check,
   pytest with 75 tests, and BasedPyright with 0 errors.
 - `pytorch-msssim` is no longer a direct dependency; any missing-import/type

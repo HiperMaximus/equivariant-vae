@@ -90,6 +90,40 @@ Rules to keep this file from rotting (the problem it exists to fix):
 
 ### MED
 
+- **FU-042 — `src/nn` is dead code with a dead dependency, and the editable
+  install leaks it.** Nothing imports it; it is excluded from ruff AND
+  basedpyright; the Kaggle payload does not ship it; and `src/nn/layers.py:50`
+  imports `pytorch_msssim`, which `ff54009` dropped from `pyproject.toml`
+  dependencies — so it has been broken on any fresh `uv sync` for months (the
+  local venv only had it as unpruned drift until 2026-07-15). Meanwhile the
+  editable `.pth` puts all of `<repo>/src` on `sys.path`, so `import nn` resolves
+  locally but would raise `ModuleNotFoundError` on Kaggle. Guarded for now by
+  `test_eqvae_never_imports_the_leaked_top_level_nn_package`. Fix: delete
+  `src/nn`, or move it out of `src/` to reference-only, or declare the dep and
+  own it. NB: SSIM used by the LOSS is repo-owned and pure-torch
+  (`eqvae/metrics/reconstruction.py:120`) — unrelated to `pytorch_msssim`.
+
+- **FU-044 — `uv build` silently emits an EMPTY wheel if any symlink to
+  `src/eqvae` exists anywhere in the tree.** Reproduced 2026-07-15. hatchling's
+  sdist builder has no `packages` restriction, walks the whole tree, follows the
+  symlink, and dedups by realpath — so the 68 package files get emitted under the
+  SYMLINK path and `src/eqvae/**` is dropped. `uv build` then builds the wheel
+  from that sdist, where `packages = ["src/eqvae"]` (`pyproject.toml:36`) matches
+  nothing → a wheel with only dist-info. Prints "Successfully built", exits 0.
+  Gitignoring the symlink does NOT help (`.agent_tmp/` is blessed by
+  `.gitignore:208` and is exactly where agents are told to put experiment copies).
+  NOT on the Kaggle path and no threat to the run: `uv build`/`uv publish` have
+  ZERO call sites and there is no CI. The editable install is immune. Latent trap
+  only — fix if this repo ever publishes a wheel.
+
+- **FU-043 — The kernel build is not reproducible.** Two consecutive builds of
+  identical source produce different `run.py` digests: the embedded payload zip
+  records mtimes. So a `run.py` cannot be verified against its source by hash;
+  `scripts/build_kaggle_embedded_kernel.py` compensates with a tree digest
+  (`_digest_tree` / `_payload_manifest`). For a research artifact whose whole
+  point is "the run.py IS the experiment", byte-reproducibility is worth having.
+  Fix: pass a fixed `date_time` to `ZipInfo` and sort members before writing.
+
 - **FU-014 — GOAL.md duplicates/out-stales the spec index.** Per-spec status +
   v5/v6 narration in `GOAL.md:107-152` duplicates and disagrees with
   `docs/specs/README.md:28-34`. Fix: strip status tails, keep durable requirement
