@@ -113,6 +113,13 @@ Rules to keep this file from rotting (the problem it exists to fix):
   point is "the run.py IS the experiment", byte-reproducibility is worth having.
   Fix: pass a fixed `date_time` to `ZipInfo` and sort members before writing.
 
+- **FU-045 — Kaggle runs don't record the torch/CUDA version they ran on.** The
+  `runtime` block in the Kaggle benchmark artifacts (e.g.
+  `benchmark/kaggle_setup_smoke.json`) records `device`/`cuda_available`/`gpu_names`
+  but not `torch.__version__` / `torch.version.cuda`, so "Kaggle rides near-latest
+  torch" stays an unverifiable assumption per run. Fix: add torch + CUDA version to
+  the runtime telemetry so every run stamps exactly what it ran on. See decision 0011.
+
 - **FU-014 — GOAL.md duplicates/out-stales the spec index.** Per-spec status +
   v5/v6 narration in `GOAL.md:107-152` duplicates and disagrees with
   `docs/specs/README.md:28-34`. Fix: strip status tails, keep durable requirement

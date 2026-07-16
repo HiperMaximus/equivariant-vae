@@ -766,6 +766,12 @@ KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/synthetic
 - Enabling internet in Kaggle can hide undeclared dependency and code-source
   assumptions.
 
+The internet-off flag, empty source lists, and the embedded payload are one
+deliberate hermeticity invariant, not leftover caution. The code-delivery mechanism
+and the planned future path (pip-install from a pinned commit once the GitHub repo is
+public — not `dataset_sources`) are recorded in
+`docs/decisions/0011-kaggle-code-delivery.md`.
+
 ## Related Files
 
 - `docs/kaggle_cli_workflow.md`

@@ -151,6 +151,12 @@ Remote Kaggle writes require explicit permission and
 [docs/kaggle_cli_workflow.md](docs/kaggle_cli_workflow.md) and
 [docs/specs/0003-kaggle-cli-execution-workflow.md](docs/specs/0003-kaggle-cli-execution-workflow.md).
 
+Our code reaches Kaggle as a self-contained generated `run.py` that embeds the
+`src/eqvae` tree, with internet off and no attached sources — a deliberate hermeticity
+invariant. When the repo becomes public, delivery will switch to `pip install` from a
+pinned commit; see
+[docs/decisions/0011-kaggle-code-delivery.md](docs/decisions/0011-kaggle-code-delivery.md).
+
 ## Current Experiment Horizon
 
 The comparison should be fair by construction:
