@@ -834,6 +834,16 @@ KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status <synthetic-kernel-id
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output <synthetic-kernel-id> runs/kaggle/synthetic_timing
 ```
 
+Download hazard: the `output` step pulls the whole kernel output, which for
+`synthetic_timing` includes the generated multi-GiB raw `synthetic_timing_data/`
+directory (default profile ~2 GiB) on top of the four small benchmark files
+(`synthetic_timing_manifest.json`, `synthetic_timing_runtime_proof.json`,
+`synthetic_timing_matrix.csv`, `synthetic_timing_recommendations.json`). Interrupt
+the download once those four are present; `kaggle kernels output` has no per-file
+filter, so an interrupted run can leave a partial zero-byte data file behind
+(delete it). This kernel is quarantined (FU-031) and superseded by the Spec 0011
+runtime-selection approach, so this only matters if it is re-run.
+
 Until `api-check` grows a no-dataset kernel mode, the command above is only a
 read-only auth/status/quota preflight and still lists the real patch dataset.
 It must not be interpreted as synthetic dataset attachment.
