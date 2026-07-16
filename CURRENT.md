@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-07-10
+Last updated: 2026-07-15
 
 ## Active Workstream
 
@@ -260,7 +260,10 @@ the spec body under S17b-3): both `run_template.py` files pin identity **and** r
 "validates at push time" gate is the Python heredoc at `scripts/kaggle_kernel.sh:1854-1904`, which
 was never listed; the `runtime_selection` copy previously named here **does not exist**. BOTH axes
 are required — identity alone leaves the `amp_off_fp32` winner failing `kaggle_kernel.sh:1867` and
-`run_template:315`, so the step would read as done while the run stayed blocked. Then **S17c**
+`run_template:315`, so the step would read as done while the run stayed blocked. **MECHANISM =
+compose at RUNTIME in the kernel, NOT bake at build time (user decision; the "build is torch-less"
+argument is a build/run-time conflation — validators run on Kaggle with torch on `sys.path`). Full
+evidence in the spec's S17b-3 body; do not re-derive it.** Then **S17c**
 (observation mirror + corruption-label accuracy), then **S17d** (bounded dataloader search axis —
 NEW 2026-07-15, spec-only so far). Because identity is now STRUCTURAL, the
 Kaggle-minted compiled id needs NO anchor re-point — the de-pinned consumers accept it as

@@ -693,16 +693,31 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       `amp_off_fp32` winner still fails the recipe pins at `kaggle_kernel.sh:1867` and
       `run_template:315`. Recipe de-pinning mirrors the S17a coherence model; identity
       mirrors S17b-1's structural check.
-      Mechanism available: the builder already derives per-plan constants at build time
-      (`_derive_full_schedule` + `FULL_TARGET_UPDATES_PATTERN.subn`, the S8b precedent),
-      loading stdlib-only leaves by file path via `_load_leaf_attr` because the kernel
-      BUILD must stay torch-less (`eqvae.benchmarking.__init__` imports torch, so
-      `training/selected_runtime.py` and its `composed_selected_runtime_identity` are
-      NOT loadable there — compose via the `benchmarking/row_id.py` leaf instead).
-      Baking the composed id is not circular: the builder composes from the plan's
-      FIELDS while the kernel checks the plan's RECORDED id, so a self-inconsistent plan
-      fails the build. Generated `run.py` is git-ignored and unlinted, so a long
-      substituted line is fine.
+      **MECHANISM = compose at RUNTIME in the kernel (user decision 2026-07-14; do NOT
+      bake at build time).** Re-verified 2026-07-15:
+      - The kernel validators run ON KAGGLE, where torch and the payload are both on
+        `sys.path` — `main()` does `sys.path.insert(0, str(payload_src))` at
+        `run_template.py:73`, BEFORE `_validate_baseline_selected_runtime()` at `:95`.
+        So the validator can just import and compose; nothing needs pre-computing.
+      - Function-body `eqvae` imports are ALREADY the established kernel pattern:
+        `run_template.py:272-275` does `from eqvae.benchmarking.schedule import ...`
+        (`noqa: PLC0415`).
+      - `composed_selected_runtime_identity` (`selected_runtime.py:497`) is public and a
+        pure `payload -> (selected_row_id, runtime_policy_id)`, so it serves the kernel
+        AND the shell guard (which reads the plan straight from the zip).
+      - **The S8b bake was NOT a general precedent.** It baked `FULL_TARGET_UPDATES` only
+        because the shell GREPS that literal token. Nothing greps identity or recipe —
+        `kaggle_kernel.sh`'s `grep -q` calls (`:572-612`) are READY-flag checks only. The
+        surviving required-text anchors (`dual_t4_ddp`, `--nproc_per_node=2`) are
+        hardware/topology anchors and survive de-pinning untouched.
+      Rejected alternative — baking the composed id via `_load_leaf_attr` +
+      `PATTERN.subn`: it needs a SECOND copy of the composition formula in the builder
+      (exactly what single-sourcing `benchmarking/row_id.py` exists to prevent), forces
+      new substitution plumbing into the debug kernel, and cannot express the recipe axis
+      at all. `scripts/build_kaggle_embedded_kernel.py` therefore likely needs NO CHANGE
+      — confirm before assuming, but do not build the derive/substitute seam by default.
+      Delete the now-unused `EXPECTED_SELECTED_ROW_ID` / `EXPECTED_RUNTIME_POLICY_ID`
+      template constants once the validators compose.
   - **S17c** Observation mirror + corruption-label: add the nine S11 recipe knobs to
     `SelectedRuntimeApplicationObservation` / `expected_application` /
     `_application_mismatches` with the structural `broadcast_buffers`-override tolerance;
