@@ -135,6 +135,7 @@ def _environment() -> CompiledFastpathProbeEnvironment:
         nproc_per_node=_WORLD_SIZE,
         gpu_names=("Tesla T4", "Tesla T4"),
         torch_version="2.12.0+cu124",
+        cuda_version="12.4",
     )
 
 
@@ -352,6 +353,7 @@ def test_proof_payload_marks_non_promotable(tmp_path: Path) -> None:
     assert proof["status"] == PROBE_STATUS_PASS
     assert proof["negative_control_fired"] is True
     assert proof["torch_version"] == "2.12.0+cu124"
+    assert proof["cuda_version"] == "12.4"
     assert proof["world_size"] == _WORLD_SIZE
     assert proof["per_device_batch_size"] == _request(tmp_path).per_device_batch_size
     blocked = cast("dict[str, object]", proof["blocked_claims"])

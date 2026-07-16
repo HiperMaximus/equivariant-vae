@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+import torch
 from torch.utils.data import DataLoader
 
 from eqvae.benchmarking.synthetic_timing import (
@@ -497,6 +498,19 @@ def test_synthetic_timing_recommendations_mark_mixed_rows_partial(
     )
 
     assert payload["status"] == SYNTHETIC_TIMING_STATUS_PARTIAL
+
+
+def test_synthetic_timing_runtime_proof_stamps_torch_and_cuda_version(
+    tmp_path: Path,
+) -> None:
+    """The synthetic timing runtime proof records the torch build and CUDA version."""
+    payload = build_synthetic_timing_runtime_proof_payload(
+        request=SyntheticTimingRequest(output_dir=tmp_path),
+        rows=[],
+    )
+
+    assert payload["torch_version"] == str(torch.__version__)
+    assert payload["cuda_version"] == torch.version.cuda
 
 
 def test_synthetic_timing_runtime_proof_preserves_ddp_rank_assignments(

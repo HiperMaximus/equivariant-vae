@@ -13,6 +13,7 @@ from torch import Tensor
 from torch.utils.data import DataLoader
 
 from eqvae.benchmarking.io import JsonObject, write_json
+from eqvae.benchmarking.torch_runtime import torch_runtime_versions
 from eqvae.config import resolve_json_config
 from eqvae.corruption.stain import (
     CORRUPTION_VERSION,
@@ -426,6 +427,7 @@ def _payload(  # noqa: PLR0913
                 "cuda_device_count": torch.cuda.device_count(),
                 "gpu_names": _gpu_names(),
                 "requires_cuda_t4": _requires_kaggle_t4(settings),
+                **torch_runtime_versions(),
             },
             "seeds": {
                 "global_seed": settings.global_seed,

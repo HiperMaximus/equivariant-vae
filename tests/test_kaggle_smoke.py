@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+import torch
 from torch.utils.data import DataLoader
 
 from eqvae.benchmarking.kaggle_smoke import (
@@ -155,6 +156,8 @@ def test_setup_smoke_writes_distinct_non_promotable_artifact(
     assert data["origin"] == _expected_data_origin(tmp_path)
     assert data["data_integrity_status"] == "crc_checked"
     assert runtime["requires_cuda_t4"] is False
+    assert runtime["torch_version"] == str(torch.__version__)
+    assert runtime["cuda_version"] == torch.version.cuda
     assert train["total_applied_count"] == _EXPECTED_SETUP_APPLIED_COUNT
 
 

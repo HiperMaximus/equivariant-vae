@@ -34,6 +34,7 @@ from eqvae.benchmarking.runtime_schema import (
     NUMERICAL_CHECK_COLUMNS,
     RUNTIME_MATRIX_COLUMNS,
 )
+from eqvae.benchmarking.torch_runtime import torch_runtime_versions
 from eqvae.config import ResolvedConfig, resolve_json_config
 from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
 from eqvae.models.activations import GatedScalarActivation
@@ -6188,6 +6189,7 @@ def _accelerator_observation() -> JsonObject:
             "cuda_device_count": device_count,
             "gpu_names": names,
             "cuda_available": cuda_available,
+            **torch_runtime_versions(),
         },
     )
 

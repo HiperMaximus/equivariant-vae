@@ -27,6 +27,7 @@ from torch.utils.data import DataLoader, Subset
 
 from eqvae.benchmarking.io import CsvRow, JsonObject, JsonValue, write_csv, write_json
 from eqvae.benchmarking.schedule import training_steps_per_epoch
+from eqvae.benchmarking.torch_runtime import torch_runtime_versions
 from eqvae.data.dataloaders import (
     PatchTensorDataset,
     PatchTensorDatasetSpec,
@@ -1490,6 +1491,7 @@ def build_synthetic_timing_runtime_proof_payload(
             "kernel_sources": [],
             "model_sources": [],
             "machine_shape": "NvidiaTeslaT4",
+            **torch_runtime_versions(),
             "timing_plan": _timing_plan_payload(request=request),
             "accelerator_modes_checked": ["single_visible_t4", "dual_t4_ddp"],
             "single_visible_t4": _mode_summary(single_rows),

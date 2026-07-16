@@ -3220,3 +3220,11 @@ def _load_csv(path: Path) -> list[dict[str, str]]:
 
 def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_runtime_environment_stamps_torch_and_cuda_version() -> None:
+    """The executor runtime-environment stamps the torch build and CUDA version."""
+    environment = runtime_selection_executor._runtime_environment([])  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+
+    assert environment["torch_version"] == str(torch.__version__)
+    assert environment["cuda_version"] == torch.version.cuda

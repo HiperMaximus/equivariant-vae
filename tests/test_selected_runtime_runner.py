@@ -475,6 +475,31 @@ def test_selected_runtime_torchrun_command_validation(tmp_path: Path) -> None:
     )
 
 
+def test_selected_runtime_environment_probe_stamps_torch_and_cuda_version() -> None:
+    """The runtime probe records the torch build and CUDA version it ran on."""
+    probe = SelectedRuntimeEnvironmentProbe(
+        machine_shape="NvidiaTeslaT4",
+        accelerator_mode="dual_t4_ddp",
+        cuda_device_count=2,
+        visible_device_count=2,
+        gpu_names=("Tesla T4", "Tesla T4"),
+        world_size=2,
+        nproc_per_node=2,
+        rank=0,
+        local_rank=0,
+        torchrun_standalone=True,
+        rank_assignments=(),
+        distributed_initialized=True,
+        torch_version="2.12.0+cu124",
+        cuda_version="12.4",
+    )
+
+    payload = probe.as_json()
+
+    assert payload["torch_version"] == "2.12.0+cu124"
+    assert payload["cuda_version"] == "12.4"
+
+
 def test_selected_runtime_environment_validation(tmp_path: Path) -> None:
     """Rank/device proof accepts exact dual T4 facts and rejects common lies."""
     plan = parse_selected_runtime_plan(_runtime_config(tmp_path))
@@ -508,6 +533,8 @@ def test_selected_runtime_environment_validation(tmp_path: Path) -> None:
             ),
         ),
         distributed_initialized=True,
+        torch_version="2.12.0+cu124",
+        cuda_version="12.4",
     )
 
     assert validate_selected_runtime_environment(passing, plan=plan) == ()

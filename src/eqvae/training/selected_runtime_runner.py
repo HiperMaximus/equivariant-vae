@@ -43,6 +43,7 @@ from eqvae.artifacts.fixed25_equivariance import (
 )
 from eqvae.benchmarking.runtime_schema import GATE_HEALTH_COLUMNS
 from eqvae.benchmarking.schedule import boundary_steps
+from eqvae.benchmarking.torch_runtime import torch_runtime_versions
 from eqvae.checkpointing import (
     CheckpointMetadata,
     LoadedCheckpoint,
@@ -345,6 +346,8 @@ class SelectedRuntimeEnvironmentProbe:
     torchrun_standalone: bool
     rank_assignments: tuple[RankDeviceAssignment, ...]
     distributed_initialized: bool
+    torch_version: str
+    cuda_version: str | None
 
     def as_json(self) -> JsonObject:
         """Return JSON-safe runtime facts.
@@ -368,6 +371,8 @@ class SelectedRuntimeEnvironmentProbe:
                 assignment.as_json() for assignment in self.rank_assignments
             ],
             "distributed_initialized": self.distributed_initialized,
+            "torch_version": self.torch_version,
+            "cuda_version": self.cuda_version,
         }
 
 
@@ -1885,6 +1890,7 @@ def _distributed_context(
         torchrun_standalone=("TORCHELASTIC_RUN_ID" in os.environ),
         rank_assignments=assignments,
         distributed_initialized=dist.is_initialized(),
+        **torch_runtime_versions(),
     )
     return _DistributedContext(
         device=device,

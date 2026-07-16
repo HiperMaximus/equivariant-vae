@@ -1398,3 +1398,11 @@ def _write_tiny_runtime_pretest_config(
         encoding="utf-8",
     )
     return config_path
+
+
+def test_accelerator_observation_stamps_torch_and_cuda_version() -> None:
+    """The pretest accelerator record stamps the torch build and CUDA version."""
+    observation = pretest._accelerator_observation()  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+
+    assert observation["torch_version"] == str(torch.__version__)
+    assert observation["cuda_version"] == torch.version.cuda

@@ -1637,6 +1637,10 @@ def _gate_health_summary(
 
 
 def _runtime_environment(results: Sequence[_DdpLaunchResult]) -> JsonObject:
+    from eqvae.benchmarking.torch_runtime import (  # noqa: PLC0415
+        torch_runtime_versions,
+    )
+
     passing = [result for result in results if result.row["status"] == PASS_STATUS]
     source = passing[0] if passing else (results[0] if results else None)
     rank_payloads = source.rank_payloads if source is not None else ()
@@ -1676,6 +1680,7 @@ def _runtime_environment(results: Sequence[_DdpLaunchResult]) -> JsonObject:
         "failure_message_hash": ""
         if passing or source is None
         else source.failure_message_hash,
+        **torch_runtime_versions(),
     }
 
 

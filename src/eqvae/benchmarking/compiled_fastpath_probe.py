@@ -78,6 +78,7 @@ from torch._dynamo.utils import counters  # noqa: PLC2701
 from torch.amp.grad_scaler import GradScaler
 
 from eqvae.benchmarking.io import write_csv, write_json
+from eqvae.benchmarking.torch_runtime import torch_runtime_versions
 from eqvae.benchmarking.vram_feasibility import (
     BYTES_PER_MB,
     NO_OOM,
@@ -328,6 +329,7 @@ class CompiledFastpathProbeEnvironment:
     nproc_per_node: int
     gpu_names: tuple[str, ...]
     torch_version: str
+    cuda_version: str | None
 
 
 @dataclass(frozen=True)
@@ -617,7 +619,7 @@ def run_compiled_fastpath_probe(
         world_size=distributed.world_size,
         nproc_per_node=distributed.nproc_per_node,
         gpu_names=_gpu_names(),
-        torch_version=str(torch.__version__),
+        **torch_runtime_versions(),
     )
     write_failed = _write_probe_artifacts_failclosed(
         rank=distributed.rank,
@@ -656,6 +658,7 @@ def build_compiled_fastpath_probe_proof(
             "nproc_per_node": environment.nproc_per_node,
             "gpu_names": list(environment.gpu_names),
             "torch_version": environment.torch_version,
+            "cuda_version": environment.cuda_version,
             "per_device_batch_size": request.per_device_batch_size,
             "warmup_steps": request.warmup_steps,
             "settle_steps": request.settle_steps,
@@ -732,6 +735,7 @@ def build_compiled_fastpath_probe_manifest(
             "world_size": environment.world_size,
             "gpu_names": list(environment.gpu_names),
             "torch_version": environment.torch_version,
+            "cuda_version": environment.cuda_version,
             "artifacts": {
                 "proof": PROOF_FILENAME,
                 "proof_sha256": proof_sha256,

@@ -2930,6 +2930,8 @@ def test_full_loaded_resume_proof_records_restore_attempts(tmp_path: Path) -> No
             torchrun_standalone=True,
             rank_assignments=(),
             distributed_initialized=True,
+            torch_version="2.12.0+cu124",
+            cuda_version="12.4",
         ),
     )
     amp = selected_runtime_runner._AmpExecution(  # noqa: SLF001
@@ -4253,6 +4255,8 @@ def _local_distributed_context() -> selected_runtime_runner._DistributedContext:
             torchrun_standalone=False,
             rank_assignments=(),
             distributed_initialized=False,
+            torch_version="2.12.0+cpu",
+            cuda_version=None,
         ),
     )
 
