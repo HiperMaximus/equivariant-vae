@@ -138,9 +138,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
 - **FU-034 — Decision 0008 carries finished run outcomes.**
   `docs/decisions/0008-...md:16-20,60-67`. Fix: keep the decision, drop the
   v4-shortlist outcome + trim profile lineage. See D-25.
-- **FU-035 — Add a preflight guard against re-committing runs/ artifacts.** After
-  D-30, add a check in `scripts/agent_preflight.sh` failing if `git ls-files runs/`
-  is non-empty.
 - **FU-036 — Paper placeholder-removal pass due before 2026-07-09.** `main.tex`
   scaffold text; large vendor PDFs in `template/IEEEtran/`. Fix: schedule the pass;
   consider trimming the vendor tree to the `.cls`/`.bst` used.
@@ -221,8 +218,3 @@ HIGH unless noted. Execute, then delete this section's done items.
   (`main.tex:113`).
 - **D-28 [MED]** Redraw/replace `semi_supervised_model.png` (`main.tex:79`).
 - **D-29 [MED]** gitignore latexmk byproducts (`main.bbl/.fdb_latexmk/.fls` not ignored).
-
-### Tracked artifacts / orphans
-- **D-30 [HIGH]** `git rm --cached` the 4 tracked files under
-  `runs/kaggle/synthetic_timing_repeat_2gib_v4/benchmark/` (32K; only tracked files
-  under ignored `runs/`). Pair with FU-035.

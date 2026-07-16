@@ -237,6 +237,14 @@ else
   missing=1
 fi
 
+if [[ -n "$(git ls-files runs/)" ]]; then
+  echo "error: runs/ artifacts must not be tracked (untrack with 'git rm --cached')"
+  git ls-files runs/
+  missing=1
+else
+  echo "ok: no runs/ artifacts are tracked"
+fi
+
 if git check-ignore --no-index -q kaggle/kernels/non_eq_vae_debug/payload/src/eqvae/__init__.py; then
   echo "ok: Kaggle kernel payloads are ignored"
 else
