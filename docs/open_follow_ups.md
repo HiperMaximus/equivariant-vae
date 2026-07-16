@@ -43,9 +43,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
   `docs/kaggle_cli_workflow.md:239-243` (v3, 14.04 samples/s, 59.37h) vs `:5`/`:582`
   (v5, 27.38 samples/s, ~30.4h). Fix: delete the v3 block (D-17); confirm no config
   references `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`.
-- **FU-011 — CURRENT.md is ~3076 lines, ~95% narration.** Durable contract is
-  buried under `:5-1148` (Active Workstream prose) and `:1247-3053` (verification
-  log). Fix: see D-01/D-02; target low hundreds of lines.
 - **FU-040 — `fixed25_equivariance_artifact_protocol`: IMPLEMENTED (Spec 0010),
   uncommitted; remaining open work = real selector + commit.** The eval/inspection
   protocol (Spec 0010, user-approved 2026-07-01) is fully implemented on the working
@@ -212,12 +209,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
 Delete/compress historical narration so the repo reflects current state. Confidence
 HIGH unless noted. Execute, then delete this section's done items.
 
-### CURRENT.md (~3076 lines)
-- **D-01 [HIGH]** Drop "Latest Verification" stack `:1247-3053` (~1807 lines of dated
-  CI logs). Keep one line: "latest gate: 242 passed, 0 type errors".
-- **D-02 [HIGH]** Drop dated handoff backlog in "Active Workstream" from
-  "Historical provenance follows." `:131-1148`. Keep the short current-state
-  paragraph + live full-run pointer.
 ### docs/specs/0001 (~3993 lines)
 - **D-05 [HIGH]** Drop status+saga preamble `:3-431` → <10-line Status. Durable
   contract starts at `## Purpose :432`. Keep readiness token literals.
