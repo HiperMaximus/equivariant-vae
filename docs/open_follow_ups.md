@@ -119,8 +119,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
   Authority: `docs/spec_driven_development.md:96-97`, `docs/agentic_review_workflow.md:88-89`.
   Fix: apply the Drop Plan below; add a bullet to `spec_driven_development.md`
   requiring STATUS blocks to hold latest state only.
-- **FU-028 — Spec 0008 header says implemented; body narrates v2-v5 as "not a
-  passing remote proof".** `docs/specs/0008-...md:3` vs `:242-338`. Fix: see D-09.
 - **FU-029 — Specs 0001/0003 + README re-narrate the whole finished benchmark
   saga.** See D-05/D-06/D-08/D-10. Largest single staleness offender.
 - **FU-030 — Spec 0009 is the LIVE frontier — do NOT compress to "implemented"
@@ -178,10 +176,6 @@ HIGH unless noted. Execute, then delete this section's done items.
 ### docs/specs/0003
 - **D-08 [HIGH]** Drop v1-v8 remote chronology (Status `:3-86`; body `:~213-440`);
   keep durable guard/metadata rules + the locked-runtime sentence.
-
-### docs/specs/0008
-- **D-09 [HIGH]** Drop "Latest Remote Attempt" v2-v5 log `:242-338` → one paragraph
-  (v5 passed, durable fixes). Resolves FU-028.
 
 ### docs/specs/README.md
 - **D-10 [HIGH]** Compress bloated cells `:28,30,33` to 1-2 sentences; drop trailing

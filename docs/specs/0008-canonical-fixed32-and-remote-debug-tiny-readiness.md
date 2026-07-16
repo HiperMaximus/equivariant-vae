@@ -239,103 +239,30 @@ remote long-run approval request.
   - machine shape `NvidiaTeslaT4`;
   - dataset source exactly `maximusshtefan/patches-pre-shuffled-ubc-ocean`.
 
-## Latest Remote Attempt
+## Remote Verification
 
-Selected-runtime debug/tiny v2 is not a passing remote proof. It did prove the
-canonical fixed-32 selector boundary on Kaggle: the downloaded
-`benchmark/fixed32_selector_readiness.json` reports `status = "pass"`,
-`fixed_32_selector_real = true`, `remote_selector_generation_ready = true`, and
-locked real UBC train shard fingerprints for 32 selected train patches. The run
-then failed before writing training/checkpoint/tiny/gate artifacts because the
-runner built explicit VAE epsilon from the nominal batch cap 12 while the final
-single-process fixed-32 batch had 8 samples. Local follow-up fixes size epsilon
-from the realized input batch and adds a fixed-32/bs12/3-step regression.
+Selected-runtime debug/tiny **version 5 passed** and proves this spec's remote
+readiness. After fresh explicit approval it was pushed, completed
+(`KernelWorkerStatus.COMPLETE`), downloaded to
+`runs/kaggle/selected_runtime_debug_v5`, and passed strict
+`eqvae.cli.selected_runtime_gate --verify-output`: no remaining launch blockers,
+canonical real fixed-32 selector generation passed, tiny-overfit had zero AMP
+skips and zero nonfinite rows, and the nested tiny metric CSV proved 256 rank
+rows over 128 optimizer updates. Spec 0008 remote debug/tiny readiness is
+therefore proved; the next candidate action is the first full real
+selected-runtime run, which still requires fresh explicit approval and is not
+launched by this proof.
 
-The v2 follow-up also hardened the remote path beyond the immediate crash: the
-debug wrapper now launches the selected-runtime train runner through
-`python -m torch.distributed.run --standalone --nproc_per_node=2 -m
-eqvae.cli.selected_runtime_train` with the embedded payload on `PYTHONPATH`,
-and the post-download verifier hash-links selector readiness to the downloaded
-selector, replays artifact-manifest hashes, validates gate-health CSV content,
-and tightens train-step CSV checks.
-
-Selected-runtime debug/tiny v3 is not a passing remote proof. After explicit
-user approval, v3 was pushed from clean commit `09b5b24`; the guarded follow-up
-status read on 2026-06-29 returned `KernelWorkerStatus.ERROR`, and artifacts
-were downloaded to `runs/kaggle/selected_runtime_debug_v3`. The run proved real
-progress: canonical fixed-32 selector generation passed, the debug/resume phase
-wrote selected-runtime plan application, checkpoint/resume, gate-health CSV,
-and artifact-manifest evidence, and the tiny phase reached 128 successful
-optimizer updates with strong improvement (`l1_improvement_fraction =
-0.42601120821087546`, `recon_loss_improvement_fraction =
-0.37984046690403395`). It still failed the remote proof because the tiny phase
-observed two AMP skipped rows and 500 aggregate nonfinite gradient entries, one
-per rank at optimizer step index 3 on a per-rank `batch_size = 4` tail
-microbatch. The root gate summary remained `status = "fail"` with
-`launch_blockers_remaining = ["tiny_overfit"]`.
-
-The local v3 follow-up is a source fix, not a verifier workaround: the runner
-keeps the debug-path partial-batch epsilon fix and regression, but
-`kaggle_tiny_overfit` with the fixed-32 selector now uses the deterministic
-`fixed32_tiny_full_batch_repeated` sampler described above. Runner summaries
-now expose sampler policy/effective samples/full-batch-repeat fields, tiny
-summaries expose observed batch sizes plus aggregate AMP skip/nonfinite counts,
-training summaries aggregate nonfinite counts over all metric rows, local
-readiness blocks any aggregate nonfinite metric rows, and both the embedded
-wrapper and post-download verifier require the tiny sampler evidence. The
-downloaded v3 artifacts predate those fields, so the hardened verifier correctly
-reports the historical tiny failure plus missing-sampler-evidence blockers.
-
-Selected-runtime debug/tiny v4 is not a passing remote proof. After explicit
-user approval for the narrow rerun only, v4 was pushed from clean commit
-`ce72fa0`, the immediate guarded status read returned
-`KernelWorkerStatus.RUNNING`, and the guarded follow-up status read at
-`2026-06-29 01:51:13 -0500` returned `KernelWorkerStatus.ERROR`. Outputs were
-downloaded to `runs/kaggle/selected_runtime_debug_v4`. The run proved the v3
-sampler fix: tiny uses `fixed32_tiny_full_batch_repeated`, effective epoch
-samples are `48` global / `24` per rank, and observed tiny batch sizes are
-`[12]`. The remaining failure is one early full-batch AMP loss-scale overflow
-per rank at tiny `optimizer_step_index = 3`: `batch_size = 12`, `grad_norm =
-inf`, `nonfinite_count = 125` per rank, and `amp_step_skipped = 1`. The retry
-after scale reduction succeeded, and the tiny phase still reached 128
-successful updates with strong improvement (`l1_improvement_fraction =
-0.339919261689692`, `recon_loss_improvement_fraction =
-0.29479275826312307`).
-
-The local v4 follow-up is a source fix, not a verifier workaround: the runner
-now sets an explicit conservative GradScaler init scale of `16384.0`, records
-that value in training/tiny summaries and in the plan-applied runner AMP
-extension, and keeps zero-tolerance AMP-skip/nonfinite checks. The embedded
-wrapper and post-download verifier now require the scaler evidence and direct
-row-level nested tiny metric proof. Downloaded v4 predates that evidence and
-correctly fails the hardened verifier with the original tiny overflow blockers
-plus scaler-proof and nested tiny-row blockers.
-
-The first approved v5 push attempt on 2026-06-29 did not reach remote
-execution: local push guards and embedded-kernel checks passed, then the Kaggle
-CLI failed before upload with an authentication-required message caused by a
-stale cached OAuth access token. The selected-runtime slug was correct. The
-workflow wrapper now routes authenticated Kaggle calls through
-`scripts/kaggle_oauth_exec.py`, which generates a fresh OAuth token from the
-installed Kaggle SDK and passes it to the child CLI via a temporary 0600 token
-file. The selected-runtime-specific read-only preflight
-`KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check
-kaggle/kernels/selected_runtime_debug` passes through that path with only the
-known quota warning. Follow-up adversarial review removed the remaining raw
-`kaggle auth print-access-token` probe from `api-check`; auth is now proven by
-wrapped endpoint calls. After fresh explicit approval for the narrow retry,
-Kaggle accepted selected-runtime debug/tiny version 5. The immediate guarded
-status read at `2026-06-29 03:27 -0500` returned
-`KernelWorkerStatus.RUNNING`; the guarded follow-up status read returned
-`KernelWorkerStatus.COMPLETE`. Outputs were downloaded to
-`runs/kaggle/selected_runtime_debug_v5`, and strict
-`eqvae.cli.selected_runtime_gate --verify-output` passed. The v5 gate summary
-has no remaining launch blockers, canonical real fixed-32 selector generation
-passed, tiny-overfit had zero AMP skips and zero nonfinite rows, and the nested
-tiny metric CSV proved 256 rank rows over 128 optimizer steps. Spec 0008 remote
-debug/tiny readiness is therefore proved. The next candidate action is the
-first full real selected-runtime run, which still requires fresh explicit
-approval and is not launched by this proof.
+The durable fixes version 5 validated are encoded in the Config Contract and
+Architecture Or Workflow Contract above (and, for auth, in
+`docs/kaggle_cli_workflow.md`): VAE epsilon is sized from the realized input
+batch, not the nominal batch cap (with a fixed-32/bs12/3-step regression); the
+tiny-overfit phase repeats selector rows only at the sampler level so every
+microbatch is full-sized (`fixed32_tiny_full_batch_repeated`); the selected AMP
+path sets a conservative `grad_scaler_init_scale = 16384.0` recorded in the
+training, tiny-overfit, and plan-applied artifacts; and authenticated Kaggle
+calls route through `scripts/kaggle_oauth_exec.py` to avoid the stale cached
+OAuth token that blocked the first version 5 push attempt.
 
 ## Acceptance Criteria
 
