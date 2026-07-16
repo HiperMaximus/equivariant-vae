@@ -276,8 +276,8 @@ dataloader is NOT a searched axis. Do not retry it — read S17d's traps in the 
 `KAGGLE_PUSH_CONFIRMED=1`):** the S17 generator run → new compiled `selected_runtime.json`; S19
 (~30h + ~30 min staging, push-then-monitor, NOT a held session); plus the queued LR-finder (~200–300
 lines, needs real dual-T4).
-**PACKAGING PREREQUISITE DONE (2026-07-16) — 4 commits, local, ahead of `origin/main` @
-`87e05c8`, NOT yet pushed.** `a09027c` gave `pyproject.toml` a hatchling `[build-system]` so
+**PACKAGING PREREQUISITE DONE (2026-07-16) — 5 commits, pushed to `origin/main` @ `d663acd`.**
+`a09027c` gave `pyproject.toml` a hatchling `[build-system]` so
 `uv sync` **editable-installs** `eqvae`: `import eqvae` now resolves from `.venv/bin/python`
 for any invocation, so `PYTHONPATH=src` is redundant (harmless, not swept). This removed the
 root cause of four workarounds — including the builder's file-path `_load_leaf_attr` loader
@@ -291,16 +291,22 @@ space — it is RETAINED reference material (a user decision; Spec 0002 rational
 deliberate policy). `e2bbedb` added `docs/decisions/0010` (verify the premise before changing a
 pin), indexed and cited by AGENTS.md rule 29. Gate green throughout (552 passed/1 skipped, ruff
 and basedpyright clean); each change adversarially reviewed.
-**STILL OWED — the one thing local verification cannot prove:** a `setup_smoke` Kaggle push
-(zero datasets, no GPU, no ~30-min staging) to confirm the payload unzips and imports `eqvae`
-where NO venv exists. User-approved; needs the exact remote command + `KAGGLE_PUSH_CONFIRMED=1`.
+**KAGGLE SMOKE VERIFIED 2026-07-16 — the one thing local verification could not prove:** rebuilt
+`run.py` through the new `build_kernel_py()` + builder path (`BUILD_EXIT=0`; plain `import eqvae`,
+no `_load_leaf_attr`), then `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_REMOTE_CONFIRMED=1
+./scripts/kaggle_kernel.sh push kaggle/kernels/setup_smoke --wait` → `eqvae-setup-smoke` v2
+settled `COMPLETE`. Downloaded `runs/kaggle/setup_smoke/benchmark/kaggle_setup_smoke.json` has
+`status = smoke_pass`, `git_commit = d663acd`, `git_dirty = false`, `dataset_slug = ""`,
+`device = cpu`, 3 train steps + 1 validation batch on synthetic data — proving the payload
+unzips and `import eqvae` works where NO venv exists, on the exact packaging commit, no ~30-min
+staging.
 **PUSH-TO-ORIGIN STANCE UPDATED 2026-07-16:** the user granted STANDING permission to push to
 `origin` ON REQUEST (previously forbidden). Still never a bare `git push` (could resolve to the
 `overleaf` remote) — use `git push origin <branch>`; Kaggle/Overleaf writes still need their own
-confirm flags. The 4 packaging commits are ready to push when asked.
-**Next sequence:** origin push (on request) → `setup_smoke` Kaggle proof → dependency upgrade as
-its OWN gated step (`uv lock --upgrade`; ahead of S17b-3 because Kaggle rides near-latest torch
-and drift bites the compiled fast-path) → S17b-3.
+confirm flags.
+**Next sequence:** origin push ✓ and `setup_smoke` Kaggle proof ✓ both DONE 2026-07-16 →
+dependency upgrade as its OWN gated step (`uv lock --upgrade`; ahead of S17b-3 because Kaggle
+rides near-latest torch and drift bites the compiled fast-path) → S17b-3.
 
 > **Everything from here down to the `Historical provenance follows.` marker below is
 > PRE-Spec-0011 status (runtime-selection v5, Spec 0006–0009), retained for reference.**
