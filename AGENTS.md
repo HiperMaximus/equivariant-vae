@@ -83,7 +83,9 @@ This repo is the paper/research repository for the equivariant VAE work.
    ```
 20. For substantial workflow, architecture, evaluation, or paper-claim changes,
     use independent clean-context adversarial subagent reviews when the tooling
-    is available. Follow `docs/agentic_review_workflow.md`.
+    is available. Follow `docs/agentic_review_workflow.md`. A green gate proves
+    internal consistency, not correctness — only a skeptic checks whether the
+    premise was worth acting on.
 21. Use spec-driven development for substantial implementation, experiment,
     evaluation, paper, or workflow changes. Write or update the relevant spec in
     `docs/specs/` before coding, then verify against its acceptance criteria.
@@ -135,6 +137,16 @@ This repo is the paper/research repository for the equivariant VAE work.
     there trigger `EDQUOT` and cause fake test failures. Leave `TMPDIR` unset for
     `./scripts/python_quality.sh` so its heavy pytest temp redirects to
     `runs/local_tmp` on disk. Clean up `.agent_tmp/` when done.
+29. Before de-pinning a validator literal, relaxing a constraint, or deleting
+    something that looks unused, VERIFY THE PREMISE: read what PRODUCES the value,
+    and what the repo has already DECIDED about it. A plausible name or a config
+    block is not evidence a feature exists; symptoms of a deliberate policy
+    (nothing imports it, the gate excludes it) are not evidence of rot; a
+    convenient property enforced only by a comment is not a constraint; and a
+    green gate proves internal consistency, not correctness. See
+    `docs/decisions/0010-verify-the-premise-before-changing-a-pin.md`, which
+    records three same-day cases where the answer was already written down
+    in-repo and contradicted the change in flight.
 
 ## Safe Paper Workflow
 
