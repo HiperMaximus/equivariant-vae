@@ -371,8 +371,7 @@ Every fixed-25 artifact and the manifest carry a `data_source` field
 (`real` | `synthetic`) and a `promotable` boolean. Artifacts built from a synthetic
 selector or non-real data are `promotable = false` and must never be presented as
 issue #4/#6 evidence
-(`docs/specs/0009-first-full-selected-runtime-training-run.md:399-401`,
-`docs/open_follow_ups.md:110-114`).
+(`docs/specs/0009-first-full-selected-runtime-training-run.md:399-401`).
 
 ## Related Requirements And Evidence
 
@@ -391,8 +390,8 @@ issue #4/#6 evidence
 - Paper artifacts: `reconstructions_25.*`, `rotated_reconstructions_25.*`,
   `rotated_input_vs_latent_grid.*`, `latent_pca_eqvae_style.*`,
   `equivariance_summary.tex` (`docs/repo_goal_and_requirements.md:75-91`).
-- Backlog: FU-040 (`docs/open_follow_ups.md:82-114`); Spec 0009 remaining fixed-25
-  blocker (`docs/specs/0009-first-full-selected-runtime-training-run.md:389-401`).
+- Related: Spec 0009 fixed-25 requirement
+  (`docs/specs/0009-first-full-selected-runtime-training-run.md:389-401`).
 
 ## Architecture Or Workflow Contract
 
@@ -653,8 +652,7 @@ cd /home/maximus/Documents/Tesis && ./agent_preflight.sh
   Kaggle validation CSV/bin not present locally
   (`docs/specs/0001-translatable-normal-vae-baseline.md:2962-2977`). So promotable
   fixed-25 artifacts are only produced during a real (Kaggle or real-data-mounted)
-  run, which couples this spec to the undecided FU-039 v1-continuation decision
-  (`docs/open_follow_ups.md:63-81`). Local implementation and tests use synthetic
+  run. Local implementation and tests use synthetic
   selectors and are non-promotable.
 
 ## Known Risks

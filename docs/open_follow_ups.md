@@ -32,6 +32,8 @@ Rules to keep this file from rotting (the problem it exists to fix):
   all `configs/spec0001/*.json`,
   `docs/repo_goal_and_requirements.md`, `docs/issue_image_inventory.md`,
   `docs/spec_driven_development.md`, `docs/agentic_review_workflow.md` — keep.
+- `Screenshot from 2026-01-30 14-43-57.png` (repo root) — the professor's; retain
+  (looks orphaned, zero code refs, but kept deliberately).
 
 ---
 
@@ -43,49 +45,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
   `docs/kaggle_cli_workflow.md:239-243` (v3, 14.04 samples/s, 59.37h) vs `:5`/`:582`
   (v5, 27.38 samples/s, ~30.4h). Fix: delete the v3 block (D-17); confirm no config
   references `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`.
-- **FU-040 — `fixed25_equivariance_artifact_protocol`: IMPLEMENTED (Spec 0010),
-  uncommitted; remaining open work = real selector + commit.** The eval/inspection
-  protocol (Spec 0010, user-approved 2026-07-01) is fully implemented on the working
-  tree and NOT yet committed: new `src/eqvae/artifacts/fixed25_equivariance.py`
-  (exact rot90 `{0,90,180,270}`, EQ-VAE `pca_to_rgb` + first3, six equivariance
-  metrics incl. headline normalized-L2² ratio, fail-closed 25-patch loader,
-  dep-free PNG encoder) and `src/eqvae/cli/fixed25_equivariance.py` (standalone
-  re-run on any checkpoint / future `SO(2)` model); runner wires the per-boundary
-  evaluator + full FU-039-class durability for `metrics/equivariance_25.csv`
-  (separate resume-prefix field, merge-NOT-gather for the global rank-0 rows,
-  `_validate_full_resume_equivariance_prefix`, broadcast-guarded rank-0 eval);
-  gate requires the fixed-25 artifacts (incl. error maps + `promotable=real`) and
-  retires `reconstruction_samples.pt` from the full run; configs add a shared
-  `fixed25_equivariance` block (`enabled` only in the full config). Gate green:
-  263 passed, 0 type errors. Adversarially reviewed post-impl (6-lens workflow,
-  9 confirmed findings integrated). It is decoupled from training (decision 0009);
-  the same frozen 25 validation images serve both the baseline and the future
-  `SO(2)` model; continuous angles are a future `SO(2)`-only extension. FSQ
-  quantization/codebook/discrete-index artifacts are deliberately NOT copied.
-
-  The Spec 0010 code is committed on `main` (`8457233`, unpushed). Its former
-  blocker — the real fixed-25 selector — is now generated and committed
-  (**FU-041, DONE** below). A full run that still lacks promotable fixed-25 output
-  must be labeled training/checkpoint evidence only — never issue #4/#6
-  equivariant-embedding evidence.
-
-- **FU-041 — Generate the REAL fixed-25 validation selector. DONE (2026-07-02).**
-  Generated on the dedicated CPU Kaggle kernel `kaggle/kernels/fixed25_selector`
-  (no GPU; ~30 min was 60GB dataset staging, ~66s actual compute), downloaded, and
-  verified: `status: pass`, 25 `selectors` (5 per label 0..4),
-  `source_split: validation`, `crc_checked: true` from `ubc_ocean_valid.bin`. The
-  CRC-consistency fix (Option Y) validates the fixed-25 selector with
-  `validate_crc=True` end-to-end, so the `crc_checked=true` selector loads under
-  the run's CRC-validating fixed-25 path. Promoted to the tracked
-  `configs/spec0001/fixed_25_validation_patches.json` (canonical generator form —
-  loads without data via `load_fixed_selector_document`). The 25 selected images
-  are frozen in `docs/data/fixed25/`: `originals.png` (5×5 montage) + `originals.pt`
-  (lossless uint8, reconstruct `x/255*2-1`; `write_originals` now stores uint8, a
-  quarter the size). Tests reworked: the three fail-closed tests assert against a
-  synthetic placeholder (the tracked config is now real), a positive
-  `test_committed_fixed25_selector_is_real` guards it, and the stale
-  `fixed_real_25_status` breadcrumb is now `committed`. With the FU-039 fresh
-  restart, both first-promotable-full-run blockers are now cleared.
 
 ### MED
 
@@ -273,5 +232,3 @@ HIGH unless noted. Execute, then delete this section's done items.
 - **D-30 [HIGH]** `git rm --cached` the 4 tracked files under
   `runs/kaggle/synthetic_timing_repeat_2gib_v4/benchmark/` (32K; only tracked files
   under ignored `runs/`). Pair with FU-035.
-- **D-31 [HIGH]** Delete root `Screenshot from 2026-01-30 14-43-57.png` (123 KB,
-  zero references repo-wide).
