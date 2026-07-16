@@ -11,6 +11,30 @@ dependencies = [
     "torch>=2.12.0",
 ]
 
+# Pinned: build requirements are NOT recorded in uv.lock, so an unpinned backend would
+# leave `uv sync --locked` resolving hatchling fresh from the index -- a hole in the
+# reproducibility that --locked otherwise promises (AGENTS.md rule 25).
+[build-system]
+requires = ["hatchling==1.31.0"]
+build-backend = "hatchling.build"
+
+# Spec 0001's package/import policy: `PYTHONPATH=src` was the interim contract "until a
+# packaging backend is explicitly added". This is that backend. Without a [build-system],
+# uv treats the project as VIRTUAL (uv.lock said `source = { virtual = "." }`): it installs
+# dependencies but never the project, so `eqvae` was absent from the venv and every entry
+# point needed PYTHONPATH=src.
+#
+# `packages` excludes src/nn from the WHEEL only. The editable install emits a naive .pth
+# containing `<repo>/src`, so the WHOLE src/ tree is on sys.path locally and `src/nn` IS
+# importable as top-level `nn` here -- while the Kaggle payload ships only src/eqvae. Do
+# NOT paper over this with `dev-mode-exact = true`: that swaps the .pth for a finder that
+# imports `editables` at RUNTIME, which is a build-time dep absent from the venv, so
+# `import eqvae` dies with ModuleNotFoundError: No module named 'editables' (verified
+# 2026-07-15). The divergence is instead guarded by a test asserting src/eqvae never
+# imports nn.
+[tool.hatch.build.targets.wheel]
+packages = ["src/eqvae"]
+
 [tool.uv.sources]
 torch = [
     { index = "pytorch-cpu", marker = "platform_system == 'Linux'" },

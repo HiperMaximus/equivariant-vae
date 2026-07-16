@@ -10,6 +10,32 @@ if [[ -z "${TMPDIR:-}" ]]; then
 fi
 mkdir -p "$TMPDIR"
 
+# The kernel build imports eqvae (editable-installed into .venv by `uv sync`) to reuse the
+# single-sourced schedule helper + patch count, so it MUST run on the venv interpreter.
+# Bare python3 is the system interpreter: it has neither torch nor eqvae, and using it is
+# what forced the old load-a-module-by-file-path workaround. Fail closed with an
+# actionable message rather than falling back and dying deep inside a build.
+build_python="${PYTHON:-.venv/bin/python}"
+
+build_kernel_py() {
+  # Probe EXACTLY what the build imports, not something weaker. Two traps here:
+  #   -x only proves a file is executable, and a stale venv (built before the project had
+  #     a [build-system], so eqvae was never installed) passes that trivially.
+  #   `import eqvae` only proves src/ is reachable: src/eqvae/__init__.py is a 162-byte
+  #     docstring that imports nothing, so `PYTHONPATH=src /usr/bin/python3` passes it and
+  #     the build then dies at `from torch import Tensor` with a raw traceback -- the exact
+  #     failure this guard exists to replace with a hint.
+  # eqvae.benchmarking.__init__ pulls torch, so this probe fails closed on a torch-less
+  # interpreter AND on one that cannot see eqvae at all.
+  if ! "$build_python" -c 'import eqvae.benchmarking' >/dev/null 2>&1; then
+    echo "error: kernel build needs a venv interpreter with eqvae AND torch importable" >&2
+    echo "       tried: $build_python" >&2
+    echo "hint:  uv sync --locked --python 3.12 --group dev" >&2
+    exit 1
+  fi
+  "$build_python" scripts/build_kaggle_embedded_kernel.py "$@"
+}
+
 default_kernel_dir="kaggle/kernels/non_eq_vae_debug"
 default_output_dir="runs/kaggle/non_eq_vae_debug"
 setup_kernel_dir="kaggle/kernels/setup_smoke"
@@ -344,7 +370,7 @@ validate_kernel_dir() {
   echo "ok: $kernel_dir/$code_file"
 
   if [[ "$kernel_dir" == "$real_data_runtime_pretest_kernel_dir" ]]; then
-    python3 scripts/build_kaggle_embedded_kernel.py \
+    build_kernel_py \
       --kernel-dir "$kernel_dir" \
       --ready-marker "KAGGLE_REAL_DATA_RUNTIME_PRETEST_READY = True" \
       --verify-only \
@@ -353,7 +379,7 @@ validate_kernel_dir() {
   fi
 
   if [[ "$kernel_dir" == "$runtime_selection_kernel_dir" ]]; then
-    python3 scripts/build_kaggle_embedded_kernel.py \
+    build_kernel_py \
       --kernel-dir "$kernel_dir" \
       --ready-marker "KAGGLE_RUNTIME_SELECTION_READY = True" \
       --verify-only \
@@ -362,7 +388,7 @@ validate_kernel_dir() {
   fi
 
   if [[ "$kernel_dir" == "$selected_runtime_debug_kernel_dir" ]]; then
-    python3 scripts/build_kaggle_embedded_kernel.py \
+    build_kernel_py \
       --kernel-dir "$kernel_dir" \
       --ready-marker "KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True" \
       --verify-only \
@@ -371,7 +397,7 @@ validate_kernel_dir() {
   fi
 
   if [[ "$kernel_dir" == "$selected_runtime_full_kernel_dir" ]]; then
-    python3 scripts/build_kaggle_embedded_kernel.py \
+    build_kernel_py \
       --kernel-dir "$kernel_dir" \
       --ready-marker "KAGGLE_SELECTED_RUNTIME_FULL_READY = True" \
       --verify-only \
@@ -380,7 +406,7 @@ validate_kernel_dir() {
   fi
 
   if [[ "$kernel_dir" == "$fixed25_selector_kernel_dir" ]]; then
-    python3 scripts/build_kaggle_embedded_kernel.py \
+    build_kernel_py \
       --kernel-dir "$kernel_dir" \
       --ready-marker "KAGGLE_FIXED25_SELECTOR_READY = True" \
       --verify-only \
@@ -510,7 +536,7 @@ build_embedded_kernel() {
   fi
 
   python3 -m json.tool "$metadata" >/dev/null
-  python3 scripts/build_kaggle_embedded_kernel.py \
+  build_kernel_py \
     --kernel-dir "$kernel_dir" \
     --ready-marker "$ready_marker" \
     --allow-dirty
@@ -657,7 +683,7 @@ guard_real_smoke_push_ready() {
     exit 1
   fi
 
-  python3 scripts/build_kaggle_embedded_kernel.py \
+  build_kernel_py \
     --kernel-dir "$kernel_dir" \
     --ready-marker "KAGGLE_SMOKE_READY = True" \
     --verify-only
@@ -847,7 +873,7 @@ PY
     exit 1
   fi
 
-  python3 scripts/build_kaggle_embedded_kernel.py \
+  build_kernel_py \
     --kernel-dir "$kernel_dir" \
     --ready-marker "KAGGLE_SETUP_SMOKE_READY = True" \
     --verify-only
@@ -932,7 +958,7 @@ PY
     fi
   done
 
-  python3 scripts/build_kaggle_embedded_kernel.py \
+  build_kernel_py \
     --kernel-dir "$kernel_dir" \
     --ready-marker "KAGGLE_FIXED25_SELECTOR_READY = True" \
     --verify-only
@@ -1010,7 +1036,7 @@ if errors:
     raise SystemExit(1)
 PY
 
-  python3 scripts/build_kaggle_embedded_kernel.py \
+  build_kernel_py \
     --kernel-dir "$kernel_dir" \
     --ready-marker "KAGGLE_SYNTHETIC_TIMING_READY = True" \
     --verify-only
@@ -1153,7 +1179,7 @@ if errors:
     raise SystemExit(1)
 PY
 
-  python3 scripts/build_kaggle_embedded_kernel.py \
+  build_kernel_py \
     --kernel-dir "$kernel_dir" \
     --ready-marker "KAGGLE_SELECTED_RUNTIME_COMPILE_PROBE_READY = True" \
     --verify-only
@@ -1296,7 +1322,7 @@ if errors:
     raise SystemExit(1)
 PY
 
-  python3 scripts/build_kaggle_embedded_kernel.py \
+  build_kernel_py \
     --kernel-dir "$kernel_dir" \
     --ready-marker "KAGGLE_REAL_DATA_RUNTIME_PRETEST_READY = True" \
     --verify-only
@@ -1498,7 +1524,7 @@ if errors:
     raise SystemExit(1)
 PY
 
-  python3 scripts/build_kaggle_embedded_kernel.py \
+  build_kernel_py \
     --kernel-dir "$kernel_dir" \
     --ready-marker "KAGGLE_RUNTIME_SELECTION_READY = True" \
     --verify-only
@@ -1748,7 +1774,7 @@ if errors:
     raise SystemExit(1)
 PY
 
-  python3 scripts/build_kaggle_embedded_kernel.py \
+  build_kernel_py \
     --kernel-dir "$kernel_dir" \
     --ready-marker "KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True" \
     --verify-only
@@ -2111,7 +2137,7 @@ PYFULLMETA
   if [[ "$guard_mode" == "local_preflight" ]]; then
     verify_args+=(--allow-dirty)
   fi
-  python3 scripts/build_kaggle_embedded_kernel.py "${verify_args[@]}"
+  build_kernel_py "${verify_args[@]}"
 
   local run_file="$kernel_dir/run.py"
   PYTHONPATH=src "$python_bin" - "$run_file" <<'PYFULLPAYLOAD'

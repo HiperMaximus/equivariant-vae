@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
-import importlib.util
 import io
 import json
 import re
@@ -18,10 +17,10 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from string import Template
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
+from eqvae.benchmarking.schedule import training_steps_per_epoch
+from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
 
 PAYLOAD_SCHEMA_VERSION = "spec0001.kaggle_payload_manifest.v1"
 DEFAULT_KERNEL_DIR = Path("kaggle/kernels/setup_smoke")
@@ -137,40 +136,32 @@ def build_run_text(args: BuildArgs) -> str:
     return run_text
 
 
-def _load_leaf_attr(repo_root: Path, relative: str, attribute: str) -> object:
-    # Load a stdlib-only eqvae leaf module by file path so the torch-less kernel BUILD
-    # can reuse the single-sourced schedule helper / patch count without importing the
-    # torch-dependent eqvae package (eqvae.benchmarking.__init__ pulls in torch).
-    module_name = f"_eqvae_leaf_{attribute}"
-    spec = importlib.util.spec_from_file_location(
-        module_name,
-        repo_root / "src" / relative,
-    )
-    if spec is None or spec.loader is None:
-        message = f"cannot load eqvae leaf module: {relative}"
+def _assert_eqvae_is_repo_root(repo_root: Path) -> None:
+    # The baked schedule MUST derive from the same eqvae tree the payload ships, or
+    # run.py trains for a step count inconsistent with the data-root constant it
+    # loads -- silently, since --verify-only re-derives through the same ambient
+    # import. The old file-path loader enforced this structurally by reading
+    # repo_root/src/eqvae directly; a plain `import eqvae` resolves through the
+    # interpreter instead, which is the editable .pth target and ignores
+    # --repo-root. Re-assert it explicitly.
+    import eqvae  # noqa: PLC0415
+
+    shipped = (repo_root / "src" / "eqvae").resolve()
+    imported = Path(str(eqvae.__file__)).parent.resolve()
+    if imported != shipped:
+        message = (
+            f"imported eqvae ({imported}) is not the tree being shipped "
+            f"({shipped}); the baked schedule would not match the payload. Run "
+            f"the build with the venv of --repo-root, or drop --repo-root."
+        )
         raise RuntimeError(message)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return cast("object", getattr(module, attribute))
 
 
 def _derive_full_schedule(repo_root: Path) -> tuple[int, int, int]:
     # Spec 0011 S8b: (updates, target, half) derived from the selected plan's global
     # batch and the config epochs via the single-sourced floor helper. Raises on a
     # malformed plan/config so a bad full-kernel build fails closed.
-    training_steps_per_epoch = cast(
-        "Callable[..., int]",
-        _load_leaf_attr(
-            repo_root,
-            "eqvae/benchmarking/schedule.py",
-            "training_steps_per_epoch",
-        ),
-    )
-    real_train_patch_count = cast(
-        "int",
-        _load_leaf_attr(repo_root, "eqvae/data/roots.py", "REAL_TRAIN_PATCH_COUNT"),
-    )
+    _assert_eqvae_is_repo_root(repo_root)
     plan = cast(
         "dict[str, object]",
         json.loads(
@@ -203,7 +194,7 @@ def _derive_full_schedule(repo_root: Path) -> tuple[int, int, int]:
         message = "full config training.epochs must be a positive integer"
         raise RuntimeError(message)
     updates = training_steps_per_epoch(
-        real_train_patch_count=real_train_patch_count,
+        real_train_patch_count=REAL_TRAIN_PATCH_COUNT,
         global_batch_size=global_batch,
     )
     return updates, epochs * updates, updates // 2

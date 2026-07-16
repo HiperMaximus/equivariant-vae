@@ -30,7 +30,7 @@ wheels = [
 [[package]]
 name = "eqvae-histo"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "numpy" },
     { name = "torch", version = "2.12.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },

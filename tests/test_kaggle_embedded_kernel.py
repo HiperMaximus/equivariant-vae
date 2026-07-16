@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess  # noqa: S404
 import sys
+import sysconfig
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -147,7 +148,7 @@ def test_embedded_setup_kernel_survives_single_file_upload_simulation(
     )
 
     subprocess.run(  # noqa: S603
-        (sys.executable, str(simulation.upload_dir / "run.py")),
+        _kernel_argv(simulation),
         cwd=simulation.upload_dir,
         check=True,
         env=_run_environment(simulation.output_dir),
@@ -187,7 +188,7 @@ def test_embedded_real_data_kernel_survives_single_file_upload_simulation(
     environment["EQVAE_LOCAL_UPLOAD_SIMULATION_ONLY"] = "1"
 
     subprocess.run(  # noqa: S603
-        (sys.executable, str(simulation.upload_dir / "run.py")),
+        _kernel_argv(simulation),
         cwd=simulation.upload_dir,
         check=True,
         env=environment,
@@ -218,7 +219,7 @@ def test_embedded_synthetic_timing_kernel_survives_single_file_upload_simulation
     environment["EQVAE_SYNTHETIC_TIMING_TINY_PROFILE"] = "1"
 
     subprocess.run(  # noqa: S603
-        (sys.executable, str(simulation.upload_dir / "run.py")),
+        _kernel_argv(simulation),
         cwd=simulation.upload_dir,
         check=True,
         env=environment,
@@ -330,7 +331,7 @@ def test_embedded_real_data_runtime_pretest_kernel_import_simulation(
     environment["EQVAE_REAL_DATA_RUNTIME_PRETEST_IMPORT_ONLY"] = "1"
 
     subprocess.run(  # noqa: S603
-        (sys.executable, str(simulation.upload_dir / "run.py")),
+        _kernel_argv(simulation),
         cwd=simulation.upload_dir,
         check=True,
         env=environment,
@@ -374,7 +375,7 @@ def test_embedded_real_data_runtime_pretest_kernel_full_local_simulation(
     )
 
     subprocess.run(  # noqa: S603
-        (sys.executable, str(simulation.upload_dir / "run.py")),
+        _kernel_argv(simulation),
         cwd=simulation.upload_dir,
         check=True,
         env=_run_environment(simulation.output_dir),
@@ -415,7 +416,7 @@ def test_embedded_runtime_selection_kernel_import_simulation(
     environment["EQVAE_RUNTIME_SELECTION_IMPORT_ONLY"] = "1"
 
     subprocess.run(  # noqa: S603
-        (sys.executable, str(simulation.upload_dir / "run.py")),
+        _kernel_argv(simulation),
         cwd=simulation.upload_dir,
         check=True,
         env=environment,
@@ -467,7 +468,7 @@ def test_embedded_fixed25_selector_kernel_import_simulation(
     environment["EQVAE_FIXED25_SELECTOR_IMPORT_ONLY"] = "1"
 
     subprocess.run(  # noqa: S603
-        (sys.executable, str(simulation.upload_dir / "run.py")),
+        _kernel_argv(simulation),
         cwd=simulation.upload_dir,
         check=True,
         env=environment,
@@ -512,7 +513,7 @@ def test_embedded_runtime_selection_kernel_full_local_fail_closed_simulation(
     )
 
     subprocess.run(  # noqa: S603
-        (sys.executable, str(simulation.upload_dir / "run.py")),
+        _kernel_argv(simulation),
         cwd=simulation.upload_dir,
         check=True,
         env=environment,
@@ -561,7 +562,7 @@ def test_embedded_selected_runtime_debug_kernel_import_simulation(
     environment["EQVAE_SELECTED_RUNTIME_DEBUG_IMPORT_ONLY"] = "1"
 
     subprocess.run(  # noqa: S603
-        (sys.executable, str(simulation.upload_dir / "run.py")),
+        _kernel_argv(simulation),
         cwd=simulation.upload_dir,
         check=True,
         env=environment,
@@ -606,7 +607,7 @@ def test_embedded_selected_runtime_full_kernel_import_simulation(
     environment["EQVAE_SELECTED_RUNTIME_FULL_RESUME"] = str(resume_checkpoint)
 
     subprocess.run(  # noqa: S603
-        (sys.executable, str(simulation.upload_dir / "run.py")),
+        _kernel_argv(simulation),
         cwd=simulation.upload_dir,
         check=True,
         env=environment,
@@ -879,6 +880,34 @@ def test_build_derives_non_reference_full_schedule(tmp_path: Path) -> None:
     )
 
 
+def test_eqvae_never_imports_the_leaked_top_level_nn_package() -> None:
+    """`src/eqvae` must never import `nn`: it resolves locally but is absent on Kaggle.
+
+    The editable install's .pth puts the whole `<repo>/src` on sys.path, so
+    `import nn` works in the venv -- but the payload ships only `src/eqvae`, and
+    `src/nn` is excluded from ruff AND basedpyright, so nothing else would catch
+    such an import. It would pass every local check, then raise
+    ModuleNotFoundError on Kaggle after the GPU slot was committed. (`src/nn` is
+    also dead: nothing imports it, and it needs pytorch-msssim, which commit
+    ff54009 dropped from the dependencies.)
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    pattern = re.compile(r"^\s*(?:import\s+nn\b|from\s+nn[\s.])")
+    offenders = [
+        f"{path.relative_to(repo_root)}:{number}"
+        for path in sorted((repo_root / "src" / "eqvae").rglob("*.py"))
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(),
+            start=1,
+        )
+        if pattern.match(line)
+    ]
+    assert not offenders, (
+        f"src/eqvae imports the top-level `nn` package, which the Kaggle payload "
+        f"does not ship: {offenders}"
+    )
+
+
 def test_build_substitutes_non_reference_full_schedule() -> None:
     """A non-24 batch rewrites the schedule constants; a missing one fails closed."""
     repo_root = Path(__file__).resolve().parents[1]
@@ -986,7 +1015,7 @@ def test_embedded_selected_runtime_debug_kernel_full_local_fail_closed_simulatio
     )
 
     subprocess.run(  # noqa: S603
-        (sys.executable, str(simulation.upload_dir / "run.py")),
+        _kernel_argv(simulation),
         cwd=simulation.upload_dir,
         check=True,
         env=_run_environment(simulation.output_dir),
@@ -1416,11 +1445,52 @@ def _build_upload_simulation(
 
 
 def _run_environment(output_dir: Path) -> dict[str, str]:
+    """Return a subprocess env where `eqvae` resolves ONLY from the unzipped payload.
+
+    Popping PYTHONPATH used to be enough. It no longer is: `eqvae` is now
+    editable-installed into the venv, and the resulting `.pth` puts `<repo>/src`
+    on sys.path for every venv process regardless of PYTHONPATH. That silently
+    defeated this simulation -- a payload MISSING a module would still import it
+    from the venv and pass here, then die with ModuleNotFoundError on Kaggle
+    after the GPU slot was committed. (Modules PRESENT in the payload were never
+    at risk: run_template inserts the payload at sys.path[0].)
+
+    So the interpreter runs with `-S` (see `_kernel_argv`), which skips site.py
+    and hence all .pth processing, and site-packages is re-added explicitly here.
+    Net effect: stdlib + installed third-party (torch, numpy) stay importable
+    while `eqvae` does not -- exactly the Kaggle contract this simulation proves.
+
+    LIMIT -- the guarantee is PARENT-ONLY. `-S` is a command-line flag, not an env
+    var, so it does not survive the `subprocess.run([sys.executable, ...])` calls
+    the payload itself makes (`run_template.py` spawns `torch.distributed.run` and
+    the output gate). Those children re-run site.py and get `<repo>/src` back, so a
+    lazily-imported leaked top-level name (e.g. `nn`) on a torchrun-only code path
+    would still pass here. `test_eqvae_never_imports_the_leaked_top_level_nn_package`
+    is the load-bearing guard for that case precisely because it greps rather than
+    imports. Do not "fix" this by forcing -S into the payload's own subprocess
+    calls: that is Kaggle production code, and Kaggle has no .pth to defend against.
+
+    Returns:
+        Subprocess environment with payload-only `eqvae` resolution.
+
+    """
     environment = os.environ.copy()
     environment["EQVAE_OUTPUT_DIR"] = str(output_dir)
     environment.pop("EQVAE_DATA_ROOT", None)
-    environment.pop("PYTHONPATH", None)
+    environment["PYTHONPATH"] = sysconfig.get_paths()["purelib"]
     return environment
+
+
+def _kernel_argv(simulation: UploadSimulation) -> tuple[str, ...]:
+    """Return the argv running the uploaded `run.py` under payload-only isolation.
+
+    `-S` is what makes `_run_environment`'s isolation real; keep the two together.
+
+    Returns:
+        Argv for the single-file kernel subprocess.
+
+    """
+    return (sys.executable, "-S", str(simulation.upload_dir / "run.py"))
 
 
 def _expected_data_origin(path: Path) -> str:
