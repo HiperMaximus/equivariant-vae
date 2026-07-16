@@ -305,8 +305,13 @@ staging.
 `overleaf` remote) — use `git push origin <branch>`; Kaggle/Overleaf writes still need their own
 confirm flags.
 **Next sequence:** origin push ✓ and `setup_smoke` Kaggle proof ✓ both DONE 2026-07-16 →
-dependency upgrade as its OWN gated step (`uv lock --upgrade`; ahead of S17b-3 because Kaggle
-rides near-latest torch and drift bites the compiled fast-path) → S17b-3.
+**doc-hygiene IN PROGRESS 2026-07-16: clearing the `docs/open_follow_ups.md` backlog before the
+run (the D-05..D-17 trims target `kaggle_kernel.sh` GUARD FILES — extract anchors from the
+script; the DO NOT DROP list is incomplete; see memory `eqvae-doc-trim-backlog-clear`). Items
+1–2 DONE (`1fdfbbd` prune FU-040/041 + de-ref; `d62b951` D-09 spec-0008 compress). Remaining
+trims + per-trim procedure + folded decisions (professor's screenshot KEPT, D-30, FU-045) are in
+that memory** → dependency upgrade as its OWN gated step (`uv lock --upgrade`; ahead of S17b-3
+because Kaggle rides near-latest torch and drift bites the compiled fast-path) → S17b-3.
 
 > Pre-Spec-0011 status (runtime-selection v5, Spec 0006–0009) and older Kaggle-run
 > provenance were trimmed from here on 2026-07-16 (FU-011). Git history and
