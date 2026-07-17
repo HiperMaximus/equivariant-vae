@@ -345,7 +345,22 @@ upgrade DONE local-only (`d4acb73`: `uv lock --upgrade` — torch 2.12→2.13 fo
 parity, + numpy 2.5.1/scipy 1.18.0/pillow/ruff 0.15.22/basedpyright 1.39.9/pytest 9.1.1; Python 3.12
 `<3.13` anchor held; adopted the two worthwhile new ruff rules D421/RUF201, excluded cosmetic RUF105
 [noqa-comments] with the rationale in `pyproject.toml`; gate green 557 passed/1 skipped, basedpyright 0
-errors). **NEXT = Spec 0011 S17b-3** (de-pin the kernel/push-side parser mirrors; see
+errors). **NEXT — two pre-run tasks (user to sequence):**
+**(1) KAGGLE-TORCH INTERNET+PIP — DECIDED 2026-07-17, implementation pending.** Measured via a
+throwaway GPU probe kernel: Kaggle's default image ships torch 2.10.0+cu128 (a ~3-minor lag);
+`pip install --upgrade torch torchvision torchaudio` with internet ON → torch 2.13.0+cu130, with
+matmul/autograd/`torch.compile` all VERIFIED computing on the T4 (RAPIDS conflict warnings are
+harmless — we import none of torchvision/torchaudio/RAPIDS). Plan: flip `enable_internet`
+false→true on ALL kernels (every one `import eqvae`→torch), in BOTH each `run_template.py` AND the
+~9 `scripts/kaggle_kernel.sh` metadata blocks; add a `pip install --upgrade torch torchvision
+torchaudio` step (GPU → default cu130/2.13) / `torch --index-url .../cpu` (CPU setup_smoke +
+fixed25_selector → 2.13+cpu, = local) at each run.py TOP before `import eqvae`; update any
+offline-asserting guards/tests (e.g. `tests/test_kaggle_embedded_kernel.py`); add a
+`docs/decisions/` note superseding decision 0011's internet-off scope FOR THE RUN KERNELS (code
+stays embedded-payload — only torch comes from PyPI) + spec 0001/0003 notes; re-run the gate; then
+a GPU Kaggle smoke proving pip-at-start + `import eqvae`. Substantial multi-file change — do under
+the gated per-step procedure. Full record + rationale in [[eqvae-kaggle-code-delivery]].
+**(2) Spec 0011 S17b-3** — de-pin the kernel/push-side parser mirrors (see
 [[eqvae-reusable-runtime-mechanism-plan]] + `docs/specs/0011-*.md`).
 
 > Pre-Spec-0011 status (runtime-selection v5, Spec 0006–0009) and older Kaggle-run
