@@ -2905,8 +2905,8 @@ General repo checks:
 Spec 0001 uses the spec 0002 production boundary: historical exploratory
 `reference/nn` is excluded from Ruff/BasedPyright and may remain as reference
 material, while production Python under `src/eqvae` and tests must pass
-`./scripts/python_quality.sh`. Empty `main.py` was deleted on 2026-06-12. Do
-not weaken global Ruff/BasedPyright settings and do not add global ignores.
+`./scripts/python_quality.sh`. Do not weaken global Ruff/BasedPyright
+settings and do not add global ignores.
 
 Narrow `data_metrics_ready` local checks:
 
@@ -2938,7 +2938,7 @@ PYTHONPATH=src .venv/bin/pytest \
   tests/test_spec0001_benchmark_scaffold.py
 ```
 
-As of 2026-06-12 these focused checks pass locally. Benchmark CLIs still become
+Benchmark CLIs still become
 implementation-ready only when the full production-scope
 `./scripts/python_quality.sh` passes and the relevant benchmark artifacts are
 real-code outputs rather than schema placeholders.
@@ -2959,8 +2959,7 @@ PYTHONPATH=src .venv/bin/pytest \
   tests/test_data_roots.py tests/test_dataloaders.py tests/test_fixed_selectors.py
 ```
 
-As of 2026-06-12 these focused checks pass locally for the new selector and
-dataloader slice. The canonical real selector JSON files remain placeholders
+The canonical real selector JSON files remain placeholders
 until real Kaggle train/validation shards are available locally and the
 permission-gated canonical generation commands are run with CRC validation.
 
@@ -3184,10 +3183,8 @@ python -m eqvae.cli.benchmark_runtime \
 ```
 
 Kaggle selected-runtime debug command that must run after
-`benchmark/selected_runtime.json` is written. As of 2026-06-21, the CLI
-implements the local synthetic contract path and rejects real
-`ubc-pre-shuffled` execution until the Kaggle UBC training launcher is wired.
-The selected-runtime debug/tiny kernel now explicitly embeds the selected
+`benchmark/selected_runtime.json` is written. The selected-runtime debug/tiny
+kernel now explicitly embeds the selected
 runtime artifact from
 `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json` into its
 single-file payload; another kernel's `/kaggle/working` directory is not
