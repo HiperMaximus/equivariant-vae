@@ -1447,9 +1447,6 @@ Benchmark budget and reset rules:
 - each row uses `warmup_steps = 3`, `measured_steps = 12`, and `repeats = 1`;
   after a row is explicitly shortlisted for operational carry-forward, rerun it with
   `warmup_steps = 5`, `measured_steps = 25`, and `repeats = 1`;
-  remote synthetic timing v4 completed that repeat for the v3 top-four
-  shortlist, but this remains non-promotable loader/H2D screening evidence and
-  does not select a runtime;
 - the first real-data train-step benchmark pass must be staged to avoid an
   uncontrolled cross product:
   1. seed accelerator/batch candidates from the synthetic v4 shortlist, but
@@ -1539,38 +1536,12 @@ Benchmark budget and reset rules:
   unless the exact candidate batch size, accelerator mode, compile scope, and
   precision path is covered. Corruption equivalence on a training batch must
   not claim clean-validation RNG non-consumption;
-- remote v5 of the capped real-data runtime pretest completed on 2026-06-19 as
-  non-promotable evidence under `runs/kaggle/real_data_runtime_pretest_v5`.
-  It passed canonical real-data, DDP-launch, dataloader, and gate-health proof
-  lanes and produced two eligible eager single-T4 bs4 FP32 rows. It still must
-  not select a runtime: eager bs8/bs12 rows need numerical/corruption evidence
-  coverage, eager bs32 hit runtime OOM, compiled `model_forward` rows remain
-  diagnostic-only/ineligible pending full compile-settle coverage, and no
-  `benchmark/selected_runtime.json` was written;
 - the v6 candidate-evidence follow-up prioritizes single-T4 FP32 eager
   train-step evidence before compiled diagnostic rows, then smaller
   per-device batch size before larger ones, records candidate-evidence counts
   and failed-candidate evidence in the paired numerical and corruption proof
   objects, and mirrors quick covered/failed evidence counters into
-  `runtime_proof.json`. Remote v6 completed on Kaggle on 2026-06-19 and
-  downloaded artifacts now live under
-  `runs/kaggle/real_data_runtime_pretest_v6`. It wrote
-  `benchmark/phase_timings.json`, kept `selected_runtime_written = false`,
-  preserved two eager single-T4 bs4 FP32 eligible rows, and exposed five failed
-  candidate evidence attempts. The bs8/bs12 eager and model-forward attempts
-  failed with `candidate_train_step_RuntimeError` and the same deterministic
-  message hash. Remote v7 completed on 2026-06-20 and downloaded artifacts live
-  under `runs/kaggle/real_data_runtime_pretest_v7`; it kept the pretest
-  non-promotable, still wrote no `benchmark/selected_runtime.json`, still
-  preserved only two eligible eager single-T4 bs4 FP32 rows, and exposed the
-  failed-candidate exception as `quantile() input tensor is too large`. Remote
-  v8 completed on 2026-06-20 and downloaded artifacts live under
-  `runs/kaggle/real_data_runtime_pretest_v8`; it fixed the quantile
-  evidence-plumbing failure, produced zero failed candidate evidence entries,
-  kept `benchmark/selected_runtime.json` absent, and marked six
-  capped-pretest-passing eager single-visible-T4 FP32 rows for bs4/bs8/bs12
-  across both corruption strategies. It remains non-promotable selected-runtime
-  evidence;
+  `runtime_proof.json`.
 - if `torch.compile` needs compilation, report compile/startup time separately
   from steady-state step time. Compiled rows must record
   `compile_settle_steps`, the code paths exercised before timing, graph break
@@ -1761,7 +1732,9 @@ Benchmark artifact dependency graph:
    `failure_message_hash` and a bounded `failure_message_excerpt` so repeated
    remote failures can be diagnosed without printing unbounded logs.
    Gate-health quantile telemetry (`gate_p01`, `gate_p50`, `gate_p99`) must be
-   computed with a Kaggle-safe bounded/sampled path for large tensors; the
+   computed with a Kaggle-safe bounded/sampled path for large tensors (an
+   unbounded `torch.quantile` over the full gate tensor fails on Kaggle with
+   `quantile() input tensor is too large`); the
    exact saturation fractions, worst-channel saturation fractions, finite
    checks, and dead-channel checks remain the pass/fail evidence. A lane-level
    gate-health pass must not mark runtime rows pass unless matching
