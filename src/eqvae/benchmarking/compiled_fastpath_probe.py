@@ -350,7 +350,7 @@ class RecipeResult:
 
     @property
     def stable(self) -> bool:
-        """Return whether the recipe settled with no post-warmup graph churn.
+        """Whether the recipe settled with no post-warmup graph churn.
 
         Returns:
             ``True`` if no graph break or recompile occurred in the settle window.
@@ -363,7 +363,7 @@ class RecipeResult:
 
     @property
     def passed(self) -> bool:
-        """Return whether the compiled recipe is a valid winner candidate.
+        """Whether the compiled recipe is a valid winner candidate.
 
         Speed is intentionally excluded here: `samples_sec` ranks the passing
         recipes elsewhere, but per-rank timing noise must never flip the
@@ -394,7 +394,7 @@ class CompiledFastpathProbeMeasurement:
 
     @property
     def winner(self) -> RecipeResult | None:
-        """Return the fastest recipe that passed sync, stability, and finiteness.
+        """The fastest recipe that passed sync, stability, and finiteness.
 
         Returns:
             The highest-throughput passing recipe, or ``None`` if none passed.
@@ -407,7 +407,7 @@ class CompiledFastpathProbeMeasurement:
 
     @property
     def passed(self) -> bool:
-        """Return whether the bake-off earned a pass verdict.
+        """Whether the bake-off earned a pass verdict.
 
         A run that checked zero sync steps cannot pass: an unverified sync must
         never read as a proof, even if the negative control fired.

@@ -298,7 +298,7 @@ class SelectedRuntimeLaunchCommand:
 
     @property
     def shell_command(self) -> str:
-        """Return a shell-escaped command string for proof artifacts."""
+        """A shell-escaped command string for proof artifacts."""
         return shlex.join(self.tokens)
 
 
@@ -544,7 +544,7 @@ class _SelectedPatchTrainingDataset(Dataset[PatchTrainingSample]):
 
     @property
     def split(self) -> str:
-        """Return the wrapped split name.
+        """The wrapped split name.
 
         Returns:
             Canonical split name.
@@ -554,7 +554,7 @@ class _SelectedPatchTrainingDataset(Dataset[PatchTrainingSample]):
 
     @property
     def records(self) -> tuple[object, ...]:
-        """Return records in selector order for audit code.
+        """Records in selector order for audit code.
 
         Returns:
             Selected records.

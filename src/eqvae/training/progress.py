@@ -19,7 +19,7 @@ class TrainingProgressState:
 
     @property
     def optimizer_step_index(self) -> int:
-        """Return the zero-based step index for the next successful update."""
+        """The zero-based step index for the next successful update."""
         return self.successful_optimizer_update_count
 
 

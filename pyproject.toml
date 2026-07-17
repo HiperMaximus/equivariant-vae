@@ -72,12 +72,19 @@ quote-style = "double"
 
 [tool.ruff.lint]
 fixable = ["ALL"]
-ignore = []
+ignore = [
+    # noqa-comments (RUF105) nags to rewrite every `# noqa` into ruff-native
+    # `# ruff:ignore[...]`. Cosmetic-only (no correctness/quality gain) and its
+    # autofix mangles existing suppressions, so `import-outside-top-level`/
+    # `import-private-name` spuriously fire. Deliberately excluded; the
+    # `# noqa`/`# ruff:ignore` mix stays as-is.
+    "noqa-comments",
+]
 select = ["ALL"]
 unfixable = []
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101"]
+"tests/**/*.py" = ["assert"]
 
 [tool.basedpyright]
 exclude = [

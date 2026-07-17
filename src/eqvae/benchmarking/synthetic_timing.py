@@ -195,17 +195,17 @@ class SyntheticTimingProfile:
 
     @property
     def total_patches(self) -> int:
-        """Return total train plus validation patches."""
+        """Total train plus validation patches."""
         return self.train_patches + self.validation_patches
 
     @property
     def patch_payload_bytes(self) -> int:
-        """Return payload bytes per patch."""
+        """Payload bytes per patch."""
         return self.channels * self.image_size * self.image_size
 
     @property
     def total_payload_bytes(self) -> int:
-        """Return total payload bytes before CSV and artifacts."""
+        """Total payload bytes before CSV and artifacts."""
         return self.total_patches * self.patch_payload_bytes
 
 

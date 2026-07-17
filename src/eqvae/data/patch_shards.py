@@ -106,7 +106,7 @@ class PatchShard:
 
     @property
     def header(self) -> PatchShardHeader:
-        """Return the parsed and validated shard header.
+        """The parsed and validated shard header.
 
         Returns:
             Parsed header.
@@ -122,7 +122,7 @@ class PatchShard:
 
     @property
     def crc_validated(self) -> bool:
-        """Return whether payload CRC32 was checked during construction.
+        """Whether payload CRC32 was checked during construction.
 
         Returns:
             True if payload CRC32 was checked.
@@ -132,7 +132,7 @@ class PatchShard:
 
     @property
     def records(self) -> tuple[PatchRecord, ...]:
-        """Return immutable patch records in CSV order.
+        """Immutable patch records in CSV order.
 
         Returns:
             Patch records in metadata order.

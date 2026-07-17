@@ -74,7 +74,7 @@ class PatchTensorDataset(Dataset[Tensor]):
 
     @property
     def split(self) -> PatchSplit:
-        """Return the canonical split name.
+        """The canonical split name.
 
         Returns:
             Canonical split name.
@@ -84,7 +84,7 @@ class PatchTensorDataset(Dataset[Tensor]):
 
     @property
     def records(self) -> tuple[PatchRecord, ...]:
-        """Return immutable CSV records for non-hot-path audit code.
+        """Immutable CSV records for non-hot-path audit code.
 
         Returns:
             Patch records in CSV order.

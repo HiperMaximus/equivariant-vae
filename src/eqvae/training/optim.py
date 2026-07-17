@@ -80,7 +80,7 @@ class BatchLrScaling:
 
     @property
     def exponent(self) -> float:
-        """Return the batch-ratio exponent for this rule.
+        """The batch-ratio exponent for this rule.
 
         Returns:
             The exponent applied to ``global / reference`` (0.5 for ``sqrt``,

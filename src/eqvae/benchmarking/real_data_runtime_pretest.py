@@ -289,7 +289,7 @@ class WindowSpec:
 
     @property
     def stop_row(self) -> int:
-        """Return exclusive stop row."""
+        """Exclusive stop row."""
         return self.start_row + self.patch_count
 
 

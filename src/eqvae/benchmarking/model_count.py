@@ -128,7 +128,7 @@ class InventoryEntry:
 
     @property
     def parent_path(self) -> str:
-        """Return the containing module path."""
+        """The containing module path."""
         return self.module_id.rpartition(".")[0]
 
     def as_csv_row(self) -> CsvRow:

@@ -91,7 +91,7 @@ class PatchTrainingDataset(Dataset[PatchTrainingSample]):
 
     @property
     def split(self) -> PatchSplit:
-        """Return the canonical split name.
+        """The canonical split name.
 
         Returns:
             Canonical split name.
@@ -101,7 +101,7 @@ class PatchTrainingDataset(Dataset[PatchTrainingSample]):
 
     @property
     def records(self) -> tuple[PatchRecord, ...]:
-        """Return immutable patch records in CSV row order.
+        """Immutable patch records in CSV row order.
 
         Returns:
             Patch records.
