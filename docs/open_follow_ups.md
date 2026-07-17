@@ -110,8 +110,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
   Authority: `docs/spec_driven_development.md:96-97`, `docs/agentic_review_workflow.md:88-89`.
   Fix: apply the Drop Plan below; add a bullet to `spec_driven_development.md`
   requiring STATUS blocks to hold latest state only.
-- **FU-029 — Specs 0001/0003 + README re-narrate the whole finished benchmark
-  saga.** See D-06 (D-05/D-08/D-10 done). Largest single staleness offender.
 - **FU-030 — Spec 0009 is the LIVE frontier — do NOT compress to "implemented"
   during cleanup.** `docs/specs/0009-...md:3-9,290-318`. Only normalize formatting;
   update status after the approved status/output verification runs.
@@ -151,12 +149,9 @@ Rules to keep this file from rotting (the problem it exists to fix):
 Delete/compress historical narration so the repo reflects current state. Confidence
 HIGH unless noted. Execute, then delete this section's done items.
 
-### docs/specs/0001 (~3608 lines)
-- **D-06 [HIGH]** Drop per-version run outcomes in Training/Config Contract
-  (`:~1490-1573` after the D-05 shift — re-derive against the current file);
-  keep eligibility/threshold rules.
+### docs/specs/0001 (~3582 lines)
 - **D-07 [MED]** Drop dated "as of" notes in Verification Commands
-  (`:~2916,2949,2970,3195` after the D-05 shift — re-derive); keep the command list.
+  (`:~2889,2922,2943,3168` after the D-05/D-06 shifts — re-derive); keep the command list.
 
 ### docs/behavior_inventory_kaggle.md (~648 lines)
 - **D-18 [MED]** Move/drop "Spec 0001 Reopened Decisions" `:541-649` (wrong home; FU-015).

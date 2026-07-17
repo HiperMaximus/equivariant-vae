@@ -331,8 +331,14 @@ fail-closed 0001 guards; agent_preflight + a 5-lens adversarial Workflow review 
 a compact Status block preserving the six `scripts/kaggle_kernel.sh` guard literals + the fail-closed
 sh:657 broad-impl push block; rescued the v4/`fc5227d` row-scoped-promotion anti-pattern as a 1-line
 caveat on durable rule 8; durable `## Purpose`→EOF byte-intact otherwise; 4012→3608 lines; guard-health
-steady 3 FAIL/21; agent_preflight + two read-only adversarial passes clean). NEXT doc-trim = spec 0001
-`D-06`/`D-07` (per-trim procedure + remaining order live in that memory)** → dependency
+steady 3 FAIL/21; agent_preflight + two read-only adversarial passes clean). Then spec 0001 `D-06` DONE
+local-only (`c8e601a`: surgically dropped the v4/v5/v6/v7/v8 benchmark run-outcome narration from the
+durable Training/Config Contract, kept every eligibility/threshold rule + the v6 evidence-ordering rule
+[its only prose home] + the v4-shortlist staging rule byte-intact, migrated the `quantile() input tensor
+is too large` breadcrumb next to its durable gate-health rule; −27 lines; guard-health steady 3 FAIL/21;
+pre-edit home audit + post-edit adversarial diff review both clean; FU-029 retired — all its trims done).
+NEXT doc-trim = spec 0001 `D-07` (dated "as of" notes in Verification Commands; per-trim procedure +
+remaining order live in that memory)** → dependency
 upgrade as its OWN gated step
 (`uv lock --upgrade`; ahead of S17b-3 because Kaggle rides near-latest torch and drift bites the
 compiled fast-path) → S17b-3.
