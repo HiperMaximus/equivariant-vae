@@ -337,8 +337,10 @@ durable Training/Config Contract, kept every eligibility/threshold rule + the v6
 [its only prose home] + the v4-shortlist staging rule byte-intact, migrated the `quantile() input tensor
 is too large` breadcrumb next to its durable gate-health rule; −27 lines; guard-health steady 3 FAIL/21;
 pre-edit home audit + post-edit adversarial diff review both clean; FU-029 retired — all its trims done).
-NEXT doc-trim = spec 0001 `D-07` (dated "as of" notes in Verification Commands; per-trim procedure +
-remaining order live in that memory)** → dependency
+Then spec 0001 `D-07` DONE local-only (`db9a104`: dropped 4 dated "as of" verification-command status
+notes incl. a stale CLI-rejects-real-execution claim superseded by Spec 0007/0008/0009; commands + durable
+rules byte-intact; guard-health steady 3 FAIL/21; adversarial diff review clean). ALL spec 0001 doc-trims
+(D-05/D-06/D-07) DONE — the Drop-Plan spec-0001 subsection is now removed.** → dependency
 upgrade as its OWN gated step
 (`uv lock --upgrade`; ahead of S17b-3 because Kaggle rides near-latest torch and drift bites the
 compiled fast-path) → S17b-3.

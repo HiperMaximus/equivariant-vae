@@ -149,10 +149,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
 Delete/compress historical narration so the repo reflects current state. Confidence
 HIGH unless noted. Execute, then delete this section's done items.
 
-### docs/specs/0001 (~3582 lines)
-- **D-07 [MED]** Drop dated "as of" notes in Verification Commands
-  (`:~2889,2922,2943,3168` after the D-05/D-06 shifts — re-derive); keep the command list.
-
 ### docs/behavior_inventory_kaggle.md (~648 lines)
 - **D-18 [MED]** Move/drop "Spec 0001 Reopened Decisions" `:541-649` (wrong home; FU-015).
 - **D-19 [MED]** Drop time-stamped operational asides + 403 note `:109-114`; keep tables.
