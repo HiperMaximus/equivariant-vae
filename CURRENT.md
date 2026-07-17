@@ -322,8 +322,13 @@ by-design/other-doc (spec0001:657 + README:663/680), zero for `kaggle_cli_workfl
 `D-08` DONE local-only (`6b0f22b`: dropped the v1–v8 remote chronology from Status + Workflow Contract,
 kept all 4 guard anchors + durable rules + the locked-runtime v5 sentence, neutralized the stale 60h
 magnitude → "full (multiple dozen hours)"; guard-health steady 3 FAIL/21; agent_preflight + two
-read-only adversarial reviews clean). NEXT doc-trim = README `D-10` (anchor-DENSE) → spec 0001 `D-05`
-(surgical)/`D-06`/`D-07`; per-trim procedure + remaining order live in that memory** → dependency
+read-only adversarial reviews clean). Then README `D-10` DONE local-only (`94f1232`: compressed the
+0003/0008 workflow cells, fixed the 0001/0009/0010 stale FU-041/Spec-0010 facts, rescued the
+`runtime_selection_kernel_ready` push-guard anchor into the guard-phrase list, dropped the trailing
+v1–v6 narrative; the 0001 row substance was kept verbatim; guard-health steady 3 FAIL/21 incl. the two
+fail-closed 0001 guards; agent_preflight + a 5-lens adversarial Workflow review clean). NEXT doc-trim =
+spec 0001 `D-05` (surgical LANDMINE)/`D-06`/`D-07`; per-trim procedure + remaining order live in that
+memory** → dependency
 upgrade as its OWN gated step
 (`uv lock --upgrade`; ahead of S17b-3 because Kaggle rides near-latest torch and drift bites the
 compiled fast-path) → S17b-3.

@@ -106,7 +106,7 @@ Rules to keep this file from rotting (the problem it exists to fix):
   Fix: apply the Drop Plan below; add a bullet to `spec_driven_development.md`
   requiring STATUS blocks to hold latest state only.
 - **FU-029 — Specs 0001/0003 + README re-narrate the whole finished benchmark
-  saga.** See D-05/D-06/D-10 (D-08 done). Largest single staleness offender.
+  saga.** See D-05/D-06 (D-08/D-10 done). Largest single staleness offender.
 - **FU-030 — Spec 0009 is the LIVE frontier — do NOT compress to "implemented"
   during cleanup.** `docs/specs/0009-...md:3-9,290-318`. Only normalize formatting;
   update status after the approved status/output verification runs.
@@ -152,12 +152,6 @@ HIGH unless noted. Execute, then delete this section's done items.
 - **D-06 [HIGH]** Drop per-version run outcomes in Training/Config Contract `:~1896-1979`;
   keep eligibility/threshold rules.
 - **D-07 [MED]** Drop dated "as of" notes in Verification Commands `:~3319,3352,3373,3598`.
-
-### docs/specs/README.md
-- **D-10 [HIGH]** Compress bloated cells `:28,30,33` to 1-2 sentences; drop trailing
-  narrative `:44-127` EXCEPT keep guard-phrase list `:38-42`. Don't ADD
-  `locked / implementation-ready` or the `kaggle_smoke_ready` backtick phrase to the
-  0001 cell (fail-closed guards at kaggle_kernel.sh:521/538). Keep `.md` filename literals.
 
 ### docs/behavior_inventory_kaggle.md (~648 lines)
 - **D-18 [MED]** Move/drop "Spec 0001 Reopened Decisions" `:541-649` (wrong home; FU-015).
