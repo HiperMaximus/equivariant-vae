@@ -359,11 +359,18 @@ only torch comes from PyPI, so decision 0012 narrows (does not discard) 0011's h
 Docs: decision 0012 added, 0011 + decisions README + spec 0001/0003 + kaggle_cli_workflow.md updated.
 Gate green (557 passed/1 skipped, basedpyright 0); read-only default-refute adversarial review clean on
 7 axes (gate-safety proven, import-ordering incl. torchrun children, completeness, flip-consistency,
-hermeticity faces, helper correctness). ONE runtime risk deferred to the smoke: the CPU-index
-`torchvision`/`torchaudio` may not resolve for the newest torch → verify on the CPU Kaggle smoke.
-**NEXT: GPU Kaggle smoke** proving pip-at-start + `import eqvae` on a real worker (and a CPU
-`setup_smoke` push to close the item-7 CPU-index risk). Full record in [[eqvae-kaggle-code-delivery]].
-**THEN Spec 0011 S17b-3** — de-pin the kernel/push-side parser mirrors (see
+hermeticity faces, helper correctness). **KAGGLE SMOKE VERIFIED 2026-07-17 on `4f717be`:**
+`setup_smoke` v3 (CPU) settled COMPLETE with `status=smoke_pass`, `git_commit=4f717be`,
+`git_dirty=false`. The kernel log proves the CPU-index pip upgrade at run start (the item-7 risk):
+`Successfully installed torch-2.13.0+cpu torchaudio-2.11.0+cpu torchvision-0.28.0+cpu` (was torch
+2.10.0+cpu — so local↔Kaggle torch PARITY reached), then `import eqvae` + synthetic train passed. The
+`pip dependency resolver` conflict line is the harmless RAPIDS-style warning (install still succeeded;
+our code imports none of the conflicting packages). Item-7 CLEARED. Build-before-push is required:
+the first push caught a stale on-disk `run.py` (built before `abaeac4` added `torch_runtime.py`); a
+rebuild fixed it. The GPU path's pip resolution was already proven by the 2026-07-17 throwaway probe
+(2.13.0+cu130, matmul/autograd/`torch.compile` computing); the full compiled-DDP recipe on 2.13 gets
+exercised naturally when the actual GPU kernels run. Full record in [[eqvae-kaggle-code-delivery]].
+**NEXT: Spec 0011 S17b-3** — de-pin the kernel/push-side parser mirrors (see
 [[eqvae-reusable-runtime-mechanism-plan]] + `docs/specs/0011-*.md`).
 
 > Pre-Spec-0011 status (runtime-selection v5, Spec 0006–0009) and older Kaggle-run
