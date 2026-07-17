@@ -245,77 +245,43 @@ The behavior inventory now lives at:
 docs/behavior_inventory_kaggle.md
 ```
 
-On 2026-06-06, `./scripts/kaggle_kernel.sh check` passed on this laptop with
-Kaggle CLI 2.2.1. Authentication is still a user-local secret and should be
-rechecked before remote reads or writes.
+Authentication is a user-local secret; recheck it before remote reads or writes.
 
-On 2026-06-11, the read-only API preflight command:
+The read-only API preflight
 
 ```bash
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check
 ```
 
-confirmed:
+generates a fresh OAuth token and proves auth through wrapped `kernels`/`datasets`
+endpoint calls (no raw `kaggle auth print-access-token` probe), reporting
+`ok: fresh OAuth wrapper selected for authenticated Kaggle calls`. The Kaggle CLI
+`quota` and `kernels files` endpoints return an authentication-required message
+even when OAuth token generation works, so the workflow must not rely on the CLI
+quota endpoint as the only gate: check GPU quota/availability in the Kaggle web UI
+if the quota endpoint warns, and let the benchmark itself fail rows with
+`failure_kind = "wrong_accelerator"` if Kaggle does not allocate two visible T4
+devices for `dual_t4_ddp`.
 
-- OAuth access-token generation works without printing the token;
-- `kernels list`, `kernels status`, and `kernels logs` work for
-  `maximusshtefan/non-eq-vae`;
-- `datasets files` works for
-  `maximusshtefan/patches-pre-shuffled-ubc-ocean`;
-- `kaggle quota -v` fails with Kaggle's authentication-required message even
-  though OAuth token generation works;
-- `kaggle kernels files maximusshtefan/non-eq-vae -v` also fails with the same
-  authentication-required message.
+Because ordinary `kaggle kernels ...` commands can reuse a stale cached access
+token and fail before upload, `scripts/kaggle_kernel.sh` routes authenticated
+Kaggle reads/writes through `scripts/kaggle_oauth_exec.py` when
+`~/.kaggle/credentials.json` exists: it uses the installed Kaggle SDK to generate
+a fresh short-lived OAuth token, passes it to the child CLI through a temporary
+0600 token file, and deletes that file when the child exits, avoiding shell token
+substitution and token printing. Set `KAGGLE_DISABLE_FRESH_OAUTH=1` only when
+intentionally debugging the raw Kaggle CLI auth path.
 
-Therefore the benchmark workflow must not rely on the CLI quota endpoint as the
-only gate. Before a remote benchmark push, run the API preflight, check GPU
-quota/availability in the Kaggle web UI if the quota endpoint still warns, and
-let the benchmark itself fail rows with `failure_kind = "wrong_accelerator"` if
-Kaggle does not allocate two visible T4 devices for `dual_t4_ddp`.
-
-On 2026-06-29, the selected-runtime debug/tiny v5 push attempt found another
-Kaggle CLI auth edge: OAuth token generation still worked, but ordinary
-`kaggle kernels ...` commands reused a stale cached access token and failed
-before upload. The selected-runtime slug was correct. `scripts/kaggle_kernel.sh`
-now routes authenticated Kaggle reads/writes through
-`scripts/kaggle_oauth_exec.py` when `~/.kaggle/credentials.json` exists. The
-helper uses the installed Kaggle SDK to generate a fresh short-lived OAuth
-token, passes it to the child CLI through a temporary 0600 token file, and
-deletes that file when the child exits. This avoids shell token substitution
-and token printing. Set `KAGGLE_DISABLE_FRESH_OAUTH=1` only when intentionally
-debugging the raw Kaggle CLI auth path.
-
-`api-check` now accepts an optional kernel directory. For the selected-runtime
-debug/tiny gate, use:
+`api-check` accepts an optional kernel directory, e.g. for the selected-runtime
+debug/tiny gate:
 
 ```bash
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check kaggle/kernels/selected_runtime_debug
 ```
 
-That selected-runtime preflight passed on 2026-06-29 through the fresh-token
-wrapper with the known quota warning and `kernels files` working. A follow-up
-adversarial review removed the old raw `kaggle auth print-access-token` probe
-from `api-check`; the command now reports
-`ok: fresh OAuth wrapper selected for authenticated Kaggle calls` and proves
-auth through wrapped `kernels`/`datasets` endpoint calls.
-
-After fresh explicit approval for the narrow retry, the selected-runtime
-debug/tiny v5 push passed the guarded preflight and Kaggle accepted version 5 on
-2026-06-29. The immediate guarded status read at `2026-06-29 03:27 -0500`
-returned `KernelWorkerStatus.RUNNING`, and the guarded follow-up status read
-returned `KernelWorkerStatus.COMPLETE`. Outputs were downloaded to
-`runs/kaggle/selected_runtime_debug_v5`; strict `--verify-output` passed with
-canonical real fixed-32 selector generation, all selected-runtime debug gate
-components passing, no remaining launch blockers, zero tiny AMP skips, zero
-tiny nonfinite rows, and 256 nested tiny metric rows across ranks 0/1. The
-first full real selected-runtime run is now the next candidate action, with
-fresh explicit approval required.
-
-The user visually confirmed the Kaggle web UI quota on 2026-06-11: phone
-verification is complete, identity verification is not complete, and Kaggle GPU
-quota shows `00:07 / 30 hrs` used. Identity verification is not currently a
-benchmark blocker as long as the UI continues to expose GPU quota and notebook
-GPU selection.
+Identity verification is not a benchmark blocker as long as the Kaggle web UI
+continues to expose GPU quota and notebook GPU selection; check the web UI for the
+current quota.
 
 ## Local Commands
 
@@ -545,116 +511,19 @@ Default polling cadence:
 - once a run completes, download artifacts once and record the observed duration
   before deciding future cadence.
 
-Record timing memory in `CURRENT.md` and, when stable, in this section. Capture:
+Record timing memory in `CURRENT.md`. Capture:
 push/version acceptance time, first observed `RUNNING` time, terminal status
 time, output-download time, and artifact phase timings such as data-root
 resolution, clean-validation proof, DDP launch proof, dataloader throughput,
 numerical checks, corruption checks, and gate-health work if the artifact
 contains those fields.
 
-Observed v7 timing memory, 2026-06-20: Kaggle accepted version 7 at
-`https://www.kaggle.com/code/maximusshtefan/eqvae-real-data-runtime-pretest`;
-the immediate guarded status read returned `KernelWorkerStatus.RUNNING` at
-`2026-06-19T23:38:51-05:00`, the next guarded poll returned
-`KernelWorkerStatus.COMPLETE` at `2026-06-20T02:21:15-05:00`, and outputs were
-downloaded to `runs/kaggle/real_data_runtime_pretest_v7` at
-`2026-06-20T09:19:52-05:00`. Artifact phase timings recorded
-`2026-06-20T05:02:18Z` to `2026-06-20T05:40:51Z` with 71 passing phases.
-
 The real-data runtime pretest runner writes coarse JSON-line phase events to
-stderr and, for versions built after this logging slice, writes
-`benchmark/phase_timings.json` plus matching `phase_timings` objects in
-`runtime_proof.json` and `real_data_runtime_pretest_manifest.json`. Use those
-durations to update future polling cadence instead of guessing from status
-checks.
-
-Current duration notes:
-
-- Real-data runtime pretest v5, 2026-06-19: Kaggle accepted version 5, kept
-  reporting `KernelWorkerStatus.RUNNING` throughout the initial monitoring
-  window, and later reached `KernelWorkerStatus.COMPLETE`. Downloaded artifacts
-  live under `runs/kaggle/real_data_runtime_pretest_v5`. The Kaggle log reports
-  data-root probing at about 7.44 seconds and notebook result conversion around
-  2355 seconds, so use roughly 40 minutes as the first observed duration for
-  this capped source-attached pretest. Version 5 predates
-  `benchmark/phase_timings.json`; future reruns should use the phase timings
-  artifact for more exact cadence and should inspect the runtime-proof evidence
-  counters before assuming a candidate lane silently skipped work.
-- Real-data runtime pretest v6, 2026-06-19: Kaggle accepted version 6 at
-  `https://www.kaggle.com/code/maximusshtefan/eqvae-real-data-runtime-pretest`.
-  The preflight again passed OAuth, kernel list/status/logs, and patch-dataset
-  file listing while warning on quota and kernels-file introspection. The first
-  status read reported `KernelWorkerStatus.RUNNING` by
-  2026-06-19T16:37:07-05:00. A later approved status read after the required
-  wait reported `KernelWorkerStatus.COMPLETE`, and artifacts were downloaded to
-  `runs/kaggle/real_data_runtime_pretest_v6`. The phase-timing artifact records
-  `started_at_utc = 2026-06-19T21:36:15Z`,
-  `finished_at_utc = 2026-06-19T22:15:40Z`, and 71 passing phase records.
-  Longest phases were stage1 runtime rows at about 1185.75s, linked evidence
-  payload at about 592.19s, real-data identity/clean-path proof at about
-  586.85s, and linked train-step evidence at about 573.67s.
-- Runtime-selection v3, 2026-06-20/21: Kaggle accepted version 3 at
-  `https://www.kaggle.com/code/maximusshtefan/eqvae-runtime-selection`; the
-  immediate guarded status read was `KernelWorkerStatus.RUNNING`, so the agent
-  stopped waiting and gave the user a concrete prompt time. On resume the
-  guarded status read was `KernelWorkerStatus.COMPLETE`, and artifacts were
-  downloaded to `runs/kaggle/runtime_selection_v3`. The log reports linked
-  train-step evidence at about 183.29s, linked dataloader throughput at about
-  5.80s, linked numerical/corruption/gate-health phases under 0.01s each, and
-  notebook conversion around 1452.74s. For similar selected-runtime kernels, do
-  one immediate status check after push and then tell the user to prompt again
-  about 30 minutes later instead of waiting in-turn.
-- Runtime-selection v4, 2026-06-21: after Einstein adversarial review and user
-  approval for the efficiency follow-up only, the first push attempt was blocked
-  locally because the remote push guard rejects dirty payload manifests. The
-  full repo quality gate passed (`./scripts/python_quality.sh`, 147 pytest
-  tests, 0 type errors/warnings/notes), local commit `753c9db`
-  (`Add runtime selection efficiency follow-up`) was created, and Kaggle
-  accepted version 4 at
-  `https://www.kaggle.com/code/maximusshtefan/eqvae-runtime-selection`. The one
-  guarded status read returned `KernelWorkerStatus.RUNNING` at
-  2026-06-21 00:46:21 -05. On resume, the guarded status read returned
-  `KernelWorkerStatus.COMPLETE`, and artifacts were downloaded to
-  `runs/kaggle/runtime_selection_v4`. The run failed closed:
-  `runtime_proof.status = fail`, no `benchmark/selected_runtime.json`, 18 of 20
-  runtime rows passed, and the intended fastest clean row was
-  `dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
-  at `samples_sec = 25.220604` with zero AMP skips and estimated 10-epoch wall
-  time `118950.362625` seconds. The blockers were proof-policy false negatives:
-  tiny bounded numerical drift on the selected AMP row and linked proof failures
-  from nonselected rows were treated as global blockers.
-- Runtime-selection v5, 2026-06-21: after Noether adversarial review of the v4
-  result, local commit `fc5227d` (`Relax runtime selection numerical drift
-  gate`) scoped linked proof to the selected candidate, accepted only finite
-  bounded small numerical drift, kept AMP skips and large drift as row blockers,
-  and let skipped AMP rows fail row-local selection without globally rejecting a
-  safe alternate row. Focused tests passed (`20 passed`), the full repo gate
-  passed (`./scripts/python_quality.sh`, 149 pytest tests and 0 type
-  errors/warnings/notes), and local replay of v4 artifacts through the patched
-  writer produced proof `pass` for the intended AMP row. Kaggle accepted
-  version 5 at
-  `https://www.kaggle.com/code/maximusshtefan/eqvae-runtime-selection`; the one
-  guarded status read returned `KernelWorkerStatus.RUNNING` at
-  2026-06-21 06:14:37 -05. The next approved status read returned
-  `KernelWorkerStatus.COMPLETE`, and outputs were downloaded to
-  `runs/kaggle/runtime_selection_v5`. Version 5 wrote selected runtime
-  `dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
-  with `samples_sec = 27.381321`, estimated 10-epoch wall time
-  `109563.740875` seconds, zero AMP skips, bounded selected-row numerical drift
-  with expected `dual_t4_numerical_delta_failed`, and strict local replay pass.
-  It remains blocked from full training launch until real selected-runtime
-  debug, checkpoint/resume, and tiny-overfit proofs pass.
-- Runtime-selection v6, 2026-06-21: after the compact relaxed-AMP follow-up was
-  approved, local commit `580a844` (`Add compact relaxed AMP runtime selection
-  follow-up`) passed `./scripts/kaggle_kernel.sh preflight-runtime-selection`
-  and Kaggle accepted version 6. Outputs were downloaded to
-  `runs/kaggle/runtime_selection_v6`; no `benchmark/selected_runtime.json` was
-  written, `runtime_proof.status = fail`, and local replay regenerated the same
-  fail-closed proof. The relaxed row
-  `dual_t4_ddp__bs12__amp_scalar_gate_relaxed__compile_none__indexed_masked__policy_amp_fp16_scalar_gate_relaxed`
-  passed runtime/gate-health with zero AMP skips but reached only `25.288828`
-  samples/sec against v5's `27.381321`, so v5 remains the selected-runtime
-  fallback.
+stderr and writes `benchmark/phase_timings.json` plus matching `phase_timings`
+objects in `runtime_proof.json` and `real_data_runtime_pretest_manifest.json`.
+Use those durations to update future polling cadence instead of guessing from
+status checks. As a coarse anchor, a capped source-attached real-data pretest has
+run on the order of ~40 minutes wall time.
 
 For the synthetic binary timing pretest, the remote sequence remains permission
 gated:
