@@ -2,6 +2,11 @@
 
 Date: 2026-07-16
 
+> Narrowed by decision 0012 (2026-07-17): the run kernels now set
+> `enable_internet = "true"` solely to `pip install --upgrade` the torch stack at
+> runtime. The embedded-code and empty-`*_sources` faces of the invariant below are
+> unchanged; only the internet-off face is relaxed, and only for torch.
+
 Decision: keep delivering our code to Kaggle as a self-contained embedded payload
 (a single generated `run.py` with the whole `src/eqvae` tree base64-zipped inside
 it), with `enable_internet = "false"` and empty `*_sources`, for as long as the
@@ -19,7 +24,10 @@ silently depend on something undeclared and it stays reproducible offline. Spec 
 "Known Risks" states the rationale: "Enabling internet in Kaggle can hide undeclared
 dependency and code-source assumptions." Internet-off is not leftover caution — it is
 the enforcement of this invariant. (A flip to `enable_internet = "true"` was applied
-and then reverted on 2026-07-16 once this rationale surfaced; see decision 0010.)
+and then reverted on 2026-07-16 once this rationale surfaced; see decision 0010. A
+NARROWER flip — internet on for a runtime torch upgrade only, with code still
+embedded and `*_sources` still empty — was later adopted for the run kernels; see
+decision 0012.)
 
 ## Why pip-install is the future upgrade (and dataset_sources is not)
 

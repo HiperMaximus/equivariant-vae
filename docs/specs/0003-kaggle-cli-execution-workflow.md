@@ -452,9 +452,9 @@ after:
    `kaggle_synthetic_timing_contract_ready`;
 2. the generated script has `KAGGLE_SYNTHETIC_TIMING_READY = True`;
 3. `kernel-metadata.json` declares `enable_gpu = "true"`,
-   `machine_shape = "NvidiaTeslaT4"`, `enable_internet = "false"`, and empty
-   `dataset_sources`, `competition_sources`, `kernel_sources`, and
-   `model_sources`;
+   `machine_shape = "NvidiaTeslaT4"`, `enable_internet = "true"` (for the
+   decision-0012 runtime torch upgrade only), and empty `dataset_sources`,
+   `competition_sources`, `kernel_sources`, and `model_sources`;
 4. the generated single-file launcher embeds a fresh payload manifest and
    verifies `eqvae` imports from the extracted payload;
 5. runtime code clears `EQVAE_DATA_ROOT`, refuses `data_root = "auto"`, writes
@@ -564,12 +564,17 @@ KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/synthetic
   guessed from UI display names.
 - Pulling from Kaggle can overwrite local kernel files.
 - Enabling internet in Kaggle can hide undeclared dependency and code-source
-  assumptions.
+  assumptions. The run kernels enable it only to `pip install --upgrade` the torch
+  stack (decision 0012); the embedded payload and empty source lists still bar any
+  undeclared CODE source.
 
-The internet-off flag, empty source lists, and the embedded payload are one
-deliberate hermeticity invariant, not leftover caution. The code-delivery mechanism
-and the planned future path (pip-install from a pinned commit once the GitHub repo is
-public — not `dataset_sources`) are recorded in
+The empty source lists and the embedded payload are the durable faces of the
+hermeticity invariant, not leftover caution. Internet was originally the third face
+(off); the run kernels now enable it solely for the runtime torch upgrade
+(`docs/decisions/0012-kaggle-runtime-torch-upgrade.md`), which keeps the
+embedded-code and empty-source faces intact and trades only torch-version pinning.
+The code-delivery mechanism and the planned future path (pip-install from a pinned
+commit once the GitHub repo is public — not `dataset_sources`) are recorded in
 `docs/decisions/0011-kaggle-code-delivery.md`.
 
 ## Related Files

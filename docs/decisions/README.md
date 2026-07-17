@@ -16,6 +16,7 @@ Read order:
 9. `0009-fixed25-embedding-equivariance-eval-proxy.md`
 10. `0010-verify-the-premise-before-changing-a-pin.md`
 11. `0011-kaggle-code-delivery.md`
+12. `0012-kaggle-runtime-torch-upgrade.md`
 
 Keep notes short. If a decision changes, update or supersede the relevant note
 and then update `CURRENT.md`, `GOAL.md`, and any affected plan docs.

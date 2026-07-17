@@ -45,6 +45,7 @@ def main() -> int:
 
 def _run_setup_smoke(output_dir: Path) -> int:
     _require_python_version()
+    _ensure_latest_torch(cpu_only=True)
     payload_dir = _extract_payload(output_dir / "embedded_payload")
     payload_src = payload_dir / "src"
     sys.path.insert(0, str(payload_src))
@@ -95,6 +96,37 @@ def _require_python_version() -> None:
             "uses Python 3.12 type-alias syntax"
         )
         raise RuntimeError(message)
+
+
+def _ensure_latest_torch(*, cpu_only: bool) -> None:
+    """Install the latest torch stack on a real Kaggle worker before importing it.
+
+    Kaggle's base image lags the repo's torch target (2.10 vs local 2.13), so with
+    ``enable_internet`` on this pins local/Kaggle parity for the compiled fast-path
+    recipe by upgrading ``torch``/``torchvision``/``torchaudio`` before ``eqvae``
+    (and hence torch) is imported. It no-ops off Kaggle (``/kaggle/working`` absent),
+    so the local gate never touches the network; ``EQVAE_SKIP_TORCH_UPGRADE=1``
+    forces it off on Kaggle too.
+    """
+    if os.environ.get("EQVAE_SKIP_TORCH_UPGRADE") == "1":
+        return
+    if not Path("/kaggle/working").exists():
+        return
+    import subprocess  # noqa: PLC0415, S404
+
+    command = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "torch",
+        "torchvision",
+        "torchaudio",
+    ]
+    if cpu_only:
+        command += ["--index-url", "https://download.pytorch.org/whl/cpu"]
+    subprocess.check_call(command)  # noqa: S603
 
 
 def _extract_payload(destination: Path) -> Path:

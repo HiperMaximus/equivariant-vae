@@ -705,7 +705,7 @@ required_values = {
     "kernel_type": "script",
     "is_private": "true",
     "enable_gpu": "true",
-    "enable_internet": "false",
+    "enable_internet": "true",
     "machine_shape": "NvidiaTeslaT4",
 }
 
@@ -841,7 +841,7 @@ required_values = {
     "kernel_type": "script",
     "is_private": "true",
     "enable_gpu": "false",
-    "enable_internet": "false",
+    "enable_internet": "true",
 }
 
 for key, expected in required_values.items():
@@ -916,7 +916,7 @@ required_values = {
     "kernel_type": "script",
     "is_private": "true",
     "enable_gpu": "false",
-    "enable_internet": "false",
+    "enable_internet": "true",
 }
 
 for key, expected in required_values.items():
@@ -1011,7 +1011,7 @@ required_values = {
     "kernel_type": "script",
     "is_private": "true",
     "enable_gpu": "true",
-    "enable_internet": "false",
+    "enable_internet": "true",
     "machine_shape": "NvidiaTeslaT4",
 }
 
@@ -1154,7 +1154,7 @@ required_values = {
     "kernel_type": "script",
     "is_private": "true",
     "enable_gpu": "true",
-    "enable_internet": "false",
+    "enable_internet": "true",
     "machine_shape": "NvidiaTeslaT4",
 }
 
@@ -1298,7 +1298,7 @@ required_values = {
     "kernel_type": "script",
     "is_private": "true",
     "enable_gpu": "true",
-    "enable_internet": "false",
+    "enable_internet": "true",
     "machine_shape": "NvidiaTeslaT4",
 }
 
@@ -1500,7 +1500,7 @@ required_values = {
     "kernel_type": "script",
     "is_private": "true",
     "enable_gpu": "true",
-    "enable_internet": "false",
+    "enable_internet": "true",
     "machine_shape": "NvidiaTeslaT4",
 }
 
@@ -1750,7 +1750,7 @@ required_values = {
     "kernel_type": "script",
     "is_private": "true",
     "enable_gpu": "true",
-    "enable_internet": "false",
+    "enable_internet": "true",
     "machine_shape": "NvidiaTeslaT4",
 }
 
@@ -2110,7 +2110,7 @@ required = {
     "kernel_type": "script",
     "is_private": "true",
     "enable_gpu": "true",
-    "enable_internet": "false",
+    "enable_internet": "true",
     "machine_shape": "NvidiaTeslaT4",
 }
 for key, expected in required.items():

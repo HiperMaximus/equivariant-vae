@@ -2851,9 +2851,12 @@ Build rules:
 - generated setup `run.py` must decode the embedded zip, verify embedded
   SHA-256 constants, insert the extracted `src` into `sys.path` before
   importing `eqvae`, and assert `eqvae.__file__` is under the extracted payload;
-- Kaggle internet stays disabled;
-- first implementation must not require `pip install` or dependency resolution
-  on Kaggle;
+- Kaggle internet is enabled only for the runtime torch-stack upgrade
+  (`torch`/`torchvision`/`torchaudio`), per decision 0012; nothing else is
+  fetched;
+- the embedded code (`eqvae`) and its metrics must not require `pip install` or
+  network dependency resolution on Kaggle; the sole allowed install is the
+  decision-0012 torch upgrade run before `eqvae` is imported;
 - metrics must use a repo-owned Torch SSIM implementation or another bundled
   implementation, not an undeclared network dependency;
 - if a future dependency is unavailable on Kaggle, bundle a wheel under
@@ -2867,7 +2870,7 @@ Kaggle debug metadata must keep:
 "competition_sources": [],
 "kernel_sources": [],
 "model_sources": [],
-"enable_internet": "false"
+"enable_internet": "true"
 ```
 
 The historical FSQ output dataset `maximusshtefan/non-eq-vae-output` is forbidden
@@ -2882,7 +2885,7 @@ GPU, and write only non-promotable setup evidence:
 "kernel_sources": [],
 "model_sources": [],
 "enable_gpu": "false",
-"enable_internet": "false"
+"enable_internet": "true"
 ```
 
 ## Verification Commands

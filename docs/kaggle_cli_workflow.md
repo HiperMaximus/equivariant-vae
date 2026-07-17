@@ -689,9 +689,9 @@ while spec 0001 and the spec index are not marked with the appropriate
 readiness label. In addition, any push whose metadata has any nonempty Kaggle
 source list fails unless `KAGGLE_FULL_DATASET_CONFIRMED=1` is set for that one
 command. The synthetic setup-smoke guard is a separate branch: it requires empty
-source lists, no GPU, no internet, a generated embedded payload, and
-setup-specific readiness docs, so this real-data dataset requirement is not
-weakened.
+source lists, no GPU, internet enabled only for the decision-0012 runtime torch
+upgrade, a generated embedded payload, and setup-specific readiness docs, so this
+real-data dataset requirement is not weakened.
 
 For spec 0001 benchmark kernels, the wrapper or metadata validation must require
 `machine_shape == "NvidiaTeslaT4"` and the single-visible versus dual-DDP launch
