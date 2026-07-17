@@ -306,21 +306,21 @@ staging.
 confirm flags.
 **Next sequence:** origin push ✓ and `setup_smoke` Kaggle proof ✓ both DONE 2026-07-16 →
 **doc-hygiene IN PROGRESS 2026-07-16: clearing the `docs/open_follow_ups.md` backlog before the
-run (the D-05..D-17 trims target `kaggle_kernel.sh` GUARD FILES — extract anchors from the
-script; the DO NOT DROP list is incomplete; see memory `eqvae-doc-trim-backlog-clear`). Items
-1–4 DONE, local-only: `1fdfbbd` (prune FU-040/041 + de-ref), `d62b951` (D-09 spec-0008 compress),
-`1ab48dc` (D-30+FU-035: untrack the 4 tracked `runs/` files + an `agent_preflight.sh` guard), and
-`abaeac4` (FU-045: a shared `benchmarking/torch_runtime.py` stamps `torch_version`/`cuda_version`
-into every real-run device-telemetry JSON block; gate 557 passed/1 skipped + basedpyright 0, two
-adversarial reviews). NEW FINDING (verified): `c02b538` dropped the
-`runtime_selection_kernel_ready`/`selected_runtime_debug_gate_contract_ready` tokens from
-`docs/kaggle_cli_workflow.md` but left the guards that grep them, so the S17 runtime-selection push
-will `exit 1` until they are RESTORED (user decision: restore, folded into the D-11/D-17 trim; the
-saga drops must not re-delete them). Safety upgrade: use a BEFORE/AFTER guard-health diff (5 grep
-anchors already fail — 2 by-design fail-closed, 2 the c02b538 break, 1 a real-smoke cell), not a
-per-literal "still greps" check. NEXT = the `docs/kaggle_cli_workflow.md` trims (D-13/D-14 first,
-then D-11/D-12/D-15/D-16/D-17); remaining order + per-trim procedure + folded decisions
-(professor's screenshot KEPT) live in that memory** → dependency upgrade as its OWN gated step
+run (the D-05..D-17 trims target `kaggle_kernel.sh` GUARD FILES — extract anchors from the script;
+the DO NOT DROP list is incomplete; see memory `eqvae-doc-trim-backlog-clear`). Items 1–4 DONE
+local-only (`1fdfbbd`/`d62b951`/`1ab48dc`/`abaeac4`; see git log for scope). Then the
+`docs/kaggle_cli_workflow.md` campaign DONE local-only in 3 gated commits (each: guard-health
+BEFORE/AFTER diff + `agent_preflight` + two read-only adversarial reviews + lesson-preservation
+audit): `0a0e171` (D-13/D-14 banner + Current-State post-mortems, and RESTORED the two
+`c02b538`-dropped guard tokens `runtime_selection_kernel_ready`/`selected_runtime_debug_gate_contract_ready`
+in the two Local-first push blocks → S17 runtime-selection/debug push guards un-blocked,
+guard-health 5→3 FAIL), `f0eb081` (D-11/D-12/D-17 selection + pretest sagas → pointers to the
+dual-T4 selection-gate contract; closed FU-010 by deleting the contradictory v3 row-id block, v5
+identity kept), `ad36684` (D-16 auth narration → durable OAuth mechanism; D-15 timing logs → cadence
+rules). Retired FU-010 + FU-032 + D-11..D-17 from the backlog. Guard-health now 3 FAIL, ALL 3
+by-design/other-doc (spec0001:657 + README:663/680), zero for `kaggle_cli_workflow.md`. NEXT doc-trim
+= spec 0003 `D-08` → README `D-10` (anchor-DENSE) → spec 0001 `D-05` (surgical)/`D-06`/`D-07`; per-trim
+procedure + remaining order live in that memory** → dependency upgrade as its OWN gated step
 (`uv lock --upgrade`; ahead of S17b-3 because Kaggle rides near-latest torch and drift bites the
 compiled fast-path) → S17b-3.
 

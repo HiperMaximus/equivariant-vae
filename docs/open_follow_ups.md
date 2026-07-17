@@ -39,13 +39,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
 
 ## Follow-Ups
 
-### HIGH
-
-- **FU-010 — Two contradictory "selected runtime" values in one doc.**
-  `docs/kaggle_cli_workflow.md:239-243` (v3, 14.04 samples/s, 59.37h) vs `:5`/`:582`
-  (v5, 27.38 samples/s, ~30.4h). Fix: delete the v3 block (D-17); confirm no config
-  references `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`.
-
 ### MED
 
 - **FU-044 — `uv build` silently emits an EMPTY wheel if any symlink to
@@ -122,9 +115,6 @@ Rules to keep this file from rotting (the problem it exists to fix):
   `kaggle_kernel.sh` subcommands. Fix: retire only as ONE coordinated change
   (kernel + subcommands + CLI + `__init__` + `agent_preflight.sh` + README +
   tests together) recorded in a `docs/decisions/` note. Do NOT git-rm piecemeal.
-- **FU-032 — kaggle_cli_workflow.md bakes volatile per-run state + frames retired
-  phases as next-steps.** `:13-16,84-86,144-151,438-466,770-788`. Fix: move live
-  per-run status to CURRENT.md; reframe retired phases as "retained for reproduction".
 - **FU-033 — Apply the same history-drop to the whole landing sequence.**
   `docs/specs/README.md:44-124`, `docs/kaggle_cli_workflow.md` — keep consistent
   with a trimmed CURRENT.md/GOAL.md.
@@ -172,20 +162,6 @@ HIGH unless noted. Execute, then delete this section's done items.
   narrative `:44-127` EXCEPT keep guard-phrase list `:38-42`. Don't ADD
   `locked / implementation-ready` or the `kaggle_smoke_ready` backtick phrase to the
   0001 cell (fail-closed guards at kaggle_kernel.sh:521/538). Keep `.md` filename literals.
-
-### docs/kaggle_cli_workflow.md (~951 lines)
-- **D-11 [HIGH]** Drop duplicated runtime-selection v1-v6 saga `:196-242` AND `:526-575`
-  → one sentence + the dual-T4 selection-gate contract.
-- **D-12 [HIGH]** Drop real_data_runtime_pretest v2-v8 saga `:468-524`; keep the
-  pretest contract (slug, 300000/30000, no selected_runtime.json write).
-- **D-13 [HIGH]** Drop top status banner `:3-30` (per-run narration; lives in CURRENT.md).
-- **D-14 [HIGH]** Drop finished-phase post-mortems in "Current State" `:52-129`; keep
-  per-kernel contract statements.
-- **D-15 [HIGH]** Drop per-version timing logs `:666-768`; keep the cadence rules `:634-664`.
-- **D-16 [HIGH/MED]** Compress dated auth-edge narration `:318-388` → durable OAuth
-  mechanism + "check UI for quota". (Quota snapshot line MED.)
-- **D-17 [MED]** Delete the superseded v3 selected-runtime block `:222-226` (the FU-010
-  hazard); compress v8 provenance `:153-195,247-282`.
 
 ### docs/behavior_inventory_kaggle.md (~648 lines)
 - **D-18 [MED]** Move/drop "Spec 0001 Reopened Decisions" `:541-649` (wrong home; FU-015).
