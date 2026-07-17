@@ -308,10 +308,21 @@ confirm flags.
 **doc-hygiene IN PROGRESS 2026-07-16: clearing the `docs/open_follow_ups.md` backlog before the
 run (the D-05..D-17 trims target `kaggle_kernel.sh` GUARD FILES — extract anchors from the
 script; the DO NOT DROP list is incomplete; see memory `eqvae-doc-trim-backlog-clear`). Items
-1–2 DONE (`1fdfbbd` prune FU-040/041 + de-ref; `d62b951` D-09 spec-0008 compress). Remaining
-trims + per-trim procedure + folded decisions (professor's screenshot KEPT, D-30, FU-045) are in
-that memory** → dependency upgrade as its OWN gated step (`uv lock --upgrade`; ahead of S17b-3
-because Kaggle rides near-latest torch and drift bites the compiled fast-path) → S17b-3.
+1–4 DONE, local-only: `1fdfbbd` (prune FU-040/041 + de-ref), `d62b951` (D-09 spec-0008 compress),
+`1ab48dc` (D-30+FU-035: untrack the 4 tracked `runs/` files + an `agent_preflight.sh` guard), and
+`abaeac4` (FU-045: a shared `benchmarking/torch_runtime.py` stamps `torch_version`/`cuda_version`
+into every real-run device-telemetry JSON block; gate 557 passed/1 skipped + basedpyright 0, two
+adversarial reviews). NEW FINDING (verified): `c02b538` dropped the
+`runtime_selection_kernel_ready`/`selected_runtime_debug_gate_contract_ready` tokens from
+`docs/kaggle_cli_workflow.md` but left the guards that grep them, so the S17 runtime-selection push
+will `exit 1` until they are RESTORED (user decision: restore, folded into the D-11/D-17 trim; the
+saga drops must not re-delete them). Safety upgrade: use a BEFORE/AFTER guard-health diff (5 grep
+anchors already fail — 2 by-design fail-closed, 2 the c02b538 break, 1 a real-smoke cell), not a
+per-literal "still greps" check. NEXT = the `docs/kaggle_cli_workflow.md` trims (D-13/D-14 first,
+then D-11/D-12/D-15/D-16/D-17); remaining order + per-trim procedure + folded decisions
+(professor's screenshot KEPT) live in that memory** → dependency upgrade as its OWN gated step
+(`uv lock --upgrade`; ahead of S17b-3 because Kaggle rides near-latest torch and drift bites the
+compiled fast-path) → S17b-3.
 
 > Pre-Spec-0011 status (runtime-selection v5, Spec 0006–0009) and older Kaggle-run
 > provenance were trimmed from here on 2026-07-16 (FU-011). Git history and
