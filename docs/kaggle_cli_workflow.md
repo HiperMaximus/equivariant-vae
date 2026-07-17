@@ -151,39 +151,17 @@ rows, per-candidate gate-health rows, candidate-scoped stain QA, and exact
 embedded v8 payload membership. Missing, failed, or skipped dual timing or
 linked evidence refuses `benchmark/selected_runtime.json`.
 
-The user approved the selected-runtime Kaggle push/status/output on 2026-06-20.
-Runtime-selection v1 reached `KernelWorkerStatus.ERROR` after writing benchmark
-artifacts. Inspection confirmed the dual-T4 DDP timing gate passed with two
-visible T4s, `world_size = 2`, `nproc_per_node = 2`, per-rank device
-assignment, child-process launch proof, emitted bs4/bs8/bs12 FP32 eager dual
-rows, and global throughput projection. The strict writer refused
-`benchmark/selected_runtime.json` because linked single-visible proof rows were
-false-negative blocked by gate-health eligibility normalization and the train
-corruption clean-validation RNG check; the wrapper then rejected
-`model_inventory.csv` as an unexpected benchmark artifact. The local v2 fix
-accepts `model_inventory.csv`, normalizes `local_pass` gate rows before
-eligibility is computed while keeping failed non-gate rows ineligible, and
-requires `clean_validation_rng_advanced = false` only on validation corruption
-rows. Runtime-selection v2 completed and downloaded to
-`runs/kaggle/runtime_selection_v2`; it fixed those v1 blockers and proved the
-dual gate again, but still refused `benchmark/selected_runtime.json` because
-gate-health rows were missing for the three single-visible `indexed_masked`
-pass rows. The local v3 fix expands branchless single-visible gate-health rows
-to same-shape indexed candidate ids only after the indexed runtime row has
-already passed linked evidence. Runtime-selection v3 completed and downloaded
-to `runs/kaggle/runtime_selection_v3`; `runtime_proof.status = pass`,
-`selection_ready = true`, `selected_runtime_written = true`, and the selected
-runtime artifact is
-`runs/kaggle/runtime_selection_v3/benchmark/selected_runtime.json`.
+The runtime-selection generator ran on real dual-T4 DDP and selected the current
+fallback runtime
+`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,
+written to `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json`
+(which records its measured throughput and projected wall time). Selection is
+allowed only after the dual-T4 selection-gate contract above passes; missing,
+failed, or skipped dual timing or linked evidence refuses
+`benchmark/selected_runtime.json`.
 
-Selected runtime: `dual_t4_ddp__bs12__amp_off_fp32__compile_none__indexed_masked`;
-dual T4 DDP, `world_size = 2`, `nproc_per_node = 2`, per-device batch size 12,
-global batch size 24, FP32 eager/no compile, `indexed_masked` corruption,
-`samples_sec = 14.035497`, estimated epoch time about 356.24 minutes, and
-projected 10-epoch wall time about 59.37 hours.
-
-Treat this as the proof-clean safety baseline. Before launching a 60h+ training
-run, run an efficiency-selection follow-up that can replace it if AMP/FP16,
+Treat the selected runtime as a proof-clean safety baseline. Before launching a
+60h+ training run, an efficiency-selection follow-up may replace it if AMP/FP16,
 stable `torch.compile`, channels-last layout, cuDNN benchmark/non-deterministic
 kernel selection, DDP `static_graph`/`gradient_as_bucket_view`, optimizer/
 zero-grad fast paths, or Kaggle-supported TF32/matmul precision knobs are
@@ -191,12 +169,7 @@ materially faster. The project accepts lost bitwise determinism and small
 numerical drift for this speedup; catastrophic failures such as non-finite
 loss/gradients, repeated AMP skips, DDP instability, broken checkpoint/resume,
 broken artifacts, gate-health collapse, or clearly invalid metrics still block
-selection. That first follow-up was implemented as
-`selected_runtime_v3_efficiency_followup` with policy-bound rows and linked
-proofs; runtime-selection v5 now supersedes it as the fallback, and the local
-successor config tested the compact `amp_fp16_scalar_gate_relaxed` comparison
-in runtime-selection v6. v6 downloaded and replayed locally, wrote no selected
-runtime, and kept v5 before the later debug/resume/tiny-overfit launch gate.
+selection.
 
 The real-data benchmark surface is intentionally separate from the capped smoke
 and from synthetic timing:
@@ -461,114 +434,23 @@ training-time plumbing, use a no-dataset kernel with empty `dataset_sources`.
 The existing setup smoke has a distinct status/source and must never be promoted
 to real-data benchmark evidence.
 
-After real-data runtime pretest v2 completed with `data_root_unavailable`, the
-pretest resolver records full `real_data_proof.data_root_diagnostics` and a
+The pretest resolver records full `real_data_proof.data_root_diagnostics` and a
 short stderr JSON probe for Kaggle input resolution. Auto discovery may only
 promote complete shard roots under the expected
 `maximusshtefan/patches-pre-shuffled-ubc-ocean` mount family; unrelated complete
 shard roots under `/kaggle/input` are diagnostics-only and must not be selected.
-Remote v3 confirmed the expected Kaggle shard root and then exposed a separate
-payload issue: the embedded single-file kernel must include
-`docs/data/ubc_ocean_masked_holdout_ids.csv` for split/holdout-overlap proof.
-Remote v4 included that file and passed the canonical real-data identity,
-row-count, WSI/holdout overlap, CRC, locked-window, and clean-validation-loader
-proof lane. Remote v5 completed as a non-promotable candidate-evidence run and
-downloaded artifacts under `runs/kaggle/real_data_runtime_pretest_v5`: two eager
-single-T4 bs4 FP32 rows became row-eligible, real-data/DDP/dataloader/gate lanes
-passed, no `benchmark/selected_runtime.json` was written, eager bs8/bs12 still
-need numerical/corruption evidence coverage, eager bs32 rows record
-`runtime_OutOfMemoryError`, and compiled rows remained diagnostic/ineligible as
-intended. The v6
-follow-up prioritizes eager FP32 single-T4 train-step evidence by smaller batch
-size before compiled diagnostic rows, clears CUDA cache between candidate
-evidence attempts, records failed candidate evidence with deterministic failure
-hashes, mirrors candidate/failed evidence counts into `runtime_proof.json`, and
-keeps the full failed-evidence list in the paired numerical and corruption proof
-objects. The phase-timing artifact must be present in both the payload artifact
-allow-list and the launcher validation allow-list; the local generated-launcher
-full simulation covers this exact artifact set. Commit `47437a0` was rebuilt,
-validated, and pushed as Kaggle version 6 after explicit approval; v6 completed
-and downloaded artifacts live under `runs/kaggle/real_data_runtime_pretest_v6`.
-Inspection found no new runtime selection: two eager single-T4 bs4 FP32 rows
-remain eligible, bs8/bs12 candidate evidence failed with hash-only
-`candidate_train_step_RuntimeError` diagnostics, eager bs32 rows record
-`runtime_OutOfMemoryError`, compiled rows remain diagnostic/ineligible, and no
-`benchmark/selected_runtime.json` was written. The local v7 diagnostics
-follow-up added bounded `failure_message_excerpt` fields. It was pushed as
-Kaggle version 7 after explicit approval and the required guards, completed,
-and downloaded to `runs/kaggle/real_data_runtime_pretest_v7`. Inspection found
-no new runtime selection: two eager single-T4 bs4 FP32 rows remain eligible,
-bs8/bs12 and compiled candidate evidence are now diagnosed as failing in
-gate-health quantile telemetry with `quantile() input tensor is too large`,
-eager bs32 rows record `runtime_OutOfMemoryError`, compiled rows remain
-diagnostic/ineligible, and no `benchmark/selected_runtime.json` was written.
-The local v8 slice implemented a deterministic bounded/sampled gate-health
-quantile path for `gate_p01/gate_p50/gate_p99`, preserved exact full-tensor
-finite/saturation/worst-channel/dead-channel pass/fail checks, and prevented
-lane-level gate-health success from covering rows without matching
-row-specific evidence. It was committed as `614cd95`, rebuilt and validated from
-a clean source state, pushed as Kaggle version 8 after explicit approval and the
-required guards, completed, and downloaded to
-`runs/kaggle/real_data_runtime_pretest_v8`. Inspection found the v7 quantile
-failure is fixed: paired-numerical and corruption failed-candidate evidence
-counts are both zero. Six eager single-visible-T4 FP32 rows pass in the capped
-pretest: bs4/bs8/bs12 crossed with `branchless_all` and
-`indexed_masked`. The run still wrote no `benchmark/selected_runtime.json`,
-still has `runtime_proof.status = pretest_incomplete`, and remains
-non-promotable. Eager bs32 remains `runtime_OutOfMemoryError`, dual-T4
-train-step measurement remains pending, and compiled rows remain
-diagnostic/ineligible until full compile-settle evidence exists.
+The embedded single-file kernel must include
+`docs/data/ubc_ocean_masked_holdout_ids.csv` for split/holdout-overlap proof. The
+phase-timing artifact must be present in both the payload artifact allow-list and
+the launcher validation allow-list; the local generated-launcher full simulation
+covers this exact artifact set.
 
-The completed selected-runtime benchmark slice
-`v8_shortlist_eager_amp_then_dual_gate` in
-`configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json` treated v8 only as
-shortlist provenance. The guarded executor then revalidated linked proofs,
-confirmed the eager single-visible-T4 candidates, ran the blocking real dual-T4
-train-step timing gate, and wrote selected-runtime artifacts only after its own
-full linked proof passed. The dual-T4 gate had to record two visible T4s,
-`world_size = 2`, `nproc_per_node = 2`, per-rank device assignment,
-child-process launch command proof, train and validation dataloader rank
-coverage, scoped numerical/corruption rows, gate-health evidence bound to
-candidate row ids, a hash-linked `benchmark/stain_corruptor_qa.json`, and
-global throughput projection.
-Runtime-selection v1 showed the dual gate can pass on Kaggle but selected
-runtime writing remained blocked by linked-proof false negatives and wrapper
-allow-list drift. The local v2 patch fixes those specific blockers while
-preserving the refusal rule for missing, failed, or skipped linked proof.
-Runtime-selection v2 then completed without a wrapper error but still refused
-selection because single-visible indexed-mask pass rows lacked gate-health rows.
-The local v3 patch binds those rows from the branchless gate-health reference
-only after the indexed runtime row has already passed linked evidence.
-Runtime-selection v3 completed and wrote the selected-runtime artifact:
-`runs/kaggle/runtime_selection_v3/benchmark/selected_runtime.json`.
-The local selected-runtime efficiency follow-up is implemented after v3. After
-adversarial subagent review and explicit approval for the efficiency benchmark
-only, local commit `753c9db` was created, the runtime-selection kernel was
-rebuilt/validated from the clean commit, and Kaggle accepted version 4. The one
-guarded status read returned `KernelWorkerStatus.RUNNING`; on resume v4
-completed and outputs were downloaded to `runs/kaggle/runtime_selection_v4`.
-Version 4 failed closed with no `benchmark/selected_runtime.json`: the fastest
-otherwise clean AMP conservative row projected around 33.0 hours for 10 epochs,
-but writer policy false negatives treated small selected-row numerical drift
-and nonselected-row proof failures as global blockers. Local commit `fc5227d`
-repairs that writer policy and local replay of v4 artifacts passes. Kaggle
-accepted runtime-selection version 5 from the clean rebuilt kernel; the one
-guarded status read returned `KernelWorkerStatus.RUNNING` at 2026-06-21
-06:14:37 -05. On the next approved status read, v5 was
-`KernelWorkerStatus.COMPLETE`; outputs were downloaded to
-`runs/kaggle/runtime_selection_v5`. The proof passed and selected
-`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
-with `runtime_policy_id = amp_fp16_conservative`, `samples_sec = 27.381321`,
-estimated 10-epoch wall time `109563.740875` seconds, zero AMP skips, no OOM,
-gate-health pass, and strict local replay pass under current `main`. The
-2026-06-21 pre-long-run preference for a compact broader/non-conservative AMP
-follow-up, including `amp_scalar_gate_relaxed` or the closest implemented
-less-conservative AMP policy, was satisfied by runtime-selection v6. That
-comparison downloaded to
-`runs/kaggle/runtime_selection_v6`, replayed locally, and did not write
-`benchmark/selected_runtime.json`: the relaxed row passed runtime/gate-health
-with zero AMP skips but reached only `25.288828` samples/sec versus v5 at
-`27.381321`. Keep v5 as the fallback.
+The selected-runtime benchmark slice `v8_shortlist_eager_amp_then_dual_gate` in
+`configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json` treats the v8 pretest
+rows as shortlist provenance only: the guarded executor revalidates linked
+proofs, confirms the eager single-visible-T4 candidates, runs the blocking real
+dual-T4 train-step timing gate (the selection-gate contract above), and writes
+`benchmark/selected_runtime.json` only after its own full linked proof passes.
 
 Local-first rule for runtime-selection pushes: before any future
 runtime-selection remote push or approval request, run the cheap semantic local
