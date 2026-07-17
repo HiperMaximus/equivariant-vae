@@ -340,10 +340,13 @@ pre-edit home audit + post-edit adversarial diff review both clean; FU-029 retir
 Then spec 0001 `D-07` DONE local-only (`db9a104`: dropped 4 dated "as of" verification-command status
 notes incl. a stale CLI-rejects-real-execution claim superseded by Spec 0007/0008/0009; commands + durable
 rules byte-intact; guard-health steady 3 FAIL/21; adversarial diff review clean). ALL spec 0001 doc-trims
-(D-05/D-06/D-07) DONE — the Drop-Plan spec-0001 subsection is now removed.** → dependency
-upgrade as its OWN gated step
-(`uv lock --upgrade`; ahead of S17b-3 because Kaggle rides near-latest torch and drift bites the
-compiled fast-path) → S17b-3.
+(D-05/D-06/D-07) DONE — the Drop-Plan spec-0001 subsection is now removed.** Then the dependency
+upgrade DONE local-only (`d4acb73`: `uv lock --upgrade` — torch 2.12→2.13 for Kaggle compiled-fast-path
+parity, + numpy 2.5.1/scipy 1.18.0/pillow/ruff 0.15.22/basedpyright 1.39.9/pytest 9.1.1; Python 3.12
+`<3.13` anchor held; adopted the two worthwhile new ruff rules D421/RUF201, excluded cosmetic RUF105
+[noqa-comments] with the rationale in `pyproject.toml`; gate green 557 passed/1 skipped, basedpyright 0
+errors). **NEXT = Spec 0011 S17b-3** (de-pin the kernel/push-side parser mirrors; see
+[[eqvae-reusable-runtime-mechanism-plan]] + `docs/specs/0011-*.md`).
 
 > Pre-Spec-0011 status (runtime-selection v5, Spec 0006–0009) and older Kaggle-run
 > provenance were trimmed from here on 2026-07-16 (FU-011). Git history and
