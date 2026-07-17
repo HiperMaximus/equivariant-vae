@@ -1,36 +1,11 @@
 # Kaggle CLI Workflow
 
-Status: draft workflow scaffold; runtime-selection v5 is the selected fallback
-runtime (`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,
-`27.381321` samples/sec, about 30.4 projected hours for 10 epochs);
-runtime-selection v6 tested relaxed scalar-gate AMP and kept v5 because it was
-slower. Spec 0008 selected-runtime debug/tiny v5 completed on Kaggle,
-downloaded to `runs/kaggle/selected_runtime_debug_v5`, and passed strict
-`eqvae.cli.selected_runtime_gate --verify-output` with canonical real fixed-32
-selector generation, selected-runtime plan application, checkpoint/resume, gate
-health, artifact manifest, zero tiny AMP skips, zero tiny nonfinite rows, and no
-launch blockers. The next work is not another debug/tiny push. Spec 0009 now
-has a guarded first full selected-runtime training workflow. The first full
-kernel push was explicitly approved and accepted by Kaggle as
-`maximusshtefan/eqvae-selected-runtime-full` version 1 on 2026-06-29. It later
-returned `KernelWorkerStatus.CANCEL_ACKNOWLEDGED`; canceled outputs were
-downloaded to `runs/kaggle/selected_runtime_full_v1` with checkpoints through
-update 43750 but without metrics/benchmark summaries, so strict full-output
-verification fails as expected. The local runner now uses two-phase full-run
-interval flushing: train, validation, gate-health, partial summaries, and
-partial manifests are fsync/atomic-written before a new interval checkpoint is
-exposed, then refreshed with checkpoint hashes after checkpoint/best-model save.
-Future Kaggle cancellations should preserve resume history beside checkpoints.
-Separate artifact-scope warning: the current Spec 0009 full-run surface still
-does not write the fixed-25 rotated-input versus transformed-latent/embedding
-equivariance artifacts required by the repo goal and issue images. Future
-selected-runtime full launches are training/checkpoint evidence only until
-`fixed25_equivariance_artifact_protocol` is implemented. The runner now prints
-half-epoch boundary breadcrumbs and waits at a final full-run boundary barrier
-after checkpoint/manifest refresh so pulled Kaggle logs show the last completed
-boundary.
+Live per-run status — which kernel version was pushed, what it returned, and the
+currently selected fallback runtime — lives in `CURRENT.md`, not here. This doc
+holds the durable CLI-managed Kaggle workflow: kernel contracts, guards, and
+command sequences.
 
-Current full-run surface: `scripts/kaggle_kernel.sh` has
+Full-run surface: `scripts/kaggle_kernel.sh` has
 `preflight-selected-runtime-runner`, `preflight-selected-runtime-debug`,
 `preflight-selected-runtime-full`, `status-selected-runtime-full`, and
 `output-selected-runtime-full`. The full launcher is the dedicated
@@ -39,12 +14,10 @@ Current full-run surface: `scripts/kaggle_kernel.sh` has
 debug/resume/tiny proof steps and writes non-promotable artifacts. There is no
 `push-selected-runtime-full` action; full pushes use
 `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_full`.
-The next action is local resume-policy work for the canceled-output checkpoint
-path before any new resume upload/push. Future remote status/output checks,
-checkpoint uploads, kernel-source attachments, or resume pushes each require
-exact approval and the relevant confirmation variables. Kaggle source
-attachments require a separate confirmation guard.
-Last updated: 2026-06-30
+Future remote status/output checks, checkpoint uploads, kernel-source
+attachments, or resume pushes each require exact approval and the relevant
+confirmation variables. Kaggle source attachments require a separate
+confirmation guard.
 
 Kaggle is a remote execution surface, not a Git remote. This repo remains the
 source of truth for experiment code, specs, configs, and paper-facing claims.
@@ -75,32 +48,13 @@ kaggle/kernels/non_eq_vae_debug
 It now launches only the capped `kaggle_smoke_ready` debug path. That path is
 allowed to run at most three train steps and one clean-validation batch, writes
 `benchmark/kaggle_smoke.json`, and keeps `full_run_eligible = false`. It is not
-runtime selection, convergence evidence, a full benchmark, or a full run.
-
-Important correction from the first remote debug push: the Kaggle CLI script
-kernel upload serialized the declared `code_file`, so the sibling
-`payload/` directory prepared for `non_eq_vae_debug` was not available remotely.
-The first remote version ended in `KernelWorkerStatus.ERROR` with
-`ModuleNotFoundError: No module named 'eqvae'` and produced no benchmark
-artifact. The real-data smoke launcher has since been migrated locally to
-embedded single-file packaging with an upload-simulation import test. A fresh
-remote real-data rerun is allowed only when intentionally accepting real dataset
-attachment/setup cost; it is not the next step for synthetic/random
-training-time benchmarking.
-
-Important correction from the 2026-06-17 remote-control testing pass: the
-real-data smoke path is the wrong tool for synthetic/random timing-plumbing
-benchmarks because its metadata attaches the 60 GB+
-`maximusshtefan/patches-pre-shuffled-ubc-ocean` dataset. It should be used only
-when intentionally testing real dataset attachment plus UBC shard resolution.
-`scripts/kaggle_kernel.sh push` now requires both `KAGGLE_PUSH_CONFIRMED=1` and
-`KAGGLE_FULL_DATASET_CONFIRMED=1` before any metadata with nonempty Kaggle
-source attachments can be uploaded. The guarded source fields are
-`dataset_sources`, `competition_sources`, `kernel_sources`, and
-`model_sources`. The current real-data smoke guard additionally requires the
-known patch dataset as the only source attachment. The next training-time
-efficiency benchmark should use a separate no-dataset synthetic/random kernel,
-not the real-data smoke.
+runtime selection, convergence evidence, a full benchmark, or a full run. The
+real-data smoke attaches the 60 GB+
+`maximusshtefan/patches-pre-shuffled-ubc-ocean` dataset, so use it only when
+intentionally testing real dataset attachment plus UBC shard resolution, not for
+synthetic/random timing-plumbing benchmarks (use a separate no-dataset kernel
+for those). The guarded-source push contract lives under "Dataset Sources"
+below.
 
 The setup-only script-kernel scaffold lives in:
 
@@ -113,16 +67,8 @@ embeds a zipped repo payload, generates tiny synthetic UBC-format shards under
 the output directory, and writes non-promotable
 `benchmark/kaggle_setup_smoke.json`. It validates Kaggle API/script/import/
 artifact plumbing only; it is not real-data loader evidence, runtime selection,
-or convergence evidence.
-
-Remote setup-smoke v1 was pushed on 2026-06-17 after explicit permission and
-completed successfully. The downloaded ignored artifact at
-`runs/kaggle/setup_smoke/benchmark/kaggle_setup_smoke.json` records
-`status = "smoke_pass"`, `status_scope = "non_promotable_setup_smoke"`,
-`benchmark_kind = "synthetic_kaggle_setup_smoke"`, no dataset slug, synthetic
-data origin, CPU runtime, `requires_cuda_t4 = false`, 3 train steps, 1
-clean-validation batch, 2 deterministic applied corruptions, and clean embedded
-payload provenance for commit `3162bec`.
+or convergence evidence. Its expected `benchmark/kaggle_setup_smoke.json` fields
+are the setup-smoke contract under "Local Commands" below.
 
 The no-dataset GPU timing scaffold is:
 
@@ -130,20 +76,14 @@ The no-dataset GPU timing scaffold is:
 kaggle/kernels/synthetic_timing
 ```
 
-It is implemented locally at this path, and remote versions 1, 2, 3, and 4
-completed on Kaggle with non-promotable `synthetic_timing_pass`. Its contract
-is to request T4 GPU runtime, attach no Kaggle datasets or other sources, generate
+It is implemented locally at this path. Its contract is to request T4 GPU
+runtime, attach no Kaggle datasets or other sources, generate
 deterministic UBC-format binary+CSV shards under the Kaggle working output, and
 write only non-promotable synthetic timing artifacts. The current default
 profile is `synthetic_binary_2gib_histology_like_v1`: 10,912 total
 `3x256x256` CHW `uint8` patches, split 5,456 train / 5,456 validation,
 2,145,386,496 payload bytes before CSV/artifacts, about 1.998 GiB. This keeps
-non-wrapping 30-batch throughput rows eligible through global batch 128. Remote
-v1 used the earlier 0.81 GB profile; remote v2 refreshed the evidence with this
-2 GiB-scale default; remote v3 added per-rank DDP device proof and corrected
-`drop_last = false` projection fields; remote v4 is the current
-5-warmup/25-measured repeat-shortlist evidence at
-`runs/kaggle/synthetic_timing_repeat_2gib_v4/benchmark`.
+non-wrapping 30-batch throughput rows eligible through global batch 128.
 
 The generated synthetic root must mirror the real shard contract exactly enough
 to exercise the same loader path: write
@@ -647,6 +587,11 @@ legitimately return exit code 0 while writing fail-closed proof artifacts, so
 local and remote checks must inspect `benchmark/runtime_proof.json` and
 `benchmark/selected_runtime.json`.
 
+The runtime-selection kernel is `maximusshtefan/eqvae-runtime-selection`, and its
+push-readiness contract token is `runtime_selection_kernel_ready`; the push guard
+requires that token in this doc, spec 0003, and the specs index before any remote
+write.
+
 Local-first rule for selected-runtime debug/tiny pushes: before any remote write
 or approval request for the real debug/resume/artifact/tiny-overfit gate, run:
 
@@ -664,6 +609,12 @@ the Spec 0008 local generator/readiness checks pass in `remote_generate` mode,
 exact real-dataset metadata is attached, and the remote kernel is configured to
 generate and validate exactly 32 canonical real train selectors from the Kaggle
 train shard before training.
+
+The selected-runtime debug/tiny gate kernel contract token is
+`selected_runtime_debug_gate_contract_ready`: `kaggle/kernels/selected_runtime_debug`
+embeds the v5 selected-runtime JSON and writes fail-closed artifacts through
+`eqvae.cli.selected_runtime_gate`; the push guard requires that token in this doc,
+spec 0001, spec 0003, and the specs index.
 
 Local `build`/`validate` may verify the generated real-data pretest payload
 against the current dirty worktree so agents can validate local patches before
