@@ -106,7 +106,7 @@ Rules to keep this file from rotting (the problem it exists to fix):
   Fix: apply the Drop Plan below; add a bullet to `spec_driven_development.md`
   requiring STATUS blocks to hold latest state only.
 - **FU-029 — Specs 0001/0003 + README re-narrate the whole finished benchmark
-  saga.** See D-05/D-06/D-08/D-10. Largest single staleness offender.
+  saga.** See D-05/D-06/D-10 (D-08 done). Largest single staleness offender.
 - **FU-030 — Spec 0009 is the LIVE frontier — do NOT compress to "implemented"
   during cleanup.** `docs/specs/0009-...md:3-9,290-318`. Only normalize formatting;
   update status after the approved status/output verification runs.
@@ -152,10 +152,6 @@ HIGH unless noted. Execute, then delete this section's done items.
 - **D-06 [HIGH]** Drop per-version run outcomes in Training/Config Contract `:~1896-1979`;
   keep eligibility/threshold rules.
 - **D-07 [MED]** Drop dated "as of" notes in Verification Commands `:~3319,3352,3373,3598`.
-
-### docs/specs/0003
-- **D-08 [HIGH]** Drop v1-v8 remote chronology (Status `:3-86`; body `:~213-440`);
-  keep durable guard/metadata rules + the locked-runtime sentence.
 
 ### docs/specs/README.md
 - **D-10 [HIGH]** Compress bloated cells `:28,30,33` to 1-2 sentences; drop trailing

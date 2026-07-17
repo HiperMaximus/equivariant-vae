@@ -318,9 +318,13 @@ guard-health 5→3 FAIL), `f0eb081` (D-11/D-12/D-17 selection + pretest sagas �
 dual-T4 selection-gate contract; closed FU-010 by deleting the contradictory v3 row-id block, v5
 identity kept), `ad36684` (D-16 auth narration → durable OAuth mechanism; D-15 timing logs → cadence
 rules). Retired FU-010 + FU-032 + D-11..D-17 from the backlog. Guard-health now 3 FAIL, ALL 3
-by-design/other-doc (spec0001:657 + README:663/680), zero for `kaggle_cli_workflow.md`. NEXT doc-trim
-= spec 0003 `D-08` → README `D-10` (anchor-DENSE) → spec 0001 `D-05` (surgical)/`D-06`/`D-07`; per-trim
-procedure + remaining order live in that memory** → dependency upgrade as its OWN gated step
+by-design/other-doc (spec0001:657 + README:663/680), zero for `kaggle_cli_workflow.md`. Then spec 0003
+`D-08` DONE local-only (`6b0f22b`: dropped the v1–v8 remote chronology from Status + Workflow Contract,
+kept all 4 guard anchors + durable rules + the locked-runtime v5 sentence, neutralized the stale 60h
+magnitude → "full (multiple dozen hours)"; guard-health steady 3 FAIL/21; agent_preflight + two
+read-only adversarial reviews clean). NEXT doc-trim = README `D-10` (anchor-DENSE) → spec 0001 `D-05`
+(surgical)/`D-06`/`D-07`; per-trim procedure + remaining order live in that memory** → dependency
+upgrade as its OWN gated step
 (`uv lock --upgrade`; ahead of S17b-3 because Kaggle rides near-latest torch and drift bites the
 compiled fast-path) → S17b-3.
 
