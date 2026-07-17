@@ -63,9 +63,20 @@ This repo is the paper/research repository for the equivariant VAE work.
 13. Never store, print, or commit Overleaf tokens or other credentials.
 14. GitHub issue images are requirements evidence. Inspect them before deriving
     plans, figures, metrics, or deliverables from issue comments.
-15. Keep `README.md`, `GOAL.md`, `AGENTS.md`, plans, and workflow docs current.
-    Delete or replace stale/bad/incorrect information instead of appending
-    contradictory historical notes. Use the state-file policy in
+15. Keep the repo LEAN and LIVE as a standing discipline, not a later cleanup.
+    Every doc, spec, `CURRENT.md`, decision note, plan, `README.md`, `GOAL.md`,
+    `AGENTS.md`, workflow doc, memory, and file must earn its place by being
+    currently useful. Delete deprecated, superseded, dead, purely-historical, or
+    prose-only artifacts outright instead of appending to or around them; replace
+    stale/bad/incorrect information rather than leaving contradictory historical
+    notes; and write compactly the FIRST time so the repo never re-accumulates
+    append-only history that costs thousands of lines to trim (as the 2026-07
+    doc-trim campaign did). Git history, `docs/decisions/`, and superseded specs
+    already preserve the past — live files carry only what a reader needs now:
+    one fact, one home; one line, one hook (point at where detail lives, do not
+    duplicate state). This does NOT license deleting things that merely LOOK
+    unused: apply rule 29 first — verify the premise, since symptoms of a
+    deliberate policy are not rot. Use the state-file policy in
     `docs/agentic_review_workflow.md`.
 16. Keep `CURRENT.md` updated after meaningful shifts in active work, blockers,
     or next steps.
