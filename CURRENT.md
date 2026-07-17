@@ -326,9 +326,13 @@ read-only adversarial reviews clean). Then README `D-10` DONE local-only (`94f12
 0003/0008 workflow cells, fixed the 0001/0009/0010 stale FU-041/Spec-0010 facts, rescued the
 `runtime_selection_kernel_ready` push-guard anchor into the guard-phrase list, dropped the trailing
 v1–v6 narrative; the 0001 row substance was kept verbatim; guard-health steady 3 FAIL/21 incl. the two
-fail-closed 0001 guards; agent_preflight + a 5-lens adversarial Workflow review clean). NEXT doc-trim =
-spec 0001 `D-05` (surgical LANDMINE)/`D-06`/`D-07`; per-trim procedure + remaining order live in that
-memory** → dependency
+fail-closed 0001 guards; agent_preflight + a 5-lens adversarial Workflow review clean). Then spec 0001
+`D-05` DONE local-only (`6ecb00c`: dropped the dated per-slice implementation chronology [old L3–431] →
+a compact Status block preserving the six `scripts/kaggle_kernel.sh` guard literals + the fail-closed
+sh:657 broad-impl push block; rescued the v4/`fc5227d` row-scoped-promotion anti-pattern as a 1-line
+caveat on durable rule 8; durable `## Purpose`→EOF byte-intact otherwise; 4012→3608 lines; guard-health
+steady 3 FAIL/21; agent_preflight + two read-only adversarial passes clean). NEXT doc-trim = spec 0001
+`D-06`/`D-07` (per-trim procedure + remaining order live in that memory)** → dependency
 upgrade as its OWN gated step
 (`uv lock --upgrade`; ahead of S17b-3 because Kaggle rides near-latest torch and drift bites the
 compiled fast-path) → S17b-3.

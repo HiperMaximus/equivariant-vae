@@ -21,9 +21,14 @@ Rules to keep this file from rotting (the problem it exists to fix):
   the full-run config and `scripts/kaggle_kernel.sh` guard.
 - `runtime_selection v5` row id (`dual_t4_ddp__bs12__amp_conservative...`) — locked
   selected runtime.
-- Guard literals grepped by `scripts/kaggle_kernel.sh`: `kaggle_smoke_ready`,
-  `kaggle_setup_smoke_ready` (`:533/673`), `Implementation readiness:` (`:515`),
-  and each spec `.md` filename literal in `docs/specs/README.md`.
+- Guard literals grepped by `scripts/kaggle_kernel.sh` (extract the exact anchors
+  from the script, not from memory — line numbers rot): spec 0001 is grepped for
+  `Implementation readiness:` (fail-closed, must stay non-`ready`),
+  `kaggle_smoke_ready`, `kaggle_synthetic_timing_contract_ready`,
+  `real_data_runtime_pretest_contract_ready`,
+  `v8_shortlist_eager_amp_then_dual_gate`, and
+  `selected_runtime_debug_gate_contract_ready`; `kaggle_setup_smoke_ready` is a
+  spec 0003 guard; plus each spec `.md` filename literal in `docs/specs/README.md`.
 - Benchmark code/CLIs/kernels/tests (`synthetic_timing`, `real_data_runtime_pretest`,
   `runtime_selection*`) — FINISHED but still imported/wired; retire only as one
   coordinated change (see FU-031), not in a doc pass.
@@ -106,7 +111,7 @@ Rules to keep this file from rotting (the problem it exists to fix):
   Fix: apply the Drop Plan below; add a bullet to `spec_driven_development.md`
   requiring STATUS blocks to hold latest state only.
 - **FU-029 — Specs 0001/0003 + README re-narrate the whole finished benchmark
-  saga.** See D-05/D-06 (D-08/D-10 done). Largest single staleness offender.
+  saga.** See D-06 (D-05/D-08/D-10 done). Largest single staleness offender.
 - **FU-030 — Spec 0009 is the LIVE frontier — do NOT compress to "implemented"
   during cleanup.** `docs/specs/0009-...md:3-9,290-318`. Only normalize formatting;
   update status after the approved status/output verification runs.
@@ -146,12 +151,12 @@ Rules to keep this file from rotting (the problem it exists to fix):
 Delete/compress historical narration so the repo reflects current state. Confidence
 HIGH unless noted. Execute, then delete this section's done items.
 
-### docs/specs/0001 (~3993 lines)
-- **D-05 [HIGH]** Drop status+saga preamble `:3-431` → <10-line Status. Durable
-  contract starts at `## Purpose :432`. Keep readiness token literals.
-- **D-06 [HIGH]** Drop per-version run outcomes in Training/Config Contract `:~1896-1979`;
+### docs/specs/0001 (~3608 lines)
+- **D-06 [HIGH]** Drop per-version run outcomes in Training/Config Contract
+  (`:~1490-1573` after the D-05 shift — re-derive against the current file);
   keep eligibility/threshold rules.
-- **D-07 [MED]** Drop dated "as of" notes in Verification Commands `:~3319,3352,3373,3598`.
+- **D-07 [MED]** Drop dated "as of" notes in Verification Commands
+  (`:~2916,2949,2970,3195` after the D-05 shift — re-derive); keep the command list.
 
 ### docs/behavior_inventory_kaggle.md (~648 lines)
 - **D-18 [MED]** Move/drop "Spec 0001 Reopened Decisions" `:541-649` (wrong home; FU-015).
