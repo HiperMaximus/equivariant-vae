@@ -1780,7 +1780,7 @@ PY
     --verify-only
 
   local run_file="$kernel_dir/run.py"
-  python3 - "$run_file" <<'PY'
+  PYTHONPATH=src "$python_bin" - "$run_file" <<'PYDEBUGPAYLOAD'
 import base64
 import io
 import json
@@ -1788,6 +1788,8 @@ import re
 import sys
 import zipfile
 from pathlib import Path
+
+from eqvae.training.selected_runtime import selected_runtime_plan_errors
 
 run_text = Path(sys.argv[1]).read_text(encoding="utf-8")
 match = re.search(
@@ -1872,87 +1874,24 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         print(f"error: selected-runtime debug payload missing {error}", file=sys.stderr)
         raise SystemExit(1) from None
 
-    snapshot = selected_runtime.get("selected_row_snapshot")
-    if not isinstance(snapshot, dict):
-        errors.append("selected runtime must include selected_row_snapshot")
+    # Spec 0011 S17b-3: delegate the selected-runtime identity/recipe/snapshot/batch
+    # validation to the single-source parser instead of mirroring its frozen eager
+    # literals here. This accepts a re-measured compiled winner (amp-off whole-step
+    # compile, any exact batch) while keeping every hardware/topology anchor -- the
+    # parser pins accelerator/machine_shape/world_size/nproc/grad-accum even more
+    # explicitly than the old identity literal did (which carried them only
+    # incidentally). selected_runtime_path is None: the launch parse re-checks the
+    # runtime proof; this push guard only needs the proof file present (required_files
+    # above). Byte-identical acceptance on the committed v5 plan.
+    if not isinstance(selected_runtime, dict):
+        errors.append("selected runtime must be a JSON object")
     else:
-        expected_row = (
-            "dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__"
-            "policy_amp_fp16_conservative"
+        errors.extend(
+            selected_runtime_plan_errors(
+                selected_runtime,
+                selected_runtime_path=None,
+            ),
         )
-        if selected_runtime.get("status") != "pass":
-            errors.append("selected runtime status must be pass")
-        if selected_runtime.get("selected_row_id") != expected_row:
-            errors.append("selected runtime must be the v5 fallback row")
-        if selected_runtime.get("runtime_policy_id") != "amp_fp16_conservative":
-            errors.append("selected runtime must use amp_fp16_conservative")
-        if snapshot.get("row_id") != expected_row:
-            errors.append("selected runtime snapshot row mismatch")
-        if snapshot.get("world_size") != "2":
-            errors.append("selected runtime snapshot must be dual-rank")
-        if snapshot.get("precision_policy") != "amp_conservative":
-            errors.append("selected runtime snapshot must be AMP conservative")
-        if snapshot.get("corruption_strategy") != "indexed_masked":
-            errors.append("selected runtime snapshot must use indexed_masked")
-        expected_top_level = {
-            "world_size": 2,
-            "nproc_per_node": 2,
-            "gradient_accumulation_steps": 1,
-        }
-        for key, expected in expected_top_level.items():
-            if selected_runtime.get(key) != expected:
-                errors.append(f"selected runtime {key} must be {expected!r}")
-        # Spec 0011 S8: batch is a measured search output, so validate the relationship
-        # global == per_device * world_size instead of pinning 12/24 (byte-identical @24).
-        debug_per_device = selected_runtime.get("per_device_batch_size")
-        debug_world = selected_runtime.get("world_size")
-        if (
-            isinstance(debug_per_device, bool)
-            or not isinstance(debug_per_device, int)
-            or debug_per_device <= 0
-        ):
-            errors.append(
-                "selected runtime per_device_batch_size must be a positive integer"
-            )
-        elif isinstance(debug_world, bool) or not isinstance(debug_world, int):
-            errors.append("selected runtime world_size must be an integer")
-        elif selected_runtime.get("global_batch_size") != debug_per_device * debug_world:
-            errors.append(
-                "selected runtime global_batch_size must be "
-                f"{debug_per_device * debug_world!r}"
-            )
-        mixed_precision = selected_runtime.get("mixed_precision")
-        if not isinstance(mixed_precision, dict):
-            errors.append("selected runtime mixed_precision must be an object")
-        else:
-            expected_mixed_precision = {
-                "enabled": True,
-                "policy": "amp_conservative",
-                "autocast_dtype": "float16",
-                "fp32_loss": True,
-                "grad_scaler_enabled": True,
-            }
-            for key, expected in expected_mixed_precision.items():
-                if mixed_precision.get(key) != expected:
-                    errors.append(f"selected runtime mixed_precision.{key} must be {expected!r}")
-        dataloader = selected_runtime.get("dataloader")
-        if not isinstance(dataloader, dict):
-            errors.append("selected runtime dataloader must be an object")
-        else:
-            expected_dataloader = {
-                "num_workers": 0,
-                "pin_memory": False,
-                "persistent_workers": False,
-                "non_blocking_h2d": True,
-            }
-            for key, expected in expected_dataloader.items():
-                if dataloader.get(key) != expected:
-                    errors.append(f"selected runtime dataloader.{key} must be {expected!r}")
-            if dataloader.get("prefetch_factor") is not None:
-                errors.append("selected runtime dataloader.prefetch_factor must be null")
-        corruption = selected_runtime.get("corruption")
-        if not isinstance(corruption, dict) or corruption.get("strategy") != "indexed_masked":
-            errors.append("selected runtime corruption.strategy must be indexed_masked")
 
     debug_gate = debug_config.get("selected_runtime_debug")
     tiny_gate = tiny_config.get("selected_runtime_debug_gate")
@@ -2002,7 +1941,7 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)
         raise SystemExit(1)
-PY
+PYDEBUGPAYLOAD
 
   for required_text in \
     "KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True" \

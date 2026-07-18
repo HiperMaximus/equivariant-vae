@@ -113,6 +113,10 @@ _FULL_PUSH_GUARD_HEREDOC_PATTERN = re.compile(
     r"<<'PYFULLPAYLOAD'\n(?P<body>.*?)\nPYFULLPAYLOAD",
     flags=re.DOTALL,
 )
+_DEBUG_PUSH_GUARD_HEREDOC_PATTERN = re.compile(
+    r"<<'PYDEBUGPAYLOAD'\n(?P<body>.*?)\nPYDEBUGPAYLOAD",
+    flags=re.DOTALL,
+)
 _FULL_TARGET_UPDATES_TOKEN = f"FULL_TARGET_UPDATES = {_FULL_TARGET_UPDATES}"
 _FULL_UPDATES_PER_EPOCH = 12500
 _BUILD_SCRIPT_MODULE = "build_kaggle_embedded_kernel"
@@ -697,7 +701,7 @@ def test_full_push_guard_accepts_goal_derived_schedule(tmp_path: Path) -> None:
         ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
     )
     guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
-    result = _run_full_push_guard(
+    result = _run_push_guard(
         guard_py=guard_py,
         run_py=simulation.upload_dir / "run.py",
         repo_root=repo_root,
@@ -723,7 +727,7 @@ def test_full_push_guard_rejects_refrozen_schedule_key(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
-    result = _run_full_push_guard(
+    result = _run_push_guard(
         guard_py=guard_py,
         run_py=run_py,
         repo_root=repo_root,
@@ -750,7 +754,7 @@ def test_full_push_guard_rejects_off_derivation_updates(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
-    result = _run_full_push_guard(
+    result = _run_push_guard(
         guard_py=guard_py,
         run_py=run_py,
         repo_root=repo_root,
@@ -780,7 +784,7 @@ def test_full_push_guard_rejects_non_integer_epochs(tmp_path: Path) -> None:
     ).replace(_FULL_TARGET_UPDATES_TOKEN, "FULL_TARGET_UPDATES = 999999", 1)
     run_py.write_text(tampered, encoding="utf-8")
     guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
-    result = _run_full_push_guard(
+    result = _run_push_guard(
         guard_py=guard_py,
         run_py=run_py,
         repo_root=repo_root,
@@ -808,13 +812,146 @@ def test_full_push_guard_rejects_off_derivation_run_py_token(tmp_path: Path) -> 
     assert mutated != run_text
     run_py.write_text(mutated, encoding="utf-8")
     guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
-    result = _run_full_push_guard(
+    result = _run_push_guard(
         guard_py=guard_py,
         run_py=run_py,
         repo_root=repo_root,
     )
     assert result.returncode != 0
     assert "missing required text" in result.stderr
+
+
+# --- Spec 0011 S17b-3 sub-step 2: the debug push guard delegates to the parser.
+#
+# The debug PYDEBUGPAYLOAD heredoc now runs on the venv interpreter and validates the
+# embedded selected_runtime.json through selected_runtime_plan_errors instead of
+# mirroring the eager identity/recipe/snapshot literals. These tests extract and run the
+# real guard body verbatim (no drift) against a freshly built debug kernel whose
+# embedded plan is rewritten in place.
+
+
+def _build_debug_kernel(tmp_path: Path, repo_root: Path) -> UploadSimulation:
+    return _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="selected_runtime_debug",
+        ready_marker="KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True",
+    )
+
+
+def test_debug_push_guard_accepts_committed_plan(tmp_path: Path) -> None:
+    """The de-pinned debug push guard passes on a freshly built kernel (S17b-3).
+
+    Behavior-preserving: the committed eager v5 plan still validates once the guard
+    delegates to selected_runtime_plan_errors instead of mirroring the eager literals.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_debug_kernel(tmp_path, repo_root)
+    guard_py = _extract_debug_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
+    result = _run_push_guard(
+        guard_py=guard_py,
+        run_py=simulation.upload_dir / "run.py",
+        repo_root=repo_root,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_debug_push_guard_accepts_compiled_winner(tmp_path: Path) -> None:
+    """A re-measured bs47 amp-off compile-step plan now passes the debug push guard.
+
+    This is the S17b-3 goal for the debug surface: the shell mirror no longer rejects a
+    compiled winner the runtime search can emit (odd batch 47 proves no divisibility).
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_debug_kernel(tmp_path, repo_root)
+    run_py = simulation.upload_dir / "run.py"
+    run_py.write_text(
+        _rewrite_embedded_payload(
+            run_py.read_text(encoding="utf-8"),
+            _install_compiled_winner_plan,
+        ),
+        encoding="utf-8",
+    )
+    guard_py = _extract_debug_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
+    result = _run_push_guard(
+        guard_py=guard_py,
+        run_py=run_py,
+        repo_root=repo_root,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_debug_push_guard_rejects_self_inconsistent_plan(tmp_path: Path) -> None:
+    """A compiled recipe left on the eager identity fails closed with the parser id.
+
+    Proves the guard delegates to the parser's structural identity rather than mirroring
+    the recipe literals: an amp-off precision block on the eager v5 row_id makes the
+    composed identity disagree with the recorded one.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_debug_kernel(tmp_path, repo_root)
+    run_py = simulation.upload_dir / "run.py"
+    run_py.write_text(
+        _rewrite_embedded_payload(
+            run_py.read_text(encoding="utf-8"),
+            _install_amp_off_on_eager_identity,
+        ),
+        encoding="utf-8",
+    )
+    guard_py = _extract_debug_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
+    result = _run_push_guard(
+        guard_py=guard_py,
+        run_py=run_py,
+        repo_root=repo_root,
+    )
+    assert result.returncode != 0
+    assert "selected_runtime_selected_row_id_not_self_consistent" in result.stderr
+
+
+def test_debug_push_guard_keeps_hardware_anchor(tmp_path: Path) -> None:
+    """De-pinning identity/recipe must not drop the dual-T4 hardware anchor.
+
+    A compiled winner self-declaring single_visible_t4 is rejected by the parser's
+    _launch_errors anchor -- the anchor the eager identity literal carried only
+    incidentally (Spec 0011 S17b-2 lesson). The mutation also trips identity
+    self-consistency, so the assertion targets the anchor-specific id (only
+    _launch_errors emits it) to stay load-bearing on the anchor itself.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_debug_kernel(tmp_path, repo_root)
+    run_py = simulation.upload_dir / "run.py"
+    run_py.write_text(
+        _rewrite_embedded_payload(
+            run_py.read_text(encoding="utf-8"),
+            _install_wrong_accelerator_winner,
+        ),
+        encoding="utf-8",
+    )
+    guard_py = _extract_debug_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
+    result = _run_push_guard(
+        guard_py=guard_py,
+        run_py=run_py,
+        repo_root=repo_root,
+    )
+    assert result.returncode != 0
+    assert "selected_runtime_top_level_not_dual_t4_ddp" in result.stderr
+
+
+def test_selected_runtime_push_guards_run_on_the_venv_interpreter() -> None:
+    """Both plan-delegating push guards must open on the venv interpreter, not python3.
+
+    Each heredoc body imports eqvae (selected_runtime_plan_errors); bare python3 has no
+    torch or eqvae, so reverting the opener to `python3` breaks the real push with a
+    ModuleNotFoundError. The body-only extraction guards can't see the opener line, so
+    assert the venv prefix here directly (S17b-3 / S8).
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    script = (repo_root / "scripts" / "kaggle_kernel.sh").read_text(encoding="utf-8")
+    for marker in ("PYDEBUGPAYLOAD", "PYFULLPAYLOAD"):
+        opener = f"""PYTHONPATH=src "$python_bin" - "$run_file" <<'{marker}'"""
+        assert opener in script, (
+            f"{marker} push guard must open on the venv interpreter, not bare python3"
+        )
 
 
 def test_build_derives_reference_full_schedule() -> None:
@@ -965,6 +1102,15 @@ _SELECTED_RUNTIME_TEMPLATE_KERNELS = (
     "selected_runtime_full",
     "selected_runtime_debug",
 )
+# The amp-off FP32 precision block the compiled winner declares. Shared so the winner
+# shaper and the self-inconsistent mutator cannot drift apart.
+_AMP_OFF_FP32_MIXED_PRECISION: dict[str, object] = {
+    "enabled": False,
+    "policy": "amp_off_fp32",
+    "autocast_dtype": "",
+    "fp32_loss": True,
+    "grad_scaler_enabled": False,
+}
 
 
 def _committed_plan_payload(repo_root: Path) -> dict[str, object]:
@@ -976,14 +1122,13 @@ def _committed_plan_payload(repo_root: Path) -> dict[str, object]:
     )
 
 
-def _compiled_winner_plan_payload(repo_root: Path) -> dict[str, object]:
-    """Return a self-consistent re-measured compiled winner (bs47 amp-off compile-step).
+def _shape_compiled_winner(payload: dict[str, object]) -> dict[str, object]:
+    """Re-shape a committed plan into a self-consistent compiled winner in place.
 
     Returns:
-        The committed plan re-shaped into a fully self-consistent compiled winner.
+        The same payload, mutated into a bs47 amp-off whole-step-compile winner.
 
     """
-    payload = _committed_plan_payload(repo_root)
     payload["selected_row_id"] = _WINNER_ROW_ID
     payload["runtime_policy_id"] = _WINNER_POLICY_ID
     payload["per_device_batch_size"] = _WINNER_PER_DEVICE_BATCH
@@ -991,13 +1136,7 @@ def _compiled_winner_plan_payload(repo_root: Path) -> dict[str, object]:
     payload["optimizer_updates_per_epoch"] = (
         REAL_TRAIN_PATCH_COUNT // _WINNER_GLOBAL_BATCH
     )
-    payload["mixed_precision"] = {
-        "enabled": False,
-        "policy": "amp_off_fp32",
-        "autocast_dtype": "",
-        "fp32_loss": True,
-        "grad_scaler_enabled": False,
-    }
+    payload["mixed_precision"] = dict(_AMP_OFF_FP32_MIXED_PRECISION)
     payload["torch_compile"] = {
         "enabled": True,
         "scope": "step",
@@ -1030,6 +1169,16 @@ def _compiled_winner_plan_payload(repo_root: Path) -> dict[str, object]:
         },
     )
     return payload
+
+
+def _compiled_winner_plan_payload(repo_root: Path) -> dict[str, object]:
+    """Return a self-consistent re-measured compiled winner (bs47 amp-off compile-step).
+
+    Returns:
+        The committed plan re-shaped into a fully self-consistent compiled winner.
+
+    """
+    return _shape_compiled_winner(_committed_plan_payload(repo_root))
 
 
 def _load_baseline_validator(
@@ -1085,13 +1234,7 @@ def test_selected_runtime_templates_propagate_parser_rejection(
     """
     repo_root = Path(__file__).resolve().parents[1]
     payload = _committed_plan_payload(repo_root)
-    payload["mixed_precision"] = {
-        "enabled": False,
-        "policy": "amp_off_fp32",
-        "autocast_dtype": "",
-        "fp32_loss": True,
-        "grad_scaler_enabled": False,
-    }
+    payload["mixed_precision"] = dict(_AMP_OFF_FP32_MIXED_PRECISION)
     for kernel_name in _SELECTED_RUNTIME_TEMPLATE_KERNELS:
         validate = _load_baseline_validator(repo_root, kernel_name)
         plan_path = tmp_path / f"{kernel_name}_inconsistent.json"
@@ -1668,7 +1811,20 @@ def _extract_full_push_guard_python(*, repo_root: Path, tmp_path: Path) -> Path:
     return guard_py
 
 
-def _run_full_push_guard(
+def _extract_debug_push_guard_python(*, repo_root: Path, tmp_path: Path) -> Path:
+    # Run the real PYDEBUGPAYLOAD guard body verbatim so the test cannot drift from the
+    # shipped shell validator (S17b-3 de-pinned it to the single-source parser).
+    script = (repo_root / "scripts" / "kaggle_kernel.sh").read_text(encoding="utf-8")
+    match = _DEBUG_PUSH_GUARD_HEREDOC_PATTERN.search(script)
+    if match is None:
+        message = "missing PYDEBUGPAYLOAD guard heredoc in kaggle_kernel.sh"
+        raise AssertionError(message)
+    guard_py = tmp_path / "debug_push_guard.py"
+    guard_py.write_text(match.group("body"), encoding="utf-8")
+    return guard_py
+
+
+def _run_push_guard(
     *,
     guard_py: Path,
     run_py: Path,
@@ -1751,4 +1907,29 @@ def _set_off_derivation_updates(members: dict[str, bytes]) -> None:
         )
         + 1
     )
+    members[_SELECTED_RUNTIME_PAYLOAD_PATH] = json.dumps(plan).encode("utf-8")
+
+
+def _embedded_plan(members: dict[str, bytes]) -> dict[str, object]:
+    return cast(
+        "dict[str, object]",
+        json.loads(members[_SELECTED_RUNTIME_PAYLOAD_PATH]),
+    )
+
+
+def _install_compiled_winner_plan(members: dict[str, bytes]) -> None:
+    members[_SELECTED_RUNTIME_PAYLOAD_PATH] = json.dumps(
+        _shape_compiled_winner(_embedded_plan(members)),
+    ).encode("utf-8")
+
+
+def _install_amp_off_on_eager_identity(members: dict[str, bytes]) -> None:
+    plan = _embedded_plan(members)
+    plan["mixed_precision"] = dict(_AMP_OFF_FP32_MIXED_PRECISION)
+    members[_SELECTED_RUNTIME_PAYLOAD_PATH] = json.dumps(plan).encode("utf-8")
+
+
+def _install_wrong_accelerator_winner(members: dict[str, bytes]) -> None:
+    plan = _shape_compiled_winner(_embedded_plan(members))
+    plan["accelerator_mode"] = "single_visible_t4"
     members[_SELECTED_RUNTIME_PAYLOAD_PATH] = json.dumps(plan).encode("utf-8")
