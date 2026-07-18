@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 
 ## Active Workstream
 
@@ -255,9 +255,9 @@ ran the parser — so a self-declared `single_t4`/`world_size=1` plan verified C
 then re-blocked). Both verifiers now run `_selected_runtime_errors` BEFORE deriving identity,
 restoring the `_launch_errors` anchors the de-pin's own rationale already assumed. Gate 551/1
 (522→551); 3 read-only reviewers → 4 adopted / 2 refuted; every new test mutation-proven.
-(S17b-3 — the kernel/push-side mirror de-pin — is now IN PROGRESS: sub-step 1 (the two
-`run_template.py` validators) is DONE at `21b697f`; see the current handoff block below and
-`docs/specs/0011-*.md` S17b-3 for the live, corrected scope and the next action. Because identity is
+(S17b-3 — the kernel/push-side mirror de-pin — is DONE: sub-step 1 (the two `run_template.py`
+validators, `21b697f`) + sub-step 2 (the debug `kaggle_kernel.sh` shell push guard, `c090d16`);
+see the current handoff block below and `docs/specs/0011-*.md` S17b-3. Because identity is
 STRUCTURAL, the Kaggle-minted compiled id needs NO anchor re-point.)
 **A `_dataloader_errors` de-pin was attempted 2026-07-15 and REVERTED (adversarial review): the
 dataloader is NOT a searched axis. Do not retry it — read S17d's traps in the spec first.**
@@ -359,28 +359,29 @@ the first push caught a stale on-disk `run.py` (built before `abaeac4` added `to
 rebuild fixed it. The GPU path's pip resolution was already proven by the 2026-07-17 throwaway probe
 (2.13.0+cu130, matmul/autograd/`torch.compile` computing); the full compiled-DDP recipe on 2.13 gets
 exercised naturally when the actual GPU kernels run. Full record in [[eqvae-kaggle-code-delivery]].
-**Spec 0011 S17b-3 sub-step 1 DONE (`21b697f`, 2026-07-17):** both selected-runtime
-`run_template.py` kernel validators (`_validate_baseline_selected_runtime`) now DELEGATE to
-the single-source `selected_runtime_plan_errors(payload, selected_runtime_path=None)`
-instead of hand-mirroring the frozen bs12/amp_conservative identity + recipe + batch pins,
-so a re-measured compiled winner (any batch, incl. an odd non-dividing one like 47 —
-`drop_last=True` floors `updates=floor(P/G)`) is accepted at the kernel while every
-hardware/topology anchor stays pinned (the parser enforces them). Deleted the dead
-`EXPECTED_*` constants + 5 drifted debug `_baseline_*` helpers; kernel tests reworked to
-prove the wiring; gate 558 passed/1 skipped, ruff+basedpyright clean; 5-lens read-only
-adversarial review → 0 confirmed source defects. Scope re-measured during implementation:
-the debug run_template ALSO literal-pinned batch 12/24 (a third live axis the old
-four-surface map missed — folded in via delegation); the `runtime_selection` kernel + its
-shell guard + config `baseline_row_id` pin the v5 row too, but that is the PRODUCER's
-baseline anchor (the search's reference-to-beat, config-stamped), NOT a consumer mirror →
-OUT of scope (decision 0010); the FULL push guard + `build_kaggle_embedded_kernel.py` need
-no change (confirmed). **NEXT: S17b-3 sub-step 2** — de-pin the debug
-`scripts/kaggle_kernel.sh` shell push guard the same way: switch its bare-`python3` heredoc
-(~L1783-1945) to the venv interpreter (`PYTHONPATH=src "$python_bin"`, as the FULL guard
-already does) + delegate to `selected_runtime_plan_errors(payload, selected_runtime_path=None)`,
-keeping its required-files / required-source-text / hardware-anchor checks. Then S17c
-(observation mirror + corruption-label), S17d (bounded dataloader search axis — read its
-traps), S17e (exact throughput-optimal batch search — producer follow-up). See
+**Spec 0011 S17b-3 DONE (sub-step 1 `21b697f` 2026-07-17 + sub-step 2 `c090d16` 2026-07-18):**
+both kernel/push-side mirrors of the parser now DELEGATE to the single-source
+`selected_runtime_plan_errors(payload, selected_runtime_path=None)` instead of hand-mirroring
+the frozen bs12/amp_conservative identity + recipe + batch pins, so a re-measured compiled
+winner (any batch, incl. an odd non-dividing one like 47 — `drop_last=True` floors
+`updates=floor(P/G)`) is accepted end to end while every hardware/topology anchor stays pinned
+(the parser enforces accelerator/machine_shape/world_size/nproc/grad-accum/corruption as
+row_id-INDEPENDENT literals). Sub-step 1 = both `run_template.py` validators
+(`_validate_baseline_selected_runtime`; deleted the dead `EXPECTED_*` constants + 5 drifted
+debug `_baseline_*` helpers). Sub-step 2 = the debug `scripts/kaggle_kernel.sh` shell push
+guard: switched its heredoc from bare `python3` to the venv interpreter
+(`PYTHONPATH=src "$python_bin"`, the delegated import needs torch+eqvae), renamed its delimiter
+`PY`→`PYDEBUGPAYLOAD` so the test extracts the real body without drift, and deleted ~80 lines of
+hand-mirrored pins (net simplification). Gate 563 passed/1 skipped, ruff+basedpyright clean; 3
+read-only default-refute reviewers → coverage + anchor/fail-open CLEAN, test-soundness caught a
+real gap (the body-only extraction can't see the interpreter switch → a revert to `python3`
+would break the real push while tests stayed green) → CLOSED by a structural test asserting BOTH
+push guards open on the venv interpreter. Out of scope, confirmed: the `runtime_selection`
+kernel + its shell guard + config `baseline_row_id` pin the v5 row, but that is the PRODUCER's
+baseline anchor (config-stamped reference-to-beat), NOT a consumer mirror (decision 0010); the
+FULL push guard + `build_kaggle_embedded_kernel.py` need no change. **NEXT: S17c** (observation
+mirror + corruption-label), then S17d (bounded dataloader search axis — read its traps), S17e
+(exact throughput-optimal batch search — producer follow-up). See
 [[eqvae-reusable-runtime-mechanism-plan]] + `docs/specs/0011-*.md`.
 
 > Pre-Spec-0011 status (runtime-selection v5, Spec 0006–0009) and older Kaggle-run

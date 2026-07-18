@@ -1,20 +1,22 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 sub-step 1 DONE (both `run_template.py` validators delegate to `selected_runtime_plan_errors`, local — `21b697f`)**, sub-step 2 (the debug `kaggle_kernel.sh` shell push guard) NEXT; S17c (observation mirror + corruption-label) + S17d (bounded dataloader search axis — the dataloader is NOT searched today; read S17d's traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up) queued locally; S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 DONE (both `run_template.py` validators — `21b697f` — AND the debug `kaggle_kernel.sh` shell push guard — `c090d16` — delegate to `selected_runtime_plan_errors`, local)**; NEXT local = S17c (observation mirror + corruption-label) + S17d (bounded dataloader search axis — the dataloader is NOT searched today; read S17d's traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up) queued locally; S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
 Implementation readiness: Phase 3 COMPLETE (local); S14a/S14b/S14c done + gated locally; S17a + S17b-1 done + gated locally (parser now ACCEPTS a self-consistent compiled plan — recipe AND structural identity/snapshot; identity is self-consistent so no Kaggle re-point is needed); compiled EXECUTION + the row_id mint are Kaggle observations; Kaggle phases S17-Kaggle/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-17 (S17b-3 sub-step 1 DONE, `21b697f`: both `run_template.py`
-validators now delegate to the single-source `selected_runtime_plan_errors` — chosen over a
-hand-mirror because the full runner and debug already parse through it, so delegation is
-zero-drift and behavior-preserving on v5. `selected_runtime_path=None` skips only the
-proof hash (the launch parse re-checks it). Scope was re-measured during implementation:
-the debug run_template ALSO literal-pinned batch 12/24, a third live axis the four-surface
-map omitted (delegation covers it); the `runtime_selection` kernel/guard/config pin the v5
-row too but that is the PRODUCER's baseline anchor, NOT a consumer mirror — out of scope
-(decision 0010). NEXT local = S17b-3 sub-step 2 (de-pin the debug `kaggle_kernel.sh` shell
-push guard the same way — switch it to the venv interpreter + delegate), then S17c, S17d,
-S17e (exact throughput-optimal batch search); NEXT Kaggle = S17 generator run + S19). The
-per-step `(DONE — …)` tags in the body are the state of record.
+Last updated: 2026-07-18 (S17b-3 DONE — both kernel/push-side mirrors of the parser now
+delegate to the single-source `selected_runtime_plan_errors`: both `run_template.py`
+validators (`21b697f`, sub-step 1) AND the debug `kaggle_kernel.sh` shell push guard
+(`c090d16`, sub-step 2). Delegation was chosen over a hand-mirror because the full runner
+and debug already parse through it, so it is zero-drift and behavior-preserving on v5;
+`selected_runtime_path=None` skips only the proof hash (the launch parse re-checks it). The
+debug shell guard also switched from bare `python3` to the venv interpreter
+(`PYTHONPATH=src "$python_bin"`) because the delegated import needs torch+eqvae, and a
+review-caught coverage gap — the body-only extraction tests can't see that interpreter
+switch — is closed by a structural test asserting BOTH push guards open on the venv
+interpreter. Out of scope, confirmed: the `runtime_selection` kernel/guard/config pin the
+v5 row but that is the PRODUCER's baseline anchor, NOT a consumer mirror (decision 0010).
+NEXT local = S17c, S17d, S17e (exact throughput-optimal batch search); NEXT Kaggle = S17
+generator run + S19). The per-step `(DONE — …)` tags in the body are the state of record.
 
 ## Purpose
 
@@ -689,9 +691,9 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       a single-source divergence with `_str_or_none`, an unprotected full-output identity
       site, missing `bool`-guard coverage), 2 refuted, 1 reviewer disagreement resolved
       by direct check. Every new test mutation-proven.
-    - **S17b-3** (sub-step 1 DONE — `21b697f`, 2026-07-17, local-only) De-pin the
-      kernel/push-side **mirrors of the parser** so a re-measured compiled winner builds
-      and validates end to end. The mirrors are DIVERGENT DUPLICATES of
+    - **S17b-3 DONE** (sub-step 1 `21b697f`, 2026-07-17 + sub-step 2 `c090d16`, 2026-07-18,
+      local-only) De-pin the kernel/push-side **mirrors of the parser** so a re-measured
+      compiled winner builds and validates end to end. The mirrors are DIVERGENT DUPLICATES of
       `selected_runtime_plan_errors` that were never de-pinned when the parser was
       (S17a/S17b), so the fix DELEGATES to that single-source gatekeeper rather than
       hand-re-implementing its coherence model a third time. Both the full and debug RUNS
@@ -709,13 +711,20 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
         12/24** (a third live axis the earlier four-surface map omitted — the full kernel
         de-pinned batch in S8b, the debug shell guard in S8, but the debug run_template
         never did); delegation covers it.
-      - **REMAINING (sub-step 2):** the debug push guard in `scripts/kaggle_kernel.sh` (the
-        bare-`python3` heredoc, ~L1783-1945) still literal-pins `selected_row_id`,
-        `runtime_policy_id`, the snapshot row/precision, and the AMP block. Switch it to the
-        venv interpreter (`PYTHONPATH=src "$python_bin"`, as the FULL guard already does
-        since S8) and delegate to
-        `selected_runtime_plan_errors(payload, selected_runtime_path=None)`, keeping its
-        required-files / required-source-text / hardware-anchor checks.
+      - **DONE (sub-step 2 — `c090d16`, 2026-07-18):** the debug push guard in
+        `scripts/kaggle_kernel.sh` (now the `PYDEBUGPAYLOAD` heredoc) runs on the venv
+        interpreter (`PYTHONPATH=src "$python_bin"`, as the FULL guard already does since S8)
+        and delegates to `selected_runtime_plan_errors(payload, selected_runtime_path=None)`,
+        keeping its required-files / required-source-text / hardware-anchor checks; ~80 lines
+        of hand-mirrored identity / recipe / snapshot / batch / AMP / dataloader / corruption
+        pins were deleted (net simplification of the guard). The heredoc delimiter was renamed
+        `PY`→`PYDEBUGPAYLOAD` so the test extracts the real body without drift. Tests run that
+        body against a freshly built debug kernel (accept committed v5 + a bs47 amp-off
+        compile-step winner, reject a self-inconsistent plan with the parser's id, keep the
+        dual-T4 anchor), plus a structural test asserting BOTH push guards open on the venv
+        interpreter — the load-bearing interpreter switch the body-only extraction can't see,
+        a review-caught coverage gap. Gate 563/1. Three read-only default-refute reviewers:
+        coverage + anchor/fail-open CLEAN; test-soundness found the interpreter gap (fixed).
       - **NO CHANGE (confirmed):** the FULL push guard (`PYFULLPAYLOAD`) pins only the batch
         relationship + schedule tokens, not identity/recipe; `build_kaggle_embedded_kernel.py`
         only bakes the (already relationship-derived) schedule tokens. The `runtime_selection`
