@@ -19,11 +19,6 @@ from typing import cast
 KAGGLE_SELECTED_RUNTIME_FULL_READY = True
 SELECTED_RUNTIME_FULL_RUN_CONTRACT_READY = "selected_runtime_full_run_contract_ready"
 EXPECTED_DATASET_SLUG = "maximusshtefan/patches-pre-shuffled-ubc-ocean"
-EXPECTED_SELECTED_ROW_ID = (
-    "dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__"
-    "policy_amp_fp16_conservative"
-)
-EXPECTED_RUNTIME_POLICY_ID = "amp_fp16_conservative"
 KERNEL_METADATA = {
     "id": "maximusshtefan/eqvae-selected-runtime-full",
     "title": "eqvae selected runtime full",
@@ -287,66 +282,28 @@ def _ensure_selected_runtime_train_entrypoint(entrypoint: object) -> None:
 
 
 def _validate_baseline_selected_runtime(path: Path) -> None:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    expected = {
-        "status": "pass",
-        "selected_row_id": EXPECTED_SELECTED_ROW_ID,
-        "runtime_policy_id": EXPECTED_RUNTIME_POLICY_ID,
-        "world_size": 2,
-        "nproc_per_node": 2,
-    }
-    for key, expected_value in expected.items():
-        if payload.get(key) != expected_value:
-            raise RuntimeError(f"selected runtime {key} mismatch")
-    # Spec 0011 S8b: batch is a measured search output, so validate the relationships
-    # (global == per_device * world_size; recorded updates == the single-sourced
-    # floor(REAL_TRAIN_PATCH_COUNT / global_batch) derivation) instead of pinning 12/24.
-    from eqvae.benchmarking.schedule import (  # noqa: PLC0415
-        training_steps_per_epoch,
+    # Spec 0011 S17b-3: delegate to the single-source plan validator instead of
+    # mirroring its identity/recipe/batch pins here. selected_runtime_plan_errors is
+    # the same gatekeeper the runner parses through (selected_runtime_runner.py), and
+    # S17a/S17b de-pinned it to accept a re-measured compiled winner -- structural
+    # identity, coherent recipe, and the global == per_device * world_size /
+    # updates == floor(P / global) relationships -- while keeping the hardware and
+    # topology anchors pinned. selected_runtime_path=None skips only the runtime-proof
+    # hash, which the runner re-checks at launch and the push guard requires present,
+    # so this pre-check keeps its character and stays behavior-preserving on v5.
+    from eqvae.training.selected_runtime import (  # noqa: PLC0415
+        selected_runtime_plan_errors,
     )
-    from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT  # noqa: PLC0415
 
-    per_device = payload.get("per_device_batch_size")
-    world_size = payload.get("world_size")
-    global_batch = payload.get("global_batch_size")
-    if (
-        not isinstance(per_device, int)
-        or isinstance(per_device, bool)
-        or per_device <= 0
-    ):
-        raise RuntimeError(
-            "selected runtime per_device_batch_size must be a positive integer",
-        )
-    if not isinstance(world_size, int) or isinstance(world_size, bool):
-        raise RuntimeError("selected runtime world_size mismatch")
-    if (
-        not isinstance(global_batch, int)
-        or isinstance(global_batch, bool)
-        or global_batch != per_device * world_size
-    ):
-        raise RuntimeError(
-            "selected runtime global_batch_size must equal "
-            "per_device_batch_size * world_size",
-        )
-    recorded_updates = payload.get("optimizer_updates_per_epoch")
-    if (
-        not isinstance(recorded_updates, int)
-        or isinstance(recorded_updates, bool)
-        or recorded_updates
-        != training_steps_per_epoch(
-            real_train_patch_count=REAL_TRAIN_PATCH_COUNT,
-            global_batch_size=global_batch,
-        )
-    ):
-        raise RuntimeError("selected runtime optimizer_updates_per_epoch mismatch")
-    if payload.get("full_run_eligible") is not True:
-        raise RuntimeError("selected runtime must be full-run eligible")
-    mixed_precision = payload.get("mixed_precision")
-    if (
-        not isinstance(mixed_precision, dict)
-        or mixed_precision.get("policy") != "amp_conservative"
-    ):
-        raise RuntimeError("selected runtime must use amp_conservative")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError("selected runtime must be a JSON object")
+    errors = selected_runtime_plan_errors(
+        cast("dict[str, object]", payload),
+        selected_runtime_path=None,
+    )
+    if errors:
+        raise RuntimeError("; ".join(errors))
 
 
 def _validate_full_config(path: Path) -> None:

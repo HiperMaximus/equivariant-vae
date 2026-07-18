@@ -28,11 +28,6 @@ SELECTED_RUNTIME_DEBUG_GATE_CONTRACT_READY = (
 GATE_KIND = "kaggle_selected_runtime_debug_resume_tiny_gate"
 GATE_SOURCE = "kaggle_selected_runtime_debug_kernel"
 EXPECTED_DATASET_SLUG = "maximusshtefan/patches-pre-shuffled-ubc-ocean"
-EXPECTED_SELECTED_ROW_ID = (
-    "dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__"
-    "policy_amp_fp16_conservative"
-)
-EXPECTED_RUNTIME_POLICY_ID = "amp_fp16_conservative"
 KERNEL_METADATA = {
     "id": "maximusshtefan/eqvae-selected-runtime-debug",
     "title": "eqvae selected runtime debug",
@@ -716,6 +711,18 @@ def _assert_import_origin(*, module_file: Path, payload_src: Path) -> None:
 
 
 def _validate_baseline_selected_runtime(path: Path) -> None:
+    # Spec 0011 S17b-3: delegate to the single-source plan validator instead of the
+    # hand-mirrored _baseline_* checks, which had drifted to still literal-pin
+    # identity, the AMP recipe, and batch 12/24 while the parser was de-pinned in
+    # S17a/S17b to accept a re-measured compiled winner. selected_runtime_plan_errors
+    # is the same gatekeeper debug.py parses through at launch, keeps every hardware
+    # and topology anchor pinned, and selected_runtime_path=None skips only the
+    # runtime-proof hash (the launch parse re-checks it; the push guard requires the
+    # proof present), so this pre-check stays behavior-preserving on the committed plan.
+    from eqvae.training.selected_runtime import (  # noqa: PLC0415
+        selected_runtime_plan_errors,
+    )
+
     if not path.exists():
         message = f"missing embedded selected runtime: {path}"
         raise RuntimeError(message)
@@ -723,125 +730,12 @@ def _validate_baseline_selected_runtime(path: Path) -> None:
     if not isinstance(payload, dict):
         message = "embedded selected runtime must be a JSON object"
         raise TypeError(message)
-    snapshot = payload.get("selected_row_snapshot")
-    if not isinstance(snapshot, dict):
-        message = "embedded selected runtime missing selected_row_snapshot"
-        raise TypeError(message)
-    errors = [
-        *_baseline_top_level_errors(payload),
-        *_baseline_launch_errors(payload),
-        *_baseline_snapshot_errors(cast("dict[str, object]", snapshot)),
-    ]
+    errors = selected_runtime_plan_errors(
+        cast("dict[str, object]", payload),
+        selected_runtime_path=None,
+    )
     if errors:
         raise RuntimeError("; ".join(errors))
-
-
-def _baseline_top_level_errors(payload: dict[str, object]) -> list[str]:
-    required = {
-        "status": "pass",
-        "benchmark_kind": "kaggle_runtime_selection",
-        "benchmark_source": "kaggle_runtime_benchmark",
-        "selected_row_id": EXPECTED_SELECTED_ROW_ID,
-        "runtime_policy_id": EXPECTED_RUNTIME_POLICY_ID,
-        "accelerator_mode": "dual_t4_ddp",
-        "machine_shape": "NvidiaTeslaT4",
-    }
-    errors = [
-        f"selected_runtime.{key} must be {expected!r}"
-        for key, expected in required.items()
-        if payload.get(key) != expected
-    ]
-    if payload.get("full_run_eligible") is not True:
-        errors.append("selected runtime must be full_run_eligible")
-    if payload.get("full_training_launch_ready") is not False:
-        errors.append("selected runtime must not be full-training-launch-ready")
-    return errors
-
-
-def _baseline_launch_errors(payload: dict[str, object]) -> list[str]:
-    expected = {
-        "world_size": 2,
-        "nproc_per_node": 2,
-        "per_device_batch_size": 12,
-        "global_batch_size": 24,
-        "gradient_accumulation_steps": 1,
-    }
-    errors = [
-        f"selected_runtime.{key} must be {expected!r}"
-        for key, expected in expected.items()
-        if payload.get(key) != expected
-    ]
-    mixed_precision = payload.get("mixed_precision")
-    if not isinstance(mixed_precision, dict):
-        errors.append("selected_runtime.mixed_precision must be an object")
-    else:
-        errors.extend(_baseline_mixed_precision_errors(mixed_precision))
-    dataloader = payload.get("dataloader")
-    if not isinstance(dataloader, dict):
-        errors.append("selected_runtime.dataloader must be an object")
-    else:
-        errors.extend(_baseline_dataloader_errors(dataloader))
-    corruption = payload.get("corruption")
-    if not isinstance(corruption, dict):
-        errors.append("selected_runtime.corruption must be an object")
-    elif corruption.get("strategy") != "indexed_masked":
-        errors.append("selected_runtime.corruption.strategy must be 'indexed_masked'")
-    return errors
-
-
-def _baseline_mixed_precision_errors(payload: dict[str, object]) -> list[str]:
-    expected = {
-        "enabled": True,
-        "policy": "amp_conservative",
-        "autocast_dtype": "float16",
-        "fp32_loss": True,
-        "grad_scaler_enabled": True,
-    }
-    return [
-        f"selected_runtime.mixed_precision.{key} must be {expected!r}"
-        for key, expected in expected.items()
-        if payload.get(key) != expected
-    ]
-
-
-def _baseline_dataloader_errors(payload: dict[str, object]) -> list[str]:
-    expected = {
-        "num_workers": 0,
-        "pin_memory": False,
-        "persistent_workers": False,
-        "non_blocking_h2d": True,
-    }
-    errors = [
-        f"selected_runtime.dataloader.{key} must be {expected!r}"
-        for key, expected in expected.items()
-        if payload.get(key) != expected
-    ]
-    if payload.get("prefetch_factor") is not None:
-        errors.append("selected_runtime.dataloader.prefetch_factor must be null")
-    return errors
-
-
-def _baseline_snapshot_errors(snapshot: dict[str, object]) -> list[str]:
-    snapshot_required = {
-        "row_id": EXPECTED_SELECTED_ROW_ID,
-        "runtime_policy_id": EXPECTED_RUNTIME_POLICY_ID,
-        "status": "pass",
-        "accelerator_mode": "dual_t4_ddp",
-        "machine_shape": "NvidiaTeslaT4",
-        "precision_policy": "amp_conservative",
-        "corruption_strategy": "indexed_masked",
-        "grad_scaler_enabled": "true",
-        "autocast_dtype": "float16",
-        "world_size": "2",
-        "nproc_per_node": "2",
-        "per_device_batch_size": "12",
-        "global_batch_size": "24",
-    }
-    return [
-        f"selected_runtime.selected_row_snapshot.{key} must be {expected!r}"
-        for key, expected in snapshot_required.items()
-        if snapshot.get(key) != expected
-    ]
 
 
 def _write_import_only_artifact(

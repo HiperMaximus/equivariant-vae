@@ -116,15 +116,12 @@ _FULL_PUSH_GUARD_HEREDOC_PATTERN = re.compile(
 _FULL_TARGET_UPDATES_TOKEN = f"FULL_TARGET_UPDATES = {_FULL_TARGET_UPDATES}"
 _FULL_UPDATES_PER_EPOCH = 12500
 _BUILD_SCRIPT_MODULE = "build_kaggle_embedded_kernel"
-_FULL_RUN_TEMPLATE_MODULE = "selected_runtime_full_run_template"
 # A NON-dividing batch (64 does not divide REAL_TRAIN_PATCH_COUNT=300000): floor
 # 300000//64 = 4687 differs from ceil 4688, so the derive test genuinely guards floor.
 _NON_REFERENCE_GLOBAL_BATCH = 64
-_NON_REFERENCE_PER_DEVICE_BATCH = 32
 _NON_REFERENCE_UPDATES = 4687
 _NON_REFERENCE_TARGET_UPDATES = 46870
 _NON_REFERENCE_HALF_EPOCH_INTERVAL = 2343
-_OFF_PRODUCT_PER_DEVICE_BATCH = 12
 
 
 @dataclass(frozen=True)
@@ -939,66 +936,188 @@ def test_build_substitutes_non_reference_full_schedule() -> None:
     assert raised
 
 
-def test_full_run_template_validator_accepts_non_reference_batch(
-    tmp_path: Path,
-) -> None:
-    """The de-pinned run.py validator accepts a measured non-24 plan by relationship."""
-    repo_root = Path(__file__).resolve().parents[1]
-    run_template = _load_script_module(
-        _FULL_RUN_TEMPLATE_MODULE,
-        repo_root / "kaggle" / "kernels" / "selected_runtime_full" / "run_template.py",
+# --- Spec 0011 S17b-3: run_template validators delegate to the single-source parser
+#
+# Both selected-runtime kernels' _validate_baseline_selected_runtime now call
+# eqvae.training.selected_runtime.selected_runtime_plan_errors instead of mirroring its
+# identity/recipe/batch pins. The parser's own coherence matrix is exhaustively tested
+# in tests/test_selected_runtime_full_run.py; these tests prove the kernel WIRING: the
+# pre-check accepts what the parser accepts (committed eager plan + a re-measured
+# compiled winner), raises with the parser's error id on rejection, and still enforces
+# the hardware anchor the de-pinned identity literal used to carry incidentally.
+
+# A compiled winner a re-measured dual-T4 search could emit (amp-off, whole-step
+# compile), deliberately using an ODD per-device batch of 47 (global 94) that does
+# NOT divide the 300000 training patches: this proves the kernel accepts whatever
+# batch the search picks, dropping the partial last batch
+# (optimizer_updates_per_epoch = floor(300000 / 94) = 3191; drop_last=True, S16).
+# The recipe blocks mirror _consistent_compiled_winner_payload in
+# tests/test_selected_runtime_full_run.py (the parser's own S17b acceptance fixture).
+_WINNER_ROW_ID = (
+    "dual_t4_ddp__bs47__amp_off_fp32__compile_step__indexed_masked__"
+    "policy_compile_step_ddp_optimizer_fp32_channels_last"
+)
+_WINNER_POLICY_ID = "compile_step_ddp_optimizer_fp32_channels_last"
+_WINNER_PER_DEVICE_BATCH = 47
+_WINNER_GLOBAL_BATCH = 94
+_WINNER_BUCKET_CAP_MB = 50
+_SELECTED_RUNTIME_TEMPLATE_KERNELS = (
+    "selected_runtime_full",
+    "selected_runtime_debug",
+)
+
+
+def _committed_plan_payload(repo_root: Path) -> dict[str, object]:
+    return cast(
+        "dict[str, object]",
+        json.loads(
+            (repo_root / _SELECTED_RUNTIME_PAYLOAD_PATH).read_text(encoding="utf-8"),
+        ),
     )
-    validate = cast(
+
+
+def _compiled_winner_plan_payload(repo_root: Path) -> dict[str, object]:
+    """Return a self-consistent re-measured compiled winner (bs47 amp-off compile-step).
+
+    Returns:
+        The committed plan re-shaped into a fully self-consistent compiled winner.
+
+    """
+    payload = _committed_plan_payload(repo_root)
+    payload["selected_row_id"] = _WINNER_ROW_ID
+    payload["runtime_policy_id"] = _WINNER_POLICY_ID
+    payload["per_device_batch_size"] = _WINNER_PER_DEVICE_BATCH
+    payload["global_batch_size"] = _WINNER_GLOBAL_BATCH
+    payload["optimizer_updates_per_epoch"] = (
+        REAL_TRAIN_PATCH_COUNT // _WINNER_GLOBAL_BATCH
+    )
+    payload["mixed_precision"] = {
+        "enabled": False,
+        "policy": "amp_off_fp32",
+        "autocast_dtype": "",
+        "fp32_loss": True,
+        "grad_scaler_enabled": False,
+    }
+    payload["torch_compile"] = {
+        "enabled": True,
+        "scope": "step",
+        "dynamic": False,
+        "backend": "inductor",
+        "optimize_ddp": "ddp_optimizer",
+        "compiled_autograd": False,
+        "reorder_compute_comm_overlap": False,
+    }
+    payload["runtime_policy"] = {
+        "memory_format": "channels_last",
+        "ddp_static_graph": False,
+        "ddp_gradient_as_bucket_view": True,
+        "zero_grad_set_to_none": True,
+        "ddp_broadcast_buffers": False,
+        "ddp_find_unused_parameters": False,
+        "ddp_bucket_cap_mb": _WINNER_BUCKET_CAP_MB,
+        "fused_optimizer": True,
+    }
+    snapshot = cast("dict[str, object]", payload["selected_row_snapshot"])
+    snapshot.update(
+        {
+            "row_id": _WINNER_ROW_ID,
+            "runtime_policy_id": _WINNER_POLICY_ID,
+            "precision_policy": "amp_off_fp32",
+            "per_device_batch_size": str(_WINNER_PER_DEVICE_BATCH),
+            "global_batch_size": str(_WINNER_GLOBAL_BATCH),
+            "grad_scaler_enabled": "false",
+            "autocast_dtype": "",
+        },
+    )
+    return payload
+
+
+def _load_baseline_validator(
+    repo_root: Path,
+    kernel_name: str,
+) -> Callable[[Path], None]:
+    run_template = _load_script_module(
+        f"{kernel_name}_run_template",
+        repo_root / "kaggle" / "kernels" / kernel_name / "run_template.py",
+    )
+    return cast(
         "Callable[[Path], None]",
         run_template.__dict__["_validate_baseline_selected_runtime"],
     )
-    plan_path = _write_baseline_plan(
-        tmp_path / "plan.json",
-        run_template,
-        per_device_batch_size=_NON_REFERENCE_PER_DEVICE_BATCH,
-        global_batch_size=_NON_REFERENCE_GLOBAL_BATCH,
-        optimizer_updates_per_epoch=_NON_REFERENCE_UPDATES,
-    )
-    validate(plan_path)
 
 
-def test_full_run_template_validator_rejects_off_relationship(
+def _validator_error(validate: Callable[[Path], None], plan_path: Path) -> str:
+    try:
+        validate(plan_path)
+    except RuntimeError as error:
+        return str(error)
+    return ""
+
+
+def test_selected_runtime_templates_accept_committed_and_compiled_plans(
     tmp_path: Path,
 ) -> None:
-    """A non-product batch or off-derivation updates fails the validator closed."""
+    """Both kernels' pre-check accepts the committed eager plan AND a compiled winner.
+
+    Proves the delegation goal of Spec 0011 S17b-3: a re-measured bs47 amp-off
+    compile-step plan is no longer rejected by the kernel-side mirrors.
+    """
     repo_root = Path(__file__).resolve().parents[1]
-    run_template = _load_script_module(
-        _FULL_RUN_TEMPLATE_MODULE,
-        repo_root / "kaggle" / "kernels" / "selected_runtime_full" / "run_template.py",
-    )
-    validate = cast(
-        "Callable[[Path], None]",
-        run_template.__dict__["_validate_baseline_selected_runtime"],
-    )
-    off_product = _write_baseline_plan(
-        tmp_path / "off_product.json",
-        run_template,
-        per_device_batch_size=_OFF_PRODUCT_PER_DEVICE_BATCH,
-        global_batch_size=_NON_REFERENCE_GLOBAL_BATCH,
-        optimizer_updates_per_epoch=_NON_REFERENCE_UPDATES,
-    )
-    off_updates = _write_baseline_plan(
-        tmp_path / "off_updates.json",
-        run_template,
-        per_device_batch_size=_NON_REFERENCE_PER_DEVICE_BATCH,
-        global_batch_size=_NON_REFERENCE_GLOBAL_BATCH,
-        optimizer_updates_per_epoch=_NON_REFERENCE_UPDATES + 1,
-    )
-    for bad_plan, expected in (
-        (off_product, "must equal per_device_batch_size * world_size"),
-        (off_updates, "optimizer_updates_per_epoch mismatch"),
-    ):
-        raised = ""
-        try:
-            validate(bad_plan)
-        except RuntimeError as error:
-            raised = str(error)
-        assert expected in raised
+    for kernel_name in _SELECTED_RUNTIME_TEMPLATE_KERNELS:
+        validate = _load_baseline_validator(repo_root, kernel_name)
+        for label, payload in (
+            ("committed", _committed_plan_payload(repo_root)),
+            ("compiled", _compiled_winner_plan_payload(repo_root)),
+        ):
+            plan_path = tmp_path / f"{kernel_name}_{label}.json"
+            plan_path.write_text(json.dumps(payload), encoding="utf-8")
+            validate(plan_path)
+
+
+def test_selected_runtime_templates_propagate_parser_rejection(
+    tmp_path: Path,
+) -> None:
+    """A plan the parser rejects makes the pre-check raise with the parser's error id.
+
+    A compiled recipe left on the eager identity is self-inconsistent under the S17b
+    structural identity check -- proving the validators delegate rather than mirror (the
+    old hand-copies raised a different, recipe-literal message).
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    payload = _committed_plan_payload(repo_root)
+    payload["mixed_precision"] = {
+        "enabled": False,
+        "policy": "amp_off_fp32",
+        "autocast_dtype": "",
+        "fp32_loss": True,
+        "grad_scaler_enabled": False,
+    }
+    for kernel_name in _SELECTED_RUNTIME_TEMPLATE_KERNELS:
+        validate = _load_baseline_validator(repo_root, kernel_name)
+        plan_path = tmp_path / f"{kernel_name}_inconsistent.json"
+        plan_path.write_text(json.dumps(payload), encoding="utf-8")
+        raised = _validator_error(validate, plan_path)
+        assert "selected_runtime_selected_row_id_not_self_consistent" in raised
+
+
+def test_selected_runtime_templates_keep_hardware_anchor(
+    tmp_path: Path,
+) -> None:
+    """De-pinning identity/recipe must not drop the hardware anchor.
+
+    A compiled winner self-declaring a non-dual-T4 accelerator is still rejected by the
+    parser's _launch_errors anchor -- the anchor the identity literal used to enforce
+    only incidentally (Spec 0011 S17b-2 lesson).
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    payload = _compiled_winner_plan_payload(repo_root)
+    payload["accelerator_mode"] = "single_visible_t4"
+    for kernel_name in _SELECTED_RUNTIME_TEMPLATE_KERNELS:
+        validate = _load_baseline_validator(repo_root, kernel_name)
+        plan_path = tmp_path / f"{kernel_name}_wrong_accel.json"
+        plan_path.write_text(json.dumps(payload), encoding="utf-8")
+        raised = _validator_error(validate, plan_path)
+        assert "selected_runtime_top_level_not_dual_t4_ddp" in raised
 
 
 def test_embedded_selected_runtime_debug_kernel_full_local_fail_closed_simulation(
@@ -1614,36 +1733,6 @@ def _load_script_module(name: str, path: Path) -> ModuleType:
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
-
-
-def _write_baseline_plan(
-    path: Path,
-    run_template: ModuleType,
-    *,
-    per_device_batch_size: int,
-    global_batch_size: int,
-    optimizer_updates_per_epoch: int,
-) -> Path:
-    plan = {
-        "status": "pass",
-        "selected_row_id": cast(
-            "str",
-            run_template.__dict__["EXPECTED_SELECTED_ROW_ID"],
-        ),
-        "runtime_policy_id": cast(
-            "str",
-            run_template.__dict__["EXPECTED_RUNTIME_POLICY_ID"],
-        ),
-        "world_size": 2,
-        "nproc_per_node": 2,
-        "per_device_batch_size": per_device_batch_size,
-        "global_batch_size": global_batch_size,
-        "optimizer_updates_per_epoch": optimizer_updates_per_epoch,
-        "full_run_eligible": True,
-        "mixed_precision": {"policy": "amp_conservative"},
-    }
-    path.write_text(json.dumps(plan), encoding="utf-8")
-    return path
 
 
 def _set_off_derivation_updates(members: dict[str, bytes]) -> None:
