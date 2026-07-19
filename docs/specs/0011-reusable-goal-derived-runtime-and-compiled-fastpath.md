@@ -29,6 +29,16 @@ Make the training runtime a **reusable, re-tunable mechanism** rather than a set
 of frozen numbers, and use it to promote the compiled fast-path + bigger batch
 into the first paper-promotable full run.
 
+**Speed-first, with two standing DON'T-CAREs (user, repeated — agents keep violating them).**
+For every runtime/training choice, prefer SPEED: (1) exact bit/numerical **reproducibility is
+NOT a goal** — small drift is fine, so `cudnn.benchmark=True`, non-deterministic algos, the
+fastest RNG (drop per-sample blake2b seeding), fp16-first, and latest/beta torch features are
+all in-bounds; (2) the dataset **TAIL does not matter** — `drop_last=True`, no remainder /
+partial-batch logic (dropping a few thousand of ~300k patches is fine, and a fixed batch G is
+what CUDA graphs need). Do NOT add reproducibility or tail-handling machinery "to be safe" —
+only for a real correctness (NaN/divergence) reason. See the `eqvae-speed-first-dont-cares`
+memory.
+
 The batch size, learning rate, step schedule, speed recipe, and the
 selected-runtime plan must all be **derived per (model × hardware)**, because the
 repo's real target is the future equivariant model (the non-eq "translatable" VAE
