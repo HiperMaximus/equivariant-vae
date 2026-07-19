@@ -158,6 +158,23 @@ This repo is the paper/research repository for the equivariant VAE work.
     `docs/decisions/0010-verify-the-premise-before-changing-a-pin.md`, which
     records three same-day cases where the answer was already written down
     in-repo and contradicted the change in flight.
+30. Speed over declared don't-cares (the user has stated this MANY times; agents keep
+    violating it). The paper-promotable run is judged on wall-clock TIME PER EPOCH and model
+    quality, NOT on reproducibility or tail-completeness. Treat as a hard default:
+    - Exact bit/numerical REPRODUCIBILITY is not a goal — small drift is fine. Prefer the
+      faster option: `cudnn.benchmark=True`, never `torch.use_deterministic_algorithms(True)`,
+      `cudnn.deterministic=False`, the fastest RNG (drop per-sample / blake2b deterministic
+      seeding), fp16-first (fp32 ONLY where numerically REQUIRED, not "to be safe"), and
+      latest/beta torch features. Do not add fixed seeds, deterministic collate, or sorted
+      reductions "to be safe".
+    - The dataset TAIL does not matter — use `drop_last=True`; add NO remainder /
+      partial-batch / padding logic (a fixed batch shape is also what CUDA graphs require).
+    Add reproducibility or tail-handling machinery ONLY for a real correctness reason
+    (NaN/divergence), never out of caution. The proven dual-T4 fast-path recipe is captured
+    verbatim in `kaggle/fsq_train_reference.py` (a plain `.py`, no notebook JSON to parse) —
+    it is the MINIMUM efficiency bar we aim at, the floor to MATCH and ideally BEAT. Read it
+    before making any runtime/speed decision; do not ship something slower than it without a
+    measured reason.
 
 ## Safe Paper Workflow
 
