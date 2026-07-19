@@ -837,6 +837,124 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       is `prefetch_factor < 1`, not `< 0`: the constructor rejects `< 0` at `:287-288`
       but `_MultiProcessingDataLoaderIter` rejects `<= 0` at `:1104-1106`, so a `0`
       constructs cleanly and detonates on the FIRST batch, deep into a paid run.
+    - **Perf bar + FSQ prior art.** The proven prior art is
+      `kaggle/fsq_train_reference.py` (the retained FSQ training reference; the actual
+      notebook is not in-repo). The bar for S17d + S17e is **match-or-beat** it on loading
+      and throughput; refactoring runtime code and re-benchmarking on Kaggle are IN SCOPE
+      to hit it — do not settle for behavior-preserving-but-slower when a refactor closes a
+      measured gap (a green gate proves correctness, not speed). FSQ was a FIRST attempt,
+      so treat its orderings and arg combinations as CANDIDATES to measure and beat, not
+      proven optima — the mmap read wrapper, the `madvise` flag, uint8-vs-pinned staging,
+      and the collate strategy are all open axes. Techniques to match/adopt (each a
+      hypothesis to test, not a given), with FSQ anchors:
+      - *Zero-copy read (already the repo baseline; nothing to search).* Worker-local
+        `mmap(ACCESS_READ)` + `MADV_SEQUENTIAL` + `torch.from_numpy`/`frombuffer` on uint8
+        (`fsq_train_reference.py:160-182`); carried forward in `PatchTensorDataset` via
+        `torch.frombuffer` DIRECTLY on the mmap — one view layer fewer than FSQ's
+        `np.frombuffer`→`torch.from_numpy`. The wrapper (native `mmap` slice vs numpy vs
+        `torch.frombuffer` vs `memoryview`) and the `madvise` flag are measurable micro-axes,
+        but the read cost is the page fault, not the wrapper — and a native `mm[a:b]` slice
+        COPIES, so it is likely SLOWER than a zero-copy view, not faster.
+      - *Async prefetch = the sweep.* FSQ ran `num_workers=1` / `pin_memory=True` (`:87`,
+        `:688`). The runner ALREADY threads `num_workers`/`prefetch_factor`/`pin_memory`/
+        `persistent_workers` from the plan (`selected_runtime_runner.py:2717-2727`) +
+        `non_blocking` H2D (`:4304`); only the executor stamps defaults. Sweep bounded:
+        `num_workers ≤ cpu_count // world_size`, `pin_memory=True`, `prefetch_factor ∈
+        {2,4}`, `persistent_workers=True`. `pin_memory` + `non_blocking` are coupled —
+        `non_blocking` from pageable memory is a no-op, so flip them together.
+      - *Fused H2D + layout on uint8.* FSQ does `images_uint8.to(device,
+        memory_format=torch.channels_last, non_blocking=True).to(torch.float32)/127.5-1`
+        (`:834`). Fusing device + `memory_format` into ONE `.to()` allocates the NHWC
+        destination once (vs two allocs / passes), and reordering on uint8 BEFORE the float
+        cast is 4× less reformat traffic. HONEST caveat: the CHW→NHWC reorder is a post-DMA
+        GPU kernel, NOT "on the wire" (a `cudaMemcpyAsync` is a contiguous byte DMA) — the
+        win is the single alloc + overlap, not a free ride on the transfer. Verify the repo
+        adopts this fused-on-uint8 order (`selected_runtime_runner.py:3875-3876`/`:4304`,
+        executor `:2373`); if it reorders post-cast or in two allocs, switch (same math).
+      - *Transfer uint8, transform inside the compiled step.* Keep the H2D at uint8 (4×
+        smaller) and FOLD the uint8→float normalize + channels_last INTO the compiled
+        whole-step (S16) so `torch.compile` fuses cast+normalize+channels_last+corrupt+
+        forward (corruption is already inside; OPEN: confirm normalize + channels_last are
+        inside the compiled region, not an eager pre-step — if eager, folding them in is a
+        measurable win). Do NOT `torch.compile` the CPU worker read. FSQ normalized OUTSIDE
+        its `compiled_step` (`:834`), so the repo can go one better.
+      - *Piping principle.* Prefer one op with all args over chaining — each avoided
+        `.to()` / `.contiguous()` is one fewer GPU tensor + pass.
+      - *Super-batch fetch + on-GPU sub-slice (candidate — measure).* Fetch a LARGER
+        contiguous block from the loader (uint8 → VRAM-cheap), transfer it ONCE, then slice
+        the training batch on-GPU (`chunk[i*G:(i+1)*G]`) per step. Amortizes the per-batch
+        Python / collate / worker-IPC + H2D-setup overhead across fewer, bigger,
+        higher-bandwidth transfers. NOT gradient accumulation — the optimizer still steps
+        per G-sized slice, so the training math is unchanged; it groups the FETCH, not the
+        step. The pre-shuffled bin makes a contiguous super-slice a valid shuffled batch (cf.
+        FSQ's contiguous-rank slice), so this can BYPASS per-item `__getitem__` + collate (B
+        Python calls + a stack per batch) via a batch-returning dataset / `BatchSampler` —
+        still worker-compatible. Caveats: keep the step count at `floor(P/G)`; the tail is
+        freely DROPPED (`drop_last`) so there is NO remainder to handle (losing a few
+        thousand of ~300k patches is a non-issue) — and a fixed G is exactly what CUDA
+        graphs need; per-rank under DDP.
+      - *Objective + what to verify.* Every axis is judged by GPU utilization — throughput
+        `G / step_time(G)`, i.e. minimizing GPU idle between steps (GPU-time is the binding
+        constraint; this is the S17e objective, and the dataloader exists to keep the GPU
+        fed). And treat the REPO's current choices as unverified too, not just FSQ's: the
+        `torch.frombuffer`-vs-numpy read, the `MADV_SEQUENTIAL` flag, and the transform
+        placement are all to be CONFIRMED by measurement, not assumed optimal merely because
+        they already diverge from FSQ.
+      - *Experimental / low-level candidates (2026-07 web research; experimental OK).*
+        Ranked for the sweep (detail + sources in the `eqvae-s17d-dataloader-design` memory
+        note): (1) **CUDA graphs on the compiled step** — `torch.compile(mode="reduce-overhead")`
+        / `options={triton.cudagraphs:True}` kills per-kernel launch overhead, a prime win
+        for a small T4 step; our `dynamic=False` + fixed G (drop_last) + no-`.item()` step
+        already satisfy the constraints (RNG must be cudagraph-safe; the H2D partitions out
+        naturally); NOT currently set in the recipe. (2) **`cudnn.benchmark=True`** — FSQ used
+        it (`fsq_train_reference.py:32`); fixed shapes → safe conv autotune; verify the repo
+        sets it. (3) **Side-stream double-buffer prefetcher** — the ONLY way to overlap H2D
+        with COMPUTE (default-stream `non_blocking` overlaps CPU, not the compute stream);
+        needs a non-default stream + pinned source. (4) **`cudaHostRegister` the mmap
+        super-slice** → DMA straight from the page cache, skipping the copy-to-pinned staging.
+        (5) **GPUDirect Storage** (`torch.cuda.gds`, torch 2.7+ / `kvikio`) — direct NVMe→GPU,
+        bypass CPU; our raw `.bin` is GDS-friendly, but nvidia-fs is likely UNAVAILABLE on
+        Kaggle T4 (check). (6) `torch.from_file` / `UntypedStorage.from_file` torch-native
+        mmap vs numpy. Also RE-VERIFY `amp_off_fp32` vs `amp_fp16` on T4 tensor cores — the
+        FSQ reason for disabling autocast was its fp32 QUANTIZER, which the normal VAE lacks.
+      - *Make them OPTIONS + hard rules (user 2026-07-19).* All of the above are configurable
+        KNOBS (runtime_matrix axes / recipe flags) SEARCHED for the epoch-time winner, not
+        hardcoded. Objective = MINIMIZE TIME PER EPOCH, tail-agnostic. Compile time is a
+        NON-COST (~30h run) → default the step to `torch.compile(mode="max-autotune")`
+        (exhaustive Triton/GEMM autotuning + cudagraphs, SUBSUMING the reduce-overhead
+        candidate); compile-mode {`default`, `reduce-overhead`, `max-autotune`,
+        `max-autotune-no-cudagraphs`} is itself a searched knob. HARD RULE: **minimize
+        graph breaks** — compile the step with `fullgraph=True` to fail-fast on SPURIOUS breaks
+        (a break kills the cudagraph benefit; the branchless forwards already target 0 —
+        check on a SINGLE-GPU replica). DDPOptimizer's INTENTIONAL bucket-boundary breaks are
+        a separate overlap trade-off, reconciled by `compiled_autograd` +
+        `optimize_ddp="python_reducer"`. Determinism is NOT required — BLANKET (user: "we
+        dont care for determinism") → set/expose ALL speed-over-reproducibility flags:
+        `cudnn.benchmark=True`, no `use_deterministic_algorithms`, and the FASTEST RNG for
+        corruption/noise (drop the per-sample blake2b seeding — a hash cost that only bought
+        reproducibility; InlineStain's fast Philox can default for BOTH paths, retiring
+        blake2b, a deliberate change that touches S17c's label logic). Small drift OK. Check
+        the resume-prefix metric validators (non-deterministic corruption won't bit-match),
+        and note cudagraphs still need cudagraph-safe (functionalized) RNG. Precision is
+        fp16-FIRST — keep fp32 only where
+        numerically required, and RE-AUDIT the FSQ fp32 islands (likely over-conservative;
+        the normal VAE has no fp32 quantizer, so amp_fp16 may reclaim T4 tensor-core
+        throughput vs the current `amp_off_fp32` winner).
+      - *Dual-GPU grad-sync trap + compile cost (user 2026-07-19; 2026-07 web).* max-autotune
+        tunes SINGLE-GPU kernels; a whole fwd+bwd graph PREVENTS grad/compute overlap
+        (all_reduce fires from autograd hooks only AFTER the full backward). Overlap needs the
+        DDP knobs (already in the recipe): `optimize_ddp="ddp_optimizer"` (DDPOptimizer breaks
+        at bucket boundaries — inserts breaks, TRADES against the fullgraph rule, couples
+        breaks↔`ddp_bucket_cap_mb`) OR the modern `compiled_autograd` +
+        `optimize_ddp="python_reducer"` (compiles comm INTO the graph → full graph AND
+        overlap). A **bf16 gradient-compression comm hook** halves all_reduce bytes (fits
+        "drift OK") — a strong candidate for the "experimental grad flag" FSQ used. cudagraphs
+        (max-autotune) + DDP have KNOWN conflicts (pytorch#113809) → may need
+        `max-autotune-no-cudagraphs`; DDPOptimizer fails on custom `autograd.Function`
+        (pytorch#166305). MUST measure on the REAL dual-T4 — single-GPU autotune misleads on
+        the sync cost. Current winner = `ddp_optimizer_whole_step` (1.42x). And compile time
+        is free during the SWEEP too (total < one full run) → measure every config at the real
+        mode, do NOT rank-cheap-run-expensive (mode + precision change `step_time`).
   - **S17e** (producer follow-up — spec-only, added 2026-07-17) Make the executor's batch
     axis an EXACT throughput search instead of the coarse pool
     `candidate_per_device_batch_sizes = [4,8,12,32,48]`. Objective = minimize epoch
