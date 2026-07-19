@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-07-18
+Last updated: 2026-07-19
 
 ## Active Workstream
 
@@ -379,9 +379,27 @@ would break the real push while tests stayed green) → CLOSED by a structural t
 push guards open on the venv interpreter. Out of scope, confirmed: the `runtime_selection`
 kernel + its shell guard + config `baseline_row_id` pin the v5 row, but that is the PRODUCER's
 baseline anchor (config-stamped reference-to-beat), NOT a consumer mirror (decision 0010); the
-FULL push guard + `build_kaggle_embedded_kernel.py` need no change. **NEXT: S17c** (observation
-mirror + corruption-label), then S17d (bounded dataloader search axis — read its traps), S17e
-(exact throughput-optimal batch search — producer follow-up). See
+FULL push guard + `build_kaggle_embedded_kernel.py` need no change. **S17c is now DONE (block
+below).** See [[eqvae-reusable-runtime-mechanism-plan]] + `docs/specs/0011-*.md`.
+
+**Spec 0011 S17c DONE (`9f6d813`, 2026-07-19):** the plan-applied OBSERVATION MIRROR now carries
+the nine S11 recipe knobs and records the step the run ACTUALLY took, with an honest
+corruption/AMP label. The nine knobs join `SelectedRuntimeApplicationObservation` /
+`expected_application` / `_application_mismatches` (eight checked for exact equality;
+`ddp_broadcast_buffers` is ASYMMETRIC — fires only when `plan.ddp_broadcast_buffers and not
+observed.ddp_broadcast_buffers`, and the runner feeds the EFFECTIVE `plan.ddp_broadcast_buffers or
+model_requires_buffer_broadcast(model)` in via `_effective_broadcast_buffers`, so the structural
+upward override is tolerated while a real drop is rejected). `local_amp_status` is plan-derived
+(`expected_local_amp_status` → `executed_amp_off_fp32` when amp is off) and the compiled
+train-fast-path corruption label is accurate (`expected_corruption_strategy` →
+`compiled_fastpath_inline_stain` vs blake2b `indexed_masked`), both driven by the same
+`compiled_step_active = compiled_step_fn is not None` that DISPATCHES the step, so a label cannot
+claim compiled-while-eager; the final proof reads observed compile state back from the recorded
+rows. Byte-identical on the committed eager v5 plan (empirically: mismatches = `()`, local_pass).
+Gate 574/1, 0 errors/warnings/notes; four clean-context default-refute reviewers all clean. This
+ENDS the `_application_mismatches` tautology, which unblocks S17d's `_dataloader_errors` de-pin.
+**NEXT: S17d** (bounded dataloader search axis — the dataloader is NOT searched today; read its
+traps first), then S17e (exact throughput-optimal batch search — producer follow-up). See
 [[eqvae-reusable-runtime-mechanism-plan]] + `docs/specs/0011-*.md`.
 
 > Pre-Spec-0011 status (runtime-selection v5, Spec 0006–0009) and older Kaggle-run

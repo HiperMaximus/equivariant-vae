@@ -1,22 +1,27 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 DONE (both `run_template.py` validators — `21b697f` — AND the debug `kaggle_kernel.sh` shell push guard — `c090d16` — delegate to `selected_runtime_plan_errors`, local)**; NEXT local = S17c (observation mirror + corruption-label) + S17d (bounded dataloader search axis — the dataloader is NOT searched today; read S17d's traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up) queued locally; S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 DONE (both `run_template.py` validators — `21b697f` — AND the debug `kaggle_kernel.sh` shell push guard — `c090d16` — delegate to `selected_runtime_plan_errors`, local)**; **S17c DONE (observation mirror + honest corruption/step label — `9f6d813`, local)**; NEXT local = S17d (bounded dataloader search axis — the dataloader is NOT searched today; read S17d's traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up) queued locally; S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
 Implementation readiness: Phase 3 COMPLETE (local); S14a/S14b/S14c done + gated locally; S17a + S17b-1 done + gated locally (parser now ACCEPTS a self-consistent compiled plan — recipe AND structural identity/snapshot; identity is self-consistent so no Kaggle re-point is needed); compiled EXECUTION + the row_id mint are Kaggle observations; Kaggle phases S17-Kaggle/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-18 (S17b-3 DONE — both kernel/push-side mirrors of the parser now
-delegate to the single-source `selected_runtime_plan_errors`: both `run_template.py`
-validators (`21b697f`, sub-step 1) AND the debug `kaggle_kernel.sh` shell push guard
-(`c090d16`, sub-step 2). Delegation was chosen over a hand-mirror because the full runner
-and debug already parse through it, so it is zero-drift and behavior-preserving on v5;
-`selected_runtime_path=None` skips only the proof hash (the launch parse re-checks it). The
-debug shell guard also switched from bare `python3` to the venv interpreter
-(`PYTHONPATH=src "$python_bin"`) because the delegated import needs torch+eqvae, and a
-review-caught coverage gap — the body-only extraction tests can't see that interpreter
-switch — is closed by a structural test asserting BOTH push guards open on the venv
-interpreter. Out of scope, confirmed: the `runtime_selection` kernel/guard/config pin the
-v5 row but that is the PRODUCER's baseline anchor, NOT a consumer mirror (decision 0010).
-NEXT local = S17c, S17d, S17e (exact throughput-optimal batch search); NEXT Kaggle = S17
-generator run + S19). The per-step `(DONE — …)` tags in the body are the state of record.
+Last updated: 2026-07-19 (S17c DONE — the plan-applied OBSERVATION MIRROR now carries the
+nine S11 recipe knobs and records the step the run ACTUALLY took, with an honest
+corruption/AMP label. `SelectedRuntimeApplicationObservation` / `expected_application` /
+`_application_mismatches` gain the nine knobs (eight checked for exact equality); the
+`ddp_broadcast_buffers` check is ASYMMETRIC — it fires only when `plan.ddp_broadcast_buffers
+and not observed.ddp_broadcast_buffers`, and the runner feeds the EFFECTIVE
+`plan.ddp_broadcast_buffers or model_requires_buffer_broadcast(model)` in via
+`_effective_broadcast_buffers`, so the structural upward override is tolerated while a real
+drop is rejected. `local_amp_status` is plan-derived (`expected_local_amp_status` →
+`executed_amp_off_fp32` when amp is off) and the compiled train-fast-path corruption label is
+accurate (`expected_corruption_strategy` → `compiled_fastpath_inline_stain` vs blake2b
+`indexed_masked`), both driven by the same `compiled_step_active = compiled_step_fn is not
+None` that DISPATCHES the step, so a label cannot claim compiled-while-eager. Byte-identical
+on the committed eager v5 plan (empirically: `_application_mismatches` → `()`,
+`build_plan_applied_proof` → local_pass). Gate 574/1, 0 errors/warnings/notes; four
+clean-context default-refute reviewers all clean. This ends the `_application_mismatches`
+tautology that S17d's `_dataloader_errors` de-pin is gated on. NEXT local = S17d, S17e (exact
+throughput-optimal batch search); NEXT Kaggle = S17 generator run + S19). The per-step
+`(DONE — …)` tags in the body are the state of record.
 
 ## Purpose
 
@@ -742,11 +747,25 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       NOT a precedent: it baked `FULL_TARGET_UPDATES` only because the shell GREPS that
       token; nothing greps identity/recipe. The surviving required-text anchors
       (`dual_t4_ddp`, `--nproc_per_node=2`) are hardware anchors and survive untouched.
-  - **S17c** Observation mirror + corruption-label: add the nine S11 recipe knobs to
-    `SelectedRuntimeApplicationObservation` / `expected_application` /
-    `_application_mismatches` with the structural `broadcast_buffers`-override tolerance;
-    make `local_amp_status` plan-derived (amp-off aware); make the compiled train-fast-path
-    corruption label accurate (blake2b dropped, `InlineStainCorruptor` applied inline).
+  - **S17c (DONE — `9f6d813`, local)** Observation mirror + corruption-label: the nine S11
+    recipe knobs are added to `SelectedRuntimeApplicationObservation` / `expected_application`
+    / `_application_mismatches` (eight checked for exact equality; `ddp_broadcast_buffers`
+    tolerates the structural UPWARD override — fires only when `plan.ddp_broadcast_buffers and
+    not observed.ddp_broadcast_buffers`, and the runner feeds the EFFECTIVE
+    `plan.ddp_broadcast_buffers or model_requires_buffer_broadcast(model)` in via
+    `_effective_broadcast_buffers`). `local_amp_status` is plan-derived
+    (`expected_local_amp_status` → `executed_amp_off_fp32` when amp is off); the compiled
+    train-fast-path corruption label is accurate (`expected_corruption_strategy` →
+    `compiled_fastpath_inline_stain` when `torch_compile_enabled and compile_scope=="step"`,
+    else `plan.corruption_strategy` — blake2b `indexed_masked`; the `InlineStainCorruptor` was
+    already applied inline in S16). The runner records the ACTUAL step:
+    `compiled_step_active = compiled_step_fn is not None` drives BOTH the metric-row
+    `torch_compile_enabled`/`compile_scope` AND the corruption label (the same immutable value
+    that dispatches the step, so a label cannot claim compiled-while-eager); the final proof
+    reads observed compile state back from the recorded rows. Byte-identical on the committed
+    eager v5 plan (empirically: `_application_mismatches` → `()`, `build_plan_applied_proof` →
+    local_pass). Gate 574/1; four clean-context default-refute reviewers all clean. This ends
+    the `_application_mismatches` tautology that S17d's `_dataloader_errors` de-pin is gated on.
   - **S17d** Dataloader search axis (bounded, hardware-derived). The dataloader is the
     one runtime block that is still frozen at a literal while genuinely depending on the
     box — but it is NOT currently searched, and the code says otherwise in two places
