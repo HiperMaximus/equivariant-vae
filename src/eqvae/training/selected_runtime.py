@@ -30,6 +30,16 @@ EXPECTED_RUNTIME_PROOF_WRITE_POLICY = (
 )
 EXPECTED_DDP_APPLICATION_STATUS = "executed_dual_t4_ddp"
 EXPECTED_AMP_APPLICATION_STATUS = "executed_amp_fp16_conservative"
+# Spec 0011 S17c -- the compiled bigger-batch winner runs the ``amp_off_fp32`` profile
+# (autocast + grad scaler off), so its local-AMP application status is a distinct,
+# plan-derived value rather than the eager fallback's fp16-conservative constant.
+EXPECTED_AMP_OFF_APPLICATION_STATUS = "executed_amp_off_fp32"
+# Spec 0011 S17c -- the compiled whole-step fast path replaces the reproducible
+# blake2b-seeded corruptor with the branchless inline ``InlineStainCorruptor`` fused
+# into the graph (non-deterministic, speed-first). The train-metric corruption label and
+# the observation mirror record this honestly instead of the plan's declared
+# ``corruption_strategy``, which only the eager/validation blake2b path applies.
+COMPILED_FASTPATH_CORRUPTION_STRATEGY = "compiled_fastpath_inline_stain"
 EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE = 16384.0
 
 
@@ -127,9 +137,18 @@ class SelectedRuntimePlan:
             "ddp_static_graph": self.ddp_static_graph,
             "ddp_gradient_as_bucket_view": self.ddp_gradient_as_bucket_view,
             "zero_grad_set_to_none": self.zero_grad_set_to_none,
+            "compile_backend": self.compile_backend,
+            "compile_dynamic": self.compile_dynamic,
+            "optimize_ddp": self.optimize_ddp,
+            "compiled_autograd": self.compiled_autograd,
+            "reorder_compute_comm_overlap": self.reorder_compute_comm_overlap,
+            "ddp_broadcast_buffers": self.ddp_broadcast_buffers,
+            "ddp_find_unused_parameters": self.ddp_find_unused_parameters,
+            "ddp_bucket_cap_mb": self.ddp_bucket_cap_mb,
+            "fused_optimizer": self.fused_optimizer,
             "selected_runtime_artifact_sha256": self.artifact_sha256,
             "local_ddp_status": EXPECTED_DDP_APPLICATION_STATUS,
-            "local_amp_status": EXPECTED_AMP_APPLICATION_STATUS,
+            "local_amp_status": expected_local_amp_status(self),
         }
 
 
@@ -163,6 +182,19 @@ class SelectedRuntimeApplicationObservation:
     ddp_static_graph: bool
     ddp_gradient_as_bucket_view: bool
     zero_grad_set_to_none: bool
+    # Spec 0011 S17c -- the nine compiled fast-path recipe knobs, observed so a plan
+    # that records a compiled recipe but a run that applies a different one is caught.
+    # Every knob but ``ddp_broadcast_buffers`` is checked for equality against the plan;
+    # that one tolerates the upward override (see ``_application_mismatches``).
+    compile_backend: str
+    compile_dynamic: bool
+    optimize_ddp: str
+    compiled_autograd: bool
+    reorder_compute_comm_overlap: bool
+    ddp_broadcast_buffers: bool
+    ddp_find_unused_parameters: bool
+    ddp_bucket_cap_mb: int | None
+    fused_optimizer: bool
     local_ddp_status: str
     local_amp_status: str
     runner_amp_grad_scaler_init_scale: float | None = None
@@ -203,6 +235,15 @@ class SelectedRuntimeApplicationObservation:
             "ddp_static_graph": self.ddp_static_graph,
             "ddp_gradient_as_bucket_view": self.ddp_gradient_as_bucket_view,
             "zero_grad_set_to_none": self.zero_grad_set_to_none,
+            "compile_backend": self.compile_backend,
+            "compile_dynamic": self.compile_dynamic,
+            "optimize_ddp": self.optimize_ddp,
+            "compiled_autograd": self.compiled_autograd,
+            "reorder_compute_comm_overlap": self.reorder_compute_comm_overlap,
+            "ddp_broadcast_buffers": self.ddp_broadcast_buffers,
+            "ddp_find_unused_parameters": self.ddp_find_unused_parameters,
+            "ddp_bucket_cap_mb": self.ddp_bucket_cap_mb,
+            "fused_optimizer": self.fused_optimizer,
             "local_ddp_status": self.local_ddp_status,
             "local_amp_status": self.local_amp_status,
         }
@@ -211,6 +252,41 @@ class SelectedRuntimeApplicationObservation:
                 "grad_scaler_init_scale": self.runner_amp_grad_scaler_init_scale,
             }
         return payload
+
+
+def expected_local_amp_status(plan: SelectedRuntimePlan) -> str:
+    """Return the local-AMP application status a real run applies for this plan.
+
+    The eager fallback runs the fp16-conservative AMP profile; the compiled
+    bigger-batch winner runs ``amp_off_fp32`` (autocast and grad scaler off). The runner
+    records the matching status when it actually executes on CUDA, so this expectation
+    is derived from the plan's AMP toggle instead of a single frozen constant (Spec 0011
+    S17c).
+
+    Returns:
+        The expected on-CUDA ``local_amp_status`` for ``plan``.
+
+    """
+    if plan.amp_enabled:
+        return EXPECTED_AMP_APPLICATION_STATUS
+    return EXPECTED_AMP_OFF_APPLICATION_STATUS
+
+
+def expected_corruption_strategy(plan: SelectedRuntimePlan) -> str:
+    """Return the corruption label a train run applies for this plan.
+
+    The eager and validation paths apply the plan's declared reproducible
+    (blake2b-seeded) strategy; the compiled whole-step fast path (``torch_compile``
+    enabled with ``compile_scope == "step"``) instead fuses the branchless inline
+    corruptor into the graph, so its train steps get a distinct label (Spec 0011 S17c).
+
+    Returns:
+        The expected observed ``corruption_strategy`` for a run of ``plan``.
+
+    """
+    if plan.torch_compile_enabled and plan.compile_scope == _COMPILE_SCOPE_STEP:
+        return COMPILED_FASTPATH_CORRUPTION_STRATEGY
+    return plan.corruption_strategy
 
 
 def parse_selected_runtime_plan(path: Path) -> SelectedRuntimePlan:
@@ -677,6 +753,7 @@ _AMP_AUTOCAST_DTYPES = frozenset({"float16", "bfloat16"})
 _COMPILE_EAGER_BACKEND = "eager"
 _COMPILE_INDUCTOR_BACKEND = "inductor"
 _COMPILE_SCOPE_NONE = "none"
+_COMPILE_SCOPE_STEP = "step"
 _STABLE_COMPILE_SCOPES = frozenset({"model_forward", "step"})
 _ALLOWED_MEMORY_FORMATS = frozenset({"contiguous", "channels_last"})
 
@@ -1368,7 +1445,11 @@ def _application_mismatches(
             observed.dataloader_non_blocking_h2d,
             plan.dataloader_non_blocking_h2d,
         ),
-        ("corruption_strategy", observed.corruption_strategy, plan.corruption_strategy),
+        (
+            "corruption_strategy",
+            observed.corruption_strategy,
+            expected_corruption_strategy(plan),
+        ),
         ("memory_format", observed.memory_format, plan.memory_format),
         ("ddp_static_graph", observed.ddp_static_graph, plan.ddp_static_graph),
         (
@@ -1381,6 +1462,41 @@ def _application_mismatches(
             observed.zero_grad_set_to_none,
             plan.zero_grad_set_to_none,
         ),
+        # Spec 0011 S17c -- the compiled fast-path recipe knobs. Eight are exact echoes
+        # of the plan; ``ddp_broadcast_buffers`` is handled separately below because the
+        # runner may structurally force it on.
+        ("compile_backend", observed.compile_backend, plan.compile_backend),
+        ("compile_dynamic", observed.compile_dynamic, plan.compile_dynamic),
+        ("optimize_ddp", observed.optimize_ddp, plan.optimize_ddp),
+        ("compiled_autograd", observed.compiled_autograd, plan.compiled_autograd),
+        (
+            "reorder_compute_comm_overlap",
+            observed.reorder_compute_comm_overlap,
+            plan.reorder_compute_comm_overlap,
+        ),
+        (
+            "ddp_find_unused_parameters",
+            observed.ddp_find_unused_parameters,
+            plan.ddp_find_unused_parameters,
+        ),
+        ("ddp_bucket_cap_mb", observed.ddp_bucket_cap_mb, plan.ddp_bucket_cap_mb),
+        ("fused_optimizer", observed.fused_optimizer, plan.fused_optimizer),
+        # ``ddp_broadcast_buffers`` tolerates the structural UPWARD override: the runner
+        # forces broadcasting on when a model carries rank-divergent running-stat
+        # buffers (``model_requires_buffer_broadcast``), so observed True with plan
+        # False is legitimate. Only the reverse -- the plan requires broadcasting but
+        # the run dropped it -- is a real application failure.
+        *(
+            (
+                (
+                    "ddp_broadcast_buffers",
+                    observed.ddp_broadcast_buffers,
+                    plan.ddp_broadcast_buffers,
+                ),
+            )
+            if plan.ddp_broadcast_buffers and not observed.ddp_broadcast_buffers
+            else ()
+        ),
         (
             "local_ddp_status",
             observed.local_ddp_status,
@@ -1389,7 +1505,7 @@ def _application_mismatches(
         (
             "local_amp_status",
             observed.local_amp_status,
-            EXPECTED_AMP_APPLICATION_STATUS,
+            expected_local_amp_status(plan),
         ),
         *(
             (

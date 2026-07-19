@@ -1262,6 +1262,17 @@ def _plan_applied_proof(  # noqa: PLR0913
         ddp_static_graph=False,
         ddp_gradient_as_bucket_view=False,
         zero_grad_set_to_none=last_result.zero_grad_set_to_none,
+        # The recipe knobs mirror the plan on this CPU-mechanics probe (no DDP built);
+        # the proof stays non-promotable on the hardware/AMP anchors (Spec 0011 S17c).
+        compile_backend=plan.compile_backend,
+        compile_dynamic=plan.compile_dynamic,
+        optimize_ddp=plan.optimize_ddp,
+        compiled_autograd=plan.compiled_autograd,
+        reorder_compute_comm_overlap=plan.reorder_compute_comm_overlap,
+        ddp_broadcast_buffers=plan.ddp_broadcast_buffers,
+        ddp_find_unused_parameters=plan.ddp_find_unused_parameters,
+        ddp_bucket_cap_mb=plan.ddp_bucket_cap_mb,
+        fused_optimizer=plan.fused_optimizer,
         local_ddp_status="not_executed_local_cpu_mechanics_only",
         local_amp_status="not_executed_local_cpu",
     )

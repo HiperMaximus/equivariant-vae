@@ -109,13 +109,14 @@ from eqvae.training.optim import (
     scaled_learning_rate,
 )
 from eqvae.training.selected_runtime import (
-    EXPECTED_AMP_APPLICATION_STATUS,
+    COMPILED_FASTPATH_CORRUPTION_STRATEGY,
     EXPECTED_DDP_APPLICATION_STATUS,
     EXPECTED_MACHINE_SHAPE,
     EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE,
     SelectedRuntimeApplicationObservation,
     SelectedRuntimePlan,
     build_plan_applied_proof,
+    expected_local_amp_status,
     parse_selected_runtime_plan,
 )
 
@@ -146,6 +147,9 @@ _TRAIN_CORRUPTION_VIEW = "train_corrupted"
 # 0011 S16). Matches the probe's `_COMPILE_SCOPE_STEP` and the plan token the generator
 # copies verbatim; the runner compiles the step only for this scope.
 _COMPILE_SCOPE_STEP = "step"
+# The eager-path ``compile_scope`` label recorded when no step is compiled (Spec 0011
+# S17c); mirrors the plan's ``"none"`` scope so the eager v5 metric row is unchanged.
+_COMPILE_SCOPE_NONE = "none"
 _GATE_LOW_SATURATION_THRESHOLD = 0.01
 _GATE_HIGH_SATURATION_THRESHOLD = 0.99
 _TINY_MAX_OPTIMIZER_STEPS = 128
@@ -456,6 +460,9 @@ class _IntervalFlushContext:
     amp: _AmpExecution
     data_surface: _DataSurface
     distributed: _DistributedContext
+    # Effective DDP ``broadcast_buffers`` decision (Spec 0011 S17c), so the
+    # partial-flush plan-applied proof records the same value as the final proof.
+    broadcast_buffers: bool
 
 
 @dataclass(frozen=True)
@@ -1069,6 +1076,12 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
         distributed=distributed,
         plan=plan,
     )
+    # The EFFECTIVE DDP broadcast_buffers decision, recomputed from the same structural
+    # rule `_maybe_wrap_ddp` applies, so the interval-flush plan-applied proof records
+    # what the run actually uses (the plan value, or forced on for a model with
+    # rank-divergent buffers) (Spec 0011 S17c). The final proof recomputes it the same
+    # way from the raw model it already receives.
+    observed_broadcast_buffers = _effective_broadcast_buffers(plan=plan, model=model)
     # Build the compiled whole-step closure once, over the wrapped model, when the plan
     # selects the step fast path (Spec 0011 S16); None on the eager v5 plan keeps the
     # eager `_run_train_step`.
@@ -1121,6 +1134,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
             amp=amp,
             data_surface=data_surface,
             distributed=distributed,
+            broadcast_buffers=observed_broadcast_buffers,
         )
         if _is_full_run(settings)
         else None,
@@ -1393,6 +1407,7 @@ def _write_final_artifacts_primary(  # noqa: PLR0913
         ddp_proof=ddp_proof,
         metric_rows=metric_rows,
         last_result=last_result,
+        broadcast_buffers=_effective_broadcast_buffers(plan=plan, model=model),
     )
     local_readiness = _local_readiness_summary(
         _LocalReadinessComponents(
@@ -2917,18 +2932,21 @@ def _amp_execution(
     distributed: _DistributedContext,
     dry_run: bool,
 ) -> _AmpExecution:
-    enabled = plan.amp_enabled and distributed.device.type == "cuda" and not dry_run
+    # ``on_cuda`` gates the observed AMP status on the device alone, so a real dual-T4
+    # run of the ``amp_off_fp32`` compiled winner records that it executed (autocast
+    # off) instead of collapsing to the local-CPU sentinel, which only ``enabled``
+    # (folding in ``plan.amp_enabled``) used to produce (Spec 0011 S17c).
+    on_cuda = distributed.device.type == "cuda" and not dry_run
+    enabled = plan.amp_enabled and on_cuda
     scaler_enabled = plan.grad_scaler_enabled and enabled
     return _AmpExecution(
         enabled=enabled,
         grad_scaler_enabled=scaler_enabled,
         grad_scaler_init_scale=SELECTED_RUNTIME_AMP_GRAD_SCALER_INIT_SCALE,
-        autocast_dtype=plan.autocast_dtype if enabled else "not_executed_local_cpu",
+        autocast_dtype=plan.autocast_dtype if on_cuda else "not_executed_local_cpu",
         requested_autocast_dtype=plan.autocast_dtype,
         local_amp_status=(
-            EXPECTED_AMP_APPLICATION_STATUS
-            if enabled and scaler_enabled
-            else "not_executed_local_cpu"
+            expected_local_amp_status(plan) if on_cuda else "not_executed_local_cpu"
         ),
     )
 
@@ -3024,6 +3042,15 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
         10,
         settings.max_train_steps * 2,
     )
+    # The compiled whole-step fast path replaces the reproducible blake2b corruptor with
+    # the branchless inline one, so train rows are labeled honestly; both are constant
+    # across the loop (Spec 0011 S17c).
+    compiled_step_active = compiled_step_fn is not None
+    train_corruption_label = (
+        COMPILED_FASTPATH_CORRUPTION_STRATEGY
+        if compiled_step_active
+        else plan.corruption_strategy
+    )
     while successful_count < settings.max_train_steps:
         attempt_count += 1
         if attempt_count > max_attempts:
@@ -3103,7 +3130,8 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
                 plan=plan,
                 amp=amp,
                 checkpoint_path="",
-                corruption_strategy=plan.corruption_strategy,
+                corruption_strategy=train_corruption_label,
+                compiled_step_active=compiled_step_active,
             ),
         )
         if scheduled_validation_due:
@@ -3680,6 +3708,7 @@ def _write_partial_interval_artifacts(
         ddp_proof=context.ddp_proof,
         metric_rows=state.metric_rows,
         last_result=state.last_result,
+        broadcast_buffers=context.broadcast_buffers,
     )
     checkpoint_resume_proof = _partial_checkpoint_resume_proof(
         checkpoint=latest_checkpoint,
@@ -5057,6 +5086,24 @@ def _gate_health_summary(gate_rows: Sequence[CsvRow]) -> JsonObject:
     )
 
 
+def _effective_broadcast_buffers(
+    *,
+    plan: SelectedRuntimePlan,
+    model: nn.Module,
+) -> bool:
+    """Return the DDP ``broadcast_buffers`` value the run effectively applies.
+
+    Mirrors ``_maybe_wrap_ddp``: the plan's request, forced on when the model carries
+    rank-divergent running-stat buffers (Spec 0011 S17c). Pure and idempotent, so the
+    interval-flush and final plan-applied proofs record the same value.
+
+    Returns:
+        The effective ``broadcast_buffers`` decision for ``plan`` and ``model``.
+
+    """
+    return plan.ddp_broadcast_buffers or model_requires_buffer_broadcast(model)
+
+
 def _plan_applied_proof(  # noqa: PLR0913
     *,
     plan: SelectedRuntimePlan,
@@ -5066,6 +5113,7 @@ def _plan_applied_proof(  # noqa: PLR0913
     ddp_proof: JsonObject,
     metric_rows: Sequence[CsvRow],
     last_result: _SelectedRuntimeStepResult,
+    broadcast_buffers: bool,
 ) -> JsonObject:
     ddp_pass = ddp_proof.get("status") == _LOCAL_STATUS
     observed = SelectedRuntimeApplicationObservation(
@@ -5085,8 +5133,16 @@ def _plan_applied_proof(  # noqa: PLR0913
         grad_scaler_enabled=amp.grad_scaler_enabled,
         fp32_loss=True,
         autocast_dtype=amp.autocast_dtype,
-        torch_compile_enabled=False,
-        compile_scope="none",
+        # Observed from the train rows (which record the step actually taken), so a
+        # compiled plan whose run stayed eager is caught, not echoed (Spec 0011 S17c).
+        torch_compile_enabled=_observed_torch_compile_enabled(
+            metric_rows,
+            fallback=plan.torch_compile_enabled,
+        ),
+        compile_scope=_observed_compile_scope(
+            metric_rows,
+            fallback=plan.compile_scope,
+        ),
         dataloader_num_workers=plan.dataloader_num_workers,
         dataloader_prefetch_factor=plan.dataloader_prefetch_factor,
         dataloader_pin_memory=plan.dataloader_pin_memory,
@@ -5100,6 +5156,20 @@ def _plan_applied_proof(  # noqa: PLR0913
         ddp_static_graph=plan.ddp_static_graph,
         ddp_gradient_as_bucket_view=plan.ddp_gradient_as_bucket_view,
         zero_grad_set_to_none=last_result.zero_grad_set_to_none,
+        # The compiled fast-path recipe knobs. Eight are the applied plan values; DDP
+        # itself is not built on the local proof, so they mirror the plan the run
+        # consumes. ``ddp_broadcast_buffers`` records the EFFECTIVE decision, which the
+        # runner may force on for a model with rank-divergent buffers -- the mirror
+        # tolerates that upward override (Spec 0011 S17c).
+        compile_backend=plan.compile_backend,
+        compile_dynamic=plan.compile_dynamic,
+        optimize_ddp=plan.optimize_ddp,
+        compiled_autograd=plan.compiled_autograd,
+        reorder_compute_comm_overlap=plan.reorder_compute_comm_overlap,
+        ddp_broadcast_buffers=broadcast_buffers,
+        ddp_find_unused_parameters=plan.ddp_find_unused_parameters,
+        ddp_bucket_cap_mb=plan.ddp_bucket_cap_mb,
+        fused_optimizer=plan.fused_optimizer,
         local_ddp_status=(
             EXPECTED_DDP_APPLICATION_STATUS
             if ddp_pass
@@ -5800,6 +5870,7 @@ def _metric_row(  # noqa: PLR0913
     amp: _AmpExecution,
     checkpoint_path: str,
     corruption_strategy: str,
+    compiled_step_active: bool,
 ) -> CsvRow:
     scalars = result.losses.detached_scalars()
     return {
@@ -5834,8 +5905,12 @@ def _metric_row(  # noqa: PLR0913
         "autocast_dtype": amp.autocast_dtype,
         "grad_scaler_enabled": _csv_bool(value=amp.grad_scaler_enabled),
         "fp32_loss": _csv_bool(value=plan.fp32_loss),
-        "torch_compile_enabled": _csv_bool(value=plan.torch_compile_enabled),
-        "compile_scope": plan.compile_scope,
+        # The compiled whole-step fast path is purely plan-gated, so these record the
+        # step actually taken (compiled vs eager), not the plan's request (S17c).
+        "torch_compile_enabled": _csv_bool(value=compiled_step_active),
+        "compile_scope": plan.compile_scope
+        if compiled_step_active
+        else _COMPILE_SCOPE_NONE,
         "corruption_strategy": corruption_strategy,
         "train_reparameterization": result.train_reparameterization,
         "eps_policy": result.eps_policy,
@@ -5857,6 +5932,24 @@ def _observed_corruption_strategy(rows: Sequence[CsvRow], *, fallback: str) -> s
         row["corruption_strategy"] for row in rows if row.get("corruption_strategy")
     }
     return values.pop() if len(values) == 1 else fallback
+
+
+def _observed_compile_scope(rows: Sequence[CsvRow], *, fallback: str) -> str:
+    values = {row["compile_scope"] for row in rows if row.get("compile_scope")}
+    return values.pop() if len(values) == 1 else fallback
+
+
+def _observed_torch_compile_enabled(
+    rows: Sequence[CsvRow],
+    *,
+    fallback: bool,
+) -> bool:
+    values = {
+        row["torch_compile_enabled"] for row in rows if row.get("torch_compile_enabled")
+    }
+    if len(values) != 1:
+        return fallback
+    return values.pop() == "true"
 
 
 def _successful_optimizer_update_count(rows: Sequence[CsvRow]) -> int:

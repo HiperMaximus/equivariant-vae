@@ -45,6 +45,9 @@ from eqvae.models.non_equivariant_vae import (
 from eqvae.training import selected_runtime_runner
 from eqvae.training.fastpath_step import make_fastpath_step_fn
 from eqvae.training.selected_runtime import (
+    COMPILED_FASTPATH_CORRUPTION_STRATEGY,
+    EXPECTED_AMP_APPLICATION_STATUS,
+    EXPECTED_AMP_OFF_APPLICATION_STATUS,
     EXPECTED_RUNTIME_POLICY_ID,
     EXPECTED_RUNTIME_PROOF_WRITE_POLICY,
     EXPECTED_SELECTED_ROW_ID,
@@ -2776,6 +2779,7 @@ def test_fresh_full_run_flushes_metrics_at_first_boundary(  # noqa: PLR0914
         ),
         data_surface=data_surface,
         distributed=distributed,
+        broadcast_buffers=plan.ddp_broadcast_buffers,
     )
     try:
         (output_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
@@ -3319,6 +3323,7 @@ def test_full_interval_flush_writes_resume_history_and_partial_artifacts(  # noq
             ),
             data_surface=data_surface,
             distributed=distributed,
+            broadcast_buffers=plan.ddp_broadcast_buffers,
         )
         metric_rows = [
             _train_step_row(contract=contract, step=step, rank=0)
@@ -3546,6 +3551,7 @@ def test_full_interval_flush_dedups_resume_prefix_under_simulated_ddp(  # noqa: 
             ),
             data_surface=data_surface,
             distributed=ddp,
+            broadcast_buffers=plan.ddp_broadcast_buffers,
         )
         # The resume prefix already holds BOTH ranks' rows for steps 1 and 2.
         resume_metric_rows = tuple(
@@ -4259,6 +4265,84 @@ def _local_distributed_context() -> selected_runtime_runner._DistributedContext:
             cuda_version=None,
         ),
     )
+
+
+def test_metric_row_records_the_step_actually_taken() -> None:
+    """Train-row compile/corruption labels follow the step run, not the plan's claim."""
+    plan = replace(
+        parse_selected_runtime_plan(_RUNTIME_CONFIG),
+        torch_compile_enabled=True,
+        compile_scope="step",
+    )
+    amp = selected_runtime_runner._amp_execution(  # noqa: SLF001
+        plan=plan,
+        distributed=_local_distributed_context(),
+        dry_run=True,
+    )
+    result = _step_result(step=1)
+    # A plan that claims compile but whose run took the eager step records eager labels
+    # and the reproducible corruptor -- catching a build-gate regression.
+    eager_row = selected_runtime_runner._metric_row(  # noqa: SLF001
+        result=result,
+        rank=0,
+        plan=plan,
+        amp=amp,
+        checkpoint_path="",
+        corruption_strategy=plan.corruption_strategy,
+        compiled_step_active=False,
+    )
+    assert eager_row["torch_compile_enabled"] == "false"
+    assert eager_row["compile_scope"] == "none"
+    assert eager_row["corruption_strategy"] == plan.corruption_strategy
+    compiled_row = selected_runtime_runner._metric_row(  # noqa: SLF001
+        result=result,
+        rank=0,
+        plan=plan,
+        amp=amp,
+        checkpoint_path="",
+        corruption_strategy=COMPILED_FASTPATH_CORRUPTION_STRATEGY,
+        compiled_step_active=True,
+    )
+    assert compiled_row["torch_compile_enabled"] == "true"
+    assert compiled_row["compile_scope"] == "step"
+    assert compiled_row["corruption_strategy"] == COMPILED_FASTPATH_CORRUPTION_STRATEGY
+
+
+def test_amp_execution_records_amp_off_status_on_cuda() -> None:
+    """A real CUDA amp-off run records that it executed, not the local-CPU sentinel."""
+    amp_plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+    cuda = replace(_local_distributed_context(), device=torch.device("cuda"))
+    on_cuda_amp = selected_runtime_runner._amp_execution(  # noqa: SLF001
+        plan=amp_plan,
+        distributed=cuda,
+        dry_run=False,
+    )
+    assert on_cuda_amp.local_amp_status == EXPECTED_AMP_APPLICATION_STATUS
+    assert on_cuda_amp.autocast_dtype == amp_plan.autocast_dtype
+
+    amp_off_plan = replace(
+        amp_plan,
+        precision_policy="amp_off_fp32",
+        amp_enabled=False,
+        grad_scaler_enabled=False,
+        autocast_dtype="float32",
+    )
+    on_cuda_off = selected_runtime_runner._amp_execution(  # noqa: SLF001
+        plan=amp_off_plan,
+        distributed=cuda,
+        dry_run=False,
+    )
+    assert on_cuda_off.enabled is False
+    assert on_cuda_off.local_amp_status == EXPECTED_AMP_OFF_APPLICATION_STATUS
+    assert on_cuda_off.autocast_dtype == "float32"
+
+    on_cpu_off = selected_runtime_runner._amp_execution(  # noqa: SLF001
+        plan=amp_off_plan,
+        distributed=_local_distributed_context(),
+        dry_run=False,
+    )
+    assert on_cpu_off.local_amp_status == "not_executed_local_cpu"
+    assert on_cpu_off.autocast_dtype == "not_executed_local_cpu"
 
 
 def _ddp_distributed_context(
@@ -5304,3 +5388,12 @@ def test_run_train_steps_takes_the_compiled_branch_when_a_step_fn_is_present(
 
     assert train_loop.last_result.batch_size == context.settings.batch_size
     assert math.isfinite(train_loop.last_result.grad_norm)
+    # The compiled branch labels every train row with the inline corruptor and the
+    # compiled scope it actually ran, not the plan's declared blake2b strategy.
+    assert train_loop.metric_rows
+    assert all(
+        row["corruption_strategy"] == COMPILED_FASTPATH_CORRUPTION_STRATEGY
+        for row in train_loop.metric_rows
+    )
+    assert all(row["torch_compile_enabled"] == "true" for row in train_loop.metric_rows)
+    assert all(row["compile_scope"] == "step" for row in train_loop.metric_rows)

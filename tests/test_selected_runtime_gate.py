@@ -40,10 +40,15 @@ from eqvae.data.roots import (
 )
 from eqvae.data.synthetic import SyntheticPatchSpec, write_synthetic_patch_shard
 from eqvae.training.selected_runtime import (
+    COMPILED_FASTPATH_CORRUPTION_STRATEGY,
     EXPECTED_AMP_APPLICATION_STATUS,
+    EXPECTED_AMP_OFF_APPLICATION_STATUS,
     EXPECTED_DDP_APPLICATION_STATUS,
     SelectedRuntimeApplicationObservation,
+    SelectedRuntimePlan,
     build_plan_applied_proof,
+    expected_corruption_strategy,
+    expected_local_amp_status,
     parse_selected_runtime_plan,
 )
 
@@ -488,6 +493,15 @@ def test_selected_runtime_plan_applied_proof_rejects_recorded_not_applied() -> N
             ddp_static_graph=False,
             ddp_gradient_as_bucket_view=False,
             zero_grad_set_to_none=True,
+            compile_backend=plan.compile_backend,
+            compile_dynamic=plan.compile_dynamic,
+            optimize_ddp=plan.optimize_ddp,
+            compiled_autograd=plan.compiled_autograd,
+            reorder_compute_comm_overlap=plan.reorder_compute_comm_overlap,
+            ddp_broadcast_buffers=plan.ddp_broadcast_buffers,
+            ddp_find_unused_parameters=plan.ddp_find_unused_parameters,
+            ddp_bucket_cap_mb=plan.ddp_bucket_cap_mb,
+            fused_optimizer=plan.fused_optimizer,
             local_ddp_status="not_executed",
             local_amp_status="not_executed",
         ),
@@ -536,6 +550,15 @@ def test_selected_runtime_plan_applied_proof_rejects_unexecuted_ddp_amp() -> Non
             ddp_static_graph=plan.ddp_static_graph,
             ddp_gradient_as_bucket_view=plan.ddp_gradient_as_bucket_view,
             zero_grad_set_to_none=plan.zero_grad_set_to_none,
+            compile_backend=plan.compile_backend,
+            compile_dynamic=plan.compile_dynamic,
+            optimize_ddp=plan.optimize_ddp,
+            compiled_autograd=plan.compiled_autograd,
+            reorder_compute_comm_overlap=plan.reorder_compute_comm_overlap,
+            ddp_broadcast_buffers=plan.ddp_broadcast_buffers,
+            ddp_find_unused_parameters=plan.ddp_find_unused_parameters,
+            ddp_bucket_cap_mb=plan.ddp_bucket_cap_mb,
+            fused_optimizer=plan.fused_optimizer,
             local_ddp_status="not_executed",
             local_amp_status="not_executed",
         ),
@@ -581,6 +604,15 @@ def test_selected_runtime_plan_applied_proof_rejects_optimizer_updates_drift() -
         ddp_static_graph=plan.ddp_static_graph,
         ddp_gradient_as_bucket_view=plan.ddp_gradient_as_bucket_view,
         zero_grad_set_to_none=plan.zero_grad_set_to_none,
+        compile_backend=plan.compile_backend,
+        compile_dynamic=plan.compile_dynamic,
+        optimize_ddp=plan.optimize_ddp,
+        compiled_autograd=plan.compiled_autograd,
+        reorder_compute_comm_overlap=plan.reorder_compute_comm_overlap,
+        ddp_broadcast_buffers=plan.ddp_broadcast_buffers,
+        ddp_find_unused_parameters=plan.ddp_find_unused_parameters,
+        ddp_bucket_cap_mb=plan.ddp_bucket_cap_mb,
+        fused_optimizer=plan.fused_optimizer,
         local_ddp_status=EXPECTED_DDP_APPLICATION_STATUS,
         local_amp_status=EXPECTED_AMP_APPLICATION_STATUS,
     )
@@ -594,6 +626,204 @@ def test_selected_runtime_plan_applied_proof_rejects_optimizer_updates_drift() -
     )
     assert _string_list(proof["mismatches"]) == [expected_mismatch]
     assert observed.as_json()["optimizer_updates_per_epoch"] == drifted_updates
+
+
+def _v5_plan() -> SelectedRuntimePlan:
+    return parse_selected_runtime_plan(
+        Path("runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json"),
+    )
+
+
+def _compiled_amp_off_plan(plan: SelectedRuntimePlan) -> SelectedRuntimePlan:
+    """Re-point a parsed plan onto the compiled ``amp_off_fp32`` bigger-batch winner.
+
+    Returns:
+        The plan with the compiled amp-off winner profile applied.
+
+    """
+    return replace(
+        plan,
+        torch_compile_enabled=True,
+        compile_scope="step",
+        compile_backend="inductor",
+        precision_policy="amp_off_fp32",
+        amp_enabled=False,
+        grad_scaler_enabled=False,
+        autocast_dtype="float32",
+        fused_optimizer=True,
+        ddp_broadcast_buffers=False,
+    )
+
+
+def _fully_applied_observation(
+    plan: SelectedRuntimePlan,
+) -> SelectedRuntimeApplicationObservation:
+    """Build the observation a fully successful dual-T4 run of ``plan`` would record.
+
+    Returns:
+        An observation whose every field matches what ``plan`` expects applied.
+
+    """
+    return SelectedRuntimeApplicationObservation(
+        selected_row_id=plan.selected_row_id,
+        runtime_policy_id=plan.runtime_policy_id,
+        accelerator_mode=plan.accelerator_mode,
+        machine_shape=plan.machine_shape,
+        world_size=plan.world_size,
+        nproc_per_node=plan.nproc_per_node,
+        torchrun_standalone=plan.torchrun_standalone,
+        batch_size=plan.per_device_batch_size,
+        global_batch_size=plan.global_batch_size,
+        optimizer_updates_per_epoch=plan.optimizer_updates_per_epoch,
+        amp_enabled=plan.amp_enabled,
+        grad_scaler_enabled=plan.grad_scaler_enabled,
+        fp32_loss=plan.fp32_loss,
+        autocast_dtype=plan.autocast_dtype,
+        torch_compile_enabled=plan.torch_compile_enabled,
+        compile_scope=plan.compile_scope,
+        dataloader_num_workers=plan.dataloader_num_workers,
+        dataloader_prefetch_factor=plan.dataloader_prefetch_factor,
+        dataloader_pin_memory=plan.dataloader_pin_memory,
+        dataloader_persistent_workers=plan.dataloader_persistent_workers,
+        dataloader_non_blocking_h2d=plan.dataloader_non_blocking_h2d,
+        corruption_strategy=expected_corruption_strategy(plan),
+        memory_format=plan.memory_format,
+        ddp_static_graph=plan.ddp_static_graph,
+        ddp_gradient_as_bucket_view=plan.ddp_gradient_as_bucket_view,
+        zero_grad_set_to_none=plan.zero_grad_set_to_none,
+        compile_backend=plan.compile_backend,
+        compile_dynamic=plan.compile_dynamic,
+        optimize_ddp=plan.optimize_ddp,
+        compiled_autograd=plan.compiled_autograd,
+        reorder_compute_comm_overlap=plan.reorder_compute_comm_overlap,
+        ddp_broadcast_buffers=plan.ddp_broadcast_buffers,
+        ddp_find_unused_parameters=plan.ddp_find_unused_parameters,
+        ddp_bucket_cap_mb=plan.ddp_bucket_cap_mb,
+        fused_optimizer=plan.fused_optimizer,
+        local_ddp_status=EXPECTED_DDP_APPLICATION_STATUS,
+        local_amp_status=expected_local_amp_status(plan),
+    )
+
+
+def test_expected_local_amp_status_is_amp_off_aware() -> None:
+    """AMP-off winners expect a distinct status, not the eager fp16 constant."""
+    plan = _v5_plan()
+    assert expected_local_amp_status(plan) == EXPECTED_AMP_APPLICATION_STATUS
+    assert (
+        expected_local_amp_status(_compiled_amp_off_plan(plan))
+        == EXPECTED_AMP_OFF_APPLICATION_STATUS
+    )
+
+
+def test_expected_corruption_strategy_labels_compiled_fastpath() -> None:
+    """Only the compiled whole-step scope swaps in the inline-corruptor label."""
+    plan = _v5_plan()
+    assert expected_corruption_strategy(plan) == plan.corruption_strategy
+    assert (
+        expected_corruption_strategy(_compiled_amp_off_plan(plan))
+        == COMPILED_FASTPATH_CORRUPTION_STRATEGY
+    )
+    model_forward = replace(
+        plan,
+        torch_compile_enabled=True,
+        compile_scope="model_forward",
+    )
+    assert expected_corruption_strategy(model_forward) == plan.corruption_strategy
+
+
+def test_plan_applied_proof_accepts_fully_applied_compiled_amp_off_winner() -> None:
+    """A compiled amp-off run whose observation matches its plan is accepted."""
+    plan = _compiled_amp_off_plan(_v5_plan())
+    proof = build_plan_applied_proof(
+        plan=plan,
+        observed=_fully_applied_observation(plan),
+    )
+
+    assert proof["status"] == "local_pass"
+    assert proof["plan_applied"] is True
+    assert _string_list(proof["mismatches"]) == []
+
+
+def test_plan_applied_proof_rejects_recipe_knob_drift() -> None:
+    """A run that applies a different recipe knob than the plan fails."""
+    plan = _compiled_amp_off_plan(_v5_plan())
+    observed = replace(
+        _fully_applied_observation(plan),
+        fused_optimizer=not plan.fused_optimizer,
+    )
+    proof = build_plan_applied_proof(plan=plan, observed=observed)
+
+    assert proof["plan_applied"] is False
+    assert any("fused_optimizer" in m for m in _string_list(proof["mismatches"]))
+
+
+def test_plan_applied_proof_tolerates_broadcast_buffers_upward_override() -> None:
+    """A run may force broadcast_buffers on even when the plan requests it off."""
+    plan = replace(_v5_plan(), ddp_broadcast_buffers=False)
+    observed = replace(_fully_applied_observation(plan), ddp_broadcast_buffers=True)
+    proof = build_plan_applied_proof(plan=plan, observed=observed)
+
+    assert proof["plan_applied"] is True
+    assert not any(
+        "ddp_broadcast_buffers" in m for m in _string_list(proof["mismatches"])
+    )
+
+
+def test_plan_applied_proof_rejects_dropped_required_broadcast_buffers() -> None:
+    """Dropping a broadcast the plan requires is a real application failure."""
+    plan = replace(_v5_plan(), ddp_broadcast_buffers=True)
+    observed = replace(_fully_applied_observation(plan), ddp_broadcast_buffers=False)
+    proof = build_plan_applied_proof(plan=plan, observed=observed)
+
+    assert proof["plan_applied"] is False
+    assert any("ddp_broadcast_buffers" in m for m in _string_list(proof["mismatches"]))
+
+
+def test_plan_applied_proof_rejects_eager_corruption_label_on_compiled_run() -> None:
+    """A compiled run that recorded the eager blake2b label ran the wrong corruptor."""
+    plan = _compiled_amp_off_plan(_v5_plan())
+    observed = replace(
+        _fully_applied_observation(plan),
+        corruption_strategy=plan.corruption_strategy,
+    )
+    proof = build_plan_applied_proof(plan=plan, observed=observed)
+
+    assert proof["plan_applied"] is False
+    assert any("corruption_strategy" in m for m in _string_list(proof["mismatches"]))
+
+
+def test_plan_applied_proof_rejects_fp16_status_on_amp_off_run() -> None:
+    """The amp-off winner must record its amp-off status, not the eager fp16 one."""
+    plan = _compiled_amp_off_plan(_v5_plan())
+    observed = replace(
+        _fully_applied_observation(plan),
+        local_amp_status=EXPECTED_AMP_APPLICATION_STATUS,
+    )
+    proof = build_plan_applied_proof(plan=plan, observed=observed)
+
+    assert proof["plan_applied"] is False
+    assert any("local_amp_status" in m for m in _string_list(proof["mismatches"]))
+
+
+def test_observation_and_expectation_emit_recipe_knobs() -> None:
+    """Both sides of the mirror serialize every compiled fast-path recipe knob."""
+    plan = _compiled_amp_off_plan(_v5_plan())
+    observed_json = _fully_applied_observation(plan).as_json()
+    expected_json = plan.expected_application()
+    for key in (
+        "compile_backend",
+        "compile_dynamic",
+        "optimize_ddp",
+        "compiled_autograd",
+        "reorder_compute_comm_overlap",
+        "ddp_broadcast_buffers",
+        "ddp_find_unused_parameters",
+        "ddp_bucket_cap_mb",
+        "fused_optimizer",
+    ):
+        assert key in observed_json
+        assert key in expected_json
+    assert expected_json["local_amp_status"] == EXPECTED_AMP_OFF_APPLICATION_STATUS
 
 
 def test_selected_runtime_gate_rejects_fabricated_fixed32_selector(
