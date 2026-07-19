@@ -236,20 +236,13 @@ strengths is never mixed. The third HED channel is not biological DAB for this
 H&E dataset; it is a tiny residual-axis jitter used to reduce an obvious
 corruption signature. Paper/spec wording must not claim DAB stain variation.
 
-Corruption RNG policy:
+Corruption RNG policy (speed-first, AGENTS rule 30):
 
-- sample Bernoulli corruption decisions, H/E/residual alpha-beta parameters,
-  per-image Gaussian noise standard deviations, and Gaussian noise tensors from
-  stateless per-sample seeds;
-- derive the semantic seed from
-  `corruption_seed`, `split`, `semantic_sample_key`, `corruption_step`,
-  `corruption_view`, and `corruption_version`;
-- the semantic sample key is `{split}:{wsi_id}:{label}:{x}:{y}`. Keep
-  `file_index`, `row_index`, and the existing audit `sample_id` in metadata, but
-  do not use physical file order as the semantic corruption identity;
-- do not include rank in the semantic per-sample seed. Log rank/world size as
-  execution context only, so the same patch receives the same corruption when it
-  moves between single-GPU and DDP rows for the same step/view;
+- the train fast path uses the FASTEST RNG (native Philox `torch.rand`), NOT per-sample
+  deterministic / blake2b seeding. Reproducible, identical, or rank-invariant corruption is
+  NOT required: numerical cross-checks (compiled-vs-eager, single-GPU-vs-DDP) compare
+  CLOSE-ENOUGH within a tolerance, not bit-exact, so corruption need not match across
+  replicas or runs;
 - clean validation and clean test views must not call the corruptor and must not
   consume corruption RNG. Any corrupted validation/robustness view must be named
   explicitly, for example `eval_corrupted`, with a fixed view/step seed.

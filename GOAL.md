@@ -88,16 +88,21 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
 - Track learned activation gate health before full training, including `a,b`
   ranges, saturation, gradients/updates, and input/output RMS, so gate
   parameters cannot silently kill channels.
-- The historical working FSQ training reference is `kaggle/train_runs`. It
+- The historical working FSQ training reference is `kaggle/fsq_train_reference.py`
+  (the verbatim `train.py` extract — read this plain `.py`, not the raw notebook JSON
+  `kaggle/train_runs`; it is the MINIMUM efficiency floor to match and ideally beat). It
   trained correctly and is the source for the broad FSQ-successor
   macro-architecture and Kaggle runtime-efficiency ideas, but the new baseline
   and equivariant model remove FSQ quantization/codebooks/rounding/discrete
   latents and sub-pixel/PixelShuffle upsampling because they do not mix well
   with continuous `SO(2)` equivariance.
 - Before the first full Kaggle run, benchmark where FP16/AMP avoids catastrophic
-  failures and is actually faster, whether `torch.compile` is stable enough to
-  repay its startup cost, and whether branchless full-batch corruption or indexed
-  masked-sample corruption gives better throughput. Treat the useful historical
+  failures and is actually faster, which `torch.compile` mode is fastest (compile time is
+  a NON-COST for a ~30h run, so `max-autotune` is in-bounds; but single-GPU autotune misses
+  the dual-T4 all_reduce-overlap cost, so search the DDP compute-comm knobs
+  [`compiled_autograd`/`optimize_ddp`/comm-hook] and measure on 2 GPUs), and whether
+  branchless full-batch corruption or indexed masked-sample corruption gives better
+  throughput. Treat the useful historical
   FSQ efficiency flags as measured candidates too: cuDNN
   benchmarking/non-deterministic kernel selection, channels-last layout, DDP
   `static_graph` and `gradient_as_bucket_view`, optimizer/zero-grad fast paths,

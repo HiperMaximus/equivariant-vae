@@ -12,10 +12,11 @@ This repo is the paper/research repository for the equivariant VAE work.
   `paper/sipaim2026`
 - Overleaf Git remote:
   `https://git.overleaf.com/69c614433cbc9e46cf226d24`
-- Historical working FSQ reference:
-  `kaggle/train_runs`
-  This is the successful Kaggle FSQ autoencoder training notebook/artifact.
-  Use it as architecture/runtime evidence for the broad ResNet-like
+- Historical working FSQ reference: read the verbatim extract
+  `kaggle/fsq_train_reference.py` (plain `.py`, no notebook JSON to parse) — the proven
+  dual-T4 fast-path recipe and the MINIMUM efficiency floor to match and ideally beat
+  (rule 30). `kaggle/train_runs` is only the raw notebook JSON; do NOT hand-parse it.
+  Use the `.py` as architecture/runtime evidence for the broad ResNet-like
   autoencoder shape, Kaggle DDP/AMP/compile efficiency tactics, and training
   behavior. Do not carry forward FSQ quantization, codebooks, rounding, or
   discrete latent telemetry into the equivariant VAE; quantization does not mix
@@ -64,6 +65,10 @@ This repo is the paper/research repository for the equivariant VAE work.
 14. GitHub issue images are requirements evidence. Inspect them before deriving
     plans, figures, metrics, or deliverables from issue comments.
 15. Keep the repo LEAN and LIVE as a standing discipline, not a later cleanup.
+    Non-current content is a DEFECT, not history: anything that no longer reflects CURRENT
+    INTENT must be DELETED outright — never superseded, banner-flagged, or left as a
+    "historical"/"superseded" note — repo-wide, specs, decisions, `GOAL.md`, and `AGENTS.md`
+    included. Contradictory old text is how agents keep falling into already-corrected traps.
     Every doc, spec, `CURRENT.md`, decision note, plan, `README.md`, `GOAL.md`,
     `AGENTS.md`, workflow doc, memory, and file must earn its place by being
     currently useful. Delete deprecated, superseded, dead, purely-historical, or
@@ -178,7 +183,9 @@ This repo is the paper/research repository for the equivariant VAE work.
     verbatim in `kaggle/fsq_train_reference.py` (a plain `.py`, no notebook JSON to parse) —
     it is the MINIMUM efficiency bar we aim at, the floor to MATCH and ideally BEAT. Read it
     before making any runtime/speed decision; do not ship something slower than it without a
-    measured reason.
+    measured reason. Tune for the REAL dual-T4: single-GPU / `max-autotune` kernel tuning
+    misses the DDP all_reduce-overlap cost, so always search the compute-comm-overlap knobs
+    (`compiled_autograd` / `optimize_ddp` / a comm hook) and measure on 2 GPUs.
 
 ## Safe Paper Workflow
 

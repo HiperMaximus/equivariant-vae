@@ -21,12 +21,12 @@ jitter. The residual-axis jitter is an anti-corruption-signature device, not a
 claim about biological DAB variation in the H&E dataset. Wider historical FSQ
 H/E ranges are a named benchmark profile, not the first-run default.
 
-Corruption RNG is stateless per sample. The semantic seed is derived from the
-base corruption seed, split, semantic patch key `{split}:{wsi_id}:{label}:{x}:{y}`,
-corruption step, corruption view, and corruption version. Rank/world size are
-logged as execution context but are not part of the semantic per-sample seed.
-Clean validation and clean test views do not call the corruptor or consume
-corruption RNG.
+Corruption RNG on the train fast path uses the fastest RNG (native Philox `torch.rand`),
+NOT per-sample deterministic / blake2b seeding: reproducible, identical, or rank-invariant
+corruption is NOT required (speed-first, AGENTS rule 30). Numerical cross-checks
+(compiled-vs-eager, single-GPU-vs-DDP) compare CLOSE-ENOUGH within a tolerance, not
+bit-exact, so corruption need not match across replicas or runs. Clean validation and
+clean test views do not call the corruptor or consume corruption RNG.
 
 ## Rationale
 
