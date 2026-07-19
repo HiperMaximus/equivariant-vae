@@ -955,16 +955,22 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
         (all_reduce fires from autograd hooks only AFTER the full backward). Overlap needs the
         DDP knobs (already in the recipe): `optimize_ddp="ddp_optimizer"` (DDPOptimizer breaks
         at bucket boundaries — inserts breaks, TRADES against the fullgraph rule, couples
-        breaks↔`ddp_bucket_cap_mb`) OR the modern `compiled_autograd` +
-        `optimize_ddp="python_reducer"` (compiles comm INTO the graph → full graph AND
-        overlap). A **bf16 gradient-compression comm hook** halves all_reduce bytes (fits
-        "drift OK") — a strong candidate for the "experimental grad flag" FSQ used. cudagraphs
+        breaks↔`ddp_bucket_cap_mb`) OR `compiled_autograd=True` + `optimize_ddp=False` —
+        EXACTLY what FSQ used (`fsq_train_reference.py:668-669`): compiled_autograd traces
+        backward+comm so DDPOptimizer's breaking is unneeded → BREAK-FREE overlap that ALIGNS
+        with the minimize-graph-breaks rule. A **bf16 gradient-compression comm hook** also
+        halves all_reduce bytes (fits "drift OK"). cudagraphs
         (max-autotune) + DDP have KNOWN conflicts (pytorch#113809) → may need
         `max-autotune-no-cudagraphs`; DDPOptimizer fails on custom `autograd.Function`
         (pytorch#166305). MUST measure on the REAL dual-T4 — single-GPU autotune misleads on
-        the sync cost. Current winner = `ddp_optimizer_whole_step` (1.42x). And compile time
-        is free during the SWEEP too (total < one full run) → measure every config at the real
-        mode, do NOT rank-cheap-run-expensive (mode + precision change `step_time`).
+        the sync cost. The repo benchmark picked `ddp_optimizer_whole_step` (1.42x,
+        compiled_autograd=False, INSERTS breaks) — the OPPOSITE of FSQ's break-free combo,
+        likely not in that sweep → RE-MEASURE both (FSQ's aligns with the hard rule). Also
+        accumulate metrics IN-GPU to avoid per-step `.item()` host-sync (FSQ
+        `VarianceAccumulator`, `:609`) — a per-step `.item()` stalls the pipeline AND breaks
+        cudagraphs. Compile time is free during the SWEEP too (total < one full run) → measure
+        every config at the real mode, do NOT rank-cheap-run-expensive (mode + precision
+        change `step_time`).
   - **S17e** (producer follow-up — spec-only, added 2026-07-17) Make the executor's batch
     axis an EXACT throughput search instead of the coarse pool
     `candidate_per_device_batch_sizes = [4,8,12,32,48]`. Objective = minimize epoch
