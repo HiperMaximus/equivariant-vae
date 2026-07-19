@@ -1,6 +1,6 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 DONE (both `run_template.py` validators — `21b697f` — AND the debug `kaggle_kernel.sh` shell push guard — `c090d16` — delegate to `selected_runtime_plan_errors`, local)**; **S17c DONE (observation mirror + honest corruption/step label — `9f6d813`, local)**; NEXT local = S17d (bounded dataloader search axis — the dataloader is NOT searched today; read S17d's traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up) queued locally; S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 DONE (both `run_template.py` validators — `21b697f` — AND the debug `kaggle_kernel.sh` shell push guard — `c090d16` — delegate to `selected_runtime_plan_errors`, local)**; **S17c DONE (observation mirror + honest corruption/step label — `9f6d813`, local)**; NEXT local = S17d (bounded dataloader search axis — the dataloader is NOT searched today; read S17d's traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up) + S17f (audit + CORRECT the current code to the speed-first / FSQ-floor intent, LOCAL) queued locally; S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
 Implementation readiness: Phase 3 COMPLETE (local); S14a/S14b/S14c done + gated locally; S17a + S17b-1 done + gated locally (parser now ACCEPTS a self-consistent compiled plan — recipe AND structural identity/snapshot; identity is self-consistent so no Kaggle re-point is needed); compiled EXECUTION + the row_id mint are Kaggle observations; Kaggle phases S17-Kaggle/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
 Last updated: 2026-07-19 (S17c DONE — the plan-applied OBSERVATION MIRROR now carries the
@@ -20,7 +20,8 @@ on the committed eager v5 plan (empirically: `_application_mismatches` → `()`,
 `build_plan_applied_proof` → local_pass). Gate 574/1, 0 errors/warnings/notes; four
 clean-context default-refute reviewers all clean. This ends the `_application_mismatches`
 tautology that S17d's `_dataloader_errors` de-pin is gated on. NEXT local = S17d, S17e (exact
-throughput-optimal batch search); NEXT Kaggle = S17 generator run + S19). The per-step
+throughput-optimal batch search), S17f (audit + correct the current code to the speed-first
+intent); NEXT Kaggle = S17 generator run + S19). The per-step
 `(DONE — …)` tags in the body are the state of record.
 
 ## Purpose
@@ -987,6 +988,41 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
     and pick the max, per-(model × hardware × recipe). `drop_last=True` means the winning
     batch need not divide P (e.g. 47 is fine). S17b-3 is the prerequisite: the consumers
     now accept any exact batch the search returns.
+  - **S17f** (LOCAL, added 2026-07-19) Audit + CORRECT the current runtime code against the
+    speed-first / FSQ-floor intent — the runtime was written before that intent was sharp, so
+    it probably embeds slower / reproducible choices. Refactoring and re-benchmarking are
+    authorized (user). CORRECT the unambiguous violations LOCALLY + gate them BEFORE the
+    Kaggle search (so the search measures corrected code); leave genuinely measurement-
+    dependent choices as Kaggle search AXES. Bar = match-or-beat `kaggle/fsq_train_reference.py`
+    (detail in the `eqvae-s17d-dataloader-design` memory). Audit → if wrong, fix:
+    - **Compile mode.** The step compiles with NO mode → add `mode="max-autotune"` (compile
+      time is a non-cost for a ~30h run) as the default, and make compile-mode a searched knob
+      {`default`, `reduce-overhead`, `max-autotune`, `max-autotune-no-cudagraphs`}. Enforce
+      `fullgraph=True` on a single-GPU replica to kill SPURIOUS graph breaks.
+    - **RNG + tolerance checks.** Drop per-sample blake2b deterministic seeding for fastest
+      Philox (InlineStain everywhere), and make the numerical cross-checks (compiled-vs-eager,
+      single-GPU-vs-DDP) TOLERANCE-based (`isclose`), not bit-exact — this is what lets
+      corruption be non-deterministic (the Spec 0001 / decision 0007 determinism mandate was
+      deleted 2026-07-19).
+    - **cudnn / determinism.** `cudnn.benchmark=True`, `cudnn.deterministic=False`, never
+      `use_deterministic_algorithms(True)`. Keep one global `set_seed` for DDP-rank-identical
+      init (seeding ≠ determinism).
+    - **DDP grad overlap.** Search FSQ's break-free `compiled_autograd=True`+`optimize_ddp=False`
+      vs `ddp_optimizer` (measure BOTH on dual-T4; respect the S7 no-`ddp_optimizer`+
+      `compiled_autograd` constraint); cudagraphs+DDP may force `max-autotune-no-cudagraphs`.
+    - **Metrics.** Replace per-step `.item()` host-syncs with GPU-resident accumulators
+      (generalize FSQ `VarianceAccumulator`); sync only at flush boundaries (also required for
+      cudagraphs).
+    - **Transforms.** Transfer uint8, fold normalize + channels_last INTO the compiled step
+      (cast+normalize+channels_last+corrupt+forward fused); do not compile the CPU worker.
+    - **Precision.** Re-measure `amp_off_fp32` vs `amp_fp16` on T4 (fp16-first; fp32 only where
+      numerically required).
+    - **`drop_last` UNIT-FLIP (deferred from S16).** Flip the `drop_last=false` / `ceil` /
+      `remainder_samples` / final-partial-batch projection-record as a UNIT — the executor
+      projection CODE plus its remaining doc mirrors (Spec 0001 `~:1300`/`~:1371`/`~:1778`,
+      decision 0008, `kaggle_cli_workflow.md` partial-batch coverage) → `drop_last=true` /
+      `floor(P/G)`, no remainder / partial-batch path. Must move as a unit (code + all mirrors)
+      per the S5b breadcrumb; the tail is dropped and does not matter (rule 30).
   - **S17-Kaggle** [Kaggle] Run the S14 generator on dual-T4 → new compiled
     `selected_runtime.json` (winner row_id
     `dual_t4_ddp__bs48__amp_off_fp32__compile_step__indexed_masked__policy_…`). With the
