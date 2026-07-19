@@ -165,8 +165,12 @@ This repo is the paper/research repository for the equivariant VAE work.
       faster option: `cudnn.benchmark=True`, never `torch.use_deterministic_algorithms(True)`,
       `cudnn.deterministic=False`, the fastest RNG (drop per-sample / blake2b deterministic
       seeding), fp16-first (fp32 ONLY where numerically REQUIRED, not "to be safe"), and
-      latest/beta torch features. Do not add fixed seeds, deterministic collate, or sorted
-      reductions "to be safe".
+      latest/beta torch features. A single global `set_seed` IS fine and expected — FSQ's
+      `set_seed` (`kaggle/fsq_train_reference.py:112`) seeds torch/cuda/numpy for identical
+      DDP-rank init (a real correctness need) while explicitly keeping
+      `cudnn.deterministic=False`/`benchmark=True`; seeding is NOT determinism. What to avoid
+      is deterministic ALGORITHMS, per-sample deterministic seeding, deterministic collate,
+      or sorted reductions added "to be safe".
     - The dataset TAIL does not matter — use `drop_last=True`; add NO remainder /
       partial-batch / padding logic (a fixed batch shape is also what CUDA graphs require).
     Add reproducibility or tail-handling machinery ONLY for a real correctness reason

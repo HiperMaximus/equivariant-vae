@@ -945,8 +945,10 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
         reproducibility; InlineStain's fast Philox can default for BOTH paths, retiring
         blake2b, a deliberate change that touches S17c's label logic). Small drift OK. Check
         the resume-prefix metric validators (non-deterministic corruption won't bit-match),
-        and note cudagraphs still need cudagraph-safe (functionalized) RNG. Precision is
-        fp16-FIRST — keep fp32 only where
+        and note cudagraphs still need cudagraph-safe (functionalized) RNG. A single global
+        `set_seed` STAYS fine (FSQ seeds for identical DDP-rank init while keeping
+        `benchmark=True` — seeding ≠ determinism). Precision is fp16-FIRST — keep fp32 only
+        where
         numerically required, and RE-AUDIT the FSQ fp32 islands (likely over-conservative;
         the normal VAE has no fp32 quantizer, so amp_fp16 may reclaim T4 tensor-core
         throughput vs the current `amp_off_fp32` winner).
@@ -968,7 +970,9 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
         likely not in that sweep → RE-MEASURE both (FSQ's aligns with the hard rule). Also
         accumulate metrics IN-GPU to avoid per-step `.item()` host-sync (FSQ
         `VarianceAccumulator`, `:609`) — a per-step `.item()` stalls the pipeline AND breaks
-        cudagraphs. Compile time is free during the SWEEP too (total < one full run) → measure
+        cudagraphs; GENERALIZE to a family of GPU-resident accumulators for ALL telemetry
+        (sync once per flush boundary, never per step). Compile time is free during the SWEEP
+        too (total < one full run) → measure
         every config at the real mode, do NOT rank-cheap-run-expensive (mode + precision
         change `step_time`).
   - **S17e** (producer follow-up — spec-only, added 2026-07-17) Make the executor's batch
