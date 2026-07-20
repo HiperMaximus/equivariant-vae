@@ -398,9 +398,20 @@ claim compiled-while-eager; the final proof reads observed compile state back fr
 rows. Byte-identical on the committed eager v5 plan (empirically: mismatches = `()`, local_pass).
 Gate 574/1, 0 errors/warnings/notes; four clean-context default-refute reviewers all clean. This
 ENDS the `_application_mismatches` tautology, which unblocks S17d's `_dataloader_errors` de-pin.
-**NEXT: S17d** (bounded dataloader search axis — the dataloader is NOT searched today; read its
-traps first), then S17e (exact throughput-optimal batch search — producer follow-up). See
-[[eqvae-reusable-runtime-mechanism-plan]] + `docs/specs/0011-*.md`.
+**NEXT (LOCAL): Spec 0011 S17f — audit + CORRECT the current code to the speed-first / FSQ-floor
+intent** (the runtime was written before that intent was sharp, so it likely embeds slower /
+reproducible choices; refactor + re-benchmark authorized). **START with S17f item #1, the
+`drop_last` UNIT-FLIP** — it is fully mapped in the spec and self-contained. WARNING: it CHANGES
+the spec, but it is a code+config+doc UNIT (executor projection in `runtime_selection.py` +
+`synthetic_timing.py`, `configs/spec0001/...benchmark.json`, Spec 0001 `:1364-1367`, decision 0008,
+`kaggle_cli_workflow.md`) — a DOC-ONLY edit desyncs the spec from the emitted projection JSON + gate.
+The projection currently declares `drop_last=false`/`remainder_samples` even though the real loader
+is `drop_last=True` (S16) and steps already `floor` (S5b) — flip the whole unit to `drop_last=true`
+/ `floor` / no-remainder. Guard-health before/after (baseline 3 FAIL/21), then gate + adversarial
+review. Then the rest of S17f + S17d (bounded dataloader search — read its traps) + S17e
+(throughput batch search). Speed-first doc reconciliation is DONE (`9ce1bd5`); AGENTS rule 30 +
+rule 15 (delete non-current) are the governing rules. See [[eqvae-reusable-runtime-mechanism-plan]],
+[[eqvae-speed-first-dont-cares]], [[eqvae-s17d-dataloader-design]] + `docs/specs/0011-*.md`.
 
 > Pre-Spec-0011 status (runtime-selection v5, Spec 0006–0009) and older Kaggle-run
 > provenance were trimmed from here on 2026-07-16 (FU-011). Git history and

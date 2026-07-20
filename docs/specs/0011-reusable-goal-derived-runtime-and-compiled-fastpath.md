@@ -1017,12 +1017,28 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       (cast+normalize+channels_last+corrupt+forward fused); do not compile the CPU worker.
     - **Precision.** Re-measure `amp_off_fp32` vs `amp_fp16` on T4 (fp16-first; fp32 only where
       numerically required).
-    - **`drop_last` UNIT-FLIP (deferred from S16).** Flip the `drop_last=false` / `ceil` /
-      `remainder_samples` / final-partial-batch projection-record as a UNIT — the executor
-      projection CODE plus its remaining doc mirrors (Spec 0001 `~:1300`/`~:1371`/`~:1778`,
-      decision 0008, `kaggle_cli_workflow.md` partial-batch coverage) → `drop_last=true` /
-      `floor(P/G)`, no remainder / partial-batch path. Must move as a unit (code + all mirrors)
-      per the S5b breadcrumb; the tail is dropped and does not matter (rule 30).
+    - **`drop_last` UNIT-FLIP (deferred from S16 — DO THIS FIRST; fully mapped + self-contained).**
+      The selection-benchmark PROJECTION-RECORD is stale. The real loader is `drop_last=True`
+      (S16, `selected_runtime_runner.py:200`/`:2645`) and steps already use `floor` (S5b, via
+      `training_steps_per_epoch`), but the emitted projection still declares `drop_last=false` +
+      `remainder_samples` + `effective_samples_per_epoch = P` — INTERNALLY inconsistent (floor
+      steps with drop_last=false) AND contradicting the actual run. Flip the whole UNIT together;
+      a DOC-ONLY edit would desync the spec from the emitted JSON + gate (this is the trap). Sites
+      (verified 2026-07-19):
+      - CODE: `runtime_selection.py:1072-1083` (`drop_last`, `effective_samples_per_epoch`,
+        `remainder_samples`, `projection_basis="real_train_patch_count_drop_last_false"`);
+        `synthetic_timing.py:1407-1410` + its `DATALOADER` schema columns (`:155-158`); plus any
+        gate/parser that asserts those fields.
+      - CONFIG: `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json:315` (`"drop_last": false`)
+        + `:326` (`"final_partial_batch_path"`).
+      - DOCS: Spec 0001 `:1297`/`:1334`/`:1364-1367`; `docs/decisions/0008-...md:45`;
+        `docs/kaggle_cli_workflow.md:206`.
+      Target: `drop_last=true`, `steps_per_epoch = floor(P/G)`, `effective_samples_per_epoch =
+      steps_per_epoch * global_batch_size`, DROP `remainder_samples` + the partial-batch path,
+      rename `projection_basis`. Update the projection tests. Spec 0001 is guard-checked
+      (`kaggle_kernel.sh:658` lock marker) — run guard-health before/after (baseline 3 FAIL/21,
+      expect NO new failures). Then the full quality gate + adversarial review. The tail is
+      dropped and does not matter (rule 30).
   - **S17-Kaggle** [Kaggle] Run the S14 generator on dual-T4 → new compiled
     `selected_runtime.json` (winner row_id
     `dual_t4_ddp__bs48__amp_off_fp32__compile_step__indexed_masked__policy_…`). With the
