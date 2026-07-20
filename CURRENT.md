@@ -407,10 +407,14 @@ Code+config+doc+test UNIT: `runtime_selection.py` `_global_projection_payload` +
 `configs/spec0001/...benchmark.json` (`drop_last` + `must_exercise`); Spec 0001 + decision 0008 +
 `kaggle_cli_workflow.md`; `tests/test_synthetic_timing.py` (effective 299968/299904 at gb 64/128).
 Untouched by design: the runner's S16 fallback label `_DDP_SAMPLER_POLICY_NO_DROP_LAST` + the pretest
-`partial_batch_observed` probe. **NEXT (LOCAL): Spec 0011 S17f — the REST** (audit + CORRECT the runtime
-code to the speed-first / FSQ-floor intent: compile mode / max-autotune, RNG → Philox + tolerance checks,
-cudnn/determinism, DDP grad overlap, GPU-resident metrics, transforms, precision; refactor + re-benchmark
-authorized), then S17d (bounded dataloader search — read its traps) + S17e (throughput batch search).
+`partial_batch_observed` probe. **S17f Transforms — DONE (`2ce6a4c`, local): uint8 H2D + fold
+normalize+channels_last into the compiled step** (`make_fastpath_step_fn(x_uint8)`; runner/probe/
+executor+VRAM/pretest transfer uint8; pretest+executor dataloader-H2D proofs now time uint8; eager
+paths keep CPU-normalize; gate 575/1, 3 reviewers clean; speed is Kaggle-measured). **NEXT (LOCAL): the
+rest of Spec 0011 S17f** — compile mode (max-autotune SEARCHED, may NOT win on T4 [limited compute] —
+measure) + `fullgraph=True`, RNG → Philox + tolerance checks, cudnn/determinism, DDP grad overlap,
+GPU-resident metrics, precision; then S17d (bounded dataloader search — read its traps) + S17e
+(throughput batch search).
 Speed-first doc reconciliation is DONE (`9ce1bd5`); AGENTS rule 30 + rule 15 (delete non-current) are
 the governing rules. See [[eqvae-reusable-runtime-mechanism-plan]], [[eqvae-speed-first-dont-cares]],
 [[eqvae-s17d-dataloader-design]] + `docs/specs/0011-*.md`.

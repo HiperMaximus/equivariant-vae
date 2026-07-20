@@ -1014,8 +1014,15 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
     - **Metrics.** Replace per-step `.item()` host-syncs with GPU-resident accumulators
       (generalize FSQ `VarianceAccumulator`); sync only at flush boundaries (also required for
       cudagraphs).
-    - **Transforms.** Transfer uint8, fold normalize + channels_last INTO the compiled step
-      (cast+normalize+channels_last+corrupt+forward fused); do not compile the CPU worker.
+    - **Transforms — DONE (`2ce6a4c`, local, 2026-07-20).** `make_fastpath_step_fn` now takes
+      `x_uint8` and folds the uint8->float normalize into the compiled graph
+      (cast+normalize+corrupt+forward+loss fused); every compiled caller (runner, probe,
+      executor + VRAM screen, pretest) transfers/synthesizes uint8 (channels_last fused into
+      the H2D `.to()` in the runner's `_to_device`), and the pretest + executor dataloader-H2D
+      proofs time the uint8 transfer. Eager paths keep CPU-normalizing (blake2b-coupled → the
+      RNG item). The CPU worker read stays eager, by design (do not compile it). Gate 575/1,
+      basedpyright clean; 3 clean-context adversarial reviewers (fold-correctness / caller-
+      completeness / scope) clean after 2 fixes. The speed win is Kaggle-measured (local CPU-only).
     - **Precision.** Re-measure `amp_off_fp32` vs `amp_fp16` on T4 (fp16-first; fp32 only where
       numerically required).
     - **`drop_last` UNIT-FLIP — DONE (`3b9aa42`, local, 2026-07-20).** Flipped the
