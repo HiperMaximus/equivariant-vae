@@ -494,6 +494,25 @@ def _first_single_visible_step_row_spec(
     raise AssertionError(message)
 
 
+def test_stage1_row_specs_enable_cudnn_benchmark_by_default() -> None:
+    """Grid-enumerated pre-screen rows carry the speed-first cuDNN default (S17f).
+
+    The single-GPU pre-screen times each row (and records what it applied) under the
+    same cuDNN autotuning the dual-T4 search and the run use; the grid config sets no
+    cuDNN axis, so the enumerated ``RowSpec`` defaults to ``benchmark=True`` and
+    ``deterministic=False``.
+    """
+    settings = pretest._settings(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        resolve_json_config(_RUNTIME_BENCHMARK_CONFIG),
+        data_root_override=None,
+    )
+
+    row_spec = _first_single_visible_step_row_spec(settings)
+
+    assert row_spec.cudnn_benchmark is True
+    assert row_spec.cudnn_deterministic is False
+
+
 def test_model_for_compile_scope_leaves_whole_step_uncompiled() -> None:
     """The whole-step scope returns the model uncompiled; model_forward compiles it.
 

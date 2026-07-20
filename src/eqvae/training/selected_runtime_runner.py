@@ -96,6 +96,7 @@ from eqvae.models.non_equivariant_vae import (
 from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
 from eqvae.training.ddp_sync_guard import assert_ddp_parameters_in_sync
 from eqvae.training.fastpath_recipe import (
+    apply_cudnn_flags,
     apply_fastpath_dynamo_config,
     build_fastpath_optimizer,
     compiled_autograd_context,
@@ -1856,6 +1857,21 @@ def _artifact_paths(output_dir: Path) -> _RunArtifacts:
     )
 
 
+def _apply_cuda_runtime_flags(device: torch.device) -> None:
+    """Enable the speed-first cuDNN backend flags when running on CUDA.
+
+    The compiled probe and the FSQ reference both run with ``cudnn.benchmark=True``/
+    ``cudnn.deterministic=False`` (Spec 0011 S17f), so the paper-promotable run must
+    too, or it would train slower than the benchmark that selected its runtime. These
+    are fixed speed-first flags, not a searched axis, so they are hardcoded rather than
+    threaded through the plan. A CPU device is a no-op: cuDNN is unused there, and
+    leaving the global flags untouched keeps CPU dry-runs/tests isolated.
+    """
+    if device.type != "cuda":
+        return
+    apply_cudnn_flags(benchmark=True, deterministic=False)
+
+
 def _distributed_context(
     *,
     plan: SelectedRuntimePlan,
@@ -1874,6 +1890,7 @@ def _distributed_context(
         and nproc_per_node == plan.nproc_per_node
     )
     device = torch.device("cuda", local_rank) if should_use_ddp else torch.device("cpu")
+    _apply_cuda_runtime_flags(device)
     initialized_here = False
     if should_use_ddp:
         torch.cuda.set_device(device)

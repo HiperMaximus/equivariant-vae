@@ -119,7 +119,10 @@ class _RuntimePolicy:
     autocast_dtype: str = ""
     fp32_loss: bool = True
     grad_scaler_enabled: bool = False
-    cudnn_benchmark: bool = False
+    # Speed-first default (Spec 0011 S17f): the dual-T4 search measures under the same
+    # cuDNN autotuning the paper-promotable run uses (matching the compiled probe/FSQ),
+    # applied via _apply_backend_policy. Not a searched axis; the config omits it.
+    cudnn_benchmark: bool = True
     cudnn_deterministic: bool = False
     deterministic_algorithms: bool = False
     tf32_enabled: bool = False
@@ -441,7 +444,7 @@ def _runtime_policies(items: Sequence[JsonObject]) -> tuple[_RuntimePolicy, ...]
                 cudnn_benchmark=_optional_bool(
                     item,
                     "cudnn_benchmark",
-                    default=False,
+                    default=True,
                 ),
                 cudnn_deterministic=_optional_bool(
                     item,

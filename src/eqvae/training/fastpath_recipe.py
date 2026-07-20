@@ -89,6 +89,35 @@ def apply_fastpath_dynamo_config(
     inductor_config.reorder_for_compute_comm_overlap = reorder_compute_comm_overlap
 
 
+def apply_cudnn_flags(*, benchmark: bool, deterministic: bool) -> None:
+    """Set the process-global cuDNN autotuning/determinism backend flags.
+
+    ``cudnn.benchmark=True`` lets cuDNN autotune the fastest convolution algorithm
+    for the (fixed, ``drop_last``-guaranteed) input shapes, and
+    ``cudnn.deterministic=False`` permits the fastest non-deterministic kernels --
+    the speed-first default (Spec 0011 S17f), matching the FSQ reference and the
+    compiled probe. Exact reproducibility is an explicit non-goal, so these are
+    fixed speed-first flags rather than a searched axis. Setting them is a plain
+    attribute write that is harmless on a CPU-only build (the ``torch.backends.cudnn``
+    module exists whether or not a GPU is present), so the caller device-gates the
+    invocation, not this helper.
+
+    Shared by the runner that *consumes* the runtime
+    (``selected_runtime_runner``) and the single-GPU pre-screen that *measures* it
+    (``real_data_runtime_pretest``) so both drive the same backend flags from one
+    source; the dual-T4 executor keeps its richer ``_apply_backend_policy`` (which
+    also captures/restores state and handles TF32/matmul precision) and only shares
+    the speed-first default value.
+
+    Args:
+        benchmark: ``torch.backends.cudnn.benchmark``.
+        deterministic: ``torch.backends.cudnn.deterministic``.
+
+    """
+    torch.backends.cudnn.benchmark = benchmark
+    torch.backends.cudnn.deterministic = deterministic
+
+
 def compiled_autograd_context(*, enabled: bool) -> AbstractContextManager[None]:
     """Return the eager-backward context that engages compiled autograd for one recipe.
 
@@ -199,6 +228,7 @@ def model_requires_buffer_broadcast(model: nn.Module) -> bool:
 
 
 __all__ = [
+    "apply_cudnn_flags",
     "apply_fastpath_dynamo_config",
     "build_fastpath_optimizer",
     "compiled_autograd_context",

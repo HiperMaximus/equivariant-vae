@@ -7,7 +7,9 @@ import csv
 import json
 from dataclasses import replace
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
+
+import torch
 
 from eqvae.cli.selected_runtime_train import main as selected_runtime_train_main
 from eqvae.data.fixed_selectors import (
@@ -25,6 +27,7 @@ from eqvae.data.roots import (
     VALIDATION_CSV_NAME,
 )
 from eqvae.data.synthetic import SyntheticPatchSpec, write_synthetic_patch_shard
+from eqvae.training import selected_runtime_runner
 from eqvae.training.selected_runtime import parse_selected_runtime_plan
 from eqvae.training.selected_runtime_runner import (
     SELECTED_RUNTIME_AMP_GRAD_SCALER_INIT_SCALE,
@@ -35,6 +38,9 @@ from eqvae.training.selected_runtime_runner import (
     validate_selected_runtime_environment,
     validate_selected_runtime_torchrun_command,
 )
+
+if TYPE_CHECKING:
+    import pytest
 
 SHORT_TRAIN_STEPS = 2
 PARTIAL_BATCH_TRAIN_STEPS = 3
@@ -621,6 +627,77 @@ def _tiny_runner_config(tmp_path: Path) -> Path:
     tiny_path = tmp_path / "tiny_runner_config.json"
     _write_json(tiny_path, payload)
     return tiny_path
+
+
+def test_apply_cuda_runtime_flags_enables_cudnn_on_cuda(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On a CUDA device the runner enables the speed-first cuDNN flags (Spec 0011 S17f).
+
+    The paper-promotable run must train under the same ``cudnn.benchmark=True`` the
+    compiled probe and the dual-T4 search use, or it would train slower than the
+    benchmark that selected its runtime; ``deterministic=False`` allows the fastest
+    non-deterministic kernels (exact reproducibility is a non-goal).
+    """
+    captured: dict[str, object] = {}
+
+    def spy(*, benchmark: bool, deterministic: bool) -> None:
+        captured["benchmark"] = benchmark
+        captured["deterministic"] = deterministic
+
+    monkeypatch.setattr(selected_runtime_runner, "apply_cudnn_flags", spy)
+
+    selected_runtime_runner._apply_cuda_runtime_flags(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        torch.device("cuda", 0),
+    )
+
+    assert captured == {"benchmark": True, "deterministic": False}
+
+
+def test_apply_cuda_runtime_flags_is_a_noop_on_cpu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A CPU device leaves the global cuDNN flags untouched (CPU-run isolation)."""
+    called = False
+
+    def spy(*, benchmark: bool, deterministic: bool) -> None:  # noqa: ARG001
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(selected_runtime_runner, "apply_cudnn_flags", spy)
+
+    selected_runtime_runner._apply_cuda_runtime_flags(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        torch.device("cpu"),
+    )
+
+    assert called is False
+
+
+def test_distributed_context_drives_cuda_runtime_flags_for_the_resolved_device(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """``_distributed_context`` applies the cuDNN flags for the device it resolves.
+
+    Wiring guard: a mutation dropping the call would leave the run without cuDNN
+    autotuning. The dry-run resolves a CPU device, so the recorded device proves the
+    call site passes the resolved device through.
+    """
+    seen: list[torch.device] = []
+
+    def spy(device: torch.device) -> None:
+        seen.append(device)
+
+    monkeypatch.setattr(selected_runtime_runner, "_apply_cuda_runtime_flags", spy)
+    plan = parse_selected_runtime_plan(_runtime_config(tmp_path))
+
+    selected_runtime_runner._distributed_context(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        plan=plan,
+        dry_run=True,
+    )
+
+    assert len(seen) == 1
+    assert seen[0].type == "cpu"
 
 
 def _runtime_config(tmp_path: Path) -> Path:

@@ -324,7 +324,9 @@ class RowSpec:
     autocast_dtype: str = ""
     fp32_loss: bool = True
     grad_scaler_enabled: bool = False
-    cudnn_benchmark: bool = False
+    # Speed-first default (Spec 0011 S17f): the single-GPU pre-screen times each row
+    # under the same cuDNN autotuning the run uses, and records what it applied.
+    cudnn_benchmark: bool = True
     cudnn_deterministic: bool = False
     deterministic_algorithms: bool = False
     tf32_enabled: bool = False
@@ -809,6 +811,7 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: C901, PLR0914, PLR0
         MODEL_KIND_NON_EQ_TRANSLATABLE,
         build_model,
     )
+    from eqvae.training.fastpath_recipe import apply_cudnn_flags  # noqa: PLC0415
     from eqvae.training.optim import (  # noqa: PLC0415
         SpecAdamWConfig,
         create_adamw_optimizer,
@@ -846,6 +849,10 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: C901, PLR0914, PLR0
         return
 
     device = torch.device("cuda", 0)
+    apply_cudnn_flags(
+        benchmark=row_spec.cudnn_benchmark,
+        deterministic=row_spec.cudnn_deterministic,
+    )
     manual_seed = cast("Callable[[int], object]", torch.manual_seed)
     manual_seed(config.settings.global_seed)
     paths = resolve_patch_data_paths(config.data_root)
@@ -6450,7 +6457,7 @@ def _row_spec_from_payload(payload: JsonObject) -> RowSpec:
             "grad_scaler_enabled",
             default=False,
         ),
-        cudnn_benchmark=_optional_bool(payload, "cudnn_benchmark", default=False),
+        cudnn_benchmark=_optional_bool(payload, "cudnn_benchmark", default=True),
         cudnn_deterministic=_optional_bool(
             payload,
             "cudnn_deterministic",

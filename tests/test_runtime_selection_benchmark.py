@@ -360,6 +360,35 @@ def test_real_producers_emit_parseable_recipe_knobs_through_csv_roundtrip(
     assert runtime_policy["ddp_broadcast_buffers"] is True
 
 
+def test_runtime_policy_enables_cudnn_benchmark_by_default() -> None:
+    """A dual-T4 policy autotunes cuDNN by default (Spec 0011 S17f).
+
+    The benchmark config declares no cuDNN axis, so both the dataclass field default and
+    the config-parse default must yield ``benchmark=True`` -- ``_apply_backend_policy``
+    then measures each row under the same cuDNN autotuning the paper-promotable run
+    uses, not the slower ``benchmark=False`` torch default. ``deterministic`` stays
+    ``False``
+    (speed-first). Both defaults are asserted so a revert of either is caught.
+    """
+    direct = _ExecutorRuntimePolicy(
+        runtime_policy_id="fp32_eager_default",
+        precision_policy="amp_off_fp32",
+        compile_scope="none",
+    )
+    (parsed,) = _runtime_policies([
+        {
+            "runtime_policy_id": "fp32_eager_default",
+            "precision_policy": "amp_off_fp32",
+            "compile_scope": "none",
+        },
+    ])
+
+    assert direct.cudnn_benchmark is True
+    assert direct.cudnn_deterministic is False
+    assert parsed.cudnn_benchmark is True
+    assert parsed.cudnn_deterministic is False
+
+
 def _measured_recipe_policy() -> _ExecutorRuntimePolicy:
     """Build a compiled-recipe policy whose knobs differ from their eager defaults.
 

@@ -7,12 +7,14 @@ import contextlib
 import math
 from typing import TYPE_CHECKING, cast
 
+import torch
 import torch._dynamo as torch_dynamo  # noqa: PLC2701
 from torch._inductor import config as inductor_config  # noqa: PLC2701
 
 from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
 from eqvae.training import fastpath_recipe
 from eqvae.training.fastpath_recipe import (
+    apply_cudnn_flags,
     apply_fastpath_dynamo_config,
     build_fastpath_optimizer,
     compiled_autograd_context,
@@ -64,6 +66,27 @@ def test_build_fastpath_optimizer_uses_the_grouped_semantic_groups() -> None:
     assert all(
         cast("object", group["fused"]) is None for group in optimizer.param_groups
     )
+
+
+def test_apply_cudnn_flags_sets_the_process_global_backend_flags() -> None:
+    """The cuDNN benchmark/determinism flags are written to their global backend module.
+
+    Both arguments are honored independently -- both directions are asserted -- so a
+    helper that ignored ``deterministic`` or hardcoded a value is caught
+    (mutation-proof).
+    """
+    original_benchmark = torch.backends.cudnn.benchmark
+    original_deterministic = torch.backends.cudnn.deterministic
+    try:
+        apply_cudnn_flags(benchmark=True, deterministic=False)
+        assert torch.backends.cudnn.benchmark is True
+        assert torch.backends.cudnn.deterministic is False
+        apply_cudnn_flags(benchmark=False, deterministic=True)
+        assert torch.backends.cudnn.benchmark is False
+        assert torch.backends.cudnn.deterministic is True
+    finally:
+        torch.backends.cudnn.benchmark = original_benchmark
+        torch.backends.cudnn.deterministic = original_deterministic
 
 
 def test_apply_fastpath_dynamo_config_sets_the_process_global_knobs() -> None:
