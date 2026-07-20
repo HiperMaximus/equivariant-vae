@@ -407,8 +407,10 @@ the spec, but it is a code+config+doc UNIT (executor projection in `runtime_sele
 `kaggle_cli_workflow.md`) — a DOC-ONLY edit desyncs the spec from the emitted projection JSON + gate.
 The projection currently declares `drop_last=false`/`remainder_samples` even though the real loader
 is `drop_last=True` (S16) and steps already `floor` (S5b) — flip the whole unit to `drop_last=true`
-/ `floor` / no-remainder. Guard-health before/after (baseline 3 FAIL/21), then gate + adversarial
-review. Then the rest of S17f + S17d (bounded dataloader search — read its traps) + S17e
+/ `floor` / no-remainder. Guard-health before/after (baseline 3 FAIL/21; tool
+`.agent_tmp/guard_health.py`, reconstruct if absent — greps the doc-targeting guards in
+`kaggle_kernel.sh`), then gate + adversarial review. Do NOT flip the runner's S16 fallback label
+`_DDP_SAMPLER_POLICY_NO_DROP_LAST` — it is a legitimate degenerate-shard fallback, not part of this. Then the rest of S17f + S17d (bounded dataloader search — read its traps) + S17e
 (throughput batch search). Speed-first doc reconciliation is DONE (`9ce1bd5`); AGENTS rule 30 +
 rule 15 (delete non-current) are the governing rules. See [[eqvae-reusable-runtime-mechanism-plan]],
 [[eqvae-speed-first-dont-cares]], [[eqvae-s17d-dataloader-design]] + `docs/specs/0011-*.md`.
