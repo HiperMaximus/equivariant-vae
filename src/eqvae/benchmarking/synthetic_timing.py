@@ -155,7 +155,6 @@ SYNTHETIC_TIMING_MATRIX_COLUMNS = (
     "drop_last",
     "steps_per_epoch",
     "effective_samples_per_epoch",
-    "remainder_samples",
     "estimated_epoch_minutes",
     "generation_excluded_from_timing",
     "precision_policy",
@@ -1368,7 +1367,6 @@ def _base_row(*, config: ChildRowConfig, accelerator: JsonObject) -> CsvRow:
         real_train_patch_count=config.real_train_patch_count,
         global_batch_size=global_batch_size,
     )
-    remainder_samples = config.real_train_patch_count % global_batch_size
     return {
         "run_name": config.run_name,
         "benchmark_kind": SYNTHETIC_TIMING_KIND,
@@ -1404,10 +1402,9 @@ def _base_row(*, config: ChildRowConfig, accelerator: JsonObject) -> CsvRow:
         "measured_steps": str(config.measured_steps),
         "compile_startup_sec": "0.000000",
         "real_train_patch_count": str(config.real_train_patch_count),
-        "drop_last": "false",
+        "drop_last": "true",
         "steps_per_epoch": str(steps_per_epoch),
-        "effective_samples_per_epoch": str(config.real_train_patch_count),
-        "remainder_samples": str(remainder_samples),
+        "effective_samples_per_epoch": str(steps_per_epoch * global_batch_size),
         "generation_excluded_from_timing": "true",
         "precision_policy": config.precision_policy,
         "amp_enabled": "false",

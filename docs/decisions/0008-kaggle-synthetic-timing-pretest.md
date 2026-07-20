@@ -42,9 +42,9 @@ are fit/VRAM probes only, even if a shorter initial fit pass can execute without
 sample reuse.
 
 Projected epoch time for the later real-data benchmark screen uses
-`real_train_patch_count = 300000`, `drop_last = false`,
+`real_train_patch_count = 300000`, `drop_last = true`,
 `global_batch_size = per_device_batch_size * world_size`,
-`steps_per_epoch = ceil(real_train_patch_count / global_batch_size)`, and
+`steps_per_epoch = floor(real_train_patch_count / global_batch_size)`, and
 `estimated_epoch_minutes = steps_per_epoch * steady_step_ms_p50 / 60000`.
 Startup and compile time are recorded separately, not hidden inside steady-state
 epoch time.

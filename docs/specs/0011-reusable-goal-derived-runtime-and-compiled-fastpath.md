@@ -1,6 +1,6 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 DONE (both `run_template.py` validators — `21b697f` — AND the debug `kaggle_kernel.sh` shell push guard — `c090d16` — delegate to `selected_runtime_plan_errors`, local)**; **S17c DONE (observation mirror + honest corruption/step label — `9f6d813`, local)**; NEXT local = **S17f item #1 (the `drop_last` unit-flip) FIRST** (audit + CORRECT the current code to the speed-first / FSQ-floor intent, LOCAL), then S17d (bounded dataloader search axis — read its traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up) queued locally; S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 DONE (both `run_template.py` validators — `21b697f` — AND the debug `kaggle_kernel.sh` shell push guard — `c090d16` — delegate to `selected_runtime_plan_errors`, local)**; **S17c DONE (observation mirror + honest corruption/step label — `9f6d813`, local)**; **S17f item #1 (the `drop_last` unit-flip) DONE (local, commit pending approval)**; NEXT local = the rest of S17f (audit + CORRECT the current code to the speed-first / FSQ-floor intent) + S17d (bounded dataloader search axis — read its traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up); S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
 Implementation readiness: Phase 3 COMPLETE (local); S14a/S14b/S14c done + gated locally; S17a + S17b-1 done + gated locally (parser now ACCEPTS a self-consistent compiled plan — recipe AND structural identity/snapshot; identity is self-consistent so no Kaggle re-point is needed); compiled EXECUTION + the row_id mint are Kaggle observations; Kaggle phases S17-Kaggle/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
 Last updated: 2026-07-19 (S17c DONE — the plan-applied OBSERVATION MIRROR now carries the
@@ -19,9 +19,9 @@ None` that DISPATCHES the step, so a label cannot claim compiled-while-eager. By
 on the committed eager v5 plan (empirically: `_application_mismatches` → `()`,
 `build_plan_applied_proof` → local_pass). Gate 574/1, 0 errors/warnings/notes; four
 clean-context default-refute reviewers all clean. This ends the `_application_mismatches`
-tautology that S17d's `_dataloader_errors` de-pin is gated on. NEXT local = S17f FIRST (item #1,
-the `drop_last` unit-flip — audit + correct the current code to the speed-first intent), then S17d,
-S17e (exact throughput-optimal batch search); NEXT Kaggle = S17 generator run + S19). The per-step
+tautology that S17d's `_dataloader_errors` de-pin is gated on. S17f item #1 (the `drop_last`
+unit-flip) DONE (local); NEXT local = the rest of S17f + S17d + S17e (exact throughput-optimal
+batch search); NEXT Kaggle = S17 generator run + S19). The per-step
 `(DONE — …)` tags in the body are the state of record.
 
 ## Purpose
@@ -1017,36 +1017,21 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       (cast+normalize+channels_last+corrupt+forward fused); do not compile the CPU worker.
     - **Precision.** Re-measure `amp_off_fp32` vs `amp_fp16` on T4 (fp16-first; fp32 only where
       numerically required).
-    - **`drop_last` UNIT-FLIP (deferred from S16 — DO THIS FIRST; fully mapped + self-contained).**
-      The selection-benchmark PROJECTION-RECORD is stale. The real loader is `drop_last=True`
-      (S16, `selected_runtime_runner.py:200`/`:2645`) and steps already use `floor` (S5b, via
-      `training_steps_per_epoch`), but the emitted projection still declares `drop_last=false` +
-      `remainder_samples` + `effective_samples_per_epoch = P` — INTERNALLY inconsistent (floor
-      steps with drop_last=false) AND contradicting the actual run. Flip the whole UNIT together;
-      a DOC-ONLY edit would desync the spec from the emitted JSON + gate (this is the trap). Sites
-      (verified 2026-07-19):
-      - CODE: `runtime_selection.py:1072-1083` (`drop_last`, `effective_samples_per_epoch`,
-        `remainder_samples`, `projection_basis="real_train_patch_count_drop_last_false"`);
-        `synthetic_timing.py:1407-1410` + its `DATALOADER` schema columns (`:155-158`); plus any
-        gate/parser that asserts those fields.
-      - CONFIG: `configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json:315` (`"drop_last": false`)
-        + `:326` (`"final_partial_batch_path"`).
-      - DOCS: Spec 0001 `:1297`/`:1334`/`:1364-1367`; `docs/decisions/0008-...md:45`;
-        `docs/kaggle_cli_workflow.md:206`.
-      Target: `drop_last=true`, `steps_per_epoch = floor(P/G)`, `effective_samples_per_epoch =
-      steps_per_epoch * global_batch_size`, DROP `remainder_samples` + the partial-batch path,
-      rename `projection_basis`. Update the projection tests. Spec 0001 is guard-checked
-      (`kaggle_kernel.sh:658` lock marker) — run guard-health before/after (baseline 3 FAIL/21,
-      expect NO new failures; tool = `.agent_tmp/guard_health.py`, reconstruct if absent — it
-      greps every doc-targeting guard in `kaggle_kernel.sh`). ALSO update `synthetic_timing.py:1371`
-      (the `remainder_samples` computation) and the projection tests
-      `tests/test_synthetic_timing.py:220`/`:375`/`:376` (they assert `effective_samples_per_epoch
-      == "300000"` — GREEN at the ref batch since floor(300000/24)·24 = 300000, so the GATE will
-      NOT force the change; fix them for semantic correctness). DO NOT touch the runner's S16
-      fallback label `_DDP_SAMPLER_POLICY_NO_DROP_LAST` (`selected_runtime_runner.py:201`) /
-      `distributed_sampler_shuffle_false_drop_last_false` — that is a legitimate degenerate-shard
-      fallback (drop_last=True normally), NOT part of this flip. Then the full quality gate +
-      adversarial review. The tail is dropped and does not matter (rule 30).
+    - **`drop_last` UNIT-FLIP — DONE (local, 2026-07-20; commit pending approval).** Flipped the
+      stale selection-benchmark PROJECTION-RECORD to match the real loader (`drop_last=True` since
+      S16) + `floor(P/G)` schedule (S5b): now `drop_last=true`, `effective_samples_per_epoch =
+      steps_per_epoch * global_batch_size`, `remainder_samples` + the partial-batch path DROPPED,
+      `projection_basis` → `floor_steps_times_global_batch_drop_last_true`. Sites: CODE
+      `runtime_selection._global_projection_payload` + `synthetic_timing.py`
+      (`SYNTHETIC_TIMING_MATRIX_COLUMNS` dropped `remainder_samples` + `_base_row`) +
+      `real_data_runtime_pretest.py` `missing_coverage` (dropped `final_partial_batch_path`,
+      mirroring `kaggle_cli_workflow.md`); CONFIG `non_eq_vae_kaggle_runtime_benchmark.json`
+      (`drop_last:true`, `must_exercise` dropped `final_partial_batch_path`); DOCS Spec 0001
+      (`:1297`/`:1334`/projection block), decision 0008, `kaggle_cli_workflow.md`; TESTS
+      `test_synthetic_timing.py` effective `299968`/`299904` (gb 64/128 don't divide P → floored,
+      forced). Untouched by design: runner `_DDP_SAMPLER_POLICY_NO_DROP_LAST` degenerate-shard
+      fallback + pretest `partial_batch_observed` mechanics probe. Guard-health steady 3 FAIL/21.
+      The tail is dropped and does not matter (rule 30).
   - **S17-Kaggle** [Kaggle] Run the S14 generator on dual-T4 → new compiled
     `selected_runtime.json` (winner row_id
     `dual_t4_ddp__bs48__amp_off_fp32__compile_step__indexed_masked__policy_…`). With the

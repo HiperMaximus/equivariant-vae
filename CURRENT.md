@@ -398,22 +398,23 @@ claim compiled-while-eager; the final proof reads observed compile state back fr
 rows. Byte-identical on the committed eager v5 plan (empirically: mismatches = `()`, local_pass).
 Gate 574/1, 0 errors/warnings/notes; four clean-context default-refute reviewers all clean. This
 ENDS the `_application_mismatches` tautology, which unblocks S17d's `_dataloader_errors` de-pin.
-**NEXT (LOCAL): Spec 0011 S17f — audit + CORRECT the current code to the speed-first / FSQ-floor
-intent** (the runtime was written before that intent was sharp, so it likely embeds slower /
-reproducible choices; refactor + re-benchmark authorized). **START with S17f item #1, the
-`drop_last` UNIT-FLIP** — it is fully mapped in the spec and self-contained. WARNING: it CHANGES
-the spec, but it is a code+config+doc UNIT (executor projection in `runtime_selection.py` +
-`synthetic_timing.py`, `configs/spec0001/...benchmark.json`, Spec 0001 `:1364-1367`, decision 0008,
-`kaggle_cli_workflow.md`) — a DOC-ONLY edit desyncs the spec from the emitted projection JSON + gate.
-The projection currently declares `drop_last=false`/`remainder_samples` even though the real loader
-is `drop_last=True` (S16) and steps already `floor` (S5b) — flip the whole unit to `drop_last=true`
-/ `floor` / no-remainder. Guard-health before/after (baseline 3 FAIL/21; tool
-`.agent_tmp/guard_health.py`, reconstruct if absent — greps the doc-targeting guards in
-`kaggle_kernel.sh`), then gate + adversarial review. Do NOT flip the runner's S16 fallback label
-`_DDP_SAMPLER_POLICY_NO_DROP_LAST` — it is a legitimate degenerate-shard fallback, not part of this. Then the rest of S17f + S17d (bounded dataloader search — read its traps) + S17e
-(throughput batch search). Speed-first doc reconciliation is DONE (`9ce1bd5`); AGENTS rule 30 +
-rule 15 (delete non-current) are the governing rules. See [[eqvae-reusable-runtime-mechanism-plan]],
-[[eqvae-speed-first-dont-cares]], [[eqvae-s17d-dataloader-design]] + `docs/specs/0011-*.md`.
+**Spec 0011 S17f item #1 (the `drop_last` UNIT-FLIP) — applied locally (gate + adversarial review
+in progress; commit pending approval).** Flipped the stale selection-benchmark PROJECTION-RECORD to
+match the real loader (`drop_last=True` since S16) + `floor(P/G)` schedule (S5b): now `drop_last=true`,
+`effective_samples_per_epoch = steps_per_epoch * global_batch_size`, `remainder_samples` + the
+partial-batch path DROPPED, `projection_basis` → `floor_steps_times_global_batch_drop_last_true`.
+Code+config+doc+test UNIT: `runtime_selection.py` `_global_projection_payload` + `synthetic_timing.py`
+(`SYNTHETIC_TIMING_MATRIX_COLUMNS` + `_base_row`) + `real_data_runtime_pretest.py` `missing_coverage`;
+`configs/spec0001/...benchmark.json` (`drop_last` + `must_exercise`); Spec 0001 + decision 0008 +
+`kaggle_cli_workflow.md`; `tests/test_synthetic_timing.py` (effective 299968/299904 at gb 64/128).
+Untouched by design: the runner's S16 fallback label `_DDP_SAMPLER_POLICY_NO_DROP_LAST` + the pretest
+`partial_batch_observed` probe. **NEXT (LOCAL): Spec 0011 S17f — the REST** (audit + CORRECT the runtime
+code to the speed-first / FSQ-floor intent: compile mode / max-autotune, RNG → Philox + tolerance checks,
+cudnn/determinism, DDP grad overlap, GPU-resident metrics, transforms, precision; refactor + re-benchmark
+authorized), then S17d (bounded dataloader search — read its traps) + S17e (throughput batch search).
+Speed-first doc reconciliation is DONE (`9ce1bd5`); AGENTS rule 30 + rule 15 (delete non-current) are
+the governing rules. See [[eqvae-reusable-runtime-mechanism-plan]], [[eqvae-speed-first-dont-cares]],
+[[eqvae-s17d-dataloader-design]] + `docs/specs/0011-*.md`.
 
 > Pre-Spec-0011 status (runtime-selection v5, Spec 0006–0009) and older Kaggle-run
 > provenance were trimmed from here on 2026-07-16 (FU-011). Git history and

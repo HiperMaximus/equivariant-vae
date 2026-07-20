@@ -372,8 +372,9 @@ def test_synthetic_timing_marks_large_dual_rows_probe_only(tmp_path: Path) -> No
     assert dual["non_wrapping_eligible"] == "false"
     assert dual["fit_probe_only"] == "true"
     assert dual["sample_reuse_count"] == str((128 * 30) - 2048)
-    assert single["effective_samples_per_epoch"] == "300000"
-    assert dual["effective_samples_per_epoch"] == "300000"
+    # drop_last=True -> effective = floor(P/G)*G (S17f flip): 4687*64 and 2343*128.
+    assert single["effective_samples_per_epoch"] == "299968"
+    assert dual["effective_samples_per_epoch"] == "299904"
 
 
 def test_synthetic_timing_recommendations_order_ranked_rows(tmp_path: Path) -> None:

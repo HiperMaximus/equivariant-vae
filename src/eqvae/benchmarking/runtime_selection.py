@@ -1069,10 +1069,9 @@ def _global_projection_payload(
             "runtime_policy_id": _runtime_policy_id(row),
             "real_train_patch_count": settings.real_train_patch_count,
             "global_batch_size": global_batch_size,
-            "drop_last": False,
+            "drop_last": True,
             "steps_per_epoch": steps_per_epoch,
-            "effective_samples_per_epoch": settings.real_train_patch_count,
-            "remainder_samples": settings.real_train_patch_count % global_batch_size,
+            "effective_samples_per_epoch": steps_per_epoch * global_batch_size,
             "steady_step_ms_p50": steady_ms,
             "estimated_epoch_minutes": steps_per_epoch * steady_ms / 60_000.0,
         })
@@ -1080,7 +1079,7 @@ def _global_projection_payload(
         "JsonObject",
         {
             "status": PASS_STATUS if projections else SKIPPED_UNSUPPORTED,
-            "projection_basis": "real_train_patch_count_drop_last_false",
+            "projection_basis": "floor_steps_times_global_batch_drop_last_true",
             "rows": projections,
         },
     )

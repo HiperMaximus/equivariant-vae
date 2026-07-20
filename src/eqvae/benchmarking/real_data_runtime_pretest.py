@@ -2817,7 +2817,6 @@ def _compile_settle_proof(
         "missing_coverage": [
             "clean_validation_step",
             "ddp_rank_path",
-            "final_partial_batch_path",
             "mask_cardinality_0",
             "mask_cardinality_1",
             "mask_cardinality_many",

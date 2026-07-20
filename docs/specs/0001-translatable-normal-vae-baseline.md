@@ -1293,8 +1293,8 @@ Runtime benchmark requirement before the first full Kaggle run:
   supports it. Compiled rows must not enter the timed warmup or measured window
   until an explicit unmeasured compile-settling phase has exercised every code
   path included in that row, including train vs clean validation, corruption
-  strategy, precision policy, DDP rank path, and any fixed-shape or final
-  partial-batch path that the benchmark will measure. The exact
+  strategy, precision policy, DDP rank path, and any fixed-shape batch path
+  that the benchmark will measure. The exact
   `compile_settle_steps` policy is a benchmark-design parameter and must be
   locked before implementing compiled comparisons;
 - compiled runtime rows must declare a `compile_scope`:
@@ -1331,7 +1331,7 @@ Runtime benchmark requirement before the first full Kaggle run:
   `OMP_NUM_THREADS=1`, `MKL_NUM_THREADS=1`, per-rank CUDA/NCCL binding,
   read-only mmap with sequential access hints, pinned dataloaders, non-blocking
   H2D transfers, and static-shape loader behavior. These choices must not
-  override the spec's real-data projection, `drop_last = false` accounting, or
+  override the spec's real-data projection, `drop_last = true` accounting, or
   clean-validation no-corruption-RNG rule;
 - use the FSQ script's checkpoint/resume discipline as a training-system
   requirement, not as a checkpoint format: save and restore model, optimizer,
@@ -1361,10 +1361,9 @@ Runtime benchmark requirement before the first full Kaggle run:
   real train-epoch time, not equal per-device batch size alone. The projection
   must record `real_train_patch_count = 300000`,
   `global_batch_size = per_device_batch_size * world_size`,
-  `drop_last = false`,
-  `steps_per_epoch = ceil(real_train_patch_count / global_batch_size)`,
-  `effective_samples_per_epoch = real_train_patch_count`,
-  `remainder_samples = real_train_patch_count % global_batch_size`,
+  `drop_last = true`,
+  `steps_per_epoch = floor(real_train_patch_count / global_batch_size)`,
+  `effective_samples_per_epoch = steps_per_epoch * global_batch_size`,
   steady-state step-time statistics, and `estimated_epoch_minutes =
   steps_per_epoch * steady_step_ms_p50 / 60000`. Compile/startup time is
   excluded from this steady-state projection and recorded separately. This
@@ -1543,8 +1542,8 @@ Benchmark budget and reset rules:
   window. The first real-data pretest locks `compile_settle_steps = 5`;
   compile settling is excluded from timed warmup/measured rows and must exercise
   train-corrupted step, clean-validation step, corruption strategy,
-  precision-policy path, DDP rank path, fixed full-batch path, final partial
-  batch path, and corruption mask cardinalities 0, 1, many, and all. The first
+  precision-policy path, DDP rank path, fixed full-batch path, and corruption
+  mask cardinalities 0, 1, many, and all. The first
   counter source is `torch._dynamo.utils.counters` reset per row; if this is
   unavailable or semantically changes in the Kaggle PyTorch build, the row must
   be `skipped_unsupported` or the spec must be updated before selection;

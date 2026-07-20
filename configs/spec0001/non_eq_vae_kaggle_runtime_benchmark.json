@@ -312,7 +312,7 @@
     },
     "corruption_strategies": ["branchless_all", "indexed_masked"],
     "candidate_per_device_batch_sizes": [4, 8, 12, 32, 48],
-    "drop_last": false,
+    "drop_last": true,
     "compile_settle_policy": {
       "compile_settle_steps": 5,
       "excluded_from_timing": true,
@@ -323,7 +323,6 @@
         "precision_policy",
         "ddp_rank_path",
         "fixed_shape_batch",
-        "final_partial_batch_path",
         "mask_cardinality_0",
         "mask_cardinality_1",
         "mask_cardinality_many",

@@ -203,7 +203,7 @@ eligibility requires the real-data proof, real DDP launch proof, row-matching
 dataloader/numerical/corruption/gate-health status, and zero graph-break/
 recompile counts. Compiled `model_forward` rows must remain ineligible/
 diagnostic until full compile-settle coverage includes clean validation, DDP
-rank paths, final partial batches, and mask cardinalities 0/1/many/all. Remote
+rank paths, and mask cardinalities 0/1/many/all. Remote
 pushing requires explicit user permission plus:
 
 ```bash
