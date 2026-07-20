@@ -1,30 +1,19 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 DONE (both `run_template.py` validators — `21b697f` — AND the debug `kaggle_kernel.sh` shell push guard — `c090d16` — delegate to `selected_runtime_plan_errors`, local)**; **S17c DONE (observation mirror + honest corruption/step label — `9f6d813`, local)**; **S17f item #1 (the `drop_last` unit-flip) DONE (`3b9aa42`, local)** + **S17f Transforms DONE (`2ce6a4c`, local — uint8 H2D + fold the uint8->float normalize into the compiled step; gate 575/1)** + **S17f cuDNN DONE (`a7feae4`, local — `cudnn.benchmark=True`/`deterministic=False` as a FIXED speed-first flag; gate 581/1)** + **S17f Full-validation DONE (`a6c6271`, local — the full run sweeps the WHOLE validation set every half-epoch, correcting the agent-set 20-batch cap; gate 583/1)** + **S17f RNG combined-step sub-commit 2 DONE (`5dde097`, local — the runner's eager + validation corruption move off blake2b onto the Philox `InlineStainCorruptor` via dedicated checkpoint-continued / re-seeded generators; corruption is now a FIXED property, not a selected axis; parser + label de-pinned; gate 586/1, 4 reviewers clean)**; NEXT local = the REST of S17f (compile-mode / `fullgraph`, DDP grad-overlap, GPU-resident metrics, precision) + the blake2b retirement FOLLOW-UPS (SCOPE CORRECTION rule 29: blake2b was NOT dead after the runner-only sub-commit 2 — move the benchmark selection proof + debug/smoke/QA off blake2b, THEN delete it) + S17d (bounded dataloader search axis — read its traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up); S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 DONE (both `run_template.py` validators — `21b697f` — AND the debug `kaggle_kernel.sh` shell push guard — `c090d16` — delegate to `selected_runtime_plan_errors`, local)**; **S17c DONE (observation mirror + honest corruption/step label — `9f6d813`, local)**; **S17f item #1 (the `drop_last` unit-flip) DONE (`3b9aa42`, local)** + **S17f Transforms DONE (`2ce6a4c`, local — uint8 H2D + fold the uint8->float normalize into the compiled step; gate 575/1)** + **S17f cuDNN DONE (`a7feae4`, local — `cudnn.benchmark=True`/`deterministic=False` as a FIXED speed-first flag; gate 581/1)** + **S17f Full-validation DONE (`a6c6271`, local — the full run sweeps the WHOLE validation set every half-epoch, correcting the agent-set 20-batch cap; gate 583/1)** + **S17f RNG combined-step sub-commit 2 DONE (`5dde097`, local — the runner's eager + validation corruption move off blake2b onto the Philox `InlineStainCorruptor` via dedicated checkpoint-continued / re-seeded generators; corruption is now a FIXED property, not a selected axis; parser + label de-pinned; gate 586/1, 4 reviewers clean)** + **S17f Metrics part 1 DONE (`623f128`, local — the three per-parameter hot-step telemetry host-sync loops [`_global_grad_norm`/`_nonfinite_gradient_count`/`_parameter_update_norm`] vectorized to one on-device reduction each; value-preserving; gate 595/1, 5 reviewers clean)**; NEXT local = the REST of S17f (compile-mode / `fullgraph`, DDP grad-overlap, GPU-resident aggregate metrics [part 2 — loss/val `VarianceAccumulator`, gate-contract-aware], precision) + the blake2b retirement FOLLOW-UPS (SCOPE CORRECTION rule 29: blake2b was NOT dead after the runner-only sub-commit 2 — move the benchmark selection proof + debug/smoke/QA off blake2b, THEN delete it) + S17d (bounded dataloader search axis — read its traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up); S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
 Implementation readiness: Phase 3 COMPLETE (local); S14a/S14b/S14c done + gated locally; S17a + S17b-1 done + gated locally (parser now ACCEPTS a self-consistent compiled plan — recipe AND structural identity/snapshot; identity is self-consistent so no Kaggle re-point is needed); compiled EXECUTION + the row_id mint are Kaggle observations; Kaggle phases S17-Kaggle/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-20 (S17f RNG combined-step sub-commit 2 DONE — `5dde097`: the runner's eager training
-+ validation corruption move off the blake2b per-sample-seeded `StainCorruptor` onto the vectorized
-`InlineStainCorruptor`, driven by dedicated `torch.Generator`s. Corruption is now a FIXED speed-first
-property, not a plan-selected axis (user confirmed drop-the-axis: inline is certainly faster than a
-Python-loop-with-blake2b, no re-measure). `InlineStainCorruptor.forward` gains an optional keyword-only
-`generator`; None (the compiled fast path) emits the exact seedless `torch.rand`/`torch.randn_like` ops via
-`_rand`/`_randn_like`, so the measured compiled recipe stays byte-identical. Training uses a per-rank
-generator seeded `corruption_seed+rank`, checkpointed as `train_corruption` and DDP-resume re-based
-(mirrors the eps `train_data` generator) so a resume CONTINUES the stream, never replaying it; validation
-uses a generator re-seeded to a fixed constant each boundary sweep (identical corruption every half-epoch =
-a stable best-checkpoint ruler, no checkpoint state). `expected_corruption_strategy` →
-`eager_inline_stain`/`compiled_fastpath_inline_stain`; the parser launch pin relaxes to a fail-closed
-structural check + the snapshot corruption pin is dropped (committed v5 plan still parses; provenance echoes
-keep the plan's declared strategy). Distribution unchanged (same alpha/beta/noise ranges + where-select) —
-only the RNG source differs. SCOPE CORRECTION (rule 29): blake2b was NOT dead after this runner-only change —
-it stays for the benchmark selection proof + debug/smoke/QA; retiring it is follow-up commits (move those
-callers, then delete). The handoff's "make the numerical cross-checks isclose" item was a non-issue here (the
-only bit-exact corruption checks are blake2b-vs-blake2b in the benchmark, untouched). Gate 586/1,
-ruff+basedpyright clean; four clean-context default-refute reviewers (RNG/checkpoint, compiled byte-identity,
-label/de-pin fail-closed, distribution/scope) → 0 confirmed defects. Prior S17f done: Full-validation
-`a6c6271`, cuDNN `a7feae4`, Transforms `2ce6a4c`, `drop_last` unit-flip `3b9aa42`. See the S17f bullets in
-the body). The per-step `(DONE — …)` tags in the body are the state of record.
+Last updated: 2026-07-20 (S17f Metrics part 1 DONE — `623f128`: the three hot-step per-parameter
+telemetry host-sync loops in the runner — `_global_grad_norm`, `_nonfinite_gradient_count`,
+`_parameter_update_norm` — now reduce on-device to ONE `.item()` each instead of O(N_params)/step, and the
+update-norm drops the per-parameter `.cpu()` D2H copies; both the eager and compiled train-step paths
+benefit (shared helpers, byte-identical call sites). Value-preserving: non-finite count exact, the two norms
+drift only within fp tolerance and only finiteness is gate-checked, so the per-step CSV/gate contract is
+untouched. Part 2 — the aggregate loss/validation `VarianceAccumulator` — is split off (it would change the
+gate's per-step CSV granularity, so it is gate-contract-aware). Gate 595/1, ruff+basedpyright clean; five
+clean-context default-refute reviewers → 0 confirmed; 9 mutation-proof tests. Prior S17f done:
+RNG→InlineStain `5dde097`, Full-validation `a6c6271`, cuDNN `a7feae4`, Transforms `2ce6a4c`, `drop_last`
+unit-flip `3b9aa42`. The per-step `(DONE — …)` tags in the body are the state of record.)
 
 ## Purpose
 
@@ -1056,9 +1045,22 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       + this spec (rule 15). DDP: each rank sweeps its shard once, negligible per-rank tail, the
       cross-rank sample-weighted selection metric is unchanged. Gate 583/1; +2 mutation-proof
       tests (helper + CPU end-to-end full-sweep); 3 clean-context reviewers + fix-delta clean.
-    - **Metrics.** Replace per-step `.item()` host-syncs with GPU-resident accumulators
-      (generalize FSQ `VarianceAccumulator`); sync only at flush boundaries (also required for
-      cudagraphs).
+    - **Metrics — part 1 DONE (`623f128`, local, 2026-07-20).** The three hot-step
+      per-parameter host-sync loops in the runner (`_global_grad_norm`,
+      `_nonfinite_gradient_count`, `_parameter_update_norm`) now reduce on-device to ONE
+      `.item()` each (was O(N_params)/step), and the update-norm drops the per-parameter
+      `.cpu()` D2H copies; both the eager and compiled train-step paths benefit (shared
+      helpers, byte-identical call sites). Value-preserving: the non-finite count is exact,
+      the two norms drift only within fp tolerance (only finiteness is gate-checked), and the
+      per-step CSV/gate contract is untouched (`_clone_trainable_parameters` unchanged). Gate
+      595/1; five clean-context default-refute reviewers (value-preservation,
+      correctness/edge, consumer/gate-contract, test-soundness, fix-delta) → 0 confirmed; 9
+      mutation-proof tests. The perf intent (single host sync) is Kaggle-observed, not
+      CPU-unit-testable. PART 2 still open: the aggregate loss/validation `VarianceAccumulator`
+      (the loss scalars via `detached_scalars`/`_metric_row` + `_validation_view_row`) — split
+      off deliberately because it CHANGES the gate's per-step CSV granularity, so it is
+      gate-contract-aware. (`_norm`/`a_grad_norm` in `_gate_health_rows` is a boundary-only
+      sync via `_write_interval_artifact_flush`, not the hot path — out of scope.)
     - **Transforms — DONE (`2ce6a4c`, local, 2026-07-20).** `make_fastpath_step_fn` now takes
       `x_uint8` and folds the uint8->float normalize into the compiled graph
       (cast+normalize+corrupt+forward+loss fused); every compiled caller (runner, probe,

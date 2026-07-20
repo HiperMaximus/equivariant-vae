@@ -439,8 +439,16 @@ echoes keep the declared value). Distribution unchanged (same alpha/beta/noise r
 rule-30 consequence: a pre-S17f checkpoint can't resume across the new `{train_data, train_corruption}` key set —
 none exists (the compiled full run is the first paper run). Gate 586/1, ruff+basedpyright clean; four clean-context
 default-refute reviewers (RNG/checkpoint, compiled byte-identity, label/de-pin fail-closed, distribution/scope) →
-0 confirmed. **NEXT (LOCAL): the REST of S17f** — compile mode (max-autotune SEARCHED, may NOT win on T4) +
-`fullgraph=True`, DDP grad overlap, GPU-resident metrics, precision; PLUS the blake2b retirement FOLLOW-UPS
+0 confirmed. **S17f Metrics part 1 — DONE (`623f128`): the three hot-step per-parameter telemetry host-sync
+loops (`_global_grad_norm`/`_nonfinite_gradient_count`/`_parameter_update_norm`) now reduce on-device to ONE
+`.item()` each (was O(N_params)/step) + the update-norm drops the per-parameter `.cpu()` D2H copies; both the
+eager and compiled train-step paths benefit (shared helpers, byte-identical call sites). Value-preserving:
+non-finite count exact, the two norms drift only within fp tolerance (only finiteness is gate-checked), the
+per-step CSV/gate contract is untouched. Gate 595/1, ruff+basedpyright clean; five clean-context default-refute
+reviewers → 0 confirmed; 9 mutation-proof tests. Part 2 (the aggregate loss/validation `VarianceAccumulator`)
+is split off — it CHANGES the gate's per-step CSV granularity.** **NEXT (LOCAL): the REST of S17f** — compile
+mode (max-autotune SEARCHED, may NOT win on T4) +
+`fullgraph=True`, DDP grad overlap, GPU-resident aggregate metrics (part 2), precision; PLUS the blake2b retirement FOLLOW-UPS
 (SCOPE CORRECTION rule 29 — blake2b was NOT dead after the runner-only sub-commit 2: the benchmark selection
 corruption proof + `debug.py`/`kaggle_smoke.py`/`stain_corruptor_qa.py` still use it → move those off blake2b,
 then delete the dead subsystem). Then S17d (bounded dataloader search — read its traps) + S17e (throughput batch
