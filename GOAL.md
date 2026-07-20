@@ -100,9 +100,10 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   failures and is actually faster, which `torch.compile` mode is fastest (compile time is
   a NON-COST for a ~30h run, so `max-autotune` is in-bounds; but single-GPU autotune misses
   the dual-T4 all_reduce-overlap cost, so search the DDP compute-comm knobs
-  [`compiled_autograd`/`optimize_ddp`/comm-hook] and measure on 2 GPUs), and whether
-  branchless full-batch corruption or indexed masked-sample corruption gives better
-  throughput. Treat the useful historical
+  [`compiled_autograd`/`optimize_ddp`/comm-hook] and measure on 2 GPUs). Corruption is
+  no longer a benchmark axis — it is a FIXED runtime property (the vectorized inline
+  `InlineStainCorruptor`, RNG swap `5dde097`); the blake2b branchless-vs-indexed
+  throughput question is settled. Treat the useful historical
   FSQ efficiency flags as measured candidates too: cuDNN
   benchmarking/non-deterministic kernel selection, channels-last layout, DDP
   `static_graph` and `gradient_as_bucket_view`, optimizer/zero-grad fast paths,
@@ -155,7 +156,7 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   adversarial fixes have been applied. Do not launch or poll the remote full
   run without fresh explicit user approval of the exact dedicated full-kernel
   command.
-- Current status pointer (2026-07-10): Spec 0009's frozen schedule is SUPERSEDED by
+- Current status pointer (2026-07-20): Spec 0009's frozen schedule is SUPERSEDED by
   Spec 0010 (fixed-25 protocol, committed) and Spec 0011 (reusable goal-derived
   runtime + compiled fast-path, ACTIVE). Spec 0011 makes batch/LR/schedule a reusable
   per-(model × hardware) search-then-run mechanism; Phases 1–3 + S14a/b/c + S17a/b/c + several

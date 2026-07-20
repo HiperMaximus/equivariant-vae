@@ -95,8 +95,9 @@ requires, so `preflight-selected-runtime-full` and push fail-closed right now.
 `optimize_ddp="ddp_optimizer"` (DDPOptimizer, **no** compiled_autograd) · whole-step
 `torch.compile(step, dynamic=False, backend="inductor")` · `channels_last` ·
 `DDP(gradient_as_bucket_view=True, find_unused_parameters=False, bucket_cap_mb=50,
-static_graph=False)` · fused AdamW · drop the blake2b semantic-seed corruption on
-the **train** fast path (keep it on validation/deterministic paths). The non-eq VAE
+static_graph=False)` · fused AdamW · corruption is the vectorized inline
+`InlineStainCorruptor` on both the train and validation runtime paths (blake2b retired
+from the runner, RNG swap `5dde097`). The non-eq VAE
 has 6 persistent buffers (`FixedBinomialLowpassDownsample2x.kernel`), so
 `broadcast_buffers` matters — and its correct value is **model-specific** (must be
 driven by a structural buffer check, not a hardcoded flag).
@@ -105,24 +106,16 @@ driven by a structural buffer check, not a hardcoded flag).
 
 ### Goal-derived relationships (the invariants every validator/gate enforces)
 
-Let `P = REAL_TRAIN_PATCH_COUNT = 300000`. **P is NOT single-sourced today** — it
-is defined four times under three names (`synthetic_timing.py:85`,
-`runtime_selection.py:73` `REAL_TRAIN_PATCH_COUNT_DEFAULT`, and
-`fixed32_selector_readiness.py:37` + `real_data_runtime_pretest.py:58`
-`EXPECTED_REAL_TRAIN_PATCH_COUNT`) and is *config-overridable* in the generator
-(`runtime_selection.py:352`, `data.real_train_patch_count or DEFAULT`). S5/S6 must
-pick ONE immutable canonical constant, re-point the other three as imports, and the
-gate anchor (MF2) must read THAT — never the plan's number, never
-`data.real_train_patch_count`. `G = global_batch = per_device_batch * world_size`,
-`E = epochs` (policy anchor).
+Let `P = REAL_TRAIN_PATCH_COUNT = 300000`, single-sourced (S6a `f154a84`) as the
+canonical constant in `data/roots.py`; the gate anchor (MF2) reads THAT, never the
+plan's number, never `data.real_train_patch_count`. `G = global_batch =
+per_device_batch * world_size`, `E = epochs` (policy anchor).
 
 - `global_batch == per_device_batch * world_size`
-- `updates_per_epoch == floor(P / G)` — **floor**, matching the post-flip
-  train-loader `drop_last=True`. The train loader is `drop_last=False` today; **S16
-  (Phase 3) flips it** (see the drop_last decision). `ceil(P/G)` currently lives at
-  four sites (`runtime_selection.py:1866` [plan emitter] + `:1043`,
-  `synthetic_timing.py:1361` + `:1915`) — all become the single-sourced floor helper;
-  the tiny-selector `ceil` at `runner:627` is unrelated and stays.
+- `updates_per_epoch == floor(P / G)` — **floor**, matching the train-loader
+  `drop_last=True` (S16 `3298a57`; the projection-record unit-flip is S17f `3b9aa42`).
+  The floor is single-sourced via `benchmarking/schedule.py` `training_steps_per_epoch`
+  (S5b `533f554`); the tiny-selector `ceil` at `runner:627` is unrelated and stays.
 - `target_train_steps == E * updates_per_epoch`
 - `half_epoch_interval_steps == updates_per_epoch // 2` (floor; batch-independent)
 - `save_every_steps == half_epoch_interval_steps`
