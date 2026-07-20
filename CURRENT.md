@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-07-19
+Last updated: 2026-07-20
 
 ## Active Workstream
 
@@ -398,8 +398,7 @@ claim compiled-while-eager; the final proof reads observed compile state back fr
 rows. Byte-identical on the committed eager v5 plan (empirically: mismatches = `()`, local_pass).
 Gate 574/1, 0 errors/warnings/notes; four clean-context default-refute reviewers all clean. This
 ENDS the `_application_mismatches` tautology, which unblocks S17d's `_dataloader_errors` de-pin.
-**Spec 0011 S17f item #1 (the `drop_last` UNIT-FLIP) — applied locally (gate + adversarial review
-in progress; commit pending approval).** Flipped the stale selection-benchmark PROJECTION-RECORD to
+**Spec 0011 S17f item #1 (the `drop_last` UNIT-FLIP) — DONE (`3b9aa42`, local).** Flipped the stale selection-benchmark PROJECTION-RECORD to
 match the real loader (`drop_last=True` since S16) + `floor(P/G)` schedule (S5b): now `drop_last=true`,
 `effective_samples_per_epoch = steps_per_epoch * global_batch_size`, `remainder_samples` + the
 partial-batch path DROPPED, `projection_basis` → `floor_steps_times_global_batch_drop_last_true`.
