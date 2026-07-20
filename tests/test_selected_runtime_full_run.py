@@ -1412,11 +1412,6 @@ def test_snapshot_cross_consistency_rejects_cell_drift(
         ),
         ("status", "fail", "selected_runtime_snapshot_status_not_pass"),
         ("nproc_per_node", "1", "selected_runtime_snapshot_wrong_nproc_per_node"),
-        (
-            "corruption_strategy",
-            "branchless_all",
-            "selected_runtime_snapshot_wrong_corruption_strategy",
-        ),
         ("world_size", "1", "selected_runtime_snapshot_wrong_world_size"),
     ],
 )
@@ -2131,7 +2126,7 @@ def test_assert_ddp_parameters_in_sync_treats_identical_nan_as_synced(
         )
 
 
-def test_run_train_steps_selects_best_on_denoising_view_end_to_end(
+def test_run_train_steps_selects_best_on_denoising_view_end_to_end(  # noqa: PLR0914
     tmp_path: Path,
 ) -> None:
     """FU-008 end-to-end: best_model.pt is saved from the denoising-view metric."""
@@ -2186,6 +2181,8 @@ def test_run_train_steps_selects_best_on_denoising_view_end_to_end(
         )
         train_generator = torch.Generator(device="cpu")
         train_generator.manual_seed(settings.data_seed)
+        corruption_generator = torch.Generator(device="cpu")
+        corruption_generator.manual_seed(settings.corruption_seed)
         train_loop = selected_runtime_runner._run_train_steps(  # noqa: SLF001
             request=request,
             resolved=resolved,
@@ -2201,6 +2198,8 @@ def test_run_train_steps_selects_best_on_denoising_view_end_to_end(
             distributed=local,
             numpy_generator=np.random.default_rng(settings.global_seed),
             train_generator=train_generator,
+            corruption_generator=corruption_generator,
+            eager_corruptor=InlineStainCorruptor(settings.corruption_profile),
             runtime_identity=selected_runtime_runner._runtime_identity(plan),  # noqa: SLF001
             start_step=0,
             initial_best_validation_metric=None,
@@ -2252,7 +2251,7 @@ _ODD_BOUNDARY_STEPS = frozenset({2, 4, 5})
 _ODD_GLOBAL_BATCH = 60_000
 
 
-def test_run_train_steps_checkpoints_and_validates_off_grid_terminal(
+def test_run_train_steps_checkpoints_and_validates_off_grid_terminal(  # noqa: PLR0914
     tmp_path: Path,
 ) -> None:
     """Spec 0011 S9: the off-grid terminal is a genuine boundary on the producer side.
@@ -2319,6 +2318,8 @@ def test_run_train_steps_checkpoints_and_validates_off_grid_terminal(
         )
         train_generator = torch.Generator(device="cpu")
         train_generator.manual_seed(settings.data_seed)
+        corruption_generator = torch.Generator(device="cpu")
+        corruption_generator.manual_seed(settings.corruption_seed)
         train_loop = selected_runtime_runner._run_train_steps(  # noqa: SLF001
             request=request,
             resolved=resolved,
@@ -2334,6 +2335,8 @@ def test_run_train_steps_checkpoints_and_validates_off_grid_terminal(
             distributed=local,
             numpy_generator=np.random.default_rng(settings.global_seed),
             train_generator=train_generator,
+            corruption_generator=corruption_generator,
+            eager_corruptor=InlineStainCorruptor(settings.corruption_profile),
             runtime_identity=selected_runtime_runner._runtime_identity(plan),  # noqa: SLF001
             start_step=0,
             initial_best_validation_metric=None,
@@ -2641,20 +2644,20 @@ def test_clean_validation_view_consumes_no_corruption_rng(
     scaffold = _open_validation_scaffold(tmp_path)
 
     def _forbid_corruption(*_args: object, **_kwargs: object) -> NoReturn:
-        message = "corrupt_normalized_batch was invoked"
+        message = "inline corruptor was invoked"
         raise RuntimeError(message)
 
     monkeypatch.setattr(
-        selected_runtime_runner,
-        "corrupt_normalized_batch",
+        selected_runtime_runner.InlineStainCorruptor,
+        "forward",
         _forbid_corruption,
     )
     try:
-        # The clean view is a pure passthrough: the corruption stub must not fire.
+        # The clean view is a pure passthrough: the corruptor must not fire.
         clean_row = _validation_row(scaffold, view="clean", optimizer_step=1)
         assert clean_row["view"] == "clean"
         # The same stub proves the denoising view DOES invoke corruption.
-        with pytest.raises(RuntimeError, match="corrupt_normalized_batch was invoked"):
+        with pytest.raises(RuntimeError, match="inline corruptor was invoked"):
             _validation_row(scaffold, view="deterministic_denoising", optimizer_step=1)
     finally:
         selected_runtime_runner._close_data_surface(scaffold.data_surface)  # noqa: SLF001
@@ -2665,12 +2668,12 @@ def test_deterministic_denoising_validation_row_is_reproducible(
 ) -> None:
     """FU-017: the deterministic_denoising validation row is byte-reproducible.
 
-    Corruption is a pure function of (seed, split, semantic key, step, view), eps is
-    zero, and the model is unchanged, so two runs over the same shuffle-false loader
-    at the same step must produce byte-identical rows. A non-vacuity control asserts
-    the corrupted input actually moves the row (clean vs denoising metrics differ),
-    so the byte-equality cannot pass silently if the model output becomes
-    input-independent.
+    The validation corruption generator is re-seeded to a fixed constant at the start
+    of every sweep, eps is zero, and the model is unchanged, so two runs over the same
+    shuffle-false loader must produce byte-identical rows (Spec 0011 S17f). A
+    non-vacuity control asserts the corrupted input actually moves the row (clean vs
+    denoising metrics differ), so the byte-equality cannot pass silently if the model
+    output becomes input-independent.
     """
     scaffold = _open_validation_scaffold(tmp_path)
     try:
@@ -2869,6 +2872,8 @@ def test_fresh_full_run_flushes_metrics_at_first_boundary(  # noqa: PLR0914
         )
         train_generator = torch.Generator(device="cpu")
         train_generator.manual_seed(settings.data_seed)
+        corruption_generator = torch.Generator(device="cpu")
+        corruption_generator.manual_seed(settings.corruption_seed)
         selected_runtime_runner._run_train_steps(  # noqa: SLF001
             request=request,
             resolved=resolved,
@@ -2884,6 +2889,8 @@ def test_fresh_full_run_flushes_metrics_at_first_boundary(  # noqa: PLR0914
             distributed=distributed,
             numpy_generator=np.random.default_rng(settings.global_seed),
             train_generator=train_generator,
+            corruption_generator=corruption_generator,
+            eager_corruptor=InlineStainCorruptor(settings.corruption_profile),
             runtime_identity=selected_runtime_runner._runtime_identity(plan),  # noqa: SLF001
             start_step=0,
             initial_best_validation_metric=None,
@@ -5433,6 +5440,8 @@ def test_run_train_steps_takes_the_compiled_branch_when_a_step_fn_is_present(
             distributed=context.distributed,
             numpy_generator=np.random.default_rng(context.settings.global_seed),
             train_generator=context.train_generator,
+            corruption_generator=torch.Generator(device="cpu"),
+            eager_corruptor=InlineStainCorruptor(context.settings.corruption_profile),
             runtime_identity=selected_runtime_runner._runtime_identity(  # noqa: SLF001
                 compiled_plan,
             ),

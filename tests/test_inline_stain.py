@@ -88,3 +88,72 @@ def test_inline_corruptor_validates_profile_in_init() -> None:
     """Config validation happens at construction, not in the forward."""
     with pytest.raises(ValueError, match="corrupt_prob"):
         InlineStainCorruptor(_profile_with_prob(2.0))
+
+
+def test_inline_corruptor_generator_is_reproducible() -> None:
+    """Two identically seeded generators produce identical corruption.
+
+    This is what makes the validation denoising view a stable best-checkpoint ruler:
+    re-seeding to a fixed constant each boundary corrupts the same data identically.
+    """
+    corruptor = InlineStainCorruptor(_profile_with_prob(1.0))
+    images = _images(4, 16)
+    gen_a = torch.Generator(device="cpu")
+    gen_a.manual_seed(1234)
+    gen_b = torch.Generator(device="cpu")
+    gen_b.manual_seed(1234)
+
+    first = corruptor.forward(images, generator=gen_a)
+    second = corruptor.forward(images, generator=gen_b)
+
+    torch.testing.assert_close(first, second, atol=0.0, rtol=0.0)
+
+
+def test_inline_corruptor_generator_stream_does_not_repeat() -> None:
+    """Consecutive draws from one generator differ: a free-running stream."""
+    corruptor = InlineStainCorruptor(_profile_with_prob(1.0))
+    images = _images(4, 16)
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(7)
+
+    first = corruptor.forward(images, generator=generator)
+    second = corruptor.forward(images, generator=generator)
+
+    assert not torch.equal(first, second)
+
+
+def test_inline_corruptor_generator_state_round_trips() -> None:
+    """Restoring saved generator state continues the exact corruption stream.
+
+    The checkpoint-continuation contract: a resume that restores the saved corruption
+    generator state reproduces the next draw it would have made without interruption,
+    never replaying the earlier stream.
+    """
+    corruptor = InlineStainCorruptor(_profile_with_prob(1.0))
+    images = _images(4, 16)
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(99)
+    # Advance the stream one step, snapshot the state (as the checkpoint would), then
+    # capture the draw that a resume must reproduce.
+    _ = corruptor.forward(images, generator=generator)
+    saved_state = generator.get_state()
+    expected_next = corruptor.forward(images, generator=generator)
+
+    restored = torch.Generator(device="cpu")
+    restored.set_state(saved_state)
+    continued = corruptor.forward(images, generator=restored)
+
+    torch.testing.assert_close(continued, expected_next, atol=0.0, rtol=0.0)
+
+
+def test_inline_corruptor_none_generator_matches_default_seedless_draw() -> None:
+    """generator=None matches the seedless draw (the compiled path is unchanged)."""
+    corruptor = InlineStainCorruptor(_profile_with_prob(1.0))
+    images = _images(4, 16)
+    manual_seed = cast("Callable[[int], torch.Generator]", torch.manual_seed)
+    manual_seed(0)
+    explicit_none = corruptor.forward(images, generator=None)
+    manual_seed(0)
+    default = corruptor.forward(images)
+
+    torch.testing.assert_close(explicit_none, default, atol=0.0, rtol=0.0)

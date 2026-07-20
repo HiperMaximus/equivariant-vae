@@ -41,6 +41,7 @@ from eqvae.data.roots import (
 from eqvae.data.synthetic import SyntheticPatchSpec, write_synthetic_patch_shard
 from eqvae.training.selected_runtime import (
     COMPILED_FASTPATH_CORRUPTION_STRATEGY,
+    EAGER_INLINE_STAIN_CORRUPTION_STRATEGY,
     EXPECTED_AMP_APPLICATION_STATUS,
     EXPECTED_AMP_OFF_APPLICATION_STATUS,
     EXPECTED_DDP_APPLICATION_STATUS,
@@ -545,7 +546,7 @@ def test_selected_runtime_plan_applied_proof_rejects_unexecuted_ddp_amp() -> Non
             dataloader_pin_memory=plan.dataloader_pin_memory,
             dataloader_persistent_workers=plan.dataloader_persistent_workers,
             dataloader_non_blocking_h2d=plan.dataloader_non_blocking_h2d,
-            corruption_strategy=plan.corruption_strategy,
+            corruption_strategy=expected_corruption_strategy(plan),
             memory_format=plan.memory_format,
             ddp_static_graph=plan.ddp_static_graph,
             ddp_gradient_as_bucket_view=plan.ddp_gradient_as_bucket_view,
@@ -599,7 +600,7 @@ def test_selected_runtime_plan_applied_proof_rejects_optimizer_updates_drift() -
         dataloader_pin_memory=plan.dataloader_pin_memory,
         dataloader_persistent_workers=plan.dataloader_persistent_workers,
         dataloader_non_blocking_h2d=plan.dataloader_non_blocking_h2d,
-        corruption_strategy=plan.corruption_strategy,
+        corruption_strategy=expected_corruption_strategy(plan),
         memory_format=plan.memory_format,
         ddp_static_graph=plan.ddp_static_graph,
         ddp_gradient_as_bucket_view=plan.ddp_gradient_as_bucket_view,
@@ -716,9 +717,12 @@ def test_expected_local_amp_status_is_amp_off_aware() -> None:
 
 
 def test_expected_corruption_strategy_labels_compiled_fastpath() -> None:
-    """Only the compiled whole-step scope swaps in the inline-corruptor label."""
+    """Only the compiled whole-step scope records the compiled inline label."""
     plan = _v5_plan()
-    assert expected_corruption_strategy(plan) == plan.corruption_strategy
+    # Corruption is a fixed inline-stain property, not the plan's declared value: the
+    # eager path (including a model_forward compile that still runs the eager step)
+    # records the eager label; only compile_scope == "step" records the compiled one.
+    assert expected_corruption_strategy(plan) == EAGER_INLINE_STAIN_CORRUPTION_STRATEGY
     assert (
         expected_corruption_strategy(_compiled_amp_off_plan(plan))
         == COMPILED_FASTPATH_CORRUPTION_STRATEGY
@@ -728,7 +732,10 @@ def test_expected_corruption_strategy_labels_compiled_fastpath() -> None:
         torch_compile_enabled=True,
         compile_scope="model_forward",
     )
-    assert expected_corruption_strategy(model_forward) == plan.corruption_strategy
+    assert (
+        expected_corruption_strategy(model_forward)
+        == EAGER_INLINE_STAIN_CORRUPTION_STRATEGY
+    )
 
 
 def test_plan_applied_proof_accepts_fully_applied_compiled_amp_off_winner() -> None:
@@ -780,11 +787,11 @@ def test_plan_applied_proof_rejects_dropped_required_broadcast_buffers() -> None
 
 
 def test_plan_applied_proof_rejects_eager_corruption_label_on_compiled_run() -> None:
-    """A compiled run that recorded the eager blake2b label ran the wrong corruptor."""
+    """A compiled run recording the eager inline label ran the wrong corruptor."""
     plan = _compiled_amp_off_plan(_v5_plan())
     observed = replace(
         _fully_applied_observation(plan),
-        corruption_strategy=plan.corruption_strategy,
+        corruption_strategy=EAGER_INLINE_STAIN_CORRUPTION_STRATEGY,
     )
     proof = build_plan_applied_proof(plan=plan, observed=observed)
 

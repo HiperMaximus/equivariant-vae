@@ -34,12 +34,17 @@ EXPECTED_AMP_APPLICATION_STATUS = "executed_amp_fp16_conservative"
 # (autocast + grad scaler off), so its local-AMP application status is a distinct,
 # plan-derived value rather than the eager fallback's fp16-conservative constant.
 EXPECTED_AMP_OFF_APPLICATION_STATUS = "executed_amp_off_fp32"
-# Spec 0011 S17c -- the compiled whole-step fast path replaces the reproducible
-# blake2b-seeded corruptor with the branchless inline ``InlineStainCorruptor`` fused
-# into the graph (non-deterministic, speed-first). The train-metric corruption label and
-# the observation mirror record this honestly instead of the plan's declared
-# ``corruption_strategy``, which only the eager/validation blake2b path applies.
+# Spec 0011 S17f -- corruption is a FIXED speed-first property (the vectorized native
+# ``InlineStainCorruptor``), no longer a plan-selected axis: the blake2b per-sample
+# seeding is retired from every runtime path. The observed corruption label records
+# honestly which inline variant ran -- fused seedless in the graph on the compiled fast
+# path, through a dedicated checkpoint-continued ``torch.Generator`` on the eager
+# training path, or through a per-boundary re-seeded generator on the validation path.
+# The plan's declared ``corruption.strategy`` is now informational only (the runtime
+# ignores it and always applies inline stain).
 COMPILED_FASTPATH_CORRUPTION_STRATEGY = "compiled_fastpath_inline_stain"
+EAGER_INLINE_STAIN_CORRUPTION_STRATEGY = "eager_inline_stain"
+VALIDATION_INLINE_STAIN_CORRUPTION_STRATEGY = "validation_reseeded_inline_stain"
 EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE = 16384.0
 
 
@@ -275,18 +280,20 @@ def expected_local_amp_status(plan: SelectedRuntimePlan) -> str:
 def expected_corruption_strategy(plan: SelectedRuntimePlan) -> str:
     """Return the corruption label a train run applies for this plan.
 
-    The eager and validation paths apply the plan's declared reproducible
-    (blake2b-seeded) strategy; the compiled whole-step fast path (``torch_compile``
-    enabled with ``compile_scope == "step"``) instead fuses the branchless inline
-    corruptor into the graph, so its train steps get a distinct label (Spec 0011 S17c).
+    Corruption is a fixed inline-stain property, not a plan choice: the
+    compiled whole-step fast path (``torch_compile`` enabled with
+    ``compile_scope == "step"``) fuses the seedless inline corruptor into the graph,
+    while the eager training path draws it through a dedicated checkpoint-continued
+    generator. Either way the plan's declared ``corruption.strategy`` is informational
+    only; this returns the label the train steps actually record (Spec 0011 S17f).
 
     Returns:
-        The expected observed ``corruption_strategy`` for a run of ``plan``.
+        The expected observed ``corruption_strategy`` for a train run of ``plan``.
 
     """
     if plan.torch_compile_enabled and plan.compile_scope == _COMPILE_SCOPE_STEP:
         return COMPILED_FASTPATH_CORRUPTION_STRATEGY
-    return plan.corruption_strategy
+    return EAGER_INLINE_STAIN_CORRUPTION_STRATEGY
 
 
 def parse_selected_runtime_plan(path: Path) -> SelectedRuntimePlan:
@@ -666,8 +673,13 @@ def _launch_errors(payload: JsonObject) -> tuple[str, ...]:
     corruption = payload.get("corruption")
     if not isinstance(corruption, dict):
         errors.append("selected_runtime_missing_corruption")
-    elif corruption.get("strategy") != "indexed_masked":
-        errors.append("selected_runtime_top_level_wrong_corruption_strategy")
+    else:
+        # Corruption is a fixed inline-stain runtime property (Spec 0011 S17f), no
+        # longer a selected axis, so the strategy value is informational: require only
+        # that the block carries a non-empty string, not a pinned literal.
+        strategy = corruption.get("strategy")
+        if not isinstance(strategy, str) or not strategy:
+            errors.append("selected_runtime_corruption_strategy_not_string")
     return tuple(errors)
 
 
@@ -826,8 +838,9 @@ def _snapshot_errors(payload: JsonObject) -> tuple[str, ...]:
     string. The identity and batch/precision cells are cross-checked against the plan's
     own parsed fields (so a re-measured winner whose snapshot agrees with its plan is
     accepted), while the hardware/status anchors -- accelerator, machine shape, world
-    size, nproc, corruption, status -- stay pinned. A None expected value (an unusable
-    plan field) fails that cell closed.
+    size, nproc, status -- stay pinned. Corruption is no longer pinned here: it is a
+    fixed inline-stain runtime property (Spec 0011 S17f), not a selected axis. A None
+    expected value (an unusable plan field) fails that cell closed.
 
     Returns:
         Stable selected-row snapshot coherence error identifiers.
@@ -848,7 +861,6 @@ def _snapshot_errors(payload: JsonObject) -> tuple[str, ...]:
         "accelerator_mode": "dual_t4_ddp",
         "machine_shape": EXPECTED_MACHINE_SHAPE,
         "precision_policy": _str_or_none(mixed.get("policy")),
-        "corruption_strategy": "indexed_masked",
         "nproc_per_node": "2",
         "per_device_batch_size": _int_as_snapshot_str(
             payload.get("per_device_batch_size"),
@@ -864,7 +876,6 @@ def _snapshot_errors(payload: JsonObject) -> tuple[str, ...]:
         "accelerator_mode": "selected_runtime_snapshot_not_dual_t4_ddp",
         "machine_shape": "selected_runtime_snapshot_wrong_machine_shape",
         "precision_policy": "selected_runtime_snapshot_wrong_precision_policy",
-        "corruption_strategy": "selected_runtime_snapshot_wrong_corruption_strategy",
         "nproc_per_node": "selected_runtime_snapshot_wrong_nproc_per_node",
         "per_device_batch_size": "selected_runtime_snapshot_wrong_per_device_batch",
         "global_batch_size": "selected_runtime_snapshot_wrong_global_batch",

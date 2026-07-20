@@ -57,7 +57,6 @@ from eqvae.corruption.inline_stain import InlineStainCorruptor
 from eqvae.corruption.stain import (
     StainCorruptionProfile,
     clean_validation_passthrough,
-    corrupt_normalized_batch,
     profile_from_config,
 )
 from eqvae.data.dataloaders import normalize_uint8_batch
@@ -111,12 +110,15 @@ from eqvae.training.optim import (
 )
 from eqvae.training.selected_runtime import (
     COMPILED_FASTPATH_CORRUPTION_STRATEGY,
+    EAGER_INLINE_STAIN_CORRUPTION_STRATEGY,
     EXPECTED_DDP_APPLICATION_STATUS,
     EXPECTED_MACHINE_SHAPE,
     EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE,
+    VALIDATION_INLINE_STAIN_CORRUPTION_STRATEGY,
     SelectedRuntimeApplicationObservation,
     SelectedRuntimePlan,
     build_plan_applied_proof,
+    expected_corruption_strategy,
     expected_local_amp_status,
     parse_selected_runtime_plan,
 )
@@ -143,7 +145,10 @@ _BENCHMARK_SOURCE = "local_selected_runtime_train_runner"
 _STATUS_SCOPE = "local_selected_runtime_runner"
 _LOCAL_STATUS = "local_pass"
 _FAIL = "fail"
-_TRAIN_CORRUPTION_VIEW = "train_corrupted"
+# The checkpointed name of the per-rank training corruption generator (Spec 0011 S17f),
+# a peer of the reparameterization eps generator ("train_data"): its state is saved and
+# restored so a resume CONTINUES the corruption stream rather than replaying it.
+_CORRUPTION_GENERATOR_NAME = "train_corruption"
 # The plan `compile_scope` token that selects the compiled whole-step fast path (Spec
 # 0011 S16). Matches the probe's `_COMPILE_SCOPE_STEP` and the plan token the generator
 # copies verbatim; the runner compiles the step only for this scope.
@@ -501,6 +506,7 @@ class _CheckpointWriteContext:
     optimizer: torch.optim.Optimizer
     numpy_generator: Generator
     train_generator: torch.Generator
+    corruption_generator: torch.Generator
     runtime_identity: _RuntimeIdentity
     scaler: GradScaler
     amp: _AmpExecution
@@ -964,7 +970,7 @@ def build_ddp_rank_device_proof(
     )
 
 
-def write_selected_runtime_training_run(  # noqa: PLR0914
+def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
     request: SelectedRuntimeTrainRequest,
 ) -> SelectedRuntimeTrainResult:
     """Run the selected-runtime train runner and write proof artifacts.
@@ -1015,6 +1021,17 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
     train_generator.manual_seed(
         _eps_generator_seed(data_seed=settings.data_seed, rank=distributed.rank),
     )
+    # Per-rank training-corruption generator (Spec 0011 S17f): a dedicated CPU
+    # torch.Generator stream, independent of the eps generator, whose state is
+    # checkpointed so a resume CONTINUES the corruption stream (the retired blake2b
+    # per-sample seeding is gone).
+    corruption_generator = torch.Generator(device="cpu")
+    corruption_generator.manual_seed(
+        _corruption_generator_seed(
+            corruption_seed=settings.corruption_seed,
+            rank=distributed.rank,
+        ),
+    )
     data_surface = _prepare_data_surface(
         request=request,
         settings=settings,
@@ -1033,6 +1050,11 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
     latent_channels = model.latent_channels
     model = _place_model(model=model, plan=plan, device=distributed.device)
     optimizer = build_fastpath_optimizer(model, config=settings.optimizer_config)
+    # The eager train step corrupts the CPU batch with the same vectorized inline-stain
+    # corruptor the compiled path fuses in-graph, but through the checkpoint-continued
+    # per-rank generator (Spec 0011 S17f). Built once on CPU (no device placement: eager
+    # corruption runs on the pre-transfer CPU batch).
+    eager_corruptor = InlineStainCorruptor(settings.corruption_profile)
     amp = _amp_execution(plan=plan, distributed=distributed, dry_run=request.dry_run)
     scaler = GradScaler(
         "cuda",
@@ -1048,6 +1070,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
         distributed=distributed,
         numpy_generator=numpy_generator,
         train_generator=train_generator,
+        corruption_generator=corruption_generator,
         runtime_identity=runtime_identity,
         resolved=resolved,
     )
@@ -1058,6 +1081,13 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
     )
     _reapply_per_rank_eps_offset_on_resume(
         train_generator=train_generator,
+        settings=settings,
+        distributed=distributed,
+        loaded_checkpoint=loaded_checkpoint,
+        start_step=start_step,
+    )
+    _reapply_per_rank_corruption_offset_on_resume(
+        corruption_generator=corruption_generator,
         settings=settings,
         distributed=distributed,
         loaded_checkpoint=loaded_checkpoint,
@@ -1123,6 +1153,8 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
         distributed=distributed,
         numpy_generator=numpy_generator,
         train_generator=train_generator,
+        corruption_generator=corruption_generator,
+        eager_corruptor=eager_corruptor,
         runtime_identity=runtime_identity,
         start_step=start_step,
         initial_best_validation_metric=resume_history.best_validation_metric,
@@ -1196,6 +1228,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914
         scaler=scaler,
         numpy_generator=numpy_generator,
         train_generator=train_generator,
+        corruption_generator=corruption_generator,
         loaded_checkpoint=loaded_checkpoint,
         resume_history=resume_history,
         metric_rows=metric_rows,
@@ -1242,6 +1275,7 @@ def _write_final_artifacts(  # noqa: PLR0913
     scaler: GradScaler,
     numpy_generator: Generator,
     train_generator: torch.Generator,
+    corruption_generator: torch.Generator,
     loaded_checkpoint: LoadedCheckpoint | None,
     resume_history: _ResumeArtifactHistory,
     metric_rows: Sequence[CsvRow],
@@ -1277,6 +1311,7 @@ def _write_final_artifacts(  # noqa: PLR0913
                 scaler=scaler,
                 numpy_generator=numpy_generator,
                 train_generator=train_generator,
+                corruption_generator=corruption_generator,
                 loaded_checkpoint=loaded_checkpoint,
                 resume_history=resume_history,
                 metric_rows=metric_rows,
@@ -1324,6 +1359,7 @@ def _write_final_artifacts_primary(  # noqa: PLR0913
     scaler: GradScaler,
     numpy_generator: Generator,
     train_generator: torch.Generator,
+    corruption_generator: torch.Generator,
     loaded_checkpoint: LoadedCheckpoint | None,
     resume_history: _ResumeArtifactHistory,
     metric_rows: Sequence[CsvRow],
@@ -1345,6 +1381,7 @@ def _write_final_artifacts_primary(  # noqa: PLR0913
         optimizer=optimizer,
         numpy_generator=numpy_generator,
         train_generator=train_generator,
+        corruption_generator=corruption_generator,
         runtime_identity=runtime_identity,
         step=settings.max_train_steps,
         metric_value=_best_l1(metric_rows),
@@ -1364,6 +1401,7 @@ def _write_final_artifacts_primary(  # noqa: PLR0913
             optimizer=optimizer,
             numpy_generator=numpy_generator,
             train_generator=train_generator,
+            corruption_generator=corruption_generator,
             runtime_identity=runtime_identity,
             step=settings.max_train_steps,
             metric_value=_best_l1(metric_rows),
@@ -1482,7 +1520,7 @@ def _write_final_artifacts_primary(  # noqa: PLR0913
             artifacts.tiny_overfit_summary,
             _tiny_overfit_summary(
                 runtime_identity=runtime_identity,
-                corruption_strategy=plan.corruption_strategy,
+                corruption_strategy=expected_corruption_strategy(plan),
                 data_surface=data_surface,
                 metric_rows=metric_rows,
                 gate_health_summary=gate_health_summary,
@@ -2982,6 +3020,7 @@ def _restore_checkpoint_if_requested(  # noqa: PLR0913
     distributed: _DistributedContext,
     numpy_generator: Generator,
     train_generator: torch.Generator,
+    corruption_generator: torch.Generator,
     runtime_identity: _RuntimeIdentity,
     resolved: ResolvedConfig,
 ) -> LoadedCheckpoint | None:
@@ -3000,7 +3039,10 @@ def _restore_checkpoint_if_requested(  # noqa: PLR0913
         model=model,
         optimizer=optimizer,
         numpy_generator=numpy_generator,
-        torch_generators={"train_data": train_generator},
+        torch_generators={
+            "train_data": train_generator,
+            _CORRUPTION_GENERATOR_NAME: corruption_generator,
+        },
         amp_scaler=scaler if amp.grad_scaler_enabled else None,
         restore_cuda_rng=distributed.device.type == "cuda",
         expected_effective_config_sha256=resolved.effective_config_hash,
@@ -3026,6 +3068,8 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
     distributed: _DistributedContext,
     numpy_generator: Generator,
     train_generator: torch.Generator,
+    corruption_generator: torch.Generator,
+    eager_corruptor: InlineStainCorruptor,
     runtime_identity: _RuntimeIdentity,
     start_step: int,
     initial_best_validation_metric: float | None,
@@ -3047,6 +3091,7 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
         optimizer=optimizer,
         numpy_generator=numpy_generator,
         train_generator=train_generator,
+        corruption_generator=corruption_generator,
         runtime_identity=runtime_identity,
         scaler=scaler,
         amp=amp,
@@ -3063,14 +3108,15 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
         10,
         settings.max_train_steps * 2,
     )
-    # The compiled whole-step fast path replaces the reproducible blake2b corruptor with
-    # the branchless inline one, so train rows are labeled honestly; both are constant
-    # across the loop (Spec 0011 S17c).
+    # Corruption is inline stain on both paths (Spec 0011 S17f): the compiled fast path
+    # fuses the seedless corruptor into the graph, while the eager path draws it through
+    # the checkpoint-continued per-rank generator. Train rows record which variant ran;
+    # both labels are constant across the loop.
     compiled_step_active = compiled_step_fn is not None
     train_corruption_label = (
         COMPILED_FASTPATH_CORRUPTION_STRATEGY
         if compiled_step_active
-        else plan.corruption_strategy
+        else EAGER_INLINE_STAIN_CORRUPTION_STRATEGY
     )
     while successful_count < settings.max_train_steps:
         attempt_count += 1
@@ -3110,6 +3156,8 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
                 optimizer_step_index=successful_count,
                 successful_optimizer_update_count=successful_count + 1,
                 train_generator=train_generator,
+                corruption_generator=corruption_generator,
+                eager_corruptor=eager_corruptor,
                 device=distributed.device,
             )
         last_result = result
@@ -3277,6 +3325,7 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
                 optimizer=optimizer,
                 numpy_generator=numpy_generator,
                 train_generator=train_generator,
+                corruption_generator=corruption_generator,
                 runtime_identity=runtime_identity,
                 step=settings.max_train_steps,
                 metric_value=float(last_result.losses.l1_loss.detach().cpu().item()),
@@ -3426,6 +3475,7 @@ def _save_best_validation_checkpoint(
         optimizer=context.optimizer,
         numpy_generator=context.numpy_generator,
         train_generator=context.train_generator,
+        corruption_generator=context.corruption_generator,
         runtime_identity=context.runtime_identity,
         step=step,
         metric_name="validation_l1_loss",
@@ -3451,6 +3501,7 @@ def _save_interval_checkpoint(
         optimizer=context.optimizer,
         numpy_generator=context.numpy_generator,
         train_generator=context.train_generator,
+        corruption_generator=context.corruption_generator,
         runtime_identity=context.runtime_identity,
         step=step,
         metric_value=metric_value,
@@ -4108,21 +4159,21 @@ def _run_train_step(  # noqa: PLR0913, PLR0914
     optimizer_step_index: int,
     successful_optimizer_update_count: int,
     train_generator: torch.Generator,
+    corruption_generator: torch.Generator,
+    eager_corruptor: InlineStainCorruptor,
     device: torch.device,
 ) -> _SelectedRuntimeStepResult:
+    # Corrupt the CPU batch with the vectorized inline-stain corruptor through the
+    # per-rank, checkpoint-continued generator (Spec 0011 S17f) -- the retired blake2b
+    # per-sample seeding is gone. Corruption stays on CPU (pre-transfer), matching the
+    # eager path's clean/corrupted H2D pair.
     clean_batch_cpu = normalize_uint8_batch(batch.images_uint8)
-    corruption = corrupt_normalized_batch(
-        clean_batch_cpu,
-        profile=settings.corruption_profile,
-        corruption_seed=settings.corruption_seed,
-        split=batch.split,
-        semantic_sample_keys=batch.semantic_sample_keys,
-        corruption_step=optimizer_step_index,
-        corruption_view=_TRAIN_CORRUPTION_VIEW,
-        strategy=plan.corruption_strategy,
+    corrupted_cpu = cast(
+        "torch.Tensor",
+        eager_corruptor(clean_batch_cpu, generator=corruption_generator),
     )
     clean_batch = _to_device(clean_batch_cpu, device=device, plan=plan)
-    input_batch = _to_device(corruption.corrupted, device=device, plan=plan)
+    input_batch = _to_device(corrupted_cpu, device=device, plan=plan)
     eps, eps_proof = _train_eps(
         batch_size=input_batch.shape[0],
         latent_channels=latent_channels,
@@ -4220,13 +4271,14 @@ def _run_compiled_train_step(  # noqa: PLR0913
     train_generator: torch.Generator,
     device: torch.device,
 ) -> _SelectedRuntimeStepResult:
-    # The compiled step fuses the uint8->float normalize + inline (blake2b-free)
-    # corruption + the AMP forward + the FP32 loss island into one graph; backward,
-    # GradScaler, gradient clipping, and the optimizer step stay eager here, exactly as
-    # the probe measures the recipe. Only the uint8 batch crosses the host boundary (4x
-    # fewer bytes, channels_last fused into the H2D ``.to()``) -- the cast/normalize and
-    # corruption run on-device in the graph (train-only; validation/deterministic keep
-    # blake2b).
+    # The compiled step fuses the uint8->float normalize + inline (seedless) corruption
+    # + the AMP forward + the FP32 loss island into one graph; backward, GradScaler,
+    # gradient clipping, and the optimizer step stay eager here, exactly as the probe
+    # measures the recipe. Only the uint8 batch crosses the host boundary (4x fewer
+    # bytes, channels_last fused into the H2D ``.to()``) -- the cast/normalize and
+    # corruption run on-device in the graph. The eager training and validation paths
+    # corrupt on CPU through their own inline-stain generators (Spec 0011 S17f); none
+    # use blake2b.
     x_uint8 = _to_device(batch.images_uint8, device=device, plan=plan)
     eps, eps_proof = _train_eps(
         batch_size=x_uint8.shape[0],
@@ -4476,7 +4528,7 @@ def _run_scheduled_validation(  # noqa: PLR0913
     return tuple(rows)
 
 
-def _validation_view_row(  # noqa: PLR0913
+def _validation_view_row(  # noqa: PLR0913, PLR0914
     *,
     model: nn.Module,
     latent_channels: int,
@@ -4492,6 +4544,14 @@ def _validation_view_row(  # noqa: PLR0913
     scalars: list[dict[str, float]] = []
     sample_count = 0
     batch_count = 0
+    # Validation corruption uses the same inline-stain corruptor as training, but
+    # through a generator re-seeded to a fixed constant at the start of every boundary
+    # sweep (Spec 0011 S17f): identical corruption each half-epoch makes the denoising
+    # view a stable ruler for best-checkpoint selection. It carries no checkpoint state
+    # and is independent of the free-running training corruption stream.
+    corruptor = InlineStainCorruptor(settings.corruption_profile)
+    validation_generator = torch.Generator(device="cpu")
+    validation_generator.manual_seed(settings.corruption_seed)
     for batch in _validation_batches(
         data_surface.validation_loader,
         settings.validation_batches_per_view,
@@ -4500,16 +4560,10 @@ def _validation_view_row(  # noqa: PLR0913
         if view == "clean":
             input_batch_cpu = clean_validation_passthrough(clean_batch_cpu)
         elif view == "deterministic_denoising":
-            input_batch_cpu = corrupt_normalized_batch(
-                clean_batch_cpu,
-                profile=settings.corruption_profile,
-                corruption_seed=settings.corruption_seed,
-                split=batch.split,
-                semantic_sample_keys=batch.semantic_sample_keys,
-                corruption_step=optimizer_step,
-                corruption_view=f"validation_{view}",
-                strategy=plan.corruption_strategy,
-            ).corrupted
+            input_batch_cpu = cast(
+                "torch.Tensor",
+                corruptor(clean_batch_cpu, generator=validation_generator),
+            )
         else:
             message = f"unsupported validation view: {view}"
             raise ValueError(message)
@@ -4567,7 +4621,7 @@ def _validation_view_row(  # noqa: PLR0913
         "kl_loss": _format_float(means["kl_loss"]),
         "beta": _format_float(means["beta"]),
         "deterministic_eps_used": "true",
-        "corruption_strategy": plan.corruption_strategy,
+        "corruption_strategy": VALIDATION_INLINE_STAIN_CORRUPTION_STRATEGY,
     }
 
 
@@ -4675,6 +4729,7 @@ def _save_checkpoint(  # noqa: PLR0913
     optimizer: torch.optim.Optimizer,
     numpy_generator: Generator,
     train_generator: torch.Generator,
+    corruption_generator: torch.Generator,
     runtime_identity: _RuntimeIdentity,
     step: int,
     metric_value: float,
@@ -4688,7 +4743,10 @@ def _save_checkpoint(  # noqa: PLR0913
         model=model,
         optimizer=optimizer,
         numpy_generator=numpy_generator,
-        torch_generators={"train_data": train_generator},
+        torch_generators={
+            "train_data": train_generator,
+            _CORRUPTION_GENERATOR_NAME: corruption_generator,
+        },
         runtime_config_sha256=runtime_identity.sha256,
         selected_row_id=runtime_identity.selected_row_id,
         runtime_policy_id=runtime_identity.runtime_policy_id,
@@ -4773,6 +4831,12 @@ def _checkpoint_resume_proof(  # noqa: PLR0913
     model = _place_model(model=model, plan=plan, device=distributed.device)
     optimizer = build_fastpath_optimizer(model, config=settings.optimizer_config)
     numpy_generator = np.random.default_rng(settings.global_seed)
+    # This post-training probe loads the real checkpoint only to verify the RNG state
+    # restores (it checks restore-status flags, not values), so it receives the saved
+    # corruption state into a throwaway generator -- the key must still be present so
+    # the exact-key-match against the checkpoint's ``{train_data, train_corruption}``
+    # payload succeeds (Spec 0011 S17f).
+    proof_corruption_generator = torch.Generator(device="cpu")
     probe_scaler = GradScaler(
         "cuda",
         init_scale=amp.grad_scaler_init_scale,
@@ -4783,7 +4847,10 @@ def _checkpoint_resume_proof(  # noqa: PLR0913
         model=model,
         optimizer=optimizer,
         numpy_generator=numpy_generator,
-        torch_generators={"train_data": train_generator},
+        torch_generators={
+            "train_data": train_generator,
+            _CORRUPTION_GENERATOR_NAME: proof_corruption_generator,
+        },
         amp_scaler=probe_scaler if amp.grad_scaler_enabled else None,
         restore_cuda_rng=distributed.device.type == "cuda",
         expected_effective_config_sha256=resolved.effective_config_hash,
@@ -5203,7 +5270,7 @@ def _plan_applied_proof(  # noqa: PLR0913
         dataloader_non_blocking_h2d=plan.dataloader_non_blocking_h2d,
         corruption_strategy=_observed_corruption_strategy(
             metric_rows,
-            fallback=plan.corruption_strategy,
+            fallback=expected_corruption_strategy(plan),
         ),
         memory_format=plan.memory_format,
         ddp_static_graph=plan.ddp_static_graph,
@@ -6147,6 +6214,58 @@ def _reapply_per_rank_eps_offset_on_resume(
     train_generator.manual_seed(
         _eps_generator_seed(
             data_seed=settings.data_seed,
+            rank=distributed.rank,
+            start_step=start_step,
+        ),
+    )
+
+
+def _corruption_generator_seed(
+    *,
+    corruption_seed: int,
+    rank: int,
+    start_step: int = 0,
+) -> int:
+    """Return the per-rank training-corruption seed (Spec 0011 S17f).
+
+    Mirrors the reparameterization eps seed policy so the corruption stream diverges
+    per DDP rank (independent augmentation) and, after a resume, re-bases by
+    ``start_step`` so the second half of training neither replays the pre-resume
+    corruption sequence nor collapses back to the single rank-0 stream that every rank
+    restores from the rank-0 checkpoint. It is offset from ``corruption_seed`` (not
+    ``data_seed``) so the corruption stream is independent of the eps stream. Rank 0
+    with ``start_step == 0`` reduces to ``corruption_seed``.
+
+    Returns:
+        The seed for this rank's training-corruption ``torch.Generator``.
+
+    """
+    return corruption_seed + rank + start_step
+
+
+def _reapply_per_rank_corruption_offset_on_resume(
+    *,
+    corruption_generator: torch.Generator,
+    settings: _RunnerSettings,
+    distributed: _DistributedContext,
+    loaded_checkpoint: LoadedCheckpoint | None,
+    start_step: int,
+) -> None:
+    """Re-establish per-rank corruption divergence after a resume (Spec 0011 S17f).
+
+    The checkpoint restores rank-0's saved corruption generator into every rank, which
+    would collapse the per-rank corruption offset into one identical-across-ranks stream
+    after any resume. Re-seeding each rank from ``(corruption_seed, rank, start_step)``
+    restores the divergence and re-bases the stream past the pre-resume steps (the
+    ``start_step`` term), so a resumed run never replays its earlier corruption. Skipped
+    for single-process runs so a world_size==1 resume keeps the exact restored
+    continuous stream.
+    """
+    if loaded_checkpoint is None or not distributed.should_use_ddp:
+        return
+    corruption_generator.manual_seed(
+        _corruption_generator_seed(
+            corruption_seed=settings.corruption_seed,
             rank=distributed.rank,
             start_step=start_step,
         ),

@@ -189,7 +189,7 @@ def test_selected_runtime_runner_dry_run_writes_required_artifacts(  # noqa: PLR
     assert {row["precision_policy"] for row in train_rows} == {"amp_conservative"}
     assert {row["amp_enabled"] for row in train_rows} == {"false"}
     assert {row["grad_scaler_enabled"] for row in train_rows} == {"false"}
-    assert {row["corruption_strategy"] for row in train_rows} == {"indexed_masked"}
+    assert {row["corruption_strategy"] for row in train_rows} == {"eager_inline_stain"}
     assert manifest["status"] == "local_pass"
     artifact_hashes = _object(manifest, "artifact_hashes")
     assert "selected_runtime_plan_applied" in artifact_hashes

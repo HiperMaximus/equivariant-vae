@@ -1,10 +1,15 @@
 # Copyright 2026 HiperMaximus
-"""Compile-friendly inline HED stain corruptor for the fast-path training step.
+"""Compile-friendly inline HED stain corruptor for the training + validation paths.
 
-Unlike the reproducible `corrupt_normalized_batch` (blake2b per-sample seeding, kept
-for validation and determinism tests), this module draws corruption parameters with
-inline `torch.rand`/`torch.randn` so the whole thing fuses into the compiled train
-step. It is intentionally non-deterministic and rank-local (speed-first hot path).
+This module draws corruption parameters with inline `torch.rand`/`torch.randn` so the
+whole thing fuses into the compiled train step -- a vectorized native torch RNG draw
+(Philox on CUDA) rather than the retired blake2b per-sample seeding (Spec 0011 S17f).
+The compiled fast path calls it
+with ``generator=None`` (the process-global RNG, fuse-friendly and rank-local,
+speed-first). The eager training and validation paths pass an explicit
+``torch.Generator`` so their corruption stream can be checkpoint-continued (training)
+or re-seeded to a fixed constant each boundary (validation, for stable best-checkpoint
+selection); the sampled distributions are identical either way.
 """
 
 from __future__ import annotations
@@ -69,8 +74,22 @@ class InlineStainCorruptor(nn.Module):
             persistent=False,
         )
 
-    def forward(self, images: Tensor) -> Tensor:
+    def forward(
+        self,
+        images: Tensor,
+        *,
+        generator: torch.Generator | None = None,
+    ) -> Tensor:
         """Corrupt a normalized `[-1, 1]` NCHW batch with branchless tensor ops.
+
+        Args:
+            images: Normalized `[-1, 1]` NCHW batch to corrupt.
+            generator: Optional ``torch.Generator`` (on ``images.device``) supplying the
+                corruption randomness. ``None`` (the default, used by the compiled fast
+                path) draws from the process-global RNG and keeps ``randn_like`` so the
+                graph stays fuse-friendly and preserves the input memory format; the
+                eager training / validation paths pass their own generator for a
+                checkpoint-continued or re-seeded stream.
 
         Returns:
             Corrupted batch in the input dtype, clamped to `[-1, 1]`.
@@ -81,7 +100,7 @@ class InlineStainCorruptor(nn.Module):
             work = images.to(dtype=torch.float32)
             batch = work.shape[0]
             applied = (
-                torch.rand((batch, 1, 1, 1), device=work.device, dtype=torch.float32)
+                _rand((batch, 1, 1, 1), device=work.device, generator=generator)
                 < self.corrupt_prob
             )
             alpha = _sample_range(
@@ -89,19 +108,21 @@ class InlineStainCorruptor(nn.Module):
                 cast("Tensor", self.alpha_max),
                 batch=batch,
                 channels=RGB_CHANNELS,
+                generator=generator,
             )
             beta = _sample_range(
                 cast("Tensor", self.beta_min),
                 cast("Tensor", self.beta_max),
                 batch=batch,
                 channels=RGB_CHANNELS,
+                generator=generator,
             )
-            noise_std = self.noise_std_min + torch.rand(
+            noise_std = self.noise_std_min + _rand(
                 (batch, 1, 1, 1),
                 device=work.device,
-                dtype=torch.float32,
+                generator=generator,
             ) * (self.noise_std_max - self.noise_std_min)
-            noise = torch.randn_like(work) * noise_std
+            noise = _randn_like(work, generator=generator) * noise_std
             rgb = normalized_to_rgb01(work)
             hed = rgb_to_hed(rgb, hed_from_rgb=cast("Tensor", self.hed_from_rgb))
             jittered = hed_to_rgb(
@@ -113,19 +134,65 @@ class InlineStainCorruptor(nn.Module):
             return corrupted.clamp(-1.0, 1.0).to(dtype=input_dtype)
 
 
+def _rand(
+    shape: tuple[int, ...],
+    *,
+    device: torch.device,
+    generator: torch.Generator | None,
+) -> Tensor:
+    """Draw ``U[0, 1)`` of ``shape`` in float32, emitting the exact seedless overload.
+
+    Passing ``generator=None`` to ``torch.rand`` selects the ``aten.rand.generator``
+    overload instead of ``aten.rand.default``; the compiled fast path (which passes
+    ``None``) must emit the same op the pre-generator code did, so the None branch omits
+    the kwarg. That keeps the measured compiled recipe byte-identical without relying on
+    inductor normalizing the two overloads. An explicit generator uses ``.generator``.
+
+    Returns:
+        A float32 ``U[0, 1)`` tensor of ``shape`` on ``device``.
+
+    """
+    if generator is None:
+        return torch.rand(shape, device=device, dtype=torch.float32)
+    return torch.rand(shape, device=device, dtype=torch.float32, generator=generator)
+
+
 def _sample_range(
     lower: Tensor,
     upper: Tensor,
     *,
     batch: int,
     channels: int,
+    generator: torch.Generator | None,
 ) -> Tensor:
-    unit = torch.rand(
+    unit = _rand(
         (batch, channels, 1, 1),
         device=lower.device,
-        dtype=torch.float32,
+        generator=generator,
     )
     return lower + unit * (upper - lower)
+
+
+def _randn_like(reference: Tensor, *, generator: torch.Generator | None) -> Tensor:
+    """Draw standard-normal noise shaped like ``reference``.
+
+    With ``generator=None`` this is ``torch.randn_like`` (the compiled fast path),
+    which preserves ``reference``'s memory format so the fused channels_last graph is
+    unchanged. With an explicit generator ``randn_like`` cannot take one, so it falls
+    back to ``torch.randn`` with the reference's shape/dtype/device.
+
+    Returns:
+        A standard-normal tensor matching ``reference``'s shape, dtype, and device.
+
+    """
+    if generator is None:
+        return torch.randn_like(reference)
+    return torch.randn(
+        reference.shape,
+        device=reference.device,
+        dtype=reference.dtype,
+        generator=generator,
+    )
 
 
 def _channel_bounds(he_value: float, residual_value: float) -> Tensor:
