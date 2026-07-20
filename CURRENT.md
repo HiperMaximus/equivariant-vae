@@ -424,15 +424,27 @@ an unshuffled/slide-grouped bin; matches FSQ, which sweeps the whole `val_loader
 `batch_count > 0`, since the count is now data-dependent); the full-run anchor requires 0 so a real run can't
 silently cap; corrected the non-current capped-probe decision text in Spec 0009 (AC#5 + Open Questions) +
 Spec 0011 (rule 15). Gate 583/1, +2 mutation-proof tests (helper + CPU end-to-end full-sweep), 3 reviewers +
-fix-delta clean (found+fixed Rule-15 doc-drift + a coverage gap). **NEXT (LOCAL): the RNG combined step
-(decomposed Option A — commit 2 = behavior [both paths → Philox + checkpoint continuation + de-pin + S17c label], commit 3 = delete the dead blake2b subsystem; NO mixed-path limbo; FULL surface map in the spec 0011 S17f "RNG" item)** — retire blake2b BLANKET → free-running Philox InlineStain for TRAINING
-(per-rank generator whose state is SAVED/RESTORED at checkpoint so a resume CONTINUES the stream, never
-re-seeds→repeats the corruption sequence [user's anti-repeat point; the repo already checkpoints RNG state — we
-extend it]) + a fixed-seed generator for the (now full) VALIDATION denoising view (re-seeded to a constant each
-boundary → reproducible selection, no checkpoint state); delete the blake2b subsystem; update the S17c
-corruption-label + de-pin the parser/snapshot `indexed_masked` pins. Then compile mode (max-autotune SEARCHED,
-may NOT win on T4) + `fullgraph=True`, DDP grad overlap, GPU-resident metrics, precision; then S17d (bounded
-dataloader search — read its traps) + S17e (throughput batch search).
+fix-delta clean (found+fixed Rule-15 doc-drift + a coverage gap). **S17f RNG combined-step sub-commit 2 — DONE
+(`5dde097`): the runner's eager training + validation corruption move off blake2b onto the vectorized
+`InlineStainCorruptor` via dedicated `torch.Generator`s; corruption is now a FIXED speed-first property, not a
+plan-selected axis** (user confirmed drop-the-axis — inline is certainly faster than a Python-loop-with-blake2b,
+no re-measure). `InlineStainCorruptor.forward` gained an optional keyword-only `generator` (None = the seedless
+compiled fast path, byte-identical via `_rand`/`_randn_like`); TRAINING uses a per-rank generator seeded
+`corruption_seed+rank`, checkpointed as `train_corruption` and DDP-resume re-based (mirrors the eps generator) so
+a resume CONTINUES the stream, never replaying it; VALIDATION uses a generator re-seeded to a fixed constant each
+boundary sweep (identical corruption every half-epoch = a stable best-checkpoint ruler, no checkpoint state).
+`expected_corruption_strategy` → `eager_inline_stain`/`compiled_fastpath_inline_stain`; the parser launch pin
+relaxed to a fail-closed structural check + the snapshot corruption pin dropped (v5 plan still parses; provenance
+echoes keep the declared value). Distribution unchanged (same alpha/beta/noise ranges + where-select). Accepted
+rule-30 consequence: a pre-S17f checkpoint can't resume across the new `{train_data, train_corruption}` key set —
+none exists (the compiled full run is the first paper run). Gate 586/1, ruff+basedpyright clean; four clean-context
+default-refute reviewers (RNG/checkpoint, compiled byte-identity, label/de-pin fail-closed, distribution/scope) →
+0 confirmed. **NEXT (LOCAL): the REST of S17f** — compile mode (max-autotune SEARCHED, may NOT win on T4) +
+`fullgraph=True`, DDP grad overlap, GPU-resident metrics, precision; PLUS the blake2b retirement FOLLOW-UPS
+(SCOPE CORRECTION rule 29 — blake2b was NOT dead after the runner-only sub-commit 2: the benchmark selection
+corruption proof + `debug.py`/`kaggle_smoke.py`/`stain_corruptor_qa.py` still use it → move those off blake2b,
+then delete the dead subsystem). Then S17d (bounded dataloader search — read its traps) + S17e (throughput batch
+search).
 Speed-first doc reconciliation is DONE (`9ce1bd5`); AGENTS rule 30 + rule 15 (delete non-current) are
 the governing rules. See [[eqvae-reusable-runtime-mechanism-plan]], [[eqvae-speed-first-dont-cares]],
 [[eqvae-s17d-dataloader-design]] + `docs/specs/0011-*.md`.
