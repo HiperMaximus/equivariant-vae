@@ -1004,8 +1004,9 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       {`default`, `reduce-overhead`, `max-autotune`, `max-autotune-no-cudagraphs`}. Enforce
       `fullgraph=True` on a single-GPU replica to kill SPURIOUS graph breaks.
     - **RNG — retire blake2b BLANKET (the "combined step", user-designed; the NEXT S17f step
-      after full validation). Decomposition = Option A (no mixed-path limbo): commit (2) = the
-      BEHAVIOR change + de-pin; commit (3) = delete the now-dead blake2b subsystem.**
+      after full validation). Decomposition = Option A (no mixed-path limbo). The user-described
+      "combined step" has three sub-commits: (1) full validation [DONE `a6c6271`], (2) this
+      BEHAVIOR change + de-pin, (3) delete the now-dead blake2b subsystem.**
       COMMIT 2 — both corruption paths move off blake2b to Philox `InlineStainCorruptor`:
       - TRAINING (eager `_run_train_step`; the compiled path is already inline-stain): a
         free-running per-rank Philox generator whose state is SAVED/RESTORED at checkpoint so a
@@ -1118,10 +1119,10 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
 - **Batch source** → re-measured by the generator each run (never a consumed 48).
 - **LR rule** → sqrt default (AdamW), per-model reference in the model config; user
   re-tunes `reference_lr`/`rule` per model. Baseline unchanged at scale 1.
-- **`drop_last`** → **set `True` for BOTH train and validation** (currently `False`
-  everywhere — a real flip, not a keep). Flip the shared `_loader` default. Tails do not
-  matter (drop_last drops a negligible per-rank remainder). Validation sweeps the FULL
-  dataset every half-epoch (S17f — `validation_batches_per_view = 0`, matching the FSQ
+- **`drop_last`** → **`True` for BOTH train and validation — DONE (S16 `3298a57`; the stale
+  projection-record then unit-flipped in S17f `3b9aa42`).** Tails do not matter (drop_last drops
+  a negligible per-rank remainder). Validation sweeps the FULL dataset every half-epoch (S17f
+  `a6c6271` — `validation_batches_per_view = 0`, matching the FSQ
   reference), and its `sum(l1*n)/sum(n)` reduction stays correct across shards, so
   best-checkpoint selection uses the whole validation set (not a fixed leading slice).
   The sealed masked-WSI TEST set is a separate future evaluator.
