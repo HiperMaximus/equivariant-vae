@@ -1983,7 +1983,6 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                     data_loader_factory=DataLoader,
                     subset_factory=Subset,
                     collate_fn=collate_patch_training_samples,
-                    normalize_uint8_batch_fn=normalize_uint8_batch,
                     row_spec=config.row_spec,
                     measured_batches=settings.measured_steps,
                 ),
@@ -1996,7 +1995,6 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                     data_loader_factory=DataLoader,
                     subset_factory=Subset,
                     collate_fn=collate_patch_training_samples,
-                    normalize_uint8_batch_fn=normalize_uint8_batch,
                     row_spec=config.row_spec,
                     measured_batches=settings.measured_steps,
                 ),
@@ -2124,7 +2122,6 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                             optimizer=optimizer,
                             model=model,
                             device=device,
-                            normalize_uint8_batch_fn=normalize_uint8_batch,
                             settings=settings,
                             step_index=settle_index,
                             row_spec=config.row_spec,
@@ -2166,7 +2163,6 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                         optimizer=optimizer,
                         model=model,
                         device=device,
-                        normalize_uint8_batch_fn=normalize_uint8_batch,
                         settings=settings,
                         step_index=step_index,
                         row_spec=config.row_spec,
@@ -2849,13 +2845,14 @@ def _screen_compiled_step_vram_feasibility(
             backend=_STEP_COMPILE_BACKEND,
         )
         latent_size = settings.image_size // pretest.LATENT_DOWNSAMPLE_FACTOR
-        x_clean = torch.zeros(
+        x_uint8 = torch.zeros(
             (
                 row_spec.per_device_batch_size,
                 settings.channels,
                 settings.image_size,
                 settings.image_size,
             ),
+            dtype=torch.uint8,
             device=device,
         )
         eps = torch.zeros(
@@ -2864,7 +2861,7 @@ def _screen_compiled_step_vram_feasibility(
             device=device,
         )
         if channels_last:
-            x_clean = x_clean.contiguous(memory_format=torch.channels_last)
+            x_uint8 = x_uint8.contiguous(memory_format=torch.channels_last)
             eps = eps.contiguous(memory_format=torch.channels_last)
         beta = torch.zeros((), device=device)
         # Bound before the loop so the feasible-path ``del output`` below stays defined
@@ -2873,7 +2870,7 @@ def _screen_compiled_step_vram_feasibility(
         output = None
         for _ in range(_FEASIBILITY_PROBE_STEPS):
             optimizer.zero_grad(set_to_none=True)
-            output = compiled_step_fn(x_clean, eps, beta)
+            output = compiled_step_fn(x_uint8, eps, beta)
             output.loss.backward()
             optimizer.step()
         headroom = probe_headroom_bytes(device)
@@ -2903,7 +2900,7 @@ def _screen_compiled_step_vram_feasibility(
     # ``reconstruction``) is always bound here since _FEASIBILITY_PROBE_STEPS >= 1, and
     # must be dropped too or its block outlives empty_cache.
     del model, optimizer, corruptor, step_fn, compiled_step_fn
-    del x_clean, eps, beta, output
+    del x_uint8, eps, beta, output
     return _reset_after_feasibility_probe(torch, torch_dynamo, device=device, flag=flag)
 
 
@@ -3085,7 +3082,6 @@ def _run_compiled_ddp_step_batch(
     optimizer: object,
     model: object,
     device: object,
-    normalize_uint8_batch_fn: object,
     settings: pretest.RealDataRuntimePretestSettings,
     step_index: int,
     row_spec: pretest.RowSpec,
@@ -3097,7 +3093,8 @@ def _run_compiled_ddp_step_batch(
     The compiled closure fuses inline corruption + the forward + the FP32 loss; the
     backward (eager, or compiled-autograd per the recipe), gradient clipping, and the
     optimizer step stay eager here, exactly as the runner drives the recipe. Only the
-    clean batch, ``eps``, and a 0-dim ``beta`` tensor cross the graph boundary. ``step``
+    uint8 batch (normalized inside the graph), ``eps``, and a 0-dim ``beta`` tensor
+    cross the graph boundary. ``step``
     rows are ``amp_off_fp32`` (no GradScaler), so a step is never AMP-skipped.
 
     Returns:
@@ -3112,13 +3109,16 @@ def _run_compiled_ddp_step_batch(
     )
 
     batch = next(cast("object", iterator))
-    clean = _move_clean_batch_to_device(
+    # Transfer uint8 (channels_last applied on-device by _move_clean_batch_to_device);
+    # the compiled step folds the uint8->float normalize into the graph, so only uint8
+    # crosses H2D.
+    x_uint8 = _move_clean_batch_to_device(
         torch_module=torch,
-        clean=cast("object", normalize_uint8_batch_fn)(batch.images_uint8),
+        clean=batch.images_uint8,
         device=device,
         row_spec=row_spec,
     )
-    shape = cast("tuple[int, int, int, int]", tuple(clean.shape))
+    shape = cast("tuple[int, int, int, int]", tuple(x_uint8.shape))
     eps = torch.zeros(
         (
             shape[0],
@@ -3142,7 +3142,7 @@ def _run_compiled_ddp_step_batch(
     beta = torch.tensor(float(beta_value), dtype=torch.float32, device=device)
     cast("object", optimizer).zero_grad(set_to_none=row_spec.zero_grad_set_to_none)
     with compiled_autograd_context(enabled=row_spec.compiled_autograd):
-        output = cast("object", compiled_step_fn)(clean, eps, beta)
+        output = cast("object", compiled_step_fn)(x_uint8, eps, beta)
         cast("object", output.loss).backward()
     if settings.gradient_clip_global_norm > 0.0:
         _clip_grad_norm(
@@ -3333,7 +3333,6 @@ def _measure_rank_loader(  # noqa: PLR0913
     data_loader_factory: object,
     subset_factory: object,
     collate_fn: object,
-    normalize_uint8_batch_fn: object,
     row_spec: pretest.RowSpec,
     measured_batches: int,
 ) -> JsonObject:
@@ -3368,11 +3367,13 @@ def _measure_rank_loader(  # noqa: PLR0913
         start_fetch = time.perf_counter_ns()
         batch = next(iterator)
         fetch_ms.append(pretest._elapsed_ms(start_fetch))  # noqa: SLF001
-        normalized = cast("object", normalize_uint8_batch_fn)(batch.images_uint8)
+        # Measure the corrected pipeline: transfer uint8 (4x fewer bytes) + on-device
+        # channels_last; the uint8->float normalize is folded into the compiled step
+        # (not H2D). Mirrors the pretest ``_measure_dataloader_split`` uint8 H2D timing.
         start_h2d = time.perf_counter_ns()
         _move_clean_batch_to_device(
             torch_module=torch,
-            clean=normalized,
+            clean=batch.images_uint8,
             device=device,
             row_spec=row_spec,
         )

@@ -92,6 +92,7 @@ from eqvae.benchmarking.vram_feasibility import (
 )
 from eqvae.corruption.inline_stain import InlineStainCorruptor
 from eqvae.corruption.stain import CONSERVATIVE_DEFAULT_PROFILE, profile_from_name
+from eqvae.data.dataloaders import normalize_uint8_batch
 from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
 from eqvae.training.ddp_sync_guard import assert_ddp_parameters_in_sync
 from eqvae.training.fastpath_recipe import (
@@ -446,7 +447,7 @@ class _DistributedContext:
 @dataclass(frozen=True)
 class _StepContext:
     step_fn: Callable[[Tensor, Tensor, Tensor], FastpathStepOutput]
-    x_clean: Tensor
+    x_uint8: Tensor
     latent_shape: torch.Size
     beta: Tensor
     optimizer: torch.optim.Optimizer
@@ -961,7 +962,7 @@ def _build_config_context(  # noqa: PLR0913
             dynamic=False,
             backend=_COMPILE_BACKEND,
         )
-    x_clean = _synthetic_clean_batch(
+    x_uint8 = _synthetic_uint8_batch(
         batch_size=batch_size,
         device=distributed.device,
         channels_last=spec.channels_last,
@@ -973,8 +974,8 @@ def _build_config_context(  # noqa: PLR0913
     eps_generator.manual_seed(request.seed + distributed.rank)
     return _StepContext(
         step_fn=step_fn,
-        x_clean=x_clean,
-        latent_shape=_latent_eps_shape(raw_model, x_clean),
+        x_uint8=x_uint8,
+        latent_shape=_latent_eps_shape(raw_model, x_uint8),
         beta=torch.ones((), device=distributed.device, dtype=torch.float32),
         optimizer=optimizer,
         scaler=GradScaler("cuda", init_scale=_GRAD_SCALER_INIT_SCALE),
@@ -1044,18 +1045,25 @@ def _fresh_model(
     return model
 
 
-def _synthetic_clean_batch(
+def _synthetic_uint8_batch(
     *,
     batch_size: int,
     device: torch.device,
     channels_last: bool,
 ) -> Tensor:
-    field = torch.linspace(
-        -1.0,
-        1.0,
-        steps=_IMAGE_SIZE * _IMAGE_SIZE,
-        device=device,
-    ).view(_IMAGE_SIZE, _IMAGE_SIZE)
+    # uint8 0..255 (normalizes to [-1, 1] inside the compiled step): the measured step
+    # now includes the folded cast/normalize, matching the runner's H2D-uint8 path.
+    field = (
+        torch
+        .linspace(
+            0.0,
+            255.0,
+            steps=_IMAGE_SIZE * _IMAGE_SIZE,
+            device=device,
+        )
+        .view(_IMAGE_SIZE, _IMAGE_SIZE)
+        .to(dtype=torch.uint8)
+    )
     batch = (
         field
         .unsqueeze(0)
@@ -1071,9 +1079,9 @@ def _synthetic_clean_batch(
     return batch.contiguous(memory_format=memory_format)
 
 
-def _latent_eps_shape(model: NonEquivariantVAE, x_clean: Tensor) -> torch.Size:
+def _latent_eps_shape(model: NonEquivariantVAE, x_uint8: Tensor) -> torch.Size:
     with torch.no_grad():
-        mu, _ = model.encode(x_clean)
+        mu, _ = model.encode(normalize_uint8_batch(x_uint8))
     return mu.shape
 
 
@@ -1086,7 +1094,7 @@ def _run_optimizer_step(context: _StepContext) -> Tensor:
     )
     context.optimizer.zero_grad(set_to_none=True)
     with compiled_autograd_context(enabled=context.compiled_autograd):
-        output = context.step_fn(context.x_clean, eps, context.beta)
+        output = context.step_fn(context.x_uint8, eps, context.beta)
         loss = output.loss
         cast("Callable[[], None]", context.scaler.scale(loss).backward)()
     context.scaler.unscale_(context.optimizer)

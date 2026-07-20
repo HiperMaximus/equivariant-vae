@@ -51,6 +51,7 @@ from eqvae.benchmarking.compiled_fastpath_probe import (
 )
 from eqvae.corruption.inline_stain import InlineStainCorruptor
 from eqvae.corruption.stain import CONSERVATIVE_DEFAULT_PROFILE, profile_from_name
+from eqvae.data.dataloaders import normalize_uint8_batch
 from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
 from eqvae.training import ddp_sync_guard, fastpath_recipe
 from eqvae.training.fastpath_step import make_fastpath_step_fn
@@ -536,14 +537,18 @@ def test_probe_step_configuration_backprops_eagerly() -> None:
         autocast_dtype=torch.bfloat16,
     )
     generator = torch.Generator().manual_seed(0)
-    x_clean = (
-        torch.rand((_STEP_BATCH, 3, _STEP_SIZE, _STEP_SIZE), generator=generator) * 2.0
-    ) - 1.0
+    x_uint8 = torch.randint(
+        0,
+        256,
+        (_STEP_BATCH, 3, _STEP_SIZE, _STEP_SIZE),
+        generator=generator,
+        dtype=torch.uint8,
+    )
     with torch.no_grad():
-        mu_shape = model.forward(x_clean).mu.shape
+        mu_shape = model.forward(normalize_uint8_batch(x_uint8)).mu.shape
     eps = torch.randn(mu_shape, generator=generator)
 
-    output = step_fn(x_clean, eps, torch.tensor(1.0))
+    output = step_fn(x_uint8, eps, torch.tensor(1.0))
 
     assert bool(torch.isfinite(output.loss).item())
     assert output.loss.requires_grad
@@ -560,11 +565,13 @@ def test_probe_step_stays_finite_on_degenerate_batch() -> None:
         ssim_weight=_STEP_SSIM_WEIGHT,
         autocast_dtype=torch.bfloat16,
     )
-    field = torch.linspace(-1.0, 1.0, steps=_STEP_SIZE * _STEP_SIZE).view(
-        _STEP_SIZE,
-        _STEP_SIZE,
+    field = (
+        torch
+        .linspace(0.0, 255.0, steps=_STEP_SIZE * _STEP_SIZE)
+        .view(_STEP_SIZE, _STEP_SIZE)
+        .to(dtype=torch.uint8)
     )
-    x_clean = (
+    x_uint8 = (
         field
         .unsqueeze(0)
         .unsqueeze(0)
@@ -572,10 +579,10 @@ def test_probe_step_stays_finite_on_degenerate_batch() -> None:
         .contiguous()
     )
     with torch.no_grad():
-        mu_shape = model.forward(x_clean).mu.shape
+        mu_shape = model.forward(normalize_uint8_batch(x_uint8)).mu.shape
     eps = torch.zeros(mu_shape)
 
-    output = step_fn(x_clean, eps, torch.tensor(1.0))
+    output = step_fn(x_uint8, eps, torch.tensor(1.0))
 
     assert bool(torch.isfinite(output.loss).item())
 

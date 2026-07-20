@@ -926,7 +926,6 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: C901, PLR0914, PLR0
                 optimizer=optimizer,
                 model=model,
                 device=device,
-                normalize_uint8_batch_fn=normalize_uint8_batch,
                 settings=config.settings,
                 step_index=step_index,
                 row_spec=row_spec,
@@ -1198,7 +1197,6 @@ def _run_compiled_step_batch(  # noqa: PLR0913
     optimizer: torch.optim.Optimizer,
     model: NonEquivariantVAE,
     device: torch.device,
-    normalize_uint8_batch_fn: NormalizeUint8BatchFn,
     settings: RealDataRuntimePretestSettings,
     step_index: int,
     row_spec: RowSpec,
@@ -1210,8 +1208,9 @@ def _run_compiled_step_batch(  # noqa: PLR0913
     Single-GPU mirror of the executor's ``_run_compiled_ddp_step_batch``: the compiled
     closure fuses inline corruption + the forward + the FP32 loss; the backward, grad
     clipping, and the optimizer step stay eager here, exactly as the runner drives the
-    recipe. Only the clean batch, ``eps``, and a 0-dim ``beta`` tensor cross the graph
-    boundary. Step rows are ``amp_off_fp32`` (no GradScaler), so no AMP-skip exists.
+    recipe. Only the uint8 batch (normalized inside the graph), ``eps``, and a 0-dim
+    ``beta`` tensor cross the graph boundary. Step rows are ``amp_off_fp32`` (no
+    GradScaler), so no AMP-skip exists.
     Pretest rows are always ``memory_format="contiguous"`` (``_stage1_row_specs`` never
     sets channels_last), so there is no layout conversion here (unlike the executor,
     whose rows can be channels_last).
@@ -1228,8 +1227,10 @@ def _run_compiled_step_batch(  # noqa: PLR0913
     )
 
     batch = next(iterator)
-    clean = normalize_uint8_batch_fn(batch.images_uint8).to(device=device)
-    shape = cast("tuple[int, int, int, int]", tuple(clean.shape))
+    # Transfer uint8 (the compiled step folds the uint8->float normalize into the graph,
+    # so only uint8 crosses H2D). Pretest rows are contiguous, so no channels_last here.
+    x_uint8 = batch.images_uint8.to(device=device)
+    shape = cast("tuple[int, int, int, int]", tuple(x_uint8.shape))
     eps = torch.zeros(
         (
             shape[0],
@@ -1253,7 +1254,7 @@ def _run_compiled_step_batch(  # noqa: PLR0913
     with compiled_autograd_context(enabled=row_spec.compiled_autograd):
         output = cast(
             "FastpathStepOutput",
-            cast("Callable[..., object]", compiled_step_fn)(clean, eps, beta),
+            cast("Callable[..., object]", compiled_step_fn)(x_uint8, eps, beta),
         )
         backward = cast("Callable[[], None]", output.loss.backward)
         backward()
@@ -3240,7 +3241,6 @@ def _measure_dataloader_split(  # noqa: PLR0913, PLR0914
     import torch  # noqa: PLC0415
     from torch.utils.data import DataLoader, Subset  # noqa: PLC0415
 
-    from eqvae.data.dataloaders import normalize_uint8_batch  # noqa: PLC0415
     from eqvae.data.training_batches import (  # noqa: PLC0415
         PatchTrainingDataset,
         PatchTrainingDatasetSpec,
@@ -3297,14 +3297,15 @@ def _measure_dataloader_split(  # noqa: PLR0913, PLR0914
             start_fetch = time.perf_counter_ns()
             batch = cast("PatchTrainingBatch", next(iterator))
             fetch_elapsed = _elapsed_ms(start_fetch)
-            normalized = normalize_uint8_batch(batch.images_uint8)
             if batch_index >= warmup_batches:
                 fetch_ms.append(fetch_elapsed)
                 samples_seen += int(batch.images_uint8.shape[0])
                 batches_seen += 1
             if device.type == "cuda":
+                # Measure the corrected pipeline: transfer uint8 (4x fewer bytes); the
+                # uint8->float normalize is folded into the compiled step, not H2D.
                 start_h2d = time.perf_counter_ns()
-                normalized.to(
+                batch.images_uint8.to(
                     device=device,
                     non_blocking=DEFAULT_DATALOADER_NON_BLOCKING_H2D,
                 )

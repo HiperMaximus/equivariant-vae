@@ -4199,18 +4199,16 @@ def _run_compiled_train_step(  # noqa: PLR0913
     train_generator: torch.Generator,
     device: torch.device,
 ) -> _SelectedRuntimeStepResult:
-    # The compiled step fuses inline (blake2b-free) corruption + the AMP forward + the
-    # FP32 loss island into one graph; backward, GradScaler, gradient clipping, and the
-    # optimizer step stay eager here, exactly as the probe measures the recipe. Only the
-    # clean batch crosses the host boundary -- corruption runs on-device in the graph
-    # (train-only inline corruption; validation/deterministic paths keep blake2b).
-    clean_batch = _to_device(
-        normalize_uint8_batch(batch.images_uint8),
-        device=device,
-        plan=plan,
-    )
+    # The compiled step fuses the uint8->float normalize + inline (blake2b-free)
+    # corruption + the AMP forward + the FP32 loss island into one graph; backward,
+    # GradScaler, gradient clipping, and the optimizer step stay eager here, exactly as
+    # the probe measures the recipe. Only the uint8 batch crosses the host boundary (4x
+    # fewer bytes, channels_last fused into the H2D ``.to()``) -- the cast/normalize and
+    # corruption run on-device in the graph (train-only; validation/deterministic keep
+    # blake2b).
+    x_uint8 = _to_device(batch.images_uint8, device=device, plan=plan)
     eps, eps_proof = _train_eps(
-        batch_size=clean_batch.shape[0],
+        batch_size=x_uint8.shape[0],
         latent_channels=latent_channels,
         settings=settings,
         train_generator=train_generator,
@@ -4229,7 +4227,7 @@ def _run_compiled_train_step(  # noqa: PLR0913
     before_params = _clone_trainable_parameters(model)
     old_scale = float(scaler.get_scale()) if amp.grad_scaler_enabled else 1.0
     with compiled_autograd_context(enabled=plan.compiled_autograd):
-        output = compiled_step_fn(clean_batch, eps, beta)
+        output = compiled_step_fn(x_uint8, eps, beta)
         if amp.grad_scaler_enabled:
             scaled_backward = cast(
                 "Callable[[], None]",
@@ -4277,7 +4275,7 @@ def _run_compiled_train_step(  # noqa: PLR0913
         grad_norm=grad_norm,
         param_update_norm=_parameter_update_norm(model, before_params),
         nonfinite_count=nonfinite_count,
-        batch_size=clean_batch.shape[0],
+        batch_size=x_uint8.shape[0],
         amp_step_skipped=amp_step_skipped,
         zero_grad_set_to_none=plan.zero_grad_set_to_none,
         train_reparameterization=settings.train_reparameterization,
@@ -4299,13 +4297,19 @@ def _to_device(
     device: torch.device,
     plan: SelectedRuntimePlan,
 ) -> torch.Tensor:
-    moved = tensor.to(
+    memory_format = (
+        torch.channels_last
+        if plan.memory_format == "channels_last"
+        else torch.preserve_format
+    )
+    # Fuse the channels_last reorder into the single H2D ``.to()`` (allocates the
+    # destination in the target layout, one pass) instead of a separate post-transfer
+    # ``.contiguous()``; on a uint8 batch the reorder moves 1 byte/elem, not 4.
+    return tensor.to(
         device=device,
         non_blocking=plan.dataloader_non_blocking_h2d and device.type == "cuda",
+        memory_format=memory_format,
     )
-    if plan.memory_format == "channels_last":
-        moved = moved.contiguous(memory_format=torch.channels_last)
-    return moved
 
 
 def _autocast_dtype(name: str) -> torch.dtype:

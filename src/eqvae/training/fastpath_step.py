@@ -1,11 +1,13 @@
 # Copyright 2026 HiperMaximus
 """Shared compiled train-step closure for the FSQ-style fast path.
 
-`make_fastpath_step_fn` builds the single `step_fn(x_clean, eps, beta)` that both the
+`make_fastpath_step_fn` builds the single `step_fn(x_uint8, eps, beta)` that both the
 synthetic GPU probe and the selected-runtime runner compile with
-`torch.compile(dynamic=False)`. The step fuses branchless corruption, the AMP-autocast
-model forward, and the FP32 loss island into one graph; backward, GradScaler, gradient
-clipping, and the optimizer step stay eager in the caller (like the FSQ reference).
+`torch.compile(dynamic=False)`. The step fuses the uint8->float normalize, branchless
+corruption, the AMP-autocast model forward, and the FP32 loss island into one graph, so
+the caller transfers uint8 over H2D (4x fewer bytes) and the cast/normalize runs on the
+GPU inside the graph; backward, GradScaler, gradient clipping, and the optimizer step
+stay eager in the caller (like the FSQ reference).
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from typing import TYPE_CHECKING, NamedTuple, cast
 import torch
 from torch import Tensor
 
+from eqvae.data.dataloaders import normalize_uint8_batch
 from eqvae.losses.vae import vae_loss_core
 
 if TYPE_CHECKING:
@@ -46,11 +49,14 @@ def make_fastpath_step_fn(
     autocast_dtype: torch.dtype,
     autocast_enabled: bool = True,
 ) -> Callable[[Tensor, Tensor, Tensor], FastpathStepOutput]:
-    """Return the compile-ready `step_fn(x_clean, eps, beta)` closure.
+    """Return the compile-ready `step_fn(x_uint8, eps, beta)` closure.
 
-    `beta` is a 0-dim device tensor (avoids per-step recompiles) and `eps` is a graph
-    input produced eagerly per rank by the caller. The model is invoked via ``__call__``
-    (not ``.forward``) so DDP / compiled-autograd hooks fire; corruption runs branchless
+    `x_uint8` is the device-resident uint8 NCHW batch (transferred with channels_last
+    fused into the H2D ``.to()``); the step normalizes it to FP32 ``[-1, 1]`` inside the
+    graph, so the cast runs on the GPU and only uint8 crosses the host boundary. `beta`
+    is a 0-dim device tensor (avoids per-step recompiles) and `eps` is a graph input
+    produced eagerly per rank by the caller. The model is invoked via ``__call__`` (not
+    ``.forward``) so DDP / compiled-autograd hooks fire; corruption runs branchless
     under its own ``no_grad``; the loss island runs in FP32 outside autocast.
 
     ``autocast_enabled`` gates the forward autocast so a CPU caller (or any run with AMP
@@ -63,10 +69,11 @@ def make_fastpath_step_fn(
 
     """
 
-    def step_fn(x_clean: Tensor, eps: Tensor, beta: Tensor) -> FastpathStepOutput:
+    def step_fn(x_uint8: Tensor, eps: Tensor, beta: Tensor) -> FastpathStepOutput:
+        x_clean = normalize_uint8_batch(x_uint8)
         x_in = cast("Tensor", corruptor(x_clean))
         with torch.autocast(
-            device_type=x_clean.device.type,
+            device_type=x_uint8.device.type,
             dtype=autocast_dtype,
             enabled=autocast_enabled,
             cache_enabled=False,
