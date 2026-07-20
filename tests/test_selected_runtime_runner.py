@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -33,6 +34,10 @@ from eqvae.training.selected_runtime_runner import (
     SELECTED_RUNTIME_AMP_GRAD_SCALER_INIT_SCALE,
     RankDeviceAssignment,
     SelectedRuntimeEnvironmentProbe,
+    _clone_trainable_parameters,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _global_grad_norm,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _nonfinite_gradient_count,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _parameter_update_norm,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     build_selected_runtime_torchrun_command,
     fixed_selector_full_batch_indices,
     validate_selected_runtime_environment,
@@ -799,3 +804,119 @@ def _string_list(value: object) -> list[str]:
         raise TypeError(message)
     items = cast("list[object]", value)
     return [item for item in items if isinstance(item, str)]
+
+
+def test_global_grad_norm_matches_flattened_reference() -> None:
+    """The vectorized global grad norm matches a flattened float64 reference."""
+    module = torch.nn.Linear(4, 3)
+    for parameter in module.parameters():
+        parameter.grad = torch.randn_like(parameter)
+    gradients = [
+        parameter.grad.reshape(-1)
+        for parameter in module.parameters()
+        if parameter.grad is not None
+    ]
+    reference = float(torch.cat(gradients).double().square().sum().sqrt())
+    assert math.isclose(_global_grad_norm(module), reference, rel_tol=1e-5)
+
+
+def test_global_grad_norm_zero_without_gradients() -> None:
+    """A model with no populated gradients reports a zero global grad norm."""
+    assert math.isclose(_global_grad_norm(torch.nn.Linear(4, 3)), 0.0, abs_tol=0.0)
+
+
+def test_global_grad_norm_spans_every_parameter() -> None:
+    """Unit gradients give sqrt(total elements), pinning full-coverage reduction."""
+    module = torch.nn.Linear(4, 3)
+    for parameter in module.parameters():
+        parameter.grad = torch.ones_like(parameter)
+    total_elements = sum(parameter.numel() for parameter in module.parameters())
+    assert math.isclose(
+        _global_grad_norm(module),
+        math.sqrt(total_elements),
+        rel_tol=1e-9,
+    )
+
+
+def test_nonfinite_gradient_count_totals_all_parameters() -> None:
+    """The non-finite tally sums inf/nan entries across every gradient tensor."""
+    module = torch.nn.Linear(4, 3)
+    parameters = list(module.parameters())
+    weight_grad = torch.ones_like(parameters[0])
+    weight_grad[0, 0] = float("inf")
+    weight_grad[1, 1] = float("nan")
+    parameters[0].grad = weight_grad
+    bias_grad = torch.ones_like(parameters[1])
+    bias_grad[0] = float("-inf")
+    parameters[1].grad = bias_grad
+    expected_nonfinite_count = 3
+    assert _nonfinite_gradient_count(module) == expected_nonfinite_count
+
+
+def test_nonfinite_gradient_count_zero_when_finite() -> None:
+    """Finite gradients report zero non-finite entries."""
+    module = torch.nn.Linear(4, 3)
+    for parameter in module.parameters():
+        parameter.grad = torch.ones_like(parameter)
+    assert _nonfinite_gradient_count(module) == 0
+
+
+def test_parameter_update_norm_matches_delta_reference() -> None:
+    """A uniform parameter delta yields sqrt(trainable elements * delta**2)."""
+    module = torch.nn.Linear(4, 3)
+    before_params = _clone_trainable_parameters(module)
+    delta = 0.5
+    with torch.no_grad():
+        for parameter in module.parameters():
+            parameter.add_(delta)
+    trainable_elements = sum(
+        parameter.numel()
+        for parameter in module.parameters()
+        if parameter.requires_grad
+    )
+    assert math.isclose(
+        _parameter_update_norm(module, before_params),
+        math.sqrt(trainable_elements * delta * delta),
+        rel_tol=1e-9,
+    )
+
+
+def test_parameter_update_norm_zero_when_unchanged() -> None:
+    """Unchanged parameters yield a zero update norm."""
+    module = torch.nn.Linear(4, 3)
+    before_params = _clone_trainable_parameters(module)
+    assert math.isclose(
+        _parameter_update_norm(module, before_params),
+        0.0,
+        abs_tol=0.0,
+    )
+
+
+def test_global_grad_norm_upcasts_half_gradients_before_squaring() -> None:
+    """Half gradients are upcast so squaring stays finite (300**2 overflows fp16)."""
+    module = torch.nn.Linear(4, 3).half()
+    magnitude = 300.0
+    for parameter in module.parameters():
+        parameter.grad = torch.full_like(parameter, magnitude)
+    total_elements = sum(parameter.numel() for parameter in module.parameters())
+    grad_norm = _global_grad_norm(module)
+    assert math.isfinite(grad_norm)
+    assert math.isclose(grad_norm, magnitude * math.sqrt(total_elements), rel_tol=1e-3)
+
+
+def test_parameter_update_norm_excludes_frozen_parameters() -> None:
+    """Frozen parameters are filtered out of both the clone and the update norm."""
+    module = torch.nn.Linear(4, 3)
+    weight, bias = tuple(module.parameters())
+    bias.requires_grad = False
+    before_params = _clone_trainable_parameters(module)
+    trainable_delta = 0.5
+    frozen_delta = 2.0
+    with torch.no_grad():
+        weight.add_(trainable_delta)
+        bias.add_(frozen_delta)
+    assert math.isclose(
+        _parameter_update_norm(module, before_params),
+        math.sqrt(weight.numel() * trainable_delta * trainable_delta),
+        rel_tol=1e-9,
+    )

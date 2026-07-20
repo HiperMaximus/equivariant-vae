@@ -6124,36 +6124,56 @@ def _clone_trainable_parameters(model: nn.Module) -> tuple[torch.Tensor, ...]:
 
 
 def _global_grad_norm(model: nn.Module) -> float:
-    squared: float = 0.0
-    for parameter in model.parameters():
-        if parameter.grad is None:
-            continue
-        grad = parameter.grad.detach().float()
-        squared += _float_item(torch.sum(grad.square()))
-    return math.sqrt(squared)
+    # Reduce the per-parameter squared sums on-device and materialize a single
+    # scalar, so the hot step incurs one host sync instead of one per parameter
+    # (speed-first; the recorded value is fp-tolerant telemetry).
+    gradients = [
+        parameter.grad.detach().float()
+        for parameter in model.parameters()
+        if parameter.grad is not None
+    ]
+    if not gradients:
+        return 0.0
+    per_parameter_squares = torch.stack(
+        [torch.sum(gradient.square()) for gradient in gradients],
+    )
+    return math.sqrt(_float_item(per_parameter_squares.double().sum()))
 
 
 def _nonfinite_gradient_count(model: nn.Module) -> int:
-    count = 0
-    for parameter in model.parameters():
-        if parameter.grad is not None:
-            count += int(torch.count_nonzero(~torch.isfinite(parameter.grad)).item())
-    return count
+    # Sum the per-parameter non-finite counts on-device and read back once; the
+    # integer total is identical to the previous per-parameter tally.
+    gradients = [
+        parameter.grad for parameter in model.parameters() if parameter.grad is not None
+    ]
+    if not gradients:
+        return 0
+    per_parameter_counts = torch.stack(
+        [torch.count_nonzero(~torch.isfinite(gradient)) for gradient in gradients],
+    )
+    return int(per_parameter_counts.sum().item())
 
 
 def _parameter_update_norm(
     model: nn.Module,
     before_params: Sequence[torch.Tensor],
 ) -> float:
-    squared: float = 0.0
-    index = 0
-    for parameter in model.parameters():
-        if not parameter.requires_grad:
-            continue
-        delta = parameter.detach().float().cpu() - before_params[index].float().cpu()
-        squared += _float_item(torch.sum(delta.square()))
-        index += 1
-    return math.sqrt(squared)
+    # Diff post- against pre-step parameters on-device (no per-parameter host
+    # copy) and reduce to a single scalar with one host sync.
+    after_params = [
+        parameter.detach().float()
+        for parameter in model.parameters()
+        if parameter.requires_grad
+    ]
+    if not after_params:
+        return 0.0
+    per_parameter_squares = torch.stack(
+        [
+            torch.sum((after - before.float()).square())
+            for after, before in zip(after_params, before_params, strict=True)
+        ],
+    )
+    return math.sqrt(_float_item(per_parameter_squares.double().sum()))
 
 
 def _zero_eps(
