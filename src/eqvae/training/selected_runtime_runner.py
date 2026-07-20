@@ -166,7 +166,11 @@ _FULL_STATUS_SCOPE = "selected_runtime_full_training_run"
 # _validate_full_run_settings so a different (model x hardware) global batch re-runs
 # this machinery unchanged (Spec 0011).
 _FULL_EPOCHS = 10
-_FULL_VALIDATION_BATCHES_PER_VIEW = 20
+# 0 = sweep the FULL validation dataset every half-epoch (Spec 0011 S17f, matching the
+# FSQ reference). A positive value caps validation to that many batches (a debug/dry-run
+# relative probe); the paper-promotable full run must be uncapped so best-checkpoint
+# selection uses the whole validation set, not a fixed leading slice.
+_FULL_VALIDATION_BATCHES_PER_VIEW = 0
 _FULL_VALIDATION_VIEWS = ("clean", "deterministic_denoising")
 # best_model.pt is selected on the paper-relevant denoising view (FU-008), never
 # the easier clean view, and across ranks with a sample-weighted reduction so it stays
@@ -2670,8 +2674,8 @@ def _safe_drop_last(
 
     Spec 0011 S16 flips the shared loader to ``drop_last=True``: the compiled
     ``dynamic=False`` train step needs a static batch shape (a short tail batch would
-    force a recompile), and validation is a capped relative probe whose sample-weighted
-    reduction stays correct with even shards. This guard keeps the flip from silently
+    force a recompile), and the full validation sweep's sample-weighted reduction (S17f)
+    stays correct across shards. This guard keeps the flip from silently
     emptying a loader -- which would hang ``_cycle_batches``'s ``while True: yield from
     loader`` forever -- when a (per-rank) shard holds fewer than one full batch. It
     never fires on a planned run (the train shard is the full patch set; validation is
@@ -4344,6 +4348,31 @@ def _cycle_batches(
         yield from loader
 
 
+def _validation_batches(
+    loader: DataLoader[PatchTrainingBatch],
+    cap: int,
+) -> Iterator[PatchTrainingBatch]:
+    """Yield the validation batches for one view.
+
+    ``cap <= 0`` sweeps the whole loader once (full validation, matching the FSQ
+    reference), so best-checkpoint selection sees the entire validation set. A positive
+    ``cap`` yields exactly ``cap`` batches, cycling the loader when it is shorter than
+    ``cap`` (the capped debug/dry-run probe, where the synthetic loader is sized to the
+    cap).
+
+    Yields:
+        Each validation batch to evaluate.
+
+    """
+    if cap <= 0:
+        yield from loader
+        return
+    for emitted, batch in enumerate(_cycle_batches(loader)):
+        if emitted >= cap:
+            return
+        yield batch
+
+
 def _should_run_scheduled_validation(
     settings: _RunnerSettings,
     optimizer_step: int,
@@ -4462,9 +4491,11 @@ def _validation_view_row(  # noqa: PLR0913
 ) -> CsvRow:
     scalars: list[dict[str, float]] = []
     sample_count = 0
-    validation_batches = _cycle_batches(data_surface.validation_loader)
-    for _batch_index in range(settings.validation_batches_per_view):
-        batch = next(validation_batches)
+    batch_count = 0
+    for batch in _validation_batches(
+        data_surface.validation_loader,
+        settings.validation_batches_per_view,
+    ):
         clean_batch_cpu = normalize_uint8_batch(batch.images_uint8)
         if view == "clean":
             input_batch_cpu = clean_validation_passthrough(clean_batch_cpu)
@@ -4517,6 +4548,7 @@ def _validation_view_row(  # noqa: PLR0913
             )
         scalars.append(losses.detached_scalars())
         sample_count += int(input_batch.shape[0])
+        batch_count += 1
     means = _mean_loss_scalars(scalars)
     return {
         "event_id": f"rank{rank}_validation_{view}_{optimizer_step:06d}",
@@ -4525,7 +4557,7 @@ def _validation_view_row(  # noqa: PLR0913
         "validation_boundary": "half_epoch",
         "split": "validation",
         "view": view,
-        "batch_count": str(settings.validation_batches_per_view),
+        "batch_count": str(batch_count),
         "sample_count": str(sample_count),
         "loss": _format_float(means["loss"]),
         "recon_loss": _format_float(means["recon_loss"]),
@@ -6385,8 +6417,11 @@ def _validate_settings(  # noqa: C901
     if settings.save_every_steps <= 0:
         message = f"save_every_steps must be positive, got {settings.save_every_steps}"
         raise ValueError(message)
-    if settings.validation_views and settings.validation_batches_per_view <= 0:
-        message = "validation_batches_per_view must be positive when views are set"
+    if settings.validation_views and settings.validation_batches_per_view < 0:
+        message = (
+            "validation_batches_per_view must be nonnegative when views are set "
+            "(0 = full-dataset sweep)"
+        )
         raise ValueError(message)
     if settings.validation_views and settings.half_epoch_interval_steps <= 0:
         message = (

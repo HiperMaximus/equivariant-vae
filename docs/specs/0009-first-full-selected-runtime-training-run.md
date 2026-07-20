@@ -163,11 +163,11 @@ explicit approval.
    launcher must fail closed if it would train all optimization steps with
    zero epsilon.
 5. Scheduled validation is required.
-   At each half-epoch boundary, run a bounded validation pass that is explicit
-   in the config. The first implementation should use `20` validation batches
-   per interval for each required validation view: clean autoencoding and
-   deterministic denoising. Final full-dataset validation and sealed test
-   evaluation are later evaluator work.
+   At each half-epoch boundary, run a full validation pass over the whole
+   validation dataset (`validation_batches_per_view = 0`) for each required
+   validation view: clean autoencoding and deterministic denoising (Spec 0011
+   S17f, matching the FSQ reference), so best-checkpoint selection uses the whole
+   set. The sealed masked-WSI test evaluation is separate later evaluator work.
 6. Checkpoint cadence and retention must match the config.
    At every half-epoch boundary, flush train/validation/gate metrics and
    fail-closed partial summaries before exposing the new interval checkpoint;
@@ -262,7 +262,7 @@ Add `configs/spec0001/non_eq_vae_selected_runtime_full.json` with:
   optimizer_updates_per_epoch` (12500), recorded in the run metadata;
 - `training.max_train_steps = 125000`;
 - `training.half_epoch_interval_steps = 6250`;
-- `training.validation_batches_per_view = 20`;
+- `training.validation_batches_per_view = 0` (0 = full validation sweep every half-epoch, matching FSQ — Spec 0011 S17f);
 - `training.validation_views = ["clean", "deterministic_denoising"]`;
 - `training.train_reparameterization = "stochastic_seeded"`;
 - `training.deterministic_eps_allowed_for =
@@ -507,11 +507,11 @@ Canceled v1 inspection results:
 
 ## Open Questions
 
-The first full training run currently uses bounded half-epoch validation for
-training supervision/dashboard ingredients only. Full validation/test metrics
-and paper figures are later evaluator work, but fixed-25 rotated/latent
-equivariance artifacts are required before treating any future full run as
-issue #4/#6 or paper-promotable embedding evidence.
+The first full training run runs full half-epoch validation over the whole
+validation set for training supervision/dashboard ingredients and best-checkpoint
+selection. Sealed masked-WSI test metrics and paper figures are later evaluator
+work, but fixed-25 rotated/latent equivariance artifacts are required before
+treating any future full run as issue #4/#6 or paper-promotable embedding evidence.
 
 ## Related Files
 

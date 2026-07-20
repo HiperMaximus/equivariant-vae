@@ -144,7 +144,10 @@ _FIXED25_EXPECTED_K_VALUES = [0, 1, 2, 3]
 # world_size is read from the plan -- all so a different global batch re-runs this gate
 # unchanged (Spec 0011).
 REMOTE_FULL_EPOCHS = 10
-REMOTE_FULL_VALIDATION_BATCHES_PER_VIEW = 20
+# 0 = the full run swept the FULL validation dataset (Spec 0011 S17f). The training
+# summary reports this setting; per-row batch_count is data-dependent (the actual
+# batches swept) and is checked for being non-empty, not equal to a fixed number.
+REMOTE_FULL_VALIDATION_BATCHES_PER_VIEW = 0
 REMOTE_FULL_VALIDATION_VIEWS = ("clean", "deterministic_denoising")
 # best_model.pt must be selected on the denoising view across ranks with a
 # sample-weighted reduction (FU-008), and reparameterization eps must be per-rank
@@ -1171,10 +1174,7 @@ def _remote_full_validation_blockers(
                     "selected_runtime_full_output_validation_schedule_incomplete",
                 )
                 break
-    if any(
-        _int_value(row.get("batch_count")) != REMOTE_FULL_VALIDATION_BATCHES_PER_VIEW
-        for row in rows
-    ):
+    if any(_int_value(row.get("batch_count")) <= 0 for row in rows):
         blockers.append("selected_runtime_full_output_validation_batch_count_mismatch")
     if any(row.get("deterministic_eps_used") != "true" for row in rows):
         blockers.append("selected_runtime_full_output_validation_not_deterministic")

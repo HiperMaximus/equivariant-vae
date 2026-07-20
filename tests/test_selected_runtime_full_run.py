@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, NamedTuple, NoReturn, cast
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
+    from torch.utils.data import DataLoader
+
     from eqvae.benchmarking.io import JsonObject, JsonValue
     from eqvae.corruption.stain import StainCorruptionProfile
     from eqvae.data.training_batches import PatchTrainingBatch
@@ -72,7 +74,8 @@ _FULL_TARGET_UPDATES = 125000
 _FULL_EPOCHS = 10
 _FULL_UPDATES_PER_EPOCH = 12500
 _FULL_HALF_EPOCH_INTERVAL = 6250
-_FULL_VALIDATION_BATCHES_PER_VIEW = 20
+# Mirrors the runner constant: 0 = full validation sweep every half-epoch (S17f).
+_FULL_VALIDATION_BATCHES_PER_VIEW = 0
 # A representative larger global batch (96 = 4x the reference 24). floor(300000/96)
 # is 3125 -- odd, so it also exercises the floor half-epoch. The de-pinned validator
 # must accept this schedule purely from the relationships, never the reference
@@ -115,6 +118,25 @@ class _FullOutputContract(NamedTuple):
     validation_batches: int
     keep_count: int
     world_size: int
+
+
+def test_validation_batches_full_sweep_vs_capped() -> None:
+    """cap<=0 sweeps the whole loader once; a positive cap yields exactly cap batches.
+
+    Full validation (Spec 0011 S17f) requires the uncapped path to iterate the entire
+    validation loader so best-checkpoint selection sees the whole set, while the capped
+    debug path yields a fixed count, cycling a short loader. A mutation that capped the
+    full sweep, dropped the cap, or failed to cycle a short loader is caught.
+    """
+    loader = cast("DataLoader[PatchTrainingBatch]", ["a", "b", "c"])
+
+    full = list(selected_runtime_runner._validation_batches(loader, 0))  # noqa: SLF001
+    capped = list(selected_runtime_runner._validation_batches(loader, 2))  # noqa: SLF001
+    cycled = list(selected_runtime_runner._validation_batches(loader, 5))  # noqa: SLF001
+
+    assert full == ["a", "b", "c"]
+    assert capped == ["a", "b"]
+    assert cycled == ["a", "b", "c", "a", "b"]
 
 
 def test_full_config_derives_exact_spec0009_schedule(tmp_path: Path) -> None:
@@ -2446,9 +2468,7 @@ def test_off_grid_gate_flags_a_missing_terminal_validation_row(tmp_path: Path) -
                         {
                             "optimizer_step": str(step),
                             "view": view,
-                            "batch_count": str(
-                                selected_runtime_gate.REMOTE_FULL_VALIDATION_BATCHES_PER_VIEW,
-                            ),
+                            "batch_count": "1",
                             "l1_loss": "0.1",
                             "deterministic_eps_used": "true",
                             "corruption_strategy": "indexed_masked",
@@ -2489,8 +2509,16 @@ class _ValidationScaffold(NamedTuple):
     model: torch.nn.Module
 
 
-def _open_validation_scaffold(tmp_path: Path) -> _ValidationScaffold:
+def _open_validation_scaffold(
+    tmp_path: Path,
+    *,
+    validation_batches_per_view: int = 1,
+) -> _ValidationScaffold:
     """Build the model and CPU data surface used by the FU-017 validation tests.
+
+    ``validation_batches_per_view`` sizes the synthetic validation set (``>= 1`` batch);
+    the caller may override the cap on the returned scaffold's settings to exercise the
+    full-sweep (``0``) versus capped paths.
 
     Returns:
         The validation scaffold; the caller must close its data surface.
@@ -2514,7 +2542,7 @@ def _open_validation_scaffold(tmp_path: Path) -> _ValidationScaffold:
             plan=plan,
         ),
         half_epoch_interval_steps=1,
-        validation_batches_per_view=1,
+        validation_batches_per_view=validation_batches_per_view,
     )
     local = _local_distributed_context()
     data_surface = selected_runtime_runner._prepare_data_surface(  # noqa: SLF001
@@ -2551,11 +2579,18 @@ def _validation_row(
     *,
     view: str,
     optimizer_step: int,
+    validation_batches_per_view: int | None = None,
 ) -> Mapping[str, str]:
+    settings = scaffold.settings
+    if validation_batches_per_view is not None:
+        settings = replace(
+            settings,
+            validation_batches_per_view=validation_batches_per_view,
+        )
     return selected_runtime_runner._validation_view_row(  # noqa: SLF001
         model=scaffold.model,
         latent_channels=LATENT_CHANNELS,
-        settings=scaffold.settings,
+        settings=settings,
         plan=scaffold.plan,
         amp=scaffold.amp,
         data_surface=scaffold.data_surface,
@@ -2564,6 +2599,38 @@ def _validation_row(
         rank=0,
         device=torch.device("cpu"),
     )
+
+
+def test_validation_view_full_sweep_covers_the_whole_loader(tmp_path: Path) -> None:
+    """cap=0 sweeps the entire validation loader through the runner (Spec 0011 S17f).
+
+    Full validation drives ``_validation_view_row`` over every batch of the loader,
+    not a capped leading slice, so the emitted ``batch_count`` equals the loader
+    length. Built with a multi-batch synthetic set so full (cap=0) and capped (cap=1)
+    yield different counts -- exercising the cap=0 path end-to-end on CPU, not only the
+    isolated ``_validation_batches`` helper.
+    """
+    scaffold = _open_validation_scaffold(tmp_path, validation_batches_per_view=3)
+    try:
+        loader_batches = len(scaffold.data_surface.validation_loader)
+        full = _validation_row(
+            scaffold,
+            view="deterministic_denoising",
+            optimizer_step=1,
+            validation_batches_per_view=0,
+        )
+        capped = _validation_row(
+            scaffold,
+            view="deterministic_denoising",
+            optimizer_step=1,
+            validation_batches_per_view=1,
+        )
+    finally:
+        selected_runtime_runner._close_data_surface(scaffold.data_surface)  # noqa: SLF001
+
+    assert loader_batches > 1
+    assert int(full["batch_count"]) == loader_batches
+    assert int(capped["batch_count"]) == 1
 
 
 def test_clean_validation_view_consumes_no_corruption_rng(
@@ -4204,11 +4271,10 @@ def _small_full_output_contract(
         contract.updates_per_epoch * runtime_global_batch,
     )
     monkeypatch.setattr(selected_runtime_gate, "REMOTE_FULL_EPOCHS", contract.epochs)
-    monkeypatch.setattr(
-        selected_runtime_gate,
-        "REMOTE_FULL_VALIDATION_BATCHES_PER_VIEW",
-        contract.validation_batches,
-    )
+    # No REMOTE_FULL_VALIDATION_BATCHES_PER_VIEW patch: it is now the full-sweep
+    # sentinel 0 (the summary reports 0), and the per-row batch_count is checked as
+    # non-empty, not against this constant. contract.validation_batches sets the rows'
+    # actual count.
     monkeypatch.setattr(
         selected_runtime_gate,
         "REMOTE_FULL_INTERVAL_CHECKPOINT_KEEP_COUNT",
@@ -4464,7 +4530,7 @@ def _write_full_output_fixture(
                 "batch_ratio_exponent": 0.5,
                 "effective_learning_rate": _LR_REFERENCE_LEARNING_RATE,
             },
-            "validation_batches_per_view": contract.validation_batches,
+            "validation_batches_per_view": 0,  # 0 = full validation sweep (S17f)
             "validation_views": ["clean", "deterministic_denoising"],
             "train_reparameterization": "stochastic_seeded",
             "amp_step_skipped_count": 0,
@@ -4490,7 +4556,7 @@ def _write_full_output_fixture(
             "requested_epochs": contract.epochs,
             "optimizer_updates_per_epoch": contract.updates_per_epoch,
             "half_epoch_interval_steps": contract.half_interval,
-            "validation_batches_per_view": contract.validation_batches,
+            "validation_batches_per_view": 0,  # 0 = full validation sweep (S17f)
             "validation_views": ["clean", "deterministic_denoising"],
             "stochastic_train_eps_proven": True,
             "per_rank_reparameterization_eps_divergent": True,

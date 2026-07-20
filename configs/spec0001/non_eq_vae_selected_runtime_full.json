@@ -22,7 +22,7 @@
   "training": {
     "epochs": 10,
     "schedule_derivation": "epochs * steps_per_epoch, steps_per_epoch = floor(real_train_patch_count / global_batch); max_train_steps, half_epoch_interval_steps and save_every_steps are derived by the runner from the selected-runtime plan, never frozen here",
-    "validation_batches_per_view": 20,
+    "validation_batches_per_view": 0,
     "validation_views": [
       "clean",
       "deterministic_denoising"

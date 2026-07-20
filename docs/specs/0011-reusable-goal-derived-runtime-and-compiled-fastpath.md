@@ -616,7 +616,7 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   `..._drop_last_true`, `_DDP_SAMPLER_POLICY_NO_DROP_LAST` added) and
   `_effective_train_epoch_samples` (floor if drop_last else ceil) both track the realized
   `_safe_drop_last` decision, not a hardcoded True. Behavior-preserving @ bs24 (train divides
-  evenly, no tail; validation's leading batches full; floor==ceil). Gate 441 (was 431),
+  evenly, no tail; floor==ceil). Gate 441 (was 431),
   basedpyright/ruff clean. Adversarial Workflow review (6 lenses → 3 findings, all
   mutation-backed; 4 lenses [behavior-preservation, recipe-fidelity, step-correctness,
   probe-repoint] ZERO): 2 test-coverage gaps + 1 honesty-label decoupling — all fixed and
@@ -626,7 +626,7 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   — audited the whole diff + reverted; use `isolation:'worktree'` OR forbid source edits in
   future review workflows (a worktree sees only committed state, so it can't review
   uncommitted work — forbid-edits is the tool for uncommitted diffs). Eager `_run_train_step`
-  retained when compile off. (100% coverage is the future test evaluator's job, not these loops.)
+  retained when compile off.
 
 ### Phase 4 — Activate (values flip) + full run
 
@@ -1076,11 +1076,12 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
 - **LR rule** → sqrt default (AdamW), per-model reference in the model config; user
   re-tunes `reference_lr`/`rule` per model. Baseline unchanged at scale 1.
 - **`drop_last`** → **set `True` for BOTH train and validation** (currently `False`
-  everywhere — a real flip, not a keep). Flip the shared `_loader` default. Safe:
-  validation is a capped ~20-batch relative probe, and its `sum(l1*n)/sum(n)` reduction
-  stays correct with even shards. Behavior-preserving at bs24 (no train tail;
-  validation's first 20 cycled batches are all full). 100% coverage is reserved for the
-  **future sealed test evaluator** (doesn't exist yet), not the training loops.
+  everywhere — a real flip, not a keep). Flip the shared `_loader` default. Tails do not
+  matter (drop_last drops a negligible per-rank remainder). Validation sweeps the FULL
+  dataset every half-epoch (S17f — `validation_batches_per_view = 0`, matching the FSQ
+  reference), and its `sum(l1*n)/sum(n)` reduction stays correct across shards, so
+  best-checkpoint selection uses the whole validation set (not a fixed leading slice).
+  The sealed masked-WSI TEST set is a separate future evaluator.
   `updates_per_epoch = floor(P/G)` single-sourced (matches the train flip).
 - **Odd updates_per_epoch** → floor half + the shared boundary generator driving BOTH
   producers and consumers, with the terminal validated (user decision). Do NOT
