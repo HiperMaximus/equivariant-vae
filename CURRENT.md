@@ -425,7 +425,7 @@ an unshuffled/slide-grouped bin; matches FSQ, which sweeps the whole `val_loader
 silently cap; corrected the non-current capped-probe decision text in Spec 0009 (AC#5 + Open Questions) +
 Spec 0011 (rule 15). Gate 583/1, +2 mutation-proof tests (helper + CPU end-to-end full-sweep), 3 reviewers +
 fix-delta clean (found+fixed Rule-15 doc-drift + a coverage gap). **NEXT (LOCAL): the RNG combined step
-(decomposed into gated sub-commits)** — retire blake2b BLANKET → free-running Philox InlineStain for TRAINING
+(decomposed Option A — commit 2 = behavior [both paths → Philox + checkpoint continuation + de-pin + S17c label], commit 3 = delete the dead blake2b subsystem; NO mixed-path limbo; FULL surface map in the spec 0011 S17f "RNG" item)** — retire blake2b BLANKET → free-running Philox InlineStain for TRAINING
 (per-rank generator whose state is SAVED/RESTORED at checkpoint so a resume CONTINUES the stream, never
 re-seeds→repeats the corruption sequence [user's anti-repeat point; the repo already checkpoints RNG state — we
 extend it]) + a fixed-seed generator for the (now full) VALIDATION denoising view (re-seeded to a constant each

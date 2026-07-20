@@ -1003,11 +1003,40 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       time is a non-cost for a ~30h run) as the default, and make compile-mode a searched knob
       {`default`, `reduce-overhead`, `max-autotune`, `max-autotune-no-cudagraphs`}. Enforce
       `fullgraph=True` on a single-GPU replica to kill SPURIOUS graph breaks.
-    - **RNG + tolerance checks.** Drop per-sample blake2b deterministic seeding for fastest
-      Philox (InlineStain everywhere), and make the numerical cross-checks (compiled-vs-eager,
-      single-GPU-vs-DDP) TOLERANCE-based (`isclose`), not bit-exact — this is what lets
-      corruption be non-deterministic (the Spec 0001 / decision 0007 determinism mandate was
-      deleted 2026-07-19).
+    - **RNG — retire blake2b BLANKET (the "combined step", user-designed; the NEXT S17f step
+      after full validation). Decomposition = Option A (no mixed-path limbo): commit (2) = the
+      BEHAVIOR change + de-pin; commit (3) = delete the now-dead blake2b subsystem.**
+      COMMIT 2 — both corruption paths move off blake2b to Philox `InlineStainCorruptor`:
+      - TRAINING (eager `_run_train_step`; the compiled path is already inline-stain): a
+        free-running per-rank Philox generator whose state is SAVED/RESTORED at checkpoint so a
+        resume CONTINUES the stream. A plain re-`set_seed` on resume would REPLAY the same
+        corruption sequence in the second half of training (the user's anti-repeat point) — the
+        repo ALREADY checkpoints RNG state (`checkpointing.py` `torch_cpu_rng_state` /
+        `torch_generator_states` / `torch_cuda_rng_state`, save ~:159-162 / restore ~:251-257;
+        runner `_save_checkpoint` + `train_generator`), so EXTEND it with the corruption
+        generator, don't drop it. `InlineStainCorruptor` needs an optional `generator=` param.
+      - VALIDATION denoising view (`_validation_view_row`, now FULL-sweep): InlineStain through a
+        DEDICATED generator RE-SEEDED to a fixed constant EACH boundary → identical corruption
+        every boundary → a stable/reproducible best-checkpoint selection ruler, with NO checkpoint
+        state (the "2 states": one continued, one re-seeded). Speed is a non-factor (validation is
+        infrequent), so this is purely for selection stability.
+      Also commit 2: make the numerical cross-checks (compiled-vs-eager, single-GPU-vs-DDP)
+      TOLERANCE-based (`isclose`), not bit-exact; update the S17c `expected_corruption_strategy`
+      label (`training/selected_runtime.py` ~:275-289, consumer ~:1448-1452 — eager training is
+      now inline-stain, not `indexed_masked`); de-pin the parser + snapshot
+      `corruption.strategy == "indexed_masked"` pins (`selected_runtime.py` ~:669/:851) and the
+      config corruption strategy. WHY blanket: determinism is a BLANKET don't-care (user
+      2026-07-20) and the cross-checks are now tolerance-based (the Spec 0001 / decision 0007
+      determinism mandate was deleted 2026-07-19). CAVEAT (rule 29 — do NOT retire these): the
+      fixed-25 EVAL determinism (`artifacts/fixed25_equivariance.py`: `posterior_mu_deterministic`,
+      seeded eval eps) AND the validation `_zero_eps` (a SEPARATE latent knob, stays 0 — not
+      corruption RNG) are intentional reproducible PAPER artifacts; the resume-prefix validators
+      (`_validate_full_resume_*_prefix`) are existence-only (they do NOT bit-compare metric
+      values), so free-running training corruption is resume-safe. COMMIT 3 — delete the now-dead
+      blake2b subsystem (`corruption/stain.py`: `derive_corruption_seed`,
+      `sample_corruption_parameters`, `StainCorruptor._apply_indexed_masked`, the `indexed_masked`
+      strategy) + its tests; pure mechanical cleanup (rule 15). (Line numbers are approximate —
+      rule 29: re-verify, they shift.)
     - **cuDNN — DONE (`a7feae4`, local, 2026-07-20).** `cudnn.benchmark=True`/`deterministic=False`
       is now a FIXED speed-first flag wherever convolutions run on GPU (not a searched axis): new
       shared `fastpath_recipe.apply_cudnn_flags`; runner `_apply_cuda_runtime_flags(device)` (CUDA-
