@@ -1,10 +1,11 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 DONE (both `run_template.py` validators — `21b697f` — AND the debug `kaggle_kernel.sh` shell push guard — `c090d16` — delegate to `selected_runtime_plan_errors`, local)**; **S17c DONE (observation mirror + honest corruption/step label — `9f6d813`, local)**; **S17f item #1 (the `drop_last` unit-flip) DONE (`3b9aa42`, local)** + **S17f Transforms DONE (`2ce6a4c`, local — uint8 H2D + fold the uint8->float normalize into the compiled step; gate 575/1)** + **S17f cuDNN DONE (`a7feae4`, local — `cudnn.benchmark=True`/`deterministic=False` as a FIXED speed-first flag; gate 581/1)**; NEXT local = the rest of S17f (audit + CORRECT the current code to the speed-first / FSQ-floor intent) + S17d (bounded dataloader search axis — read its traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up); S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 DONE (both `run_template.py` validators — `21b697f` — AND the debug `kaggle_kernel.sh` shell push guard — `c090d16` — delegate to `selected_runtime_plan_errors`, local)**; **S17c DONE (observation mirror + honest corruption/step label — `9f6d813`, local)**; **S17f item #1 (the `drop_last` unit-flip) DONE (`3b9aa42`, local)** + **S17f Transforms DONE (`2ce6a4c`, local — uint8 H2D + fold the uint8->float normalize into the compiled step; gate 575/1)** + **S17f cuDNN DONE (`a7feae4`, local — `cudnn.benchmark=True`/`deterministic=False` as a FIXED speed-first flag; gate 581/1)** + **S17f Full-validation DONE (`a6c6271`, local — the full run sweeps the WHOLE validation set every half-epoch, correcting the agent-set 20-batch cap; gate 583/1)**; NEXT local = the rest of S17f (audit + CORRECT the current code to the speed-first / FSQ-floor intent) + S17d (bounded dataloader search axis — read its traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up); S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
 Implementation readiness: Phase 3 COMPLETE (local); S14a/S14b/S14c done + gated locally; S17a + S17b-1 done + gated locally (parser now ACCEPTS a self-consistent compiled plan — recipe AND structural identity/snapshot; identity is self-consistent so no Kaggle re-point is needed); compiled EXECUTION + the row_id mint are Kaggle observations; Kaggle phases S17-Kaggle/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-20 (S17f cuDNN DONE — `a7feae4`: `cudnn.benchmark=True`/`deterministic=False` as a
-FIXED speed-first flag; prior S17f done: Transforms `2ce6a4c` (uint8 H2D + folded normalize) + `drop_last`
+Last updated: 2026-07-20 (S17f Full-validation DONE — `a6c6271`: the full run sweeps the WHOLE validation set
+every half-epoch, correcting the agent-set 20-batch cap; prior S17f done: cuDNN `a7feae4`, Transforms
+`2ce6a4c` (uint8 H2D + folded normalize) + `drop_last`
 unit-flip `3b9aa42`. See the S17f
 bullets in the body). Prior update 2026-07-19 (S17c DONE — the plan-applied OBSERVATION MIRROR now carries the
 nine S11 recipe knobs and records the step the run ACTUALLY took, with an honest
@@ -1025,6 +1026,19 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
     - **DDP grad overlap.** Search FSQ's break-free `compiled_autograd=True`+`optimize_ddp=False`
       vs `ddp_optimizer` (measure BOTH on dual-T4; respect the S7 no-`ddp_optimizer`+
       `compiled_autograd` constraint); cudagraphs+DDP may force `max-autotune-no-cudagraphs`.
+    - **Full validation — DONE (`a6c6271`, local, 2026-07-20).** The full run now sweeps the
+      WHOLE validation dataset every half-epoch (matching FSQ), not a capped 20-batch leading
+      slice — the old cap made best-checkpoint selection use a fixed, non-representative slice
+      of the unshuffled/slide-grouped validation bin (a distinct issue the FSQ comparison
+      surfaced; the cap was an agent decision, not the user's). `validation_batches_per_view=0`
+      = full sweep; a positive value caps (debug/dry-run). New `_validation_batches(loader, cap)`
+      helper; `_validation_view_row` emits the ACTUAL swept `batch_count`. Gate de-pinned:
+      summary sentinel 0 + per-row `batch_count > 0` (data-dependent count, no validation-size
+      ground-truth to pin); the full-run anchor requires 0 so a real run can't silently cap.
+      Corrected the non-current capped-probe decision text in Spec 0009 (AC#5 + Open Questions)
+      + this spec (rule 15). DDP: each rank sweeps its shard once, negligible per-rank tail, the
+      cross-rank sample-weighted selection metric is unchanged. Gate 583/1; +2 mutation-proof
+      tests (helper + CPU end-to-end full-sweep); 3 clean-context reviewers + fix-delta clean.
     - **Metrics.** Replace per-step `.item()` host-syncs with GPU-resident accumulators
       (generalize FSQ `VarianceAccumulator`); sync only at flush boundaries (also required for
       cudagraphs).

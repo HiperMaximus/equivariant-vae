@@ -132,7 +132,7 @@ to `False` only when a per-rank shard would be smaller than one batch, so a dege
 never silently empty `_cycle_batches` → hang); the DDP sampler-policy label
 (`..._drop_last_true`/`..._drop_last_false`) and `_effective_train_epoch_samples` (floor/ceil)
 both track the realized `_safe_drop_last` decision, not a hardcoded value. Behavior-preserving at
-bs24 (train divides evenly; validation leading batches full; floor==ceil). Gate 441 passed (was
+bs24 (train divides evenly; floor==ceil). Gate 441 passed (was
 431), basedpyright/ruff clean. 6-lens adversarial Workflow review → 3 mutation-backed findings
 (2 test-coverage gaps + 1 honesty-label decoupling; the other 4 lenses — behavior-preservation,
 recipe-fidelity, step-correctness, probe-repoint — ZERO); all 3 fixed and re-mutation-proven.
@@ -417,10 +417,22 @@ searched axis) wherever convs run on GPU — new shared `fastpath_recipe.apply_c
 pretest `RowSpec` `cudnn_benchmark` field+parse defaults false→true (executor applies via existing
 `_apply_backend_policy`; pretest child applies from its row_spec). Behavior-preserving on v5 (cuDNN is not a
 plan/parser/gate/row_id field); local_cpu + v5 reference rows stay benchmark=false (honest); gate 581/1,
-6 tests, 3 reviewers clean. **NEXT (LOCAL): the rest of Spec 0011 S17f** — compile mode (max-autotune
-SEARCHED, may NOT win on T4 [limited compute] — measure) + `fullgraph=True`, RNG → Philox + tolerance
-checks, DDP grad overlap, GPU-resident metrics, precision; then S17d (bounded dataloader search — read its
-traps) + S17e (throughput batch search).
+6 tests, 3 reviewers clean. **S17f Full-validation — DONE (`a6c6271`): the full run now sweeps the WHOLE
+validation set every half-epoch** (was a capped 20-batch leading slice → biased best-checkpoint selection on
+an unshuffled/slide-grouped bin; matches FSQ, which sweeps the whole `val_loader`). `validation_batches_per_view=0`
+= full sweep (a positive value = a debug/dry-run cap); gate de-pinned (summary sentinel 0 + per-row
+`batch_count > 0`, since the count is now data-dependent); the full-run anchor requires 0 so a real run can't
+silently cap; corrected the non-current capped-probe decision text in Spec 0009 (AC#5 + Open Questions) +
+Spec 0011 (rule 15). Gate 583/1, +2 mutation-proof tests (helper + CPU end-to-end full-sweep), 3 reviewers +
+fix-delta clean (found+fixed Rule-15 doc-drift + a coverage gap). **NEXT (LOCAL): the RNG combined step
+(decomposed into gated sub-commits)** — retire blake2b BLANKET → free-running Philox InlineStain for TRAINING
+(per-rank generator whose state is SAVED/RESTORED at checkpoint so a resume CONTINUES the stream, never
+re-seeds→repeats the corruption sequence [user's anti-repeat point; the repo already checkpoints RNG state — we
+extend it]) + a fixed-seed generator for the (now full) VALIDATION denoising view (re-seeded to a constant each
+boundary → reproducible selection, no checkpoint state); delete the blake2b subsystem; update the S17c
+corruption-label + de-pin the parser/snapshot `indexed_masked` pins. Then compile mode (max-autotune SEARCHED,
+may NOT win on T4) + `fullgraph=True`, DDP grad overlap, GPU-resident metrics, precision; then S17d (bounded
+dataloader search — read its traps) + S17e (throughput batch search).
 Speed-first doc reconciliation is DONE (`9ce1bd5`); AGENTS rule 30 + rule 15 (delete non-current) are
 the governing rules. See [[eqvae-reusable-runtime-mechanism-plan]], [[eqvae-speed-first-dont-cares]],
 [[eqvae-s17d-dataloader-design]] + `docs/specs/0011-*.md`.
