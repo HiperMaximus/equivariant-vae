@@ -1,10 +1,11 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 DONE (both `run_template.py` validators — `21b697f` — AND the debug `kaggle_kernel.sh` shell push guard — `c090d16` — delegate to `selected_runtime_plan_errors`, local)**; **S17c DONE (observation mirror + honest corruption/step label — `9f6d813`, local)**; **S17f item #1 (the `drop_last` unit-flip) DONE (`3b9aa42`, local)** + **S17f Transforms DONE (`2ce6a4c`, local — uint8 H2D + fold the uint8->float normalize into the compiled step; gate 575/1)**; NEXT local = the rest of S17f (audit + CORRECT the current code to the speed-first / FSQ-floor intent) + S17d (bounded dataloader search axis — read its traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up); S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 DONE (both `run_template.py` validators — `21b697f` — AND the debug `kaggle_kernel.sh` shell push guard — `c090d16` — delegate to `selected_runtime_plan_errors`, local)**; **S17c DONE (observation mirror + honest corruption/step label — `9f6d813`, local)**; **S17f item #1 (the `drop_last` unit-flip) DONE (`3b9aa42`, local)** + **S17f Transforms DONE (`2ce6a4c`, local — uint8 H2D + fold the uint8->float normalize into the compiled step; gate 575/1)** + **S17f cuDNN DONE (`a7feae4`, local — `cudnn.benchmark=True`/`deterministic=False` as a FIXED speed-first flag; gate 581/1)**; NEXT local = the rest of S17f (audit + CORRECT the current code to the speed-first / FSQ-floor intent) + S17d (bounded dataloader search axis — read its traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up); S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
 Implementation readiness: Phase 3 COMPLETE (local); S14a/S14b/S14c done + gated locally; S17a + S17b-1 done + gated locally (parser now ACCEPTS a self-consistent compiled plan — recipe AND structural identity/snapshot; identity is self-consistent so no Kaggle re-point is needed); compiled EXECUTION + the row_id mint are Kaggle observations; Kaggle phases S17-Kaggle/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-20 (S17f Transforms DONE — `2ce6a4c`: uint8 H2D + fold the uint8->float
-normalize into the compiled step; plus S17f item #1 `drop_last` unit-flip — `3b9aa42`. See the S17f
+Last updated: 2026-07-20 (S17f cuDNN DONE — `a7feae4`: `cudnn.benchmark=True`/`deterministic=False` as a
+FIXED speed-first flag; prior S17f done: Transforms `2ce6a4c` (uint8 H2D + folded normalize) + `drop_last`
+unit-flip `3b9aa42`. See the S17f
 bullets in the body). Prior update 2026-07-19 (S17c DONE — the plan-applied OBSERVATION MIRROR now carries the
 nine S11 recipe knobs and records the step the run ACTUALLY took, with an honest
 corruption/AMP label. `SelectedRuntimeApplicationObservation` / `expected_application` /
@@ -22,8 +23,8 @@ on the committed eager v5 plan (empirically: `_application_mismatches` → `()`,
 `build_plan_applied_proof` → local_pass). Gate 574/1, 0 errors/warnings/notes; four
 clean-context default-refute reviewers all clean. This ends the `_application_mismatches`
 tautology that S17d's `_dataloader_errors` de-pin is gated on. S17f item #1 (the `drop_last`
-unit-flip, `3b9aa42`) + Transforms (uint8 H2D + folded normalize, `2ce6a4c`) DONE local-only; NEXT local =
-the rest of S17f + S17d + S17e (exact throughput-optimal batch search); NEXT Kaggle = S17 generator run + S19). The per-step
+unit-flip, `3b9aa42`) + Transforms (uint8 H2D + folded normalize, `2ce6a4c`) + cuDNN (fixed speed-first
+flag, `a7feae4`) DONE local-only; NEXT local = the rest of S17f + S17d + S17e (exact throughput-optimal batch search); NEXT Kaggle = S17 generator run + S19). The per-step
 `(DONE — …)` tags in the body are the state of record.
 
 ## Purpose
@@ -1006,9 +1007,21 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       single-GPU-vs-DDP) TOLERANCE-based (`isclose`), not bit-exact — this is what lets
       corruption be non-deterministic (the Spec 0001 / decision 0007 determinism mandate was
       deleted 2026-07-19).
-    - **cudnn / determinism.** `cudnn.benchmark=True`, `cudnn.deterministic=False`, never
-      `use_deterministic_algorithms(True)`. Keep one global `set_seed` for DDP-rank-identical
-      init (seeding ≠ determinism).
+    - **cuDNN — DONE (`a7feae4`, local, 2026-07-20).** `cudnn.benchmark=True`/`deterministic=False`
+      is now a FIXED speed-first flag wherever convolutions run on GPU (not a searched axis): new
+      shared `fastpath_recipe.apply_cudnn_flags`; runner `_apply_cuda_runtime_flags(device)` (CUDA-
+      only) wired into `_distributed_context`; executor `_RuntimePolicy` + pretest `RowSpec`
+      `cudnn_benchmark` field+parse defaults false→true (executor applies via the existing
+      `_apply_backend_policy`; the pretest child applies from its row_spec → records what it runs;
+      the config declares no cuDNN key). `deterministic` stays False. Behavior-preserving on v5:
+      cuDNN is not a plan/parser/gate/row_id field, so the runner ignores stale cuDNN cells and no
+      validator/provenance hash changes; the local_cpu synthetic row + the v5 reference row stay
+      benchmark=false (honest — neither runs cuDNN). Gate 581/1, basedpyright clean; 6 mutation-proof
+      tests; 3 clean-context adversarial reviewers (correctness/premise, speed-first/honesty, test-
+      soundness) → 0 defects. The pretest apply's invocation is CUDA-only (Kaggle-exercised),
+      consistent with the repo's pretest coverage boundary. `use_deterministic_algorithms(True)` is
+      confirmed absent everywhere. Still keep one global `set_seed` for DDP-rank-identical init
+      (seeding ≠ determinism) — that lives with the RNG item, not this one.
     - **DDP grad overlap.** Search FSQ's break-free `compiled_autograd=True`+`optimize_ddp=False`
       vs `ddp_optimizer` (measure BOTH on dual-T4; respect the S7 no-`ddp_optimizer`+
       `compiled_autograd` constraint); cudagraphs+DDP may force `max-autotune-no-cudagraphs`.

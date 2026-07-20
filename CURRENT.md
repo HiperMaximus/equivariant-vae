@@ -410,11 +410,17 @@ Untouched by design: the runner's S16 fallback label `_DDP_SAMPLER_POLICY_NO_DRO
 `partial_batch_observed` probe. **S17f Transforms — DONE (`2ce6a4c`, local): uint8 H2D + fold
 normalize+channels_last into the compiled step** (`make_fastpath_step_fn(x_uint8)`; runner/probe/
 executor+VRAM/pretest transfer uint8; pretest+executor dataloader-H2D proofs now time uint8; eager
-paths keep CPU-normalize; gate 575/1, 3 reviewers clean; speed is Kaggle-measured). **NEXT (LOCAL): the
-rest of Spec 0011 S17f** — compile mode (max-autotune SEARCHED, may NOT win on T4 [limited compute] —
-measure) + `fullgraph=True`, RNG → Philox + tolerance checks, cudnn/determinism, DDP grad overlap,
-GPU-resident metrics, precision; then S17d (bounded dataloader search — read its traps) + S17e
-(throughput batch search).
+paths keep CPU-normalize; gate 575/1, 3 reviewers clean; speed is Kaggle-measured). **S17f cuDNN — DONE
+(`a7feae4`, local): `cudnn.benchmark=True`/`cudnn.deterministic=False` as a FIXED speed-first flag** (not a
+searched axis) wherever convs run on GPU — new shared `fastpath_recipe.apply_cudnn_flags`; runner
+`_apply_cuda_runtime_flags(device)` (CUDA-only) in `_distributed_context`; executor `_RuntimePolicy` +
+pretest `RowSpec` `cudnn_benchmark` field+parse defaults false→true (executor applies via existing
+`_apply_backend_policy`; pretest child applies from its row_spec). Behavior-preserving on v5 (cuDNN is not a
+plan/parser/gate/row_id field); local_cpu + v5 reference rows stay benchmark=false (honest); gate 581/1,
+6 tests, 3 reviewers clean. **NEXT (LOCAL): the rest of Spec 0011 S17f** — compile mode (max-autotune
+SEARCHED, may NOT win on T4 [limited compute] — measure) + `fullgraph=True`, RNG → Philox + tolerance
+checks, DDP grad overlap, GPU-resident metrics, precision; then S17d (bounded dataloader search — read its
+traps) + S17e (throughput batch search).
 Speed-first doc reconciliation is DONE (`9ce1bd5`); AGENTS rule 30 + rule 15 (delete non-current) are
 the governing rules. See [[eqvae-reusable-runtime-mechanism-plan]], [[eqvae-speed-first-dont-cares]],
 [[eqvae-s17d-dataloader-design]] + `docs/specs/0011-*.md`.
