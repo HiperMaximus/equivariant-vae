@@ -445,10 +445,12 @@ loops (`_global_grad_norm`/`_nonfinite_gradient_count`/`_parameter_update_norm`)
 eager and compiled train-step paths benefit (shared helpers, byte-identical call sites). Value-preserving:
 non-finite count exact, the two norms drift only within fp tolerance (only finiteness is gate-checked), the
 per-step CSV/gate contract is untouched. Gate 595/1, ruff+basedpyright clean; five clean-context default-refute
-reviewers → 0 confirmed; 9 mutation-proof tests. Part 2 (the aggregate loss/validation `VarianceAccumulator`)
-is split off — it CHANGES the gate's per-step CSV granularity.** **NEXT (LOCAL): the REST of S17f** — compile
+reviewers → 0 confirmed; 9 mutation-proof tests. Part 2 (aggregate loss/validation
+metrics) is split off as gate-contract-aware — the RESOLVED V/T/C design below KEEPS every per-step
+training row (T buffers but preserves granularity); only the CSV-shard commit (C) changes a reader
+contract.** **NEXT (LOCAL): the REST of S17f** — compile
 mode (max-autotune SEARCHED, may NOT win on T4) +
-`fullgraph=True`, DDP grad overlap, GPU-resident aggregate metrics (part 2), precision; PLUS the blake2b retirement FOLLOW-UPS
+`fullgraph=True`, DDP grad overlap, the Metrics part 2 DESIGN (2026-07-21, user-confirmed, NOT yet built) = 3 commits V→T→C: V=validation aggregate+std (on-device fp64 sum+sum_sq/view, buffer reused across views, `beta` hoisted, 1 sync/view, NEW `*_std` cols for plot error-bars); T=training per-step buffer (`[N=half-epoch,~16]` on-device, per-step no-sync index-write, bulk-materialize at the boundary, KEEPS per-step rows so the gate contract holds, needs `_SelectedRuntimeStepResult` floats→tensors, eager+compiled paths); C=one CSV per half-epoch (shard `train_steps.csv`, kills the O(n²) rewrite — CONTRACT change: gate+verifier glob shards). Precision→fp16 is a SEPARATE gated step (`amp_off_fp32` was a bad agent default — see [[eqvae-amp-off-was-bad-agent-default]]); PLUS the blake2b retirement FOLLOW-UPS
 (SCOPE CORRECTION rule 29 — blake2b was NOT dead after the runner-only sub-commit 2: the benchmark selection
 corruption proof + `debug.py`/`kaggle_smoke.py`/`stain_corruptor_qa.py` still use it → move those off blake2b,
 then delete the dead subsystem). Then S17d (bounded dataloader search — read its traps) + S17e (throughput batch

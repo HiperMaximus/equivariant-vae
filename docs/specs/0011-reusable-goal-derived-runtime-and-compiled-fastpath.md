@@ -3,7 +3,10 @@
 Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 DONE (both `run_template.py` validators — `21b697f` — AND the debug `kaggle_kernel.sh` shell push guard — `c090d16` — delegate to `selected_runtime_plan_errors`, local)**; **S17c DONE (observation mirror + honest corruption/step label — `9f6d813`, local)**; **S17f item #1 (the `drop_last` unit-flip) DONE (`3b9aa42`, local)** + **S17f Transforms DONE (`2ce6a4c`, local — uint8 H2D + fold the uint8->float normalize into the compiled step; gate 575/1)** + **S17f cuDNN DONE (`a7feae4`, local — `cudnn.benchmark=True`/`deterministic=False` as a FIXED speed-first flag; gate 581/1)** + **S17f Full-validation DONE (`a6c6271`, local — the full run sweeps the WHOLE validation set every half-epoch, correcting the agent-set 20-batch cap; gate 583/1)** + **S17f RNG combined-step sub-commit 2 DONE (`5dde097`, local — the runner's eager + validation corruption move off blake2b onto the Philox `InlineStainCorruptor` via dedicated checkpoint-continued / re-seeded generators; corruption is now a FIXED property, not a selected axis; parser + label de-pinned; gate 586/1, 4 reviewers clean)** + **S17f Metrics part 1 DONE (`623f128`, local — the three per-parameter hot-step telemetry host-sync loops [`_global_grad_norm`/`_nonfinite_gradient_count`/`_parameter_update_norm`] vectorized to one on-device reduction each; value-preserving; gate 595/1, 5 reviewers clean)**; NEXT local = the REST of S17f (compile-mode / `fullgraph`, DDP grad-overlap, GPU-resident aggregate metrics [part 2 — loss/val `VarianceAccumulator`, gate-contract-aware], precision) + the blake2b retirement FOLLOW-UPS (SCOPE CORRECTION rule 29: blake2b was NOT dead after the runner-only sub-commit 2 — move the benchmark selection proof + debug/smoke/QA off blake2b, THEN delete it) + S17d (bounded dataloader search axis — read its traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up); S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
 Implementation readiness: Phase 3 COMPLETE (local); S14a/S14b/S14c done + gated locally; S17a + S17b-1 done + gated locally (parser now ACCEPTS a self-consistent compiled plan — recipe AND structural identity/snapshot; identity is self-consistent so no Kaggle re-point is needed); compiled EXECUTION + the row_id mint are Kaggle observations; Kaggle phases S17-Kaggle/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
-Last updated: 2026-07-20 (S17f Metrics part 1 DONE — `623f128`: the three hot-step per-parameter
+Last updated: 2026-07-21 (S17f Metrics part 2 DESIGNED — user-confirmed 3-commit shape
+V=validation-aggregate+std → T=training-per-step-buffer → C=CSV-per-half-epoch; see the S17f
+body; precision→fp16 is a SEPARATE gated step [`amp_off_fp32` was a bad agent default, not the
+user's]. Prior 2026-07-20: S17f Metrics part 1 DONE — `623f128`: the three hot-step per-parameter
 telemetry host-sync loops in the runner — `_global_grad_norm`, `_nonfinite_gradient_count`,
 `_parameter_update_norm` — now reduce on-device to ONE `.item()` each instead of O(N_params)/step, and the
 update-norm drops the per-parameter `.cpu()` D2H copies; both the eager and compiled train-step paths
@@ -1056,11 +1059,46 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       595/1; five clean-context default-refute reviewers (value-preservation,
       correctness/edge, consumer/gate-contract, test-soundness, fix-delta) → 0 confirmed; 9
       mutation-proof tests. The perf intent (single host sync) is Kaggle-observed, not
-      CPU-unit-testable. PART 2 still open: the aggregate loss/validation `VarianceAccumulator`
-      (the loss scalars via `detached_scalars`/`_metric_row` + `_validation_view_row`) — split
-      off deliberately because it CHANGES the gate's per-step CSV granularity, so it is
-      gate-contract-aware. (`_norm`/`a_grad_norm` in `_gate_health_rows` is a boundary-only
-      sync via `_write_interval_artifact_flush`, not the hot path — out of scope.)
+      CPU-unit-testable. **PART 2 — DESIGNED 2026-07-21 (user-confirmed shape; 3 commits, not
+      yet implemented).** Intent: FSQ's `VarianceAccumulator` (`fsq_train_reference.py:609`)
+      AGGREGATES across steps — zero per-step sync, but it emits interval-aggregated rows and has
+      NO per-step training row. That maps onto VALIDATION (already one mean-row per view) but NOT
+      onto TRAINING: the remote gate `_remote_full_train_step_blockers` audits per-step rows
+      (`row_count == target_updates × world_size`; every step `1..target` present on every rank),
+      so we CANNOT aggregate the training path — we buffer-but-keep per-step. Three commits,
+      order V → T → C (each a gated commit + clean-context adversarial review):
+        - **Commit V — validation aggregate + std.** `_validation_view_row` accumulates the 6
+          loss tensors' `sum` AND `sum_sq` into an on-device fp64 buffer (reused across the 2
+          views: allocate once in `_run_scheduled_validation`, `.zero_()` per view); `beta`
+          hoisted out of the batch loop (host float, loop-invariant, no sync); ONE `.tolist()`
+          per view → mean and std on host. `6 × n_batches` syncs/view → 1. Emits NEW `*_std`
+          columns (ADDITIVE — the gate's required-column check is a subset test; update
+          `_VALIDATION_METRIC_COLUMNS` + confirm the remote verifier tolerates extra columns) so
+          each half-epoch validation point gets an error bar for plotting. Means value-preserving;
+          `_boundary_selection_metric` (reads the row's mean l1 + sample_count) untouched.
+        - **Commit T — training per-step buffer.** A persistent `[N, ~16]` on-device buffer
+          (N = half-epoch steps): each step index-writes its ~16 device scalars (6 losses +
+          grad_norm + param_update_norm + 5 recon stats + nonfinite_count + 2 eps) with NO sync;
+          one bulk `.tolist()` materialize at the half-epoch flush boundary. KEEPS every per-step
+          row (gate contract intact; the whole-file atomic CSV write is unchanged). ~16 metric
+          syncs/step → ~0 (amp-off) or 1 (fp16 GradScaler inf-check floor, = FSQ). Requires
+          `_SelectedRuntimeStepResult` float fields → device tensors + the step helpers
+          (`_global_grad_norm` etc.) to RETURN tensors (stop calling `.item()`); touches BOTH the
+          eager and compiled step paths. Amp-agnostic; value-preserving; no schema/gate change.
+          The training curve stays dense per-step → error bands are a plot-time rolling std
+          (nothing extra to store).
+        - **Commit C — one CSV per half-epoch.** Shard `train_steps.csv` into a file per
+          half-epoch, killing the O(n²) whole-file atomic rewrite (`_write_csv_atomic` rewrites
+          the whole accumulated list every boundary) + the unbounded single file. CONTRACT change:
+          `_remote_full_train_step_blockers` + the remote verifier read a SINGLE file today → they
+          must glob + concatenate the shards. Its OWN commit — the only part-2 commit that changes
+          a gate READER contract (the train-step file layout). (Commit V's `*_std` addition also
+          extends the validation column schema, but it is backward-compatible: additive columns pass
+          the gate's subset-based required-column check, so V updates `_VALIDATION_METRIC_COLUMNS` +
+          needs a verifier tolerance check without breaking the contract. Commit T keeps every
+          per-step training row, so it changes NOTHING in the gate contract. `_norm`/`a_grad_norm`
+          in `_gate_health_rows` is a boundary-only sync via `_write_interval_artifact_flush`, not
+          the hot path — out of scope.)
     - **Transforms — DONE (`2ce6a4c`, local, 2026-07-20).** `make_fastpath_step_fn` now takes
       `x_uint8` and folds the uint8->float normalize into the compiled graph
       (cast+normalize+corrupt+forward+loss fused); every compiled caller (runner, probe,
@@ -1070,8 +1108,14 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       RNG item). The CPU worker read stays eager, by design (do not compile it). Gate 575/1,
       basedpyright clean; 3 clean-context adversarial reviewers (fold-correctness / caller-
       completeness / scope) clean after 2 fixes. The speed win is Kaggle-measured (local CPU-only).
-    - **Precision.** Re-measure `amp_off_fp32` vs `amp_fp16` on T4 (fp16-first; fp32 only where
-      numerically required).
+    - **Precision — its OWN gated step, NOT folded into Metrics.** The `amp_off_fp32` default
+      across the T4 grid (`runtime_selection.py` candidates; `model_loss_train_step.py:40`
+      `_REQUIRED_PRECISION_POLICY`) was an agent's unilateral "to be safe" choice, NOT the
+      user's — the user always optimizes for max speed, so fp16 (T4/Turing tensor cores ~2x;
+      bf16 unsupported on sm_75) is the likely-intended precision. Re-measure `amp_off_fp32` vs
+      `amp_fp16` on T4 and move to fp16, gated FIRST on a rule-29 check that amp-off was not set
+      for a real NaN/divergence reason (the one legitimate reason to keep fp32). On fp16 the
+      GradScaler inf-check is the one unavoidable per-step sync (the FSQ floor).
     - **`drop_last` UNIT-FLIP — DONE (`3b9aa42`, local, 2026-07-20).** Flipped the
       stale selection-benchmark PROJECTION-RECORD to match the real loader (`drop_last=True` since
       S16) + `floor(P/G)` schedule (S5b): now `drop_last=true`, `effective_samples_per_epoch =
