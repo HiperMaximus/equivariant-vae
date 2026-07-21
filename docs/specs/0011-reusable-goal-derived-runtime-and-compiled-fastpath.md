@@ -1089,9 +1089,20 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
           (nothing extra to store).
         - **Commit C — one CSV per half-epoch.** Shard `train_steps.csv` into a file per
           half-epoch, killing the O(n²) whole-file atomic rewrite (`_write_csv_atomic` rewrites
-          the whole accumulated list every boundary) + the unbounded single file. CONTRACT change:
-          `_remote_full_train_step_blockers` + the remote verifier read a SINGLE file today → they
-          must glob + concatenate the shards. Its OWN commit — the only part-2 commit that changes
+          the whole accumulated list every boundary) + the unbounded single file. Each shard is
+          named by its boundary so shards never overwrite each other — a zero-padded
+          `train_steps_<optimizer_step:06d>.csv.gz` keyed on the half-epoch boundary step, which
+          also glob-sorts chronologically. Reuse the repo's EXISTING boundary-keyed naming
+          convention (`checkpoints/step_*.pt`, `artifacts/fixed25/boundary_<step:06d>/`), which is
+          the internal analog of the FSQ reference's per-boundary `ep_<ep>.<fraction>` keying
+          (`fsq_train_reference.py:999`). FSQ instead APPENDS to one CSV (`append_to_csv`,
+          `mode='a'`, `:604`); we splinter into atomic gzipped shards rather than append because
+          the repo's crash-safe atomic-replace write cannot append in place. Write the shards
+          gzip-compressed (per-step float rows compress ~10×) against the Kaggle ~20 GB
+          `/kaggle/working` output cap (see FU-046).
+          CONTRACT change: `_remote_full_train_step_blockers` + the remote verifier read a SINGLE
+          file today → they must glob (`train_steps_*.csv.gz`), decompress, + concatenate the shards
+          in boundary order. Its OWN commit — the only part-2 commit that changes
           a gate READER contract (the train-step file layout). (Commit V's `*_std` addition also
           extends the validation column schema, but it is backward-compatible: additive columns pass
           the gate's subset-based required-column check, so V updates `_VALIDATION_METRIC_COLUMNS` +

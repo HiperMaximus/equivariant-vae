@@ -77,6 +77,30 @@ Rules to keep this file from rotting (the problem it exists to fix):
 
 ### LOW
 
+- **FU-045 — Train-vs-val metric dashboard across all six losses with ±std bands.**
+  Deferred plotting deliverable (user, 2026-07-21): once the S19 run produces data,
+  build per-metric panels (`loss`, `recon_loss`, `l1_loss`, `ssim_loss`,
+  `ssim_metric`, `kl_loss`) that overlay the per-step TRAINING curve against the two
+  VALIDATION views (`clean`, `deterministic_denoising`), each with its mean ± std band,
+  so train↔val divergence is visible per metric. Data sources:
+  `metrics/validation_metrics.csv` already carries per-half-epoch `{metric, metric_std}`
+  (Spec 0011 S17f Commit V); the dense per-step `metrics/train_steps.csv` gets its band
+  from a plot-time rolling std (per-step training scalars move on-device in Commit T).
+  Serves the GOAL.md training/evaluation dashboard requirement. Do NOT write the scripts
+  yet — no run data exists. Per-rank caveat: train CSV scalars are rank-local (FU-019).
+- **FU-046 — Compress saved run artifacts against the Kaggle ~20 GB output cap.**
+  Kaggle caps `/kaggle/working` output at ~20 GB; a full run writes interval
+  checkpoints (`.pt` — the dominant consumer: weights + AdamW state), the per-step
+  `train_steps.csv` (~`target × world_size` rows), `.pt` reconstruction/fixed-25
+  tensors, and PNG/JSON. Audit + compress (user, 2026-07-21): gzip the CSVs (Commit C
+  writes `.csv.gz` shards); evaluate checkpoint retention count (dominates size more
+  than compression) and compressed `torch.save`; leave PNGs (already compressed).
+  PRIMARY RISK: the runner default `checkpoint_retention="keep_all"`
+  (`selected_runtime_runner.py:1791`) × ~20 half-epoch boundaries × (weights + AdamW
+  state) can blow the cap; the FSQ reference keeps only the last 4 rolling checkpoints
+  + `best_model.pt` (`fsq_train_reference.py:1082-1087`). Set a bounded retention for the
+  full run. Verify the exact current cap before sizing. Deferred until the S19 run reveals
+  real artifact sizes; the gate / remote verifier readers must accept the compressed forms.
 - **FU-042 — Inspect run-1 KL and decoder telemetry for collapse/saturation.**
   Code guards exist (FU-002 KL/recon balance test; FU-018 decoder-saturation
   columns `recon_output_rms`/`x_hat_*`/`frac_x_hat_*` in `metrics/train_steps.csv`),
