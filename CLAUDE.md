@@ -4,7 +4,10 @@ This file is a thin adapter for Claude. The canonical repository instructions
 live in `AGENTS.md`, `CURRENT.md`, `GOAL.md`, and the docs listed below.
 
 Read the canonical landing sequence before architecture, evaluation, paper,
-workflow, or Overleaf work:
+workflow, or Overleaf work. `AGENTS.md` is the BINDING hard-rules contract (rules
+1–30) — read it in full, do not skim: agents keep relapsing into already-corrected
+traps (especially rule 15 lean-and-live, rule 29 verify-the-premise, rule 30
+speed-first, rule 22 detached gate).
 
 1. `AGENTS.md`
 2. `CURRENT.md`
