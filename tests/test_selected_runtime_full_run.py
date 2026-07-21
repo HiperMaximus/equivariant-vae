@@ -2583,12 +2583,20 @@ def _validation_row(
     view: str,
     optimizer_step: int,
     validation_batches_per_view: int | None = None,
+    accumulator: torch.Tensor | None = None,
 ) -> Mapping[str, str]:
     settings = scaffold.settings
     if validation_batches_per_view is not None:
         settings = replace(
             settings,
             validation_batches_per_view=validation_batches_per_view,
+        )
+    if accumulator is None:
+        # Fresh, self-zeroed per call; pass a shared buffer to exercise the production
+        # cross-view reuse path (_run_scheduled_validation allocates one for all views).
+        accumulator = torch.zeros(
+            (2, len(selected_runtime_runner._VALIDATION_LOSS_METRIC_NAMES)),  # noqa: SLF001
+            dtype=torch.float64,
         )
     return selected_runtime_runner._validation_view_row(  # noqa: SLF001
         model=scaffold.model,
@@ -2601,6 +2609,7 @@ def _validation_row(
         view=view,
         rank=0,
         device=torch.device("cpu"),
+        validation_accumulator=accumulator,
     )
 
 
@@ -2634,6 +2643,12 @@ def test_validation_view_full_sweep_covers_the_whole_loader(tmp_path: Path) -> N
     assert loader_batches > 1
     assert int(full["batch_count"]) == loader_batches
     assert int(capped["batch_count"]) == 1
+    # Commit V (Spec 0011 S17f): every loss metric now emits an additive population-std
+    # column, finite and nonnegative across a real multi-batch sweep.
+    for name in selected_runtime_runner._VALIDATION_LOSS_METRIC_NAMES:  # noqa: SLF001
+        std_text = full[f"{name}_std"]
+        assert math.isfinite(float(std_text))
+        assert float(std_text) >= 0.0
 
 
 def test_clean_validation_view_consumes_no_corruption_rng(
@@ -2705,6 +2720,175 @@ def test_deterministic_denoising_validation_row_is_reproducible(
     assert {key: first[key] for key in metric_keys} != {
         key: clean[key] for key in metric_keys
     }
+
+
+@pytest.mark.parametrize(
+    ("total", "total_sq", "count", "expected"),
+    [
+        (0.0, 0.0, 0, 0.0),
+        (4.0, 16.0, 1, 0.0),  # a single batch has zero spread
+        (12.0, 56.0, 3, math.sqrt(8.0 / 3.0)),  # {2, 4, 6} -> pstdev
+        (2.0, 1.9999999999, 2, 0.0),  # fp round-off clamps to 0, never NaN
+    ],
+)
+def test_population_std_matches_the_fsq_population_convention(
+    total: float,
+    total_sq: float,
+    count: int,
+    expected: float,
+) -> None:
+    """S17f Commit V: the std helper is the FSQ population convention, clamped >= 0.
+
+    Divides by N (not N-1), so a single batch is exactly 0.0 and fp cancellation in
+    ``total_sq / count - mean**2`` clamps to 0 instead of producing a NaN std.
+    """
+    result = selected_runtime_runner._population_std(  # noqa: SLF001
+        total=total,
+        total_sq=total_sq,
+        count=count,
+    )
+    assert math.isfinite(result)
+    assert math.isclose(result, expected, abs_tol=1e-12)
+
+
+def test_validation_view_row_aggregates_means_and_population_std(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S17f Commit V: the row is the per-batch-mean average and its population std.
+
+    Stubbing ``compute_vae_loss`` with known per-batch values (distinct per metric and
+    varying per batch) pins the on-device aggregation directly: the emitted mean must be
+    the average of the batch means (value-preserving vs the old ``_mean_loss_scalars``)
+    and each ``*_std`` the population std of those same per-batch values. Distinct
+    per-metric means prove the six accumulator columns are not cross-wired.
+    """
+    metric_names = selected_runtime_runner._VALIDATION_LOSS_METRIC_NAMES  # noqa: SLF001
+    recorded: dict[str, list[float]] = {name: [] for name in metric_names}
+
+    def _stub_losses(
+        _output: object,
+        _target: object,
+        *,
+        beta: float,
+        ssim_weight: float,  # noqa: ARG001
+    ) -> VaeLossComponents:
+        batch_index = len(recorded["loss"])
+        values = {
+            name: float(batch_index + offset)
+            for offset, name in enumerate(metric_names, start=1)
+        }
+        for name, value in values.items():
+            recorded[name].append(value)
+        return VaeLossComponents(
+            loss=torch.tensor(values["loss"], dtype=torch.float32),
+            recon_loss=torch.tensor(values["recon_loss"], dtype=torch.float32),
+            l1_loss=torch.tensor(values["l1_loss"], dtype=torch.float32),
+            ssim_loss=torch.tensor(values["ssim_loss"], dtype=torch.float32),
+            ssim_metric=torch.tensor(values["ssim_metric"], dtype=torch.float32),
+            kl_loss=torch.tensor(values["kl_loss"], dtype=torch.float32),
+            beta=beta,
+        )
+
+    monkeypatch.setattr(selected_runtime_runner, "compute_vae_loss", _stub_losses)
+    scaffold = _open_validation_scaffold(tmp_path, validation_batches_per_view=3)
+    try:
+        row = _validation_row(
+            scaffold,
+            view="clean",
+            optimizer_step=1,
+            validation_batches_per_view=0,
+        )
+    finally:
+        selected_runtime_runner._close_data_surface(scaffold.data_surface)  # noqa: SLF001
+
+    batch_count = len(recorded["loss"])
+    assert batch_count > 1  # a multi-batch sweep, so the std is non-vacuous
+    assert int(row["batch_count"]) == batch_count
+    for name in metric_names:
+        values = recorded[name]
+        expected_mean = sum(values) / len(values)
+        expected_std = math.sqrt(
+            sum((value - expected_mean) ** 2 for value in values) / len(values),
+        )
+        assert math.isclose(float(row[name]), expected_mean, rel_tol=1e-9)
+        assert math.isclose(float(row[f"{name}_std"]), expected_std, rel_tol=1e-9)
+    # Distinct per-metric means confirm the six columns accumulate independently.
+    assert len({row[name] for name in metric_names}) == len(metric_names)
+
+
+def test_shared_validation_accumulator_is_reset_between_views(tmp_path: Path) -> None:
+    """S17f Commit V: the reused accumulator is zeroed per view before aggregating.
+
+    Production ``_run_scheduled_validation`` allocates ONE accumulator and passes it
+    to every view in order, so the per-view ``zero_()`` reset in
+    ``_validation_view_row`` is load-bearing: without it the second
+    (``deterministic_denoising``) view accumulates on top of the first view's sums while
+    its ``batch_count`` covers only its own batches, inflating its means/std and
+    corrupting best-checkpoint selection (which reads that view). Driving a SHARED
+    accumulator across both views must reproduce the second view computed on a FRESH
+    buffer byte-for-byte; deleting the reset breaks this equality.
+    """
+    scaffold = _open_validation_scaffold(tmp_path, validation_batches_per_view=3)
+    try:
+        shared = torch.zeros(
+            (2, len(selected_runtime_runner._VALIDATION_LOSS_METRIC_NAMES)),  # noqa: SLF001
+            dtype=torch.float64,
+        )
+        # Load the shared buffer with the first view, then reuse it for the second view
+        # exactly as _run_scheduled_validation does (clean, then denoising).
+        first = _validation_row(
+            scaffold,
+            view="clean",
+            optimizer_step=1,
+            validation_batches_per_view=0,
+            accumulator=shared,
+        )
+        shared_second = _validation_row(
+            scaffold,
+            view="deterministic_denoising",
+            optimizer_step=1,
+            validation_batches_per_view=0,
+            accumulator=shared,
+        )
+        reference_second = _validation_row(
+            scaffold,
+            view="deterministic_denoising",
+            optimizer_step=1,
+            validation_batches_per_view=0,
+        )
+    finally:
+        selected_runtime_runner._close_data_surface(scaffold.data_surface)  # noqa: SLF001
+
+    # Non-vacuity: the first view genuinely loaded nonzero sums into the shared buffer,
+    # so a missing reset would actually contaminate the second view.
+    assert any(
+        abs(float(first[name])) > 0.0
+        for name in selected_runtime_runner._VALIDATION_LOSS_METRIC_NAMES  # noqa: SLF001
+    )
+    assert dict(shared_second) == dict(reference_second)
+
+
+def test_single_batch_validation_view_reports_zero_std(tmp_path: Path) -> None:
+    """S17f Commit V: a single-batch view has exactly zero population std.
+
+    With one batch the population variance is ``x**2 - x**2 == 0`` for every metric, so
+    all ``*_std`` columns format to ``"0"`` (an N-1 divisor would divide by zero).
+    """
+    scaffold = _open_validation_scaffold(tmp_path)
+    try:
+        row = _validation_row(
+            scaffold,
+            view="deterministic_denoising",
+            optimizer_step=1,
+            validation_batches_per_view=1,
+        )
+    finally:
+        selected_runtime_runner._close_data_surface(scaffold.data_surface)  # noqa: SLF001
+
+    assert int(row["batch_count"]) == 1
+    for name in selected_runtime_runner._VALIDATION_LOSS_METRIC_NAMES:  # noqa: SLF001
+        assert row[f"{name}_std"] == "0"
 
 
 def test_validation_beta_uses_training_denominator_under_dry_run(
@@ -4841,6 +5025,14 @@ def _validation_columns() -> tuple[str, ...]:
         "ssim_loss",
         "ssim_metric",
         "kl_loss",
+        # Additive per-view std columns (Spec 0011 S17f Metrics Commit V): the fixture
+        # mirrors the real emitter so the end-to-end gate exercises tolerating them.
+        "loss_std",
+        "recon_loss_std",
+        "l1_loss_std",
+        "ssim_loss_std",
+        "ssim_metric_std",
+        "kl_loss_std",
         "beta",
         "deterministic_eps_used",
         "corruption_strategy",
@@ -4864,6 +5056,12 @@ def _validation_rows(contract: _FullOutputContract) -> list[dict[str, str]]:
             "ssim_loss": "0.5",
             "ssim_metric": "0.5",
             "kl_loss": "0.01",
+            "loss_std": "0.1",
+            "recon_loss_std": "0.1",
+            "l1_loss_std": "0.05",
+            "ssim_loss_std": "0.05",
+            "ssim_metric_std": "0.05",
+            "kl_loss_std": "0.001",
             "beta": "1.0",
             "deterministic_eps_used": "true",
             "corruption_strategy": "indexed_masked",

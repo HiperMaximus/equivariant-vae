@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-07-20
+Last updated: 2026-07-21
 
 ## Active Workstream
 
@@ -448,9 +448,18 @@ per-step CSV/gate contract is untouched. Gate 595/1, ruff+basedpyright clean; fi
 reviewers → 0 confirmed; 9 mutation-proof tests. Part 2 (aggregate loss/validation
 metrics) is split off as gate-contract-aware — the RESOLVED V/T/C design below KEEPS every per-step
 training row (T buffers but preserves granularity); only the CSV-shard commit (C) changes a reader
-contract.** **NEXT (LOCAL): the REST of S17f** — compile
+contract.** **S17f Metrics part 2 Commit V — DONE (this session): `_validation_view_row` now
+accumulates the six per-batch losses' sum+sum_sq in ONE on-device fp64 `[2,6]` buffer (allocated
+once in `_run_scheduled_validation`, `.zero_()` per view; `beta`/dtype hoisted out of the loop), read
+out with ONE `.tolist()` per view — was 6×n_batches host syncs (FSQ `VarianceAccumulator` pattern).
+Emits six ADDITIVE `*_std` columns (population std over batches; the gate's required-column check is a
+subset test → backward-compatible). Means value-preserving (best-checkpoint selection byte-unchanged);
+rows stay per-rank. Gate 602/1, ruff+basedpyright clean; 6-lens clean-context adversarial review green —
+the one confirmed finding (a coverage gap: no test caught deletion of the shared per-view `zero_()`
+reset) was fixed + mutation-proven; +5 tests. FSQ save/naming conventions reconciled into the Commit C
+shard-naming design + FU-045/046 (`83a60ed`).** **NEXT (LOCAL): the REST of S17f** — compile
 mode (max-autotune SEARCHED, may NOT win on T4) +
-`fullgraph=True`, DDP grad overlap, the Metrics part 2 DESIGN (2026-07-21, user-confirmed, NOT yet built) = 3 commits V→T→C: V=validation aggregate+std (on-device fp64 sum+sum_sq/view, buffer reused across views, `beta` hoisted, 1 sync/view, NEW `*_std` cols for plot error-bars); T=training per-step buffer (`[N=half-epoch,~16]` on-device, per-step no-sync index-write, bulk-materialize at the boundary, KEEPS per-step rows so the gate contract holds, needs `_SelectedRuntimeStepResult` floats→tensors, eager+compiled paths); C=one CSV per half-epoch (shard `train_steps.csv`, kills the O(n²) rewrite — CONTRACT change: gate+verifier glob shards). Precision→fp16 is a SEPARATE gated step (`amp_off_fp32` was a bad agent default — see [[eqvae-amp-off-was-bad-agent-default]]); PLUS the blake2b retirement FOLLOW-UPS
+`fullgraph=True`, DDP grad overlap, the Metrics part 2 (2026-07-21, user-confirmed) = 3 commits V→T→C: V=validation aggregate+std **DONE this session** (on-device fp64 sum+sum_sq/view, buffer reused across views, `beta` hoisted, 1 sync/view, additive `*_std` cols; gate 602/1); **T (NEXT)** = training per-step buffer (`[N=half-epoch,~16]` on-device, per-step no-sync index-write, bulk-materialize at the boundary, KEEPS per-step rows so the gate contract holds, needs `_SelectedRuntimeStepResult` floats→tensors, eager+compiled paths); C=one CSV per half-epoch (shard `train_steps.csv`, kills the O(n²) rewrite — CONTRACT change: gate+verifier glob shards). Precision→fp16 is a SEPARATE gated step (`amp_off_fp32` was a bad agent default — see [[eqvae-amp-off-was-bad-agent-default]]); PLUS the blake2b retirement FOLLOW-UPS
 (SCOPE CORRECTION rule 29 — blake2b was NOT dead after the runner-only sub-commit 2: the benchmark selection
 corruption proof + `debug.py`/`kaggle_smoke.py`/`stain_corruptor_qa.py` still use it → move those off blake2b,
 then delete the dead subsystem). Then S17d (bounded dataloader search — read its traps) + S17e (throughput batch

@@ -250,6 +250,17 @@ _TRAIN_STEP_COLUMNS = (
     "amp_step_skipped",
     "checkpoint_path",
 )
+# The six per-batch VAE loss metrics aggregated per validation view (Spec 0011 S17f
+# Metrics part 2, Commit V). beta is excluded: it is loop-invariant within a view, so
+# it carries no per-view spread and is reported as a single value, not aggregated.
+_VALIDATION_LOSS_METRIC_NAMES = (
+    "loss",
+    "recon_loss",
+    "l1_loss",
+    "ssim_loss",
+    "ssim_metric",
+    "kl_loss",
+)
 _VALIDATION_METRIC_COLUMNS = (
     "event_id",
     "rank",
@@ -265,6 +276,16 @@ _VALIDATION_METRIC_COLUMNS = (
     "ssim_loss",
     "ssim_metric",
     "kl_loss",
+    # Additive per-view population std of each loss metric across the sweep's batches,
+    # giving every half-epoch validation point a plot error bar. The remote gate's
+    # required-column check is a subset test, so these extend the schema without
+    # breaking the remote-output contract (Spec 0011 S17f Metrics Commit V).
+    "loss_std",
+    "recon_loss_std",
+    "l1_loss_std",
+    "ssim_loss_std",
+    "ssim_metric_std",
+    "kl_loss_std",
     "beta",
     "deterministic_eps_used",
     "corruption_strategy",
@@ -4506,6 +4527,15 @@ def _run_scheduled_validation(  # noqa: PLR0913
     was_training = model.training
     model.eval()
     rows: list[CsvRow] = []
+    # One fp64 accumulator reused across the views: row 0 holds each loss metric's sum,
+    # row 1 its sum of squares. Keeping the sums on-device collapses the former
+    # per-batch host syncs to a single ``.tolist()`` per view; ``_validation_view_row``
+    # zeroes it on entry (Spec 0011 S17f Metrics Commit V).
+    validation_accumulator = torch.zeros(
+        (2, len(_VALIDATION_LOSS_METRIC_NAMES)),
+        dtype=torch.float64,
+        device=device,
+    )
     try:
         rows.extend(
             _validation_view_row(
@@ -4519,6 +4549,7 @@ def _run_scheduled_validation(  # noqa: PLR0913
                 view=view,
                 rank=rank,
                 device=device,
+                validation_accumulator=validation_accumulator,
             )
             for view in settings.validation_views
         )
@@ -4540,8 +4571,9 @@ def _validation_view_row(  # noqa: PLR0913, PLR0914
     view: str,
     rank: int,
     device: torch.device,
+    validation_accumulator: torch.Tensor,
 ) -> CsvRow:
-    scalars: list[dict[str, float]] = []
+    validation_accumulator.zero_()
     sample_count = 0
     batch_count = 0
     # Validation corruption uses the same inline-stain corruptor as training, but
@@ -4552,6 +4584,20 @@ def _validation_view_row(  # noqa: PLR0913, PLR0914
     corruptor = InlineStainCorruptor(settings.corruption_profile)
     validation_generator = torch.Generator(device="cpu")
     validation_generator.manual_seed(settings.corruption_seed)
+    # beta and the autocast dtype depend only on the fixed optimizer_step / plan, so
+    # they are loop-invariant across the sweep; hoisting beta out of the batch loop
+    # keeps it a single host float (the mean of a constant is that constant) and
+    # removes it from the on-device aggregation.
+    beta = beta_for_step(
+        optimizer_step_index=max(0, optimizer_step - 1),
+        # FU-022: share the training-step denominator so train/validation beta
+        # agree (equal for the full run where max == target; consistent under
+        # --dry-run where max < target).
+        max_optimizer_steps=settings.max_train_steps,
+        target_beta=settings.beta_target,
+        warmup_fraction=settings.beta_warmup_fraction,
+    )
+    dtype = _autocast_dtype(plan.autocast_dtype)
     for batch in _validation_batches(
         data_surface.validation_loader,
         settings.validation_batches_per_view,
@@ -4575,16 +4621,6 @@ def _validation_view_row(  # noqa: PLR0913, PLR0914
             settings=settings,
             device=device,
         )
-        beta = beta_for_step(
-            optimizer_step_index=max(0, optimizer_step - 1),
-            # FU-022: share the training-step denominator so train/validation beta
-            # agree (equal for the full run where max == target; consistent under
-            # --dry-run where max < target).
-            max_optimizer_steps=settings.max_train_steps,
-            target_beta=settings.beta_target,
-            warmup_fraction=settings.beta_warmup_fraction,
-        )
-        dtype = _autocast_dtype(plan.autocast_dtype)
         with (
             torch.no_grad(),
             torch.autocast(
@@ -4600,10 +4636,42 @@ def _validation_view_row(  # noqa: PLR0913, PLR0914
                 beta=beta,
                 ssim_weight=settings.ssim_weight,
             )
-        scalars.append(losses.detached_scalars())
+        # Cast to fp64 strictly before accumulating (FSQ VarianceAccumulator
+        # convention: prevents precision cancellation) and stay on-device, so no host
+        # sync happens until the single ``.tolist()`` after the sweep. The stack order
+        # matches _VALIDATION_LOSS_METRIC_NAMES.
+        batch_losses = torch.stack(
+            (
+                losses.loss,
+                losses.recon_loss,
+                losses.l1_loss,
+                losses.ssim_loss,
+                losses.ssim_metric,
+                losses.kl_loss,
+            ),
+        ).to(dtype=torch.float64)
+        validation_accumulator[0].add_(batch_losses)
+        validation_accumulator[1].add_(batch_losses.square())
         sample_count += int(input_batch.shape[0])
         batch_count += 1
-    means = _mean_loss_scalars(scalars)
+    aggregated = cast(
+        "list[list[float]]",
+        validation_accumulator.tolist(),  # pyright: ignore[reportUnknownMemberType]
+    )
+    sums = aggregated[0]
+    sums_of_squares = aggregated[1]
+    # Value-preserving means: the fp64 sequential sum of the same per-batch scalars,
+    # divided by the batch count, reproduces the prior average-of-batch-means (and its
+    # zero-batch 0.0). Population std over batches (FSQ convention) is the new error
+    # bar.
+    means = [total / batch_count if batch_count > 0 else 0.0 for total in sums]
+    stds = [
+        _population_std(total=total, total_sq=total_sq, count=batch_count)
+        for total, total_sq in zip(sums, sums_of_squares, strict=True)
+    ]
+    reported_beta = beta if batch_count > 0 else 0.0
+    mean_by_metric = dict(zip(_VALIDATION_LOSS_METRIC_NAMES, means, strict=True))
+    std_by_metric = dict(zip(_VALIDATION_LOSS_METRIC_NAMES, stds, strict=True))
     return {
         "event_id": f"rank{rank}_validation_{view}_{optimizer_step:06d}",
         "rank": str(rank),
@@ -4613,29 +4681,22 @@ def _validation_view_row(  # noqa: PLR0913, PLR0914
         "view": view,
         "batch_count": str(batch_count),
         "sample_count": str(sample_count),
-        "loss": _format_float(means["loss"]),
-        "recon_loss": _format_float(means["recon_loss"]),
-        "l1_loss": _format_float(means["l1_loss"]),
-        "ssim_loss": _format_float(means["ssim_loss"]),
-        "ssim_metric": _format_float(means["ssim_metric"]),
-        "kl_loss": _format_float(means["kl_loss"]),
-        "beta": _format_float(means["beta"]),
+        "loss": _format_float(mean_by_metric["loss"]),
+        "recon_loss": _format_float(mean_by_metric["recon_loss"]),
+        "l1_loss": _format_float(mean_by_metric["l1_loss"]),
+        "ssim_loss": _format_float(mean_by_metric["ssim_loss"]),
+        "ssim_metric": _format_float(mean_by_metric["ssim_metric"]),
+        "kl_loss": _format_float(mean_by_metric["kl_loss"]),
+        "loss_std": _format_float(std_by_metric["loss"]),
+        "recon_loss_std": _format_float(std_by_metric["recon_loss"]),
+        "l1_loss_std": _format_float(std_by_metric["l1_loss"]),
+        "ssim_loss_std": _format_float(std_by_metric["ssim_loss"]),
+        "ssim_metric_std": _format_float(std_by_metric["ssim_metric"]),
+        "kl_loss_std": _format_float(std_by_metric["kl_loss"]),
+        "beta": _format_float(reported_beta),
         "deterministic_eps_used": "true",
         "corruption_strategy": VALIDATION_INLINE_STAIN_CORRUPTION_STRATEGY,
     }
-
-
-def _mean_loss_scalars(rows: Sequence[dict[str, float]]) -> dict[str, float]:
-    keys = (
-        "loss",
-        "recon_loss",
-        "l1_loss",
-        "ssim_loss",
-        "ssim_metric",
-        "kl_loss",
-        "beta",
-    )
-    return {key: _mean([row[key] for row in rows]) for key in keys}
 
 
 def _boundary_selection_metric(
@@ -6107,6 +6168,24 @@ def _best_l1(rows: Sequence[CsvRow]) -> float:
 
 def _mean(values: Sequence[float]) -> float:
     return sum(values) / len(values) if values else 0.0
+
+
+def _population_std(*, total: float, total_sq: float, count: int) -> float:
+    """Return the population std of per-batch means from their sum and sum of squares.
+
+    Matches the FSQ ``VarianceAccumulator`` convention: divide by ``count`` (population,
+    not sample, variance) and clamp the variance at 0 so fp round-off in
+    ``total_sq / count - mean**2`` can never produce a NaN std.
+
+    Returns:
+        The population standard deviation, or 0.0 when no batches were aggregated.
+
+    """
+    if count <= 0:
+        return 0.0
+    mean = total / count
+    variance = max(0.0, total_sq / count - mean * mean)
+    return math.sqrt(variance)
 
 
 def _improvement_fraction(initial: float, final: float) -> float:
