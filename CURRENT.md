@@ -39,18 +39,44 @@ both step paths covered (eps telemetry stays host — CPU-computed, never a devi
 training buffer is **fp32** and is filled in place (no `torch.stack` temporary): it only
 stores, never aggregates, so no accumulation error can build — **fp64 is reserved for the
 Commit V validation accumulator**, which does sum across batches.
-**NEXT = Commit C** — shard `train_steps.csv` into one per-half-epoch `.csv.gz` (kills the
-O(n²) whole-file rewrite + the unbounded file); the ONE part-2 commit that changes a
-gate-reader contract, so the gate + remote verifier must glob/concat shards in boundary
-order. Full contract in the spec's "Commit C" bullet.
+**A1 + B1 DONE (2026-07-22, gate 608/1).** `72ef19e` A1 — `wrap_fastpath_ddp` now applies
+the dynamo config ITSELF, immediately before constructing DDP, with `dynamo` a REQUIRED
+kwarg. DDP latches `optimize_ddp` at construction, so configuring it afterwards (what the
+runner and executor did) silently left DDP on its C++ reducer: no `python_reducer`, zero
+comm/compute overlap, no error. Made structural, not conventional. `278f1fd` B1 —
+`PatchTrainingBatch` implements the `pin_memory()` hook torch dispatches on; without it
+`pin_memory=True` was a silent no-op. B1 is a PREREQUISITE, not a win (see S17d below).
 
-Remaining S17f after T/C (all LOCAL gated commits): compile-mode / `fullgraph`, DDP
-grad-overlap, precision → fp16 (its OWN step — `amp_off_fp32` was a bad agent default,
-see [[eqvae-amp-off-was-bad-agent-default]]), and the blake2b retirement; then **S17d**
-(bounded dataloader search — read its traps first; a de-pin was already attempted and
-reverted) + **S17e**. THEN Kaggle (user-driven, fresh window, exact remote command +
-`KAGGLE_PUSH_CONFIRMED=1`): the S17 generator run → new compiled `selected_runtime.json`,
-then **S19** (~30h + ~30 min staging, push-then-monitor), plus the queued LR-finder.
+**NEXT = A2, and it gates the paid Kaggle run.** An FSQ-floor audit (2026-07-22, three
+agents + verification) found the compiled-step search is hard-guarded to `amp_off_fp32`:
+`runtime_selection_executor.py:3012-3019` and `real_data_runtime_pretest.py:1159-1166`
+RAISE unless the policy is fp32 and hardcode `autocast_enabled=False`. The guard's own
+docstring says why — "the closure hardcodes `autocast_enabled=False` and no GradScaler" —
+i.e. AMP was never implemented in the compiled probe, so the axis was forbidden instead.
+Measured on our own hardware: eager fp16 **27.38** samples/s (the committed plan, 30.4 h),
+fp32+compile **18.01** (46.3 h), **fp16+compile 34.83 (23.9 h)**. So a compiled winner can
+currently only be SLOWER than what we already run. A2 = wire autocast + a real GradScaler
+through both compiled-step measurement branches (the runner already does this at `:3020`),
+delete the guard, add fp16 compiled policies to the grid. **Do this BEFORE the S17
+generator run** or the paid run measures the wrong space. Full ranked gap list + the rest
+of the plan (A3 channels_last in the COMPILED regime, A4 `static_graph` unpin, A5 the
+per-step `all_gather_object`, B3 the hardcoded `data_wait_fraction`, B4 eager uint8/device
+corruption, C1 stop re-hashing ~11.7 GB/run, D1 runner warmup, D4 O(1) resume) lives in
+the plan memory `eqvae-reusable-runtime-mechanism-plan`.
+
+Also remaining in S17f (all LOCAL gated commits): **Commit C** (shard `train_steps.csv`
+into per-half-epoch `.csv.gz` — the ONE part-2 commit that changes a gate-reader contract),
+compile-mode / `fullgraph`, DDP grad-overlap, and the blake2b retirement (which then
+collapses the training batch to a bare tensor and DELETES the B1 hook). Then **S17d**
+(bounded dataloader search — it has THREE blockers that must be fixed producer-first; the
+spec records the order and why) + **S17e**. THEN Kaggle (user-driven, fresh window, exact
+remote command + `KAGGLE_PUSH_CONFIRMED=1`): the S17 generator run → new compiled
+`selected_runtime.json`, then **S19** (~30h + ~30 min staging, push-then-monitor), plus the
+queued LR-finder.
+
+NOTE (corrects an earlier claim in this file): the committed plan already runs **fp16 AMP**
+(`autocast_dtype: float16`, `grad_scaler_enabled: true`). `amp_off_fp32` is the compiled-step
+GRID candidate, not the current fallback — precision is not a standalone step, it is A2.
 
 Each local step = ONE gated commit (detached gate) + a clean-context default-refute
 adversarial review, both green, + explicit user approval; then roll this file, the spec,
