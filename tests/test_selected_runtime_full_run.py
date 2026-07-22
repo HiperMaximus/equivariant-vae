@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
     from torch.utils.data import DataLoader
 
-    from eqvae.benchmarking.io import JsonObject, JsonValue
+    from eqvae.benchmarking.io import CsvRow, JsonObject, JsonValue
     from eqvae.corruption.stain import StainCorruptionProfile
     from eqvae.data.training_batches import PatchTrainingBatch
     from eqvae.training.fastpath_step import FastpathStepOutput
@@ -48,6 +48,7 @@ from eqvae.training import selected_runtime_runner
 from eqvae.training.fastpath_step import make_fastpath_step_fn
 from eqvae.training.selected_runtime import (
     COMPILED_FASTPATH_CORRUPTION_STRATEGY,
+    EAGER_INLINE_STAIN_CORRUPTION_STRATEGY,
     EXPECTED_AMP_APPLICATION_STATUS,
     EXPECTED_AMP_OFF_APPLICATION_STATUS,
     EXPECTED_RUNTIME_POLICY_ID,
@@ -4189,12 +4190,14 @@ def test_reconstruction_output_stats_flag_out_of_range_decoder_output() -> None:
 
     stats = selected_runtime_runner._reconstruction_output_stats(reconstruction)  # noqa: SLF001
 
-    assert math.isclose(stats.x_hat_min, -2.0)
-    assert math.isclose(stats.x_hat_max, 2.0)
+    # Commit T (S17f): the stats are 0-dim device tensors now (buffered, never read per
+    # step); materialize to compare.
+    assert math.isclose(stats.x_hat_min.item(), -2.0)
+    assert math.isclose(stats.x_hat_max.item(), 2.0)
     # Only -2 is < -1 and only 2 is > 1; the boundary values -1 and 1 are excluded.
-    assert math.isclose(stats.frac_x_hat_lt_minus1, 0.25)
-    assert math.isclose(stats.frac_x_hat_gt_1, 0.25)
-    assert math.isclose(stats.recon_output_rms, math.sqrt(10.0 / 4.0))
+    assert math.isclose(stats.frac_x_hat_lt_minus1.item(), 0.25)
+    assert math.isclose(stats.frac_x_hat_gt_1.item(), 0.25)
+    assert math.isclose(stats.recon_output_rms.item(), math.sqrt(10.0 / 4.0))
 
 
 def test_saturated_decoder_head_records_out_of_range_telemetry() -> None:
@@ -4214,11 +4217,11 @@ def test_saturated_decoder_head_records_out_of_range_telemetry() -> None:
     )
 
     # Zero-init head weight + bias 50 => the raw output is 50.0 at every pixel.
-    assert math.isclose(stats.frac_x_hat_gt_1, 1.0)
-    assert math.isclose(stats.frac_x_hat_lt_minus1, 0.0)
-    assert math.isclose(stats.x_hat_min, 50.0)
-    assert math.isclose(stats.x_hat_max, 50.0)
-    assert math.isclose(stats.recon_output_rms, 50.0)
+    assert math.isclose(stats.frac_x_hat_gt_1.item(), 1.0)
+    assert math.isclose(stats.frac_x_hat_lt_minus1.item(), 0.0)
+    assert math.isclose(stats.x_hat_min.item(), 50.0)
+    assert math.isclose(stats.x_hat_max.item(), 50.0)
+    assert math.isclose(stats.recon_output_rms.item(), 50.0)
 
 
 @pytest.mark.parametrize(
@@ -4536,11 +4539,13 @@ def test_metric_row_records_the_step_actually_taken() -> None:
         distributed=_local_distributed_context(),
         dry_run=True,
     )
-    result = _step_result(step=1)
+    pending = _pending_row_from(_step_result(step=1))
+    metrics = _zero_train_metrics()
     # A plan that claims compile but whose run took the eager step records eager labels
     # and the reproducible corruptor -- catching a build-gate regression.
     eager_row = selected_runtime_runner._metric_row(  # noqa: SLF001
-        result=result,
+        pending=pending,
+        metrics=metrics,
         rank=0,
         plan=plan,
         amp=amp,
@@ -4552,7 +4557,8 @@ def test_metric_row_records_the_step_actually_taken() -> None:
     assert eager_row["compile_scope"] == "none"
     assert eager_row["corruption_strategy"] == plan.corruption_strategy
     compiled_row = selected_runtime_runner._metric_row(  # noqa: SLF001
-        result=result,
+        pending=pending,
+        metrics=metrics,
         rank=0,
         plan=plan,
         amp=amp,
@@ -4563,6 +4569,155 @@ def test_metric_row_records_the_step_actually_taken() -> None:
     assert compiled_row["torch_compile_enabled"] == "true"
     assert compiled_row["compile_scope"] == "step"
     assert compiled_row["corruption_strategy"] == COMPILED_FASTPATH_CORRUPTION_STRATEGY
+
+
+def _distinct_step_result(
+    *,
+    step: int,
+    offset: float,
+) -> selected_runtime_runner._SelectedRuntimeStepResult:
+    # Every metric a distinct value (across columns AND steps), so a swapped column, a
+    # misaligned buffer index, or a wrong _TRAIN_STEP_METRIC_NAMES order is caught.
+    losses = VaeLossComponents(
+        loss=torch.tensor(offset + 0.1),
+        recon_loss=torch.tensor(offset + 0.2),
+        l1_loss=torch.tensor(offset + 0.3),
+        ssim_loss=torch.tensor(offset + 0.4),
+        ssim_metric=torch.tensor(offset + 0.5),
+        kl_loss=torch.tensor(offset + 0.6),
+        beta=offset + 0.7,
+    )
+    return selected_runtime_runner._SelectedRuntimeStepResult(  # noqa: SLF001
+        optimizer_step_index=step - 1,
+        successful_optimizer_update_count=step,
+        losses=losses,
+        grad_norm=torch.tensor(offset + 1.1, dtype=torch.float64),
+        param_update_norm=torch.tensor(offset + 1.2, dtype=torch.float64),
+        nonfinite_count=torch.tensor(step, dtype=torch.int64),
+        recon_output_rms=torch.tensor(offset + 1.3),
+        x_hat_min=torch.tensor(offset + 1.4),
+        x_hat_max=torch.tensor(offset + 1.5),
+        frac_x_hat_lt_minus1=torch.tensor(offset + 0.05),
+        frac_x_hat_gt_1=torch.tensor(offset + 0.06),
+        batch_size=12,
+        amp_step_skipped=False,
+        zero_grad_set_to_none=True,
+        train_reparameterization="stochastic_seeded",
+        eps_policy="stochastic_seeded_train_generator",
+        eps_seed_source="train_data_torch_generator",
+        eps_zero_fraction=offset + 0.01,
+        eps_abs_mean=offset + 0.02,
+    )
+
+
+def _direct_train_metrics(
+    result: selected_runtime_runner._SelectedRuntimeStepResult,
+) -> dict[str, float]:
+    # Materialize the result's device-scalar metrics directly (one .item() each) -- the
+    # value the deferred buffer path must reproduce byte-for-byte.
+    losses = result.losses
+    return {
+        "loss": float(losses.loss.item()),
+        "recon_loss": float(losses.recon_loss.item()),
+        "l1_loss": float(losses.l1_loss.item()),
+        "ssim_loss": float(losses.ssim_loss.item()),
+        "ssim_metric": float(losses.ssim_metric.item()),
+        "kl_loss": float(losses.kl_loss.item()),
+        "grad_norm": float(result.grad_norm.item()),
+        "param_update_norm": float(result.param_update_norm.item()),
+        "recon_output_rms": float(result.recon_output_rms.item()),
+        "x_hat_min": float(result.x_hat_min.item()),
+        "x_hat_max": float(result.x_hat_max.item()),
+        "frac_x_hat_lt_minus1": float(result.frac_x_hat_lt_minus1.item()),
+        "frac_x_hat_gt_1": float(result.frac_x_hat_gt_1.item()),
+        "nonfinite_count": float(result.nonfinite_count.item()),
+    }
+
+
+def _train_row_context() -> selected_runtime_runner._TrainRowContext:
+    plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+    amp = selected_runtime_runner._amp_execution(  # noqa: SLF001
+        plan=plan,
+        distributed=_local_distributed_context(),
+        dry_run=True,
+    )
+    return selected_runtime_runner._TrainRowContext(  # noqa: SLF001
+        rank=0,
+        plan=plan,
+        amp=amp,
+        corruption_strategy=EAGER_INLINE_STAIN_CORRUPTION_STRATEGY,
+        compiled_step_active=False,
+    )
+
+
+def _expected_deferred_row(
+    result: selected_runtime_runner._SelectedRuntimeStepResult,
+    context: selected_runtime_runner._TrainRowContext,
+) -> CsvRow:
+    return selected_runtime_runner._metric_row(  # noqa: SLF001
+        pending=selected_runtime_runner._pending_train_row(result),  # noqa: SLF001
+        metrics=_direct_train_metrics(result),
+        rank=context.rank,
+        plan=context.plan,
+        amp=context.amp,
+        checkpoint_path="",
+        corruption_strategy=context.corruption_strategy,
+        compiled_step_active=context.compiled_step_active,
+    )
+
+
+def test_train_step_metric_buffer_materializes_rows_value_preserving_in_order() -> None:
+    """Buffered per-step metrics flush into rows identical to eager materialization.
+
+    A single bulk ``.tolist()`` replaces ~14 per-step device->host syncs; this locks
+    that the deferral is value-preserving, keeps column alignment, and preserves order.
+    """
+    context = _train_row_context()
+    results = [_distinct_step_result(step=i, offset=10.0 * i) for i in (1, 2, 3)]
+    buffer = selected_runtime_runner._TrainStepMetricBuffer(  # noqa: SLF001
+        capacity=len(results),
+        device=torch.device("cpu"),
+        context=context,
+    )
+
+    rows: list[CsvRow] = []
+    # An empty flush is a no-op, not an error.
+    buffer.flush_into(rows)
+    assert rows == []
+    for result in results:
+        buffer.record(result, rows)
+    # Nothing materializes until the boundary flush (deferred host read).
+    assert rows == []
+    buffer.flush_into(rows)
+
+    assert [row["optimizer_step"] for row in rows] == ["1", "2", "3"]
+    assert rows == [_expected_deferred_row(result, context) for result in results]
+
+
+def test_train_step_metric_buffer_auto_flushes_when_window_exceeds_capacity() -> None:
+    """A window longer than capacity (AMP skips overshoot) still keeps every row.
+
+    ``record`` drains the full buffer before overwriting it, so correctness never
+    depends on the exact capacity; all rows survive, in order.
+    """
+    context = _train_row_context()
+    results = [_distinct_step_result(step=i, offset=10.0 * i) for i in (1, 2, 3, 4, 5)]
+    buffer = selected_runtime_runner._TrainStepMetricBuffer(  # noqa: SLF001
+        capacity=2,
+        device=torch.device("cpu"),
+        context=context,
+    )
+
+    rows: list[CsvRow] = []
+    for result in results:
+        buffer.record(result, rows)
+    # Capacity 2 forces auto-flushes of every full buffer before the write that would
+    # overflow it; only the final partial window (one row) awaits the tail flush.
+    assert len(rows) == len(results) - 1
+    buffer.flush_into(rows)
+
+    assert [row["optimizer_step"] for row in rows] == ["1", "2", "3", "4", "5"]
+    assert rows == [_expected_deferred_row(result, context) for result in results]
 
 
 def test_amp_execution_records_amp_off_status_on_cuda() -> None:
@@ -5108,9 +5263,15 @@ def _step_result(step: int) -> selected_runtime_runner._SelectedRuntimeStepResul
         optimizer_step_index=step - 1,
         successful_optimizer_update_count=step,
         losses=losses,
-        grad_norm=1.0,
-        param_update_norm=0.1,
-        nonfinite_count=0,
+        # Commit T (S17f): the device-scalar metrics are 0-dim tensors now.
+        grad_norm=torch.tensor(1.0),
+        param_update_norm=torch.tensor(0.1),
+        nonfinite_count=torch.tensor(0),
+        recon_output_rms=torch.tensor(0.0),
+        x_hat_min=torch.tensor(0.0),
+        x_hat_max=torch.tensor(0.0),
+        frac_x_hat_lt_minus1=torch.tensor(0.0),
+        frac_x_hat_gt_1=torch.tensor(0.0),
         batch_size=12,
         amp_step_skipped=False,
         zero_grad_set_to_none=True,
@@ -5120,6 +5281,16 @@ def _step_result(step: int) -> selected_runtime_runner._SelectedRuntimeStepResul
         eps_zero_fraction=0.0,
         eps_abs_mean=0.8,
     )
+
+
+def _pending_row_from(
+    result: selected_runtime_runner._SelectedRuntimeStepResult,
+) -> selected_runtime_runner._PendingTrainRow:
+    return selected_runtime_runner._pending_train_row(result)  # noqa: SLF001
+
+
+def _zero_train_metrics() -> dict[str, float]:
+    return dict.fromkeys(selected_runtime_runner._TRAIN_STEP_METRIC_NAMES, 0.0)  # noqa: SLF001
 
 
 def _interval_checkpoint_names(contract: _FullOutputContract) -> tuple[str, ...]:
@@ -5553,9 +5724,10 @@ def test_run_compiled_train_step_populates_telemetry(tmp_path: Path) -> None:
     )
 
     assert result.batch_size == context.settings.batch_size
-    assert math.isfinite(result.grad_norm)
-    assert math.isfinite(result.param_update_norm)
-    assert result.nonfinite_count == 0
+    # Commit T (S17f): the device-scalar metrics are 0-dim tensors now.
+    assert math.isfinite(result.grad_norm.item())
+    assert math.isfinite(result.param_update_norm.item())
+    assert int(result.nonfinite_count.item()) == 0
     # No GradScaler on the CPU dry run, so the optimizer step is never skipped.
     assert result.amp_step_skipped is False
     assert result.successful_optimizer_update_count == _S16_COMPILED_UPDATE_COUNT
@@ -5660,7 +5832,7 @@ def test_run_train_steps_takes_the_compiled_branch_when_a_step_fn_is_present(
         selected_runtime_runner._close_data_surface(context.data_surface)  # noqa: SLF001
 
     assert train_loop.last_result.batch_size == context.settings.batch_size
-    assert math.isfinite(train_loop.last_result.grad_norm)
+    assert math.isfinite(train_loop.last_result.grad_norm.item())
     # The compiled branch labels every train row with the inline corruptor and the
     # compiled scope it actually ran, not the plan's declared blake2b strategy.
     assert train_loop.metric_rows

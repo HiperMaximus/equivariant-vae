@@ -124,7 +124,7 @@ from eqvae.training.selected_runtime import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Sequence
+    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 
     from numpy.random import Generator
 
@@ -260,6 +260,22 @@ _VALIDATION_LOSS_METRIC_NAMES = (
     "ssim_loss",
     "ssim_metric",
     "kl_loss",
+)
+# Column order for the per-step train-metric device buffer (Spec 0011 S17f Metrics
+# Commit T): each optimizer step index-writes these device scalars with no host sync;
+# one bulk ``.tolist()`` at the half-epoch flush boundary materializes the window. The
+# two eps telemetry values are NOT here -- they are computed on the CPU eps tensor and
+# never sync the device, so they stay host-side in ``_PendingTrainRow``.
+_TRAIN_STEP_METRIC_NAMES = (
+    *_VALIDATION_LOSS_METRIC_NAMES,
+    "grad_norm",
+    "param_update_norm",
+    "recon_output_rms",
+    "x_hat_min",
+    "x_hat_max",
+    "frac_x_hat_lt_minus1",
+    "frac_x_hat_gt_1",
+    "nonfinite_count",
 )
 _VALIDATION_METRIC_COLUMNS = (
     "event_id",
@@ -746,9 +762,18 @@ class _SelectedRuntimeStepResult:
     optimizer_step_index: int
     successful_optimizer_update_count: int
     losses: VaeLossComponents
-    grad_norm: float
-    param_update_norm: float
-    nonfinite_count: int
+    # The device-scalar metrics stay as 0-dim tensors so the hot step never syncs them
+    # to the host; ``_TrainStepMetricBuffer`` materializes the whole half-epoch window
+    # in one ``.tolist()`` (Spec 0011 S17f Metrics Commit T). The eps telemetry is
+    # computed on the CPU eps tensor (no device sync), so it stays host-side.
+    grad_norm: torch.Tensor
+    param_update_norm: torch.Tensor
+    nonfinite_count: torch.Tensor
+    recon_output_rms: torch.Tensor
+    x_hat_min: torch.Tensor
+    x_hat_max: torch.Tensor
+    frac_x_hat_lt_minus1: torch.Tensor
+    frac_x_hat_gt_1: torch.Tensor
     batch_size: int
     amp_step_skipped: bool
     zero_grad_set_to_none: bool
@@ -757,11 +782,6 @@ class _SelectedRuntimeStepResult:
     eps_seed_source: str
     eps_zero_fraction: float
     eps_abs_mean: float
-    recon_output_rms: float = 0.0
-    x_hat_min: float = 0.0
-    x_hat_max: float = 0.0
-    frac_x_hat_lt_minus1: float = 0.0
-    frac_x_hat_gt_1: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -773,11 +793,11 @@ class _ReconstructionOutputStats:
     gradient (SSIM runs on the clamped image domain) and are otherwise invisible.
     """
 
-    recon_output_rms: float
-    x_hat_min: float
-    x_hat_max: float
-    frac_x_hat_lt_minus1: float
-    frac_x_hat_gt_1: float
+    recon_output_rms: torch.Tensor
+    x_hat_min: torch.Tensor
+    x_hat_max: torch.Tensor
+    frac_x_hat_lt_minus1: torch.Tensor
+    frac_x_hat_gt_1: torch.Tensor
 
 
 @dataclass(frozen=True)
@@ -3139,6 +3159,20 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
         if compiled_step_active
         else EAGER_INLINE_STAIN_CORRUPTION_STRATEGY
     )
+    # Buffer each step's device-scalar metrics on-device and materialize the whole
+    # half-epoch window in one host read at the boundary, so the hot step never syncs
+    # per-metric (Spec 0011 S17f Metrics Commit T). Every per-step row is still emitted.
+    metric_buffer = _TrainStepMetricBuffer(
+        capacity=settings.save_every_steps,
+        device=distributed.device,
+        context=_TrainRowContext(
+            rank=distributed.rank,
+            plan=plan,
+            amp=amp,
+            corruption_strategy=train_corruption_label,
+            compiled_step_active=compiled_step_active,
+        ),
+    )
     while successful_count < settings.max_train_steps:
         attempt_count += 1
         if attempt_count > max_attempts:
@@ -3213,17 +3247,12 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
             not amp_step_skipped
             and _should_run_scheduled_validation(settings, successful_count)
         )
-        rows.append(
-            _metric_row(
-                result=result,
-                rank=distributed.rank,
-                plan=plan,
-                amp=amp,
-                checkpoint_path="",
-                corruption_strategy=train_corruption_label,
-                compiled_step_active=compiled_step_active,
-            ),
-        )
+        metric_buffer.record(result, rows)
+        # Materialize the buffered window into ``rows`` before the boundary block, which
+        # reads/rewrites ``rows`` (interval flush + checkpoint-path stamping). The
+        # boundary step was just recorded, so it is the last row after the flush.
+        if scheduled_validation_due or checkpoint_boundary:
+            metric_buffer.flush_into(rows)
         if scheduled_validation_due:
             _log_full_boundary_start(
                 settings=settings,
@@ -3332,6 +3361,10 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
                 distributed=distributed,
                 optimizer_step=successful_count,
             )
+    # A run whose last step is not a half-epoch boundary (a --dry-run whose
+    # max_train_steps is below target) leaves a partial window buffered; drain it so
+    # every per-step row reaches ``rows`` before the loop result is built.
+    metric_buffer.flush_into(rows)
     if last_result is None:
         message = "selected-runtime runner executed no train steps"
         raise RuntimeError(message)
@@ -6043,9 +6076,145 @@ def _artifact_manifest(  # noqa: PLR0913
     )
 
 
+@dataclass(frozen=True)
+class _PendingTrainRow:
+    """Host-side per-step train-row fields, stashed until the boundary materialize.
+
+    Everything a train row needs EXCEPT the device-scalar metrics (those live in the
+    ``_TrainStepMetricBuffer``). All fields are already host values: the eps telemetry
+    is computed on the CPU eps tensor and ``beta`` is a host float, so building this
+    triggers no device sync (Spec 0011 S17f Metrics Commit T).
+    """
+
+    optimizer_step_index: int
+    successful_optimizer_update_count: int
+    batch_size: int
+    amp_step_skipped: bool
+    beta: float
+    train_reparameterization: str
+    eps_policy: str
+    eps_seed_source: str
+    eps_zero_fraction: float
+    eps_abs_mean: float
+
+
+@dataclass(frozen=True)
+class _TrainRowContext:
+    """Loop-invariant train-row fields shared by every step in a run."""
+
+    rank: int
+    plan: SelectedRuntimePlan
+    amp: _AmpExecution
+    corruption_strategy: str
+    compiled_step_active: bool
+
+
+def _pending_train_row(result: _SelectedRuntimeStepResult) -> _PendingTrainRow:
+    return _PendingTrainRow(
+        optimizer_step_index=result.optimizer_step_index,
+        successful_optimizer_update_count=result.successful_optimizer_update_count,
+        batch_size=result.batch_size,
+        amp_step_skipped=result.amp_step_skipped,
+        beta=result.losses.beta,
+        train_reparameterization=result.train_reparameterization,
+        eps_policy=result.eps_policy,
+        eps_seed_source=result.eps_seed_source,
+        eps_zero_fraction=result.eps_zero_fraction,
+        eps_abs_mean=result.eps_abs_mean,
+    )
+
+
+def _stack_step_metrics(result: _SelectedRuntimeStepResult) -> torch.Tensor:
+    # Stack the step's device-scalar metrics into one [len(_TRAIN_STEP_METRIC_NAMES)]
+    # fp64 tensor in the buffer's column order, detached (so the buffer never retains
+    # the autograd graph) and with no host sync. torch.stack needs a uniform dtype, so
+    # each 0-dim scalar is widened to fp64 first (exact for the fp32 losses/stats and
+    # the integer non-finite count).
+    losses = result.losses
+    scalars = (
+        losses.loss,
+        losses.recon_loss,
+        losses.l1_loss,
+        losses.ssim_loss,
+        losses.ssim_metric,
+        losses.kl_loss,
+        result.grad_norm,
+        result.param_update_norm,
+        result.recon_output_rms,
+        result.x_hat_min,
+        result.x_hat_max,
+        result.frac_x_hat_lt_minus1,
+        result.frac_x_hat_gt_1,
+        result.nonfinite_count,
+    )
+    return torch.stack([scalar.detach().to(torch.float64) for scalar in scalars])
+
+
+class _TrainStepMetricBuffer:
+    """Persistent on-device buffer that defers per-step train-metric host reads.
+
+    Each optimizer step index-writes its device-scalar metrics into a
+    ``[capacity, len(_TRAIN_STEP_METRIC_NAMES)]`` buffer with no host sync, while its
+    host-side row fields go into ``_pending``. A single ``.tolist()`` at the half-epoch
+    flush boundary materializes the whole window at once, so the hot step incurs no
+    per-metric device->host sync -- ~0 syncs/step on the amp-off path, or the one
+    unavoidable fp16 GradScaler inf-check on amp (Spec 0011 S17f Metrics Commit T).
+
+    ``capacity`` is the half-epoch window (``save_every_steps``); ``record`` flushes
+    early if a window ever exceeds it (an AMP-skip-heavy window overshoots the
+    successful-step count), so correctness never depends on the exact capacity. Every
+    per-step row is kept (the gate audits per-step rows), so this changes no schema.
+    """
+
+    def __init__(
+        self,
+        *,
+        capacity: int,
+        device: torch.device,
+        context: _TrainRowContext,
+    ) -> None:
+        self._buffer = torch.empty(
+            (max(1, capacity), len(_TRAIN_STEP_METRIC_NAMES)),
+            dtype=torch.float64,
+            device=device,
+        )
+        self._pending: list[_PendingTrainRow] = []
+        self._context = context
+
+    def record(self, result: _SelectedRuntimeStepResult, rows: list[CsvRow]) -> None:
+        if len(self._pending) >= self._buffer.shape[0]:
+            self.flush_into(rows)
+        self._buffer[len(self._pending)].copy_(_stack_step_metrics(result))
+        self._pending.append(_pending_train_row(result))
+
+    def flush_into(self, rows: list[CsvRow]) -> None:
+        if not self._pending:
+            return
+        materialized = cast(
+            "list[list[float]]",
+            self._buffer[: len(self._pending)].tolist(),  # pyright: ignore[reportUnknownMemberType]
+        )
+        context = self._context
+        rows.extend(
+            _metric_row(
+                pending=pending,
+                metrics=dict(zip(_TRAIN_STEP_METRIC_NAMES, values, strict=True)),
+                rank=context.rank,
+                plan=context.plan,
+                amp=context.amp,
+                checkpoint_path="",
+                corruption_strategy=context.corruption_strategy,
+                compiled_step_active=context.compiled_step_active,
+            )
+            for pending, values in zip(self._pending, materialized, strict=True)
+        )
+        self._pending.clear()
+
+
 def _metric_row(  # noqa: PLR0913
     *,
-    result: _SelectedRuntimeStepResult,
+    pending: _PendingTrainRow,
+    metrics: Mapping[str, float],
     rank: int,
     plan: SelectedRuntimePlan,
     amp: _AmpExecution,
@@ -6053,34 +6222,33 @@ def _metric_row(  # noqa: PLR0913
     corruption_strategy: str,
     compiled_step_active: bool,
 ) -> CsvRow:
-    scalars = result.losses.detached_scalars()
     return {
         "event_id": (
-            f"rank{rank}_train_step_{result.successful_optimizer_update_count:06d}"
+            f"rank{rank}_train_step_{pending.successful_optimizer_update_count:06d}"
         ),
         "rank": str(rank),
-        "optimizer_step_index": str(result.optimizer_step_index),
-        "optimizer_step": str(result.successful_optimizer_update_count),
+        "optimizer_step_index": str(pending.optimizer_step_index),
+        "optimizer_step": str(pending.successful_optimizer_update_count),
         "successful_optimizer_update_count": str(
-            result.successful_optimizer_update_count,
+            pending.successful_optimizer_update_count,
         ),
         "split": "train",
-        "loss": _format_float(scalars["loss"]),
-        "recon_loss": _format_float(scalars["recon_loss"]),
-        "l1_loss": _format_float(scalars["l1_loss"]),
-        "ssim_loss": _format_float(scalars["ssim_loss"]),
-        "ssim_metric": _format_float(scalars["ssim_metric"]),
-        "kl_loss": _format_float(scalars["kl_loss"]),
-        "beta": _format_float(scalars["beta"]),
-        "grad_norm": _format_float(result.grad_norm),
-        "param_update_norm": _format_float(result.param_update_norm),
-        "recon_output_rms": _format_float(result.recon_output_rms),
-        "x_hat_min": _format_float(result.x_hat_min),
-        "x_hat_max": _format_float(result.x_hat_max),
-        "frac_x_hat_lt_minus1": _format_float(result.frac_x_hat_lt_minus1),
-        "frac_x_hat_gt_1": _format_float(result.frac_x_hat_gt_1),
-        "nonfinite_count": str(result.nonfinite_count),
-        "batch_size": str(result.batch_size),
+        "loss": _format_float(metrics["loss"]),
+        "recon_loss": _format_float(metrics["recon_loss"]),
+        "l1_loss": _format_float(metrics["l1_loss"]),
+        "ssim_loss": _format_float(metrics["ssim_loss"]),
+        "ssim_metric": _format_float(metrics["ssim_metric"]),
+        "kl_loss": _format_float(metrics["kl_loss"]),
+        "beta": _format_float(pending.beta),
+        "grad_norm": _format_float(metrics["grad_norm"]),
+        "param_update_norm": _format_float(metrics["param_update_norm"]),
+        "recon_output_rms": _format_float(metrics["recon_output_rms"]),
+        "x_hat_min": _format_float(metrics["x_hat_min"]),
+        "x_hat_max": _format_float(metrics["x_hat_max"]),
+        "frac_x_hat_lt_minus1": _format_float(metrics["frac_x_hat_lt_minus1"]),
+        "frac_x_hat_gt_1": _format_float(metrics["frac_x_hat_gt_1"]),
+        "nonfinite_count": str(round(metrics["nonfinite_count"])),
+        "batch_size": str(pending.batch_size),
         "precision_policy": plan.precision_policy,
         "amp_enabled": _csv_bool(value=amp.enabled),
         "autocast_dtype": amp.autocast_dtype,
@@ -6093,12 +6261,12 @@ def _metric_row(  # noqa: PLR0913
         if compiled_step_active
         else _COMPILE_SCOPE_NONE,
         "corruption_strategy": corruption_strategy,
-        "train_reparameterization": result.train_reparameterization,
-        "eps_policy": result.eps_policy,
-        "eps_seed_source": result.eps_seed_source,
-        "eps_zero_fraction": _format_float(result.eps_zero_fraction),
-        "eps_abs_mean": _format_float(result.eps_abs_mean),
-        "amp_step_skipped": "1" if result.amp_step_skipped else "0",
+        "train_reparameterization": pending.train_reparameterization,
+        "eps_policy": pending.eps_policy,
+        "eps_seed_source": pending.eps_seed_source,
+        "eps_zero_fraction": _format_float(pending.eps_zero_fraction),
+        "eps_abs_mean": _format_float(pending.eps_abs_mean),
+        "amp_step_skipped": "1" if pending.amp_step_skipped else "0",
         "checkpoint_path": checkpoint_path,
     }
 
@@ -6202,57 +6370,66 @@ def _clone_trainable_parameters(model: nn.Module) -> tuple[torch.Tensor, ...]:
     )
 
 
-def _global_grad_norm(model: nn.Module) -> float:
-    # Reduce the per-parameter squared sums on-device and materialize a single
-    # scalar, so the hot step incurs one host sync instead of one per parameter
-    # (speed-first; the recorded value is fp-tolerant telemetry).
+def _module_device(model: nn.Module) -> torch.device:
+    for parameter in model.parameters():
+        return parameter.device
+    return torch.device("cpu")
+
+
+def _global_grad_norm(model: nn.Module) -> torch.Tensor:
+    # Reduce the per-parameter squared sums on-device and return the norm as a 0-dim
+    # device tensor -- NOT a host float -- so the hot step never syncs it (Spec 0011
+    # S17f Metrics Commit T buffers it). The reduction structure is unchanged: per-
+    # parameter fp32 sums, one fp64 cross-parameter sum, then an on-device ``sqrt`` in
+    # place of ``math.sqrt`` (both IEEE double sqrt; value is fp-tolerant telemetry).
     gradients = [
         parameter.grad.detach().float()
         for parameter in model.parameters()
         if parameter.grad is not None
     ]
     if not gradients:
-        return 0.0
+        return torch.zeros((), dtype=torch.float64, device=_module_device(model))
     per_parameter_squares = torch.stack(
         [torch.sum(gradient.square()) for gradient in gradients],
     )
-    return math.sqrt(_float_item(per_parameter_squares.double().sum()))
+    return per_parameter_squares.double().sum().sqrt()
 
 
-def _nonfinite_gradient_count(model: nn.Module) -> int:
-    # Sum the per-parameter non-finite counts on-device and read back once; the
-    # integer total is identical to the previous per-parameter tally.
+def _nonfinite_gradient_count(model: nn.Module) -> torch.Tensor:
+    # Sum the per-parameter non-finite counts on-device and return the total as a 0-dim
+    # device tensor (buffered, never read per step). The integer total is identical to
+    # the previous per-parameter tally.
     gradients = [
         parameter.grad for parameter in model.parameters() if parameter.grad is not None
     ]
     if not gradients:
-        return 0
-    per_parameter_counts = torch.stack(
+        return torch.zeros((), dtype=torch.int64, device=_module_device(model))
+    return torch.stack(
         [torch.count_nonzero(~torch.isfinite(gradient)) for gradient in gradients],
-    )
-    return int(per_parameter_counts.sum().item())
+    ).sum()
 
 
 def _parameter_update_norm(
     model: nn.Module,
     before_params: Sequence[torch.Tensor],
-) -> float:
-    # Diff post- against pre-step parameters on-device (no per-parameter host
-    # copy) and reduce to a single scalar with one host sync.
+) -> torch.Tensor:
+    # Diff post- against pre-step parameters on-device (no per-parameter host copy) and
+    # return the norm as a 0-dim device tensor, so the hot step never syncs it. Same
+    # reduction structure as before with the ``sqrt`` moved on-device (fp-tolerant).
     after_params = [
         parameter.detach().float()
         for parameter in model.parameters()
         if parameter.requires_grad
     ]
     if not after_params:
-        return 0.0
+        return torch.zeros((), dtype=torch.float64, device=_module_device(model))
     per_parameter_squares = torch.stack(
         [
             torch.sum((after - before.float()).square())
             for after, before in zip(after_params, before_params, strict=True)
         ],
     )
-    return math.sqrt(_float_item(per_parameter_squares.double().sum()))
+    return per_parameter_squares.double().sum().sqrt()
 
 
 def _zero_eps(
@@ -6918,13 +7095,18 @@ def _float_item(tensor: torch.Tensor) -> float:
 def _reconstruction_output_stats(
     reconstruction: torch.Tensor,
 ) -> _ReconstructionOutputStats:
+    # Return 0-dim device tensors (not host floats) so the hot step never syncs the
+    # decoder telemetry; ``_TrainStepMetricBuffer`` reads it once per half-epoch (Spec
+    # 0011 S17f Metrics Commit T). The rms widens the fp32 mean to fp64 before ``sqrt``
+    # to reproduce the prior ``math.sqrt(float(mean))``; the range/fraction values are
+    # the same fp32 reductions, exact once widened to fp64 in the buffer.
     detached = reconstruction.detach().float()
     return _ReconstructionOutputStats(
-        recon_output_rms=math.sqrt(_tensor_stat(detached.square(), "mean")),
-        x_hat_min=_tensor_stat(detached, "min"),
-        x_hat_max=_tensor_stat(detached, "max"),
-        frac_x_hat_lt_minus1=_frac(detached < -1.0),
-        frac_x_hat_gt_1=_frac(detached > 1.0),
+        recon_output_rms=detached.square().mean().double().sqrt(),
+        x_hat_min=detached.min(),
+        x_hat_max=detached.max(),
+        frac_x_hat_lt_minus1=(detached < -1.0).float().mean(),
+        frac_x_hat_gt_1=(detached > 1.0).float().mean(),
     )
 
 
