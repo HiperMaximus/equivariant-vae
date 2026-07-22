@@ -95,8 +95,8 @@ from eqvae.models.non_equivariant_vae import (
 from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
 from eqvae.training.ddp_sync_guard import assert_ddp_parameters_in_sync
 from eqvae.training.fastpath_recipe import (
+    FastpathDynamoKnobs,
     apply_cudnn_flags,
-    apply_fastpath_dynamo_config,
     build_fastpath_optimizer,
     compiled_autograd_context,
     model_requires_buffer_broadcast,
@@ -2977,6 +2977,30 @@ def _maybe_wrap_ddp(
         broadcast_buffers=broadcast_buffers,
         find_unused_parameters=plan.ddp_find_unused_parameters,
         bucket_cap_mb=plan.ddp_bucket_cap_mb,
+        # DDP latches the dynamo optimize_ddp mode at construction, so the wrapper
+        # applies these itself, immediately before building DDP (Spec 0011 S17f). None
+        # on the eager plan: nothing compiles, so there is no dynamo state to establish.
+        dynamo=_fastpath_dynamo_knobs(plan),
+    )
+
+
+def _fastpath_step_selected(plan: SelectedRuntimePlan) -> bool:
+    return plan.torch_compile_enabled and plan.compile_scope == _COMPILE_SCOPE_STEP
+
+
+def _fastpath_dynamo_knobs(plan: SelectedRuntimePlan) -> FastpathDynamoKnobs | None:
+    """Return the plan's dynamo knobs, or ``None`` when nothing compiles.
+
+    Returns:
+        Knobs for the compiled step path; ``None`` on the eager plan.
+
+    """
+    if not _fastpath_step_selected(plan):
+        return None
+    return FastpathDynamoKnobs(
+        optimize_ddp=plan.optimize_ddp,
+        compiled_autograd=plan.compiled_autograd,
+        reorder_compute_comm_overlap=plan.reorder_compute_comm_overlap,
     )
 
 
@@ -2997,20 +3021,16 @@ def _maybe_build_compiled_step(
     closure the probe measured (inline blake2b-free corruption fused into the graph, the
     AMP forward, and the FP32 loss island), so a measured throughput/VRAM number
     transfers to the real run. ``model`` is the wrapped (DDP or raw) model, invoked via
-    ``__call__`` inside the closure so DDP / compiled-autograd hooks fire; the dynamo
-    config takes effect only under this compile (inert on the eager path).
+    ``__call__`` inside the closure so DDP / compiled-autograd hooks fire. The dynamo
+    config is NOT applied here: ``wrap_fastpath_ddp`` owns it and applies it immediately
+    before constructing DDP, which latches ``optimize_ddp`` at construction.
 
     Returns:
         The compiled step closure, or ``None`` when compile is off.
 
     """
-    if not (plan.torch_compile_enabled and plan.compile_scope == _COMPILE_SCOPE_STEP):
+    if not _fastpath_step_selected(plan):
         return None
-    apply_fastpath_dynamo_config(
-        optimize_ddp=plan.optimize_ddp,
-        compiled_autograd=plan.compiled_autograd,
-        reorder_compute_comm_overlap=plan.reorder_compute_comm_overlap,
-    )
     corruptor = InlineStainCorruptor(settings.corruption_profile).to(device=device)
     step_fn = make_fastpath_step_fn(
         model,

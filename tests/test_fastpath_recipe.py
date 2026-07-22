@@ -14,6 +14,7 @@ from torch._inductor import config as inductor_config  # noqa: PLC2701
 from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
 from eqvae.training import fastpath_recipe
 from eqvae.training.fastpath_recipe import (
+    FastpathDynamoKnobs,
     apply_cudnn_flags,
     apply_fastpath_dynamo_config,
     build_fastpath_optimizer,
@@ -138,6 +139,7 @@ def test_wrap_fastpath_ddp_forwards_every_recipe_knob_to_ddp(
         broadcast_buffers=False,
         find_unused_parameters=False,
         bucket_cap_mb=25,
+        dynamo=None,
     )
 
     assert result == "wrapped"
@@ -151,6 +153,62 @@ def test_wrap_fastpath_ddp_forwards_every_recipe_knob_to_ddp(
         "find_unused_parameters": False,
         "bucket_cap_mb": 25,
     }
+
+
+def test_wrap_fastpath_ddp_applies_dynamo_config_before_constructing_ddp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The dynamo knobs must be established BEFORE ``DistributedDataParallel`` exists.
+
+    ``DistributedDataParallel.__init__`` latches the dynamo ``optimize_ddp`` mode at
+    construction (it sets ``_use_python_reducer`` from ``get_optimize_ddp_mode()``
+    there), so configuring dynamo afterwards silently leaves DDP on its C++ reducer:
+    no python_reducer, zero comm/compute overlap, and NOTHING raises. The wrapper owns
+    the order so no call site can break it; this records the order it actually produces.
+    """
+    order: list[str] = []
+
+    def fake_apply(**kwargs: object) -> None:
+        order.append(f"dynamo:{kwargs['optimize_ddp']}")
+
+    def fake_ddp(model: object, **kwargs: object) -> object:  # noqa: ARG001
+        order.append("ddp")
+        return "wrapped"
+
+    monkeypatch.setattr(fastpath_recipe, "apply_fastpath_dynamo_config", fake_apply)
+    monkeypatch.setattr(fastpath_recipe, "DistributedDataParallel", fake_ddp)
+
+    wrap_fastpath_ddp(
+        build_non_equivariant_vae(),
+        local_rank=0,
+        static_graph=False,
+        gradient_as_bucket_view=True,
+        broadcast_buffers=True,
+        find_unused_parameters=False,
+        bucket_cap_mb=None,
+        dynamo=FastpathDynamoKnobs(
+            optimize_ddp="python_reducer",
+            compiled_autograd=True,
+            reorder_compute_comm_overlap=True,
+        ),
+    )
+
+    # Order, not merely presence: a swap puts "ddp" first and reinstates the silent bug.
+    assert order == ["dynamo:python_reducer", "ddp"]
+
+    # And the eager path establishes no dynamo state at all.
+    order.clear()
+    wrap_fastpath_ddp(
+        build_non_equivariant_vae(),
+        local_rank=0,
+        static_graph=False,
+        gradient_as_bucket_view=True,
+        broadcast_buffers=True,
+        find_unused_parameters=False,
+        bucket_cap_mb=None,
+        dynamo=None,
+    )
+    assert order == ["ddp"]
 
 
 def test_compiled_autograd_context_is_a_noop_when_disabled() -> None:

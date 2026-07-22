@@ -1024,6 +1024,10 @@ def _wrap_ddp(
         broadcast_buffers=spec.ddp_broadcast_buffers,
         find_unused_parameters=False,
         bucket_cap_mb=spec.ddp_bucket_cap_mb,
+        # None: _measure_config already applied this spec's dynamo config (after a
+        # torch._dynamo.reset()) before building the context, which is the ordering the
+        # wrapper now enforces for callers that have not.
+        dynamo=None,
     )
 
 

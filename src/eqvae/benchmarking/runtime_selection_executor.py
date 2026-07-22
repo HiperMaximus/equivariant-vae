@@ -3027,7 +3027,7 @@ def _build_compiled_ddp_step(
         raise ValueError(message)
     from eqvae.corruption.inline_stain import InlineStainCorruptor  # noqa: PLC0415
     from eqvae.training.fastpath_recipe import (  # noqa: PLC0415
-        apply_fastpath_dynamo_config,
+        FastpathDynamoKnobs,
         build_fastpath_optimizer,
         model_requires_buffer_broadcast,
         wrap_fastpath_ddp,
@@ -3044,6 +3044,14 @@ def _build_compiled_ddp_step(
         or model_requires_buffer_broadcast(raw_model),
         find_unused_parameters=row_spec.ddp_find_unused_parameters,
         bucket_cap_mb=row_spec.ddp_bucket_cap_mb,
+        # Applied by the wrapper immediately before DDP construction, which latches the
+        # dynamo optimize_ddp mode (Spec 0011 S17f) -- a measured row must not diverge
+        # from the recipe it claims to measure.
+        dynamo=FastpathDynamoKnobs(
+            optimize_ddp=row_spec.optimize_ddp,
+            compiled_autograd=row_spec.compiled_autograd,
+            reorder_compute_comm_overlap=row_spec.reorder_compute_comm_overlap,
+        ),
     )
     optimizer = build_fastpath_optimizer(
         raw_model,
@@ -3056,11 +3064,6 @@ def _build_compiled_ddp_step(
             beta2=0.999,
             fused=row_spec.fused_optimizer,
         ),
-    )
-    apply_fastpath_dynamo_config(
-        optimize_ddp=row_spec.optimize_ddp,
-        compiled_autograd=row_spec.compiled_autograd,
-        reorder_compute_comm_overlap=row_spec.reorder_compute_comm_overlap,
     )
     corruptor = InlineStainCorruptor(profile).to(device=device)
     step_fn = make_fastpath_step_fn(

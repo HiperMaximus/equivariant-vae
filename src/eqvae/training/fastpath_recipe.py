@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import contextlib
 from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 import torch
@@ -145,6 +146,15 @@ def compiled_autograd_context(*, enabled: bool) -> AbstractContextManager[None]:
     )
 
 
+@dataclass(frozen=True)
+class FastpathDynamoKnobs:
+    """Dynamo knobs that MUST be applied before ``DistributedDataParallel`` exists."""
+
+    optimize_ddp: str
+    compiled_autograd: bool
+    reorder_compute_comm_overlap: bool
+
+
 def wrap_fastpath_ddp(  # noqa: PLR0913
     model: nn.Module,
     *,
@@ -154,8 +164,18 @@ def wrap_fastpath_ddp(  # noqa: PLR0913
     broadcast_buffers: bool,
     find_unused_parameters: bool,
     bucket_cap_mb: int | None,
+    dynamo: FastpathDynamoKnobs | None,
 ) -> DistributedDataParallel:
     """Wrap a model in ``DistributedDataParallel`` with the recipe's collective knobs.
+
+    ``dynamo`` is applied HERE, immediately before construction, and is a REQUIRED
+    argument so no caller can forget it. ``DistributedDataParallel.__init__`` latches
+    the dynamo ``optimize_ddp`` mode at construction time (it sets
+    ``_use_python_reducer`` from ``get_optimize_ddp_mode()`` there), so setting it after
+    silently leaves DDP on its C++ reducer: compiled autograd has no Python reducer to
+    trace, there is zero comm/compute overlap, and NOTHING raises. Owning the order in
+    this one function makes that ordering structural instead of a convention each call
+    site could quietly break (Spec 0011 S17f).
 
     Args:
         model: The (optionally compiled) model to wrap.
@@ -165,11 +185,19 @@ def wrap_fastpath_ddp(  # noqa: PLR0913
         broadcast_buffers: DDP ``broadcast_buffers``.
         find_unused_parameters: DDP ``find_unused_parameters``.
         bucket_cap_mb: DDP ``bucket_cap_mb`` (``None`` uses the DDP default).
+        dynamo: Knobs to apply before construction, or ``None`` for a run that compiles
+            nothing (the eager path), where there is no dynamo state to establish.
 
     Returns:
         The DDP-wrapped model.
 
     """
+    if dynamo is not None:
+        apply_fastpath_dynamo_config(
+            optimize_ddp=dynamo.optimize_ddp,
+            compiled_autograd=dynamo.compiled_autograd,
+            reorder_compute_comm_overlap=dynamo.reorder_compute_comm_overlap,
+        )
     return DistributedDataParallel(
         model,
         device_ids=[local_rank],
@@ -228,6 +256,7 @@ def model_requires_buffer_broadcast(model: nn.Module) -> bool:
 
 
 __all__ = [
+    "FastpathDynamoKnobs",
     "apply_cudnn_flags",
     "apply_fastpath_dynamo_config",
     "build_fastpath_optimizer",

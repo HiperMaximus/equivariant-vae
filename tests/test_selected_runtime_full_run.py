@@ -45,6 +45,7 @@ from eqvae.models.non_equivariant_vae import (
     build_non_equivariant_vae,
 )
 from eqvae.training import selected_runtime_runner
+from eqvae.training.fastpath_recipe import FastpathDynamoKnobs
 from eqvae.training.fastpath_step import make_fastpath_step_fn
 from eqvae.training.selected_runtime import (
     COMPILED_FASTPATH_CORRUPTION_STRATEGY,
@@ -5635,16 +5636,6 @@ def test_maybe_build_compiled_step_applies_recipe_and_compiles(
         compiled_autograd=False,
         reorder_compute_comm_overlap=True,
     )
-    dynamo_calls: list[dict[str, object]] = []
-
-    def record_dynamo(**kwargs: object) -> None:
-        dynamo_calls.append(kwargs)
-
-    monkeypatch.setattr(
-        selected_runtime_runner,
-        "apply_fastpath_dynamo_config",
-        record_dynamo,
-    )
     corruptor_profiles: list[StainCorruptionProfile] = []
     real_inline = selected_runtime_runner.InlineStainCorruptor
 
@@ -5698,13 +5689,10 @@ def test_maybe_build_compiled_step_applies_recipe_and_compiles(
     )
 
     assert step_fn is not None
-    assert dynamo_calls == [
-        {
-            "optimize_ddp": "ddp_optimizer",
-            "compiled_autograd": False,
-            "reorder_compute_comm_overlap": True,
-        },
-    ]
+    # The dynamo config is deliberately NOT applied here -- and cannot be: the runner no
+    # longer imports apply_fastpath_dynamo_config at all. wrap_fastpath_ddp owns it and
+    # applies it immediately before constructing DDP, which latches optimize_ddp.
+    assert not hasattr(selected_runtime_runner, "apply_fastpath_dynamo_config")
     assert corruptor_profiles == [context.settings.corruption_profile]
     assert compile_calls == [{"dynamic": False, "backend": "eager"}]
     # The step_fn is built with the exact recipe knobs, above all
@@ -5716,6 +5704,38 @@ def test_maybe_build_compiled_step_applies_recipe_and_compiles(
         compiled_plan.autocast_dtype,
     )
     assert make_calls[0]["autocast_enabled"] is context.amp.enabled
+
+
+def test_fastpath_dynamo_knobs_carry_the_plan_recipe_or_none() -> None:
+    """The plan's dynamo knobs reach the DDP wrapper, which owns the apply ordering.
+
+    ``wrap_fastpath_ddp`` applies these immediately before constructing DDP (which
+    latches ``optimize_ddp``), so the runner's job is only to hand over the right
+    knobs -- or ``None`` on the eager plan, where nothing compiles. The ORDER itself is
+    pinned structurally, in
+    ``test_fastpath_recipe.py`` ->
+    ``test_wrap_fastpath_ddp_applies_dynamo_config_before_constructing_ddp``.
+    """
+    eager_plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+
+    assert selected_runtime_runner._fastpath_dynamo_knobs(eager_plan) is None  # noqa: SLF001
+
+    compiled_plan = replace(
+        eager_plan,
+        torch_compile_enabled=True,
+        compile_scope="step",
+        optimize_ddp="python_reducer",
+        compiled_autograd=True,
+        reorder_compute_comm_overlap=True,
+    )
+
+    knobs = selected_runtime_runner._fastpath_dynamo_knobs(compiled_plan)  # noqa: SLF001
+
+    assert knobs == FastpathDynamoKnobs(
+        optimize_ddp="python_reducer",
+        compiled_autograd=True,
+        reorder_compute_comm_overlap=True,
+    )
 
 
 def test_run_compiled_train_step_populates_telemetry(tmp_path: Path) -> None:
