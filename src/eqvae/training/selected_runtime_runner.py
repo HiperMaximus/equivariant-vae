@@ -6124,12 +6124,19 @@ def _pending_train_row(result: _SelectedRuntimeStepResult) -> _PendingTrainRow:
     )
 
 
-def _stack_step_metrics(result: _SelectedRuntimeStepResult) -> torch.Tensor:
-    # Stack the step's device-scalar metrics into one [len(_TRAIN_STEP_METRIC_NAMES)]
-    # fp64 tensor in the buffer's column order, detached (so the buffer never retains
-    # the autograd graph) and with no host sync. torch.stack needs a uniform dtype, so
-    # each 0-dim scalar is widened to fp64 first (exact for the fp32 losses/stats and
-    # the integer non-finite count).
+def _write_step_metrics(row: torch.Tensor, result: _SelectedRuntimeStepResult) -> None:
+    # Fill the pre-allocated buffer row in place, column by column -- no torch.stack
+    # temporary and no host sync. The indexed assignment casts each 0-dim scalar to the
+    # row's fp32 dtype; the loss scalars are detached so the buffer never holds an
+    # autograd graph (the norm/stat scalars are already grad-free). ``scalars`` is
+    # position-aligned with _TRAIN_STEP_METRIC_NAMES -- keep the two in lockstep.
+    #
+    # fp32 (not fp64) is correct because the buffer never aggregates: each row is
+    # written once and read once, so no accumulation error builds up, and fp32 already
+    # carries the full precision of these fp32-origin metrics (the norms reduce in fp64
+    # but are fp-tolerant telemetry; the non-finite count is exact in fp32 below 2^24,
+    # far above any realistic count -- and a non-zero count is already a hard failure).
+    # fp64 is reserved for the validation accumulator (Commit V), which sums batches.
     losses = result.losses
     scalars = (
         losses.loss,
@@ -6147,7 +6154,8 @@ def _stack_step_metrics(result: _SelectedRuntimeStepResult) -> torch.Tensor:
         result.frac_x_hat_gt_1,
         result.nonfinite_count,
     )
-    return torch.stack([scalar.detach().to(torch.float64) for scalar in scalars])
+    for column, scalar in enumerate(scalars):
+        row[column] = scalar.detach()
 
 
 class _TrainStepMetricBuffer:
@@ -6173,9 +6181,12 @@ class _TrainStepMetricBuffer:
         device: torch.device,
         context: _TrainRowContext,
     ) -> None:
+        # fp32: the buffer stores, it never aggregates (one write, one read per row), so
+        # there is no accumulation error to guard against -- unlike the fp64 validation
+        # accumulator (Commit V), which sums sum+sum_sq across batches.
         self._buffer = torch.empty(
             (max(1, capacity), len(_TRAIN_STEP_METRIC_NAMES)),
-            dtype=torch.float64,
+            dtype=torch.float32,
             device=device,
         )
         self._pending: list[_PendingTrainRow] = []
@@ -6184,7 +6195,7 @@ class _TrainStepMetricBuffer:
     def record(self, result: _SelectedRuntimeStepResult, rows: list[CsvRow]) -> None:
         if len(self._pending) >= self._buffer.shape[0]:
             self.flush_into(rows)
-        self._buffer[len(self._pending)].copy_(_stack_step_metrics(result))
+        _write_step_metrics(self._buffer[len(self._pending)], result)
         self._pending.append(_pending_train_row(result))
 
     def flush_into(self, rows: list[CsvRow]) -> None:
@@ -7097,9 +7108,10 @@ def _reconstruction_output_stats(
 ) -> _ReconstructionOutputStats:
     # Return 0-dim device tensors (not host floats) so the hot step never syncs the
     # decoder telemetry; ``_TrainStepMetricBuffer`` reads it once per half-epoch (Spec
-    # 0011 S17f Metrics Commit T). The rms widens the fp32 mean to fp64 before ``sqrt``
-    # to reproduce the prior ``math.sqrt(float(mean))``; the range/fraction values are
-    # the same fp32 reductions, exact once widened to fp64 in the buffer.
+    # 0011 S17f Metrics Commit T). The rms widens the fp32 ``mean`` to fp64 before the
+    # ``sqrt`` -- the reduction itself stays fp32, only the sqrt is fp64 -- reproducing
+    # the prior ``math.sqrt(float(mean))``; the fp32 buffer then stores the result. The
+    # range/fraction values are the same fp32 reductions.
     detached = reconstruction.detach().float()
     return _ReconstructionOutputStats(
         recon_output_rms=detached.square().mean().double().sqrt(),

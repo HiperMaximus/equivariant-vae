@@ -4613,24 +4613,28 @@ def _distinct_step_result(
 def _direct_train_metrics(
     result: selected_runtime_runner._SelectedRuntimeStepResult,
 ) -> dict[str, float]:
-    # Materialize the result's device-scalar metrics directly (one .item() each) -- the
-    # value the deferred buffer path must reproduce byte-for-byte.
+    # Materialize each device-scalar metric directly at the buffer's fp32 storage dtype
+    # (one .item() each) -- the value the deferred fp32 buffer path must reproduce. The
+    # fp64 grad/param norms exercise the fp64->fp32 round the buffer applies.
+    def _fp32(tensor: torch.Tensor) -> float:
+        return float(tensor.to(torch.float32).item())
+
     losses = result.losses
     return {
-        "loss": float(losses.loss.item()),
-        "recon_loss": float(losses.recon_loss.item()),
-        "l1_loss": float(losses.l1_loss.item()),
-        "ssim_loss": float(losses.ssim_loss.item()),
-        "ssim_metric": float(losses.ssim_metric.item()),
-        "kl_loss": float(losses.kl_loss.item()),
-        "grad_norm": float(result.grad_norm.item()),
-        "param_update_norm": float(result.param_update_norm.item()),
-        "recon_output_rms": float(result.recon_output_rms.item()),
-        "x_hat_min": float(result.x_hat_min.item()),
-        "x_hat_max": float(result.x_hat_max.item()),
-        "frac_x_hat_lt_minus1": float(result.frac_x_hat_lt_minus1.item()),
-        "frac_x_hat_gt_1": float(result.frac_x_hat_gt_1.item()),
-        "nonfinite_count": float(result.nonfinite_count.item()),
+        "loss": _fp32(losses.loss),
+        "recon_loss": _fp32(losses.recon_loss),
+        "l1_loss": _fp32(losses.l1_loss),
+        "ssim_loss": _fp32(losses.ssim_loss),
+        "ssim_metric": _fp32(losses.ssim_metric),
+        "kl_loss": _fp32(losses.kl_loss),
+        "grad_norm": _fp32(result.grad_norm),
+        "param_update_norm": _fp32(result.param_update_norm),
+        "recon_output_rms": _fp32(result.recon_output_rms),
+        "x_hat_min": _fp32(result.x_hat_min),
+        "x_hat_max": _fp32(result.x_hat_max),
+        "frac_x_hat_lt_minus1": _fp32(result.frac_x_hat_lt_minus1),
+        "frac_x_hat_gt_1": _fp32(result.frac_x_hat_gt_1),
+        "nonfinite_count": _fp32(result.nonfinite_count),
     }
 
 
@@ -4667,10 +4671,13 @@ def _expected_deferred_row(
 
 
 def test_train_step_metric_buffer_materializes_rows_value_preserving_in_order() -> None:
-    """Buffered per-step metrics flush into rows identical to eager materialization.
+    """Buffered per-step metrics flush into rows matching fp32 eager materialization.
 
     A single bulk ``.tolist()`` replaces ~14 per-step device->host syncs; this locks
-    that the deferral is value-preserving, keeps column alignment, and preserves order.
+    column alignment, per-step ordering, and that the fp32 buffer reproduces each
+    metric's fp32 value exactly. The oracle materializes at fp32 because that is the
+    buffer's storage dtype: the fp32-origin columns round-trip bit-exact, while the
+    three fp64-reduced norms round to fp32 by design (fp-tolerant telemetry, rule 30).
     """
     context = _train_row_context()
     results = [_distinct_step_result(step=i, offset=10.0 * i) for i in (1, 2, 3)]
@@ -4718,6 +4725,37 @@ def test_train_step_metric_buffer_auto_flushes_when_window_exceeds_capacity() ->
 
     assert [row["optimizer_step"] for row in rows] == ["1", "2", "3", "4", "5"]
     assert rows == [_expected_deferred_row(result, context) for result in results]
+
+
+def test_train_step_metric_buffer_never_retains_the_autograd_graph() -> None:
+    """The persistent buffer must never pin a step's autograd graph.
+
+    The real per-step ``loss`` is a backward target, and the buffer outlives the whole
+    half-epoch window -- so writing a grad-attached scalar into it would keep every
+    step's graph alive until the flush. ``_write_step_metrics`` detaches to prevent
+    that; dropping the detach makes the buffer itself grad-tracking, which this catches.
+    """
+    context = _train_row_context()
+    # A genuinely grad-attached loss, as a real backward target is.
+    graph_loss = (torch.tensor([2.0], requires_grad=True) * 3.0).sum()
+    assert graph_loss.requires_grad
+    result = _distinct_step_result(step=1, offset=10.0)
+    result = replace(result, losses=replace(result.losses, loss=graph_loss))
+    buffer = selected_runtime_runner._TrainStepMetricBuffer(  # noqa: SLF001
+        capacity=4,
+        device=torch.device("cpu"),
+        context=context,
+    )
+
+    rows: list[CsvRow] = []
+    buffer.record(result, rows)
+
+    stored = buffer._buffer  # noqa: SLF001
+    assert stored.requires_grad is False
+    assert stored.grad_fn is None
+    # The value still lands, so the detach cannot be "fixed" by skipping the write.
+    buffer.flush_into(rows)
+    assert rows == [_expected_deferred_row(result, context)]
 
 
 def test_amp_execution_records_amp_off_status_on_cuda() -> None:

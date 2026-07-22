@@ -1084,19 +1084,27 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
           the RUNNER's `_global_grad_norm`/`_nonfinite_gradient_count`/`_parameter_update_norm`/
           `_reconstruction_output_stats` RETURN tensors (the `step.py` /
           `runtime_selection_executor.py` duplicates untouched). A persistent
-          `_TrainStepMetricBuffer` `[save_every_steps, 14]` fp64 buffer index-writes each step's 14
-          device scalars (6 losses + grad_norm + param_update_norm + 5 recon stats +
-          nonfinite_count) with NO host sync — detached, so it retains no autograd graph — and
+          `_TrainStepMetricBuffer` `[save_every_steps, 14]` **fp32** buffer index-writes each
+          step's 14 device scalars (6 losses + grad_norm + param_update_norm + 5 recon stats +
+          nonfinite_count) IN PLACE, column by column (no `torch.stack` temporary), with NO host
+          sync — detached, so it retains no autograd graph — and
           `_metric_row` reads them from one bulk `.tolist()` at the half-epoch flush (an auto-flush
           on overshoot handles AMP skips; a tail flush drains a partial final window). ~14 metric
           syncs/step → ~0 (amp-off) or 1 (fp16 GradScaler inf-check floor, = FSQ); touches BOTH the
           eager and compiled step paths. The 2 eps stats STAY host floats — computed on the CPU eps
           tensor, they are never a device sync, so buffering them would add GPU work for zero sync
-          benefit (rule 29), which is why the buffer is 14 wide, not the 16 first sketched. KEEPS
-          every per-step row (gate contract + whole-file atomic CSV write unchanged); CSV schema
-          byte-identical; value-preserving (norms fp-tolerant via on-device `sqrt`, all else exact);
-          amp-agnostic. +2 mutation-proof buffer tests. The training curve stays dense per-step →
-          error bands are a plot-time rolling std (nothing extra to store).
+          benefit (rule 29), which is why the buffer is 14 wide, not the 16 first sketched. DTYPE
+          (user call): the training buffer is **fp32** because it only STORES — one write, one read
+          per row, so no accumulation error can build up, and fp32 already carries the full
+          precision of these fp32-origin metrics; **fp64 is reserved for the Commit V validation
+          accumulator**, which sums `sum`+`sum_sq` across batches and so does risk cancellation.
+          fp32 keeps the 6 losses / `x_hat_*` / `frac_*` columns byte-identical (fp32-origin) and
+          rounds only the three fp64-reduced norms (fp-tolerant telemetry, rule 30);
+          `nonfinite_count` stays exact (fp32 is exact below 2^24 vs the model's 3.96M params, and
+          every consumer tests only zero-vs-non-zero). KEEPS every per-step row (gate contract +
+          whole-file atomic CSV write unchanged); CSV schema byte-identical; amp-agnostic. +2
+          mutation-proof buffer tests. The training curve stays dense per-step → error bands are a
+          plot-time rolling std (nothing extra to store).
         - **Commit C — one CSV per half-epoch.** Shard `train_steps.csv` into a file per
           half-epoch, killing the O(n²) whole-file atomic rewrite (`_write_csv_atomic` rewrites
           the whole accumulated list every boundary) + the unbounded single file. Each shard is

@@ -35,7 +35,10 @@ step metric fields are 0-dim device tensors, the `_global_grad_norm`-family help
 tensors, and a persistent `_TrainStepMetricBuffer` index-writes each step with no host sync
 and materializes the half-epoch window in one `.tolist()` — ~14 per-step syncs → ~0
 (amp-off) / 1 (fp16 GradScaler floor); every per-step row kept, CSV/gate schema unchanged,
-both step paths covered (eps telemetry stays host — CPU-computed, never a device sync).
+both step paths covered (eps telemetry stays host — CPU-computed, never a device sync). The
+training buffer is **fp32** and is filled in place (no `torch.stack` temporary): it only
+stores, never aggregates, so no accumulation error can build — **fp64 is reserved for the
+Commit V validation accumulator**, which does sum across batches.
 **NEXT = Commit C** — shard `train_steps.csv` into one per-half-epoch `.csv.gz` (kills the
 O(n²) whole-file rewrite + the unbounded file); the ONE part-2 commit that changes a
 gate-reader contract, so the gate + remote verifier must glob/concat shards in boundary
