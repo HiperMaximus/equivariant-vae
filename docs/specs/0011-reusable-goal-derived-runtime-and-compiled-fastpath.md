@@ -1086,7 +1086,9 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
           row (gate contract intact; the whole-file atomic CSV write is unchanged). ~16 metric
           syncs/step → ~0 (amp-off) or 1 (fp16 GradScaler inf-check floor, = FSQ). Requires
           `_SelectedRuntimeStepResult` float fields → device tensors + the step helpers
-          (`_global_grad_norm` etc.) to RETURN tensors (stop calling `.item()`); touches BOTH the
+          (the RUNNER's `_global_grad_norm`/`_nonfinite_gradient_count`/`_parameter_update_norm`
+          in `selected_runtime_runner.py` — NOT the `step.py` or `runtime_selection_executor.py`
+          duplicates) to RETURN tensors (stop calling `.item()`); touches BOTH the
           eager and compiled step paths. Amp-agnostic; value-preserving; no schema/gate change.
           The training curve stays dense per-step → error bands are a plot-time rolling std
           (nothing extra to store).
