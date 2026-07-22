@@ -85,7 +85,7 @@ Rules to keep this file from rotting (the problem it exists to fix):
   so train↔val divergence is visible per metric. Data sources:
   `metrics/validation_metrics.csv` already carries per-half-epoch `{metric, metric_std}`
   (Spec 0011 S17f Commit V); the dense per-step `metrics/train_steps.csv` gets its band
-  from a plot-time rolling std (per-step training scalars move on-device in Commit T).
+  from a plot-time rolling std (per-step training scalars moved on-device in Commit T, `0ddc857`).
   Serves the GOAL.md training/evaluation dashboard requirement. Do NOT write the scripts
   yet — no run data exists. Per-rank caveat: train CSV scalars are rank-local (FU-019).
 - **FU-046 — Compress saved run artifacts against the Kaggle ~20 GB output cap.**
