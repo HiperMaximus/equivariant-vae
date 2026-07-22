@@ -186,6 +186,29 @@ This repo is the paper/research repository for the equivariant VAE work.
     measured reason. Tune for the REAL dual-T4: single-GPU / `max-autotune` kernel tuning
     misses the DDP all_reduce-overlap cost, so always search the compute-comm-overlap knobs
     (`compiled_autograd` / `optimize_ddp` / a comm hook) and measure on 2 GPUs.
+31. Every test's docstring must state its INTENT — the why and the justification, not the
+    mechanics. Ruff already forces a docstring to EXIST; no linter can check that it says
+    anything useful, so this is a review standard. A test encodes a claim about what is
+    CORRECT, and a test that encodes the wrong claim is worse than no test: when the real fix
+    lands the test fails, and the next agent "fixes" the code to satisfy the test or concludes
+    the fix was wrong. A green gate proves internal consistency, not correctness (rule 20).
+    Each test docstring states:
+    - **The invariant it pins** — the property that must hold, not the steps it performs.
+      "Asserts X == 3" is mechanics; "the schedule is derived, so a non-dividing batch floors
+      rather than ceils" is an invariant.
+    - **Why that invariant matters** — what actually breaks in the real run if it regresses.
+    - **What KIND of expected value it asserts**, because this tells a future agent whether a
+      failure means "fix the code" or "update the test":
+      * a DELIBERATE POLICY / safety guard (fail-closed parser, hardware anchor) — keep it;
+      * a MEASURED value or a CROSS-CHECK of what some producer currently emits — expected to
+        change when the producer or the measurement changes; say so explicitly;
+      * a DERIVED relationship — the durable form; prefer it to a frozen literal (rule 29).
+    - **What mutation it would catch.** If you cannot name a concrete change to the source
+      that makes this test fail, the test is vacuous — that is the bug, not a documentation
+      gap. Tests whose names promise an invariant ("applied", "records", "before", "uses")
+      are the usual offenders: they assert presence where they claim ordering or causation.
+    Never write a docstring that over-claims what the assertions check; the docstring is the
+    contract a reviewer reads first, and an over-claiming one hides the gap it describes.
 
 ## Safe Paper Workflow
 

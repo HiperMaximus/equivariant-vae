@@ -3016,9 +3016,9 @@ def _maybe_build_compiled_step(
 
     Returns ``None`` on the eager v5 plan (``torch_compile_enabled`` False, scope
     ``"none"``) so the runner keeps the eager ``_run_train_step`` -- the behavior-
-    preserving default. When the plan selects ``compile_scope == "step"`` this sets the
-    process-global dynamo/inductor knobs and compiles the SAME ``make_fastpath_step_fn``
-    closure the probe measured (inline blake2b-free corruption fused into the graph, the
+    preserving default. When the plan selects ``compile_scope == "step"`` this compiles
+    the SAME ``make_fastpath_step_fn`` closure the probe measured (inline blake2b-free
+    corruption fused into the graph, the
     AMP forward, and the FP32 loss island), so a measured throughput/VRAM number
     transfers to the real run. ``model`` is the wrapped (DDP or raw) model, invoked via
     ``__call__`` inside the closure so DDP / compiled-autograd hooks fire. The dynamo

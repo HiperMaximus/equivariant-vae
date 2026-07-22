@@ -5,7 +5,7 @@ Last updated: 2026-07-22
 ## Read before working (agents keep skipping this)
 
 Ground yourself via the landing sequence in `CLAUDE.md`, and **read the `AGENTS.md`
-hard rules (1–30) — they are BINDING, not background.** Agents keep relapsing into
+hard rules (1–31) — they are BINDING, not background.** Agents keep relapsing into
 already-corrected traps because they skim them. The recurring ones:
 
 - **Rule 30 — speed over declared don't-cares.** Judge the run on time-per-epoch +
@@ -17,6 +17,10 @@ already-corrected traps because they skim them. The recurring ones:
   around it. Write compactly the first time. Git + superseded specs hold the past.
 - **Rule 29 — verify the premise** before de-pinning a validator, relaxing a
   constraint, or deleting something that only "looks unused".
+- **Rule 31 — every test docstring states its INTENT** (the invariant, why it matters,
+  whether the expected value is a POLICY / a MEASURED cross-check / a DERIVED relationship,
+  and what mutation it would catch). A test that cements a defect is worse than no test:
+  when the fix lands it fails, and the next agent "fixes" the code to satisfy it.
 - **Rule 22 — run the gate DETACHED via `setsid`**, capture the exit code, never pipe
   it into `tail`/`head`. It runs ~10 min (> the 600s tool cap); a naive `&` run is
   reaped mid-pytest (~63%, NOT a failure). See [[eqvae-gate-detach-and-exit-code]].
@@ -56,7 +60,7 @@ i.e. AMP was never implemented in the compiled probe, so the axis was forbidden 
 Measured on our own hardware: eager fp16 **27.38** samples/s (the committed plan, 30.4 h),
 fp32+compile **18.01** (46.3 h), **fp16+compile 34.83 (23.9 h)**. So a compiled winner can
 currently only be SLOWER than what we already run. A2 = wire autocast + a real GradScaler
-through both compiled-step measurement branches (the runner already does this at `:3020`),
+through both compiled-step measurement branches (the runner already does this in `_maybe_build_compiled_step`),
 delete the guard, add fp16 compiled policies to the grid. **Do this BEFORE the S17
 generator run** or the paid run measures the wrong space. Full ranked gap list + the rest
 of the plan (A3 channels_last in the COMPILED regime, A4 `static_graph` unpin, A5 the

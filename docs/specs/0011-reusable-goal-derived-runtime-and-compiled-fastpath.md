@@ -15,7 +15,7 @@ mutation-proof buffer tests. Then `2269050` (fp32 buffer, filled in place), `72e
 (the dynamo config is applied INSIDE `wrap_fastpath_ddp`, immediately before DDP construction --
 DDP latches `optimize_ddp` there, so configuring it afterwards silently disabled `python_reducer`),
 and `278f1fd` **B1** (`PatchTrainingBatch.pin_memory()` -- `pin_memory=True` had been a silent
-no-op). Gate 608/1. **NEXT = A2** (see the FSQ-floor gap plan in the S17f body and the plan memory):
+no-op). Gate 608/1. **NEXT = A2** (the FSQ-floor gap plan is the `### S17f FSQ-floor gap plan` subsection of the S17f body):
 wire AMP through the two compiled-step MEASUREMENT branches and delete the `amp_off_fp32` guard, so
 the search can express fp16-compiled at all. **Precision is NOT a separate step** -- the executed
 plan is ALREADY fp16 AMP; see the "Precision -- RESOLVED" bullet in the S17f body.
@@ -950,8 +950,9 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
         (5) **GPUDirect Storage** (`torch.cuda.gds`, torch 2.7+ / `kvikio`) — direct NVMe→GPU,
         bypass CPU; our raw `.bin` is GDS-friendly, but nvidia-fs is likely UNAVAILABLE on
         Kaggle T4 (check). (6) `torch.from_file` / `UntypedStorage.from_file` torch-native
-        mmap vs numpy. Also RE-VERIFY `amp_off_fp32` vs `amp_fp16` on T4 tensor cores — the
-        FSQ reason for disabling autocast was its fp32 QUANTIZER, which the normal VAE lacks.
+        mmap vs numpy. (The `amp_off_fp32` vs `amp_fp16` question is ALREADY ANSWERED -- eager fp16 is what we
+        run and it measured 27.38 vs 13.70 samples/s for fp32; do not re-measure it. What is
+        unmeasured is fp16 *under compile*, which is A2.)
       - *Make them OPTIONS + hard rules (user 2026-07-19).* All of the above are configurable
         KNOBS (runtime_matrix axes / recipe flags) SEARCHED for the epoch-time winner, not
         hardcoded. Objective = MINIMIZE TIME PER EPOCH, tail-agnostic. Compile time is a
@@ -975,8 +976,9 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
         `benchmark=True` — seeding ≠ determinism). Precision is fp16-FIRST — keep fp32 only
         where
         numerically required, and RE-AUDIT the FSQ fp32 islands (likely over-conservative;
-        the normal VAE has no fp32 quantizer, so amp_fp16 may reclaim T4 tensor-core
-        throughput vs the current `amp_off_fp32` winner).
+        the normal VAE has no fp32 quantizer). SETTLED 2026-07-22: the executed plan is ALREADY
+        fp16 AMP (`amp_conservative`/`float16`); `amp_off_fp32` is only the compiled-step GRID
+        candidate, and the live item is A2 below -- do NOT re-measure this.
       - *Dual-GPU grad-sync trap + compile cost (user 2026-07-19; 2026-07 web).* max-autotune
         tunes SINGLE-GPU kernels; a whole fwd+bwd graph PREVENTS grad/compute overlap
         (all_reduce fires from autograd hooks only AFTER the full backward). Overlap needs the
@@ -1201,8 +1203,8 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       a GradScaler. MEASURED on our dual-T4: eager fp16 **27.38** samples/s (30.4 h),
       fp32+compile **18.01** (46.3 h), fp16+compile **34.83** (23.9 h) — so a compiled winner
       is currently forced to be SLOWER than the plan we already run. Fix = implement AMP in
-      the two compiled measurement branches (the runner already does it at
-      `selected_runtime_runner.py:3020`), then delete the guard. On fp16 the GradScaler
+      the two compiled measurement branches (the runner already does it in
+      `_maybe_build_compiled_step` (`autocast_enabled=amp.enabled`)), then delete the guard. On fp16 the GradScaler
       inf-check is an unavoidable per-step sync (the FSQ floor; ~3 `.item()`s in practice —
       2 `get_scale()` plus one inside `_maybe_opt_step`).
     - **`drop_last` UNIT-FLIP — DONE (`3b9aa42`, local, 2026-07-20).** Flipped the
@@ -1220,6 +1222,98 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       forced). Untouched by design: runner `_DDP_SAMPLER_POLICY_NO_DROP_LAST` degenerate-shard
       fallback + pretest `partial_batch_observed` mechanics probe. Guard-health steady 3 FAIL/21.
       The tail is dropped and does not matter (rule 30).
+  - ### S17f FSQ-floor gap plan
+    Ranked from a 2026-07-22 audit of our runtime against `kaggle/fsq_train_reference.py`
+    (the declared efficiency floor, rule 30). Each item is ONE gated commit. **A2, A3, A4,
+    A5, A6 and B3 MUST land before the paid S17-Kaggle generator run** — they change what
+    the search can measure or select, so running first spends the paid run on the wrong
+    space. A1 (`72ef19e`) and B1 (`278f1fd`) are DONE.
+    - **A2 [HIGHEST] — the compiled-step search cannot express fp16.**
+      `runtime_selection_executor.py` `_build_compiled_ddp_step` and
+      `real_data_runtime_pretest.py` `_build_compiled_step` RAISE unless
+      `precision_policy == "amp_off_fp32"` and hardcode `autocast_enabled=False`; the grid's
+      only compiled policy is fp32. The guards' own docstrings give the cause — "autocast and
+      the GradScaler are not wired into the compiled-step probe" — i.e. AMP was never
+      implemented there, so the axis was forbidden rather than built. MEASURED (dual-T4,
+      `runtime_selection_v5/benchmark/runtime_matrix.csv`): eager fp16 **27.38** samples/s
+      (the committed plan), fp32+compile **18.01**, fp16+compile **34.83**. FIX: thread
+      autocast dtype + a real GradScaler through both branches (the runner already does this
+      in `_maybe_build_compiled_step`; the probe already measures fp16-compiled), delete the
+      guard, add fp16 compiled policies to the grid. CAVEAT: the 34.83 row is
+      `compile_scope=model_forward` + channels_last + static_graph and is itself `ineligible`
+      — it shows direction, it is not a number A2 alone reproduces.
+    - **A3 — search `channels_last` IN THE COMPILED regime.** Our 18%-slower channels_last
+      datum (22.36 vs 27.38) is EAGER fp16 and a 5-knob bundle; it does not transfer to
+      compiled+fp16, where inductor layout choice and tensor-core kernels differ. FSQ runs
+      channels_last+compiled+fp16 together. Enumerate compiled rows × {contiguous,
+      channels_last} × {fp16, fp32}.
+    - **A4 — unpin `ddp_static_graph` on the compiled path.** `_build_compiled_ddp_step`
+      raises on it ONLY because the measurement interleaves an eager numerical-proof backward
+      with compiled backwards on ONE DDP module. Fix = run the proof on its own module (or
+      before the compiled settle), then admit `static_graph=True`. FSQ uses it.
+    - **A5 — the per-step `dist.all_gather_object`.** `_synchronized_amp_step_skipped` runs a
+      collective EVERY optimizer step (~250k over the run; FSQ's whole-run total is ~1350) and
+      forces a host sync. Ranks agree BY CONSTRUCTION (DDP all-reduces gradients before
+      `unscale_`), so it is a deadlock diagnostic, not correctness. Replace with a
+      pre-allocated 1-element device tensor + `all_reduce(MAX)` read at the boundary, or gate
+      it to the first N steps. ALSO add the equivalent to the executor's timed loop, so the
+      measured step body matches the executed one.
+    - **A6 — the eligibility rule structurally excludes `ddp_optimizer`.** See the KNOWN
+      DEFECT comment on `_compiled_row_stable` (`runtime_selection.py`): `graph_breaks == 0`
+      can never hold under `optimize_ddp="ddp_optimizer"`, which splits the graph to match DDP
+      buckets BY DESIGN (torch's config doc; only `python_reducer`/`no_optimization` promise
+      no breaks). The compiled-fastpath probe measured `ddp_optimizer_whole_step` as the
+      WINNER at every batch (59.2 samples/s, 1.42×, 2531 MB vs eager 6.2 GB), and this rule
+      would reject it — as it already rejects both compiled rows in the v5 matrix, whose
+      single break IS the bucket split. FIX: keep `recompiles == 0` + the settle requirement,
+      make the break check MODE-AWARE (expected under `ddp_optimizer`; still zero under
+      `python_reducer`/`no_optimization`), or gate on "no NEW breaks after settle" — then let
+      measured throughput choose. Pairs with A1: A1 makes `python_reducer` possible, A6 makes
+      `ddp_optimizer` selectable. The S7 `_ddp_optimizer_safety_errors` guard is CORRECT and
+      must survive.
+    - **B3 — `data_wait_fraction` is hardcoded.** `runtime_selection_executor.py` stamps
+      `data_wait_fraction_p50/p95` as the literal `"0.000000"` on the DDP path, and the
+      promotion gate compares that literal to its threshold — so the "loader is not a
+      bottleneck" check CAN NEVER FAIL. Measure it for real before S17d trusts it.
+    - **B4 [needs a user decision] — the eager path ships ~8× FSQ's bytes.** `eager_corruptor`
+      is built without `.to(device)` (unlike the compiled path), so the eager step normalizes
+      AND HED-corrupts on CPU then transfers 2× fp32 (~18.9 MB/step vs FSQ's 2.36 MB) on 4
+      shared cores with `num_workers=0` — and the committed plan has compile DISABLED, so this
+      is the path the real run takes TODAY. Moving corruption to the device collides with the
+      S17f RNG design (per-rank CPU generator checkpointed as `train_corruption`); rule 30
+      makes reproducibility a don't-care so a device generator is defensible, but it reverses
+      a deliberate recent decision — ASK before changing it.
+    - **C-hash — stop re-hashing (~11.7 GB/run).** `_partial_artifact_manifest` sha256s EVERY
+      artifact including every retained checkpoint on EVERY flush (twice per boundary), with
+      both GPUs idle; checkpoint hashes are already computed at save time in
+      `checkpointing.py` and never change. Cache by (path, mtime, size). Independent of
+      Commit C. (Named `C-hash`, not `C1`, to avoid colliding with S14c's C1 seam extraction.)
+    - **D1 runner warmup** — FSQ warms 3 iterations before timing; our settle loop exists only
+      in the throwaway benchmark, so the first real optimizer step absorbs the full inductor
+      compile while the peer rank waits in a collective. One branch suffices (we pass `beta` as
+      a 0-dim tensor, so unlike FSQ we have no scalar guard and one graph). Add
+      `torch.cuda.empty_cache()` after. **D2** reuse `clip_grad_norm_`'s returned pre-clip norm
+      instead of a separate `_global_grad_norm` pass. **D4** O(1) resume via `Subset` —
+      `_advance_batches` currently replays every batch from step 0 (~147 GB re-read resuming at
+      62.5k).
+    - **DO NOT copy from FSQ (verified):** its `optimize_ddp=False` + `compiled_autograd=True`
+      pair — torch's config doc says mode 3 "CANNOT be used with compiled_autograd" and gives
+      "no comm/compute overlap", so FSQ's headline DDP optimization likely does nothing;
+      `python_reducer`+`compiled_autograd` is the correct expression of its intent. Its
+      dual-branch warmup (we don't need it). Its channels_last (measure per A3). TF32 is a
+      non-item on Turing (13.81 vs 13.70 = noise).
+    - **ALREADY MATCH OR BEAT FSQ — do not "fix":** validation aggregation (== its
+      `VarianceAccumulator`), the sync-free per-step train metric buffer, mmap +
+      `MADV_SEQUENTIAL` + zero-copy reads (we are also spawn-safe; FSQ is fork-safe only),
+      uint8 H2D with channels_last fused, cuDNN flags, checkpoint retention, full validation
+      sweep, atomic per-file writes (FSQ's `mode='a'` append is not atomic), one compiled graph
+      vs FSQ's two, in-graph normalize. We do NOT shuffle redundantly and `DistributedSampler`
+      costs ~200 ms whole-run — not a win, skip it.
+    - **NOT recoverable by copying FSQ:** FSQ writes one aggregated row per 100 steps and has
+      NO per-step training row; our dense per-step curve is a declared deliverable (dashboards,
+      plot-time error bands) and the gate's row-count/coverage audit. Keep per-step rows;
+      recover the cost via Commit C (shards), C-hash, and delta gathers.
+
   - **S17-Kaggle** [Kaggle] Run the S14 generator on dual-T4 → new compiled
     `selected_runtime.json` (winner row_id
     `dual_t4_ddp__bs48__<precision>__compile_step__<corruption>__policy_…`; the precision term is
