@@ -834,6 +834,20 @@ def _compiled_row_stable(row: CsvRow) -> bool:
     # fail-closed settle relationship (a missing settle/graph-break/recompile field is
     # None != 0 -> not stable -> stays diagnostic-only). Keeping both lets throughput
     # decide. Inert until the grid emits step rows (S13) and the executor measures them.
+    #
+    # KNOWN DEFECT -- Spec 0011 "A6", do not "fix" a compiled row by chasing its graph
+    # breaks to zero until this is addressed. `graph_breaks == 0` structurally EXCLUDES
+    # `optimize_ddp="ddp_optimizer"`, because that mode SPLITS the model graph to match
+    # DDP buckets BY DESIGN (torch's own config doc: mode 1 splits "to allow DDP
+    # comm/compute overlap"; only `python_reducer`/`no_optimization` promise no breaks).
+    # The compiled-fastpath probe measured `ddp_optimizer_whole_step` as the WINNER at
+    # every batch (59.2 samples/s, 1.42x, 2531 MB vs eager 6.2 GB), and this rule would
+    # reject it -- as it already rejects both compiled rows in the v5 matrix (gb=1,
+    # rc=2), whose break IS the bucket split, not instability. The rule conflates a
+    # genuine instability (unsettled recompiles) with a load-bearing split. Fix =
+    # make the break check MODE-AWARE (allowed under ddp_optimizer, still zero under
+    # python_reducer/no_optimization) or gate on "no NEW breaks after settle", then let
+    # measured throughput decide between the three modes.
     return (
         row["compile_scope"] in _STABLE_COMPILE_SCOPES
         and _runtime_policy_id(row) != DEFAULT_RUNTIME_POLICY_ID
