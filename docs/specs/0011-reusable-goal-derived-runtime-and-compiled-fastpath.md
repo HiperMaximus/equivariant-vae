@@ -1182,14 +1182,23 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       RNG item). The CPU worker read stays eager, by design (do not compile it). Gate 575/1,
       basedpyright clean; 3 clean-context adversarial reviewers (fold-correctness / caller-
       completeness / scope) clean after 2 fixes. The speed win is Kaggle-measured (local CPU-only).
-    - **Precision — its OWN gated step, NOT folded into Metrics.** The `amp_off_fp32` default
-      across the T4 grid (`runtime_selection.py` candidates; `model_loss_train_step.py:40`
-      `_REQUIRED_PRECISION_POLICY`) was an agent's unilateral "to be safe" choice, NOT the
-      user's — the user always optimizes for max speed, so fp16 (T4/Turing tensor cores ~2x;
-      bf16 unsupported on sm_75) is the likely-intended precision. Re-measure `amp_off_fp32` vs
-      `amp_fp16` on T4 and move to fp16, gated FIRST on a rule-29 check that amp-off was not set
-      for a real NaN/divergence reason (the one legitimate reason to keep fp32). On fp16 the
-      GradScaler inf-check is the one unavoidable per-step sync (the FSQ floor).
+    - **Precision — RESOLVED 2026-07-22; it is NOT a standalone step, it is A2.** Correcting
+      an earlier framing here: the COMMITTED plan already runs fp16 AMP
+      (`runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json`:
+      `autocast_dtype: "float16"`, `grad_scaler_enabled: true`, policy `amp_conservative`).
+      `amp_off_fp32` is the COMPILED-STEP GRID candidate, not the runtime we execute, so
+      there is nothing to "move to fp16" on the eager path — it is already there. The real
+      defect is that the compiled-step SEARCH cannot express fp16 at all (see A2 in the plan
+      memory): `runtime_selection_executor.py:3012-3019` and
+      `real_data_runtime_pretest.py:1159-1166` RAISE unless the policy is `amp_off_fp32` and
+      hardcode `autocast_enabled=False`, because the compiled closure never wired autocast or
+      a GradScaler. MEASURED on our dual-T4: eager fp16 **27.38** samples/s (30.4 h),
+      fp32+compile **18.01** (46.3 h), fp16+compile **34.83** (23.9 h) — so a compiled winner
+      is currently forced to be SLOWER than the plan we already run. Fix = implement AMP in
+      the two compiled measurement branches (the runner already does it at
+      `selected_runtime_runner.py:3020`), then delete the guard. On fp16 the GradScaler
+      inf-check is an unavoidable per-step sync (the FSQ floor; ~3 `.item()`s in practice —
+      2 `get_scale()` plus one inside `_maybe_opt_step`).
     - **`drop_last` UNIT-FLIP — DONE (`3b9aa42`, local, 2026-07-20).** Flipped the
       stale selection-benchmark PROJECTION-RECORD to match the real loader (`drop_last=True` since
       S16) + `floor(P/G)` schedule (S5b): now `drop_last=true`, `effective_samples_per_epoch =
