@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 import torch
@@ -63,6 +63,34 @@ class PatchTrainingBatch:
     ys: tuple[int, ...]
     semantic_sample_keys: tuple[str, ...]
     sample_ids: tuple[str, ...]
+
+    def pin_memory(self) -> PatchTrainingBatch:
+        """Return this batch with its image tensor in pinned memory.
+
+        TEMPORARY -- DELETE THIS METHOD WITH THE BATCH TYPE. It exists only because the
+        training path still hands the loader a CUSTOM type. ``pin_memory=True``
+        dispatches ``isinstance Tensor`` -> ``hasattr(data, "pin_memory")`` -> Mapping
+        -> tuple/namedtuple -> Sequence; a plain dataclass matches NONE, so without this
+        hook the loader returned the batch UNCHANGED: ``pin_memory=True`` was a silent
+        no-op and every ``non_blocking=True`` H2D fell back to a pageable copy.
+
+        THE REAL FIX (do it; do not elaborate this hook): the runner reads ONLY
+        ``images_uint8`` -- it touches no provenance field. That metadata exists solely
+        for the retiring blake2b per-sample seeding (``semantic_sample_key``). Once the
+        blake2b retirement drops those consumers, collapse the training path to a BARE
+        ``Tensor`` (the ``PatchTensorDataset`` rail already exists) and delete this
+        method: a plain tensor hits torch's FIRST dispatch branch and is pinned
+        natively -- no custom protocol, no per-sample metadata, no rebuild. Do NOT
+        reintroduce a clever pinning wrapper; pin the tensor by not wrapping it.
+
+        Only ``images_uint8`` is pinned; the per-sample provenance is host metadata that
+        never crosses to the device, so pinning (or rebuilding) it would be pure cost.
+
+        Returns:
+            A batch whose ``images_uint8`` is page-locked, sharing all other fields.
+
+        """
+        return replace(self, images_uint8=self.images_uint8.pin_memory())
 
 
 class PatchTrainingDataset(Dataset[PatchTrainingSample]):

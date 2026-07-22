@@ -773,6 +773,40 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       `runtime_selection.py:1454`), and the measuring loaders it builds at `:3349`
       and `:2005` hardcode `num_workers=DEFAULT_DATALOADER_NUM_WORKERS` and never pass
       `pin_memory` / `persistent_workers` / `prefetch_factor` at all.
+    - **THREE BLOCKERS, AND THE ORDER IS THE WHOLE POINT (audited 2026-07-22).** Making
+      `pin_memory` (and the other four cells) a real searched axis needs all three fixed,
+      PRODUCER-FIRST. Doing them out of order is the exact rule-29 trap this repo already
+      fell into once:
+      1. **PRODUCER hard-codes the value.** `real_data_runtime_pretest.py:108`
+         `DEFAULT_DATALOADER_PIN_MEMORY = False` (same constant reused at `:3372`, `:3421`,
+         `:5942`); `runtime_selection_executor.py:1191-1193` copies it verbatim into every
+         `dataloader_matrix.csv` row. The emitter can therefore emit exactly ONE value.
+      2. **`RowSpec` cannot carry the axis.** `real_data_runtime_pretest.py:307-350` has no
+         `pin_memory` field, so the config sweep `"pin_memory": [true, false]`
+         (`non_eq_vae_kaggle_runtime_benchmark.json:42`) is never threaded into a row. Fix
+         1 and 2 TOGETHER — a constant with nowhere to come from is not fixed.
+      3. **The plan VALIDATOR forbids the other value.** `selected_runtime.py:811-816` pins
+         `expected = {"num_workers": 0, "pin_memory": False, "persistent_workers": False,
+         "non_blocking_h2d": True}`, so a plan saying `pin_memory: true` raises
+         `selected_runtime_dataloader_wrong_pin_memory` (verified empirically). De-pin this
+         **LAST**.
+      **WHY THAT ORDER (do not skip this reasoning).** Per rule 29 + decision 0010 + the
+      producer-audit trap: a pin whose emitter can only ever emit one value is a
+      CROSS-CHECK, not a frozen preference — de-pinning it first removes a real guard and
+      buys exactly nothing, because the producer still emits `False`. Fix the producer so
+      the axis can genuinely vary, MEASURE, and only then relax the validator.
+      **AND DE-PIN IT THE WAY S17a/S17b DID: to a RELATIONSHIP, not a deletion.** The
+      validator's job is that the plan matches WHAT WAS MEASURED, so it should assert the
+      plan's `dataloader` block equals the winning row's measured cells — never "any value
+      allowed". A blanket deletion would let a hand-edited plan claim settings nothing
+      measured.
+      **PREREQUISITE (landed 2026-07-22): the batch must actually pin.** `DataLoader`
+      dispatches pinning on `Tensor` / `hasattr(pin_memory)` / `Mapping` / `tuple`;
+      `PatchTrainingBatch` matched none, so `pin_memory=True` was a SILENT no-op and any
+      measurement would have recorded a FALSE NEGATIVE for pinning. The `pin_memory()` hook
+      on `PatchTrainingBatch` fixes that today (and is deleted when the batch collapses to a
+      bare tensor — see the blake2b item). Before trusting any pin_memory row, assert
+      `batch.images_uint8.is_pinned()` on the measuring box.
     - **Two traps.** `runtime_schema.DATALOADER_MATRIX_COLUMNS` is the CSV column schema
       of a measurement RECORD, not a search grid — misreading it as a grid is what
       motivated a bogus parser de-pin on 2026-07-15 (reverted). And the `candidates`
@@ -1014,6 +1048,17 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       selection corruption proof), THEN delete the dead subsystem (`corruption/stain.py`:
       `derive_corruption_seed`, `sample_corruption_parameters`, `StainCorruptor._apply_indexed_masked`, the
       `indexed_masked` strategy) + its tests.
+      **THEN COLLAPSE THE TRAINING BATCH TO A BARE TENSOR — and delete the pin_memory hook.**
+      `semantic_sample_key` is the ONLY reason `PatchTrainingBatch` carries per-sample provenance;
+      the runner reads **only** `images_uint8` (verified: zero metadata reads). Once blake2b is gone,
+      point the runner's train/validation loaders at a bare `Tensor` (the `PatchTensorDataset` rail
+      already exists, and FSQ does exactly this) and DELETE `PatchTrainingBatch.pin_memory`.
+      RATIONALE FOR THE NEXT AGENT — do NOT reach for a clever pinning wrapper, a NamedTuple, or a
+      custom protocol: `DataLoader(pin_memory=True)` pins a plain `Tensor` NATIVELY on its first
+      dispatch branch. The `pin_memory()` method added alongside this spec item is a TEMPORARY hook
+      that exists only because we hand the loader a custom dataclass; the fix is to stop wrapping the
+      tensor, not to teach the wrapper new tricks. Dropping the wrapper also deletes the per-sample
+      metadata tuples + 2 f-strings/sample that the hot path never reads.
     - **cuDNN — DONE (`a7feae4`, local, 2026-07-20).** `cudnn.benchmark=True`/`deterministic=False`
       is now a FIXED speed-first flag wherever convolutions run on GPU (not a searched axis): new
       shared `fastpath_recipe.apply_cudnn_flags`; runner `_apply_cuda_runtime_flags(device)` (CUDA-

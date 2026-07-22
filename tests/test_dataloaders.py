@@ -9,6 +9,9 @@ from typing import TYPE_CHECKING, cast
 import torch
 from torch import Tensor
 from torch.utils.data import DataLoader
+from torch.utils.data._utils.pin_memory import (  # noqa: PLC2701
+    pin_memory as torch_pin_memory,  # pyright: ignore[reportUnknownVariableType]
+)
 
 from eqvae.data.dataloaders import (
     PatchTensorDataset,
@@ -16,9 +19,12 @@ from eqvae.data.dataloaders import (
     normalize_uint8_batch,
 )
 from eqvae.data.synthetic import SyntheticPatchSpec, write_synthetic_patch_shard
+from eqvae.data.training_batches import PatchTrainingBatch
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import pytest
 
 PATCH_COUNT = 6
 PATCH_SIZE = 8
@@ -130,3 +136,51 @@ def _reverse_csv_data_rows(csv_path: Path) -> None:
         writer = csv.writer(csv_file, lineterminator="\n")
         writer.writerow(header)
         writer.writerows(data_rows)
+
+
+def test_training_batch_implements_the_dataloader_pin_memory_protocol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``DataLoader(pin_memory=True)`` must really pin our batch, not silently skip it.
+
+    ``torch.utils.data._utils.pin_memory.pin_memory`` dispatches on ``isinstance
+    Tensor`` -> ``hasattr(data, "pin_memory")`` -> Mapping -> tuple/namedtuple ->
+    Sequence. ``PatchTrainingBatch`` is a plain dataclass, so it matched NONE of those
+    and the helper returned it UNCHANGED: ``pin_memory=True`` was a silent no-op and
+    every ``non_blocking=True`` H2D silently degraded to a synchronous copy from
+    pageable memory. The batch therefore implements the ``pin_memory()`` hook, the
+    branch torch provides for custom batch types.
+
+    Pinning is stubbed because it requires an accelerator and the repo's tests are
+    CPU-only (AGENTS.md rule 24); what is under test is the DISPATCH, not torch's
+    page-locking.
+    """
+    pinned: list[str] = []
+
+    def fake_pin(self: Tensor) -> Tensor:
+        pinned.append("called")
+        return self
+
+    monkeypatch.setattr(torch.Tensor, "pin_memory", fake_pin)
+    batch = PatchTrainingBatch(
+        images_uint8=torch.zeros((2, 3, 4, 4), dtype=torch.uint8),
+        split="train",
+        file_indices=(0, 0),
+        row_indices=(0, 1),
+        wsi_ids=("a", "a"),
+        labels=(0, 0),
+        xs=(0, 0),
+        ys=(0, 0),
+        semantic_sample_keys=("k0", "k1"),
+        sample_ids=("s0", "s1"),
+    )
+
+    result = cast("PatchTrainingBatch", torch_pin_memory(batch))
+
+    # The image tensor was pinned exactly once, and the batch was genuinely rebuilt --
+    # a fall-through would return the SAME object with nothing pinned.
+    assert pinned == ["called"]
+    assert result is not batch
+    # Host-only provenance is shared, never pinned or rebuilt per batch.
+    assert result.sample_ids is batch.sample_ids
+    assert result.split == batch.split
