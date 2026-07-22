@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 ## Read before working (agents keep skipping this)
 
@@ -28,15 +28,18 @@ DELETING stale text, not appending.
 
 ## Current step
 
-**Spec 0011 → S17f → Metrics part 2.** Commit **V** is DONE (`e51b262` — validation
-aggregate + std: on-device fp64 accumulator, one sync/view, additive `*_std` columns,
-means value-preserving). **NEXT = Commit T** — the training per-step on-device metric
-buffer (full contract in the spec's "Commit T" bullet; `_SelectedRuntimeStepResult`
-floats → device tensors, the `_global_grad_norm`-family helpers return tensors, per-step
-no-sync index-writes materialized at the half-epoch flush, every per-step row kept, both
-the eager `_run_train_step` and compiled `_run_compiled_train_step` paths — Commit V one
-commit back is the working template). Then **Commit C** (per-half-epoch `.csv.gz` shards,
-the one gate-reader-contract change).
+**Spec 0011 → S17f → Metrics part 2.** Commits **V** and **T** are DONE. V (`e51b262`)
+aggregated validation on-device (one sync/view, additive `*_std` columns). T (`0ddc857`,
+gate 604/1, 4 reviewers 0 confirmed) buffers the training per-step metrics on-device: the
+step metric fields are 0-dim device tensors, the `_global_grad_norm`-family helpers return
+tensors, and a persistent `_TrainStepMetricBuffer` index-writes each step with no host sync
+and materializes the half-epoch window in one `.tolist()` — ~14 per-step syncs → ~0
+(amp-off) / 1 (fp16 GradScaler floor); every per-step row kept, CSV/gate schema unchanged,
+both step paths covered (eps telemetry stays host — CPU-computed, never a device sync).
+**NEXT = Commit C** — shard `train_steps.csv` into one per-half-epoch `.csv.gz` (kills the
+O(n²) whole-file rewrite + the unbounded file); the ONE part-2 commit that changes a
+gate-reader contract, so the gate + remote verifier must glob/concat shards in boundary
+order. Full contract in the spec's "Commit C" bullet.
 
 Remaining S17f after T/C (all LOCAL gated commits): compile-mode / `fullgraph`, DDP
 grad-overlap, precision → fp16 (its OWN step — `amp_off_fp32` was a bad agent default,
