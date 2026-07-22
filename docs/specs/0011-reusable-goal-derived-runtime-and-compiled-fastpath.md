@@ -1,6 +1,6 @@
 # Spec 0011: Reusable goal-derived runtime mechanism + compiled fast-path
 
-Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 DONE (both `run_template.py` validators — `21b697f` — AND the debug `kaggle_kernel.sh` shell push guard — `c090d16` — delegate to `selected_runtime_plan_errors`, local)**; **S17c DONE (observation mirror + honest corruption/step label — `9f6d813`, local)**; **S17f item #1 (the `drop_last` unit-flip) DONE (`3b9aa42`, local)** + **S17f Transforms DONE (`2ce6a4c`, local — uint8 H2D + fold the uint8->float normalize into the compiled step; gate 575/1)** + **S17f cuDNN DONE (`a7feae4`, local — `cudnn.benchmark=True`/`deterministic=False` as a FIXED speed-first flag; gate 581/1)** + **S17f Full-validation DONE (`a6c6271`, local — the full run sweeps the WHOLE validation set every half-epoch, correcting the agent-set 20-batch cap; gate 583/1)** + **S17f RNG combined-step sub-commit 2 DONE (`5dde097`, local — the runner's eager + validation corruption move off blake2b onto the Philox `InlineStainCorruptor` via dedicated checkpoint-continued / re-seeded generators; corruption is now a FIXED property, not a selected axis; parser + label de-pinned; gate 586/1, 4 reviewers clean)** + **S17f Metrics part 1 DONE (`623f128`, local — the three per-parameter hot-step telemetry host-sync loops [`_global_grad_norm`/`_nonfinite_gradient_count`/`_parameter_update_norm`] vectorized to one on-device reduction each; value-preserving; gate 595/1, 5 reviewers clean)** + **S17f Metrics part 2 Commit V DONE (local — validation aggregate + std: on-device fp64 sum+sum_sq/view, one `.tolist()`/view, additive `*_std` columns, means value-preserving; gate 602/1, 6-lens review green)** + **S17f Metrics part 2 Commit T DONE (`0ddc857`, local — training per-step on-device metric buffer: step metric fields → device tensors + helpers return tensors, one `.tolist()`/half-epoch, ~14 syncs/step → ~0 (amp-off) / 1 (fp16), every per-step row kept, CSV/gate schema unchanged; gate 604/1, 4 reviewers 0 confirmed)** + **fp32 buffer follow-up `2269050`** + **A1 DONE (`72ef19e`, local — the dynamo config is applied INSIDE `wrap_fastpath_ddp` immediately before DDP construction, `dynamo` a REQUIRED kwarg; DDP latches `optimize_ddp` at construction so configuring it afterwards silently disabled `python_reducer` with no error)** + **B1 DONE (`278f1fd`, local — `PatchTrainingBatch.pin_memory()`; `pin_memory=True` had been a silent no-op, a PREREQUISITE for S17d not a win)**; gate 608/1; **NEXT local = A2** — wire AMP (autocast dtype + a real GradScaler) through the two compiled-step MEASUREMENT branches and DELETE the `amp_off_fp32` guard, so the search can express fp16-compiled at all (measured: eager fp16 27.38 samples/s vs fp32+compile 18.01 vs fp16+compile 34.83 — a compiled winner is currently forced to be SLOWER than the plan we run). A2/A3/A4/A5 + B3 must land BEFORE the paid S17-Kaggle generator run. Then the REST of S17f (compile-mode / `fullgraph`, DDP grad-overlap, Metrics part 2 Commit C [CSV shards — the one gate-reader-contract change]). PRECISION IS NOT A SEPARATE STEP: the executed plan is ALREADY fp16 AMP + the blake2b retirement FOLLOW-UPS (SCOPE CORRECTION rule 29: blake2b was NOT dead after the runner-only sub-commit 2 — move the benchmark selection proof + debug/smoke/QA off blake2b, THEN delete it) + S17d (bounded dataloader search axis — read its traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up); S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
+Status: draft active — Phase 1 (S1–S10) + Phase 2 (S11–S13) + Phase 3 (S15/S16) + S14a/b/c DONE (committed local-only). Phase 4 STARTED: S17 decomposed into local sub-steps ahead of the paid run — **S17a DONE (recipe value-validators de-pinned to a coherence model, local)**; **S17b-1 DONE (parser identity made STRUCTURAL + snapshot batch/precision cross-consistency, local)**; **S17b-2 DONE (remote-output gate identity de-pinned to the loaded plan + both verifiers now validate the plan they derive from, local)**; **S17b-3 DONE (both `run_template.py` validators — `21b697f` — AND the debug `kaggle_kernel.sh` shell push guard — `c090d16` — delegate to `selected_runtime_plan_errors`, local)**; **S17c DONE (observation mirror + honest corruption/step label — `9f6d813`, local)**; **S17f item #1 (the `drop_last` unit-flip) DONE (`3b9aa42`, local)** + **S17f Transforms DONE (`2ce6a4c`, local — uint8 H2D + fold the uint8->float normalize into the compiled step; gate 575/1)** + **S17f cuDNN DONE (`a7feae4`, local — `cudnn.benchmark=True`/`deterministic=False` as a FIXED speed-first flag; gate 581/1)** + **S17f Full-validation DONE (`a6c6271`, local — the full run sweeps the WHOLE validation set every half-epoch, correcting the agent-set 20-batch cap; gate 583/1)** + **S17f RNG combined-step sub-commit 2 DONE (`5dde097`, local — the runner's eager + validation corruption move off blake2b onto the Philox `InlineStainCorruptor` via dedicated checkpoint-continued / re-seeded generators; corruption is now a FIXED property, not a selected axis; parser + label de-pinned; gate 586/1, 4 reviewers clean)** + **S17f Metrics part 1 DONE (`623f128`, local — the three per-parameter hot-step telemetry host-sync loops [`_global_grad_norm`/`_nonfinite_gradient_count`/`_parameter_update_norm`] vectorized to one on-device reduction each; value-preserving; gate 595/1, 5 reviewers clean)** + **S17f Metrics part 2 Commit V DONE (local — validation aggregate + std: on-device fp64 sum+sum_sq/view, one `.tolist()`/view, additive `*_std` columns, means value-preserving; gate 602/1, 6-lens review green)** + **S17f Metrics part 2 Commit T DONE (`0ddc857`, local — training per-step on-device metric buffer: step metric fields → device tensors + helpers return tensors, one `.tolist()`/half-epoch, ~14 syncs/step → ~0 (amp-off) / 1 (fp16), every per-step row kept, CSV/gate schema unchanged; gate 604/1, 4 reviewers 0 confirmed)** + **fp32 buffer follow-up `2269050`** + **A1 DONE (`72ef19e`, local — the dynamo config is applied INSIDE `wrap_fastpath_ddp` immediately before DDP construction, `dynamo` a REQUIRED kwarg; DDP latches `optimize_ddp` at construction so configuring it afterwards silently disabled `python_reducer` with no error)** + **B1 DONE (`278f1fd`, local — `PatchTrainingBatch.pin_memory()`; `pin_memory=True` had been a silent no-op, a PREREQUISITE for S17d not a win)**; gate 608/1; **NEXT local = A2** — wire AMP (autocast dtype + a real GradScaler) through the two compiled-step MEASUREMENT branches and DELETE the `amp_off_fp32` guard, so the search can express fp16-compiled at all (measured: eager fp16 27.38 samples/s vs fp32+compile 18.01 vs fp16+compile 34.83 — a compiled winner is currently forced to be SLOWER than the plan we run). A2/A3/A4/A5/A6 + B3 must land BEFORE the paid S17-Kaggle generator run. Then the REST of S17f (compile-mode / `fullgraph`, DDP grad-overlap, Metrics part 2 Commit C [CSV shards — the one gate-reader-contract change]). PRECISION IS NOT A SEPARATE STEP: the executed plan is ALREADY fp16 AMP + the blake2b retirement FOLLOW-UPS (SCOPE CORRECTION rule 29: blake2b was NOT dead after the runner-only sub-commit 2 — move the benchmark selection proof + debug/smoke/QA off blake2b, THEN delete it) + S17d (bounded dataloader search axis — read its traps before touching `_dataloader_errors`) + S17e (exact throughput-optimal batch search — producer follow-up); S17-Kaggle (row_id mint + dual-T4 run) + S19 + LR-finder stay Kaggle/user-driven
 Implementation readiness: Phase 3 COMPLETE (local); S14a/S14b/S14c done + gated locally; S17a + S17b-1 done + gated locally (parser now ACCEPTS a self-consistent compiled plan — recipe AND structural identity/snapshot; identity is self-consistent so no Kaggle re-point is needed); compiled EXECUTION + the row_id mint are Kaggle observations; Kaggle phases S17-Kaggle/S19 gated (user-driven); LR-finder queued
 Owner/workstream: selected-runtime speed + reusability
 Last updated: 2026-07-22 (S17f Metrics part 2 Commit T DONE — `0ddc857`: the training per-step
@@ -71,9 +71,9 @@ kernel `_validate_full_config`. It **did not** touch the runner's launch validat
 (`selected_runtime.py:409`), the `kaggle_kernel.sh` packaging validator, the remote
 gate `REMOTE_FULL_*` constants, or the generator's `ceil`. B1's own commit message
 notes "the still-pinned `_validate_full_run_settings` and remote gate keep passing".
-This spec finishes the job — and note the `kaggle_kernel.sh` full-kernel build is
-**broken today** (MF1): B1 stripped the config keys the shell validator still
-requires, so `preflight-selected-runtime-full` and push fail-closed right now.
+This spec finishes the job. (Historical note, RESOLVED: MF1 — the `kaggle_kernel.sh`
+full-kernel build was briefly broken when Phase-1 stripped config keys the shell validator
+still required; fixed in S8 (`208c92f`) and S8b (`0ae0188`). It is NOT broken now.)
 
 ## Non-Goals
 
@@ -1242,6 +1242,24 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
       guard, add fp16 compiled policies to the grid. CAVEAT: the 34.83 row is
       `compile_scope=model_forward` + channels_last + static_graph and is itself `ineligible`
       — it shows direction, it is not a number A2 alone reproduces.
+      **TRAP — "add fp16 compiled policies to the grid" is NOT sufficient, and fails
+      SILENTLY.** `_efficiency_row_enumerable` (`runtime_selection_executor.py`) returns
+      `True` unconditionally for a non-AMP policy, but for an AMP policy returns
+      `batch_size in stage.dual_batch_sizes`. `dual_batch_sizes` is the fp32-eager gate's
+      `[4, 8, 12]`, while `efficiency_followup` runs at `[12, 48]`. So the moment the
+      compiled policy flips from `amp_off_fp32` to fp16 it stops being enumerable at **bs48**
+      — precisely the bigger-batch regime S14c added — and nothing errors; the row simply
+      never appears. The guard is correct in its own terms (an AMP row with no fp32-eager
+      companion at the same batch makes `_amp_followup_policy` fail closed and blocks the
+      whole `selected_runtime.json` write), so A2 must ALSO provide the companion: either
+      extend the fp32-eager gate to measure bs48, or give each fp16 compiled row an fp32
+      companion at the same batch. **Verify after the change that a bs48 fp16 compiled row is
+      actually enumerated — an A2 that measures fp16-compiled only at bs12 looks green and
+      answers the wrong question.**
+      **A2 ALONE IS NOT ENOUGH TO PRODUCE A SELECTABLE WINNER — it pairs with A6.** A2 changes
+      what can be MEASURED; `_compiled_row_stable` still rejects any row with
+      `graph_breaks != 0`, and every real compiled row has `gb=1` (the DDPOptimizer bucket
+      split). Ship A2 without A6 and the paid run measures fp16-compiled and then discards it.
     - **A3 — search `channels_last` IN THE COMPILED regime.** Our 18%-slower channels_last
       datum (22.36 vs 27.38) is EAGER fp16 and a 5-knob bundle; it does not transfer to
       compiled+fp16, where inductor layout choice and tensor-core kernels differ. FSQ runs
@@ -1324,7 +1342,7 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
     id because it is self-consistent with the plan's own fields. Only the emitted plan
     itself is new.
 - **S18** Docs: de-pin Spec 0009 schedule passages to formulas (bs24 as a worked
-  example only); add decision record `docs/decisions/0010-...` framing the mechanism
+  example only); add a decision record framing the mechanism (NOTE: 0010 and 0011 and 0012 are TAKEN — use the next free number)
   as reusable across architectures; update CURRENT.md / specs README / open_follow_ups.
   Keep lean (net trim CURRENT.md).
 - **S19** [Kaggle, ~30h + ~30min staging] First paper-promotable compiled full run;
@@ -1384,7 +1402,7 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   `dynamic=False` compiled step** (a short tail batch reaches the static-shape step),
   NOT a DDP tail desync — `DistributedSampler(drop_last=False)` pads ranks equally, so
   the collective stays symmetric. Fix = flip the train loader to `drop_last=True`
-  (currently `False`) + single-source `floor`; the four `ceil(P/G)` sites
+  (was `False`; FLIPPED in S16 `3298a57`, projection record in `3b9aa42`) + single-source `floor`; the four `ceil(P/G)` sites
   (`runtime_selection.py:1866/1043`, `synthetic_timing.py:1361/1915`) all become the
   floor helper.
 - **Frozen-schedule homes — de-pin status (all Phase-1 homes now converted):**
@@ -1403,7 +1421,7 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
   last grid step). Applying `| {target}` to consumers ONLY (producers stay modulo)
   false-rejects a valid run. The shared generator must drive BOTH producers and
   consumers so the terminal is written+validated+expected symmetrically.
-- **DDPOptimizer safety (ADD, not keep):** the parser has NO such invariant today
+- **DDPOptimizer safety (ADDED in S7 `bcc3ec0` — `_ddp_optimizer_safety_errors`; this bullet records the original gap):** the parser had NO such invariant
   (only `ddp_static_graph`). Add: reject `optimize_ddp=='ddp_optimizer'` with
   **`compiled_autograd`** / `static_graph` / `find_unused_parameters` True. The
   memory-caught **silent** all_reduce drop (each rank an independent replica) is the
@@ -1423,7 +1441,7 @@ plan flags whose defaults reproduce the eager v5 plan). Only Phase 4 flips value
 
 ## Open Questions
 
-None blocking Phase 1. `REAL_TRAIN_PATCH_COUNT` is currently 4-way duplicated +
+None blocking Phase 1. (RESOLVED in S6a `f154a84`: single-sourced in `data/roots.py`.) `REAL_TRAIN_PATCH_COUNT` was 4-way duplicated +
 config-overridable; S5/S6 must pick ONE canonical immutable source and re-point the
 rest (the gate anchor imports it). The exact activation batch is a measured output of
 S14/S17, not a decision.
@@ -1435,4 +1453,3 @@ S14/S17, not a decision.
 - Memory: `specs-encode-goals-not-frozen-numbers`, `eqvae-compiled-ddp-optimize-ddp`,
   `eqvae-fast-path-speed-priority`
 - Design workflow output (detailed steps + critique):
-  `.../54c70b5b-.../tasks/wvhy5430o.output` (session-local; distilled here)

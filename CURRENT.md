@@ -60,13 +60,19 @@ i.e. AMP was never implemented in the compiled probe, so the axis was forbidden 
 Measured on our own hardware: eager fp16 **27.38** samples/s (the committed plan, 30.4 h),
 fp32+compile **18.01** (46.3 h), **fp16+compile 34.83 (23.9 h)**. So a compiled winner can
 currently only be SLOWER than what we already run. A2 = wire autocast + a real GradScaler
-through both compiled-step measurement branches (the runner already does this in `_maybe_build_compiled_step`),
-delete the guard, add fp16 compiled policies to the grid. **Do this BEFORE the S17
-generator run** or the paid run measures the wrong space. Full ranked gap list + the rest
-of the plan (A3 channels_last in the COMPILED regime, A4 `static_graph` unpin, A5 the
-per-step `all_gather_object`, B3 the hardcoded `data_wait_fraction`, B4 eager uint8/device
-corruption, C1 stop re-hashing ~11.7 GB/run, D1 runner warmup, D4 O(1) resume) lives in
-the plan memory `eqvae-reusable-runtime-mechanism-plan`.
+through both compiled-step measurement branches (the runner already does this in
+`_maybe_build_compiled_step`), delete the guard, add fp16 compiled policies to the grid.
+**Two things A2 must NOT be shipped without** — both are spelled out in the spec's A2 bullet:
+(1) **A6**, or the measurement is unselectable — `_compiled_row_stable` still rejects any row
+with `graph_breaks != 0` and every real compiled row has `gb=1` (the DDPOptimizer bucket
+split), so A2 alone measures fp16-compiled and then discards it; (2) the
+`_efficiency_row_enumerable` **companion requirement** — an AMP policy is only enumerable at
+`dual_batch_sizes` `[4,8,12]` while `efficiency_followup` runs `[12,48]`, so flipping the
+compiled policy to fp16 SILENTLY drops bs48 unless you also provide an fp32-eager companion
+at that batch. **Do all of this BEFORE the S17 generator run** or the paid run measures the
+wrong space. Full ranked gap list (A2–A6, B3, B4, C-hash, D1/D2/D4) is the
+`### S17f FSQ-floor gap plan` subsection of spec 0011 — the repo, not a memory, is the
+contract.
 
 Also remaining in S17f (all LOCAL gated commits): **Commit C** (shard `train_steps.csv`
 into per-half-epoch `.csv.gz` — the ONE part-2 commit that changes a gate-reader contract),
