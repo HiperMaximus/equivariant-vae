@@ -90,17 +90,31 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   parameters cannot silently kill channels.
 - The historical working FSQ training reference is `kaggle/fsq_train_reference.py`
   (the verbatim `train.py` extract — read this plain `.py`, not the raw notebook JSON
-  `kaggle/train_runs`; it is the MINIMUM efficiency floor to match and ideally beat). It
-  trained correctly and is the source for the broad FSQ-successor
+  `kaggle/train_runs`; it is the MINIMUM operational floor to match and ideally beat).
+  Judge that floor by settled throughput/time-per-epoch and stable shared reconstruction
+  quality, not FSQ-specific loss or discrete-latent metrics. It trained correctly and is
+  the source for the broad FSQ-successor
   macro-architecture and Kaggle runtime-efficiency ideas, but the new baseline
   and equivariant model remove FSQ quantization/codebooks/rounding/discrete
   latents and sub-pixel/PixelShuffle upsampling because they do not mix well
   with continuous `SO(2)` equivariance.
-- Before the first full Kaggle run, benchmark where FP16/AMP avoids catastrophic
-  failures and is actually faster, which `torch.compile` mode is fastest (compile time is
-  a NON-COST for a ~30h run, so `max-autotune` is in-bounds; but single-GPU autotune misses
-  the dual-T4 all_reduce-overlap cost, so search the DDP compute-comm knobs
-  [`compiled_autograd`/`optimize_ddp`/comm-hook] and measure on 2 GPUs). Corruption is
+  The FSQ run did not search or ablate its flags/hyperparameters: it proves that one recipe
+  trained, not that batch 60, LR 5e-4, its DDP/compile pair, layout, loader, mmap/advice,
+  optimizer, warmup, or telemetry choices were optimal. FSQ is one complete control row, not the
+  search-space definition. Discover every plausibly throughput-affecting option exposed by the
+  newest installed PyTorch/CUDA/DDP/Inductor/NCCL stack, including experimental/internal options;
+  benchmark it or record a concrete inapplicability reason, then test important interactions on
+  each target model/hardware.
+- Before the first full Kaggle run, choose the fastest settled TIME-PER-EPOCH recipe on the
+  latest PyTorch release for the real dual-T4. FP16 AMP + `torch.compile` is the primary
+  candidate, not a risky afterthought. Compile time is a NON-COST for a ~30h run, so
+  `max-autotune` and experimental/beta features are in-bounds. Measure the verbatim FSQ
+  `compiled_autograd=True` + `optimize_ddp=False` pair and every supported modern DDP overlap
+  expression (`ddp_optimizer`, `python_reducer` + compiled autograd,
+  `python_reducer_without_compiled_forward` when exposed, and useful controls). A stable DDP
+  partition/graph break that starts all-reduce earlier may beat a break-free graph; zero graph
+  breaks is diagnostic information, not a universal eligibility rule. The timed train step
+  must avoid `.item()`/`.cpu()` host synchronization and keep telemetry on-device. Corruption is
   no longer a benchmark axis — it is a FIXED runtime property (the vectorized inline
   `InlineStainCorruptor`, RNG swap `5dde097`); the blake2b branchless-vs-indexed
   throughput question is settled. Treat the useful historical
@@ -115,6 +129,19 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   follow-up ran, was slower, and kept v5. Spec 0008 selected-runtime
   debug/tiny v5 passed on Kaggle and strict downloaded-output verification
   passed locally.
+- Compile/startup time is not part of runtime selection for the long experiment. Kaggle is
+  the primary test surface for CUDA, Inductor, dual-T4 DDP, VRAM, H2D overlap, and real
+  throughput; use direct bounded Kaggle measurements instead of CPU approximations, with
+  explicit permission for each remote write.
+- Always upgrade Kaggle to the newest available PyPI torch before importing project code;
+  never select or reject a recipe from Kaggle's older preinstalled stack or stale issue
+  reports. Record the full runtime fingerprint (torch/CUDA build, driver, GPU identity/capability,
+  compiler/backend versions) with every measurement and rerun selection if it changes before
+  training.
+- Treat each full training run as a multi-session job under Kaggle's 8-hour limit. Atomically
+  flush metrics and save model/optimizer/scaler/scheduler/progress at least every half epoch
+  (or sooner when projected wall time requires), leaving time to publish/download the artifact.
+  End-only checkpointing is forbidden; exact RNG continuation is not required.
 - Before writing `benchmark/selected_runtime.json`, time real dual-T4 DDP
   train-step rows. The selection benchmark must prove two visible T4s,
   `world_size = 2`, `nproc_per_node = 2`, per-rank device assignment, linked
@@ -156,13 +183,13 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   adversarial fixes have been applied. Do not launch or poll the remote full
   run without fresh explicit user approval of the exact dedicated full-kernel
   command.
-- Current status pointer (2026-07-20): Spec 0009's frozen schedule is SUPERSEDED by
-  Spec 0010 (fixed-25 protocol, committed) and Spec 0011 (reusable goal-derived
-  runtime + compiled fast-path, ACTIVE). Spec 0011 makes batch/LR/schedule a reusable
-  per-(model × hardware) search-then-run mechanism; Phases 1–3 + S14a/b/c + S17a/b/c + several
-  S17f items (drop_last, transforms/uint8-H2D-fold, cuDNN, full-validation, and the
-  RNG→InlineStain corruption swap) are done and committed local-only, with more local S17f
-  audit-and-correct steps pending before the Kaggle generator run + S19. This GOAL
-  file states the north star, not the frontier — for current status and the next step read
+- Current status pointer (2026-08-08): Spec 0009's frozen schedule is superseded by
+  Spec 0010 (fixed-25 protocol) and active Spec 0011 v4. V4 inventories all plausible
+  installed acceleration values, tests maximal compatible bundles and declared complex
+  interactions, reuses the immutable 309-row evidence without repeating old singleton
+  sweeps, and ranks complete recipe/batch pairs by the exact `drop_last=True` projected
+  epoch objective. It has no minimal-toggle or total Kaggle GPU-time objective. The local
+  v3 implementation is quarantined partial work pending v4 relock. No runtime is selected.
+  This GOAL states the north star, not the frontier; read
   `CURRENT.md` and
   `docs/specs/0011-reusable-goal-derived-runtime-and-compiled-fastpath.md`.

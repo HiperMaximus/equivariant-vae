@@ -1,0 +1,18 @@
+{
+  "files": {
+    "source_evidence/spec0011_runtime_recipe_v2/runtime_inventory.json": "0ab41877e1e1520c198ff713d98e494fbbc2dc5f66da6140b199115af52621ed",
+    "source_evidence/spec0011_runtime_recipe_v2/runtime_option_coverage.json": "3fba51b14fdd66143493d30c96b61bc3f3ea27cb3ae66cd95c84196459fda8ca",
+    "source_evidence/spec0011_runtime_recipe_v2/runtime_recipe_bakeoff.csv": "dee362d15a8c4a324d9c1f10bdec0b9aa8e1fafbf522e90d638fafcbc1571536",
+    "source_evidence/spec0011_runtime_recipe_v2/runtime_recipe_checkpoint.json": "082cd89102be9a988060084d650697030e71da2c823f34c1a4270c58f5fd7a2f"
+  },
+  "first_probe_id": "p00001",
+  "last_probe_id": "p00309",
+  "probe_count": 309,
+  "producer": {
+    "payload_manifest_sha256": "a07d6086096307939ed40c50112cd1d47eb2dd09ea9fadaac0f45f5891611262",
+    "payload_zip_sha256": "7dfd4a56b03db31a055e804e6641247a4ccf2aa00d25a69b256d6c2acd17345f",
+    "run_py_sha256": "72f89160cf282338af0388d6c8432a20ea8af2fe36ebffc4da0b398193ea1a69"
+  },
+  "schema_version": "spec0011.runtime_recipe_source_evidence.v1",
+  "source_status": "immutable_non_promotable_v2_partial"
+}

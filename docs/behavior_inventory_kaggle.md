@@ -251,12 +251,12 @@ Clean-context implementation audit resolution: the relocked
 corruptor is not copied directly. Its HED matrices (`RGB_FROM_HED`/`HED_FROM_RGB`)
 match scikit-image 0.26.0 and are verified true inverses, applied channel-first
 via `einsum("bchw,cd->bdhw", ...)`; the conversion buffers are unambiguously named;
-and corruption uses rank-invariant per-sample seeding — a per-sample
+and the historical corruption used rank-invariant per-sample seeding — a per-sample
 `torch.Generator` seeded by
 `blake2b(corruption_seed, split, semantic_sample_key, step, view, version)`, with no
-global RNG. Keep the seeding rank-invariant: `semantic_sample_key` excludes
-file/rank order by design, so do not add rank-keyed seeding — it would make
-corruption depend on DDP topology and break reproducibility.
+global RNG. This describes the retired deterministic implementation, not a current
+requirement. The speed-first runtime uses native compile-friendly RNG; bitwise and
+per-sample reproducibility are explicit non-objectives.
 
 ### Historical Model
 
@@ -586,15 +586,21 @@ Current reopened direction:
 - checkpoint retention: keep `best_model.pt`, the final checkpoint, and the
   latest four interval checkpoints, preserving the useful FSQ retention idea
   without reusing FSQ checkpoint formats;
-- runtime choice must be decided from a short Kaggle benchmark matrix covering
-  single T4 and dual T4 DDP, each with AMP off/on and `torch.compile` off/on;
-  inside that matrix, the benchmark must also choose the fastest safe precision
-  policy among `amp_off_fp32`, `amp_conservative`, and
-  `amp_scalar_gate_relaxed`, and choose between `branchless_all` and
-  `indexed_masked` corruption execution by measured throughput, compile
-  stability, and reproducible RNG semantics;
-- the runtime benchmark must also write dataloader throughput and paired
-  numerical-check artifacts before a full run can be selected;
+- Active Spec 0011 v4 ranks complete dual-T4 recipe/batch pairs by
+  `floor(real_train_patch_count/global_batch) * synchronized mean steady-step wall
+  time`. It has no minimal-toggle or total GPU-time objective: inventory all plausible
+  installed acceleration values including experimental ones, prove exclusions, begin
+  from maximal compatible bundles, and test sealed complex interactions directly;
+- the 309 recovered v2 probes are immutable canonical repo evidence, not a resume prefix
+  or standing. They must prevent repeated old singleton/all-batch sweeps and guide batch/
+  recipe order; only exact identities close roles, and old `p00310` never executes;
+- the current partial v3 implementation is quarantined fail-closed work. V4 removes the
+  obsolete 118-slot/two-session cap, uses deterministic finite action closure across as
+  many verified resumable sessions as necessary, and still requires relock, local
+  preflight, explicit remote approval, and independent verification before execution;
+- compute narrowing alone cannot select the runtime. The later generated-file and real-
+  data gates must still measure loader starvation and paired reconstruction quality/LR
+  before writing `selected_runtime.json`;
 - the short benchmark/debug path must log gate-health telemetry for learned gate
   `a,b` parameters so non-finite values, persistent saturation, or hidden-block
   collapse are caught before full training.
@@ -632,9 +638,11 @@ Remaining implementation-relock blockers:
 
 Full-run blockers after implementation:
 
-- run the short Kaggle runtime benchmark and select single/dual T4,
-  per-device/global batch, AMP, `torch.compile`, precision-policy, and
-  corruption-strategy settings;
+- complete and strictly verify the resumable Spec 0011 v4 baseline dual-T4 compute
+  selector; unfinished scope, corrupt lineage, or verifier failure means incomplete with
+  no narrowing;
+- run the generated-file then real-data loader, paired quality, and LR gates for the
+  verified compute finalists before selecting per-device/global batch and runtime;
 - require dataloader throughput and paired numerical-check artifacts for the
   selected row;
 - confirm the gate-health summary has no non-finite gates, persistent near-total

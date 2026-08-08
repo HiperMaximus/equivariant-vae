@@ -1,0 +1,3852 @@
+{
+  "entries": [
+    {
+      "candidate": "eager_fp16_control",
+      "disposition": "independent_bmax_then_epoch_search",
+      "family": "compile_ddp_reducer",
+      "reason": "core modes are not pruned at a shared batch"
+    },
+    {
+      "candidate": "fsq_literal_false_compiled_autograd",
+      "disposition": "current_runtime_diagnostic_then_admit_if_faithful",
+      "family": "compile_ddp_reducer",
+      "reason": "diagnostic evidence is rerun after upgrade before any admission"
+    },
+    {
+      "candidate": "ddp_optimizer__ca_off",
+      "disposition": "independent_bmax_then_epoch_search",
+      "family": "compile_ddp_reducer",
+      "reason": "core modes are not pruned at a shared batch"
+    },
+    {
+      "candidate": "ddp_optimizer__ca_on",
+      "disposition": "independent_bmax_then_epoch_search",
+      "family": "compile_ddp_reducer",
+      "reason": "core modes are not pruned at a shared batch"
+    },
+    {
+      "candidate": "python_reducer__ca_on",
+      "disposition": "independent_bmax_then_epoch_search",
+      "family": "compile_ddp_reducer",
+      "reason": "core modes are not pruned at a shared batch"
+    },
+    {
+      "candidate": "python_reducer_without_compiled_forward__ca_on",
+      "disposition": "independent_bmax_then_epoch_search",
+      "family": "compile_ddp_reducer",
+      "reason": "core modes are not pruned at a shared batch"
+    },
+    {
+      "candidate": "no_optimization__ca_off",
+      "disposition": "independent_bmax_then_epoch_search",
+      "family": "compile_ddp_reducer",
+      "reason": "core modes are not pruned at a shared batch"
+    },
+    {
+      "candidate": "single_gpu_fullgraph_fp16_diagnostic",
+      "disposition": "current_runtime_diagnostic",
+      "family": "compile_ddp_reducer",
+      "reason": "diagnostic evidence is rerun after upgrade before any admission"
+    },
+    {
+      "candidate": "family",
+      "disposition": "deferred_named_round",
+      "family": "layout",
+      "reason": "staged frontier round: contiguous versus channels_last"
+    },
+    {
+      "candidate": "family",
+      "disposition": "deferred_named_round",
+      "family": "compile_mode",
+      "reason": "staged frontier round: every installed named compile mode including lite"
+    },
+    {
+      "candidate": "family",
+      "disposition": "deferred_named_round",
+      "family": "cudagraphs",
+      "reason": "staged explicit enabled/disabled override on compiled frontier"
+    },
+    {
+      "candidate": "family",
+      "disposition": "deferred_named_round",
+      "family": "ddp_static_bucket_overlap",
+      "reason": "staged static_graph/bucket/reorder/gradient-view/forward-buffer-sync rounds"
+    },
+    {
+      "candidate": "family",
+      "disposition": "deferred_named_round",
+      "family": "communication_hooks",
+      "reason": "staged installed default compression hooks on the retained frontier"
+    },
+    {
+      "candidate": "family",
+      "disposition": "deferred_named_round",
+      "family": "precision_autocast",
+      "reason": "staged fp16-first versus supported FP32 backend policies"
+    },
+    {
+      "candidate": "family",
+      "disposition": "deferred_named_round",
+      "family": "optimizer",
+      "reason": "staged fused/default optimizer and foreach clipping"
+    },
+    {
+      "candidate": "family",
+      "disposition": "deferred_named_round",
+      "family": "batch",
+      "reason": "per-recipe Bmax before timing; minimize floored compute-epoch time"
+    },
+    {
+      "candidate": "family",
+      "disposition": "deferred_named_round",
+      "family": "loader_h2d",
+      "reason": "later generated-file then real-data round: mmap/advice/workers/pin/prefetch/side-stream/super-batch"
+    },
+    {
+      "candidate": "family",
+      "disposition": "deferred_named_round",
+      "family": "learning_rate_quality",
+      "reason": "paired 500-update real-data screen, then short LR tuning"
+    },
+    {
+      "candidate": "family",
+      "disposition": "deferred_named_round",
+      "family": "nccl_environment",
+      "reason": "staged supported Ring/Tree, protocol, channel-count, and high-priority overrides on the retained frontier"
+    },
+    {
+      "candidate": "TYPE_CHECKING",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "inplace_padding",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "can_inplace_pad_graph_input",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "enable_auto_functionalized_v2",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "debug",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "disable_progress",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "verbose_progress",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "worker_log_path",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "precompilation_timeout_seconds",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "fx_graph_cache",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "remote_gemm_autotune_cache",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "fx_graph_remote_cache",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "bundle_triton_into_fx_graph_cache",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "non_blocking_remote_cache_write",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "autotune_local_cache",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "autotune_remote_cache",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "bundled_autotune_remote_cache",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "unsafe_skip_cache_dynamic_shape_guards",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "unsafe_marked_cacheable_functions",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "sleep_sec_TESTING_ONLY",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "triton_kernel_default_layout_constraint",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "cpp_wrapper",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp_wrapper_build_separate",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "fx_wrapper",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "cpp_cache_precompile_headers",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "online_softmax",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "TMA requires newer GPU architecture and is unavailable on T4 capability 7.5"
+    },
+    {
+      "candidate": "apply_gumbel_max_trick",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "dce",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "static_weight_shapes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "size_asserts",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "nan_asserts",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "runtime_triton_nan_asserts",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "scalar_asserts",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "alignment_asserts",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "pick_loop_orders",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "inplace_buffers",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "allow_buffer_reuse",
+      "disposition": "covered_by_named_mode_or_cudagraph_stage",
+      "family": "inductor_option",
+      "reason": "the installed named compile-mode bundle or explicit cudagraph stage owns this exact option"
+    },
+    {
+      "candidate": "memory_planning",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "use_fast_math",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "memory_pool",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "benchmark_harness",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "epilogue_fusion",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "epilogue_fusion_with_atomic_add",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "prologue_fusion",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "epilogue_fusion_first",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "epilogue_fusion_user_defined_triton_kernel",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "the model supplies no user-defined Triton kernels"
+    },
+    {
+      "candidate": "pattern_matcher",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "b2b_gemm_pass",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "post_grad_custom_pre_pass",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "post_grad_custom_post_pass",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "custom_partitioner_fn",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "joint_custom_pre_pass",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "joint_custom_post_pass",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "pre_grad_custom_pass",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "_pre_fusion_custom_pass",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "_post_fusion_custom_pass",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "split_cat_fx_passes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "efficient_conv_bn_eval_fx_passes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "is_predispatch",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "group_fusion",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "batch_fusion",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "pre_grad_fusion_options",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "post_grad_fusion_options",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "reorder_for_locality",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "dynamic_scale_rblock",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "the locked compile invocation uses dynamic=False and fixed batch shapes"
+    },
+    {
+      "candidate": "force_fuse_int_mm_with_mul",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "keep_addmm_fused_for_half_dtypes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "use_mixed_mm",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "fx_passes_numeric_check",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "mixed_mm_choice",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "reorder_for_compute_comm_overlap",
+      "disposition": "covered_by_named_mode_or_cudagraph_stage",
+      "family": "inductor_option",
+      "reason": "the installed named compile-mode bundle or explicit cudagraph stage owns this exact option"
+    },
+    {
+      "candidate": "reorder_for_compute_comm_overlap_passes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "reorder_prefetch_limit",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "reorder_for_peak_memory",
+      "disposition": "covered_by_named_mode_or_cudagraph_stage",
+      "family": "inductor_option",
+      "reason": "the installed named compile-mode bundle or explicit cudagraph stage owns this exact option"
+    },
+    {
+      "candidate": "reorder_for_peak_memory_debug",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "size_threshold_for_succ_based_strategy",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "bucket_all_gathers_fx",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "bucket_all_gathers_fx_bucket_size_determinator",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "bucket_all_gathers_bucket_mode",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "dedup_reduce_scatters",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "bucket_reduce_scatters_fx",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "bucket_reduce_scatters_fx_bucket_size_determinator",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "bucket_reduce_scatters_bucket_mode",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "bucket_all_reduces_fx",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "bucket_all_reduces_fx_bucket_size_determinator",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "estimate_op_runtime",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "runtime_estimations_mms_benchmark",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "intra_node_bw",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "inter_node_bw",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "cpu_gpu_bw",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "use_experimental_benchmarker",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "distributed_max_autotune_gemm",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "pipeline_max_autotune_gemm",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "use_torch_profiler_benchmarker",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "max_autotune",
+      "disposition": "covered_by_named_mode_or_cudagraph_stage",
+      "family": "inductor_option",
+      "reason": "the installed named compile-mode bundle or explicit cudagraph stage owns this exact option"
+    },
+    {
+      "candidate": "max_autotune_pointwise",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "max_autotune_gemm",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "incremental_autotune",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "inductor_default_autotune_warmup",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "inductor_default_autotune_rep",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "autotune_num_choices_displayed",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "max_autotune_report_choices_stats",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "max_autotune_prune_choices_based_on_shared_mem",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton_disable_device_detection",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "graph_partition",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "cudagraph_policy",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "custom_should_partition_ops",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "cudagraph_unsafe_unbacked_ops",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "unsafe validation bypass is excluded by the finite/correct-training gate"
+    },
+    {
+      "candidate": "max_autotune_allow_flexible_layouts",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "multi_kernel_hints",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "max_autotune_gemm_backends",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "nvgemm_max_profiling_configs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "nvgemm_supplement_configs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "_conv_default_backends",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "max_autotune_conv_backends",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "max_autotune_conv_bwd_weight_backends",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "max_autotune_conv_bwd_input_backends",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "max_autotune_gemm_search_space",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "max_autotune_flex_search_space",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "fallback_by_default",
+      "disposition": "covered_by_named_mode_or_cudagraph_stage",
+      "family": "inductor_option",
+      "reason": "the installed named compile-mode bundle or explicit cudagraph stage owns this exact option"
+    },
+    {
+      "candidate": "selective_decompose",
+      "disposition": "covered_by_named_mode_or_cudagraph_stage",
+      "family": "inductor_option",
+      "reason": "the installed named compile-mode bundle or explicit cudagraph stage owns this exact option"
+    },
+    {
+      "candidate": "use_dce",
+      "disposition": "covered_by_named_mode_or_cudagraph_stage",
+      "family": "inductor_option",
+      "reason": "the installed named compile-mode bundle or explicit cudagraph stage owns this exact option"
+    },
+    {
+      "candidate": "use_pre_grad_passes",
+      "disposition": "covered_by_named_mode_or_cudagraph_stage",
+      "family": "inductor_option",
+      "reason": "the installed named compile-mode bundle or explicit cudagraph stage owns this exact option"
+    },
+    {
+      "candidate": "pre_grad_pass_timing",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "use_joint_graph_passes",
+      "disposition": "covered_by_named_mode_or_cudagraph_stage",
+      "family": "inductor_option",
+      "reason": "the installed named compile-mode bundle or explicit cudagraph stage owns this exact option"
+    },
+    {
+      "candidate": "use_post_grad_passes",
+      "disposition": "covered_by_named_mode_or_cudagraph_stage",
+      "family": "inductor_option",
+      "reason": "the installed named compile-mode bundle or explicit cudagraph stage owns this exact option"
+    },
+    {
+      "candidate": "cutedsl_enable_autotuning",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "autotune_fallback_to_aten",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "unbacked_symint_fallback",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "search_autotune_cache",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "save_args",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "autotune_in_subproc",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "max_autotune_subproc_result_timeout_seconds",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "max_autotune_subproc_graceful_timeout_seconds",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "max_autotune_subproc_terminate_timeout_seconds",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "autotune_multi_device",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "collective_benchmark_nruns",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "collective_benchmark_timeout",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "coordinate_descent_tuning",
+      "disposition": "covered_by_named_mode_or_cudagraph_stage",
+      "family": "inductor_option",
+      "reason": "the installed named compile-mode bundle or explicit cudagraph stage owns this exact option"
+    },
+    {
+      "candidate": "coordinate_descent_check_all_directions",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "coordinate_descent_search_radius",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "autoheuristic_collect.pad_mm",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "autoheuristic_collect.mixed_mm",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "autoheuristic_use.pad_mm",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "autoheuristic_use.mixed_mm",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "run_jit_post_compile_hook",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "autoheuristic_log_path",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "layout_opt_default",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "layout_optimization",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "force_layout_optimization",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "cache_sdpa_constraint",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "keep_output_stride",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "warn_mix_layout",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "realize_reads_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "_realize_opcount_threshold_default",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "realize_opcount_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "realize_cpu_opcount_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "_realize_acc_reads_threshold_default",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "realize_acc_reads_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "realize_cpu_acc_reads_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "realize_acc_reads_size_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "delay_realize_cheap_outputs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "fallback_random",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "align_random_eager",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "fallback_embedding_bag_byte_unpack",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "implicit_fallbacks",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "assume_unaligned_fallback_output",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "inductor_choices_class",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "aggressive_fusion",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "debug_fusion",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "benchmark_fusion",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "enabled_metric_tables",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "loop_ordering_after_fusion",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "loop_reindexing_after_fusion",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "loop_index_inversion_in_fusion",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "score_fusion_memory_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "benchmark_epilogue_fusion",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "max_epilogue_benchmarked_choices",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "max_fusion_size",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "min_overlap_ratio",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "max_fusion_buffer_group_pairwise_attempts",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "max_fusion_unique_io_buffers",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "max_complex_pointwise_cat_inputs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "max_pointwise_cat_inputs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "force_pointwise_cat",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "unroll_reductions_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "comment_origin",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "conv_1x1_as_mm",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "split_reductions",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "deterministic",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "batch_invariant",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "min_num_split",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "benchmark_kernel",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "constant_and_index_propagation",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "always_keep_tensor_constants",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "assert_indirect_indexing",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "do_not_emit_runtime_assertions",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "compute_all_bounds",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "combo_kernels",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "benchmark_combo_kernel",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "combo_kernels_autotune",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "combo_kernel_allow_mixed_sizes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "combo_kernel_foreach_dynamic_shapes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "the locked compile invocation uses dynamic=False and fixed batch shapes"
+    },
+    {
+      "candidate": "combo_kernel_max_num_args",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "combo_kernel_max_num_nodes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "combo_kernel_per_subkernel_blocks",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "combo_kernel_autotune_grouping",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "combo_kernels_pointwise_only",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "combo_kernel_peak_memory_increase_gb",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "combo_kernel_peak_memory_pct_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "combo_kernel_max_distance",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "joint_graph_constant_folding",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "debug_index_asserts",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "is_nightly_or_source",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "developer_warnings",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "optimize_scatter_upon_const_tensor",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "add_pre_grad_passes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "remove_pre_grad_passes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "disabled_passes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "worker_start_method",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "small_memory_access_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "worker_suppress_logging",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "log_tlparse",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "_fuse_ddp_communication",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "_fuse_ddp_bucket_size",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "_fuse_ddp_communication_passes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "_micro_pipeline_tp",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "partitioned_scatter_enabled",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "partitioned_scatter_min_partitions",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "partitioned_scatter_max_partitions",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "partitioned_scatter_memory_budget",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "_collective.auto_select",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "_collective.one_shot_all_reduce_threshold_bytes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.enable_overlap_scheduling",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.collective_bucketing",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.insert_overlap_deps",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.max_compute_pre_fetch",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.compute_overlap_multipler",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.custom_runtime_estimation",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.collective_estimator",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.compute_estimator",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.profile_guided_estimations_profile_path",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.max_memory_increase_gb",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.max_memory_increase_ratio",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.max_in_flight_gb",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.max_coll_distance",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.log_final_collectives_estimations",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.bucket_exposed_first",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.bucket_only_internode_comms",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.enable_fusion_regions",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.bucket_mode",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.prioritize_bucketing_during_scheduling",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.spmd_check",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.spmd_mismatch",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.overlap_scheduling_autofix_cycles",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.enable_low_contention_collectives",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.low_contention_skip_overlap_check",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.low_contention_min_bytes_per_rank",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.pre_bucketing_fsdp_collectives",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "FSDP-only scheduling is inapplicable to the locked two-rank DDP step"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.pre_bucketing_fsdp_collectives_bucket_cap_mb",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "FSDP-only scheduling is inapplicable to the locked two-rank DDP step"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.pre_bucketing_fsdp_collectives_min_bucket_cap_mb",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "FSDP-only scheduling is inapplicable to the locked two-rank DDP step"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.pre_bucketing_fsdp_collectives_max_bucket_cap_mb",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "FSDP-only scheduling is inapplicable to the locked two-rank DDP step"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.pre_bucketing_fsdp_collectives_verbose",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "FSDP-only scheduling is inapplicable to the locked two-rank DDP step"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.pre_bucketing_fsdp_collectives_saturation_calibration_multiplier",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "FSDP-only scheduling is inapplicable to the locked two-rank DDP step"
+    },
+    {
+      "candidate": "aten_distributed_optimizations.allow_comms_decompositions",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "compile_threads",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "quiesce_async_compile_pool",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "quiesce_async_compile_time",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "use_static_cuda_launcher",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "static_launch_user_defined_triton_kernels",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "the model supplies no user-defined Triton kernels"
+    },
+    {
+      "candidate": "strict_static_cuda_launcher",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "keep_static_cubin_raw",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "use_fast_triton_launcher",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "use_launch_metadata_schema",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "global_cache_dir",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "kernel_name_max_ops",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "shape_padding",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "comprehensive_padding",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "pad_channels_last",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "pad_dynamic_shapes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "the locked compile invocation uses dynamic=False and fixed batch shapes"
+    },
+    {
+      "candidate": "disable_padding_cpu",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "expand_dimension_for_pointwise_nodes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "padding_alignment_bytes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "padding_stride_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "pad_outputs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "bw_outputs_user_visible",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "force_shape_pad",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "permute_fusion",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "profiler_mark_wrapper_call",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "generate_intermediate_hooks",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "debug_ir_traceback",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "_raise_error_for_testing",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "_use_fp64_for_unbacked_floats",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "_profile_var",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "profile_bandwidth",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "profile_bandwidth_regex",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "profile_bandwidth_output",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "profile_bandwidth_with_do_bench_using_profiling",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "disable_cpp_codegen",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "freezing",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "freezing_discard_parameters",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "decompose_mem_bound_mm",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "wrap_inductor_compiled_regions",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "assume_aligned_inputs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "assume_32bit_indexing",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "unsafe_ignore_unsupported_triton_autotune_args",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "unsafe validation bypass is excluded by the finite/correct-training gate"
+    },
+    {
+      "candidate": "check_stack_no_cycles_TESTING_ONLY",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "force_disable_cudagraph_TESTING_ONLY",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "enable_linear_binary_folding",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "annotate_training",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "enable_caching_generated_triton_templates",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "autotune_lookup_table",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "file_lock_timeout",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "compile_worker_wait_timeout",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "enable_autograd_for_aot",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "torchinductor_worker_logpath",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "auto_chunker.enable",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "auto_chunker.output_size_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "auto_chunker.amplify_ratio_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "auto_chunker.num_chunk",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "cpp.threads",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.no_redundant_loops",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.dynamic_threads",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.simdlen",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.min_chunk_size",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.cxx",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.march",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.enable_kernel_profile",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.weight_prepack",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.inject_relu_bug_TESTING_ONLY",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "cpp.inject_log1p_bug_TESTING_ONLY",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "cpp.vec_isa_ok",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.descriptive_names",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.max_horizontal_fusion_size",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.fallback_scatter_reduce_sum",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.enable_unsafe_math_opt_flag",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.enable_floating_point_contract_flag",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.enable_tiling_heuristics",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.enable_grouped_gemm_template",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.gemm_max_k_slices",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.gemm_cache_blocking",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "cpp.gemm_thread_factors",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.enable_loop_tail_vec",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.enable_concat_linear",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.use_decompose_tanh",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.use_small_dequant_buffer",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.force_inline_kernel",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.use_constexpr_for_int_array",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpp.use_two_step_variance_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "triton.cudagraphs",
+      "disposition": "covered_by_named_mode_or_cudagraph_stage",
+      "family": "inductor_option",
+      "reason": "the installed named compile-mode bundle or explicit cudagraph stage owns this exact option"
+    },
+    {
+      "candidate": "triton.cudagraph_trees",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.cudagraph_skip_dynamic_graphs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "the locked compile invocation uses dynamic=False and fixed batch shapes"
+    },
+    {
+      "candidate": "triton.cudagraph_capture_sizes",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.cudagraph_min_partition_size",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.slow_path_cudagraph_asserts",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "triton.cudagraph_trees_history_recording",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "triton.cudagraph_trees_objgraph",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "triton.cudagraph_support_input_mutation",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.cudagraph_unexpected_rerecord_limit",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.cudagraph_dynamic_shape_warn_limit",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "the locked compile invocation uses dynamic=False and fixed batch shapes"
+    },
+    {
+      "candidate": "triton.force_cudagraph_sync",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "forced synchronization/error behavior cannot improve the accepted hot body"
+    },
+    {
+      "candidate": "triton.force_cudagraphs_warmup",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "forced synchronization/error behavior cannot improve the accepted hot body"
+    },
+    {
+      "candidate": "triton.cudagraph_or_error",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "forced synchronization/error behavior cannot improve the accepted hot body"
+    },
+    {
+      "candidate": "triton.reorder_for_reducing_graph_partitions",
+      "disposition": "covered_by_named_mode_or_cudagraph_stage",
+      "family": "inductor_option",
+      "reason": "the installed named compile-mode bundle or explicit cudagraph stage owns this exact option"
+    },
+    {
+      "candidate": "triton.cudagraph_partition_memory_budget",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.fast_path_cudagraph_asserts",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "triton.skip_cudagraph_warmup",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.debug_sync_graph",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "triton.debug_sync_kernel",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "triton.dense_indexing",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.coalesce_tiling_analysis",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.max_tiles",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.prefer_nd_tiling",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.autotune_pointwise",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.autotune_cublasLt",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.autotune_at_compile_time",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.autotune_with_sample_inputs",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.tile_reductions",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.native_matmul",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.tiling_prevents_pointwise_fusion",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.tiling_prevents_reduction_fusion",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.unique_kernel_names",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "triton.unique_user_kernel_names",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.descriptive_names",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.persistent_reductions",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.decompose_sort_ops",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.cooperative_reductions",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.force_cooperative_reductions",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.use_two_step_variance_min_numel",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.use_two_step_variance_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.multi_kernel",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.divisible_by_16",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.emit_pointer_range_32",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.min_split_scan_rblock",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.store_cubin",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "triton.spill_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.use_block_ptr",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.use_tensor_descriptor",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.transpose_discontiguous_tensor_descriptor",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.inject_relu_bug_TESTING_ONLY",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "triton.codegen_upcast_to_fp32",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.enable_persistent_tma_matmul",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "TMA requires newer GPU architecture and is unavailable on T4 capability 7.5"
+    },
+    {
+      "candidate": "triton.enable_template_tma_store",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "TMA requires newer GPU architecture and is unavailable on T4 capability 7.5"
+    },
+    {
+      "candidate": "triton.enable_tma_load_for_template_epilogue",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "TMA requires newer GPU architecture and is unavailable on T4 capability 7.5"
+    },
+    {
+      "candidate": "triton.skip_l1_cache",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "triton.disallow_failing_autotune_kernels_TESTING_ONLY",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "triton.num_decompose_k_splits",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.decompose_k_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.enable_pdl",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.mix_order_reduction",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.mix_order_reduction_initial_xblock",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.mix_order_reduction_split_size",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.mix_order_reduction_autotune_split_size",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.mix_order_reduction_non_strict_mode",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.mix_order_reduction_max_reads",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.mix_order_reduction_allow_multi_stages",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.nested_reduction",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "triton.debug_dump_kernel_inputs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "triton.max_kernel_dump_occurrences",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "triton.proton_profiling",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "triton.proton_output_dir",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "triton.proton_group_by_sm",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "triton.proton_split_invocations",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "triton.proton_per_cta_occupancy",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "triton.dynamic_disable_pipelining",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "the locked compile invocation uses dynamic=False and fixed batch shapes"
+    },
+    {
+      "candidate": "aot_inductor.autotune_per_kernel_alloc",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.output_path",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.debug_compile",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "aot_inductor.debug_symbols",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "aot_inductor.enable_frame_pointer",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.enable_line_tables",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.compile_wrapper_opt_level",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.debug_intermediate_value_printer",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "aot_inductor.filtered_kernel_names",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.serialized_in_spec",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.serialized_out_spec",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.use_runtime_constant_folding",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.force_mmap_weights",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.use_consts_asm_build",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.package",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.package_cpp_only",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.dynamic_linkage",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.metadata",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.raise_error_on_ignored_optimization",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.check_lowerbound",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.dump_aoti_minifier",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.repro_level",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.presets",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.allow_stack_allocation",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.use_minimal_arrayref_interface",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.weight_use_caching_allocator",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.package_constants_in_so",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.package_constants_on_disk_format",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.precompile_headers",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "aot_inductor.embed_kernel_binary",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.emit_multi_arch_kernel",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.model_name_for_generated_files",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.custom_ops_to_c_shims",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.custom_op_libs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.enable_lto",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.link_libtorch",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.cross_target_platform",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.aoti_shim_library",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor.aoti_shim_library_path",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "aot_inductor_mode.compile_standalone",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cutlass.compile_opt_level",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cutlass.enable_debug_info",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "cutlass.use_fast_math",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cutlass.cutlass_dir",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cutlass.cutlass_max_profiling_configs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cutlass.cutlass_max_profiling_swizzle_options",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cutlass.cutlass_dynamic_cluster_shape",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "the locked compile invocation uses dynamic=False and fixed batch shapes"
+    },
+    {
+      "candidate": "cutlass.cutlass_dynamic_cluster_fallback",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "the locked compile invocation uses dynamic=False and fixed batch shapes"
+    },
+    {
+      "candidate": "cutlass.cutlass_epilogue_fusion_enabled",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cutlass.cutlass_tma_only",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "TMA requires newer GPU architecture and is unavailable on T4 capability 7.5"
+    },
+    {
+      "candidate": "cutlass.cutlass_backend_min_gemm_size",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cutlass.generate_test_runner",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cutlass.cutlass_op_allowlist_regex",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cutlass.cutlass_op_denylist_regex",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cutlass.cutlass_instantiation_level",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cutlass.cutlass_hash_with_compile_cmd",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cutlass.cutlass_prescreening",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cutlass.cutlass_enabled_ops",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cutlass.use_binary_remote_cache",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "cutlass.upload_to_binary_remote_cache",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "cutlass.binary_remote_cache_force_write",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "cutlass.enable_caching_codegen",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cuda.arch",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "cuda.version",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "cuda.cuda_cxx",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "cuda.enable_cuda_lto",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "cuda.enable_ptxas_info",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "cuda.nvgemm_max_profiling_configs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "cuda.compile_opt_level",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "cuda.enable_debug_info",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "cuda.use_fast_math",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "cuda.cutlass_dir",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cuda.cutlass_max_profiling_configs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cuda.cutlass_max_profiling_swizzle_options",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cuda.cutlass_dynamic_cluster_shape",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "the locked compile invocation uses dynamic=False and fixed batch shapes"
+    },
+    {
+      "candidate": "cuda.cutlass_dynamic_cluster_fallback",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "the locked compile invocation uses dynamic=False and fixed batch shapes"
+    },
+    {
+      "candidate": "cuda.cutlass_epilogue_fusion_enabled",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cuda.cutlass_tma_only",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "TMA requires newer GPU architecture and is unavailable on T4 capability 7.5"
+    },
+    {
+      "candidate": "cuda.cutlass_backend_min_gemm_size",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cuda.generate_test_runner",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "cuda.cutlass_op_allowlist_regex",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cuda.cutlass_op_denylist_regex",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cuda.cutlass_instantiation_level",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cuda.cutlass_hash_with_compile_cmd",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cuda.cutlass_prescreening",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cuda.cutlass_enabled_ops",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "CUTLASS-template controls do not own this cuDNN convolutional VAE path"
+    },
+    {
+      "candidate": "cuda.use_binary_remote_cache",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "cuda.upload_to_binary_remote_cache",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "cuda.binary_remote_cache_force_write",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "cuda.enable_caching_codegen",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "xpu.arch",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.version",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.oneapi_root",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.cutlass_dir",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.compile_opt_level",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.enable_debug_info",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "xpu.use_fast_math",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.cutlass_max_profiling_configs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.cutlass_max_profiling_swizzle_options",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.cutlass_dynamic_cluster_shape",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.cutlass_dynamic_cluster_fallback",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.cutlass_epilogue_fusion_enabled",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.cutlass_tma_only",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.cutlass_backend_min_gemm_size",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.generate_test_runner",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.cutlass_op_allowlist_regex",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.cutlass_op_denylist_regex",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.cutlass_instantiation_level",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.cutlass_hash_with_compile_cmd",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.cutlass_prescreening",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.cutlass_enabled_ops",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "xpu.use_binary_remote_cache",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "xpu.upload_to_binary_remote_cache",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "xpu.binary_remote_cache_force_write",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "xpu.enable_caching_codegen",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.arch",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.ck_supported_arch",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.compile_opt_level",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.is_debug",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "rocm.save_temps",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.use_fast_math",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.flush_denormals",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.print_kernel_resource_usage",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.rocm_home",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.ck_dir",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.generate_test_runner",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.n_max_profiling_configs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.ck_max_profiling_configs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.ck_tile_max_profiling_configs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.use_preselected_instances",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.kBatch_sweep",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.split_k_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.contiguous_threshold",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.origami",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "rocm.origami_topk",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cpu_backend",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "cuda_backend",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "tpu_backend",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "xpu_backend",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "mtia.disable_welford_reduction",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "halide.cpu_target",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "halide.gpu_target",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "halide.scheduler_cuda",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "not independently staged: non-Boolean/internal option has no installed legal-domain enumerator; inventing values would not be a feature-detected executable candidate"
+    },
+    {
+      "candidate": "halide.scheduler_cpu",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "halide.asserts",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "halide.debug",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "halide.scan_kernels",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "trace.enabled",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.save_real_tensors",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.debug_dir",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.debug_log",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.info_log",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.fx_graph",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.fx_graph_transformed",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.ir_pre_fusion",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.ir_post_fusion",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.output_code",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.graph_diagram",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.graph_diagram_format",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.draw_orig_fx_graph",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.orig_fx_graph_diagram_format",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.dot_graph_shape",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.log_url_for_graph_xform",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.compile_profile",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.upload_tar",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.log_autotuning_results",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "trace.provenance_tracking_level",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "diagnostic/testing instrumentation is not a steady-state speed control"
+    },
+    {
+      "candidate": "_save_config_ignore",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "_cache_config_ignore_prefix",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "_cache_config_factory_keys",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "compile/cache/startup behavior is outside the settled epoch-time objective"
+    },
+    {
+      "candidate": "external_matmul",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "write_are_deterministic_algorithms_enabled",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "lookup_table.table",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "lookup_table.check_src_hash",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "validation/diagnostic control does not alter the accepted CUDA compute body"
+    },
+    {
+      "candidate": "test_configs.force_extern_kernel_in_multi_template",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.force_custom_op_decomposition",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.force_no_impl_grouping",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.max_mm_configs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.max_flex_configs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.runtime_triton_dtype_assert",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.runtime_triton_shape_assert",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.static_cpp_dtype_assert",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.autotune_choice_name_regex",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.autotune_choice_desc_regex",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.graphsafe_rng_func_ignores_fallback_random",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.track_memory_lifecycle",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.use_libtorch",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.assume_bucketing_reduces_latency",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.force_filter_reduction_configs",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.distort_benchmarking_result",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.bisect_pre_grad_graph",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "test_configs.bisect_keep_custom_backend_for_inductor",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "backend is not used by the CUDA T4 eager/Inductor training step"
+    },
+    {
+      "candidate": "eager_numerics.division_rounding",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "eager_numerics.disable_ftz",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "eager_numerics.use_pytorch_libdevice",
+      "disposition": "excluded_with_concrete_reason",
+      "family": "inductor_option",
+      "reason": "name exposes no throughput, memory, layout, compiler, or communication axis"
+    },
+    {
+      "candidate": "emulate_precision_casts",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    },
+    {
+      "candidate": "emulate_precision_casts_on_saved_tensors",
+      "disposition": "staged_independent_bmax_then_epoch_search",
+      "family": "inductor_option",
+      "reason": "feature-detected Boolean compute option is flipped alone on each retained compiled frontier recipe"
+    }
+  ],
+  "policy": "recipe_bmax_before_timing_family_beam_no_blind_cartesian_product",
+  "schema_version": "spec0011.runtime_coverage.v2"
+}

@@ -536,15 +536,28 @@ KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status <synthetic-kernel-id
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output <synthetic-kernel-id> runs/kaggle/synthetic_timing
 ```
 
-Download hazard: the `output` step pulls the whole kernel output, which for
-`synthetic_timing` includes the generated multi-GiB raw `synthetic_timing_data/`
-directory (default profile ~2 GiB) on top of the four small benchmark files
-(`synthetic_timing_manifest.json`, `synthetic_timing_runtime_proof.json`,
-`synthetic_timing_matrix.csv`, `synthetic_timing_recommendations.json`). Interrupt
-the download once those four are present; `kaggle kernels output` has no per-file
-filter, so an interrupted run can leave a partial zero-byte data file behind
-(delete it). This kernel is quarantined (FU-031) and superseded by the Spec 0011
-runtime-selection approach, so this only matters if it is re-run.
+Download only durable artifacts with `kaggle kernels output --file-pattern`; never pull
+generated data or compiler scratch. Active Spec 0011 v4 requires the guarded output
+action to fetch its inventory/ledger/constraint/cover/import-reuse/action/session/raw-
+matrix/cache/confirmation/results/manifest artifacts plus the compact verified resume
+bundle, while excluding compiler scratch, live scout state, and incomplete `.tmp` files.
+The launcher upgrades Torch first and stages the canonical repo-owned 309-row package
+from `docs/data/spec0011_runtime_recipe_v2/`; it never resumes old `p00310`.
+
+V4 has no total GPU/session/118-slot cap. A verified session may be downloaded, embedded
+as the exact parent bundle for a separately authorized next push, and resumed only under
+the generation/parent-hash rules in Spec 0011. This transport is not implemented yet;
+the partial v3 launcher remains fail-closed. Do not request or perform a remote run until
+v4 is reviewed, relocked, implemented, and the local preflight passes:
+
+```bash
+./scripts/kaggle_kernel.sh preflight-runtime-recipe-bakeoff
+```
+
+This proves packaging/guards/verifier structure only. It does not authorize a push,
+select a runtime, or prove dual-T4 timing. `synthetic_timing` is quarantined (FU-031); if
+it is deliberately rerun, filter to its four small benchmark files and exclude
+`synthetic_timing_data/`.
 
 Until `api-check` grows a no-dataset kernel mode, the command above is only a
 read-only auth/status/quota preflight and still lists the real patch dataset.
