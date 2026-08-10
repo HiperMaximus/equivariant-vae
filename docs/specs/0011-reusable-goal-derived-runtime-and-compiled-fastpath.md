@@ -1,6 +1,6 @@
 # Spec 0011: Kaggle Training-Configuration Search
 
-Status: v5 lean contract / runtime selected / session-1 local preparation complete
+Status: v5 lean contract / runtime selected / baseline session 1 running
 
 Last updated: 2026-08-10
 
@@ -252,6 +252,10 @@ optimizer, AMP scaler, CPU/CUDA/NumPy and explicit generator RNG, absolute succe
 update, DDP sampler progress, and best metric. LR and beta schedules derive from the
 absolute successful-update count. This is the smallest experiment-specific continuation
 contract; no generalized checkpoint/session framework is planned.
+Baseline session 1 launched with explicit approval on 2026-08-10 as Kaggle kernel
+`maximusshtefan/eqvae-selected-runtime-full`, version 2, from GitHub source commit
+`81b5017`. The guarded API check and push passed; the single handoff status read was
+`KernelWorkerStatus.RUNNING`. Do not continuously poll or rerun it without new direction.
 Downstream probes remain the final compression-utility criterion. Repeat only the lean
 architecture-specific tuning required for continuous `SO(2)` later; do not reopen the
 shared beta choice by default.

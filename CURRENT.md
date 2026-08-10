@@ -5,22 +5,22 @@ Last updated: 2026-08-10
 ## Fresh-session start here
 
 Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, and active Spec
-0011 completely. The commit containing this update is the reviewed local session-1
-preparation boundary. Preserve any later unrelated or ambiguous work: do not reset,
-checkout, blanket-restore, or recreate the tree. Inspect every diff before surgical
-removal.
+0011 completely. Baseline full-run session 1 is Kaggle kernel version 2 from source
+commit `81b5017`; its first and only status read was `RUNNING`. Do not poll continuously.
+Preserve any later unrelated or ambiguous work: do not reset, checkout, blanket-restore,
+or recreate the tree. Inspect every diff before surgical removal.
 
 Non-equivariant runtime selection is complete. Do not execute old-v2 `p00310` or the
-failed-v3 Bmax/main-effects controller. Direct Kaggle probes used explicit authorization;
-no Git commit or GitHub push has occurred.
+failed-v3 Bmax/main-effects controller. Source commit `81b5017` is pushed to GitHub.
 
-Nothing is currently running. Runtime, real-data LR range, resume, fixed-32
-learnability, and beta-selection checks have passed. The user locked beta `0.01` on
-2026-08-09; do not run an intermediate beta probe. The completed paired-probe branch is
-removed, the beta-`0.01` full kernel and checkpoint-only runner are locally verified,
-and the next implementation gap is the one-time checkpoint attachment used only after
-Kaggle closes session 1. Do not spend more time searching runtime flags, learning rates,
-or beta values.
+Baseline full-run session 1 is running on Kaggle as
+`maximusshtefan/eqvae-selected-runtime-full`, kernel version 2. The user explicitly
+approved its push on 2026-08-10; the guarded API check and push passed, and the one
+agreed status read returned `KernelWorkerStatus.RUNNING`. Runtime, real-data LR range,
+resume, fixed-32 learnability, and beta-selection checks have passed. The user locked
+beta `0.01` on 2026-08-09; do not run an intermediate beta probe. The next implementation
+gap is the one-time checkpoint attachment used only after Kaggle closes session 1. Do
+not spend more time searching runtime flags, learning rates, or beta values.
 
 ## Current objective
 
@@ -111,7 +111,7 @@ of their dedicated wiring in `scripts/kaggle_kernel.sh`,
 `scripts/build_kaggle_embedded_kernel.py`, `scripts/agent_preflight.sh`, `.gitignore`, and
 `tests/test_kaggle_embedded_kernel.py`. The generic latest-Torch policy test remains.
 
-## Missing before full training
+## Multi-session handoff
 
 - Before session 2, add only the concrete checkpoint transport exposed by session 1:
   publish/attach its latest complete boundary checkpoint and point
@@ -134,10 +134,8 @@ of their dedicated wiring in `scripts/kaggle_kernel.sh`,
   optimizer step and choose the global best from downloaded validation results. Keep
   session copies until the merged result is verified; delete redundant copies only
   afterward.
-- The full push guard requires a clean committed source state. The reviewed local
-  session-1 preparation is committed without a GitHub push; remote Kaggle execution
-  still requires separate user direction.
-- Full training remains a separate explicitly confirmed Kaggle action.
+- Session 1 version 2 was pushed from clean commit `81b5017`; do not replace or rerun it
+  without new explicit direction.
 
 The user prefers direct, bounded Kaggle experiments over defensive local machinery and is
 comfortable with liberal probe pushes. Still use the repository's `KAGGLE_*_CONFIRMED`
@@ -208,7 +206,8 @@ fixed-25 completion before checkpoint commitment, exact generated-wrapper verifi
 beta `0.01`, and the measured Torch `2.13.0+cu130` / CUDA `13.0` stack. The checkpoint
 state was also cross-checked against `kaggle/fsq_train_reference.py`: model, optimizer,
 scaler, RNG, progress, and best metric are covered; LR/beta progress derives from the
-absolute successful-update count. No Kaggle action or Git push has occurred.
+absolute successful-update count. Source commit `81b5017` is on GitHub, and Kaggle
+session 1 version 2 was `RUNNING` at its single status read.
 
 ## Fresh-agent execution order
 
@@ -223,14 +222,11 @@ absolute successful-update count. No Kaggle action or Git push has occurred.
 3. Treat paired-probe removal, index-only resume, per-rank RNG rebasing, atomic
    checkpoint publication, focused tests, full quality, full-kernel preflight,
    repo/workspace preflights, and the post-fix clean-context audits as complete.
-4. The commit containing this update is the reviewed local session-1 experiment slice.
-   Rebuild and verify the ignored generated full payload from that committed source
-   before requesting any remote action.
-5. Ask separately before the guarded session-1 full-kernel push in
-   `docs/kaggle_cli_workflow.md`; after approval, perform the API check, push, one status
-   read, and hand back rather than continuously polling.
+4. Treat source commit `81b5017`, GitHub push, guarded API check, Kaggle kernel version 2
+   push, and the single `RUNNING` status read as complete. Do not continuously poll.
+5. Wait for explicit user direction before any later Kaggle status/output action.
 6. After Kaggle closes session 1, download its complete output, identify the latest
    complete `step_*.pt`, and add the smallest concrete dataset attachment/path needed by
    session 2. Upload/attach/resume only with separate explicit Kaggle permission.
 
-Full training and the continuous-`SO(2)` repeat remain later gates.
+Baseline full training is active; the continuous-`SO(2)` repeat remains a later gate.
