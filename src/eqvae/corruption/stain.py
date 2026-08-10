@@ -36,6 +36,7 @@ HED_FROM_RGB: tuple[tuple[float, float, float], ...] = (
 
 CONSERVATIVE_DEFAULT_PROFILE = "conservative_default"
 FSQ_LEGACY_WIDE_PROFILE = "fsq_legacy_wide"
+NO_CORRUPTION_PROBE_PROFILE = "no_corruption_probe"
 BRANCHLESS_ALL_STRATEGY = "branchless_all"
 INDEXED_MASKED_STRATEGY = "indexed_masked"
 CORRUPTION_STRATEGIES: tuple[str, ...] = (
@@ -413,6 +414,16 @@ def profile_from_name(name: str) -> StainCorruptionProfile:
             corrupt_prob=0.3,
             he_alpha_range=(0.75, 1.25),
             he_beta_range=(-0.10, 0.10),
+            residual_alpha_range=(0.98, 1.02),
+            residual_beta_range=(-0.01, 0.01),
+            noise_std_range=(0.0, 0.05),
+        )
+    if name == NO_CORRUPTION_PROBE_PROFILE:
+        return StainCorruptionProfile(
+            name=NO_CORRUPTION_PROBE_PROFILE,
+            corrupt_prob=0.0,
+            he_alpha_range=(0.80, 1.20),
+            he_beta_range=(-0.05, 0.05),
             residual_alpha_range=(0.98, 1.02),
             residual_beta_range=(-0.01, 0.01),
             noise_std_range=(0.0, 0.05),

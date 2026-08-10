@@ -32,6 +32,7 @@ from eqvae.benchmarking.runtime_schema import (
     DATALOADER_MATRIX_COLUMNS,
     GATE_HEALTH_COLUMNS,
     NUMERICAL_CHECK_COLUMNS,
+    validate_efficiency_proof_reference_batch_size,
 )
 from eqvae.benchmarking.runtime_selection import (
     AMP_CONSERVATIVE,
@@ -67,9 +68,14 @@ from eqvae.benchmarking.vram_feasibility import (
     probe_headroom_bytes,
 )
 from eqvae.config import ResolvedConfig, resolve_json_config
+from eqvae.training.fastpath_precision import (
+    build_fastpath_grad_scaler,
+    fastpath_autocast_dtype,
+    run_fastpath_optimizer_step,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from contextlib import AbstractContextManager
 
     import torch
@@ -97,6 +103,7 @@ class _DdpRowConfig:
     output_dir: Path
     data_root: str
     row_spec: pretest.RowSpec
+    proof_reference_per_device_batch_size: int
 
 
 @dataclass(frozen=True)
@@ -108,6 +115,7 @@ class _SelectionStageSettings:
     efficiency_batch_sizes: tuple[int, ...]
     efficiency_corruption_strategies: tuple[str, ...]
     efficiency_policies: tuple[_RuntimePolicy, ...]
+    proof_reference_per_device_batch_size: int
 
 
 @dataclass(frozen=True)
@@ -131,7 +139,7 @@ class _RuntimePolicy:
     ddp_gradient_as_bucket_view: bool = False
     optimizer_implementation: str = "adamw_default"
     zero_grad_set_to_none: bool = True
-    gradient_clip_foreach: bool = False
+    gradient_clip_foreach: bool = True
     compile_dynamic: bool = False
     # Spec 0011 S14a: compiled fast-path recipe knobs. Eager-v5 defaults keep every
     # existing policy byte-identical; the efficiency search declares a compiled winner
@@ -143,6 +151,19 @@ class _RuntimePolicy:
     ddp_find_unused_parameters: bool = False
     ddp_bucket_cap_mb: int | None = None
     fused_optimizer: bool = False
+    diagnostic_only: bool = False
+
+
+@dataclass(frozen=True)
+class _AmpPhaseAccounting:
+    """Separate proof/timing calibration diagnostics from selection-gated skips."""
+
+    proof_calibration_step_count: int
+    proof_calibration_skipped_count: int
+    timing_calibration_step_count: int
+    timing_calibration_skipped_count: int
+    timing_successful_optimizer_update_count: int
+    selection_amp_step_skipped_count: int
 
 
 @dataclass(frozen=True)
@@ -159,6 +180,7 @@ class _DdpLaunchResult:
     returncode: int
     failure_kind: str
     failure_message_hash: str
+    reference_row_id: str
 
 
 @dataclass(frozen=True)
@@ -243,6 +265,10 @@ def _collect_evidence(
             request=request,
             settings=settings,
             row_spec=row_spec,
+            proof_reference_per_device_batch_size=_row_proof_reference_batch_size(
+                row_spec=row_spec,
+                stage=stage_settings,
+            ),
         )
         for row_spec in _dual_row_specs(settings=settings, stage=stage_settings)
     ]
@@ -297,6 +323,7 @@ def _collect_evidence(
             settings=settings,
             runtime_rows=runtime_rows,
             dataloader_rows=dataloader_rows,
+            dual_results=dual_results,
         ),
     )
     gate_summary = _gate_health_summary(
@@ -321,6 +348,28 @@ def _collect_evidence(
             runtime_environment=runtime_environment,
         ),
         stain_corruptor_qa=stain_corruptor_qa,
+    )
+
+
+def _row_proof_reference_batch_size(
+    *,
+    row_spec: pretest.RowSpec,
+    stage: _SelectionStageSettings,
+) -> int:
+    """Return cross-batch proof control only for the efficiency slice.
+
+    Returns:
+        Candidate batch for ordinary rows; bounded proof batch for efficiency rows.
+
+    """
+    if row_spec.candidate_role not in {
+        "selected_runtime_efficiency_followup",
+        "selected_runtime_efficiency_diagnostic",
+    }:
+        return row_spec.per_device_batch_size
+    return min(
+        row_spec.per_device_batch_size,
+        stage.proof_reference_per_device_batch_size,
     )
 
 
@@ -388,20 +437,53 @@ def _selection_stage_settings(
     first_stage = _stage(stages, "v8_shortlist_fp32_eager_confirmation")
     dual_stage = _stage(stages, "dual_t4_train_step_gate")
     efficiency = _optional_object(selection, "efficiency_followup")
+    dual_batch_sizes = _int_tuple(dual_stage, "per_device_batch_sizes")
+    efficiency_batch_sizes = (
+        () if efficiency is None else _int_tuple(efficiency, "per_device_batch_sizes")
+    )
+    proof_reference_batch_size = _proof_reference_batch_size(
+        efficiency=efficiency,
+        dual_batch_sizes=dual_batch_sizes,
+        efficiency_batch_sizes=efficiency_batch_sizes,
+    )
     return _SelectionStageSettings(
         single_batch_sizes=_int_tuple(first_stage, "per_device_batch_sizes"),
         fallback_batch_sizes=_int_tuple(first_stage, "fallback_per_device_batch_sizes"),
-        dual_batch_sizes=_int_tuple(dual_stage, "per_device_batch_sizes"),
+        dual_batch_sizes=dual_batch_sizes,
         corruption_strategies=_str_tuple(dual_stage, "corruption_strategies"),
-        efficiency_batch_sizes=()
-        if efficiency is None
-        else _int_tuple(efficiency, "per_device_batch_sizes"),
+        efficiency_batch_sizes=efficiency_batch_sizes,
         efficiency_corruption_strategies=()
         if efficiency is None
         else _str_tuple(efficiency, "corruption_strategies"),
         efficiency_policies=()
         if efficiency is None
         else _runtime_policies(_required_object_list(efficiency, "policies")),
+        proof_reference_per_device_batch_size=proof_reference_batch_size,
+    )
+
+
+def _proof_reference_batch_size(
+    *,
+    efficiency: JsonObject | None,
+    dual_batch_sizes: Sequence[int],
+    efficiency_batch_sizes: Sequence[int],
+) -> int:
+    """Validate and return the fixed linked-proof batch for efficiency rows.
+
+    Returns:
+        Zero when no efficiency stage exists, otherwise its configured proof batch.
+
+    """
+    if efficiency is None:
+        return 0
+    batch_size = pretest._required_int(  # noqa: SLF001
+        efficiency,
+        "proof_reference_per_device_batch_size",
+    )
+    return validate_efficiency_proof_reference_batch_size(
+        batch_size=batch_size,
+        dual_gate_batch_sizes=tuple(dual_batch_sizes),
+        efficiency_batch_sizes=tuple(efficiency_batch_sizes),
     )
 
 
@@ -427,6 +509,40 @@ def _runtime_policies(items: Sequence[JsonObject]) -> tuple[_RuntimePolicy, ...]
             raise ValueError(message)
         if compile_scope not in {COMPILE_NONE, COMPILE_MODEL_FORWARD, COMPILE_STEP}:
             message = f"Unsupported compile_scope: {compile_scope}"
+            raise ValueError(message)
+        optimize_ddp = _optional_str(item, "optimize_ddp") or ""
+        diagnostic_only = _optional_bool(item, "diagnostic_only", default=False)
+        if (
+            compile_scope != COMPILE_NONE
+            and optimize_ddp not in _COMPILED_OPTIMIZE_DDP_MODES
+            and not diagnostic_only
+        ):
+            message = (
+                "Compiled runtime policies must name optimize_ddp as one of "
+                f"{sorted(_COMPILED_OPTIMIZE_DDP_MODES)!r}; got {optimize_ddp!r}"
+            )
+            raise ValueError(message)
+        compiled_autograd = _optional_bool(
+            item,
+            "compiled_autograd",
+            default=False,
+        )
+        if (
+            optimize_ddp
+            in {
+                "python_reducer",
+                "python_reducer_without_compiled_forward",
+            }
+            and not compiled_autograd
+        ):
+            message = f"optimize_ddp={optimize_ddp!r} requires compiled_autograd=true"
+            raise ValueError(message)
+        if (
+            optimize_ddp == "no_optimization"
+            and compiled_autograd
+            and not diagnostic_only
+        ):
+            message = "optimize_ddp='no_optimization' requires compiled_autograd=false"
             raise ValueError(message)
         policies.append(
             _RuntimePolicy(
@@ -481,15 +597,11 @@ def _runtime_policies(items: Sequence[JsonObject]) -> tuple[_RuntimePolicy, ...]
                 gradient_clip_foreach=_optional_bool(
                     item,
                     "gradient_clip_foreach",
-                    default=False,
+                    default=True,
                 ),
                 compile_dynamic=_optional_bool(item, "compile_dynamic", default=False),
-                optimize_ddp=_optional_str(item, "optimize_ddp") or "",
-                compiled_autograd=_optional_bool(
-                    item,
-                    "compiled_autograd",
-                    default=False,
-                ),
+                optimize_ddp=optimize_ddp,
+                compiled_autograd=compiled_autograd,
                 reorder_compute_comm_overlap=_optional_bool(
                     item,
                     "reorder_compute_comm_overlap",
@@ -511,6 +623,7 @@ def _runtime_policies(items: Sequence[JsonObject]) -> tuple[_RuntimePolicy, ...]
                     "fused_optimizer",
                     default=False,
                 ),
+                diagnostic_only=diagnostic_only,
             ),
         )
     return tuple(policies)
@@ -543,23 +656,25 @@ def _efficiency_row_enumerable(
 ) -> bool:
     """Return whether this (policy, batch) efficiency row may be enumerated (S14c).
 
-    An AMP efficiency row (``amp_conservative`` / ``amp_scalar_gate_relaxed``) is
-    trusted by the amp follow-up gate (``runtime_selection._amp_followup_policy``) ONLY
-    when the identical config passed fp32-eager first, and the fp32-eager gate measures
-    ``dual_batch_sizes`` only. So an AMP row at a candidate batch outside that set (e.g.
-    bs48) has no fp32 companion and makes the amp follow-up fail-closed UNCONDITIONALLY,
-    blocking the whole ``selected_runtime.json`` write -- even if the row itself fits
-    and is fastest. This structural guard keeps such a row from ever being enumerated. A
-    non-AMP policy (``amp_off_fp32``, e.g. the compiled step winner) needs no companion,
-    so it runs at every efficiency candidate batch, including the bigger ones.
+    Compiled AMP rows use the stage's explicit fp32-eager proof batch rather than
+    requiring an eager fp32 allocation at the larger timed batch. This keeps the new
+    compiled bs48 candidate enumerable while preserving the prior eager-AMP slice at
+    same-batch reference sizes. The parser requires the proof batch to be positive,
+    present in ``dual_batch_sizes``, and no larger than the candidate. Non-AMP policies
+    need no AMP companion.
 
     Returns:
-        True unless the policy is AMP and the batch has no fp32-eager companion.
+        True unless an AMP row lacks its required fp32 proof reference.
 
     """
     if policy.precision_policy not in {AMP_CONSERVATIVE, AMP_SCALAR_GATE_RELAXED}:
         return True
-    return batch_size in stage.dual_batch_sizes
+    if policy.compile_scope != COMPILE_STEP:
+        return batch_size in stage.dual_batch_sizes
+    return (
+        stage.proof_reference_per_device_batch_size in stage.dual_batch_sizes
+        and stage.proof_reference_per_device_batch_size <= batch_size
+    )
 
 
 def _dual_row_specs(
@@ -584,7 +699,11 @@ def _dual_row_specs(
             accelerator_mode=DUAL_T4_DDP,
             batch_size=batch_size,
             corruption_strategy=corruption_strategy,
-            candidate_role="selected_runtime_efficiency_followup",
+            candidate_role=(
+                "selected_runtime_efficiency_diagnostic"
+                if policy.diagnostic_only
+                else "selected_runtime_efficiency_followup"
+            ),
             policy=policy,
         )
         for batch_size in stage.efficiency_batch_sizes
@@ -758,7 +877,10 @@ def _single_gate_rows(
             _can_expand_single_gate_rows(runtime_row)
         ):
             continue
-        reference_rows = rows_by_candidate.get(_reference_row_id(runtime_row), ())
+        reference_rows = rows_by_candidate.get(
+            _same_batch_reference_row_id(runtime_row),
+            (),
+        )
         for row in reference_rows:
             cloned = dict(row)
             cloned["candidate_row_id"] = candidate_row_id
@@ -786,7 +908,12 @@ def _run_dual_row(
     request: RuntimeSelectionExecutionRequest,
     settings: pretest.RealDataRuntimePretestSettings,
     row_spec: pretest.RowSpec,
+    proof_reference_per_device_batch_size: int,
 ) -> _DdpLaunchResult:
+    reference_row_id = _proof_reference_row_id(
+        row_spec=row_spec,
+        proof_reference_per_device_batch_size=proof_reference_per_device_batch_size,
+    )
     accelerator = pretest._accelerator_observation()  # noqa: SLF001
     accelerator_failure = pretest._accelerator_failure(  # noqa: SLF001
         row_spec=row_spec,
@@ -808,6 +935,7 @@ def _run_dual_row(
             returncode=-1,
             failure_kind=failure_kind,
             failure_message_hash=pretest._hash_text(failure_message),  # noqa: SLF001
+            reference_row_id=reference_row_id,
         )
 
     config = _DdpRowConfig(
@@ -815,6 +943,7 @@ def _run_dual_row(
         output_dir=request.output_dir,
         data_root=settings.data_root,
         row_spec=row_spec,
+        proof_reference_per_device_batch_size=proof_reference_per_device_batch_size,
     )
     encoded = _encode_ddp_config(config)
     command = [
@@ -868,23 +997,32 @@ def _run_dual_row(
                 returncode=-1,
                 failure_kind="torchrun_timeout",
                 failure_message_hash=pretest._hash_text(message),  # noqa: SLF001
+                reference_row_id=reference_row_id,
             )
         if completed.returncode != 0:
             message = f"{completed.stderr}\n{completed.stdout}"
+            sys.stderr.write(f"{message[-4000:]}\n")
+            available_rank_payloads = _load_available_rank_payloads(rank_dir=rank_dir)
+            rank_failure_kind, rank_oom = _rank_failure_classification(
+                rank_payloads=available_rank_payloads,
+                fallback_kind="torchrun_failed",
+            )
             return _DdpLaunchResult(
                 row=_failure_row(
                     settings=settings,
                     row_spec=row_spec,
                     accelerator=accelerator,
                     status=FAIL_STATUS,
-                    failure_kind="torchrun_failed",
+                    failure_kind=rank_failure_kind,
                     failure_message=message,
+                    oom=rank_oom,
                 ),
                 rank_payloads=(),
                 command_display=command_display,
                 returncode=completed.returncode,
-                failure_kind="torchrun_failed",
+                failure_kind=rank_failure_kind,
                 failure_message_hash=pretest._hash_text(message[-1000:]),  # noqa: SLF001
+                reference_row_id=reference_row_id,
             )
         rank_payloads = _load_rank_payloads(rank_dir=rank_dir)
     row = _dual_row_from_rank_payloads(
@@ -906,6 +1044,7 @@ def _run_dual_row(
         returncode=completed.returncode,
         failure_kind="" if row["status"] == PASS_STATUS else row["failure_kind"],
         failure_message_hash=row["failure_message_hash"],
+        reference_row_id=reference_row_id,
     )
 
 
@@ -939,6 +1078,44 @@ def _dual_row_from_rank_payloads(
             failure_kind=failure_kind,
             failure_message=failure_kind,
             oom=oom,
+        )
+    if row_spec.compile_scope != COMPILE_NONE and not all(
+        payload.get("dynamo_counter_source_available") is True
+        for payload in rank_payloads
+    ):
+        failure_kind = "compiled_dynamo_counter_source_unavailable"
+        return _failure_row(
+            settings=settings,
+            row_spec=row_spec,
+            accelerator=accelerator,
+            status=FAIL_STATUS,
+            failure_kind=failure_kind,
+            failure_message=failure_kind,
+        )
+    if row_spec.compile_scope != COMPILE_NONE and not all(
+        payload.get("dynamo_counter_schema_available") is True
+        for payload in rank_payloads
+    ):
+        failure_kind = "compiled_dynamo_counter_schema_unavailable"
+        return _failure_row(
+            settings=settings,
+            row_spec=row_spec,
+            accelerator=accelerator,
+            status=FAIL_STATUS,
+            failure_kind=failure_kind,
+            failure_message=failure_kind,
+        )
+    if row_spec.compile_scope == COMPILE_STEP and not all(
+        _compiled_execution_proof_passed(payload) for payload in rank_payloads
+    ):
+        failure_kind = _COMPILED_EXECUTION_PROOF_FAILURE_KIND
+        return _failure_row(
+            settings=settings,
+            row_spec=row_spec,
+            accelerator=accelerator,
+            status=FAIL_STATUS,
+            failure_kind=failure_kind,
+            failure_message=failure_kind,
         )
     step_samples = _global_step_ms(rank_payloads)
     steady_p50 = pretest._percentile(step_samples, 0.50)  # noqa: SLF001
@@ -1022,6 +1199,46 @@ def _global_step_ms(rank_payloads: Sequence[JsonObject]) -> list[float]:
         return []
     min_len = min(len(steps) for steps in rank_step_ms)
     return [max(steps[index] for steps in rank_step_ms) for index in range(min_len)]
+
+
+def _counter_key_present(payload: JsonObject, needle: str) -> bool:
+    """Return whether a nested counter key contains ``needle``.
+
+    Counter totals intentionally interpret an absent key as zero, so eligibility needs
+    this separate schema observation from the settle trace.
+
+    Returns:
+        Whether the installed counter schema emitted a matching key.
+
+    """
+    lowered = needle.lower()
+    return any(
+        lowered in key.lower()
+        or (
+            isinstance(value, dict)
+            and _counter_key_present(cast("JsonObject", value), needle)
+        )
+        for key, value in payload.items()
+    )
+
+
+def _compiled_execution_proof_passed(payload: JsonObject) -> bool:
+    """Return whether a rank carried the complete compiled-update proof contract.
+
+    Returns:
+        Whether all required compiled execution observations are present and passing.
+
+    """
+    proof = payload.get("compiled_execution_proof")
+    return (
+        isinstance(proof, dict)
+        and proof.get("status") == PASS_STATUS
+        and proof.get("outputs_finite") is True
+        and proof.get("parameter_update_finite_nonzero") is True
+        and type(proof.get("successful_optimizer_update_count")) is int
+        and proof.get("successful_optimizer_update_count") == 1
+        and proof.get("ddp_parameters_in_sync") is True
+    )
 
 
 def _failure_row(
@@ -1242,7 +1459,7 @@ def _dual_numerical_rows(
     for result in results:
         runtime_row = result.row
         candidate_steps = by_row_id.get(runtime_row["row_id"], ())
-        reference_steps = by_row_id.get(_reference_row_id(runtime_row), ())
+        reference_steps = by_row_id.get(result.reference_row_id, ())
         if (
             runtime_row["status"] != PASS_STATUS
             or not candidate_steps
@@ -1252,6 +1469,7 @@ def _dual_numerical_rows(
                 _empty_numerical_row(
                     settings=settings,
                     runtime_row=runtime_row,
+                    reference_row_id=result.reference_row_id,
                     status=SKIPPED_UNSUPPORTED,
                     failure_kind="dual_t4_numerical_proof_missing",
                 ),
@@ -1268,6 +1486,7 @@ def _dual_numerical_rows(
                     _empty_numerical_row(
                         settings=settings,
                         runtime_row=runtime_row,
+                        reference_row_id=result.reference_row_id,
                         status=SKIPPED_UNSUPPORTED,
                         failure_kind="dual_t4_reference_batch_missing",
                     ),
@@ -1277,6 +1496,7 @@ def _dual_numerical_rows(
                 _dual_numerical_row_from_delta(
                     settings=settings,
                     runtime_row=runtime_row,
+                    reference_row_id=result.reference_row_id,
                     reference=reference,
                     candidate=candidate,
                     batch_index=batch_index,
@@ -1289,6 +1509,7 @@ def _dual_numerical_row_from_delta(
     *,
     settings: pretest.RealDataRuntimePretestSettings,
     runtime_row: CsvRow,
+    reference_row_id: str,
     reference: JsonObject,
     candidate: JsonObject,
     batch_index: int,
@@ -1306,7 +1527,7 @@ def _dual_numerical_row_from_delta(
         "accelerator_mode": runtime_row["accelerator_mode"],
         "machine_shape": EXPECTED_MACHINE_SHAPE,
         "row_id": f"{runtime_row['row_id']}__numerical__batch_{batch_index}",
-        "reference_row_id": _reference_row_id(runtime_row),
+        "reference_row_id": reference_row_id,
         "candidate_row_id": runtime_row["row_id"],
         "runtime_policy_id": runtime_row.get(
             "runtime_policy_id",
@@ -1382,7 +1603,9 @@ def _dual_numerical_row_from_delta(
         ),
         "gate_health_status": PASS_STATUS,
         "nonfinite_count": str(pretest._required_int(delta, "nonfinite_count")),  # noqa: SLF001
-        "amp_step_skipped": "false",
+        "amp_step_skipped": pretest._format_bool(  # noqa: SLF001
+            value=pretest._required_bool(delta, "amp_step_skipped"),  # noqa: SLF001
+        ),
         "status": status,
         "failure_kind": ""
         if status == PASS_STATUS
@@ -1394,6 +1617,7 @@ def _empty_numerical_row(
     *,
     settings: pretest.RealDataRuntimePretestSettings,
     runtime_row: CsvRow,
+    reference_row_id: str,
     status: str,
     failure_kind: str,
 ) -> CsvRow:
@@ -1406,7 +1630,7 @@ def _empty_numerical_row(
         "accelerator_mode": runtime_row["accelerator_mode"],
         "machine_shape": EXPECTED_MACHINE_SHAPE,
         "row_id": runtime_row["row_id"],
-        "reference_row_id": _reference_row_id(runtime_row),
+        "reference_row_id": reference_row_id,
         "candidate_row_id": runtime_row["row_id"],
         "runtime_policy_id": runtime_row.get(
             "runtime_policy_id",
@@ -1433,7 +1657,7 @@ def _dual_corruption_rows(
     for result in results:
         runtime_row = result.row
         candidate_steps = by_row_id.get(runtime_row["row_id"], ())
-        reference_steps = by_row_id.get(_reference_row_id(runtime_row), ())
+        reference_steps = by_row_id.get(result.reference_row_id, ())
         if (
             runtime_row["status"] != PASS_STATUS
             or not candidate_steps
@@ -1443,6 +1667,7 @@ def _dual_corruption_rows(
                 _empty_corruption_row(
                     settings=settings,
                     runtime_row=runtime_row,
+                    reference_row_id=result.reference_row_id,
                     status=SKIPPED_UNSUPPORTED,
                     failure_kind="dual_t4_corruption_proof_missing",
                 ),
@@ -1459,6 +1684,7 @@ def _dual_corruption_rows(
                     _empty_corruption_row(
                         settings=settings,
                         runtime_row=runtime_row,
+                        reference_row_id=result.reference_row_id,
                         status=SKIPPED_UNSUPPORTED,
                         failure_kind="dual_t4_reference_corruption_batch_missing",
                     ),
@@ -1468,6 +1694,7 @@ def _dual_corruption_rows(
                 _dual_corruption_row_from_proof(
                     settings=settings,
                     runtime_row=runtime_row,
+                    reference_row_id=result.reference_row_id,
                     reference=reference,
                     candidate=candidate,
                     batch_index=batch_index,
@@ -1480,6 +1707,7 @@ def _dual_corruption_row_from_proof(
     *,
     settings: pretest.RealDataRuntimePretestSettings,
     runtime_row: CsvRow,
+    reference_row_id: str,
     reference: JsonObject,
     candidate: JsonObject,
     batch_index: int,
@@ -1498,7 +1726,7 @@ def _dual_corruption_row_from_proof(
         "accelerator_mode": runtime_row["accelerator_mode"],
         "machine_shape": EXPECTED_MACHINE_SHAPE,
         "row_id": f"{runtime_row['row_id']}__corruption__train__batch_{batch_index}",
-        "reference_row_id": _reference_row_id(runtime_row),
+        "reference_row_id": reference_row_id,
         "candidate_row_id": runtime_row["row_id"],
         "runtime_policy_id": runtime_row.get(
             "runtime_policy_id",
@@ -1537,6 +1765,7 @@ def _empty_corruption_row(
     *,
     settings: pretest.RealDataRuntimePretestSettings,
     runtime_row: CsvRow,
+    reference_row_id: str,
     status: str,
     failure_kind: str,
 ) -> CsvRow:
@@ -1549,7 +1778,7 @@ def _empty_corruption_row(
         "accelerator_mode": runtime_row["accelerator_mode"],
         "machine_shape": EXPECTED_MACHINE_SHAPE,
         "row_id": runtime_row["row_id"],
-        "reference_row_id": _reference_row_id(runtime_row),
+        "reference_row_id": reference_row_id,
         "candidate_row_id": runtime_row["row_id"],
         "runtime_policy_id": runtime_row.get(
             "runtime_policy_id",
@@ -1724,7 +1953,11 @@ def _clean_validation_corruption_rows(
     settings: pretest.RealDataRuntimePretestSettings,
     runtime_rows: Sequence[CsvRow],
     dataloader_rows: Sequence[CsvRow],
+    dual_results: Sequence[_DdpLaunchResult],
 ) -> list[CsvRow]:
+    reference_ids = {
+        result.row["row_id"]: result.reference_row_id for result in dual_results
+    }
     rows: list[CsvRow] = []
     for runtime_row in runtime_rows:
         if runtime_row["status"] != PASS_STATUS:
@@ -1761,7 +1994,10 @@ def _clean_validation_corruption_rows(
             "accelerator_mode": runtime_row["accelerator_mode"],
             "machine_shape": runtime_row["machine_shape"],
             "row_id": f"{row_id}__corruption__validation_clean",
-            "reference_row_id": _reference_row_id(runtime_row),
+            "reference_row_id": reference_ids.get(
+                row_id,
+                _same_batch_reference_row_id(runtime_row),
+            ),
             "candidate_row_id": row_id,
             "runtime_policy_id": runtime_row.get(
                 "runtime_policy_id",
@@ -1857,7 +2093,35 @@ def _rank0_proof(result: _DdpLaunchResult) -> JsonObject | None:
     return None
 
 
-def _reference_row_id(runtime_row: CsvRow) -> str:
+def _proof_reference_row_id(
+    *,
+    row_spec: pretest.RowSpec,
+    proof_reference_per_device_batch_size: int,
+) -> str:
+    """Return the configured fp32-eager reference used by linked proofs.
+
+    Returns:
+        The default-policy branchless fp32 row ID at the proof batch, independent of
+        the candidate's larger timed batch.
+
+    """
+    return _row_id(
+        accelerator_mode=row_spec.accelerator_mode,
+        batch_size=proof_reference_per_device_batch_size,
+        precision_policy=AMP_OFF_FP32,
+        compile_scope=COMPILE_NONE,
+        corruption_strategy=BRANCHLESS_ALL,
+        runtime_policy_id=DEFAULT_RUNTIME_POLICY_ID,
+    )
+
+
+def _same_batch_reference_row_id(runtime_row: CsvRow) -> str:
+    """Return the same-batch fp32 reference for non-efficiency rows.
+
+    Returns:
+        The default-policy branchless fp32 row ID at the candidate's timed batch.
+
+    """
     return _row_id(
         accelerator_mode=runtime_row["accelerator_mode"],
         batch_size=int(runtime_row["per_device_batch_size"]),
@@ -2012,6 +2276,16 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                     collate_fn=collate_patch_training_samples,
                 ),
             )
+            proof_loader = cast(
+                "object",
+                DataLoader(
+                    Subset(train_dataset, train_indices),
+                    batch_size=config.proof_reference_per_device_batch_size,
+                    shuffle=False,
+                    num_workers=pretest.DEFAULT_DATALOADER_NUM_WORKERS,
+                    collate_fn=collate_patch_training_samples,
+                ),
+            )
             raw_model = build_model(
                 MODEL_KIND_NON_EQ_TRANSLATABLE,
                 model_config={"norm_groups": settings.norm_groups},
@@ -2072,14 +2346,16 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
             # path.
             compiled_step_fn: object | None = None
             if config.row_spec.compile_scope == COMPILE_STEP:
-                ddp_model, optimizer, compiled_step_fn = _build_compiled_ddp_step(
-                    raw_model=cast("object", raw_model),
-                    local_rank=local_rank,
-                    device=device,
-                    profile=profile,
-                    settings=settings,
-                    row_spec=config.row_spec,
-                    torch_module=torch,
+                ddp_model, optimizer, _eager_step_fn, compiled_step_fn = (
+                    _build_compiled_ddp_step(
+                        raw_model=cast("object", raw_model),
+                        local_rank=local_rank,
+                        device=device,
+                        profile=profile,
+                        settings=settings,
+                        row_spec=config.row_spec,
+                        torch_module=torch,
+                    )
                 )
                 model = cast("object", ddp_model)
             else:
@@ -2101,9 +2377,151 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                     settings=settings,
                     row_spec=config.row_spec,
                 )
-            scaler = _grad_scaler(torch_module=torch, row_spec=config.row_spec)
+            scaler = build_fastpath_grad_scaler(
+                enabled=config.row_spec.grad_scaler_enabled,
+            )
+            proof_steps = []
+            proof_amp_calibration_step_count = 0
+            proof_amp_calibration_skipped_count = 0
+            calibration_amp_step_count = 0
+            calibration_amp_step_skipped_count = 0
+            measured_amp_step_skipped_count = 0
+
+            def run_proof_steps(
+                *,
+                proof_model: object,
+                proof_raw_model: object,
+                proof_optimizer: object,
+                proof_scaler: object,
+            ) -> None:
+                nonlocal proof_amp_calibration_step_count, proof_amp_calibration_skipped_count  # noqa: E501
+                for proof_index in range(pretest.REQUIRED_NUMERICAL_FIXED_BATCHES):
+
+                    def run_attempt(fixed_index: int = proof_index) -> JsonObject:
+                        # Recreate and advance the iterator so a skipped GradScaler
+                        # attempt retries the exact fixed proof batch. The skip is
+                        # calibration, not measured failure evidence; only a successful
+                        # update becomes linked numerical/corruption proof.
+                        proof_iterator = iter(cast("object", proof_loader))
+                        for _ in range(fixed_index):
+                            next(proof_iterator)
+                        return _run_one_ddp_batch(
+                            iterator=proof_iterator,
+                            model=proof_model,
+                            raw_model=proof_raw_model,
+                            optimizer=proof_optimizer,
+                            scaler=proof_scaler,
+                            device=device,
+                            profile=profile,
+                            normalize_uint8_batch_fn=normalize_uint8_batch,
+                            corrupt_normalized_batch_fn=corrupt_normalized_batch,
+                            settings=settings,
+                            step_index=fixed_index,
+                            row_spec=config.row_spec,
+                            latent_channels=latent_channels,
+                            beta_for_step_fn=beta_for_step,
+                            train_step_request_factory=TrainStepRequest,
+                            run_train_step_fn=run_train_step,
+                            compute_vae_loss_fn=compute_vae_loss,
+                            capture_gate_rows=rank == 0 and fixed_index == 0,
+                        )
+
+                    proof, attempt_count, skipped_count = (
+                        _run_until_successful_amp_proof(
+                            run_attempt=run_attempt,
+                            fixed_batch_index=proof_index,
+                        )
+                    )
+                    proof_amp_calibration_step_count += attempt_count
+                    proof_amp_calibration_skipped_count += skipped_count
+                    proof_steps.append(proof)
+
+            # Whole-step settle performs optimizer updates. Its paired proof must run
+            # first, on the configured fp32-reference batch, so candidate/reference
+            # telemetry starts from the same seeded model and a bs48 timing candidate
+            # never requires an eager-fp32 bs48 allocation.
+            if compiled_step_fn is not None:
+                # Proof runs on a cloned DDP model so its eager telemetry/update parity
+                # cannot mutate the model/optimizer later used for settle and timing.
+                proof_raw_model = build_model(
+                    MODEL_KIND_NON_EQ_TRANSLATABLE,
+                    model_config={"norm_groups": settings.norm_groups},
+                ).to(device)
+                _set_scalar_gate_precision(
+                    model=proof_raw_model,
+                    force_fp32=(
+                        config.row_spec.precision_policy != AMP_SCALAR_GATE_RELAXED
+                    ),
+                )
+                if config.row_spec.memory_format == "channels_last":
+                    proof_raw_model = proof_raw_model.to(
+                        memory_format=torch.channels_last,
+                    )
+                proof_raw_model.load_state_dict(raw_model.state_dict())
+                (
+                    proof_ddp_model,
+                    proof_optimizer,
+                    proof_eager_step_fn,
+                    proof_compiled_step_fn,
+                ) = _build_compiled_ddp_step(
+                    raw_model=cast("object", proof_raw_model),
+                    local_rank=local_rank,
+                    device=device,
+                    profile=profile,
+                    settings=settings,
+                    row_spec=config.row_spec,
+                    torch_module=torch,
+                )
+                proof_scaler = build_fastpath_grad_scaler(
+                    enabled=config.row_spec.grad_scaler_enabled,
+                )
+                run_proof_steps(
+                    proof_model=proof_ddp_model,
+                    proof_raw_model=proof_raw_model,
+                    proof_optimizer=proof_optimizer,
+                    proof_scaler=proof_scaler,
+                )
+                compiled_execution_proof = _run_compiled_ddp_execution_proof(
+                    iterator=iter(cast("object", proof_loader)),
+                    eager_step_fn=proof_eager_step_fn,
+                    compiled_step_fn=proof_compiled_step_fn,
+                    optimizer=proof_optimizer,
+                    scaler=proof_scaler,
+                    model=proof_ddp_model,
+                    raw_model=proof_raw_model,
+                    device=device,
+                    settings=settings,
+                    step_index=pretest.REQUIRED_NUMERICAL_FIXED_BATCHES,
+                    row_spec=config.row_spec,
+                    latent_channels=latent_channels,
+                    beta_for_step_fn=beta_for_step,
+                    torch_module=torch,
+                    dist_module=dist,
+                )
+                del (
+                    proof_compiled_step_fn,
+                    proof_eager_step_fn,
+                    proof_scaler,
+                    proof_optimizer,
+                    proof_ddp_model,
+                    proof_raw_model,
+                )
+                # The proof owns a different DDP module. Clear its Dynamo/allocator
+                # caches so the timed closure must compile and settle independently;
+                # otherwise a proof-cache hit could make zero-recompile telemetry
+                # describe the wrong module.
+                import gc  # noqa: PLC0415
+
+                import torch._dynamo as torch_dynamo  # noqa: PLC0415, PLC2701
+
+                torch_dynamo.reset()
+                gc.collect()
+                torch.cuda.empty_cache()
+            else:
+                compiled_execution_proof = None
             compile_startup_sec = 0.0
             dynamo_counter_source_available = False
+            dynamo_counter_schema_available = False
             settle_counter_snapshot: JsonObject = {}
             post_settle_counter_snapshot: JsonObject = {}
             post_settle_graph_break_count = 0
@@ -2119,10 +2537,11 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                         # settle leaves first-trace compilation for the post-settle
                         # window, scoring the row as recompiling and making it
                         # permanently ineligible (Spec 0011 S14b).
-                        _run_compiled_ddp_step_batch(
+                        settle = _run_compiled_ddp_step_batch(
                             iterator=settle_iterator,
                             compiled_step_fn=compiled_step_fn,
                             optimizer=optimizer,
+                            scaler=scaler,
                             model=model,
                             device=device,
                             settings=settings,
@@ -2130,6 +2549,10 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                             row_spec=config.row_spec,
                             latent_channels=latent_channels,
                             beta_for_step_fn=beta_for_step,
+                        )
+                        calibration_amp_step_count += 1
+                        calibration_amp_step_skipped_count += int(
+                            bool(settle.get("amp_step_skipped")),
                         )
                     else:
                         _run_ddp_forward_settle_batch(
@@ -2147,10 +2570,24 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                 torch.cuda.synchronize(device)
                 compile_startup_sec = pretest._elapsed_seconds(settle_start_ns)  # noqa: SLF001
                 settle_counter_snapshot = pretest._dynamo_counter_summary()  # noqa: SLF001
+                # The mapping existing is insufficient: a renamed/removed counter key
+                # would otherwise look exactly like a legitimate zero. A settle trace
+                # must prove the installed schema exposes the unique-graph counter;
+                # only then does an absent post-reset key mean zero under Counter
+                # semantics.
+                dynamo_counter_schema_available = _counter_key_present(
+                    settle_counter_snapshot,
+                    "unique_graphs",
+                )
                 pretest._reset_dynamo_counters()  # noqa: SLF001
+            if compiled_step_fn is None:
+                run_proof_steps(
+                    proof_model=model,
+                    proof_raw_model=raw_model,
+                    proof_optimizer=optimizer,
+                    proof_scaler=scaler,
+                )
             iterator = iter(cast("object", train_loader))
-            proof_steps = []
-            amp_step_skipped_count = 0
 
             def run_throughput_batch(step_index: int) -> JsonObject:
                 # Warmup + measured (timed) batches. For a COMPILE_STEP row this drives
@@ -2164,6 +2601,7 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                         iterator=iterator,
                         compiled_step_fn=compiled_step_fn,
                         optimizer=optimizer,
+                        scaler=scaler,
                         model=model,
                         device=device,
                         settings=settings,
@@ -2193,34 +2631,28 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                     capture_gate_rows=False,
                 )
 
-            for proof_index in range(pretest.REQUIRED_NUMERICAL_FIXED_BATCHES):
-                proof = _run_one_ddp_batch(
-                    iterator=iterator,
-                    model=model,
-                    raw_model=raw_model,
-                    optimizer=optimizer,
-                    scaler=scaler,
-                    device=device,
-                    profile=profile,
-                    normalize_uint8_batch_fn=normalize_uint8_batch,
-                    corrupt_normalized_batch_fn=corrupt_normalized_batch,
-                    settings=settings,
-                    step_index=proof_index,
-                    row_spec=config.row_spec,
-                    latent_channels=latent_channels,
-                    beta_for_step_fn=beta_for_step,
-                    train_step_request_factory=TrainStepRequest,
-                    run_train_step_fn=run_train_step,
-                    compute_vae_loss_fn=compute_vae_loss,
-                    capture_gate_rows=rank == 0 and proof_index == 0,
-                )
-                amp_step_skipped_count += int(bool(proof.get("amp_step_skipped")))
-                proof_steps.append(proof)
             for step_index in range(settings.warmup_steps):
                 warmup = run_throughput_batch(
                     step_index + pretest.REQUIRED_NUMERICAL_FIXED_BATCHES,
                 )
-                amp_step_skipped_count += int(bool(warmup.get("amp_step_skipped")))
+                calibration_amp_step_count += 1
+                calibration_amp_step_skipped_count += int(
+                    bool(warmup.get("amp_step_skipped")),
+                )
+            amp_accounting = _amp_phase_accounting(
+                proof_calibration_step_count=proof_amp_calibration_step_count,
+                proof_calibration_skipped_count=proof_amp_calibration_skipped_count,
+                timing_calibration_step_count=calibration_amp_step_count,
+                timing_calibration_skipped_count=(calibration_amp_step_skipped_count),
+                measured_amp_step_skipped_count=measured_amp_step_skipped_count,
+            )
+            pretest._require_successful_amp_calibration_update(
+                grad_scaler_enabled=config.row_spec.grad_scaler_enabled,
+                calibration_step_count=amp_accounting.timing_calibration_step_count,
+                successful_optimizer_update_count=(
+                    amp_accounting.timing_successful_optimizer_update_count
+                ),
+            )
             torch.cuda.reset_peak_memory_stats(device)
             step_ms: list[float] = []
             samples = 0
@@ -2234,7 +2666,16 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                 torch.cuda.synchronize(device)
                 step_ms.append(pretest._elapsed_ms(start_ns))  # noqa: SLF001
                 samples += int(measured["observed_batch_size"])
-                amp_step_skipped_count += int(bool(measured.get("amp_step_skipped")))
+                measured_amp_step_skipped_count += int(
+                    bool(measured.get("amp_step_skipped")),
+                )
+            amp_accounting = _amp_phase_accounting(
+                proof_calibration_step_count=proof_amp_calibration_step_count,
+                proof_calibration_skipped_count=proof_amp_calibration_skipped_count,
+                timing_calibration_step_count=calibration_amp_step_count,
+                timing_calibration_skipped_count=(calibration_amp_step_skipped_count),
+                measured_amp_step_skipped_count=measured_amp_step_skipped_count,
+            )
             if config.row_spec.compile_scope != COMPILE_NONE:
                 post_settle_counter_snapshot = pretest._dynamo_counter_summary()  # noqa: SLF001
                 post_settle_graph_break_count = pretest._counter_total(  # noqa: SLF001
@@ -2260,17 +2701,33 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
                 "samples": samples,
                 "proof_step": proof_steps[0],
                 "proof_steps": proof_steps,
+                "compiled_execution_proof": compiled_execution_proof,
                 "dataloader": dataloader_payload,
                 "runtime_policy_id": config.row_spec.runtime_policy_id,
                 "backend_state_before": backend_state,
                 "backend_state_after": _backend_state(torch_module=torch),
                 "compile_startup_sec": compile_startup_sec,
                 "dynamo_counter_source_available": dynamo_counter_source_available,
+                "dynamo_counter_schema_available": dynamo_counter_schema_available,
                 "settle_counter_snapshot": settle_counter_snapshot,
                 "post_settle_counter_snapshot": post_settle_counter_snapshot,
                 "post_settle_graph_break_count": post_settle_graph_break_count,
                 "post_settle_recompile_count": post_settle_recompile_count,
-                "amp_step_skipped_count": amp_step_skipped_count,
+                "calibration_amp_step_skipped_count": (
+                    amp_accounting.timing_calibration_skipped_count
+                ),
+                "proof_amp_calibration_step_count": (
+                    amp_accounting.proof_calibration_step_count
+                ),
+                "proof_amp_calibration_skipped_count": (
+                    amp_accounting.proof_calibration_skipped_count
+                ),
+                "calibration_successful_optimizer_update_count": (
+                    amp_accounting.timing_successful_optimizer_update_count
+                ),
+                "amp_step_skipped_count": (
+                    amp_accounting.selection_amp_step_skipped_count
+                ),
                 "max_vram_allocated_mb": pretest._cuda_allocated_mb(device),  # noqa: SLF001
                 "max_vram_reserved_mb": pretest._cuda_reserved_mb(device),  # noqa: SLF001
                 "vram_headroom_fraction": pretest._cuda_headroom_fraction(device),  # noqa: SLF001
@@ -2284,17 +2741,14 @@ def _run_ddp_rank_row(config: _DdpRowConfig) -> None:  # noqa: PLR0914, PLR0915
     except (OSError, RuntimeError, StopIteration, TypeError, ValueError) as exc:
         write_json(
             rank_dir / f"rank_{rank}.json",
-            {
-                "status": FAIL_STATUS,
-                "rank": rank,
-                "local_rank": local_rank,
-                "current_device": int(torch.cuda.current_device()),
-                "world_size": int(dist.get_world_size()),
-                "row_id": config.row_spec.row_id,
-                "device_name": torch.cuda.get_device_name(local_rank),
-                "failure_kind": f"ddp_rank_{type(exc).__name__}",
-                "failure_message_hash": pretest._hash_text(str(exc)),  # noqa: SLF001
-            },
+            _ddp_rank_failure_payload(
+                rank=rank,
+                local_rank=local_rank,
+                row_id=config.row_spec.row_id,
+                error=exc,
+                torch_module=torch,
+                dist_module=dist,
+            ),
         )
         raise
     finally:
@@ -2592,10 +3046,9 @@ def _autocast_context(
     row_spec: pretest.RowSpec,
 ) -> AbstractContextManager[object]:
     enabled = row_spec.precision_policy != AMP_OFF_FP32
-    dtype = (
-        cast("object", torch_module).float16
-        if row_spec.autocast_dtype in {"", "float16", "fp16"}
-        else cast("object", torch_module).bfloat16
+    dtype = fastpath_autocast_dtype(
+        row_spec.autocast_dtype,
+        amp_enabled=enabled,
     )
     return cast(
         "AbstractContextManager[object]",
@@ -2606,12 +3059,6 @@ def _autocast_context(
             cache_enabled=False,
         ),
     )
-
-
-def _grad_scaler(*, torch_module: object, row_spec: pretest.RowSpec) -> object:
-    enabled = bool(row_spec.grad_scaler_enabled)
-    cuda_amp = cast("object", torch_module).cuda.amp
-    return cuda_amp.GradScaler(enabled=enabled)
 
 
 def _move_clean_batch_to_device(
@@ -2721,15 +3168,32 @@ def _build_eager_ddp_optimizer(
 # (`runtime_selection._selected_runtime_payload`: any compiled scope -> "inductor"), so
 # the measured settle/throughput reflect the backend the runner consumes.
 _STEP_COMPILE_BACKEND = "inductor"
+_COMPILED_OPTIMIZE_DDP_MODES = frozenset({
+    "ddp_optimizer",
+    "python_reducer",
+    "python_reducer_without_compiled_forward",
+    "no_optimization",
+})
 
 # The failure_kind stamped on a dual row whose per-device batch is VRAM-infeasible: the
 # single-GPU no-DDP screen OOM'd or left under the shared margin. Distinct from a real
 # crash so the row carries oom=true (a clean "does not fit", not a benchmark bug).
 _VRAM_INFEASIBLE_FAILURE_KIND = "dual_t4_ddp_vram_infeasible_oom"
-# Steps the feasibility screen runs so the compiled first-trace scratch + fused
-# optimizer state land in the peak reading (step 1 compiles, step 2 is steady); mirrors
-# the probe's minimum warmup so the free-VRAM read is not taken before real allocation.
-_FEASIBILITY_PROBE_STEPS = 2
+_DDP_RUNTIME_OOM_FAILURE_KIND = "dual_t4_ddp_runtime_oom"
+_COMPILED_EXECUTION_PROOF_FAILURE_KIND = "compiled_execution_proof_missing_or_failed"
+_VRAM_FEASIBILITY_AMP_SKIPS_FAILURE_KIND = (
+    "compiled_step_vram_probe_no_successful_optimizer_update"
+)
+_MAX_PROOF_AMP_CALIBRATION_ATTEMPTS = 8
+_COMPILED_UPDATE_ABS_THRESHOLD = 1.0e-7
+# At least two steps put first-trace and steady allocations in the peak. AMP may need
+# more scale-backoff attempts before a real optimizer update allocates fused state.
+_MIN_FEASIBILITY_PROBE_STEPS = 2
+_MAX_FEASIBILITY_PROBE_STEPS = _MAX_PROOF_AMP_CALIBRATION_ATTEMPTS
+
+
+class _FeasibilityProbeAmpStepsSkippedError(RuntimeError):
+    """Signal that bounded AMP probe steps never allocated optimizer state."""
 
 
 def _all_reduce_int(value: int, *, device: object) -> int:
@@ -2770,9 +3234,10 @@ def _screen_compiled_step_vram_feasibility(
     VRAM failure here (see :func:`is_oom_error`) issues no collective, so it is returned
     as a flag the caller reduces (the only cross-rank op) and cannot desync the peer; a
     truly-unexpected error re-raises instead. Synthetic zero tensors drive
-    ``_FEASIBILITY_PROBE_STEPS`` full steps so the inductor first-trace scratch, the
-    activations, the gradients, and the fused optimizer state all land in the physical
-    free-VRAM reading. A batch is infeasible if the probe OOMs or leaves less than the
+    at least ``_MIN_FEASIBILITY_PROBE_STEPS`` full steps and permits bounded AMP
+    calibration so the inductor first-trace scratch, activations, gradients, and fused
+    optimizer state all land in the physical free-VRAM reading. A batch is infeasible
+    if the probe OOMs or leaves less than the
     shared ``VRAM_MARGIN_MB`` -- the DDP-only footprint (buckets, NCCL buffers, split
     graph) the real dual-T4 timing adds on top. The synthetic no-dataset path is reused
     ONLY for this feasibility verdict, never for the throughput number (Spec 0011 S14c).
@@ -2798,6 +3263,7 @@ def _screen_compiled_step_vram_feasibility(
     from eqvae.training.fastpath_recipe import (  # noqa: PLC0415
         apply_fastpath_dynamo_config,
         build_fastpath_optimizer,
+        compiled_autograd_context,
     )
     from eqvae.training.fastpath_step import make_fastpath_step_fn  # noqa: PLC0415
     from eqvae.training.optim import SpecAdamWConfig  # noqa: PLC0415
@@ -2834,13 +3300,19 @@ def _screen_compiled_step_vram_feasibility(
                 fused=row_spec.fused_optimizer,
             ),
         )
+        scaler = build_fastpath_grad_scaler(
+            enabled=row_spec.grad_scaler_enabled,
+        )
         corruptor = InlineStainCorruptor(profile).to(device=device)
         step_fn = make_fastpath_step_fn(
             model,
             corruptor,
             ssim_weight=settings.ssim_weight,
-            autocast_dtype=torch.float32,
-            autocast_enabled=False,
+            autocast_dtype=fastpath_autocast_dtype(
+                row_spec.autocast_dtype,
+                amp_enabled=row_spec.precision_policy != AMP_OFF_FP32,
+            ),
+            autocast_enabled=row_spec.precision_policy != AMP_OFF_FP32,
         )
         compiled_step_fn = torch.compile(
             step_fn,
@@ -2868,15 +3340,43 @@ def _screen_compiled_step_vram_feasibility(
             eps = eps.contiguous(memory_format=torch.channels_last)
         beta = torch.zeros((), device=device)
         # Bound before the loop so the feasible-path ``del output`` below stays defined
-        # even to a checker that cannot prove range(_FEASIBILITY_PROBE_STEPS) iterates;
+        # even to a checker that cannot prove the bounded range iterates;
         # the loop always rebinds it to the last step's real output.
         output = None
-        for _ in range(_FEASIBILITY_PROBE_STEPS):
+        amp_step_skips: list[bool] = []
+        for _ in range(_MAX_FEASIBILITY_PROBE_STEPS):
             optimizer.zero_grad(set_to_none=True)
             output = compiled_step_fn(x_uint8, eps, beta)
-            output.loss.backward()
-            optimizer.step()
-        headroom = probe_headroom_bytes(device)
+            amp_step_skips.append(
+                run_fastpath_optimizer_step(
+                    loss=output.loss,
+                    optimizer=optimizer,
+                    parameters=model.parameters(),
+                    scaler=scaler,
+                    grad_scaler_enabled=row_spec.grad_scaler_enabled,
+                    gradient_clip_global_norm=settings.gradient_clip_global_norm,
+                    gradient_clip_foreach=row_spec.gradient_clip_foreach,
+                    backward_context=compiled_autograd_context(
+                        enabled=row_spec.compiled_autograd,
+                    ),
+                ),
+            )
+            if (
+                len(amp_step_skips) >= _MIN_FEASIBILITY_PROBE_STEPS
+                and _successful_feasibility_optimizer_updates(
+                    amp_step_skips=amp_step_skips,
+                )
+                > 0
+            ):
+                break
+
+        successful_optimizer_updates = _successful_feasibility_optimizer_updates(
+            amp_step_skips=amp_step_skips,
+        )
+        headroom = _probe_headroom_after_successful_optimizer_update(
+            successful_optimizer_updates=successful_optimizer_updates,
+            device=device,
+        )
     except torch.cuda.OutOfMemoryError:
         # Infeasible: no real DDP build follows on this rank, so the (partial) locals
         # are freed on return; just reset the process dynamo cache + peak stats.
@@ -2900,11 +3400,46 @@ def _screen_compiled_step_vram_feasibility(
     # to the fresh model + compiled artifacts BEFORE the reset's empty_cache -- only
     # then can empty_cache release those blocks (and defragment) for the real build.
     # ``output`` (the last step's FastpathStepOutput, holding a full [B, C, H, W]
-    # ``reconstruction``) is always bound here since _FEASIBILITY_PROBE_STEPS >= 1, and
+    # ``reconstruction``) is always bound here since the maximum steps are >= 1, and
     # must be dropped too or its block outlives empty_cache.
-    del model, optimizer, corruptor, step_fn, compiled_step_fn
+    del model, optimizer, scaler, corruptor, step_fn, compiled_step_fn
     del x_uint8, eps, beta, output
     return _reset_after_feasibility_probe(torch, torch_dynamo, device=device, flag=flag)
+
+
+def _probe_headroom_after_successful_optimizer_update(
+    *,
+    successful_optimizer_updates: int,
+    device: object,
+) -> int:
+    """Read headroom only after at least one optimizer update allocated its state.
+
+    Returns:
+        Physical free-VRAM headroom in bytes.
+
+    Raises:
+        _FeasibilityProbeAmpStepsSkippedError: If GradScaler skipped every bounded
+            probe step, leaving optimizer-state allocation unproven.
+
+    """
+    if successful_optimizer_updates <= 0:
+        raise _FeasibilityProbeAmpStepsSkippedError(
+            _VRAM_FEASIBILITY_AMP_SKIPS_FAILURE_KIND,
+        )
+    return probe_headroom_bytes(device)
+
+
+def _successful_feasibility_optimizer_updates(
+    *,
+    amp_step_skips: Sequence[bool],
+) -> int:
+    """Count bounded VRAM-probe updates not skipped by GradScaler.
+
+    Returns:
+        The number of probe steps whose optimizer update executed.
+
+    """
+    return sum(int(not skipped) for skipped in amp_step_skips)
 
 
 def _reset_after_feasibility_probe(
@@ -2968,6 +3503,43 @@ def _vram_infeasible_rank_payload(
     }
 
 
+def _ddp_rank_failure_payload(
+    *,
+    rank: int,
+    local_rank: int,
+    row_id: str,
+    error: BaseException,
+    torch_module: object,
+    dist_module: object,
+) -> JsonObject:
+    """Build a classified child failure payload before torchrun tears peers down.
+
+    Returns:
+        A rank payload that distinguishes runtime VRAM exhaustion, bounded AMP-probe
+        skip failure, and unrelated child errors.
+
+    """
+    oom = is_oom_error(error)
+    if oom:
+        failure_kind = _DDP_RUNTIME_OOM_FAILURE_KIND
+    elif isinstance(error, _FeasibilityProbeAmpStepsSkippedError):
+        failure_kind = _VRAM_FEASIBILITY_AMP_SKIPS_FAILURE_KIND
+    else:
+        failure_kind = f"ddp_rank_{type(error).__name__}"
+    return {
+        "status": FAIL_STATUS,
+        "rank": rank,
+        "local_rank": local_rank,
+        "current_device": int(torch_module.cuda.current_device()),
+        "world_size": int(dist_module.get_world_size()),
+        "row_id": row_id,
+        "device_name": torch_module.cuda.get_device_name(local_rank),
+        "failure_kind": failure_kind,
+        "failure_message_hash": pretest._hash_text(str(error)),  # noqa: SLF001
+        "oom": oom,
+    }
+
+
 def _build_compiled_ddp_step(
     *,
     raw_model: object,
@@ -2977,7 +3549,7 @@ def _build_compiled_ddp_step(
     settings: pretest.RealDataRuntimePretestSettings,
     row_spec: pretest.RowSpec,
     torch_module: object,
-) -> tuple[object, object, object]:
+) -> tuple[object, object, object, object]:
     """Build the DDP model, fused optimizer, and compiled whole-step closure.
 
     Mirrors the runner's ``_maybe_build_compiled_step`` (Spec 0011 S16): the DDP wrap,
@@ -2988,41 +3560,29 @@ def _build_compiled_ddp_step(
     consumes. The returned DDP model is invoked eagerly in the full-telemetry proof
     loop; the compiled closure drives the settle/warmup/measured loops.
 
-    Two fail-closed preconditions keep the measured recipe faithful to what the runner
+    One fail-closed precondition keeps the measured recipe faithful to what the runner
     consumes (a silently divergent measurement is exactly what Spec 0011 forbids):
 
-    * ``amp_off_fp32`` only -- the closure hardcodes ``autocast_enabled=False`` and no
-      GradScaler, mirroring the runner's fp32 fast path; an AMP precision policy would
-      measure a recipe (fp32) the runner never runs under that policy.
-    * ``static_graph=False`` only -- a ``step`` row interleaves an eager numerical-proof
-      backward between the compiled settle and compiled throughput backwards on the same
-      DDP module. ``static_graph=True`` locks the backward graph structure on the first
-      (compiled) iteration, which the differently-structured eager proof backward
-      violates. (The committed ``model_forward`` path is immune: its settle is
-      forward-only and every backward routes through the same eager reducer.)
+    * ``static_graph=False`` only -- a ``step`` row runs the eager numerical-proof
+      backward before compiled settle on the same DDP module. ``static_graph=True``
+      locks the backward structure on that first eager iteration; changing to the
+      compiled closure on the next iteration is not yet proven safe. A4 gives the proof
+      its own module before this guard can be removed.
 
     Returns:
-        A ``(ddp_model, optimizer, compiled_step_fn)`` triple.
+        The DDP model, optimizer, eager closure, and compiled closure. The eager
+        closure is retained only for the untimed same-input compiled-execution proof.
 
     Raises:
-        ValueError: If the ``step`` row requests AMP or ``static_graph=True``, which the
-            compiled-step measurement path cannot faithfully mirror to the runner.
+        ValueError: If the row requests ``static_graph=True``, which this measurement
+            path cannot yet faithfully mirror to the runner.
 
     """
-    if row_spec.precision_policy != AMP_OFF_FP32:
-        message = (
-            "Compiled whole-step measurement mirrors the runner's fp32 fast path only "
-            "(autocast and the GradScaler are not wired into the compiled-step probe), "
-            f"so precision_policy must be {AMP_OFF_FP32!r}; got "
-            f"{row_spec.precision_policy!r}."
-        )
-        raise ValueError(message)
     if row_spec.ddp_static_graph:
         message = (
-            "Compiled whole-step rows interleave an eager numerical-proof backward "
-            "between the compiled settle and compiled throughput backwards on one DDP "
-            "module, so ddp_static_graph must be False (it locks the backward graph "
-            "structure on the first compiled iteration)."
+            "Compiled whole-step rows run an eager numerical-proof backward before "
+            "compiled settle on the same DDP module, so ddp_static_graph must be False "
+            "until A4 isolates the proof module."
         )
         raise ValueError(message)
     from eqvae.corruption.inline_stain import InlineStainCorruptor  # noqa: PLC0415
@@ -3070,15 +3630,314 @@ def _build_compiled_ddp_step(
         cast("object", ddp_model),
         corruptor,
         ssim_weight=settings.ssim_weight,
-        autocast_dtype=cast("object", torch_module).float32,
-        autocast_enabled=False,
+        autocast_dtype=fastpath_autocast_dtype(
+            row_spec.autocast_dtype,
+            amp_enabled=row_spec.precision_policy != AMP_OFF_FP32,
+        ),
+        autocast_enabled=row_spec.precision_policy != AMP_OFF_FP32,
     )
     compiled_step_fn = cast("object", torch_module).compile(
         step_fn,
         dynamic=False,
         backend=_STEP_COMPILE_BACKEND,
     )
-    return cast("object", ddp_model), cast("object", optimizer), compiled_step_fn
+    return (
+        cast("object", ddp_model),
+        cast("object", optimizer),
+        cast("object", step_fn),
+        compiled_step_fn,
+    )
+
+
+def _run_compiled_ddp_execution_proof(  # noqa: PLR0913, PLR0914
+    *,
+    iterator: object,
+    eager_step_fn: object,
+    compiled_step_fn: object,
+    optimizer: object,
+    scaler: object,
+    model: object,
+    raw_model: object,
+    device: object,
+    settings: pretest.RealDataRuntimePretestSettings,
+    step_index: int,
+    row_spec: pretest.RowSpec,
+    latent_channels: int,
+    beta_for_step_fn: object,
+    torch_module: object,
+    dist_module: object,
+) -> JsonObject:
+    """Check one real compiled DDP update outside the timed measurement.
+
+    Inductor intentionally uses a different random stream from eager for the inline
+    stochastic corruption, so eager/compiled value parity is not meaningful here. The
+    useful one-off checks are finite outputs, a finite nonzero optimizer update, and
+    synchronized DDP parameters.
+
+    Returns:
+        Untimed evidence that the compiled update is healthy and synchronized.
+
+    Raises:
+        RuntimeError: If outputs/update are invalid, AMP skips, or ranks diverge.
+
+    """
+    from eqvae.training.ddp_sync_guard import (  # noqa: PLC0415
+        assert_ddp_parameters_exactly_in_sync,
+    )
+    from eqvae.training.fastpath_recipe import (  # noqa: PLC0415
+        compiled_autograd_context,
+    )
+
+    del eager_step_fn
+    torch = cast("object", torch_module)
+    batch = next(cast("object", iterator))
+    x_uint8 = _move_clean_batch_to_device(
+        torch_module=torch_module,
+        clean=batch.images_uint8,
+        device=device,
+        row_spec=row_spec,
+    )
+    shape = cast("tuple[int, int, int, int]", tuple(x_uint8.shape))
+    eps = torch.zeros(
+        (
+            shape[0],
+            latent_channels,
+            settings.image_size // pretest.LATENT_DOWNSAMPLE_FACTOR,
+            settings.image_size // pretest.LATENT_DOWNSAMPLE_FACTOR,
+        ),
+        dtype=torch.float32,
+        device=device,
+    )
+    if row_spec.memory_format == "channels_last":
+        eps = eps.contiguous(memory_format=torch.channels_last)
+    beta_value = cast("object", beta_for_step_fn)(
+        optimizer_step_index=step_index,
+        max_optimizer_steps=settings.warmup_steps + settings.measured_steps + 1,
+        target_beta=settings.beta_target,
+        warmup_fraction=settings.beta_warmup_fraction,
+    )
+    beta = torch.tensor(float(beta_value), dtype=torch.float32, device=device)
+    cast("object", optimizer).zero_grad(set_to_none=row_spec.zero_grad_set_to_none)
+    initial_parameters = _clone_trainable_parameters(
+        cast("object", model).parameters(),
+    )
+    compiled_output = cast("object", compiled_step_fn)(x_uint8, eps, beta)
+    checked_fields = (
+        "loss",
+        "recon_loss",
+        "l1_loss",
+        "ssim_loss",
+        "ssim_metric",
+        "kl_loss",
+        "reconstruction",
+    )
+    for field_name in checked_fields:
+        compiled_value = getattr(compiled_output, field_name)
+        if not bool(torch.isfinite(compiled_value.detach()).all()):
+            message = f"compiled execution proof produced nonfinite {field_name}"
+            raise RuntimeError(message)
+    amp_step_skipped = run_fastpath_optimizer_step(
+        loss=cast("object", compiled_output.loss),
+        optimizer=cast("object", optimizer),
+        parameters=cast("object", model).parameters(),
+        scaler=cast("object", scaler),
+        grad_scaler_enabled=row_spec.grad_scaler_enabled,
+        gradient_clip_global_norm=settings.gradient_clip_global_norm,
+        gradient_clip_foreach=row_spec.gradient_clip_foreach,
+        backward_context=compiled_autograd_context(
+            enabled=row_spec.compiled_autograd,
+        ),
+    )
+    if amp_step_skipped:
+        message = "compiled execution proof AMP update was skipped"
+        raise RuntimeError(message)
+    parameter_update_norm = _parameter_update_norm(
+        before=initial_parameters,
+        after=_trainable_parameters(cast("object", model).parameters()),
+    )
+    if not math.isfinite(parameter_update_norm) or parameter_update_norm <= 0.0:
+        message = "compiled execution proof produced invalid optimizer update"
+        raise RuntimeError(message)
+    assert_ddp_parameters_exactly_in_sync(
+        cast("object", raw_model),
+        world_size=int(cast("object", dist_module).get_world_size()),
+    )
+    return {
+        "status": PASS_STATUS,
+        "outputs_finite": True,
+        "parameter_update_finite_nonzero": True,
+        "parameter_update_norm": parameter_update_norm,
+        "successful_optimizer_update_count": 1,
+        "ddp_parameters_in_sync": True,
+    }
+
+
+def _nested_execution_state_close(  # noqa: PLR0911
+    *,
+    left: object,
+    right: object,
+    torch_module: object,
+) -> tuple[bool, float]:
+    """Compare nested optimizer state with the accepted numerical drift.
+
+    Returns:
+        A pair of ``(close, maximum floating-tensor absolute delta)``.
+
+    """
+    torch = cast("object", torch_module)
+    if torch.is_tensor(left) or torch.is_tensor(right):
+        if not (torch.is_tensor(left) and torch.is_tensor(right)):
+            return (False, 0.0)
+        left_tensor = cast("torch.Tensor", left)
+        right_tensor = cast("torch.Tensor", right)
+        if (
+            left_tensor.shape != right_tensor.shape
+            or left_tensor.dtype != right_tensor.dtype
+        ):
+            return (False, 0.0)
+        if not (left_tensor.is_floating_point() or left_tensor.is_complex()):
+            return (bool(torch.equal(left_tensor, right_tensor)), 0.0)
+        delta = float(torch.amax(torch.abs(left_tensor - right_tensor)).item())
+        return (
+            bool(
+                torch.allclose(
+                    left_tensor,
+                    right_tensor,
+                    rtol=pretest.NUMERICAL_REL_THRESHOLD,
+                    atol=_COMPILED_UPDATE_ABS_THRESHOLD,
+                ),
+            ),
+            delta,
+        )
+    if isinstance(left, dict) or isinstance(right, dict):
+        if not (isinstance(left, dict) and isinstance(right, dict)):
+            return (False, 0.0)
+        if left.keys() != right.keys():
+            return (False, 0.0)
+        comparisons = tuple(
+            _nested_execution_state_close(
+                left=left[key],
+                right=right[key],
+                torch_module=torch_module,
+            )
+            for key in left
+        )
+    elif isinstance(left, (list, tuple)) or isinstance(right, (list, tuple)):
+        if not (
+            isinstance(left, (list, tuple))
+            and isinstance(right, (list, tuple))
+            and len(left) == len(right)
+        ):
+            return (False, 0.0)
+        comparisons = tuple(
+            _nested_execution_state_close(
+                left=left_value,
+                right=right_value,
+                torch_module=torch_module,
+            )
+            for left_value, right_value in zip(left, right, strict=True)
+        )
+    else:
+        return (left == right, 0.0)
+    return (
+        all(close for close, _delta in comparisons),
+        max((delta for _close, delta in comparisons), default=0.0),
+    )
+
+
+def _parameter_update_parity(  # pyright: ignore[reportUnusedFunction]
+    *,
+    initial_parameters: Sequence[object],
+    eager_updated_parameters: Sequence[object],
+    compiled_updated_parameters: Sequence[object],
+    torch_module: object,
+) -> tuple[bool, float]:
+    """Compare optimizer update deltas, not tolerance-dominated absolute weights.
+
+    Returns:
+        A pair of ``(all update deltas close, maximum delta disagreement)``.
+
+    """
+    torch = cast("object", torch_module)
+    if not (
+        len(initial_parameters)
+        == len(eager_updated_parameters)
+        == len(compiled_updated_parameters)
+    ):
+        return (False, 0.0)
+    close = True
+    max_abs_delta = 0.0
+    for initial, eager_updated, compiled_updated in zip(
+        initial_parameters,
+        eager_updated_parameters,
+        compiled_updated_parameters,
+        strict=True,
+    ):
+        initial_tensor = cast("torch.Tensor", initial)
+        eager_delta = cast("torch.Tensor", eager_updated) - initial_tensor
+        compiled_delta = cast("torch.Tensor", compiled_updated) - initial_tensor
+        disagreement = torch.amax(torch.abs(eager_delta - compiled_delta))
+        max_abs_delta = max(max_abs_delta, float(disagreement.item()))
+        close = close and bool(
+            torch.allclose(
+                eager_delta,
+                compiled_delta,
+                rtol=pretest.NUMERICAL_REL_THRESHOLD,
+                atol=_COMPILED_UPDATE_ABS_THRESHOLD,
+            ),
+        )
+    return (close, max_abs_delta)
+
+
+def _run_until_successful_amp_proof(
+    *,
+    run_attempt: Callable[[], JsonObject],
+    fixed_batch_index: int,
+) -> tuple[JsonObject, int, int]:
+    """Retry one fixed proof batch while AMP calibrates, then return only success.
+
+    Returns:
+        The successful proof payload, attempt count, and calibration skip count.
+
+    Raises:
+        RuntimeError: If the bounded calibration window produces no optimizer update.
+
+    """
+    for attempt_count in range(1, _MAX_PROOF_AMP_CALIBRATION_ATTEMPTS + 1):
+        proof = run_attempt()
+        if not bool(proof.get("amp_step_skipped")):
+            return (proof, attempt_count, attempt_count - 1)
+    message = (
+        "AMP proof calibration produced no successful optimizer update for fixed "
+        f"batch {fixed_batch_index}"
+    )
+    raise RuntimeError(message)
+
+
+def _amp_phase_accounting(
+    *,
+    proof_calibration_step_count: int,
+    proof_calibration_skipped_count: int,
+    timing_calibration_step_count: int,
+    timing_calibration_skipped_count: int,
+    measured_amp_step_skipped_count: int,
+) -> _AmpPhaseAccounting:
+    """Derive timing-scaler success and keep calibration out of selection skips.
+
+    Returns:
+        Phase-scoped diagnostics plus the measured-only selection skip count.
+
+    """
+    return _AmpPhaseAccounting(
+        proof_calibration_step_count=proof_calibration_step_count,
+        proof_calibration_skipped_count=proof_calibration_skipped_count,
+        timing_calibration_step_count=timing_calibration_step_count,
+        timing_calibration_skipped_count=timing_calibration_skipped_count,
+        timing_successful_optimizer_update_count=(
+            timing_calibration_step_count - timing_calibration_skipped_count
+        ),
+        selection_amp_step_skipped_count=measured_amp_step_skipped_count,
+    )
 
 
 def _run_compiled_ddp_step_batch(
@@ -3086,6 +3945,7 @@ def _run_compiled_ddp_step_batch(
     iterator: object,
     compiled_step_fn: object,
     optimizer: object,
+    scaler: object,
     model: object,
     device: object,
     settings: pretest.RealDataRuntimePretestSettings,
@@ -3100,12 +3960,12 @@ def _run_compiled_ddp_step_batch(
     backward (eager, or compiled-autograd per the recipe), gradient clipping, and the
     optimizer step stay eager here, exactly as the runner drives the recipe. Only the
     uint8 batch (normalized inside the graph), ``eps``, and a 0-dim ``beta`` tensor
-    cross the graph boundary. ``step``
-    rows are ``amp_off_fp32`` (no GradScaler), so a step is never AMP-skipped.
+    cross the graph boundary. AMP rows use the same persistent GradScaler ordering as
+    the runner.
 
     Returns:
-        The minimal telemetry the throughput loops consume: the observed batch size and
-        the (always-False) AMP-skip flag.
+        The minimal telemetry the throughput loops consume: observed batch size and
+        whether GradScaler skipped the optimizer update.
 
     """
     import torch  # noqa: PLC0415
@@ -3147,20 +4007,22 @@ def _run_compiled_ddp_step_batch(
     # changing its value never forces a ``dynamic=False`` recompile.
     beta = torch.tensor(float(beta_value), dtype=torch.float32, device=device)
     cast("object", optimizer).zero_grad(set_to_none=row_spec.zero_grad_set_to_none)
-    with compiled_autograd_context(enabled=row_spec.compiled_autograd):
-        output = cast("object", compiled_step_fn)(x_uint8, eps, beta)
-        cast("object", output.loss).backward()
-    if settings.gradient_clip_global_norm > 0.0:
-        _clip_grad_norm(
-            torch_module=torch,
-            parameters=list(cast("object", model).parameters()),
-            max_norm=settings.gradient_clip_global_norm,
-            foreach=row_spec.gradient_clip_foreach,
-        )
-    cast("object", optimizer).step()
+    output = cast("object", compiled_step_fn)(x_uint8, eps, beta)
+    amp_step_skipped = run_fastpath_optimizer_step(
+        loss=cast("object", output.loss),
+        optimizer=cast("object", optimizer),
+        parameters=cast("object", model).parameters(),
+        scaler=cast("object", scaler),
+        grad_scaler_enabled=row_spec.grad_scaler_enabled,
+        gradient_clip_global_norm=settings.gradient_clip_global_norm,
+        gradient_clip_foreach=row_spec.gradient_clip_foreach,
+        backward_context=compiled_autograd_context(
+            enabled=row_spec.compiled_autograd,
+        ),
+    )
     return {
         "observed_batch_size": int(shape[0]),
-        "amp_step_skipped": False,
+        "amp_step_skipped": amp_step_skipped,
     }
 
 
@@ -3426,12 +4288,59 @@ def _load_rank_payloads(*, rank_dir: Path) -> tuple[JsonObject, ...]:
     )  # noqa: SLF001
 
 
+def _load_available_rank_payloads(*, rank_dir: Path) -> tuple[JsonObject, ...]:
+    """Load every parseable rank payload left by a nonzero torchrun child.
+
+    Returns:
+        Available payloads ordered by rank; missing peer files are expected after
+        torchrun terminates the process group on the first child failure.
+
+    """
+    payloads: list[JsonObject] = []
+    for path in sorted(rank_dir.glob("rank_*.json")):
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if isinstance(value, dict):
+            payloads.append(cast("JsonObject", value))
+    return tuple(sorted(payloads, key=lambda payload: int(payload.get("rank", 0))))
+
+
+def _rank_failure_classification(
+    *,
+    rank_payloads: Sequence[JsonObject],
+    fallback_kind: str,
+) -> tuple[str, bool]:
+    """Prefer a child's classified OOM, then any classified child failure.
+
+    Returns:
+        ``(failure_kind, oom)`` for the strongest available rank evidence, falling
+        back to the parent process failure only when no child classification exists.
+
+    """
+    oom_failures = [payload for payload in rank_payloads if payload.get("oom") is True]
+    failures = [
+        payload for payload in rank_payloads if payload.get("status") != PASS_STATUS
+    ]
+    classified = oom_failures or failures
+    if not classified:
+        return fallback_kind, False
+    failure_kind = classified[0].get("failure_kind")
+    if not isinstance(failure_kind, str) or not failure_kind:
+        return fallback_kind, bool(oom_failures)
+    return failure_kind, bool(oom_failures)
+
+
 def _encode_ddp_config(config: _DdpRowConfig) -> str:
     payload: JsonObject = {
         "config_path": str(config.config_path),
         "output_dir": str(config.output_dir),
         "data_root": config.data_root,
         "row_spec": pretest._row_spec_payload(config.row_spec),  # noqa: SLF001
+        "proof_reference_per_device_batch_size": (
+            config.proof_reference_per_device_batch_size
+        ),
     }
     return base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
 
@@ -3445,6 +4354,10 @@ def _decode_ddp_config(encoded: str) -> _DdpRowConfig:
         config_path=Path(pretest._required_str(payload, "config_path")),  # noqa: SLF001
         output_dir=Path(pretest._required_str(payload, "output_dir")),  # noqa: SLF001
         data_root=pretest._required_str(payload, "data_root"),  # noqa: SLF001
+        proof_reference_per_device_batch_size=pretest._required_int(  # noqa: SLF001
+            payload,
+            "proof_reference_per_device_batch_size",
+        ),
         row_spec=pretest._row_spec_from_payload(  # noqa: SLF001
             pretest._required_object(payload, "row_spec"),  # noqa: SLF001
         ),

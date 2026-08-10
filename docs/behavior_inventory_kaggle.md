@@ -586,18 +586,16 @@ Current reopened direction:
 - checkpoint retention: keep `best_model.pt`, the final checkpoint, and the
   latest four interval checkpoints, preserving the useful FSQ retention idea
   without reusing FSQ checkpoint formats;
-- Active Spec 0011 v4 ranks complete dual-T4 recipe/batch pairs by
+- Active Spec 0011 ranks complete dual-T4 recipe/batch pairs by
   `floor(real_train_patch_count/global_batch) * synchronized mean steady-step wall
-  time`. It has no minimal-toggle or total GPU-time objective: inventory all plausible
-  installed acceleration values including experimental ones, prove exclusions, begin
-  from maximal compatible bundles, and test sealed complex interactions directly;
+  time`. It is a lean one-off campaign for the two paper architectures, not an
+  exhaustive toggle inventory or reusable search platform;
 - the 309 recovered v2 probes are immutable canonical repo evidence, not a resume prefix
   or standing. They must prevent repeated old singleton/all-batch sweeps and guide batch/
   recipe order; only exact identities close roles, and old `p00310` never executes;
-- the current partial v3 implementation is quarantined fail-closed work. V4 removes the
-  obsolete 118-slot/two-session cap, uses deterministic finite action closure across as
-  many verified resumable sessions as necessary, and still requires relock, local
-  preflight, explicit remote approval, and independent verification before execution;
+- the rejected v3 controller and superseded v4 audit platform are not active. Direct
+  Kaggle probes selected the non-equivariant batch-25 Python-reducer compiled recipe;
+  the exact settings are in `configs/spec0001/non_eq_vae_runtime_winner.json`;
 - compute narrowing alone cannot select the runtime. The later generated-file and real-
   data gates must still measure loader starvation and paired reconstruction quality/LR
   before writing `selected_runtime.json`;
@@ -627,20 +625,13 @@ Current 2026-06-12 local slice status:
   selector generation remains a local data-access step against the real Kaggle
   train/validation shards and is not a Kaggle remote execution step;
 
-Remaining implementation-relock blockers:
-
-- enforce the verified Kaggle T4 benchmark metadata value
-  `machine_shape = "NvidiaTeslaT4"` and the safe single-visible-GPU versus
-  dual-DDP launch mode before remote benchmark push; `dual_t4_ddp` rows must
-  prove two visible T4 devices and two ranks at runtime;
-- run clean-context adversarial spec review after the count target, metadata,
-  and quality/import routes are integrated.
+Remaining experiment blockers: translate the measured winner into the selected-runtime
+runner's config without rewriting historical evidence, run the short real-data LR finder,
+then exercise the real-loader dual-T4 debug/tiny gate.
 
 Full-run blockers after implementation:
 
-- complete and strictly verify the resumable Spec 0011 v4 baseline dual-T4 compute
-  selector; unfinished scope, corrupt lineage, or verifier failure means incomplete with
-  no narrowing;
+- pass the short real dual-T4 selected-runtime gate using the translated Spec 0011 winner;
 - run the generated-file then real-data loader, paired quality, and LR gates for the
   verified compute finalists before selecting per-device/global batch and runtime;
 - require dataloader throughput and paired numerical-check artifacts for the

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import random
 from copy import deepcopy
 from dataclasses import dataclass
@@ -162,13 +163,37 @@ def save_training_checkpoint(  # noqa: PLR0913
         "torch_generator_states": _torch_generator_states_payload(torch_generators),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(payload, path)
+    temporary_path = path.with_name(f".{path.name}.tmp")
+    try:
+        torch.save(payload, temporary_path)
+        _fsync_file(temporary_path)
+        temporary_path.replace(path)
+        _fsync_directory(path.parent)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
     return CheckpointMetadata(
         path=path,
         sha256=_sha256_file(path),
         optimizer_step=optimizer_step,
         successful_optimizer_update_count=successful_optimizer_update_count,
     )
+
+
+def _fsync_file(path: Path) -> None:
+    with path.open("rb") as file_obj:
+        os.fsync(file_obj.fileno())
+
+
+def _fsync_directory(path: Path) -> None:
+    try:
+        file_descriptor = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(file_descriptor)
+    finally:
+        os.close(file_descriptor)
 
 
 def load_training_checkpoint(  # noqa: PLR0913

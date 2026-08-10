@@ -5,16 +5,17 @@ This repo is the paper/research repository for the equivariant VAE work.
 ## Project Boundaries
 
 - Main thesis repo:
-  `/home/maximus/Documents/Tesis/Tesis`
+  `/home/n00b1337/Documents/Max/Tesis/Tesis`
 - This repo:
-  `/home/maximus/Documents/Tesis/equivariant-vae`
+  `/home/n00b1337/Documents/Max/Tesis/equivariant-vae`
 - SIPAIM paper subtree:
   `paper/sipaim2026`
 - Overleaf Git remote:
   `https://git.overleaf.com/69c614433cbc9e46cf226d24`
 - Historical working FSQ reference: read the verbatim extract
-  `kaggle/fsq_train_reference.py` (plain `.py`, no notebook JSON to parse) — the proven
-  dual-T4 fast-path recipe and the MINIMUM efficiency floor to match and ideally beat
+  `kaggle/fsq_train_reference.py` (plain `.py`, no notebook JSON to parse) — a successful
+  dual-T4 run and the MINIMUM efficiency floor to match and ideally beat, NOT an optimized
+  recipe (its flags/parameters were chosen directly, without a comparative search)
   (rule 30). `kaggle/train_runs` is only the raw notebook JSON; do NOT hand-parse it.
   Use the `.py` as architecture/runtime evidence for the broad ResNet-like
   autoencoder shape, Kaggle DDP/AMP/compile efficiency tactics, and training
@@ -165,50 +166,114 @@ This repo is the paper/research repository for the equivariant VAE work.
     in-repo and contradicted the change in flight.
 30. Speed over declared don't-cares (the user has stated this MANY times; agents keep
     violating it). The paper-promotable run is judged on wall-clock TIME PER EPOCH and model
-    quality, NOT on reproducibility or tail-completeness. Treat as a hard default:
+    quality, NOT on reproducibility or tail-completeness. This is a ONE-OFF research
+    experiment comparing two architectures, not production software or a user-facing runtime.
+    Optimize the code we will actually execute on the dual T4s; do not spend experiment time on
+    general compatibility, defensive abstractions, exhaustive malformed-input handling, or
+    historical artifacts that do not protect this run. Treat as a hard default:
     - Exact bit/numerical REPRODUCIBILITY is not a goal — small drift is fine. Prefer the
       faster option: `cudnn.benchmark=True`, never `torch.use_deterministic_algorithms(True)`,
       `cudnn.deterministic=False`, the fastest RNG (drop per-sample / blake2b deterministic
       seeding), fp16-first (fp32 ONLY where numerically REQUIRED, not "to be safe"), and
-      latest/beta torch features. A single global `set_seed` IS fine and expected — FSQ's
-      `set_seed` (`kaggle/fsq_train_reference.py:112`) seeds torch/cuda/numpy for identical
-      DDP-rank init (a real correctness need) while explicitly keeping
-      `cudnn.deterministic=False`/`benchmark=True`; seeding is NOT determinism. What to avoid
-      is deterministic ALGORITHMS, per-sample deterministic seeding, deterministic collate,
-      or sorted reductions added "to be safe".
+      latest/beta torch features. Do not impose deterministic/global training or search RNG;
+      DDP's constructor synchronization supplies identical initial parameters. Fixed seeds are
+      allowed only in construction/unit tests or statistical artifact analysis where stable
+      expected values are the thing being tested. Avoid deterministic algorithms, per-sample
+      deterministic seeding, deterministic collate, or sorted reductions added "to be safe".
     - The dataset TAIL does not matter — use `drop_last=True`; add NO remainder /
-      partial-batch / padding logic (a fixed batch shape is also what CUDA graphs require).
+      partial-batch / padding fallback logic (a fixed batch shape is also what CUDA graphs
+      require). If a proposed batch cannot yield a full shard batch, reject that candidate;
+      never switch the paid run to a variable tail shape to preserve patches.
     Add reproducibility or tail-handling machinery ONLY for a real correctness reason
-    (NaN/divergence), never out of caution. The proven dual-T4 fast-path recipe is captured
+    (NaN/divergence), never out of caution. The successful but UNOPTIMIZED dual-T4 reference is captured
     verbatim in `kaggle/fsq_train_reference.py` (a plain `.py`, no notebook JSON to parse) —
-    it is the MINIMUM efficiency bar we aim at, the floor to MATCH and ideally BEAT. Read it
-    before making any runtime/speed decision; do not ship something slower than it without a
-    measured reason. Tune for the REAL dual-T4: single-GPU / `max-autotune` kernel tuning
+    it is the MINIMUM operational bar to MATCH and ideally BEAT: steady-state throughput /
+    time-per-epoch plus stable quality on shared reconstruction metrics. FSQ-only losses and
+    discrete-latent metrics are not comparison targets. Read it before making any runtime/speed
+    decision; do not ship something slower or materially worse on shared quality evidence
+    without a measured reason. Compile/startup time is a NON-COST for the long run; score the
+    settled step and projected epoch, so expensive autotuning is in-bounds. Tune for the REAL
+    dual-T4: single-GPU / `max-autotune` kernel tuning
     misses the DDP all_reduce-overlap cost, so always search the compute-comm-overlap knobs
     (`compiled_autograd` / `optimize_ddp` / a comm hook) and measure on 2 GPUs.
+    The complete FSQ fast path is a required CONTROL, not an optimum: reproduce its
+    compiled-autograd/DDP pair, read-only mmap + `MADV_SEQUENTIAL`, uint8 H2D,
+    channels-last, pinned loader, static graph, and on-device metric accumulation as
+    candidates, but also test current alternatives for every performance-relevant flag/parameter.
+    The FSQ run performed no ablation or optimization search; never infer that its batch 60,
+    LR 5e-4, one worker/rank, mmap wrapper/advice, channels-last, static graph, compile defaults,
+    AMP details, DDP mode, optimizer form, warmup, or telemetry cadence is best for either VAE.
+    FSQ is not the boundary of the search. Inventory the newest installed PyTorch/Inductor/
+    Dynamo/DDP/optimizer/communication, CUDA/cuDNN, and relevant NCCL performance surfaces.
+    Every plausibly speed-affecting option, including experimental/internal ones absent from the
+    repo, must be measured or have a concrete recorded exclusion reason; then measure important
+    finalist interactions rather than assuming independent main effects compose.
+    Experimental/beta PyTorch features are TRUSTED candidates for this simple model: feature-
+    detect them on the installed latest release, execute them, and keep them if the bounded
+    correctness smoke passes and measured epoch throughput wins. Do not penalize a candidate
+    merely for being experimental.
+    Keep the timed train step free of `.item()`, `.cpu()`, printing, Python decisions on CUDA
+    tensors, and other device-to-host synchronizations except an unavoidable optimizer/AMP or
+    DDP primitive. Accumulate telemetry on-device and materialize it only outside timing or at
+    an infrequent artifact boundary.
+    Do NOT use zero graph breaks as a universal performance gate. Use a single-GPU
+    `fullgraph=True` diagnostic to find accidental breaks, then measure the real DDP execution:
+    stable DDP graph partitions/breaks that enable earlier gradient synchronization are allowed
+    and may beat a break-free graph. Rank the exact executed recipe by settled end-to-end
+    dual-T4 step time/projected epoch time, not by graph aesthetics.
+    Kaggle is the primary test surface for CUDA, Inductor, dual-T4 DDP, VRAM, transfer overlap,
+    and throughput; test those directly there instead of simulating them on the CPU laptop.
+    Runtime/compile/DDP correctness and compute-timing kernels use generated uint8 tensors and
+    attach NO real dataset; reproduce the real shape/layout in memory. Use a tiny generated file
+    in the same binary format for mmap/loader mechanics. Pay the ~30-minute real-dataset mount
+    only after narrowing the compute recipe, specifically for final loader-starvation evidence,
+    learning-rate/quality tuning, or the real run.
+    Keep searches staged and purposeful, and retain the explicit permission guard for every
+    remote write.
 31. Every test's docstring must state its INTENT — the why and the justification, not the
     mechanics. Ruff already forces a docstring to EXIST; no linter can check that it says
     anything useful, so this is a review standard. A test encodes a claim about what is
     CORRECT, and a test that encodes the wrong claim is worse than no test: when the real fix
     lands the test fails, and the next agent "fixes" the code to satisfy the test or concludes
     the fix was wrong. A green gate proves internal consistency, not correctness (rule 20).
-    Each test docstring states:
+    Every test docstring states:
     - **The invariant it pins** — the property that must hold, not the steps it performs.
       "Asserts X == 3" is mechanics; "the schedule is derived, so a non-dividing batch floors
       rather than ceils" is an invariant.
     - **Why that invariant matters** — what actually breaks in the real run if it regresses.
-    - **What KIND of expected value it asserts**, because this tells a future agent whether a
-      failure means "fix the code" or "update the test":
+    When a test pins a non-obvious literal, fixture, tolerance, or external artifact, its
+    docstring also says what KIND of expected value it asserts, because this tells a future
+    agent whether a failure means "fix the code" or "update the test":
       * a DELIBERATE POLICY / safety guard (fail-closed parser, hardware anchor) — keep it;
       * a MEASURED value or a CROSS-CHECK of what some producer currently emits — expected to
         change when the producer or the measurement changes; say so explicitly;
       * a DERIVED relationship — the durable form; prefer it to a frozen literal (rule 29).
-    - **What mutation it would catch.** If you cannot name a concrete change to the source
-      that makes this test fail, the test is vacuous — that is the bug, not a documentation
-      gap. Tests whose names promise an invariant ("applied", "records", "before", "uses")
-      are the usual offenders: they assert presence where they claim ordering or causation.
+    During review, the reviewer must be able to name a concrete source mutation the test
+    catches. The docstring need not recite that mutation when it is already obvious from the
+    invariant and assertion; requiring ritual prose creates churn. If no mutation exists, the
+    test is vacuous — that is the bug, not a documentation gap. Tests whose names promise an
+    invariant ("applied", "records", "before", "uses") are the usual offenders: they assert
+    presence where they claim ordering or causation.
+    A test must also be the cheapest strong proof of a UNIQUE failure. Delete a weaker test
+    when another test already fails on the same mutation; do not preserve redundant tests by
+    inventing different prose. Parameter cases are distinct only when they protect distinct
+    branches or failure modes. When behavior is retired, delete its tests in the same change
+    unless a live artifact consumer still requires compatibility.
     Never write a docstring that over-claims what the assertions check; the docstring is the
     contract a reviewer reads first, and an over-claiming one hides the gap it describes.
+32. Benchmark and execute the runtime on the SAME latest PyTorch/CUDA-compatible stack.
+    Every Kaggle kernel, including pretests, runtime selection, compile probes, debug, and
+    the full run, must call its stdlib-only `_ensure_latest_torch` upgrade to the newest
+    available PyPI release before importing `eqvae`/torch and must record the resolved
+    torch/CUDA versions. Kaggle's preinstalled torch is never authoritative. Do not infer
+    current compatibility from old PyTorch issues or old agent knowledge: check current
+    upstream source/issues against the upgraded version, feature-detect experimental modes,
+    and measure them on the real dual-T4. Decision 0012 is canonical.
+33. Agent-program memory is never a state of record. Any Claude, Codex, Gemini, IDE, or
+    other tool-local memory or plan that affects this repo must also be written into tracked
+    `AGENTS.md`, `CURRENT.md`, `GOAL.md`, or the active spec before an agent relies on it or
+    hands work off. A fresh laptop or different agent must be able to resume from the repo
+    alone; never point a canonical handoff at an untracked program-memory entry.
 
 ## Safe Paper Workflow
 

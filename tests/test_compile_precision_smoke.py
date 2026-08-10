@@ -80,7 +80,12 @@ def test_cpu_float16_autocast_forward_is_finite_when_supported() -> None:
 
 
 def test_gated_scalar_activation_fp16_matches_fp32_reference() -> None:
-    """The learned gate accepts FP16 inputs while computing the sigmoid in FP32."""
+    """The default gate deliberately executes gate math in FP32 for FP16 input.
+
+    The policy protects sigmoid stability while returning FP16 activations. The
+    reference is derived from the formula, and telemetry assertions catch silently
+    disabling ``force_fp32`` even when loose output tolerances still pass.
+    """
     activation = GatedScalarActivation(channels=2)
     inputs = torch.linspace(-2.0, 2.0, steps=16, dtype=torch.float16).reshape(
         1,
@@ -94,13 +99,21 @@ def test_gated_scalar_activation_fp16_matches_fp32_reference() -> None:
         inputs.to(dtype=torch.float32),
     )
 
+    assert activation.force_fp32 is True
+    assert activation.last_gate_math_dtype == "float32"
+    assert activation.last_gate_tensor_dtype == "float32"
     assert outputs.dtype == torch.float16
     assert torch.isfinite(outputs).all()
     assert torch.allclose(outputs.to(dtype=torch.float32), reference, atol=1.0e-3)
 
 
 def test_gated_scalar_activation_relaxed_policy_uses_input_dtype() -> None:
-    """The relaxed AMP policy can run scalar gate sigmoid math in FP16."""
+    """The relaxed speed policy deliberately keeps gate math in the input dtype.
+
+    Its expected value is a policy-selected dtype plus the derived gate formula, not a
+    frozen tensor. Telemetry catches an implementation that computes FP32 and merely
+    casts the output back to FP16, defeating the benchmark axis.
+    """
     activation = GatedScalarActivation(channels=2, force_fp32=False)
     inputs = torch.linspace(-2.0, 2.0, steps=16, dtype=torch.float16).reshape(
         1,
@@ -113,6 +126,8 @@ def test_gated_scalar_activation_relaxed_policy_uses_input_dtype() -> None:
     reference = inputs * torch.sigmoid(inputs)
 
     assert activation.force_fp32 is False
+    assert activation.last_gate_math_dtype == "float16"
+    assert activation.last_gate_tensor_dtype == "float16"
     assert outputs.dtype == torch.float16
     assert torch.isfinite(outputs).all()
     assert torch.equal(outputs, reference)

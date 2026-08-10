@@ -39,15 +39,21 @@ class FastpathStepOutput(NamedTuple):
     kl_loss: Tensor
     reconstruction: Tensor
     logvar_clamp_count: Tensor
+    recon_output_rms: Tensor
+    x_hat_min: Tensor
+    x_hat_max: Tensor
+    frac_x_hat_lt_minus1: Tensor
+    frac_x_hat_gt_1: Tensor
 
 
-def make_fastpath_step_fn(
+def make_fastpath_step_fn(  # noqa: PLR0913
     model: nn.Module,
     corruptor: nn.Module,
     *,
     ssim_weight: float,
     autocast_dtype: torch.dtype,
     autocast_enabled: bool = True,
+    autocast_cache_enabled: bool = True,
 ) -> Callable[[Tensor, Tensor, Tensor], FastpathStepOutput]:
     """Return the compile-ready `step_fn(x_uint8, eps, beta)` closure.
 
@@ -76,10 +82,12 @@ def make_fastpath_step_fn(
             device_type=x_uint8.device.type,
             dtype=autocast_dtype,
             enabled=autocast_enabled,
-            cache_enabled=False,
+            cache_enabled=autocast_cache_enabled,
         ):
             output = cast("VaeForwardOutput", model(x_in, eps=eps))
         losses = vae_loss_core(output, x_clean, beta=beta, ssim_weight=ssim_weight)
+        reconstruction = output.reconstruction.detach()
+        reconstruction_fp32 = reconstruction.float()
         return FastpathStepOutput(
             loss=losses.loss,
             recon_loss=losses.recon_loss.detach(),
@@ -87,8 +95,13 @@ def make_fastpath_step_fn(
             ssim_loss=losses.ssim_loss.detach(),
             ssim_metric=losses.ssim_metric.detach(),
             kl_loss=losses.kl_loss.detach(),
-            reconstruction=output.reconstruction.detach(),
+            reconstruction=reconstruction,
             logvar_clamp_count=output.logvar_clamp_count.detach(),
+            recon_output_rms=reconstruction_fp32.square().mean().double().sqrt(),
+            x_hat_min=reconstruction_fp32.min(),
+            x_hat_max=reconstruction_fp32.max(),
+            frac_x_hat_lt_minus1=(reconstruction_fp32 < -1.0).float().mean(),
+            frac_x_hat_gt_1=(reconstruction_fp32 > 1.0).float().mean(),
         )
 
     return step_fn

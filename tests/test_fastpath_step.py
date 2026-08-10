@@ -24,7 +24,9 @@ if TYPE_CHECKING:
 
 
 def _uint8_batch(generator: torch.Generator) -> torch.Tensor:
-    return torch.randint(0, 256, (2, 3, 64, 64), generator=generator, dtype=torch.uint8)
+    # Graph structure/precision is shape-independent here; 1x16x16 is the smallest
+    # valid three-downsample VAE input and keeps CPU compile/backward checks cheap.
+    return torch.randint(0, 256, (1, 3, 16, 16), generator=generator, dtype=torch.uint8)
 
 
 def _fixture() -> tuple[Callable[..., FastpathStepOutput], torch.Tensor, torch.Tensor]:

@@ -1,0 +1,23 @@
+{
+  "schema_version": "spec0001.v0",
+  "status": "one_off_clean_memorization_probe",
+  "run": {
+    "name": "non_eq_vae_spec0001_clean_memorization",
+    "mode": "kaggle_tiny_overfit"
+  },
+  "source_config": "configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json",
+  "training": {
+    "max_train_steps": 1024,
+    "save_every_steps": 512,
+    "train_reparameterization": "deterministic_zero"
+  },
+  "objective": {
+    "beta": {
+      "target": 0.0
+    }
+  },
+  "corruption": {
+    "profile_name": "no_corruption_probe",
+    "corrupt_prob": 0.0
+  }
+}

@@ -122,7 +122,11 @@ def test_patch_records_reject_blank_idx_when_idx_column_exists(tmp_path: Path) -
 
 
 def test_patch_shard_rejects_crc_mismatch(tmp_path: Path) -> None:
-    """CRC validation catches payload corruption."""
+    """A shard with changed payload bytes must fail before training reads it.
+
+    CRC is the deliberate integrity guard linking CSV metadata to the binary payload;
+    flipping one byte catches a loader that skips or miscomputes that verification.
+    """
     bin_path = tmp_path / "synthetic.bin"
     csv_path = tmp_path / "synthetic.csv"
     write_synthetic_patch_shard(

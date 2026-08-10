@@ -216,6 +216,7 @@ kaggle/kernels/synthetic_timing/run.py
 kaggle/kernels/real_data_runtime_pretest/run.py
 kaggle/kernels/runtime_selection/run.py
 kaggle/kernels/selected_runtime_debug/run.py
+kaggle/kernels/selected_runtime_lr_range/run.py
 kaggle/kernels/selected_runtime_full/run.py
 kaggle/kernels/fixed25_selector/run.py
 kaggle/kernels/selected_runtime_compile_probe/run.py

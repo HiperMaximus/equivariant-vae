@@ -13,6 +13,9 @@ from typing import TYPE_CHECKING, cast
 from eqvae.benchmarking.row_id import compose_selected_row_id
 from eqvae.benchmarking.schedule import training_steps_per_epoch
 from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
+from eqvae.training.fastpath_precision import (
+    EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE,
+)
 
 if TYPE_CHECKING:
     from eqvae.config import JsonObject, JsonValue
@@ -24,6 +27,8 @@ EXPECTED_SELECTED_ROW_ID = (
     "policy_amp_fp16_conservative"
 )
 EXPECTED_RUNTIME_POLICY_ID = "amp_fp16_conservative"
+EXPECTED_SELECTED_TORCH_VERSION = "2.13.0+cu130"
+EXPECTED_SELECTED_CUDA_VERSION = "13.0"
 EXPECTED_DUAL_T4_RANK_COUNT = 2
 EXPECTED_RUNTIME_PROOF_WRITE_POLICY = (
     "write_selected_runtime_only_after_dual_t4_and_all_linked_proofs_pass"
@@ -34,6 +39,8 @@ EXPECTED_AMP_APPLICATION_STATUS = "executed_amp_fp16_conservative"
 # (autocast + grad scaler off), so its local-AMP application status is a distinct,
 # plan-derived value rather than the eager fallback's fp16-conservative constant.
 EXPECTED_AMP_OFF_APPLICATION_STATUS = "executed_amp_off_fp32"
+SPEC0011_SELECTED_RUNTIME_SCHEMA = "spec0011.selected_runtime_plan.v1"
+_SHA256_HEX_LENGTH = 64
 # Spec 0011 S17f -- corruption is a FIXED speed-first property (the vectorized native
 # ``InlineStainCorruptor``), no longer a plan-selected axis: the blake2b per-sample
 # seeding is retired from every runtime path. The observed corruption label records
@@ -45,7 +52,6 @@ EXPECTED_AMP_OFF_APPLICATION_STATUS = "executed_amp_off_fp32"
 COMPILED_FASTPATH_CORRUPTION_STRATEGY = "compiled_fastpath_inline_stain"
 EAGER_INLINE_STAIN_CORRUPTION_STRATEGY = "eager_inline_stain"
 VALIDATION_INLINE_STAIN_CORRUPTION_STRATEGY = "validation_reseeded_inline_stain"
-EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE = 16384.0
 
 
 @dataclass(frozen=True)
@@ -82,6 +88,7 @@ class SelectedRuntimePlan:
     ddp_static_graph: bool
     ddp_gradient_as_bucket_view: bool
     zero_grad_set_to_none: bool
+    gradient_clip_foreach: bool = True
     # Spec 0011 S11 -- compiled fast-path recipe knobs. Optional with eager-v5
     # defaults so pre-S11 plans (the committed v5 fallback omits every knob below)
     # parse byte-identically to the eager recipe. Frozen carrier homes mirror
@@ -103,6 +110,17 @@ class SelectedRuntimePlan:
     ddp_find_unused_parameters: bool = False
     ddp_bucket_cap_mb: int | None = None
     fused_optimizer: bool = False
+    compile_mode: str = "default"
+    cudagraphs: str = "mode_default"
+    inductor_options_json: str = "{}"
+    autocast_cache_enabled: bool = True
+    ddp_forward_sync_buffers: bool | None = None
+    communication_hook: str = "none"
+    nccl_environment_json: str = "{}"
+    tf32_enabled: bool = True
+    matmul_precision: str = "high"
+    torch_version: str = ""
+    cuda_version: str | None = None
 
     def expected_application(self) -> JsonObject:
         """Return the expected values a train run must actually apply.
@@ -142,6 +160,7 @@ class SelectedRuntimePlan:
             "ddp_static_graph": self.ddp_static_graph,
             "ddp_gradient_as_bucket_view": self.ddp_gradient_as_bucket_view,
             "zero_grad_set_to_none": self.zero_grad_set_to_none,
+            "gradient_clip_foreach": self.gradient_clip_foreach,
             "compile_backend": self.compile_backend,
             "compile_dynamic": self.compile_dynamic,
             "optimize_ddp": self.optimize_ddp,
@@ -151,6 +170,15 @@ class SelectedRuntimePlan:
             "ddp_find_unused_parameters": self.ddp_find_unused_parameters,
             "ddp_bucket_cap_mb": self.ddp_bucket_cap_mb,
             "fused_optimizer": self.fused_optimizer,
+            "compile_mode": self.compile_mode,
+            "cudagraphs": self.cudagraphs,
+            "inductor_options_json": self.inductor_options_json,
+            "autocast_cache_enabled": self.autocast_cache_enabled,
+            "ddp_forward_sync_buffers": self.ddp_forward_sync_buffers,
+            "communication_hook": self.communication_hook,
+            "nccl_environment_json": self.nccl_environment_json,
+            "tf32_enabled": self.tf32_enabled,
+            "matmul_precision": self.matmul_precision,
             "selected_runtime_artifact_sha256": self.artifact_sha256,
             "local_ddp_status": EXPECTED_DDP_APPLICATION_STATUS,
             "local_amp_status": expected_local_amp_status(self),
@@ -187,7 +215,7 @@ class SelectedRuntimeApplicationObservation:
     ddp_static_graph: bool
     ddp_gradient_as_bucket_view: bool
     zero_grad_set_to_none: bool
-    # Spec 0011 S17c -- the nine compiled fast-path recipe knobs, observed so a plan
+    # Spec 0011 S17c -- the compiled fast-path recipe knobs, observed so a plan
     # that records a compiled recipe but a run that applies a different one is caught.
     # Every knob but ``ddp_broadcast_buffers`` is checked for equality against the plan;
     # that one tolerates the upward override (see ``_application_mismatches``).
@@ -202,7 +230,17 @@ class SelectedRuntimeApplicationObservation:
     fused_optimizer: bool
     local_ddp_status: str
     local_amp_status: str
+    gradient_clip_foreach: bool = True
     runner_amp_grad_scaler_init_scale: float | None = None
+    compile_mode: str = "default"
+    cudagraphs: str = "mode_default"
+    inductor_options_json: str = "{}"
+    autocast_cache_enabled: bool = True
+    ddp_forward_sync_buffers: bool | None = None
+    communication_hook: str = "none"
+    nccl_environment_json: str = "{}"
+    tf32_enabled: bool = True
+    matmul_precision: str = "high"
 
     def as_json(self) -> JsonObject:
         """Return JSON-safe observed values.
@@ -240,6 +278,7 @@ class SelectedRuntimeApplicationObservation:
             "ddp_static_graph": self.ddp_static_graph,
             "ddp_gradient_as_bucket_view": self.ddp_gradient_as_bucket_view,
             "zero_grad_set_to_none": self.zero_grad_set_to_none,
+            "gradient_clip_foreach": self.gradient_clip_foreach,
             "compile_backend": self.compile_backend,
             "compile_dynamic": self.compile_dynamic,
             "optimize_ddp": self.optimize_ddp,
@@ -249,6 +288,15 @@ class SelectedRuntimeApplicationObservation:
             "ddp_find_unused_parameters": self.ddp_find_unused_parameters,
             "ddp_bucket_cap_mb": self.ddp_bucket_cap_mb,
             "fused_optimizer": self.fused_optimizer,
+            "compile_mode": self.compile_mode,
+            "cudagraphs": self.cudagraphs,
+            "inductor_options_json": self.inductor_options_json,
+            "autocast_cache_enabled": self.autocast_cache_enabled,
+            "ddp_forward_sync_buffers": self.ddp_forward_sync_buffers,
+            "communication_hook": self.communication_hook,
+            "nccl_environment_json": self.nccl_environment_json,
+            "tf32_enabled": self.tf32_enabled,
+            "matmul_precision": self.matmul_precision,
             "local_ddp_status": self.local_ddp_status,
             "local_amp_status": self.local_amp_status,
         }
@@ -283,9 +331,9 @@ def expected_corruption_strategy(plan: SelectedRuntimePlan) -> str:
     Corruption is a fixed inline-stain property, not a plan choice: the
     compiled whole-step fast path (``torch_compile`` enabled with
     ``compile_scope == "step"``) fuses the seedless inline corruptor into the graph,
-    while the eager training path draws it through a dedicated checkpoint-continued
-    generator. Either way the plan's declared ``corruption.strategy`` is informational
-    only; this returns the label the train steps actually record (Spec 0011 S17f).
+    while the eager training path draws it from the ordinary device RNG. Either way the
+    plan's declared ``corruption.strategy`` is informational only; this returns the
+    label the train steps actually record (Spec 0011 S17f).
 
     Returns:
         The expected observed ``corruption_strategy`` for a train run of ``plan``.
@@ -325,19 +373,174 @@ def selected_runtime_plan_errors(
         Stable validation error identifiers.
 
     """
+    source_errors = (
+        _spec0011_winner_source_errors(
+            payload=payload,
+            selected_runtime_path=selected_runtime_path,
+        )
+        if payload.get("schema_version") == SPEC0011_SELECTED_RUNTIME_SCHEMA
+        else _runtime_proof_errors(
+            payload=payload,
+            selected_runtime_path=selected_runtime_path,
+        )
+    )
     return (
         *_top_level_errors(payload),
         *_launch_errors(payload),
         *_snapshot_errors(payload),
         *_safety_errors(payload.get("safety")),
         *_runtime_policy_errors(payload.get("runtime_policy")),
-        *_ddp_optimizer_safety_errors(payload),
+        *_ddp_recipe_safety_errors(payload),
         *_torch_compile_errors(payload.get("torch_compile")),
-        *_runtime_proof_errors(
-            payload=payload,
-            selected_runtime_path=selected_runtime_path,
-        ),
+        *source_errors,
     )
+
+
+def _spec0011_winner_source_errors(  # noqa: C901, PLR0911, PLR0914
+    *,
+    payload: JsonObject,
+    selected_runtime_path: Path | None,
+) -> tuple[str, ...]:
+    """Verify the compact plan against the immutable measured-winner record.
+
+    The plan is a consumer translation, not a relabeled copy of the historical v5
+    artifact. Its one provenance dependency is therefore the compact Spec 0011 winner
+    JSON. Cross-checking the measured identity, batch, and recipe fields prevents a
+    hand-edited plan from silently drifting away from the two final Kaggle confirmations
+    while avoiding the retired audit-platform certificate tree.
+
+    Returns:
+        Stable source-winner validation errors.
+
+    """
+    source = payload.get("source_winner")
+    if not isinstance(source, dict):
+        return ("selected_runtime_missing_source_winner",)
+    source_payload = cast("JsonObject", source)
+    path_value = source_payload.get("path")
+    digest = source_payload.get("sha256")
+    errors: list[str] = []
+    if not isinstance(path_value, str) or not path_value:
+        errors.append("selected_runtime_source_winner_path_invalid")
+    if not isinstance(digest, str) or len(digest) != _SHA256_HEX_LENGTH:
+        errors.append("selected_runtime_source_winner_sha256_invalid")
+    if errors or selected_runtime_path is None:
+        return tuple(errors)
+    winner_path = Path(cast("str", path_value))
+    if not winner_path.is_absolute() and not winner_path.exists():
+        winner_path = selected_runtime_path.parent / winner_path.name
+    if not winner_path.exists():
+        return ("selected_runtime_source_winner_missing",)
+    if _sha256_file(winner_path) != digest:
+        return ("selected_runtime_source_winner_sha256_mismatch",)
+    try:
+        winner = _load_json(winner_path)
+    except (OSError, TypeError, ValueError):
+        return ("selected_runtime_source_winner_unreadable",)
+    selection = winner.get("selection")
+    policy = winner.get("runtime_policy")
+    if not isinstance(selection, dict) or not isinstance(policy, dict):
+        return ("selected_runtime_source_winner_shape_invalid",)
+    selection_payload = cast("JsonObject", selection)
+    policy_payload = cast("JsonObject", policy)
+    cross_checks = {
+        "per_device_batch_size": (
+            payload.get("per_device_batch_size"),
+            selection_payload.get("per_device_batch_size"),
+        ),
+        "global_batch_size": (
+            payload.get("global_batch_size"),
+            selection_payload.get("global_batch_size"),
+        ),
+        "runtime_policy_id": (
+            payload.get("runtime_policy_id"),
+            policy_payload.get("runtime_policy_id"),
+        ),
+    }
+    errors.extend(
+        f"selected_runtime_source_winner_{name}_mismatch"
+        for name, (plan_value, winner_value) in cross_checks.items()
+        if plan_value != winner_value
+    )
+    snapshot = payload.get("selected_row_snapshot")
+    if not isinstance(snapshot, dict):
+        errors.append("selected_runtime_source_winner_snapshot_missing")
+    else:
+        snapshot_payload = cast("JsonObject", snapshot)
+        stack_cross_checks = {
+            "torch_version": (
+                snapshot_payload.get("torch_version"),
+                selection_payload.get("torch_version"),
+            ),
+            "cuda_version": (
+                snapshot_payload.get("torch_cuda_version"),
+                selection_payload.get("cuda_version"),
+            ),
+        }
+        errors.extend(
+            f"selected_runtime_source_winner_{name}_mismatch"
+            for name, (snapshot_value, winner_value) in stack_cross_checks.items()
+            if winner_value is not None and snapshot_value != winner_value
+        )
+    mixed = payload.get("mixed_precision")
+    compile_block = payload.get("torch_compile")
+    runtime = payload.get("runtime_policy")
+    if (
+        not isinstance(mixed, dict)
+        or not isinstance(compile_block, dict)
+        or not isinstance(
+            runtime,
+            dict,
+        )
+    ):
+        return (*errors, "selected_runtime_source_winner_plan_recipe_missing")
+    translated = {
+        "precision_policy": cast("JsonObject", mixed).get("policy"),
+        "autocast_dtype": cast("JsonObject", mixed).get("autocast_dtype"),
+        "fp32_loss": cast("JsonObject", mixed).get("fp32_loss"),
+        "grad_scaler_enabled": cast("JsonObject", mixed).get(
+            "grad_scaler_enabled",
+        ),
+        "compile_scope": cast("JsonObject", compile_block).get("scope"),
+        "memory_format": cast("JsonObject", runtime).get("memory_format"),
+        "cudnn_benchmark": cast("JsonObject", runtime).get("cudnn_benchmark"),
+        "cudnn_deterministic": cast("JsonObject", runtime).get(
+            "cudnn_deterministic",
+        ),
+        "tf32_enabled": cast("JsonObject", runtime).get("tf32_enabled"),
+        "matmul_precision": cast("JsonObject", runtime).get("matmul_precision"),
+        "ddp_static_graph": cast("JsonObject", runtime).get("ddp_static_graph"),
+        "ddp_gradient_as_bucket_view": cast("JsonObject", runtime).get(
+            "ddp_gradient_as_bucket_view",
+        ),
+        "optimize_ddp": cast("JsonObject", compile_block).get("optimize_ddp"),
+        "compiled_autograd": cast("JsonObject", compile_block).get(
+            "compiled_autograd",
+        ),
+        "reorder_compute_comm_overlap": cast("JsonObject", compile_block).get(
+            "reorder_compute_comm_overlap",
+        ),
+        "fused_optimizer": cast("JsonObject", runtime).get("fused_optimizer"),
+        "ddp_broadcast_buffers": cast("JsonObject", runtime).get(
+            "ddp_broadcast_buffers",
+        ),
+        "ddp_find_unused_parameters": cast("JsonObject", runtime).get(
+            "ddp_find_unused_parameters",
+        ),
+        "ddp_bucket_cap_mb": cast("JsonObject", runtime).get("ddp_bucket_cap_mb"),
+        "gradient_clip_foreach": cast("JsonObject", runtime).get(
+            "gradient_clip_foreach",
+        ),
+        "zero_grad_set_to_none": cast("JsonObject", runtime).get(
+            "zero_grad_set_to_none",
+        ),
+    }
+    errors.extend(
+        f"selected_runtime_source_winner_{name}_mismatch"
+        for name, plan_value in translated.items()
+        if plan_value != policy_payload.get(name)
+    )
+    return tuple(errors)
 
 
 def selected_runtime_identity_payload(
@@ -443,6 +646,7 @@ def _plan_from_payload(*, path: Path, payload: JsonObject) -> SelectedRuntimePla
     corruption = _object(payload, "corruption")
     runtime_policy = _object(payload, "runtime_policy")
     torch_compile = _object(payload, "torch_compile")
+    selected_row_snapshot = _object(payload, "selected_row_snapshot")
     return SelectedRuntimePlan(
         path=path,
         artifact_sha256=_sha256_file(path),
@@ -477,6 +681,15 @@ def _plan_from_payload(*, path: Path, payload: JsonObject) -> SelectedRuntimePla
             "ddp_gradient_as_bucket_view",
         ),
         zero_grad_set_to_none=_bool(runtime_policy, "zero_grad_set_to_none"),
+        gradient_clip_foreach=(
+            _bool(runtime_policy, "gradient_clip_foreach")
+            if _bool_or(
+                runtime_policy,
+                "gradient_clip_foreach_applied",
+                default=False,
+            )
+            else True
+        ),
         # Spec 0011 S11 recipe knobs, from their frozen carrier homes with eager
         # defaults (absent on the committed v5 plan).
         compile_backend=_str_or(torch_compile, "backend", "eager"),
@@ -500,6 +713,28 @@ def _plan_from_payload(*, path: Path, payload: JsonObject) -> SelectedRuntimePla
         ),
         ddp_bucket_cap_mb=_optional_int_field(runtime_policy, "ddp_bucket_cap_mb"),
         fused_optimizer=_bool_or(runtime_policy, "fused_optimizer", default=False),
+        compile_mode=_str_or(torch_compile, "mode", "default"),
+        cudagraphs=_str_or(torch_compile, "cudagraphs", "mode_default"),
+        inductor_options_json=_canonical_json_object_string(
+            _str_or(torch_compile, "inductor_options_json", "{}"),
+        ),
+        autocast_cache_enabled=_bool_or(
+            mixed_precision,
+            "autocast_cache_enabled",
+            default=True,
+        ),
+        ddp_forward_sync_buffers=_optional_bool_field(
+            runtime_policy,
+            "ddp_forward_sync_buffers",
+        ),
+        communication_hook=_str_or(runtime_policy, "communication_hook", "none"),
+        nccl_environment_json=_canonical_json_object_string(
+            _str_or(runtime_policy, "nccl_environment_json", "{}"),
+        ),
+        tf32_enabled=_bool_or(runtime_policy, "tf32_enabled", default=True),
+        matmul_precision=_str_or(runtime_policy, "matmul_precision", "high"),
+        torch_version=_str_or(selected_row_snapshot, "torch_version", ""),
+        cuda_version=(_str_or(selected_row_snapshot, "torch_cuda_version", "") or None),
     )
 
 
@@ -785,7 +1020,7 @@ def _mixed_precision_errors(payload: JsonObject) -> tuple[str, ...]:
         Stable mixed-precision coherence error identifiers.
 
     """
-    errors: list[str] = []
+    errors = list(_autocast_cache_errors(payload))
     if payload.get("fp32_loss") is not True:
         errors.append("selected_runtime_mixed_precision_missing_fp32_loss")
     policy = payload.get("policy")
@@ -806,6 +1041,15 @@ def _mixed_precision_errors(payload: JsonObject) -> tuple[str, ...]:
     else:
         errors.append("selected_runtime_mixed_precision_wrong_policy")
     return tuple(errors)
+
+
+def _autocast_cache_errors(payload: JsonObject) -> tuple[str, ...]:
+    if "autocast_cache_enabled" in payload and not isinstance(
+        payload.get("autocast_cache_enabled"),
+        bool,
+    ):
+        return ("selected_runtime_mixed_precision_bad_autocast_cache",)
+    return ()
 
 
 def _dataloader_errors(payload: JsonObject) -> tuple[str, ...]:
@@ -882,6 +1126,19 @@ def _snapshot_errors(payload: JsonObject) -> tuple[str, ...]:
         "grad_scaler_enabled": "selected_runtime_snapshot_missing_scaler",
         "autocast_dtype": "selected_runtime_snapshot_wrong_autocast_dtype",
     }
+    if payload.get("schema_version") == SPEC0011_SELECTED_RUNTIME_SCHEMA:
+        expected.update(
+            {
+                "torch_version": EXPECTED_SELECTED_TORCH_VERSION,
+                "torch_cuda_version": EXPECTED_SELECTED_CUDA_VERSION,
+            },
+        )
+        error_names.update(
+            {
+                "torch_version": "selected_runtime_snapshot_wrong_torch_version",
+                "torch_cuda_version": ("selected_runtime_snapshot_wrong_cuda_version"),
+            },
+        )
     errors = [
         error_names[key]
         for key, expected_value in expected.items()
@@ -929,7 +1186,7 @@ def _runtime_policy_errors(policy: object) -> tuple[str, ...]:
     if not isinstance(policy, dict):
         return ("selected_runtime_missing_runtime_policy",)
     payload = cast("JsonObject", policy)
-    errors: list[str] = []
+    errors = list(_runtime_backend_precision_errors(payload))
     if payload.get("memory_format") not in _ALLOWED_MEMORY_FORMATS:
         errors.append("selected_runtime_runtime_policy_memory_format_mismatch")
     if payload.get("ddp_static_graph") is not False:
@@ -938,6 +1195,30 @@ def _runtime_policy_errors(policy: object) -> tuple[str, ...]:
         errors.append(
             "selected_runtime_runtime_policy_zero_grad_set_to_none_mismatch",
         )
+    if payload.get("ddp_find_unused_parameters", False) is not False:
+        errors.append("selected_runtime_runtime_policy_find_unused_mismatch")
+    forward_sync = payload.get("ddp_forward_sync_buffers")
+    if forward_sync is not None and not isinstance(forward_sync, bool):
+        errors.append("selected_runtime_runtime_policy_forward_sync_mismatch")
+    if payload.get("communication_hook", "none") not in {
+        "none",
+        "fp16_compress_hook",
+        "bf16_compress_hook",
+    }:
+        errors.append("selected_runtime_runtime_policy_communication_hook_mismatch")
+    if not _json_string_map_is_valid(
+        payload.get("nccl_environment_json", "{}"),
+    ):
+        errors.append("selected_runtime_runtime_policy_nccl_environment_mismatch")
+    return tuple(errors)
+
+
+def _runtime_backend_precision_errors(payload: JsonObject) -> tuple[str, ...]:
+    errors: list[str] = []
+    if not isinstance(payload.get("tf32_enabled", True), bool):
+        errors.append("selected_runtime_runtime_policy_tf32_mismatch")
+    if payload.get("matmul_precision", "high") not in {"highest", "high", "medium"}:
+        errors.append("selected_runtime_runtime_policy_matmul_precision_mismatch")
     return tuple(errors)
 
 
@@ -958,7 +1239,7 @@ def _torch_compile_errors(torch_compile: object) -> tuple[str, ...]:
     if not isinstance(torch_compile, dict):
         return ("selected_runtime_missing_torch_compile",)
     payload = cast("JsonObject", torch_compile)
-    errors: list[str] = []
+    errors = list(_compile_invocation_errors(payload))
     if payload.get("dynamic") is not False:
         errors.append("selected_runtime_torch_compile_dynamic_mismatch")
     enabled = payload.get("enabled")
@@ -972,43 +1253,71 @@ def _torch_compile_errors(torch_compile: object) -> tuple[str, ...]:
             errors.append("selected_runtime_torch_compile_scope_mismatch")
         if payload.get("backend") != _COMPILE_INDUCTOR_BACKEND:
             errors.append("selected_runtime_torch_compile_backend_mismatch")
+        if payload.get("optimize_ddp") not in {
+            "ddp_optimizer",
+            "python_reducer",
+            "python_reducer_without_compiled_forward",
+            "no_optimization",
+        }:
+            errors.append("selected_runtime_torch_compile_optimize_ddp_mismatch")
     else:
         errors.append("selected_runtime_torch_compile_enabled_mismatch")
     return tuple(errors)
 
 
-_DDP_OPTIMIZER_RECIPE_VALUE = "ddp_optimizer"
+def _compile_invocation_errors(payload: JsonObject) -> tuple[str, ...]:
+    errors: list[str] = []
+    mode = payload.get("mode", "default")
+    if not isinstance(mode, str) or not mode:
+        errors.append("selected_runtime_torch_compile_mode_mismatch")
+    if payload.get("cudagraphs", "mode_default") not in {
+        "mode_default",
+        "enabled",
+        "disabled",
+    }:
+        errors.append("selected_runtime_torch_compile_cudagraphs_mismatch")
+    if not _json_object_string_is_valid(
+        payload.get("inductor_options_json", "{}"),
+    ):
+        errors.append("selected_runtime_torch_compile_options_mismatch")
+    return tuple(errors)
+
+
 _RECIPE_CARRIER_BLOCK_KEYS = ("runtime_policy", "torch_compile")
 
 
-def _ddp_optimizer_safety_errors(payload: JsonObject) -> tuple[str, ...]:
-    """Reject a DDPOptimizer plan whose flags break cross-rank gradient sync.
+def _ddp_recipe_safety_errors(payload: JsonObject) -> tuple[str, ...]:
+    """Reject incoherent DDP modes and unsafe DDPOptimizer flags.
 
     ``optimize_ddp="ddp_optimizer"`` (DDPOptimizer) splits the backward at DDP bucket
-    boundaries. Three flag pairings break it, per memory
-    ``eqvae-compiled-ddp-optimize-ddp`` and the measured winner ``_DDP_OPTIMIZER_SPEC``
-    (``benchmarking/compiled_fastpath_probe.py``), which pairs DDPOptimizer with
-    ``compiled_autograd=False``:
+    boundaries. The measured recipe keeps ``static_graph`` and
+    ``find_unused_parameters`` false. PyTorch 2.13 additionally requires
+    ``python_reducer`` to use compiled autograd and forbids compiled autograd with
+    ``no_optimization``. It does not document a DDPOptimizer/compiled-autograd ban, so
+    that combination remains expressible for a future measured row.
 
-    - ``compiled_autograd=True`` traces the backward, so DDP's C++ reducer hooks never
-      fire and the grad all_reduce is **silently** dropped -- each rank then trains an
-      independent replica (the empirically caught failure);
-    - ``static_graph=True`` is a **loud** dynamo #93672 "training graph has changed"
-      conflict;
-    - ``find_unused_parameters=True`` is incompatible with the bucket split.
-
-    No plan sets ``optimize_ddp`` today, so this is a no-op on the v5 fallback plan
-    and a fail-closed guard for the Phase 2 compiled plans that carry the recipe knobs.
+    The committed eager fallback has no mode, so these checks are a no-op there.
 
     Returns:
         Stable DDPOptimizer safety error identifiers.
 
     """
-    if _recipe_field(payload, "optimize_ddp") != _DDP_OPTIMIZER_RECIPE_VALUE:
-        return ()
+    optimize_ddp = _recipe_field(payload, "optimize_ddp")
+    compiled_autograd = _recipe_flag_enabled(payload, "compiled_autograd")
     errors: list[str] = []
-    if _recipe_flag_enabled(payload, "compiled_autograd"):
-        errors.append("selected_runtime_ddp_optimizer_compiled_autograd_conflict")
+    if (
+        optimize_ddp
+        in {
+            "python_reducer",
+            "python_reducer_without_compiled_forward",
+        }
+        and not compiled_autograd
+    ):
+        errors.append("selected_runtime_python_reducer_requires_compiled_autograd")
+    if optimize_ddp == "no_optimization" and compiled_autograd:
+        errors.append("selected_runtime_no_optimization_compiled_autograd_conflict")
+    if optimize_ddp != "ddp_optimizer":
+        return tuple(errors)
     if _recipe_flag_enabled(payload, "ddp_static_graph", "static_graph"):
         errors.append("selected_runtime_ddp_optimizer_static_graph_conflict")
     if _recipe_flag_enabled(
@@ -1473,9 +1782,14 @@ def _application_mismatches(
             observed.zero_grad_set_to_none,
             plan.zero_grad_set_to_none,
         ),
-        # Spec 0011 S17c -- the compiled fast-path recipe knobs. Eight are exact echoes
-        # of the plan; ``ddp_broadcast_buffers`` is handled separately below because the
-        # runner may structurally force it on.
+        (
+            "gradient_clip_foreach",
+            observed.gradient_clip_foreach,
+            plan.gradient_clip_foreach,
+        ),
+        # Spec 0011 S17c -- the compiled fast-path recipe knobs. All are exact echoes of
+        # the plan except ``ddp_broadcast_buffers``, handled separately below because
+        # the runner may structurally force it on.
         ("compile_backend", observed.compile_backend, plan.compile_backend),
         ("compile_dynamic", observed.compile_dynamic, plan.compile_dynamic),
         ("optimize_ddp", observed.optimize_ddp, plan.optimize_ddp),
@@ -1492,6 +1806,35 @@ def _application_mismatches(
         ),
         ("ddp_bucket_cap_mb", observed.ddp_bucket_cap_mb, plan.ddp_bucket_cap_mb),
         ("fused_optimizer", observed.fused_optimizer, plan.fused_optimizer),
+        ("compile_mode", observed.compile_mode, plan.compile_mode),
+        ("cudagraphs", observed.cudagraphs, plan.cudagraphs),
+        (
+            "inductor_options_json",
+            observed.inductor_options_json,
+            plan.inductor_options_json,
+        ),
+        (
+            "autocast_cache_enabled",
+            observed.autocast_cache_enabled,
+            plan.autocast_cache_enabled,
+        ),
+        (
+            "ddp_forward_sync_buffers",
+            observed.ddp_forward_sync_buffers,
+            plan.ddp_forward_sync_buffers,
+        ),
+        (
+            "communication_hook",
+            observed.communication_hook,
+            plan.communication_hook,
+        ),
+        (
+            "nccl_environment_json",
+            observed.nccl_environment_json,
+            plan.nccl_environment_json,
+        ),
+        ("tf32_enabled", observed.tf32_enabled, plan.tf32_enabled),
+        ("matmul_precision", observed.matmul_precision, plan.matmul_precision),
         # ``ddp_broadcast_buffers`` tolerates the structural UPWARD override: the runner
         # forces broadcasting on when a model carries rank-divergent running-stat
         # buffers (``model_requires_buffer_broadcast``), so observed True with plan
@@ -1625,6 +1968,42 @@ def _optional_int_field(payload: JsonObject, key: str) -> int | None:
     if key not in payload:
         return None
     return _optional_int(payload, key)
+
+
+def _optional_bool_field(payload: JsonObject, key: str) -> bool | None:
+    """Return the optional bool-or-null ``key``, or ``None`` when absent.
+
+    Returns:
+        The parsed boolean, or ``None`` when absent or explicitly null.
+
+    """
+    if key not in payload or payload.get(key) is None:
+        return None
+    return _bool(payload, key)
+
+
+def _json_object_string_is_valid(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        decoded = cast("object", json.loads(value))
+    except json.JSONDecodeError:
+        return False
+    return isinstance(decoded, dict) and all(
+        isinstance(key, str) for key in cast("dict[object, object]", decoded)
+    )
+
+
+def _json_string_map_is_valid(value: object) -> bool:
+    if not _json_object_string_is_valid(value):
+        return False
+    decoded = cast("dict[object, object]", json.loads(cast("str", value)))
+    return all(isinstance(item, str) for item in decoded.values())
+
+
+def _canonical_json_object_string(value: str) -> str:
+    decoded = cast("dict[str, object]", json.loads(value))
+    return json.dumps(decoded, sort_keys=True, separators=(",", ":"))
 
 
 def _string_list(value: object) -> list[str]:

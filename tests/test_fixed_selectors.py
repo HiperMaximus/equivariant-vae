@@ -216,7 +216,12 @@ def test_canonical_selector_write_requires_overwrite_and_crc(
 def test_selector_validation_rejects_noncanonical_but_valid_row(
     tmp_path: Path,
 ) -> None:
-    """Validation recomputes the canonical selection policy."""
+    """A structurally valid but noncanonical fixed selector must be rejected.
+
+    The frozen 25 are shared paper evidence, so any same-label replacement changes the
+    comparison cohort. This catches validation that checks row shape/CRC but never
+    replays the derived selection policy.
+    """
     bin_path, csv_path = _write_validation_shard(
         tmp_path,
         count=VALIDATION_PATCH_COUNT_WITH_EXTRA,

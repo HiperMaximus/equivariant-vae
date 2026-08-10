@@ -21,6 +21,9 @@ them from its own recipe carrier without depending on the other's types.
 from __future__ import annotations
 
 import contextlib
+import importlib
+import json
+from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
@@ -65,6 +68,79 @@ def build_fastpath_optimizer(
     """
     optimizer, _ = create_adamw_optimizer(model, config=config)
     return optimizer
+
+
+def resolve_fastpath_compile_invocation(
+    *,
+    compile_mode: str,
+    cudagraphs: str,
+    inductor_options_json: str,
+    mode_options: Mapping[str, object] | None = None,
+) -> tuple[str | None, dict[str, object] | None]:
+    """Resolve one legal and artifact-replayable torch.compile mode/options pair.
+
+    Returns:
+        Mutually exclusive ``mode`` and ``options`` keyword values.
+
+    Raises:
+        TypeError: If JSON/options or the named installed preset are malformed.
+
+    """
+    try:
+        decoded = cast("object", json.loads(inductor_options_json))
+    except json.JSONDecodeError as error:
+        message = "Inductor option bundle is malformed"
+        raise TypeError(message) from error
+    if not isinstance(decoded, dict):
+        message = "Inductor option bundle must be a JSON object"
+        raise TypeError(message)
+    custom_options = cast("dict[str, object]", decoded)
+    if cudagraphs == "mode_default" and not custom_options:
+        return (None if compile_mode == "default" else compile_mode), None
+    if mode_options is None:
+        inductor = importlib.import_module("torch._inductor")
+        list_modes = getattr(inductor, "list_mode_options", None)
+        raw_mode_object: object = (
+            cast("Callable[[], object]", list_modes)() if callable(list_modes) else {}
+        )
+    else:
+        raw_mode_object = mode_options
+    if not isinstance(raw_mode_object, Mapping):
+        message = "installed compile modes did not resolve to a mapping"
+        raise TypeError(message)
+    raw_modes = cast("Mapping[object, object]", raw_mode_object)
+    preset = raw_modes.get(compile_mode, {})
+    if not isinstance(preset, Mapping):
+        message = f"installed compile mode has no option mapping: {compile_mode}"
+        raise TypeError(message)
+    options = {
+        str(key): value
+        for key, value in cast("Mapping[object, object]", preset).items()
+    }
+    options.update(custom_options)
+    if cudagraphs != "mode_default":
+        options["triton.cudagraphs"] = cudagraphs == "enabled"
+    return None, options
+
+
+def register_fastpath_communication_hook(model: nn.Module, hook_name: str) -> None:
+    """Register one selected installed DDP compression hook.
+
+    Raises:
+        TypeError: If the selected hook is unavailable in the executing runtime.
+
+    """
+    if hook_name == "none":
+        return
+    hooks = importlib.import_module(
+        "torch.distributed.algorithms.ddp_comm_hooks.default_hooks",
+    )
+    hook = getattr(hooks, hook_name, None)
+    register = getattr(model, "register_comm_hook", None)
+    if not callable(hook) or not callable(register):
+        message = f"communication hook is unavailable: {hook_name}"
+        raise TypeError(message)
+    register(state=None, hook=hook)
 
 
 def apply_fastpath_dynamo_config(
@@ -150,7 +226,7 @@ def compiled_autograd_context(*, enabled: bool) -> AbstractContextManager[None]:
 class FastpathDynamoKnobs:
     """Dynamo knobs that MUST be applied before ``DistributedDataParallel`` exists."""
 
-    optimize_ddp: str
+    optimize_ddp: bool | str
     compiled_autograd: bool
     reorder_compute_comm_overlap: bool
 
@@ -165,6 +241,7 @@ def wrap_fastpath_ddp(  # noqa: PLR0913
     find_unused_parameters: bool,
     bucket_cap_mb: int | None,
     dynamo: FastpathDynamoKnobs | None,
+    forward_sync_buffers: bool | None = None,
 ) -> DistributedDataParallel:
     """Wrap a model in ``DistributedDataParallel`` with the recipe's collective knobs.
 
@@ -187,6 +264,8 @@ def wrap_fastpath_ddp(  # noqa: PLR0913
         bucket_cap_mb: DDP ``bucket_cap_mb`` (``None`` uses the DDP default).
         dynamo: Knobs to apply before construction, or ``None`` for a run that compiles
             nothing (the eager path), where there is no dynamo state to establish.
+        forward_sync_buffers: Current DDP forward-buffer synchronization control. When
+            set, the deprecated ``broadcast_buffers`` argument is left unset.
 
     Returns:
         The DDP-wrapped model.
@@ -198,16 +277,19 @@ def wrap_fastpath_ddp(  # noqa: PLR0913
             compiled_autograd=dynamo.compiled_autograd,
             reorder_compute_comm_overlap=dynamo.reorder_compute_comm_overlap,
         )
-    return DistributedDataParallel(
-        model,
-        device_ids=[local_rank],
-        output_device=local_rank,
-        static_graph=static_graph,
-        gradient_as_bucket_view=gradient_as_bucket_view,
-        broadcast_buffers=broadcast_buffers,
-        find_unused_parameters=find_unused_parameters,
-        bucket_cap_mb=bucket_cap_mb,
-    )
+    kwargs: dict[str, object] = {
+        "device_ids": [local_rank],
+        "output_device": local_rank,
+        "static_graph": static_graph,
+        "gradient_as_bucket_view": gradient_as_bucket_view,
+        "find_unused_parameters": find_unused_parameters,
+        "bucket_cap_mb": bucket_cap_mb,
+    }
+    if forward_sync_buffers is None:
+        kwargs["broadcast_buffers"] = broadcast_buffers
+    else:
+        kwargs["forward_sync_buffers"] = forward_sync_buffers
+    return DistributedDataParallel(model, **kwargs)  # pyright: ignore[reportArgumentType]
 
 
 # Leaf names of the persistent buffers DDP would have to broadcast from rank 0 every
@@ -262,5 +344,7 @@ __all__ = [
     "build_fastpath_optimizer",
     "compiled_autograd_context",
     "model_requires_buffer_broadcast",
+    "register_fastpath_communication_hook",
+    "resolve_fastpath_compile_invocation",
     "wrap_fastpath_ddp",
 ]

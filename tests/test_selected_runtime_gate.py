@@ -573,7 +573,11 @@ def test_selected_runtime_plan_applied_proof_rejects_unexecuted_ddp_amp() -> Non
 
 
 def test_selected_runtime_plan_applied_proof_rejects_optimizer_updates_drift() -> None:
-    """Changing optimizer_updates_per_epoch alone fails plan application."""
+    """Observed schedule updates must equal the plan's derived epoch schedule.
+
+    A run applying a different count cannot support the promised training duration.
+    This relationship test mutates only the observed count and requires a mismatch.
+    """
     plan = parse_selected_runtime_plan(
         Path("runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json"),
     )
@@ -605,6 +609,7 @@ def test_selected_runtime_plan_applied_proof_rejects_optimizer_updates_drift() -
         ddp_static_graph=plan.ddp_static_graph,
         ddp_gradient_as_bucket_view=plan.ddp_gradient_as_bucket_view,
         zero_grad_set_to_none=plan.zero_grad_set_to_none,
+        gradient_clip_foreach=plan.gradient_clip_foreach,
         compile_backend=plan.compile_backend,
         compile_dynamic=plan.compile_dynamic,
         optimize_ddp=plan.optimize_ddp,
@@ -614,6 +619,8 @@ def test_selected_runtime_plan_applied_proof_rejects_optimizer_updates_drift() -
         ddp_find_unused_parameters=plan.ddp_find_unused_parameters,
         ddp_bucket_cap_mb=plan.ddp_bucket_cap_mb,
         fused_optimizer=plan.fused_optimizer,
+        tf32_enabled=plan.tf32_enabled,
+        matmul_precision=plan.matmul_precision,
         local_ddp_status=EXPECTED_DDP_APPLICATION_STATUS,
         local_amp_status=EXPECTED_AMP_APPLICATION_STATUS,
     )
@@ -692,6 +699,7 @@ def _fully_applied_observation(
         ddp_static_graph=plan.ddp_static_graph,
         ddp_gradient_as_bucket_view=plan.ddp_gradient_as_bucket_view,
         zero_grad_set_to_none=plan.zero_grad_set_to_none,
+        gradient_clip_foreach=plan.gradient_clip_foreach,
         compile_backend=plan.compile_backend,
         compile_dynamic=plan.compile_dynamic,
         optimize_ddp=plan.optimize_ddp,
@@ -701,6 +709,8 @@ def _fully_applied_observation(
         ddp_find_unused_parameters=plan.ddp_find_unused_parameters,
         ddp_bucket_cap_mb=plan.ddp_bucket_cap_mb,
         fused_optimizer=plan.fused_optimizer,
+        tf32_enabled=plan.tf32_enabled,
+        matmul_precision=plan.matmul_precision,
         local_ddp_status=EXPECTED_DDP_APPLICATION_STATUS,
         local_amp_status=expected_local_amp_status(plan),
     )
@@ -714,6 +724,22 @@ def test_expected_local_amp_status_is_amp_off_aware() -> None:
         expected_local_amp_status(_compiled_amp_off_plan(plan))
         == EXPECTED_AMP_OFF_APPLICATION_STATUS
     )
+
+
+def test_plan_applied_proof_rejects_tf32_and_matmul_drift() -> None:
+    """A selected backend precision recipe must match the measured winner."""
+    plan = replace(_v5_plan(), tf32_enabled=False, matmul_precision="highest")
+    observed = replace(
+        _fully_applied_observation(plan),
+        tf32_enabled=True,
+        matmul_precision="high",
+    )
+
+    proof = build_plan_applied_proof(plan=plan, observed=observed)
+
+    mismatches = _string_list(proof["mismatches"])
+    assert any("tf32_enabled" in mismatch for mismatch in mismatches)
+    assert any("matmul_precision" in mismatch for mismatch in mismatches)
 
 
 def test_expected_corruption_strategy_labels_compiled_fastpath() -> None:
@@ -752,7 +778,11 @@ def test_plan_applied_proof_accepts_fully_applied_compiled_amp_off_winner() -> N
 
 
 def test_plan_applied_proof_rejects_recipe_knob_drift() -> None:
-    """A run that applies a different recipe knob than the plan fails."""
+    """A measured recipe knob differing at application invalidates the proof.
+
+    This is a cross-check, not a fixed fused-optimizer preference. Ignoring that field
+    in the observation comparison makes the deliberately inverted value pass.
+    """
     plan = _compiled_amp_off_plan(_v5_plan())
     observed = replace(
         _fully_applied_observation(plan),
@@ -762,6 +792,27 @@ def test_plan_applied_proof_rejects_recipe_knob_drift() -> None:
 
     assert proof["plan_applied"] is False
     assert any("fused_optimizer" in m for m in _string_list(proof["mismatches"]))
+
+
+def test_plan_applied_proof_rejects_gradient_clip_foreach_drift() -> None:
+    """The application observation must match the measured clipping implementation.
+
+    This cross-check detects a reported plan/application mismatch; execution-call
+    wiring is tested separately. Removing the comparison makes the inverted observation
+    pass.
+    """
+    plan = _compiled_amp_off_plan(_v5_plan())
+    observed = replace(
+        _fully_applied_observation(plan),
+        gradient_clip_foreach=not plan.gradient_clip_foreach,
+    )
+    proof = build_plan_applied_proof(plan=plan, observed=observed)
+
+    assert proof["plan_applied"] is False
+    assert any(
+        "gradient_clip_foreach" in mismatch
+        for mismatch in _string_list(proof["mismatches"])
+    )
 
 
 def test_plan_applied_proof_tolerates_broadcast_buffers_upward_override() -> None:
@@ -1560,8 +1611,10 @@ def _write_complete_remote_output_fixture(tmp_path: Path) -> tuple[Path, Path]:
             ),
             "fixed_train_repeated_to_full_batch": True,
             "observed_batch_sizes": [SELECTED_RUNTIME_BATCH_SIZE],
-            "l1_improvement_fraction": 0.02,
-            "recon_loss_improvement_fraction": 0.02,
+            "observed_ranks": [0, 1],
+            "complete_two_rank_update_coverage": True,
+            "l1_improvement_fraction": 0.08,
+            "recon_loss_improvement_fraction": 0.08,
         },
     )
     _write_json(

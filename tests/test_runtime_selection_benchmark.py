@@ -6,12 +6,14 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
 import torch
 
+from eqvae.benchmarking import real_data_runtime_pretest as pretest
 from eqvae.benchmarking import runtime_selection_executor
 from eqvae.benchmarking.io import JsonObject, write_csv, write_json
 from eqvae.benchmarking.real_data_runtime_pretest import RowSpec
@@ -43,11 +45,15 @@ from eqvae.benchmarking.runtime_selection import (
     RuntimeSelectionBenchmarkRequest,
     RuntimeSelectionEvidence,
     _bool_from_csv,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _compile_settle_protocol_id,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _compiled_row_stable,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _EfficiencyPolicySelection,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _enforce_compiled_rows_diagnostic_only,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _optional_int_from_csv,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _reference_row_id,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _runtime_row_candidate_pass,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _selected_runtime_payload,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _selection_candidate_scope_matches,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _SelectionSettings,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     load_runtime_selection_evidence,
     write_runtime_selection_benchmark,
@@ -56,10 +62,16 @@ from eqvae.benchmarking.runtime_selection import (
     _runtime_row as _src_runtime_row,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
 )
 from eqvae.benchmarking.runtime_selection_executor import (
+    _COMPILED_EXECUTION_PROOF_FAILURE_KIND,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _DDP_RUNTIME_OOM_FAILURE_KIND,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _STEP_COMPILE_BACKEND,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _VRAM_FEASIBILITY_AMP_SKIPS_FAILURE_KIND,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _VRAM_INFEASIBLE_FAILURE_KIND,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    RuntimeSelectionExecutionRequest,
+    _amp_phase_accounting,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _build_compiled_ddp_step,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _compile_ddp_model_if_requested,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _ddp_rank_failure_payload,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _DdpLaunchResult,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _DdpRowConfig,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _decode_ddp_config,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
@@ -71,8 +83,16 @@ from eqvae.benchmarking.runtime_selection_executor import (
     _efficiency_row_enumerable,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _encode_ddp_config,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _failure_row,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _FeasibilityProbeAmpStepsSkippedError,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _parameter_update_parity,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _probe_headroom_after_successful_optimizer_update,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _row_proof_reference_batch_size,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _run_compiled_ddp_execution_proof,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _run_dual_row,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _run_until_successful_amp_proof,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _runtime_policies,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _selection_stage_settings,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
+    _successful_feasibility_optimizer_updates,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     _vram_infeasible_rank_payload,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
 )
 from eqvae.benchmarking.runtime_selection_executor import (
@@ -88,6 +108,7 @@ from eqvae.config import resolve_json_config
 from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
 from eqvae.models.activations import GatedScalarActivation
 from eqvae.models.non_equivariant_vae import build_non_equivariant_vae
+from eqvae.training.fastpath_step import FastpathStepOutput
 
 CONFIG_PATH = Path("configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json")
 RUN_NAME = "runtime_selection_test"
@@ -98,7 +119,14 @@ EXPECTED_DUAL_WORLD_SIZE = 2
 # plus the efficiency slice's policy count (kept amp follow-up + the compiled winner).
 _WINNER_BATCH_SIZE = 48
 _WINNER_BUCKET_CAP_MB = 50
-_EFFICIENCY_POLICY_COUNT = 2
+_PROOF_REFERENCE_BATCH_SIZE = 12
+_FUTURE_NON_EFFICIENCY_BATCH_SIZE = 24
+_ORIGINAL_COMPILED_POLICY_IDS = {
+    "compile_step_ddp_optimizer_fp32_channels_last",
+    "compile_step_ddp_optimizer_fp16_channels_last",
+}
+_DIAGNOSTIC_FSQ_POLICY_ID = "diagnostic_fsq_compiled_autograd_no_optimization_fp16"
+_EFFICIENCY_POLICY_COUNT = 3
 # Measured winner DDP bucket-cap (probe _DDP_OPTIMIZER_SPEC).
 _RECIPE_BUCKET_CAP_MB = 50
 # The eager-recipe optimize_ddp sentinel (unset dynamo config).
@@ -136,6 +164,7 @@ def _payload_settings() -> _SelectionSettings:
         minimum_material_speedup_fraction=0.05,
         efficiency_accelerator_modes=("dual_t4_ddp",),
         efficiency_batch_sizes=(12,),
+        efficiency_proof_reference_batch_size=_PROOF_REFERENCE_BATCH_SIZE,
         efficiency_corruption_strategies=("indexed_masked",),
         efficiency_policies=(),
     )
@@ -163,6 +192,88 @@ def _eager_selected_row() -> dict[str, str]:
         samples_sec=300.0,
         runtime_policy_id="amp_fp16_conservative",
     )
+
+
+def test_non_efficiency_row_keeps_same_batch_reference() -> None:
+    """The cross-batch proof rule applies only to configured efficiency policies.
+
+    The proof batch is an evidence control for the efficiency slice, not a global
+    rewrite of every future row. A non-efficiency bs48 row is expected to keep bs48 in
+    its reference identity, so applying ``min(candidate, proof)`` unconditionally fails.
+    """
+    row = _runtime_row(
+        accelerator_mode="single_visible_t4",
+        per_device_batch_size=48,
+        precision_policy="amp_off_fp32",
+        compile_scope="none",
+        corruption_strategy="indexed_masked",
+        world_size=1,
+        samples_sec=1.0,
+    )
+
+    reference = _reference_row_id(settings=_payload_settings(), runtime_row=row)
+
+    assert "__bs48__" in reference
+
+
+def test_writer_requires_explicit_efficiency_proof_batch(tmp_path: Path) -> None:
+    """Writer settings reject an omitted efficiency proof-reference batch.
+
+    Cross-batch linked evidence must never inherit an implicit batch; an exact parser
+    error is expected, so restoring an optional/default value must fail.
+    """
+    config_path = _write_config_with_efficiency_policies(
+        tmp_path=tmp_path,
+        policies=None,
+    )
+    payload = _load_json(config_path)
+    runtime = cast("dict[str, object]", payload["runtime_matrix"])
+    selection = cast("dict[str, object]", runtime["selection_benchmark_slice"])
+    efficiency = cast("dict[str, object]", selection["efficiency_followup"])
+    efficiency.pop("proof_reference_per_device_batch_size")
+    write_json(config_path, cast("JsonObject", payload))
+
+    with pytest.raises(
+        TypeError,
+        match="Expected integer field: proof_reference_per_device_batch_size",
+    ):
+        write_runtime_selection_benchmark(
+            RuntimeSelectionBenchmarkRequest(
+                config_path=config_path,
+                output_dir=tmp_path / "output",
+            ),
+        )
+
+
+def test_writer_validates_efficiency_proof_batch_against_fp32_gate(
+    tmp_path: Path,
+) -> None:
+    """Writer settings require the proof batch to be present in the fp32 gate.
+
+    Batch 48 is a timed efficiency candidate but not a dual-gate reference; the shared
+    validator's exact rejection is expected, so bypassing validation must fail.
+    """
+    config_path = _write_config_with_efficiency_policies(
+        tmp_path=tmp_path,
+        policies=None,
+    )
+    payload = _load_json(config_path)
+    runtime = cast("dict[str, object]", payload["runtime_matrix"])
+    selection = cast("dict[str, object]", runtime["selection_benchmark_slice"])
+    efficiency = cast("dict[str, object]", selection["efficiency_followup"])
+    efficiency["proof_reference_per_device_batch_size"] = 48
+    write_json(config_path, cast("JsonObject", payload))
+
+    with pytest.raises(
+        ValueError,
+        match="must be measured by the dual_t4_train_step_gate",
+    ):
+        write_runtime_selection_benchmark(
+            RuntimeSelectionBenchmarkRequest(
+                config_path=config_path,
+                output_dir=tmp_path / "output",
+            ),
+        )
 
 
 def test_selected_runtime_payload_emits_recipe_knobs_at_eager_defaults() -> None:
@@ -194,6 +305,8 @@ def test_selected_runtime_payload_emits_recipe_knobs_at_eager_defaults() -> None
     assert runtime_policy["ddp_find_unused_parameters"] is False
     assert runtime_policy["ddp_bucket_cap_mb"] is None
     assert runtime_policy["fused_optimizer"] is False
+    assert runtime_policy["gradient_clip_foreach"] is True
+    assert runtime_policy["gradient_clip_foreach_applied"] is True
 
 
 def test_selected_runtime_payload_sources_recipe_knobs_from_measured_row() -> None:
@@ -215,6 +328,7 @@ def test_selected_runtime_payload_sources_recipe_knobs_from_measured_row() -> No
         "ddp_find_unused_parameters": "true",
         "ddp_bucket_cap_mb": str(_RECIPE_BUCKET_CAP_MB),
         "fused_optimizer": "true",
+        "gradient_clip_foreach": "true",
     }
     dataloader_rows = tuple(_dataloader_rows((selected_row,)))
 
@@ -234,6 +348,36 @@ def test_selected_runtime_payload_sources_recipe_knobs_from_measured_row() -> No
     assert runtime_policy["ddp_find_unused_parameters"] is True
     assert runtime_policy["ddp_bucket_cap_mb"] == _RECIPE_BUCKET_CAP_MB
     assert runtime_policy["fused_optimizer"] is True
+    assert runtime_policy["gradient_clip_foreach"] is True
+
+
+def test_compiled_selected_snapshot_hashes_its_real_settle_protocol() -> None:
+    """A compiled winner hashes its derived settle protocol, not the eager policy.
+
+    The snapshot is evidence consumed after measurement, so this derived relationship
+    must change with the row's compile protocol. Reusing the eager constant would make
+    both the exact-hash and unequal-to-eager assertions fail.
+    """
+    selected_row = _fp16_compiled_bs48_row()
+    payload = _selected_runtime_payload(
+        settings=_payload_settings(),
+        selected_row=selected_row,
+        dataloader_rows=tuple(_dataloader_rows((selected_row,))),
+        artifact_hashes={},
+    )
+    snapshot = cast("dict[str, object]", payload["selected_row_snapshot"])
+    compiled_protocol = _compile_settle_protocol_id(selected_row)
+    eager_hash = hashlib.sha256(
+        b"runtime_selection_compile_none_eager_no_settle_v1",
+    ).hexdigest()
+
+    assert (
+        snapshot["compile_settle_protocol_sha256"]
+        == hashlib.sha256(
+            compiled_protocol.encode(),
+        ).hexdigest()
+    )
+    assert snapshot["compile_settle_protocol_sha256"] != eager_hash
 
 
 def test_selected_runtime_payload_reads_eager_recipe_from_legacy_row() -> None:
@@ -534,6 +678,7 @@ def test_encode_ddp_config_round_trips_measured_recipe_knobs(tmp_path: Path) -> 
         output_dir=tmp_path,
         data_root="/unit/data/root",
         row_spec=row_spec,
+        proof_reference_per_device_batch_size=12,
     )
 
     decoded = _decode_ddp_config(_encode_ddp_config(config))
@@ -581,12 +726,11 @@ def test_pretest_base_row_emits_measured_recipe_knobs() -> None:
 
 @pytest.mark.parametrize("compile_scope", [COMPILE_MODEL_FORWARD, COMPILE_STEP])
 def test_settle_proven_compiled_row_is_selectable(compile_scope: str) -> None:
-    """A settle-proven compiled row (model-forward/whole-step) is selectable (S12).
+    """A coherent settle-proven compiled row is selectable at either compiled scope.
 
-    Parametrizing both scopes makes `_STABLE_COMPILE_SCOPES` membership mutation-proof:
-    dropping either scope from the set fails its case. `_runtime_row` gives a compiled
-    row settle_steps=5 / graph_break_count=0 / recompile_count=0, so the fail-closed
-    settle relationship passes for a non-default runtime policy.
+    This is a derived eligibility relationship, not a measured winner: Python reducer
+    requires compiled autograd plus settle >=5 and zero breaks/recompiles. Removing a
+    scope or accepting a blank/incoherent mode makes one of the exact assertions fail.
     """
     row = _runtime_row(
         accelerator_mode="dual_t4_ddp",
@@ -598,17 +742,19 @@ def test_settle_proven_compiled_row_is_selectable(compile_scope: str) -> None:
         samples_sec=400.0,
         runtime_policy_id=f"compile_{compile_scope}_fp32_channels_last",
     )
+    row["optimize_ddp"] = "python_reducer"
+    row["compiled_autograd"] = "true"
 
     assert _compiled_row_stable(row) is True
     assert _enforce_compiled_rows_diagnostic_only((row,))[0]["status"] == PASS_STATUS
 
 
-def test_whole_step_row_without_settle_proof_stays_diagnostic_only() -> None:
-    """A whole-step row that fails the settle relationship stays diagnostic-only (S12).
+def test_stable_overlap_partition_is_selectable_with_reported_graph_breaks() -> None:
+    """Stable overlap structure remains selectable with positive break telemetry.
 
-    A recorded graph break breaks the settle proof, so the row is neither stable nor a
-    selection candidate -- it is rewritten to the ineligible status with the settle
-    failure kind, exactly as an unstable model-forward row already was.
+    Graph-break count is a MEASURED diagnostic, not a correctness target: excluding a
+    stable positive count would pre-select a graph aesthetic instead of the fastest
+    end-to-end dual-T4 recipe. Post-settle recompilation remains the failure boundary.
     """
     row = _runtime_row(
         accelerator_mode="dual_t4_ddp",
@@ -620,14 +766,51 @@ def test_whole_step_row_without_settle_proof_stays_diagnostic_only() -> None:
         samples_sec=400.0,
         runtime_policy_id="compile_step_fp32_channels_last",
     )
-    row["graph_break_count"] = "1"
+    row["optimize_ddp"] = "ddp_optimizer"
+    row["graph_break_count"] = "2"
+
+    assert _compiled_row_stable(row) is True
+    assert _enforce_compiled_rows_diagnostic_only((row,))[0]["status"] == PASS_STATUS
+
+
+@pytest.mark.parametrize(
+    ("optimize_ddp", "graph_break_count", "recompile_count"),
+    [
+        ("", "0", "0"),
+        ("unknown", "0", "0"),
+        ("ddp_optimizer", "", "0"),
+        ("ddp_optimizer", "-1", "0"),
+        ("no_optimization", "0", "1"),
+    ],
+)
+def test_compiled_stability_rejects_invalid_mode_telemetry(
+    optimize_ddp: str,
+    graph_break_count: str,
+    recompile_count: str,
+) -> None:
+    """Compiled stability rejects unknown modes or unavailable/unstable telemetry.
+
+    Exact false outcomes distinguish missing mode, missing/negative graph telemetry,
+    and post-settle recompiles. Positive stable break counts are intentionally absent:
+    they are diagnostic and remain throughput-eligible.
+    """
+    row = _runtime_row(
+        accelerator_mode="dual_t4_ddp",
+        per_device_batch_size=12,
+        precision_policy="amp_conservative",
+        compile_scope=COMPILE_STEP,
+        corruption_strategy="indexed_masked",
+        world_size=EXPECTED_DUAL_WORLD_SIZE,
+        samples_sec=400.0,
+        runtime_policy_id="compile_step_fp16_channels_last",
+    )
+    row["optimize_ddp"] = optimize_ddp
+    row["graph_break_count"] = graph_break_count
+    row["recompile_count"] = recompile_count
 
     assert _compiled_row_stable(row) is False
     normalized = _enforce_compiled_rows_diagnostic_only((row,))[0]
     assert normalized["status"] == INELIGIBLE_STATUS
-    assert normalized["failure_kind"] == (
-        "compiled_rows_diagnostic_only_until_stable_settle_proof"
-    )
 
 
 def test_runtime_policies_admits_whole_step_compile_scope() -> None:
@@ -643,10 +826,12 @@ def test_runtime_policies_admits_whole_step_compile_scope() -> None:
             "runtime_policy_id": "compiled_whole_step_ddp_optimizer",
             "precision_policy": "amp_off_fp32",
             "compile_scope": COMPILE_STEP,
+            "optimize_ddp": "ddp_optimizer",
         },
     ])
 
     assert policy.compile_scope == COMPILE_STEP
+    assert policy.optimize_ddp == "ddp_optimizer"
 
 
 def test_runtime_policies_rejects_unknown_compile_scope() -> None:
@@ -664,6 +849,132 @@ def test_runtime_policies_rejects_unknown_compile_scope() -> None:
                 "compile_scope": "train_step_no_optimizer",
             },
         ])
+
+
+@pytest.mark.parametrize(
+    ("optimize_ddp", "compiled_autograd", "match"),
+    [
+        ("python_reducer", False, "requires compiled_autograd=true"),
+        ("no_optimization", True, "requires compiled_autograd=false"),
+    ],
+)
+def test_runtime_policies_reject_mode_compiled_autograd_conflicts(
+    optimize_ddp: str,
+    compiled_autograd: bool,  # noqa: FBT001
+    match: str,
+) -> None:
+    """The executor rejects the two mode/autograd pairings PyTorch forbids.
+
+    These are compatibility-policy guards: admitting either pair can disable DDP
+    synchronization or fail at runtime. Removing either validation branch makes its
+    parametrized error case stop raising.
+    """
+    with pytest.raises(ValueError, match=match):
+        _runtime_policies([
+            {
+                "runtime_policy_id": "invalid_mode_pair",
+                "precision_policy": "amp_off_fp32",
+                "compile_scope": COMPILE_STEP,
+                "optimize_ddp": optimize_ddp,
+                "compiled_autograd": compiled_autograd,
+            },
+        ])
+
+
+def test_runtime_policies_keep_ddp_optimizer_compiled_autograd_measurable() -> None:
+    """DDPOptimizer plus compiled autograd remains a measurable, not proven, option.
+
+    Current PyTorch does not define this pair as a permanent incompatibility, so the
+    parser must preserve the configured measured candidate. Adding an inferred ban or
+    silently forcing the flag off breaks the exact parsed-value assertion.
+    """
+    (policy,) = _runtime_policies([
+        {
+            "runtime_policy_id": "ddp_optimizer_compiled_autograd_probe",
+            "precision_policy": "amp_off_fp32",
+            "compile_scope": COMPILE_STEP,
+            "optimize_ddp": "ddp_optimizer",
+            "compiled_autograd": True,
+        },
+    ])
+
+    assert policy.compiled_autograd is True
+
+
+def test_runtime_policies_admit_feature_detected_reducer_without_forward() -> None:
+    """The installed runtime's backward-only reducer mode remains measurable.
+
+    PyTorch 2.13 exposes this experimental mode in its optimize-DDP registry. Omitting
+    it would silently shrink the dual-T4 overlap search before execution can decide
+    whether it is useful for this model.
+    """
+    (policy,) = _runtime_policies([
+        {
+            "runtime_policy_id": "python_reducer_without_forward_fp16",
+            "precision_policy": "amp_conservative",
+            "compile_scope": COMPILE_STEP,
+            "optimize_ddp": "python_reducer_without_compiled_forward",
+            "compiled_autograd": True,
+        },
+    ])
+
+    assert policy.optimize_ddp == "python_reducer_without_compiled_forward"
+    assert policy.compiled_autograd is True
+
+
+def test_runtime_policies_admit_unknown_installed_mode_only_as_diagnostic() -> None:
+    """A newly discovered torch mode can be observed but never silently promoted."""
+    (policy,) = _runtime_policies([
+        {
+            "runtime_policy_id": "future_overlap_probe",
+            "precision_policy": "amp_conservative",
+            "compile_scope": COMPILE_STEP,
+            "optimize_ddp": "future_overlap_mode",
+            "compiled_autograd": True,
+            "diagnostic_only": True,
+        },
+    ])
+
+    assert policy.optimize_ddp == "future_overlap_mode"
+    assert policy.diagnostic_only is True
+
+    with pytest.raises(ValueError, match="Compiled runtime policies must name"):
+        _runtime_policies([
+            {
+                "runtime_policy_id": "future_overlap_unproven",
+                "precision_policy": "amp_conservative",
+                "compile_scope": COMPILE_STEP,
+                "optimize_ddp": "future_overlap_mode",
+                "compiled_autograd": True,
+            },
+        ])
+
+
+def test_diagnostic_fsq_row_is_never_in_selection_scope() -> None:
+    """A successful diagnostic observation cannot become the runtime winner."""
+    settings = replace(
+        _payload_settings(),
+        efficiency_policies=(
+            _EfficiencyPolicySelection(
+                runtime_policy_id=_DIAGNOSTIC_FSQ_POLICY_ID,
+                precision_policy="amp_conservative",
+                compile_scope=COMPILE_STEP,
+                diagnostic_only=True,
+            ),
+        ),
+    )
+    row = _runtime_row(
+        accelerator_mode="dual_t4_ddp",
+        per_device_batch_size=12,
+        precision_policy="amp_conservative",
+        compile_scope=COMPILE_STEP,
+        corruption_strategy="indexed_masked",
+        world_size=EXPECTED_DUAL_WORLD_SIZE,
+        samples_sec=10_000.0,
+        runtime_policy_id=_DIAGNOSTIC_FSQ_POLICY_ID,
+    )
+
+    assert not _selection_candidate_scope_matches(settings=settings, row=row)
 
 
 def test_compile_ddp_model_if_requested_leaves_whole_step_uncompiled() -> None:
@@ -754,14 +1065,85 @@ def test_step_compile_backend_matches_selected_runtime_payload() -> None:
     assert _STEP_COMPILE_BACKEND == "inductor"
 
 
-def test_build_compiled_ddp_step_rejects_amp_precision() -> None:
-    """The compiled-step probe fails closed on an AMP precision policy (S14b).
+def test_build_compiled_ddp_step_wires_amp_precision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The compiled-step builder passes AMP dtype/enabled state into the real closure.
 
-    The compiled closure hardcodes fp32 (no autocast, no GradScaler) to mirror the
-    runner's fp32 fast path, so a step row paired with an AMP precision must raise
-    rather than silently measure fp32 throughput/VRAM the runner would never run under
-    AMP. The guard runs before any DDP/CUDA construction, so the check is CPU-safe.
+    The fp16 compiled candidate must measure the same autocast recipe the runner uses;
+    exact sentinels and float16 wiring are expected, so rejecting AMP or hardcoding
+    fp32 must fail without requiring CUDA construction.
     """
+    captured: dict[str, object] = {}
+    ddp_model = object()
+    optimizer = object()
+    step_fn = object()
+    compiled_step_fn = object()
+
+    def fake_wrap_fastpath_ddp(model: object, **kwargs: object) -> object:
+        captured["wrapped_model"] = model
+        captured["ddp_kwargs"] = kwargs
+        return ddp_model
+
+    def fake_build_fastpath_optimizer(model: object, *, config: object) -> object:
+        captured["optimizer_model"] = model
+        captured["optimizer_config"] = config
+        return optimizer
+
+    def fake_model_requires_buffer_broadcast(_model: object) -> bool:
+        return False
+
+    class FakeCorruptor:
+        def __init__(self, profile: object) -> None:
+            captured["profile"] = profile
+
+        def to(self, *, device: object) -> FakeCorruptor:
+            captured["corruptor_device"] = device
+            return self
+
+    def fake_make_fastpath_step_fn(
+        model: object,
+        corruptor: object,
+        *,
+        ssim_weight: float,
+        autocast_dtype: torch.dtype,
+        autocast_enabled: bool,
+    ) -> object:
+        captured["step_model"] = model
+        captured["corruptor"] = corruptor
+        captured["ssim_weight"] = ssim_weight
+        captured["autocast_dtype"] = autocast_dtype
+        captured["autocast_enabled"] = autocast_enabled
+        return step_fn
+
+    class FakeTorch:
+        @staticmethod
+        def compile(module: object, *, dynamic: bool, backend: str) -> object:
+            captured["compiled_module"] = module
+            captured["compile_dynamic"] = dynamic
+            captured["compile_backend"] = backend
+            return compiled_step_fn
+
+    monkeypatch.setattr(
+        "eqvae.training.fastpath_recipe.wrap_fastpath_ddp",
+        fake_wrap_fastpath_ddp,
+    )
+    monkeypatch.setattr(
+        "eqvae.training.fastpath_recipe.model_requires_buffer_broadcast",
+        fake_model_requires_buffer_broadcast,
+    )
+    monkeypatch.setattr(
+        "eqvae.training.fastpath_recipe.build_fastpath_optimizer",
+        fake_build_fastpath_optimizer,
+    )
+    monkeypatch.setattr(
+        "eqvae.corruption.inline_stain.InlineStainCorruptor",
+        FakeCorruptor,
+    )
+    monkeypatch.setattr(
+        "eqvae.training.fastpath_step.make_fastpath_step_fn",
+        fake_make_fastpath_step_fn,
+    )
     settings = _pretest_settings(
         resolve_json_config(CONFIG_PATH),
         data_root_override=None,
@@ -776,29 +1158,42 @@ def test_build_compiled_ddp_step_rejects_amp_precision() -> None:
             runtime_policy_id="compile_step_amp_conservative",
             precision_policy="amp_conservative",
             compile_scope=COMPILE_STEP,
+            autocast_dtype="float16",
+            grad_scaler_enabled=True,
         ),
     )
+    raw_model = object()
+    device = object()
+    profile = object()
 
-    with pytest.raises(ValueError, match="precision_policy must be"):
-        _build_compiled_ddp_step(
-            raw_model=object(),
-            local_rank=0,
-            device=object(),
-            profile=object(),
-            settings=settings,
-            row_spec=amp_step_spec,
-            torch_module=object(),
-        )
+    built = _build_compiled_ddp_step(
+        raw_model=raw_model,
+        local_rank=0,
+        device=device,
+        profile=profile,
+        settings=settings,
+        row_spec=amp_step_spec,
+        torch_module=FakeTorch(),
+    )
+
+    assert built == (ddp_model, optimizer, step_fn, compiled_step_fn)
+    assert captured["wrapped_model"] is raw_model
+    assert captured["optimizer_model"] is raw_model
+    assert captured["step_model"] is ddp_model
+    assert captured["autocast_dtype"] == torch.float16
+    assert captured["autocast_enabled"] is True
+    assert captured["compiled_module"] is step_fn
+    assert captured["compile_dynamic"] is False
+    assert captured["compile_backend"] == _STEP_COMPILE_BACKEND
 
 
 def test_build_compiled_ddp_step_rejects_static_graph() -> None:
     """The compiled-step probe fails closed on ``ddp_static_graph=True`` (S14b).
 
-    A step row interleaves an eager numerical-proof backward between the compiled settle
-    and compiled throughput backwards on one DDP module; ``static_graph=True`` locks the
-    backward graph structure on the first (compiled) iteration and cannot tolerate the
-    differently-structured eager proof backward. The measured winner keeps
-    ``static_graph=False``, so this guards a silently divergent (or crashing)
+    A step row runs its eager numerical-proof backward before compiled settle on the
+    same DDP module; ``static_graph=True`` would lock that eager backward structure and
+    then encounter the differently structured compiled backward. The measured winner
+    keeps ``static_graph=False``, so this guards a silently divergent (or crashing)
     measurement. The guard runs before any DDP/CUDA construction, so the check is
     CPU-safe.
     """
@@ -830,6 +1225,139 @@ def test_build_compiled_ddp_step_rejects_static_graph() -> None:
             row_spec=static_graph_step_spec,
             torch_module=object(),
         )
+
+
+def test_compiled_execution_proof_checks_health_and_rank_sync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The untimed proof checks a real compiled update without eager bit parity."""
+    calls: list[str] = []
+    sync_world_sizes: list[int] = []
+    model = torch.nn.Linear(2, 1, bias=False)
+    with torch.no_grad():
+        model.weight.fill_(0.5)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1.0e-3)
+    initial_weight = model.weight.detach().clone()
+
+    class Batch:
+        images_uint8 = torch.zeros((1, 3, 8, 8), dtype=torch.uint8)
+
+    def step_output(x_uint8: torch.Tensor) -> FastpathStepOutput:
+        base = model.weight.sum()
+        value = base + x_uint8.float().mean()
+        detached = value.detach()
+        return FastpathStepOutput(
+            loss=value,
+            recon_loss=detached,
+            l1_loss=detached,
+            ssim_loss=detached,
+            ssim_metric=detached,
+            kl_loss=detached,
+            reconstruction=x_uint8.float(),
+            logvar_clamp_count=torch.tensor(0),
+            recon_output_rms=detached,
+            x_hat_min=detached,
+            x_hat_max=detached,
+            frac_x_hat_lt_minus1=detached,
+            frac_x_hat_gt_1=detached,
+        )
+
+    def eager_step(
+        x_uint8: torch.Tensor,
+        eps: torch.Tensor,
+        beta: torch.Tensor,
+    ) -> FastpathStepOutput:
+        del x_uint8, eps, beta
+        message = "eager step must not run"
+        raise AssertionError(message)
+
+    def compiled_step(
+        x_uint8: torch.Tensor,
+        eps: torch.Tensor,
+        beta: torch.Tensor,
+    ) -> FastpathStepOutput:
+        del eps, beta
+        calls.append("compiled")
+        return step_output(x_uint8)
+
+    def fake_sync_guard(observed_model: object, *, world_size: int) -> None:
+        assert observed_model is model
+        sync_world_sizes.append(world_size)
+
+    def fake_beta_for_step(
+        *,
+        optimizer_step_index: int,
+        max_optimizer_steps: int,
+        target_beta: float,
+        warmup_fraction: float,
+    ) -> float:
+        del optimizer_step_index, max_optimizer_steps, target_beta, warmup_fraction
+        return 0.5
+
+    monkeypatch.setattr(
+        "eqvae.training.ddp_sync_guard.assert_ddp_parameters_exactly_in_sync",
+        fake_sync_guard,
+    )
+    settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+
+    def run_proof() -> JsonObject:
+        return _run_compiled_ddp_execution_proof(
+            iterator=iter([Batch()]),
+            eager_step_fn=eager_step,
+            compiled_step_fn=compiled_step,
+            optimizer=optimizer,
+            scaler=object(),
+            model=model,
+            raw_model=model,
+            device=torch.device("cpu"),
+            settings=settings,
+            step_index=0,
+            row_spec=_dual_step_row_spec(),
+            latent_channels=1,
+            beta_for_step_fn=fake_beta_for_step,
+            torch_module=torch,
+            dist_module=_FakeDistModule(),
+        )
+
+    proof = run_proof()
+
+    assert proof["status"] == PASS_STATUS
+    assert proof["outputs_finite"] is True
+    assert proof["parameter_update_finite_nonzero"] is True
+    assert calls == ["compiled"]
+    assert sync_world_sizes == [EXPECTED_DUAL_WORLD_SIZE]
+    assert not torch.equal(model.weight.detach(), initial_weight)
+
+
+def test_compiled_update_parity_compares_deltas_not_absolute_weights() -> None:
+    """A 10% wrong small update fails even when absolute post-weights look close.
+
+    With an O(1) weight and O(1e-3) optimizer update, the looser output tolerance
+    accepts the two post-weights. Delta-relative comparison must reject them, catching
+    a wrong-but-rank-synchronized compiled gradient.
+    """
+    initial = torch.tensor([0.5])
+    eager_updated = torch.tensor([0.499])
+    compiled_updated = torch.tensor([0.4989])
+
+    assert torch.allclose(
+        eager_updated,
+        compiled_updated,
+        rtol=pretest.NUMERICAL_REL_THRESHOLD,
+        atol=pretest.NUMERICAL_ABS_THRESHOLD,
+    )
+    close, max_abs_delta = _parameter_update_parity(
+        initial_parameters=(initial,),
+        eager_updated_parameters=(eager_updated,),
+        compiled_updated_parameters=(compiled_updated,),
+        torch_module=torch,
+    )
+
+    assert close is False
+    assert max_abs_delta > 0.0
 
 
 class _FakeCudaModule:
@@ -881,6 +1409,256 @@ def _dual_step_row_spec() -> RowSpec:
             compile_scope=COMPILE_STEP,
         ),
     )
+
+
+def test_vram_headroom_requires_a_successful_optimizer_update(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Repeated AMP skips fail before a headroom read can certify feasibility.
+
+    A skipped GradScaler step does not allocate fused-optimizer state, so zero
+    successful updates is a specific non-OOM benchmark failure. The headroom spy must
+    remain untouched; deleting the guard or moving it after the read fails the test.
+    """
+    headroom_reads = 0
+
+    def fake_probe_headroom(device: object) -> int:
+        nonlocal headroom_reads
+        del device
+        headroom_reads += 1
+        return 123
+
+    monkeypatch.setattr(
+        runtime_selection_executor,
+        "probe_headroom_bytes",
+        fake_probe_headroom,
+    )
+
+    with pytest.raises(
+        _FeasibilityProbeAmpStepsSkippedError,
+        match=_VRAM_FEASIBILITY_AMP_SKIPS_FAILURE_KIND,
+    ):
+        _probe_headroom_after_successful_optimizer_update(
+            successful_optimizer_updates=0,
+            device=object(),
+        )
+
+    assert headroom_reads == 0
+
+
+def test_amp_proof_retries_calibration_skips_without_emitting_them() -> None:
+    """Initial scale backoffs retry the same proof until one successful update.
+
+    Two skipped attempts followed by success must return only the successful payload
+    while preserving calibration diagnostics. Counting the skipped payload as linked
+    selection evidence or failing immediately breaks the exact result.
+    """
+    skip_sequence = (True, True, False)
+    attempts = iter(skip_sequence)
+
+    def run_attempt() -> JsonObject:
+        return cast("JsonObject", {"amp_step_skipped": next(attempts)})
+
+    proof, attempt_count, skipped_count = _run_until_successful_amp_proof(
+        run_attempt=run_attempt,
+        fixed_batch_index=0,
+    )
+
+    assert proof["amp_step_skipped"] is False
+    assert attempt_count == len(skip_sequence)
+    assert skipped_count == sum(skip_sequence)
+
+
+def test_amp_accounting_requires_timing_success_and_gates_measured_only() -> None:
+    """Proof success cannot certify the distinct timing scaler or pollute selection.
+
+    Five successful proof updates coexist with an all-skipped timing calibration and
+    one measured skip. The derived timing success must remain zero and selection must
+    see exactly the measured skip, never proof/timing calibration counts.
+    """
+    accounting = _amp_phase_accounting(
+        proof_calibration_step_count=7,
+        proof_calibration_skipped_count=2,
+        timing_calibration_step_count=3,
+        timing_calibration_skipped_count=3,
+        measured_amp_step_skipped_count=1,
+    )
+
+    assert accounting.timing_successful_optimizer_update_count == 0
+    assert accounting.selection_amp_step_skipped_count == 1
+    with pytest.raises(RuntimeError, match="no successful optimizer update"):
+        pretest._require_successful_amp_calibration_update(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+            grad_scaler_enabled=True,
+            calibration_step_count=accounting.timing_calibration_step_count,
+            successful_optimizer_update_count=(
+                accounting.timing_successful_optimizer_update_count
+            ),
+        )
+
+
+def test_feasibility_probe_counts_only_non_skipped_optimizer_updates() -> None:
+    """The bounded probe derives success from each GradScaler skip result.
+
+    A mixed skip sequence must report exactly one successful optimizer update. This
+    catches discarding the helper result, inverting skip polarity, or assuming the
+    bounded probe always allocates optimizer state immediately.
+    """
+    successful_updates = _successful_feasibility_optimizer_updates(
+        amp_step_skips=(True, False),
+    )
+
+    assert successful_updates == 1
+
+
+def test_vram_headroom_reads_after_a_successful_optimizer_update(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One successful update is sufficient to make the optimizer-state probe honest.
+
+    The returned measured value and one exact spy call prove the positive branch still
+    reads physical headroom after the allocation guard; making the guard unconditional
+    or substituting a constant fails this derived behavior.
+    """
+    devices: list[object] = []
+    device = object()
+    expected_headroom = 456
+
+    def fake_probe_headroom(observed_device: object) -> int:
+        devices.append(observed_device)
+        return expected_headroom
+
+    monkeypatch.setattr(
+        runtime_selection_executor,
+        "probe_headroom_bytes",
+        fake_probe_headroom,
+    )
+
+    headroom = _probe_headroom_after_successful_optimizer_update(
+        successful_optimizer_updates=1,
+        device=device,
+    )
+
+    assert headroom == expected_headroom
+    assert devices == [device]
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_kind", "expected_oom"),
+    [
+        (
+            RuntimeError("CUDA out of memory while allocating tensor"),
+            _DDP_RUNTIME_OOM_FAILURE_KIND,
+            True,
+        ),
+        (
+            _FeasibilityProbeAmpStepsSkippedError(
+                _VRAM_FEASIBILITY_AMP_SKIPS_FAILURE_KIND,
+            ),
+            _VRAM_FEASIBILITY_AMP_SKIPS_FAILURE_KIND,
+            False,
+        ),
+    ],
+)
+def test_ddp_rank_failure_payload_preserves_specific_failure_semantics(
+    error: BaseException,
+    expected_kind: str,
+    *,
+    expected_oom: bool,
+) -> None:
+    """Child payloads distinguish runtime OOM from bounded AMP-probe skips.
+
+    Both errors terminate torchrun, but only actual allocation failure is ``oom=true``;
+    exact kinds let the parent recover the cause from one surviving rank payload.
+    Collapsing either branch to ``ddp_rank_RuntimeError`` fails its parameter case.
+    """
+    payload = _ddp_rank_failure_payload(
+        rank=0,
+        local_rank=0,
+        row_id=_dual_step_row_spec().row_id,
+        error=error,
+        torch_module=_FakeTorchModule(),
+        dist_module=_FakeDistModule(),
+    )
+
+    assert payload["failure_kind"] == expected_kind
+    assert payload["oom"] is expected_oom
+
+
+def test_nonzero_torchrun_preserves_available_rank_oom_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The parent recovers clean OOM evidence even when torchrun exits nonzero.
+
+    A single rank writes the classified payload before torchrun kills its peer. The
+    resulting row must retain that exact kind and ``oom=true`` rather than degrade to
+    generic ``torchrun_failed``; requiring both rank files would also fail this case.
+    """
+    settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+
+    def fake_accelerator_failure(*, row_spec: object, accelerator: object) -> None:
+        del row_spec, accelerator
+
+    class _FailedProcess:
+        returncode = 1
+        stderr = "torchrun child failed"
+        stdout = ""
+
+    def fake_run(  # noqa: PLR0913
+        command: object,
+        *,
+        cwd: object,
+        env: Mapping[str, str],
+        capture_output: bool,
+        text: bool,
+        check: bool,
+        timeout: int,
+    ) -> _FailedProcess:
+        del command, cwd, capture_output, text, check, timeout
+        rank_dir = Path(env["EQVAE_RUNTIME_SELECTION_RANK_DIR"])
+        write_json(
+            rank_dir / "rank_0.json",
+            _ddp_rank_failure_payload(
+                rank=0,
+                local_rank=0,
+                row_id=_dual_step_row_spec().row_id,
+                error=RuntimeError("CUDA out of memory in compiled backward"),
+                torch_module=_FakeTorchModule(),
+                dist_module=_FakeDistModule(),
+            ),
+        )
+        return _FailedProcess()
+
+    monkeypatch.setattr(
+        runtime_selection_executor.pretest,
+        "_accelerator_observation",
+        _dual_accelerator,
+    )
+    monkeypatch.setattr(
+        runtime_selection_executor.pretest,
+        "_accelerator_failure",
+        fake_accelerator_failure,
+    )
+    monkeypatch.setattr(runtime_selection_executor.subprocess, "run", fake_run)
+
+    result = _run_dual_row(
+        request=RuntimeSelectionExecutionRequest(
+            config_path=CONFIG_PATH,
+            output_dir=tmp_path,
+        ),
+        settings=settings,
+        row_spec=_dual_step_row_spec(),
+        proof_reference_per_device_batch_size=_PROOF_REFERENCE_BATCH_SIZE,
+    )
+
+    assert result.returncode == 1
+    assert result.failure_kind == _DDP_RUNTIME_OOM_FAILURE_KIND
+    assert result.row["failure_kind"] == _DDP_RUNTIME_OOM_FAILURE_KIND
+    assert result.row["oom"] == "true"
+    assert result.rank_payloads == ()
 
 
 def test_vram_infeasible_rank_payload_is_a_clean_oom_verdict() -> None:
@@ -977,6 +1755,124 @@ def test_dual_row_from_non_oom_failure_keeps_oom_false() -> None:
     assert row["failure_kind"] == "ddp_rank_RuntimeError"
 
 
+@pytest.mark.parametrize("unavailable_rank", [0, 1])
+def test_compiled_dual_row_fails_when_one_dynamo_counter_is_unavailable(
+    unavailable_rank: int,
+) -> None:
+    """A compiled row without Dynamo telemetry cannot claim measured zero instability.
+
+    This fail-closed policy prevents an unobservable compile from becoming a Kaggle
+    winner. Treating missing counters as derived zeros makes the row pass instead of
+    emitting the exact unavailable-source failure.
+    """
+    settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+    payloads = [
+        cast(
+            "JsonObject",
+            {
+                "status": PASS_STATUS,
+                "rank": rank,
+                "dynamo_counter_source_available": rank != unavailable_rank,
+            },
+        )
+        for rank in range(EXPECTED_DUAL_WORLD_SIZE)
+    ]
+
+    row = _dual_row_from_rank_payloads(
+        settings=settings,
+        row_spec=_dual_step_row_spec(),
+        accelerator=_dual_accelerator(),
+        rank_payloads=payloads,
+    )
+
+    assert row["status"] != PASS_STATUS
+    assert row["failure_kind"] == "compiled_dynamo_counter_source_unavailable"
+
+
+def test_compiled_dual_row_fails_when_counter_schema_is_unavailable() -> None:
+    """A counter mapping without expected schema cannot manufacture zero telemetry."""
+    settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+    payloads = [
+        cast(
+            "JsonObject",
+            {
+                "status": PASS_STATUS,
+                "rank": rank,
+                "dynamo_counter_source_available": True,
+                "dynamo_counter_schema_available": rank == 0,
+            },
+        )
+        for rank in range(EXPECTED_DUAL_WORLD_SIZE)
+    ]
+
+    row = _dual_row_from_rank_payloads(
+        settings=settings,
+        row_spec=_dual_step_row_spec(),
+        accelerator=_dual_accelerator(),
+        rank_payloads=payloads,
+    )
+
+    assert row["status"] != PASS_STATUS
+    assert row["failure_kind"] == "compiled_dynamo_counter_schema_unavailable"
+
+
+@pytest.mark.parametrize("missing_proof_rank", [0, 1])
+def test_compiled_dual_row_requires_real_execution_proof_from_every_rank(
+    missing_proof_rank: int,
+) -> None:
+    """A timed compiled row cannot pass with eager-only proof payloads.
+
+    One rank carries complete proof and the other omits it. The aggregator must fail
+    before reading throughput fields in either rank order; replacing ``all`` with
+    ``any`` would recreate the eager-only audit defect and fail one parameter case.
+    """
+    settings = _pretest_settings(
+        resolve_json_config(CONFIG_PATH),
+        data_root_override=None,
+    )
+    payloads = [
+        cast(
+            "JsonObject",
+            {
+                "status": PASS_STATUS,
+                "rank": rank,
+                "dynamo_counter_source_available": True,
+                "dynamo_counter_schema_available": True,
+                **(
+                    {}
+                    if rank == missing_proof_rank
+                    else {
+                        "compiled_execution_proof": {
+                            "status": PASS_STATUS,
+                            "outputs_finite": True,
+                            "parameter_update_finite_nonzero": True,
+                            "successful_optimizer_update_count": 1,
+                            "ddp_parameters_in_sync": True,
+                        },
+                    }
+                ),
+            },
+        )
+        for rank in range(EXPECTED_DUAL_WORLD_SIZE)
+    ]
+
+    row = _dual_row_from_rank_payloads(
+        settings=settings,
+        row_spec=_dual_step_row_spec(),
+        accelerator=_dual_accelerator(),
+        rank_payloads=payloads,
+    )
+
+    assert row["status"] != PASS_STATUS
+    assert row["failure_kind"] == _COMPILED_EXECUTION_PROOF_FAILURE_KIND
+
+
 def test_failure_row_stamps_oom_only_when_requested() -> None:
     """``_failure_row`` sets the oom cell from its flag, overriding the base false.
 
@@ -1034,13 +1930,12 @@ def test_oom_row_is_never_a_selection_candidate() -> None:
     assert not _runtime_row_candidate_pass(row)
 
 
-def test_grid_enumerates_compiled_winner_step_row_at_bs48() -> None:
-    """The committed grid drives a compiled step bs48 row with the winner recipe (S14c).
+def test_grid_retains_original_compiled_step_controls_at_bs48() -> None:
+    """The grid emits fp32 and fp16 compiled bs48 rows against proof batch 12.
 
-    The efficiency slice adds bs48 and a compile_scope=step policy, so the executor
-    enumerates a step@48 RowSpec carrying the measured winner recipe knobs. Guards the
-    config->_runtime_policies->_dual_row_specs path end to end; dropping either the bs48
-    or the step policy from the config drops this row.
+    A2 compares both precision recipes at the large timed batch while reusing the
+    measured fp32 branchless batch-12 proof; exact policy membership and batch values
+    are expected, so dropping fp16 or reverting same-batch proof must fail.
     """
     resolved = resolve_json_config(CONFIG_PATH)
     settings = _pretest_settings(resolved, data_root_override=None)
@@ -1050,19 +1945,25 @@ def test_grid_enumerates_compiled_winner_step_row_at_bs48() -> None:
     step_policies = [
         policy
         for policy in stage.efficiency_policies
-        if policy.compile_scope == COMPILE_STEP
+        if policy.runtime_policy_id in _ORIGINAL_COMPILED_POLICY_IDS
     ]
-    assert len(step_policies) == 1
-    winner = step_policies[0]
-    assert winner.precision_policy == "amp_off_fp32"
-    assert winner.optimize_ddp == "ddp_optimizer"
-    assert winner.fused_optimizer is True
-    assert winner.ddp_gradient_as_bucket_view is True
-    assert winner.ddp_bucket_cap_mb == _WINNER_BUCKET_CAP_MB
-    assert winner.ddp_broadcast_buffers is False
-    assert winner.compiled_autograd is False
-    assert winner.ddp_static_graph is False
-    assert winner.memory_format == "channels_last"
+    assert len(step_policies) == len(_ORIGINAL_COMPILED_POLICY_IDS)
+    policies_by_precision = {
+        policy.precision_policy: policy for policy in step_policies
+    }
+    assert set(policies_by_precision) == {"amp_off_fp32", "amp_conservative"}
+    for policy in policies_by_precision.values():
+        assert policy.optimize_ddp == "ddp_optimizer"
+        assert policy.fused_optimizer is True
+        assert policy.ddp_gradient_as_bucket_view is True
+        assert policy.ddp_bucket_cap_mb == _WINNER_BUCKET_CAP_MB
+        assert policy.ddp_broadcast_buffers is False
+        assert policy.compiled_autograd is False
+        assert policy.ddp_static_graph is False
+        assert policy.memory_format == "channels_last"
+    assert policies_by_precision["amp_conservative"].autocast_dtype == "float16"
+    assert policies_by_precision["amp_conservative"].grad_scaler_enabled is True
+    assert stage.proof_reference_per_device_batch_size == _PROOF_REFERENCE_BATCH_SIZE
 
     specs = _dual_row_specs(settings=settings, stage=stage)
     step_bs48 = [
@@ -1071,13 +1972,21 @@ def test_grid_enumerates_compiled_winner_step_row_at_bs48() -> None:
         if spec.compile_scope == COMPILE_STEP
         and spec.per_device_batch_size == _WINNER_BATCH_SIZE
     ]
-    assert len(step_bs48) == 1
-    assert step_bs48[0].precision_policy == "amp_off_fp32"
-    assert step_bs48[0].fused_optimizer is True
-    assert step_bs48[0].ddp_bucket_cap_mb == _WINNER_BUCKET_CAP_MB
-    # The AMP follow-up policy must NOT be enumerated at bs48: it has no fp32-eager
-    # companion (the fp32 gate measures [4,8,12]), so amp@48 would make the amp
-    # follow-up fail-closed and block the write. Only the fp32 compiled step gets bs48.
+    step_bs48 = [
+        spec
+        for spec in step_bs48
+        if spec.runtime_policy_id in _ORIGINAL_COMPILED_POLICY_IDS
+    ]
+    assert len(step_bs48) == len(_ORIGINAL_COMPILED_POLICY_IDS)
+    assert {spec.precision_policy for spec in step_bs48} == {
+        "amp_off_fp32",
+        "amp_conservative",
+    }
+    assert all(spec.fused_optimizer for spec in step_bs48)
+    assert {spec.ddp_bucket_cap_mb for spec in step_bs48} == {
+        _WINNER_BUCKET_CAP_MB,
+    }
+    # The relaxed eager AMP row remains same-batch gated and therefore stops at bs12.
     amp_bs48 = [
         spec
         for spec in specs
@@ -1087,41 +1996,73 @@ def test_grid_enumerates_compiled_winner_step_row_at_bs48() -> None:
     assert amp_bs48 == []
 
 
-def test_amp_efficiency_row_needs_an_fp32_companion_batch() -> None:
-    """AMP efficiency rows are only enumerable at fp32-eager companion batches (S14c).
+def test_executor_scopes_cross_batch_proof_to_efficiency_rows() -> None:
+    """Only efficiency candidates use the configured cross-batch proof control.
 
-    ``_efficiency_row_enumerable`` structurally prevents an AMP row at a batch the fp32
-    gate never measured (no companion for ``_amp_followup_policy`` -> unconditional
-    write block). The fp32 compiled step needs no companion. Removing the AMP branch of
-    the guard makes the bs48 assertion fail.
+    This derived scoping keeps bs48 timing honest without rewriting unrelated future
+    rows. Applying the proof batch globally or reverting efficiency rows to same-batch
+    proof breaks one of the two exact batch assertions.
+    """
+    resolved = resolve_json_config(CONFIG_PATH)
+    stage = _selection_stage_settings(resolved.effective_config)
+    efficiency = _dual_step_row_spec()
+    ordinary = replace(
+        efficiency,
+        candidate_role="future_non_efficiency_gate",
+        per_device_batch_size=_FUTURE_NON_EFFICIENCY_BATCH_SIZE,
+    )
+
+    assert (
+        _row_proof_reference_batch_size(
+            row_spec=efficiency,
+            stage=stage,
+        )
+        == _PROOF_REFERENCE_BATCH_SIZE
+    )
+    assert (
+        _row_proof_reference_batch_size(
+            row_spec=ordinary,
+            stage=stage,
+        )
+        == _FUTURE_NON_EFFICIENCY_BATCH_SIZE
+    )
+
+
+def test_amp_efficiency_row_needs_an_fp32_companion_batch() -> None:
+    """Only compiled AMP may reuse the configured fp32 proof at a larger batch.
+
+    The new fp16 compiled row is expected at bs48 against proof batch 12, while the
+    existing eager relaxed-AMP slice remains bs12-only; broadening or restoring the
+    old universal same-batch guard must fail one exact polarity.
     """
     stage = _selection_stage_settings(
         resolve_json_config(CONFIG_PATH).effective_config,
     )
-    amp = next(
+    relaxed_amp = next(
         policy
         for policy in stage.efficiency_policies
         if policy.precision_policy == "amp_scalar_gate_relaxed"
     )
-    step = next(
+    compiled_amp = next(
         policy
         for policy in stage.efficiency_policies
-        if policy.compile_scope == COMPILE_STEP
+        if policy.precision_policy == "amp_conservative"
+        and policy.compile_scope == COMPILE_STEP
     )
     companion_batch = stage.dual_batch_sizes[-1]
 
     assert _efficiency_row_enumerable(
-        policy=amp,
+        policy=relaxed_amp,
         batch_size=companion_batch,
         stage=stage,
     )
     assert not _efficiency_row_enumerable(
-        policy=amp,
+        policy=relaxed_amp,
         batch_size=_WINNER_BATCH_SIZE,
         stage=stage,
     )
     assert _efficiency_row_enumerable(
-        policy=step,
+        policy=compiled_amp,
         batch_size=_WINNER_BATCH_SIZE,
         stage=stage,
     )
@@ -1168,6 +2109,13 @@ def test_oom_result_does_not_crash_dual_evidence_aggregation() -> None:
         returncode=0,
         failure_kind=_VRAM_INFEASIBLE_FAILURE_KIND,
         failure_message_hash="",
+        reference_row_id=_row_id(
+            accelerator_mode="dual_t4_ddp",
+            batch_size=12,
+            precision_policy="amp_off_fp32",
+            compile_scope="none",
+            corruption_strategy="branchless_all",
+        ),
     )
 
     assert _dual_dataloader_rows(settings=settings, results=[oom_result]) == []
@@ -1320,7 +2268,11 @@ def test_runtime_selection_writes_selected_runtime_after_full_local_proof(
 def test_runtime_selection_allows_stable_compile_efficiency_row(
     tmp_path: Path,
 ) -> None:
-    """A configured stable compile row may replace the fallback baseline."""
+    """A settled zero-break python-reducer row may replace the fallback baseline.
+
+    Compiled selection needs explicit mode telemetry as well as throughput; a written
+    artifact is expected, so blank-mode acceptance or universal rejection must fail.
+    """
     output_dir = tmp_path / "selection"
     config_path = _write_config_with_efficiency_policies(
         tmp_path=tmp_path,
@@ -1329,22 +2281,27 @@ def test_runtime_selection_allows_stable_compile_efficiency_row(
                 "runtime_policy_id": "compile_model_forward_fp32_channels_last",
                 "precision_policy": "amp_off_fp32",
                 "compile_scope": "model_forward",
+                "optimize_ddp": "python_reducer",
+                "compiled_autograd": True,
             },
         ),
     )
+    compiled_row = _runtime_row(
+        accelerator_mode="dual_t4_ddp",
+        per_device_batch_size=12,
+        precision_policy="amp_off_fp32",
+        compile_scope="model_forward",
+        corruption_strategy="indexed_masked",
+        world_size=EXPECTED_DUAL_WORLD_SIZE,
+        samples_sec=400.0,
+        runtime_policy_id="compile_model_forward_fp32_channels_last",
+        memory_format="channels_last",
+    )
+    compiled_row["optimize_ddp"] = "python_reducer"
+    compiled_row["compiled_autograd"] = "true"
     runtime_rows = (
         *_passing_runtime_rows(),
-        _runtime_row(
-            accelerator_mode="dual_t4_ddp",
-            per_device_batch_size=12,
-            precision_policy="amp_off_fp32",
-            compile_scope="model_forward",
-            corruption_strategy="indexed_masked",
-            world_size=EXPECTED_DUAL_WORLD_SIZE,
-            samples_sec=400.0,
-            runtime_policy_id="compile_model_forward_fp32_channels_last",
-            memory_format="channels_last",
-        ),
+        compiled_row,
     )
     evidence = _runtime_selection_evidence_from_rows(runtime_rows)
     _write_stain_qa(output_dir, evidence)
@@ -1422,6 +2379,113 @@ def test_runtime_selection_excludes_amp_skip_rows_without_global_block(
     assert "amp_followup_policy_not_pass" not in cast(
         "list[object]",
         decision["blockers"],
+    )
+
+
+def test_runtime_selection_accepts_large_amp_with_configured_reference(
+    tmp_path: Path,
+) -> None:
+    """A bs48 fp16 compiled row may use the exact fp32 branchless bs12 proof.
+
+    The configured proof batch is a deliberate cross-batch comparison contract;
+    successful selection and exact proof metadata are expected, so same-batch AMP
+    companionship or zero-break DDPOptimizer gating must fail.
+    """
+    output_dir = tmp_path / "selection"
+    large_amp = _fp16_compiled_bs48_row()
+    runtime_rows = (*_passing_runtime_rows(), large_amp)
+    evidence = _runtime_selection_evidence_from_rows(runtime_rows)
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / "v8"),
+            evidence=evidence,
+        ),
+    )
+
+    assert artifacts.selected_runtime is not None
+    proof = _load_json(artifacts.runtime_proof)
+    amp_policy = cast("dict[str, object]", proof["amp_followup_policy"])
+    efficiency = cast("dict[str, object]", proof["efficiency_followup"])
+    selected = _load_json(artifacts.selected_runtime)
+    assert amp_policy["status"] == "pass"
+    assert (
+        efficiency["proof_reference_per_device_batch_size"]
+        == _PROOF_REFERENCE_BATCH_SIZE
+    )
+    assert selected["selected_row_id"] == large_amp["row_id"]
+
+
+@pytest.mark.parametrize(
+    ("lane", "failure_prefix"),
+    [
+        ("numerical", "numerical_checks"),
+        ("corruption", "corruption_checks"),
+    ],
+)
+def test_runtime_selection_rejects_wrong_linked_reference_id(
+    tmp_path: Path,
+    lane: str,
+    failure_prefix: str,
+) -> None:
+    """Numerical and corruption lanes must name the candidate's exact proof row.
+
+    A same-batch bs48 reference is plausible but wrong when proof batch 12 is
+    configured; exact linked failures are expected, so ignoring ``reference_row_id``
+    or checking only candidate identity must fail each lane case.
+    """
+    output_dir = tmp_path / lane
+    large_amp = _fp16_compiled_bs48_row()
+    evidence = _runtime_selection_evidence_from_rows(
+        (*_passing_runtime_rows(), large_amp),
+    )
+    wrong_reference = _row_id(
+        accelerator_mode="dual_t4_ddp",
+        batch_size=48,
+        precision_policy="amp_off_fp32",
+        compile_scope="none",
+        corruption_strategy="branchless_all",
+    )
+    if lane == "numerical":
+        evidence = replace(
+            evidence,
+            numerical_rows=tuple(
+                {**row, "reference_row_id": wrong_reference}
+                if row["candidate_row_id"] == large_amp["row_id"]
+                else row
+                for row in evidence.numerical_rows
+            ),
+        )
+    else:
+        evidence = replace(
+            evidence,
+            corruption_rows=tuple(
+                {**row, "reference_row_id": wrong_reference}
+                if row["candidate_row_id"] == large_amp["row_id"]
+                else row
+                for row in evidence.corruption_rows
+            ),
+        )
+    _write_stain_qa(output_dir, evidence)
+
+    artifacts = write_runtime_selection_benchmark(
+        RuntimeSelectionBenchmarkRequest(
+            config_path=CONFIG_PATH,
+            output_dir=output_dir,
+            v8_artifact_dir=_write_fake_v8_artifacts(tmp_path / f"v8-{lane}"),
+            evidence=evidence,
+        ),
+    )
+
+    assert artifacts.selected_runtime is None
+    proof = _load_json(artifacts.runtime_proof)
+    decision = cast("dict[str, object]", proof["selected_runtime_write_decision"])
+    assert f"{failure_prefix}:{large_amp['row_id']}" in cast(
+        "list[object]",
+        decision["linked_pass_row_failures"],
     )
 
 
@@ -1781,13 +2845,10 @@ def test_runtime_selection_fails_closed_when_v5_fallback_identity_mismatches(
 
 
 def test_runtime_selection_executor_materializes_relaxed_amp_policy() -> None:
-    """Executor policy parsing creates the relaxed AMP row at bs12 ONLY.
+    """Executor policy parsing keeps relaxed eager AMP at bs12 only.
 
-    Spec 0011 S14c added the bigger batch and the compiled winner policy (two policies
-    now), but the AMP follow-up policy materializes only at bs12: bs48 has no
-    fp32-eager companion (the fp32 gate measures dual_batch_sizes = [4,8,12]), so
-    ``_efficiency_row_enumerable`` filters out amp@48 -- otherwise the amp follow-up
-    gate would fail-closed and block the write.
+    The decoupled proof batch applies to the new compiled fp16 policy, not the existing
+    eager relaxed slice; the exact singleton ID catches accidental broadening to bs48.
     """
     resolved = resolve_json_config(CONFIG_PATH)
 
@@ -2510,7 +3571,13 @@ def test_runtime_selection_blocks_shallow_dataloader_measurement(
 def test_runtime_selection_blocks_train_only_corruption_proof(
     tmp_path: Path,
 ) -> None:
-    """Validation clean-RNG corruption rows are required."""
+    """Training-only corruption evidence cannot certify checkpoint evaluation.
+
+    Runtime selection depends on the clean validation RNG lane used for quality
+    evidence; dropping those rows must block the winner even when training corruption
+    passes. This catches a selector that checks only candidate presence or the train
+    split.
+    """
     output_dir = tmp_path / "selection"
     evidence = _passing_runtime_selection_evidence()
     _write_stain_qa(output_dir, evidence)
@@ -2689,6 +3756,32 @@ def _runtime_rows_for_v5_followup(
         ),
     )
     return tuple(rows)
+
+
+def _fp16_compiled_bs48_row() -> dict[str, str]:
+    row = _runtime_row(
+        accelerator_mode="dual_t4_ddp",
+        per_device_batch_size=48,
+        precision_policy="amp_conservative",
+        compile_scope=COMPILE_STEP,
+        corruption_strategy="indexed_masked",
+        world_size=EXPECTED_DUAL_WORLD_SIZE,
+        samples_sec=400.0,
+        runtime_policy_id="compile_step_ddp_optimizer_fp16_channels_last",
+        memory_format="channels_last",
+    )
+    row["ddp_gradient_as_bucket_view"] = "true"
+    row["optimize_ddp"] = "ddp_optimizer"
+    row["compiled_autograd"] = "false"
+    row["reorder_compute_comm_overlap"] = "false"
+    row["ddp_broadcast_buffers"] = "false"
+    row["ddp_find_unused_parameters"] = "false"
+    row["ddp_bucket_cap_mb"] = str(_WINNER_BUCKET_CAP_MB)
+    row["fused_optimizer"] = "true"
+    row["gradient_clip_foreach"] = "true"
+    row["graph_break_count"] = "0"
+    row["recompile_count"] = "0"
+    return row
 
 
 def _write_config_with_baseline(*, tmp_path: Path, baseline_path: str) -> Path:
@@ -2903,7 +3996,7 @@ def _runtime_row(  # noqa: PLR0913
         "ddp_gradient_as_bucket_view": "false",
         "optimizer_implementation": "adamw_default",
         "zero_grad_set_to_none": "true",
-        "gradient_clip_foreach": "false",
+        "gradient_clip_foreach": "true",
         "compile_dynamic": "false",
         # Spec 0011 S13: eager recipe knobs, matching the production row producers.
         **EAGER_RECIPE_KNOB_COLUMNS,
@@ -3056,8 +4149,15 @@ def _candidate_row(
         "accelerator_mode": runtime_row["accelerator_mode"],
         "machine_shape": runtime_row["machine_shape"],
         "row_id": row_id,
-        "reference_row_id": (
-            "single_visible_t4__bs4__amp_off_fp32__compile_none__branchless_all"
+        "reference_row_id": _row_id(
+            accelerator_mode=runtime_row["accelerator_mode"],
+            batch_size=min(
+                int(runtime_row["per_device_batch_size"]),
+                _PROOF_REFERENCE_BATCH_SIZE,
+            ),
+            precision_policy="amp_off_fp32",
+            compile_scope="none",
+            corruption_strategy="branchless_all",
         ),
         "candidate_row_id": runtime_row["row_id"],
         "runtime_policy_id": runtime_row["runtime_policy_id"],

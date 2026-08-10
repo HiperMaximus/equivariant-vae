@@ -104,6 +104,40 @@ EAGER_RECIPE_KNOB_COLUMNS: Final[dict[str, str]] = {
     "fused_optimizer": "false",
 }
 
+
+def validate_efficiency_proof_reference_batch_size(
+    *,
+    batch_size: int,
+    dual_gate_batch_sizes: tuple[int, ...],
+    efficiency_batch_sizes: tuple[int, ...],
+) -> int:
+    """Validate the fp32 linked-proof batch used by efficiency candidates.
+
+    Returns:
+        The validated positive batch size.
+
+    Raises:
+        ValueError: If the reference is absent from the fp32 gate or larger than a
+            candidate whose timing it is meant to prove.
+
+    """
+    if batch_size <= 0:
+        message = "proof_reference_per_device_batch_size must be positive"
+        raise ValueError(message)
+    if batch_size not in dual_gate_batch_sizes:
+        message = (
+            "proof_reference_per_device_batch_size must be measured by the "
+            "dual_t4_train_step_gate"
+        )
+        raise ValueError(message)
+    if any(batch_size > candidate for candidate in efficiency_batch_sizes):
+        message = (
+            "proof_reference_per_device_batch_size cannot exceed an efficiency batch"
+        )
+        raise ValueError(message)
+    return batch_size
+
+
 DATALOADER_MATRIX_COLUMNS: Final[tuple[str, ...]] = (
     "run_name",
     "benchmark_kind",
@@ -417,7 +451,7 @@ def _runtime_rows(
                 "ddp_gradient_as_bucket_view": "false",
                 "optimizer_implementation": "adamw_default",
                 "zero_grad_set_to_none": "true",
-                "gradient_clip_foreach": "false",
+                "gradient_clip_foreach": "true",
                 "compile_dynamic": "false",
                 **EAGER_RECIPE_KNOB_COLUMNS,
                 "corruption_strategy": corruption_strategy,

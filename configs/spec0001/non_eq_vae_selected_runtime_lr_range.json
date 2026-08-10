@@ -1,0 +1,34 @@
+{
+  "schema_version": "spec0001.v0",
+  "status": "selected_runtime_lr_range_contract_ready_fail_closed",
+  "run": {
+    "name": "non_eq_vae_spec0001_selected_runtime_lr_range",
+    "mode": "kaggle_learning_rate_range"
+  },
+  "source_config": "configs/spec0001/non_eq_vae_model_base.json",
+  "data": {
+    "kind": "ubc-pre-shuffled",
+    "dataset_slug": "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+    "data_root": "auto"
+  },
+  "runtime": {
+    "machine_shape": "NvidiaTeslaT4",
+    "remote_execution_requires_permission": true,
+    "selected_runtime_required": true,
+    "runtime_config": "configs/spec0001/non_eq_vae_selected_runtime.json"
+  },
+  "training": {
+    "max_train_steps": 192,
+    "max_val_steps": 0,
+    "save_every_steps": 192,
+    "train_reparameterization": "stochastic_seeded"
+  },
+  "learning_rate_range": {
+    "start": 0.00002,
+    "end": 0.003,
+    "successful_updates": 192,
+    "smoothing_beta": 0.98,
+    "recommendation_safety_factor": 0.3,
+    "divergence_multiplier": 4.0
+  }
+}

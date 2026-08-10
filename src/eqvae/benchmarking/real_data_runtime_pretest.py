@@ -38,6 +38,11 @@ from eqvae.benchmarking.torch_runtime import torch_runtime_versions
 from eqvae.config import ResolvedConfig, resolve_json_config
 from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
 from eqvae.models.activations import GatedScalarActivation
+from eqvae.training.fastpath_precision import (
+    build_fastpath_grad_scaler,
+    fastpath_autocast_dtype,
+    run_fastpath_optimizer_step,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
@@ -335,7 +340,7 @@ class RowSpec:
     ddp_gradient_as_bucket_view: bool = False
     optimizer_implementation: str = "adamw_default"
     zero_grad_set_to_none: bool = True
-    gradient_clip_foreach: bool = False
+    gradient_clip_foreach: bool = True
     compile_dynamic: bool = False
     # Spec 0011 S14a: compiled fast-path recipe knobs measured by the efficiency
     # search. Eager-v5 defaults keep every existing (eager) row byte-identical; a
@@ -916,12 +921,13 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: C901, PLR0914, PLR0
                 beta2=0.999,
             ),
         )
+    scaler = build_fastpath_grad_scaler(enabled=row_spec.grad_scaler_enabled)
     iterator = iter(loader)
 
     def run_one_step(
         step_index: int,
         iterator: Iterator[PatchTrainingBatch],
-    ) -> int:
+    ) -> tuple[int, bool]:
         # A COMPILE_STEP row drives the compiled whole-step closure; every other scope
         # keeps the byte-identical eager train step (``compiled_step_fn`` is None). The
         # loader iterator is passed in (not captured) so the ``finally`` block can still
@@ -931,6 +937,7 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: C901, PLR0914, PLR0
                 iterator=iterator,
                 compiled_step_fn=compiled_step_fn,
                 optimizer=optimizer,
+                scaler=scaler,
                 model=model,
                 device=device,
                 settings=config.settings,
@@ -939,21 +946,24 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: C901, PLR0914, PLR0
                 latent_channels=latent_channels,
                 beta_for_step_fn=beta_for_step,
             )
-        return _run_one_train_batch(
-            iterator=iterator,
-            model=model,
-            optimizer=optimizer,
-            device=device,
-            profile=profile,
-            normalize_uint8_batch_fn=normalize_uint8_batch,
-            corrupt_normalized_batch_fn=corrupt_normalized_batch,
-            settings=config.settings,
-            step_index=step_index,
-            row_spec=row_spec,
-            latent_channels=latent_channels,
-            beta_for_step_fn=beta_for_step,
-            train_step_request_factory=TrainStepRequest,
-            run_train_step_fn=run_train_step,
+        return (
+            _run_one_train_batch(
+                iterator=iterator,
+                model=model,
+                optimizer=optimizer,
+                device=device,
+                profile=profile,
+                normalize_uint8_batch_fn=normalize_uint8_batch,
+                corrupt_normalized_batch_fn=corrupt_normalized_batch,
+                settings=config.settings,
+                step_index=step_index,
+                row_spec=row_spec,
+                latent_channels=latent_channels,
+                beta_for_step_fn=beta_for_step,
+                train_step_request_factory=TrainStepRequest,
+                run_train_step_fn=run_train_step,
+            ),
+            False,
         )
 
     step_ms: list[float] = []
@@ -964,6 +974,9 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: C901, PLR0914, PLR0
     dynamo_counter_source_available = False
     settle_counter_snapshot: JsonObject = {}
     post_settle_counter_snapshot: JsonObject = {}
+    calibration_amp_step_count = 0
+    calibration_amp_step_skipped_count = 0
+    amp_step_skipped_count = 0
     try:  # noqa: PLW0717
         if row_spec.compile_scope != COMPILE_NONE:
             dynamo_counter_source_available = _reset_dynamo_counters()
@@ -974,17 +987,34 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: C901, PLR0914, PLR0
                 # first-trace compilation for the post-settle window, scoring the row as
                 # recompiling (Spec 0011 S14b). run_one_step drives the compiled step
                 # for a COMPILE_STEP row and the eager step for every other scope.
-                run_one_step(step_index, iterator)
+                _, amp_step_skipped = run_one_step(step_index, iterator)
+                calibration_amp_step_count += 1
+                calibration_amp_step_skipped_count += int(amp_step_skipped)
             torch.cuda.synchronize(device)
             compile_startup_sec = _elapsed_seconds(settle_start_ns)
             settle_counter_snapshot = _dynamo_counter_summary()
             _reset_dynamo_counters()
         for step_index in range(config.settings.warmup_steps):
-            run_one_step(step_index + config.settings.compile_settle_steps, iterator)
+            _, amp_step_skipped = run_one_step(
+                step_index + config.settings.compile_settle_steps,
+                iterator,
+            )
+            calibration_amp_step_count += 1
+            calibration_amp_step_skipped_count += int(amp_step_skipped)
+        calibration_successful_optimizer_update_count = (
+            calibration_amp_step_count - calibration_amp_step_skipped_count
+        )
+        _require_successful_amp_calibration_update(
+            grad_scaler_enabled=row_spec.grad_scaler_enabled,
+            calibration_step_count=calibration_amp_step_count,
+            successful_optimizer_update_count=(
+                calibration_successful_optimizer_update_count
+            ),
+        )
         torch.cuda.reset_peak_memory_stats(device)
         for step_index in range(config.settings.measured_steps):
             start_ns = time.perf_counter_ns()
-            batch_size = run_one_step(
+            batch_size, amp_step_skipped = run_one_step(
                 step_index
                 + config.settings.compile_settle_steps
                 + config.settings.warmup_steps,
@@ -993,6 +1023,7 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: C901, PLR0914, PLR0
             torch.cuda.synchronize(device)
             step_ms.append(_elapsed_ms(start_ns))
             samples += batch_size
+            amp_step_skipped_count += int(amp_step_skipped)
         if row_spec.compile_scope != COMPILE_NONE:
             post_settle_counter_snapshot = _dynamo_counter_summary()
             post_settle_graph_break_count = _counter_total(
@@ -1036,9 +1067,35 @@ def _run_child_row(config: ChildRowConfig) -> None:  # noqa: C901, PLR0914, PLR0
             "post_settle_counter_snapshot": post_settle_counter_snapshot,
             "post_settle_graph_break_count": post_settle_graph_break_count,
             "post_settle_recompile_count": post_settle_recompile_count,
+            "calibration_amp_step_skipped_count": calibration_amp_step_skipped_count,
+            "calibration_successful_optimizer_update_count": (
+                calibration_successful_optimizer_update_count
+            ),
+            "amp_step_skipped_count": amp_step_skipped_count,
         },
     )
     _write_child_payload(config.output_dir, row_spec.row_id, payload)
+
+
+def _require_successful_amp_calibration_update(
+    *,
+    grad_scaler_enabled: bool,
+    calibration_step_count: int,
+    successful_optimizer_update_count: int,
+) -> None:
+    """Reject an AMP row whose entire settle/warmup calibration was skipped.
+
+    Raises:
+        RuntimeError: If active AMP produced no calibration optimizer update.
+
+    """
+    if (
+        grad_scaler_enabled
+        and calibration_step_count > 0
+        and successful_optimizer_update_count == 0
+    ):
+        message = "AMP calibration produced no successful optimizer update"
+        raise RuntimeError(message)
 
 
 def _run_one_train_batch(  # noqa: PLR0913
@@ -1132,18 +1189,14 @@ def _build_compiled_step(
     this child measures timing only; the eager numerical proof lives in
     ``_one_strategy_train_step_evidence``.
 
-    The one fail-closed precondition mirrors the executor: ``amp_off_fp32`` only, since
-    the closure hardcodes ``autocast_enabled=False`` and no GradScaler.
-    ``_run_stage1_rows`` already screens non-fp32 rows, so the guard is defense-in-depth
-    and an honest failure if that contract ever changes.
+    Autocast is derived from the row and the persistent GradScaler is driven by the
+    caller, matching the dual-T4 measurement and selected-runtime runner. The current
+    stage-1 producer remains fp32-only; supporting AMP here keeps this measurement seam
+    faithful when an AMP compiled policy is exercised directly or added later.
 
     Returns:
         A ``(model, optimizer, compiled_step_fn)`` triple; ``model`` is the raw model
         the compiled closure and the optimizer share.
-
-    Raises:
-        ValueError: If the step row requests an AMP precision policy the compiled-step
-            screen cannot faithfully mirror to the runner.
 
     """
     import torch  # noqa: PLC0415
@@ -1156,14 +1209,6 @@ def _build_compiled_step(
     from eqvae.training.fastpath_step import make_fastpath_step_fn  # noqa: PLC0415
     from eqvae.training.optim import SpecAdamWConfig  # noqa: PLC0415
 
-    if row_spec.precision_policy != AMP_OFF_FP32:
-        message = (
-            "Compiled whole-step measurement mirrors the runner's fp32 fast path only "
-            "(autocast and GradScaler are not wired into the compiled-step screen), "
-            f"so precision_policy must be {AMP_OFF_FP32!r}; got "
-            f"{row_spec.precision_policy!r}."
-        )
-        raise ValueError(message)
     optimizer = build_fastpath_optimizer(
         raw_model,
         config=SpecAdamWConfig(
@@ -1186,8 +1231,11 @@ def _build_compiled_step(
         raw_model,
         corruptor,
         ssim_weight=settings.ssim_weight,
-        autocast_dtype=torch.float32,
-        autocast_enabled=False,
+        autocast_dtype=fastpath_autocast_dtype(
+            row_spec.autocast_dtype,
+            amp_enabled=row_spec.precision_policy != AMP_OFF_FP32,
+        ),
+        autocast_enabled=row_spec.precision_policy != AMP_OFF_FP32,
     )
     compiled_step_fn = cast("Callable[..., object]", torch.compile)(
         step_fn,
@@ -1202,6 +1250,7 @@ def _run_compiled_step_batch(  # noqa: PLR0913
     iterator: Iterator[PatchTrainingBatch],
     compiled_step_fn: object,
     optimizer: torch.optim.Optimizer,
+    scaler: torch.amp.GradScaler,
     model: NonEquivariantVAE,
     device: torch.device,
     settings: RealDataRuntimePretestSettings,
@@ -1209,22 +1258,20 @@ def _run_compiled_step_batch(  # noqa: PLR0913
     row_spec: RowSpec,
     latent_channels: int,
     beta_for_step_fn: BetaForStepFn,
-) -> int:
+) -> tuple[int, bool]:
     """Drive one compiled whole-step batch (settle / warmup / measured), single-GPU.
 
     Single-GPU mirror of the executor's ``_run_compiled_ddp_step_batch``: the compiled
-    closure fuses inline corruption + the forward + the FP32 loss; the backward, grad
-    clipping, and the optimizer step stay eager here, exactly as the runner drives the
-    recipe. Only the uint8 batch (normalized inside the graph), ``eps``, and a 0-dim
-    ``beta`` tensor cross the graph boundary. Step rows are ``amp_off_fp32`` (no
-    GradScaler), so no AMP-skip exists.
+    closure fuses inline corruption + the forward + the FP32 loss; scaled backward,
+    unscale, grad clipping, and the optimizer step stay eager here, exactly as the
+    runner drives the recipe. Only the uint8 batch (normalized inside the graph),
+    ``eps``, and a 0-dim ``beta`` tensor cross the graph boundary.
     Pretest rows are always ``memory_format="contiguous"`` (``_stage1_row_specs`` never
     sets channels_last), so there is no layout conversion here (unlike the executor,
     whose rows can be channels_last).
 
     Returns:
-        The observed batch size, matching ``_run_one_train_batch`` so the measured loop
-        accumulates ``samples`` identically.
+        The observed batch size and whether GradScaler skipped the optimizer update.
 
     """
     import torch  # noqa: PLC0415
@@ -1258,21 +1305,23 @@ def _run_compiled_step_batch(  # noqa: PLR0913
     # changing its value never forces a ``dynamic=False`` recompile.
     beta = torch.tensor(float(beta_value), dtype=torch.float32, device=device)
     optimizer.zero_grad(set_to_none=row_spec.zero_grad_set_to_none)
-    with compiled_autograd_context(enabled=row_spec.compiled_autograd):
-        output = cast(
-            "FastpathStepOutput",
-            cast("Callable[..., object]", compiled_step_fn)(x_uint8, eps, beta),
-        )
-        backward = cast("Callable[[], None]", output.loss.backward)
-        backward()
-    if settings.gradient_clip_global_norm > 0.0:
-        cast("Callable[..., object]", torch.nn.utils.clip_grad_norm_)(
-            list(model.parameters()),
-            settings.gradient_clip_global_norm,
-            foreach=row_spec.gradient_clip_foreach,
-        )
-    optimizer.step()
-    return shape[0]
+    output = cast(
+        "FastpathStepOutput",
+        cast("Callable[..., object]", compiled_step_fn)(x_uint8, eps, beta),
+    )
+    amp_step_skipped = run_fastpath_optimizer_step(
+        loss=output.loss,
+        optimizer=optimizer,
+        parameters=model.parameters(),
+        scaler=scaler,
+        grad_scaler_enabled=row_spec.grad_scaler_enabled,
+        gradient_clip_global_norm=settings.gradient_clip_global_norm,
+        gradient_clip_foreach=row_spec.gradient_clip_foreach,
+        backward_context=compiled_autograd_context(
+            enabled=row_spec.compiled_autograd,
+        ),
+    )
+    return shape[0], amp_step_skipped
 
 
 def _model_for_compile_scope(
@@ -1488,6 +1537,9 @@ def _row_from_child_payload(
         "vram_headroom_fraction": _format_float(
             _required_float(payload, "vram_headroom_fraction"),
         ),
+        "amp_step_skipped_count": str(
+            _optional_int(payload, "amp_step_skipped_count") or 0,
+        ),
         "status": INELIGIBLE_STATUS,
         "failure_kind": "linked_safety_evidence_pending",
         "failure_message_hash": _hash_text("linked_safety_evidence_pending"),
@@ -1570,7 +1622,9 @@ def _base_row(*, settings: RealDataRuntimePretestSettings, row_spec: RowSpec) ->
         "world_size": str(row_spec.world_size),
         "nproc_per_node": str(row_spec.nproc_per_node),
         "precision_policy": row_spec.precision_policy,
-        "amp_enabled": "false",
+        "amp_enabled": _format_bool(
+            value=row_spec.precision_policy != AMP_OFF_FP32,
+        ),
         "torch_compile_enabled": _format_bool(
             value=row_spec.compile_scope != COMPILE_NONE,
         ),
@@ -4904,6 +4958,10 @@ def _numerical_delta_payload(  # noqa: PLR0914
         _required_float(reference, "logvar_std"),
         _required_float(candidate, "logvar_std"),
     )
+    amp_step_skipped = _required_bool(
+        reference,
+        "amp_step_skipped",
+    ) or _required_bool(candidate, "amp_step_skipped")
     passed = (
         _delta_pass(loss_delta)
         and _delta_pass(recon_delta)
@@ -4922,6 +4980,7 @@ def _numerical_delta_payload(  # noqa: PLR0914
         and _required_int(candidate, "nonfinite_count") == 0
         and _required_int(reference, "logvar_clamp_count")
         == _required_int(candidate, "logvar_clamp_count")
+        and not amp_step_skipped
     )
     return {
         "passed": passed,
@@ -4953,7 +5012,7 @@ def _numerical_delta_payload(  # noqa: PLR0914
             _required_int(reference, "nonfinite_count")
             + _required_int(candidate, "nonfinite_count")
         ),
-        "amp_step_skipped": False,
+        "amp_step_skipped": amp_step_skipped,
     }
 
 
@@ -6486,7 +6545,7 @@ def _row_spec_from_payload(payload: JsonObject) -> RowSpec:
         gradient_clip_foreach=_optional_bool(
             payload,
             "gradient_clip_foreach",
-            default=False,
+            default=True,
         ),
         compile_dynamic=_optional_bool(payload, "compile_dynamic", default=False),
         optimize_ddp=_optional_str(payload, "optimize_ddp") or "",

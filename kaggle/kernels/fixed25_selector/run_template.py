@@ -31,6 +31,7 @@ FIXED25_SELECTOR_OUTPUT = "fixed_25_validation_patches.json"
 FIXED25_ORIGINALS_PT = "artifacts/fixed25/originals.pt"
 FIXED25_ORIGINALS_PNG = "artifacts/fixed25/originals.png"
 IMPORT_ARTIFACT = "fixed25_selector_import.json"
+RUNTIME_ENVIRONMENT_ARTIFACT = "fixed25_selector_runtime_environment.json"
 EXPECTED_SELECTOR_COUNT = 25
 DEFAULT_KAGGLE_OUTPUT_DIR = Path("/kaggle/working")
 LOCAL_FALLBACK_OUTPUT_DIR = Path("runs/kaggle/fixed25_selector_local")
@@ -72,6 +73,7 @@ def main() -> int:
 
 def _generate(output_dir: Path) -> int:
     _ensure_latest_torch(cpu_only=True)
+    _write_runtime_environment(output_dir)
     payload_dir = _extract_payload(output_dir / "embedded_payload")
     payload_src = payload_dir / "src"
     sys.path.insert(0, str(payload_src))
@@ -116,6 +118,25 @@ def _generate(output_dir: Path) -> int:
         return originals_code
     _validate_outputs(output_dir=output_dir, selector_output=selector_output)
     return 0
+
+
+def _write_runtime_environment(output_dir: Path) -> None:
+    """Record the resolved stack after the mandatory upgrade and before payload use."""
+    import torch  # noqa: PLC0415
+
+    benchmark_dir = output_dir / "benchmark"
+    benchmark_dir.mkdir(parents=True, exist_ok=True)
+    artifact = {
+        "status": "pass",
+        "benchmark_kind": "fixed25_selector_runtime_environment",
+        "torch_version": torch.__version__,
+        "cuda_version": torch.version.cuda,
+        "cuda_available": torch.cuda.is_available(),
+    }
+    (benchmark_dir / RUNTIME_ENVIRONMENT_ARTIFACT).write_text(
+        f"{json.dumps(artifact, indent=2, sort_keys=True)}\n",
+        encoding="utf-8",
+    )
 
 
 def _run_select_fixed_patches(

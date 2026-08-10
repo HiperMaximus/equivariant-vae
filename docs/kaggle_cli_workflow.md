@@ -151,17 +151,14 @@ rows, per-candidate gate-health rows, candidate-scoped stain QA, and exact
 embedded v8 payload membership. Missing, failed, or skipped dual timing or
 linked evidence refuses `benchmark/selected_runtime.json`.
 
-The runtime-selection generator ran on real dual-T4 DDP and selected the current
-fallback runtime
+The historical runtime-selection v5 generator ran on real dual-T4 DDP and selected
 `dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`,
 written to `runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json`
-(which records its measured throughput and projected wall time). Selection is
-allowed only after the dual-T4 selection-gate contract above passes; missing,
-failed, or skipped dual timing or linked evidence refuses
-`benchmark/selected_runtime.json`.
+(which records its measured throughput and projected wall time). It is superseded by
+Spec 0011's compiled FP16 per-rank-25/global-50 winner; read `CURRENT.md` for the live
+runtime.
 
-Treat the selected runtime as a proof-clean safety baseline. Before launching a
-60h+ training run, an efficiency-selection follow-up may replace it if AMP/FP16,
+The later efficiency-selection follow-up was allowed to replace that safety baseline if AMP/FP16,
 stable `torch.compile`, channels-last layout, cuDNN benchmark/non-deterministic
 kernel selection, DDP `static_graph`/`gradient_as_bucket_view`, optimizer/
 zero-grad fast paths, or Kaggle-supported TF32/matmul precision knobs are
@@ -450,7 +447,7 @@ or approval request for the real debug/resume/artifact/tiny-overfit gate, run:
 That command builds and validates `kaggle/kernels/selected_runtime_debug`, runs
 the selected-runtime gate tests, runs the generated-wrapper import-only
 simulation, and runs the full local fail-closed artifact simulation. Passing it
-means the single-file wrapper can transport v5 and preserve the gate artifact
+means the single-file wrapper can transport the selected Spec 0011 plan and preserve the gate artifact
 contract. It does not mean the real UBC proof passed. The push guard remains
 stricter and must reject remote writes until the embedded payload no longer has
 the Spec 0008 local generator/readiness checks pass in `remote_generate` mode,
@@ -460,7 +457,7 @@ train shard before training.
 
 The selected-runtime debug/tiny gate kernel contract token is
 `selected_runtime_debug_gate_contract_ready`: `kaggle/kernels/selected_runtime_debug`
-embeds the v5 selected-runtime JSON and writes fail-closed artifacts through
+embeds the selected Spec 0011 runtime JSON and writes fail-closed artifacts through
 `eqvae.cli.selected_runtime_gate`; the push guard requires that token in this doc,
 spec 0001, spec 0003, and the specs index.
 
@@ -537,27 +534,54 @@ KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output <synthetic-kernel-id
 ```
 
 Download only durable artifacts with `kaggle kernels output --file-pattern`; never pull
-generated data or compiler scratch. Active Spec 0011 v4 requires the guarded output
-action to fetch its inventory/ledger/constraint/cover/import-reuse/action/session/raw-
-matrix/cache/confirmation/results/manifest artifacts plus the compact verified resume
-bundle, while excluding compiler scratch, live scout state, and incomplete `.tmp` files.
-The launcher upgrades Torch first and stages the canonical repo-owned 309-row package
-from `docs/data/spec0011_runtime_recipe_v2/`; it never resumes old `p00310`.
+generated data or compiler scratch. The completed Spec 0011 probe kernel was one-use and
+has been removed. Its compact winner record is
+`configs/spec0001/non_eq_vae_runtime_winner.json`; raw downloaded evidence remains under
+`runs/kaggle/runtime_recipe_probe_v9` and `runtime_recipe_probe_v14`.
 
-V4 has no total GPU/session/118-slot cap. A verified session may be downloaded, embedded
-as the exact parent bundle for a separately authorized next push, and resumed only under
-the generation/parent-hash rules in Spec 0011. This transport is not implemented yet;
-the partial v3 launcher remains fail-closed. Do not request or perform a remote run until
-v4 is reviewed, relocked, implemented, and the local preflight passes:
+LR-range v1 and debug/tiny v6 completed on 2026-08-09. Durable outputs live under
+`runs/kaggle/selected_runtime_lr_range` and `runs/kaggle/selected_runtime_debug`. The
+range completed 192 two-rank updates without skips/non-finites. Fixed-32 overfit improved
+smoothed L1 by 28.1% and reconstruction loss by 22.5% over 128 updates. The strict output
+verifier passes.
+
+The next local preparation is:
 
 ```bash
-./scripts/kaggle_kernel.sh preflight-runtime-recipe-bakeoff
+./scripts/kaggle_kernel.sh preflight-selected-runtime-full
 ```
 
-This proves packaging/guards/verifier structure only. It does not authorize a push,
-select a runtime, or prove dual-T4 timing. `synthetic_timing` is quarantined (FU-031); if
-it is deliberately rerun, filter to its four small benchmark files and exclude
-`synthetic_timing_data/`.
+After separate explicit permission for the full training write and reads, use exactly:
+
+```bash
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check kaggle/kernels/selected_runtime_full
+KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_full
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-full
+# After completion:
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-selected-runtime-full runs/kaggle/selected_runtime_full
+```
+
+Full training uses beta target `0.01` with a one-epoch beta ramp, 600-update linear LR
+warmup to effective `1e-3`, then cosine decay without restarts to `1e-5` at update 60000.
+The projected total is longer than one Kaggle session, so the exact
+checkpoint/download/resume sequence must pass local review before launch approval.
+Each worker targets update 60000 and runs until completion or Kaggle's session limit
+closes it. Every 3000-update boundary has already flushed validation, fixed-25 images and
+latent artifacts, metrics, and a checkpoint. Download the canceled session to a distinct
+local directory. The session commit point is the checkpoint named and hashed by
+`benchmark/checkpoint_resume_proof.json`: use `latest_checkpoint_step` as the inclusive
+cutoff, and reject the session if the named checkpoint/hash is absent or the step is not
+a 3000-update boundary. A hard close may preserve preflushed CSV/artifact data above that
+cutoff; exclude those rows and fixed-25 boundary artifacts from final concatenation.
+Upload/attach only the committed checkpoint for session 2, which writes a new output
+directory. Keep all session outputs locally and concatenate each session's committed
+absolute-step CSV prefix only after update 60000. Earlier remote metrics/artifacts are
+not inputs to the next session. Do not add an artificial session cap or build a remote
+merge/artifact-transport framework.
+Probe permission does not authorize this long run.
+
+`synthetic_timing` is quarantined (FU-031); if deliberately rerun, filter to its four small
+benchmark files and exclude `synthetic_timing_data/`.
 
 Until `api-check` grows a no-dataset kernel mode, the command above is only a
 read-only auth/status/quota preflight and still lists the real patch dataset.

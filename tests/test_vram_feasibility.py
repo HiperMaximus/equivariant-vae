@@ -38,14 +38,20 @@ _CEILING_OOM_BOUND = 192
 
 
 def test_feasibility_ladder_auto_extends_past_requested_until_the_cap() -> None:
-    """The ladder keeps doubling past the largest requested size up to the cap."""
+    """The derived doubling ladder reaches the last power allowed by its cap.
+
+    Reaching that boundary matters because stopping early can miss the real OOM edge.
+    The assertions derive the expected termination from ``MAX_SWEEP_BATCH`` rather
+    than freeze a ladder, and catch truncating the producer after a few rungs.
+    """
     ladder = feasibility_ladder((12, 24), base_batch=_LADDER_BASE)
     # Requested sizes are preserved and de-duplicated, ascending.
     assert ladder[:2] == (12, 24)
     # It then doubles (48, 96, ...) so the sweep finds the OOM edge on its own.
     assert ladder[2] == _LADDER_FIRST_DOUBLED
     assert all(ladder[idx] == ladder[idx - 1] * 2 for idx in range(2, len(ladder)))
-    assert max(ladder) <= MAX_SWEEP_BATCH
+    assert ladder[-1] <= MAX_SWEEP_BATCH
+    assert ladder[-1] * 2 > MAX_SWEEP_BATCH
 
 
 def test_feasibility_ladder_dedupes_and_defaults_empty_request() -> None:

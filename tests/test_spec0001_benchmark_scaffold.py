@@ -43,6 +43,7 @@ EXPECTED_REAL_PRETEST_TRAIN_PATCHES = 8192
 EXPECTED_REAL_PRETEST_VALIDATION_PATCHES = 2048
 EXPECTED_REAL_PRETEST_WARMUP_STEPS = 5
 EXPECTED_DUAL_T4_DEVICE_COUNT = 2
+EXPECTED_EFFICIENCY_PROOF_BATCH_SIZE = 12
 # Spec 0011 S14c compiled winner DDP bucket cap (compile-probe v3 measured recipe).
 EXPECTED_WINNER_BUCKET_CAP_MB = 50
 SPEC_TOTAL_LEARNED_PARAMETERS = 3_958_435
@@ -150,9 +151,19 @@ def test_kaggle_runtime_config_does_not_inherit_local_pretest_fields() -> None:
         "torch._dynamo.utils.counters_with_reset_per_row"
     )
     assert compile_settle_policy["post_settle_required_zero_fields"] == [
-        "graph_break_count",
         "recompile_count",
     ]
+    assert compile_settle_policy["post_settle_graph_break_policy"] == (
+        "diagnostic_only_when_nonnegative_and_available;"
+        "stable_overlap_partitions_compete_by_measured_epoch_time"
+    )
+    assert (
+        compile_settle_policy[
+            "ineligible_on_missing_or_negative_graph_break_telemetry_or_"
+            "post_settle_recompile"
+        ]
+        is True
+    )
     must_exercise = compile_settle_policy["must_exercise"]
     assert isinstance(must_exercise, list)
     assert "mask_cardinality_all" in must_exercise
@@ -368,10 +379,13 @@ def test_runtime_config_v5_relaxed_amp_followup_uses_v5_fallback() -> None:
         "dual_t4_ddp__bs12__amp_conservative__compile_none"
         "__indexed_masked__policy_amp_fp16_conservative"
     )
-    # The efficiency search enumerates the compiled bigger-batch winner alongside the
-    # kept amp follow-up (Spec 0011 S14c): bs48 is added and a compile_scope=step policy
-    # carrying the measured winner recipe joins the amp policy.
+    # A2 adds the fp16 version of the compiled winner recipe and decouples its safe
+    # linked-proof batch from the larger timed batch.
     assert efficiency["per_device_batch_sizes"] == [12, 48]
+    assert (
+        efficiency["proof_reference_per_device_batch_size"]
+        == EXPECTED_EFFICIENCY_PROOF_BATCH_SIZE
+    )
     policies = efficiency["policies"]
     assert isinstance(policies, list)
     assert [
@@ -379,6 +393,7 @@ def test_runtime_config_v5_relaxed_amp_followup_uses_v5_fallback() -> None:
     ] == [
         "amp_fp16_scalar_gate_relaxed",
         "compile_step_ddp_optimizer_fp32_channels_last",
+        "compile_step_ddp_optimizer_fp16_channels_last",
     ]
     policy_by_id = {
         policy["runtime_policy_id"]: policy
@@ -405,6 +420,16 @@ def test_runtime_config_v5_relaxed_amp_followup_uses_v5_fallback() -> None:
     assert winner["ddp_find_unused_parameters"] is False
     assert winner["ddp_bucket_cap_mb"] == EXPECTED_WINNER_BUCKET_CAP_MB
     assert winner["fused_optimizer"] is True
+    fp16_winner = policy_by_id["compile_step_ddp_optimizer_fp16_channels_last"]
+    assert fp16_winner["precision_policy"] == "amp_conservative"
+    assert fp16_winner["compile_scope"] == "step"
+    assert fp16_winner["autocast_dtype"] == "float16"
+    assert fp16_winner["fp32_loss"] is True
+    assert fp16_winner["grad_scaler_enabled"] is True
+    assert fp16_winner["memory_format"] == winner["memory_format"]
+    assert fp16_winner["optimize_ddp"] == winner["optimize_ddp"]
+    assert fp16_winner["ddp_bucket_cap_mb"] == winner["ddp_bucket_cap_mb"]
+    assert fp16_winner["fused_optimizer"] is winner["fused_optimizer"]
 
 
 def test_model_count_resolves_source_config_without_repo_cwd(

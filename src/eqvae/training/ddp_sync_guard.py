@@ -12,6 +12,7 @@ divergence into an immediate, loud failure.
 
 from __future__ import annotations
 
+import hashlib
 import math
 from typing import TYPE_CHECKING, cast
 
@@ -73,6 +74,59 @@ def assert_ddp_parameters_in_sync(model: nn.Module, *, world_size: int) -> None:
             raise RuntimeError(message)
 
 
+def parameter_sha256(model: nn.Module) -> str:
+    """Hash every ordered parameter's metadata and exact bytes for untimed proof.
+
+    Returns:
+        A SHA-256 digest over parameter order, dtype, shape, and value bytes.
+
+    Raises:
+        RuntimeError: If any parameter contains a non-finite value.
+
+    """
+    digest = hashlib.sha256()
+    for index, parameter in enumerate(model.parameters()):
+        values = parameter.detach()
+        if not bool(torch.isfinite(values).all().item()):
+            message = "DDP parameter proof found a non-finite parameter"
+            raise RuntimeError(message)
+        digest.update(f"{index}:{values.dtype}:{tuple(values.shape)}:".encode())
+        digest.update(
+            values.contiguous().reshape(-1).view(torch.uint8).cpu().numpy().tobytes(),
+        )
+    return digest.hexdigest()
+
+
+def assert_ddp_parameters_exactly_in_sync(
+    model: nn.Module,
+    *,
+    world_size: int,
+) -> None:
+    """Require complete exact parameter digests from every rank in an untimed proof.
+
+    Raises:
+        RuntimeError: If a rank digest is missing/malformed, parameters are non-finite,
+            or exact ordered parameter bytes differ across ranks.
+
+    """
+    local_digest = parameter_sha256(model)
+    gathered: list[object] = [None for _ in range(world_size)]
+    all_gather_object = cast(
+        "Callable[[list[object], object], None]",
+        dist.all_gather_object,
+    )
+    all_gather_object(gathered, local_digest)
+    if (
+        len(gathered) != world_size
+        or any(not isinstance(value, str) for value in gathered)
+        or any(value != local_digest for value in gathered)
+    ):
+        message = (
+            "DDP ranks hold divergent exact parameter bytes after an optimizer step"
+        )
+        raise RuntimeError(message)
+
+
 def _fingerprints_match(
     left: tuple[float, float],
     right: tuple[float, float],
@@ -98,4 +152,9 @@ def _moment_matches(left: float, right: float) -> bool:
     return left == right
 
 
-__all__ = ["assert_ddp_parameters_in_sync", "parameter_fingerprint"]
+__all__ = [
+    "assert_ddp_parameters_exactly_in_sync",
+    "assert_ddp_parameters_in_sync",
+    "parameter_fingerprint",
+    "parameter_sha256",
+]

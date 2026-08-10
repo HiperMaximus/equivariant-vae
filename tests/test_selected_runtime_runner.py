@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import csv
 import json
-import math
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import cast
+from unittest.mock import Mock
 
+import pytest
 import torch
 
 from eqvae.cli.selected_runtime_train import main as selected_runtime_train_main
@@ -29,23 +30,19 @@ from eqvae.data.roots import (
 )
 from eqvae.data.synthetic import SyntheticPatchSpec, write_synthetic_patch_shard
 from eqvae.training import selected_runtime_runner
-from eqvae.training.selected_runtime import parse_selected_runtime_plan
+from eqvae.training.selected_runtime import (
+    SelectedRuntimePlan,
+    parse_selected_runtime_plan,
+)
 from eqvae.training.selected_runtime_runner import (
     SELECTED_RUNTIME_AMP_GRAD_SCALER_INIT_SCALE,
     RankDeviceAssignment,
     SelectedRuntimeEnvironmentProbe,
-    _clone_trainable_parameters,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
-    _global_grad_norm,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
-    _nonfinite_gradient_count,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
-    _parameter_update_norm,  # noqa: PLC2701  # pyright: ignore[reportPrivateUsage]
     build_selected_runtime_torchrun_command,
     fixed_selector_full_batch_indices,
     validate_selected_runtime_environment,
     validate_selected_runtime_torchrun_command,
 )
-
-if TYPE_CHECKING:
-    import pytest
 
 SHORT_TRAIN_STEPS = 2
 PARTIAL_BATCH_TRAIN_STEPS = 3
@@ -64,10 +61,27 @@ SINGLE_TINY_FULL_BATCH_EPOCH_SAMPLES = (
 IMAGE_SIZE = 64
 
 
+def test_deferred_amp_window_fails_before_accepting_scale_backoff() -> None:
+    """A hot-window overflow is rejected at its untimed completion boundary."""
+    scaler = Mock()
+    scaler.get_scale.return_value = 8.0  # pyright: ignore[reportAny]
+
+    with pytest.raises(RuntimeError, match="window ending at step 25"):
+        selected_runtime_runner._checked_amp_window_scale(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+            scaler=cast("torch.amp.GradScaler", scaler),
+            previous_scale=16.0,
+            ending_step=25,
+        )
+
+
 def test_selected_runtime_runner_dry_run_writes_required_artifacts(  # noqa: PLR0914, PLR0915
     tmp_path: Path,
 ) -> None:
-    """Local dry-run exercises the real runner without promoting readiness."""
+    """Local dry-run writes real runner artifacts without promoting readiness.
+
+    Artifact contents and non-promotable statuses are exact contract values; dropping
+    a required write or falsely marking synthetic execution ready must fail.
+    """
     config_path = _runner_config(tmp_path)
     runtime_config = _runtime_config(tmp_path)
     output_dir = tmp_path / "runner-dryrun"
@@ -149,10 +163,6 @@ def test_selected_runtime_runner_dry_run_writes_required_artifacts(  # noqa: PLR
     assert debug_summary["real_train_runner_implemented"] is True
     assert debug_summary["remote_pass_ready"] is False
     assert debug_summary["fixed_32_selector_real"] is False
-    assert debug_summary["uses_resolve_patch_data_paths"] is True
-    assert debug_summary["uses_patch_training_dataset"] is True
-    assert debug_summary["uses_collate_patch_training_samples"] is True
-    assert debug_summary["uses_normalize_uint8_batch"] is True
     assert "synthetic_dry_run_non_promotable" in _string_list(
         debug_summary["launch_blockers_remaining"],
     )
@@ -486,8 +496,12 @@ def test_selected_runtime_torchrun_command_validation(tmp_path: Path) -> None:
     )
 
 
-def test_selected_runtime_environment_probe_stamps_torch_and_cuda_version() -> None:
-    """The runtime probe records the torch build and CUDA version it ran on."""
+def test_selected_runtime_environment_probe_serializes_versions() -> None:
+    """Probe serialization preserves supplied version facts.
+
+    This is a value-object contract, so exact strings are expected; swapping or
+    dropping either field must fail without pretending this test observes capture.
+    """
     probe = SelectedRuntimeEnvironmentProbe(
         machine_shape="NvidiaTeslaT4",
         accelerator_mode="dual_t4_ddp",
@@ -501,19 +515,51 @@ def test_selected_runtime_environment_probe_stamps_torch_and_cuda_version() -> N
         torchrun_standalone=True,
         rank_assignments=(),
         distributed_initialized=True,
-        torch_version="2.12.0+cu124",
-        cuda_version="12.4",
+        torch_version="2.13.0+cu130",
+        cuda_version="13.0",
     )
 
     payload = probe.as_json()
 
-    assert payload["torch_version"] == "2.12.0+cu124"
-    assert payload["cuda_version"] == "12.4"
+    assert payload["torch_version"] == "2.13.0+cu130"
+    assert payload["cuda_version"] == "13.0"
+
+
+def test_distributed_context_captures_runtime_versions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Context construction composes captured torch/CUDA versions into its probe.
+
+    The environment proof must reflect the runtime helper rather than dataclass test
+    inputs; exact sentinel strings are expected, and bypassing capture must fail.
+    """
+    monkeypatch.setattr(
+        selected_runtime_runner,
+        "torch_runtime_versions",
+        lambda: {"torch_version": "captured-torch", "cuda_version": "captured-cuda"},
+    )
+    plan = parse_selected_runtime_plan(_runtime_config(tmp_path))
+
+    distributed = selected_runtime_runner._distributed_context(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        plan=plan,
+        dry_run=True,
+    )
+
+    assert distributed.probe.torch_version == "captured-torch"
+    assert distributed.probe.cuda_version == "captured-cuda"
 
 
 def test_selected_runtime_environment_validation(tmp_path: Path) -> None:
-    """Rank/device proof accepts exact dual T4 facts and rejects common lies."""
-    plan = parse_selected_runtime_plan(_runtime_config(tmp_path))
+    """Execution must match the measured topology and Torch/CUDA stack.
+
+    The selected recipe is valid only on the stack that produced its timing evidence;
+    silently accepting a newer upgrade could turn a stale recipe into a 12-hour run.
+    """
+    del tmp_path
+    plan = parse_selected_runtime_plan(
+        Path("configs/spec0001/non_eq_vae_selected_runtime.json"),
+    )
     passing = SelectedRuntimeEnvironmentProbe(
         machine_shape="NvidiaTeslaT4",
         accelerator_mode="dual_t4_ddp",
@@ -544,8 +590,8 @@ def test_selected_runtime_environment_validation(tmp_path: Path) -> None:
             ),
         ),
         distributed_initialized=True,
-        torch_version="2.12.0+cu124",
-        cuda_version="12.4",
+        torch_version="2.13.0+cu130",
+        cuda_version="13.0",
     )
 
     assert validate_selected_runtime_environment(passing, plan=plan) == ()
@@ -572,6 +618,14 @@ def test_selected_runtime_environment_validation(tmp_path: Path) -> None:
     )
     assert "selected_runtime_runner_wrong_accelerator" in wrong_errors
     assert "selected_runtime_runner_wrong_accelerator_mode" in wrong_errors
+    wrong_stack = replace(
+        passing,
+        torch_version="99.0.0+cu999",
+        cuda_version="999.0",
+    )
+    stack_errors = validate_selected_runtime_environment(wrong_stack, plan=plan)
+    assert "selected_runtime_runner_torch_version_mismatch" in stack_errors
+    assert "selected_runtime_runner_cuda_version_mismatch" in stack_errors
     bad_rank = replace(
         passing,
         rank_assignments=(
@@ -636,6 +690,7 @@ def _tiny_runner_config(tmp_path: Path) -> Path:
 
 def test_apply_cuda_runtime_flags_enables_cudnn_on_cuda(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """On a CUDA device the runner enables the speed-first cuDNN flags (Spec 0011 S17f).
 
@@ -645,22 +700,39 @@ def test_apply_cuda_runtime_flags_enables_cudnn_on_cuda(
     non-deterministic kernels (exact reproducibility is a non-goal).
     """
     captured: dict[str, object] = {}
+    matmul_values: list[str] = []
 
     def spy(*, benchmark: bool, deterministic: bool) -> None:
         captured["benchmark"] = benchmark
         captured["deterministic"] = deterministic
 
+    def ignore_matmul_precision(_value: str) -> None:
+        matmul_values.append(_value)
+
     monkeypatch.setattr(selected_runtime_runner, "apply_cudnn_flags", spy)
+    monkeypatch.setattr(torch.backends.cudnn, "allow_tf32", False)
+    monkeypatch.setattr(torch.backends.cuda.matmul, "allow_tf32", False)
+    monkeypatch.setattr(torch, "set_float32_matmul_precision", ignore_matmul_precision)
+    plan = replace(
+        parse_selected_runtime_plan(_runtime_config(tmp_path)),
+        tf32_enabled=True,
+        matmul_precision="high",
+    )
 
     selected_runtime_runner._apply_cuda_runtime_flags(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
         torch.device("cuda", 0),
+        plan,
     )
 
     assert captured == {"benchmark": True, "deterministic": False}
+    assert torch.backends.cudnn.allow_tf32 is True
+    assert torch.backends.cuda.matmul.allow_tf32 is True
+    assert matmul_values == ["high"]
 
 
 def test_apply_cuda_runtime_flags_is_a_noop_on_cpu(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """A CPU device leaves the global cuDNN flags untouched (CPU-run isolation)."""
     called = False
@@ -670,9 +742,11 @@ def test_apply_cuda_runtime_flags_is_a_noop_on_cpu(
         called = True
 
     monkeypatch.setattr(selected_runtime_runner, "apply_cudnn_flags", spy)
+    plan = parse_selected_runtime_plan(_runtime_config(tmp_path))
 
     selected_runtime_runner._apply_cuda_runtime_flags(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
         torch.device("cpu"),
+        plan,
     )
 
     assert called is False
@@ -682,27 +756,50 @@ def test_distributed_context_drives_cuda_runtime_flags_for_the_resolved_device(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """``_distributed_context`` applies the cuDNN flags for the device it resolves.
+    """A real-run context forwards its resolved CUDA rank device to runtime flags.
 
-    Wiring guard: a mutation dropping the call would leave the run without cuDNN
-    autotuning. The dry-run resolves a CPU device, so the recorded device proves the
-    call site passes the resolved device through.
+    CUDA flags protect paid-run speed, so the exact ``cuda:1`` argument is expected;
+    dropping the call or hardcoding the CPU dry-run device must fail.
     """
     seen: list[torch.device] = []
 
-    def spy(device: torch.device) -> None:
+    def spy(device: torch.device, _plan: SelectedRuntimePlan) -> None:
         seen.append(device)
 
+    def fake_set_device(_device: torch.device) -> None:
+        return
+
+    def fake_get_device_name(index: int) -> str:
+        return f"Tesla T4 rank {index}"
+
+    def fake_init_process_group(**_kwargs: object) -> None:
+        return
+
     monkeypatch.setattr(selected_runtime_runner, "_apply_cuda_runtime_flags", spy)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "set_device", fake_set_device)
+    monkeypatch.setattr(torch.cuda, "get_device_name", fake_get_device_name)
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 1)
+    monkeypatch.setattr(selected_runtime_runner.dist, "is_initialized", lambda: False)
+    monkeypatch.setattr(
+        selected_runtime_runner.dist,
+        "init_process_group",
+        fake_init_process_group,
+    )
+    monkeypatch.setenv("RANK", "1")
+    monkeypatch.setenv("LOCAL_RANK", "1")
+    monkeypatch.setenv("WORLD_SIZE", "2")
+    monkeypatch.setenv("LOCAL_WORLD_SIZE", "2")
     plan = parse_selected_runtime_plan(_runtime_config(tmp_path))
 
-    selected_runtime_runner._distributed_context(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    distributed = selected_runtime_runner._distributed_context(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
         plan=plan,
-        dry_run=True,
+        dry_run=False,
     )
 
-    assert len(seen) == 1
-    assert seen[0].type == "cpu"
+    assert seen == [torch.device("cuda", 1)]
+    assert distributed.device == torch.device("cuda", 1)
 
 
 def _runtime_config(tmp_path: Path) -> Path:
@@ -804,119 +901,3 @@ def _string_list(value: object) -> list[str]:
         raise TypeError(message)
     items = cast("list[object]", value)
     return [item for item in items if isinstance(item, str)]
-
-
-def test_global_grad_norm_matches_flattened_reference() -> None:
-    """The vectorized global grad norm matches a flattened float64 reference."""
-    module = torch.nn.Linear(4, 3)
-    for parameter in module.parameters():
-        parameter.grad = torch.randn_like(parameter)
-    gradients = [
-        parameter.grad.reshape(-1)
-        for parameter in module.parameters()
-        if parameter.grad is not None
-    ]
-    reference = float(torch.cat(gradients).double().square().sum().sqrt())
-    assert math.isclose(_global_grad_norm(module), reference, rel_tol=1e-5)
-
-
-def test_global_grad_norm_zero_without_gradients() -> None:
-    """A model with no populated gradients reports a zero global grad norm."""
-    assert math.isclose(_global_grad_norm(torch.nn.Linear(4, 3)), 0.0, abs_tol=0.0)
-
-
-def test_global_grad_norm_spans_every_parameter() -> None:
-    """Unit gradients give sqrt(total elements), pinning full-coverage reduction."""
-    module = torch.nn.Linear(4, 3)
-    for parameter in module.parameters():
-        parameter.grad = torch.ones_like(parameter)
-    total_elements = sum(parameter.numel() for parameter in module.parameters())
-    assert math.isclose(
-        _global_grad_norm(module),
-        math.sqrt(total_elements),
-        rel_tol=1e-9,
-    )
-
-
-def test_nonfinite_gradient_count_totals_all_parameters() -> None:
-    """The non-finite tally sums inf/nan entries across every gradient tensor."""
-    module = torch.nn.Linear(4, 3)
-    parameters = list(module.parameters())
-    weight_grad = torch.ones_like(parameters[0])
-    weight_grad[0, 0] = float("inf")
-    weight_grad[1, 1] = float("nan")
-    parameters[0].grad = weight_grad
-    bias_grad = torch.ones_like(parameters[1])
-    bias_grad[0] = float("-inf")
-    parameters[1].grad = bias_grad
-    expected_nonfinite_count = 3
-    assert _nonfinite_gradient_count(module) == expected_nonfinite_count
-
-
-def test_nonfinite_gradient_count_zero_when_finite() -> None:
-    """Finite gradients report zero non-finite entries."""
-    module = torch.nn.Linear(4, 3)
-    for parameter in module.parameters():
-        parameter.grad = torch.ones_like(parameter)
-    assert _nonfinite_gradient_count(module) == 0
-
-
-def test_parameter_update_norm_matches_delta_reference() -> None:
-    """A uniform parameter delta yields sqrt(trainable elements * delta**2)."""
-    module = torch.nn.Linear(4, 3)
-    before_params = _clone_trainable_parameters(module)
-    delta = 0.5
-    with torch.no_grad():
-        for parameter in module.parameters():
-            parameter.add_(delta)
-    trainable_elements = sum(
-        parameter.numel()
-        for parameter in module.parameters()
-        if parameter.requires_grad
-    )
-    assert math.isclose(
-        _parameter_update_norm(module, before_params),
-        math.sqrt(trainable_elements * delta * delta),
-        rel_tol=1e-9,
-    )
-
-
-def test_parameter_update_norm_zero_when_unchanged() -> None:
-    """Unchanged parameters yield a zero update norm."""
-    module = torch.nn.Linear(4, 3)
-    before_params = _clone_trainable_parameters(module)
-    assert math.isclose(
-        _parameter_update_norm(module, before_params),
-        0.0,
-        abs_tol=0.0,
-    )
-
-
-def test_global_grad_norm_upcasts_half_gradients_before_squaring() -> None:
-    """Half gradients are upcast so squaring stays finite (300**2 overflows fp16)."""
-    module = torch.nn.Linear(4, 3).half()
-    magnitude = 300.0
-    for parameter in module.parameters():
-        parameter.grad = torch.full_like(parameter, magnitude)
-    total_elements = sum(parameter.numel() for parameter in module.parameters())
-    grad_norm = _global_grad_norm(module)
-    assert math.isfinite(grad_norm)
-    assert math.isclose(grad_norm, magnitude * math.sqrt(total_elements), rel_tol=1e-3)
-
-
-def test_parameter_update_norm_excludes_frozen_parameters() -> None:
-    """Frozen parameters are filtered out of both the clone and the update norm."""
-    module = torch.nn.Linear(4, 3)
-    weight, bias = tuple(module.parameters())
-    bias.requires_grad = False
-    before_params = _clone_trainable_parameters(module)
-    trainable_delta = 0.5
-    frozen_delta = 2.0
-    with torch.no_grad():
-        weight.add_(trainable_delta)
-        bias.add_(frozen_delta)
-    assert math.isclose(
-        _parameter_update_norm(module, before_params),
-        math.sqrt(weight.numel() * trainable_delta * trainable_delta),
-        rel_tol=1e-9,
-    )

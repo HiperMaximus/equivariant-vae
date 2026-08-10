@@ -1,14 +1,26 @@
 # Decision 0012: Kaggle Run Kernels Upgrade Torch at Runtime (internet ON; narrows 0011)
 
-Date: 2026-07-17
+Date: 2026-07-17; clarified 2026-08-02
 
 Decision: every Kaggle kernel sets `enable_internet = "true"` and runs
 `pip install --upgrade torch torchvision torchaudio` at the top of `run.py`,
-before importing `eqvae`, so the run executes on the latest torch instead of
-Kaggle's older base-image torch. Our CODE still ships as the embedded payload
-(decision 0011) and all `*_sources` lists are unchanged — only the torch stack now
-comes from PyPI. This narrows, and for the kernels supersedes, the
+before importing `eqvae`, so the run executes on the newest release available from
+PyPI instead of Kaggle's older base-image torch. Kaggle's installed version is never a
+fallback authority. Our CODE still ships as the embedded payload
+(decision 0011) and code sources remain embedded/empty — only the torch stack now
+comes from PyPI. Current and experimental runtime modes exposed by that installed release
+are valid benchmark candidates; bounded execution and measured dual-T4 epoch throughput decide
+whether they stay, not an age or stability preference. This narrows, and for the kernels supersedes, the
 `enable_internet = "false"` face of decision 0011's hermeticity invariant.
+
+Declared dataset sources may include the real patch dataset and, for later sessions, the private
+resume dataset; this does not relax the embedded-code rule.
+
+The selected runtime records a complete performance fingerprint: torch version/build,
+`torch.version.cuda`, driver version, GPU name/count/compute capability, and relevant compiler/
+backend versions. Every later kernel still upgrades to latest; any performance-relevant fingerprint
+mismatch from the selection run forces a new bounded bake-off before paid training. Floating latest
+is intentional, but cross-stack performance assumptions are not.
 
 ## Why
 

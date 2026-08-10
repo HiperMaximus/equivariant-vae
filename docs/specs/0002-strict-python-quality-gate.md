@@ -3,13 +3,13 @@
 Status: active gate installed; production scope excludes historical `reference/nn`
 Implementation readiness: active and passing for production Python work
 Owner/workstream: agentic Python quality and local CPU verification
-Last updated: 2026-06-12
+Last updated: 2026-08-02
 
 ## Purpose
 
-Make strict Python quality checks part of the agentic workflow so future agents
-fix trivial formatting, linting, and typing issues automatically instead of
-handing them back to the user.
+Make strict Python quality checks part of the agentic workflow, including the
+semantic quality of the tests themselves. A green suite is useful only when each
+test protects a current, decision-relevant invariant.
 
 ## Non-Goals
 
@@ -20,6 +20,35 @@ handing them back to the user.
 - Do not import historical `reference/nn` from production `src/eqvae` code.
 - Do not solve PyTorch typing limitations until the comparable VAE package
   structure is implemented.
+- Do not add a prose heuristic that rewards longer or keyword-stuffed test
+  docstrings. Test intent requires review against the producer and consumer.
+
+## Test Intent Contract
+
+A test earns its maintenance and runtime cost only when all of these are true:
+
+1. Its docstring says why the invariant matters to a real run, artifact, safety
+   boundary, or research decision. Restating the test name or assertion is not intent.
+2. When it pins a non-obvious literal, fixture, tolerance, or external artifact, the
+   docstring identifies whether that value is deliberate policy, a measured
+   cross-check, or a derived relationship. Prefer derived relationships.
+3. During review, a reviewer can name a plausible source mutation it catches; the
+   docstring need not repeat an obvious mutation merely to satisfy a template.
+   Presence-only tests do not claim ordering, application, causation, or execution.
+4. No cheaper or stronger existing test already proves the same failure. Keep the
+   smallest test that reaches the relevant seam; remove weaker duplicates.
+5. The invariant is current. When production behavior is retired, delete its tests in
+   the same change unless a live artifact consumer still requires compatibility.
+
+Parameterized cases that target distinct branches are not redundant merely because
+their bodies match. Conversely, separate names and docstrings do not justify two tests
+that fail on the same mutation. Source-text checks are reserved for shell/bootstrap
+ordering that cannot be imported and exercised directly; behavioral execution is
+preferred everywhere else.
+
+Ruff enforces docstring presence, not semantic value. This contract is therefore a
+review gate for every new or changed test and a pruning rule during each touched-area
+audit. Do not create a second meta-test whose only purpose is to make docstrings longer.
 
 ## Environment Contract
 
@@ -113,32 +142,10 @@ benchmark, training, or paper-claim code may depend on it.
 
 ## Current Gate Status
 
-As of 2026-06-12:
-
-- `uv sync --locked --python 3.12 --group dev` creates a repo-local `.venv`.
-- Linux resolves `torch==2.12.0+cpu`.
-- `torch.cuda.is_available()` is `False`, as intended for local laptop tests.
-- Strict Ruff settings live in `pyproject.toml`. A stale `ruff.toml` previously
-  shadowed them and has been removed.
-- Empty `main.py` was deleted on 2026-06-12.
-- Historical exploratory `reference/nn` remains by user decision as reference
-  material. On 2026-06-12 the user approved excluding it from Ruff and
-  BasedPyright production scopes instead of converting or deleting it now.
-- `pyproject.toml` excludes `reference/nn` from Ruff and BasedPyright, and
-  BasedPyright `include` / `strict` scopes are `src/eqvae` and `tests`.
-- `scripts/python_quality.sh` runs pytest with `PYTHONPATH=src`. As of 2026-07-15
-  this is REDUNDANT (harmless): the repo now has a packaging backend and `uv sync`
-  editable-installs `eqvae`, so `import eqvae` resolves without it. See the spec
-  0001 package/import policy.
-- The latest `./scripts/python_quality.sh` run passed: Ruff format/check,
-  pytest with 75 tests, and BasedPyright with 0 errors.
-- `pytorch-msssim` is no longer a direct dependency; any missing-import/type
-  noise caused by its remaining reference-only import in `reference/nn` is part of
-  the same retained historical debt, not a reason to re-add the dependency.
-
-This is a production-boundary decision, not a global-ignore decision: strict
-Ruff/BasedPyright settings still apply to active code, and `reference/nn` remains
-forbidden as a production import source.
+The local uv environment is Python 3.12 with CPU-only PyTorch. Strict Ruff and
+BasedPyright cover `src/eqvae` and `tests`; `reference/nn` remains excluded and is
+forbidden as a production import source. `CURRENT.md` owns exact gate results and
+the active test-audit state so this spec does not accumulate stale test counts.
 
 Current policy:
 
@@ -179,7 +186,10 @@ This spec is complete when:
    checks without dependency sync;
 4. agent instructions require the quality script after Python changes;
 5. no global lint/type ignores are introduced;
-6. any PyTorch typing workaround is specified before implementation.
+6. any PyTorch typing workaround is specified before implementation;
+7. new or changed tests satisfy the Test Intent Contract, and touched-area audits
+   delete weaker duplicates or retired invariants instead of documenting them into
+   apparent legitimacy.
 
 ## Verification Commands
 

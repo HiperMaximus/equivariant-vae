@@ -166,6 +166,7 @@
         "minimum_material_speedup_fraction": 0.03,
         "accelerator_modes": ["dual_t4_ddp"],
         "per_device_batch_sizes": [12, 48],
+        "proof_reference_per_device_batch_size": 12,
         "corruption_strategies": ["indexed_masked"],
         "policies": [
           {
@@ -174,7 +175,8 @@
             "compile_scope": "none",
             "autocast_dtype": "float16",
             "fp32_loss": true,
-            "grad_scaler_enabled": true
+            "grad_scaler_enabled": true,
+            "gradient_clip_foreach": true
           },
           {
             "runtime_policy_id": "compile_step_ddp_optimizer_fp32_channels_last",
@@ -191,7 +193,27 @@
             "ddp_broadcast_buffers": false,
             "ddp_find_unused_parameters": false,
             "ddp_bucket_cap_mb": 50,
-            "fused_optimizer": true
+            "fused_optimizer": true,
+            "gradient_clip_foreach": true
+          },
+          {
+            "runtime_policy_id": "compile_step_ddp_optimizer_fp16_channels_last",
+            "precision_policy": "amp_conservative",
+            "compile_scope": "step",
+            "memory_format": "channels_last",
+            "autocast_dtype": "float16",
+            "fp32_loss": true,
+            "grad_scaler_enabled": true,
+            "ddp_static_graph": false,
+            "ddp_gradient_as_bucket_view": true,
+            "optimize_ddp": "ddp_optimizer",
+            "compiled_autograd": false,
+            "reorder_compute_comm_overlap": false,
+            "ddp_broadcast_buffers": false,
+            "ddp_find_unused_parameters": false,
+            "ddp_bucket_cap_mb": 50,
+            "fused_optimizer": true,
+            "gradient_clip_foreach": true
           }
         ]
       },
@@ -330,10 +352,10 @@
       ],
       "counter_source": "torch._dynamo.utils.counters_with_reset_per_row",
       "post_settle_required_zero_fields": [
-        "graph_break_count",
         "recompile_count"
       ],
-      "ineligible_on_measured_graph_break_or_recompile": true
+      "post_settle_graph_break_policy": "diagnostic_only_when_nonnegative_and_available;stable_overlap_partitions_compete_by_measured_epoch_time",
+      "ineligible_on_missing_or_negative_graph_break_telemetry_or_post_settle_recompile": true
     },
     "warmup_steps": 5,
     "measured_steps": 25,

@@ -1,122 +1,236 @@
 # Current Repository Status
 
-Last updated: 2026-08-08
+Last updated: 2026-08-10
 
 ## Fresh-session start here
 
-Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, and active Spec 0011
-completely. The reviewed v4 relock is the current focused commit on `main`; a substantial
-uncommitted partial-v3 and broader worktree remains. Preserve unrelated work: do not
-reset, checkout, or blanket-restore the tree. The user explicitly permits surgical
-removal or reversion of changes proved to belong only to the failed v3 approach when v4
-replacement is cleaner. Inspect each affected diff first and record what was removed;
-this is not authorization to discard ambiguous or unrelated changes.
+Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, and active Spec
+0011 completely. The commit containing this update is the reviewed local session-1
+preparation boundary. Preserve any later unrelated or ambiguous work: do not reset,
+checkout, blanket-restore, or recreate the tree. Inspect every diff before surgical
+removal.
 
-No runtime is selected. Do not execute the partial v3 controller, old-v2 `p00310`, or any
-Kaggle/GitHub/Overleaf/network/remote command. Remote work always requires new explicit
-user authorization even though the user removed the total Kaggle GPU-time limit.
+Non-equivariant runtime selection is complete. Do not execute old-v2 `p00310` or the
+failed-v3 Bmax/main-effects controller. Direct Kaggle probes used explicit authorization;
+no Git commit or GitHub push has occurred.
 
-## Objective and approved v4 intent
+Nothing is currently running. Runtime, real-data LR range, resume, fixed-32
+learnability, and beta-selection checks have passed. The user locked beta `0.01` on
+2026-08-09; do not run an intermediate beta probe. The completed paired-probe branch is
+removed, the beta-`0.01` full kernel and checkpoint-only runner are locally verified,
+and the next implementation gap is the one-time checkpoint attachment used only after
+Kaggle closes session 1. Do not spend more time searching runtime flags, learning rates,
+or beta values.
 
-For correct dual-T4 `drop_last=True` training, minimize
+## Current objective
+
+Spec 0011 is now a lean, two-architecture Kaggle tuning campaign. For correct dual-T4
+`drop_last=True` training, minimize
 
 ```text
 floor(real_train_patch_count / global_batch)
-* synchronized_mean_steady_step_wall_time
+* synchronized_mean_steady_state_step_wall_time
 ```
 
-Fixed-batch standings, step latency alone, largest feasible batch, throughput at an
-arbitrary shared batch, compile time, deterministic RNG, and incomplete results do not
-select the runtime.
+Recipe and integer batch are selected jointly. Largest feasible batch, step latency,
+throughput alone, compile time, and the fewest enabled options are not objectives. A fast
+correct recipe may retain neutral, redundant, or inert toggles.
 
-The user approved this corrected direction on 2026-08-08:
+## Direction correction
 
-- There is no minimal-toggle or recipe-simplicity objective. The fastest correct recipe
-  may keep unnecessary, neutral, or redundant toggles.
-- After the mandatory latest-PyPI Torch upgrade, inventory every installed/source/runtime
-  value with a plausible steady-step acceleration mechanism, including experimental and
-  deprecated-but-executable features.
-- Remove a value only with proof of alias/duplicate effect, inert executed path,
-  hardware/topology inapplicability, illegal dependency/conflict, non-steady effect,
-  correctness failure, or finite-domain speed-first dominance.
-- Construct inclusion-maximal compatible complete recipes. Cover every admitted value,
-  every compatible pair of admitted values from distinct factors, prerequisite triple,
-  and sealed complex interaction. Test
-  complex interactions directly; never infer performance additivity.
-- Begin from maximal bundles and descend only to rescue failure or when conditional
-  removal improves projected epoch time. Do not ablate merely to simplify the winner.
-- Search complete configuration and batch jointly. Do not assume monotone capacity or
-  certify exact Bmax for every recipe; OOM is coordinate-local absent a separate proof.
-- Kaggle GPU time is not being minimized. The finite search may use as many resumable
-  sessions as necessary. The obsolete 118-probe, 12-recipe, two-interaction, four-
-  contender, two-session, and `<=16 h` limits are removed.
+The user rejected the uncommitted Spec 0011 v4 implementation because it had become an
+audit-grade general platform for a configuration search that will be used for only the
+non-equivariant and continuous-`SO(2)` models. The active spec was replaced by v5 on
+2026-08-08.
 
-Spec 0011 v4 completed two independent xhigh clean-context review tracks. All
-blocker/high findings were integrated; both final reviews report no remaining blocker or
-high finding. The focused relock commit Git-tracks the six-file canonical evidence
-package. V4 is `locked / implementation-ready`; no remote execution is authorized.
+V5 keeps only what can change or establish the selected training configuration:
 
-## Immutable v2 evidence and required reuse
+- reviewed complete recipe bundles from repository/Torch fast paths;
+- joint nonmonotone recipe×batch measurement;
+- correct dual-rank update/timing checks;
+- coordinate-local OOM and focused failure repair;
+- one CSV and summary JSON per direct Kaggle probe;
+- fresh finalist confirmation and a real-loader check;
+- a concrete selected-runtime config fragment.
 
-The canonical repo evidence package at `docs/data/spec0011_runtime_recipe_v2/` contains
-four artifacts, preserved producer, manifest, and 309 contiguous
-unique rows `p00001..p00309`, stable experiment ID
-`34bf23c5370815c37a2d50cf702609f4e84fcfc99dd16e476f49096f97c67a35`, and matrix
-SHA-256 `dee362d15a8c4a324d9c1f10bdec0b9aa8e1fafbf522e90d638fafcbc1571536`.
-They consumed 18.19 subprocess-hours, including 6.35 hours of irregular all-batch timing.
-The six files are included in the focused local relock commit; agent preflight enforces
-their fresh-clone presence and tracking.
-The incomplete v2 checkpoint and `p00310` never transfer or execute.
+It drops exhaustive internal/source inventory, formal all-pairs coverage, independent
+duplicate verification, generalized transformation DAGs, capsule/cache equivalence
+certificates, and broad audit-mutation machinery. Neutral options do not need ablation.
 
-The evidence must materially reduce new work:
+## Immutable v2 evidence
 
-- verify executed measurement semantics and normalize the schema-label-only producer
-  difference rather than rejecting all rows for metadata;
-- accept an old row selectably only for an exact runtime/model/step/recipe/protocol/
-  effective-setting/hardware identity and exact observation role;
-- after the mandatory Torch upgrade, mismatching rows remain immutable priors for recipe
-  order, batch wells/neighbors, VRAM/capacity expectations, and uncertainty;
-- never repeat old singleton all-batch sweeps for eager, no-optimization, lite,
-  channels-last, max-autotune, Python reducer, or C++ DDP;
-- test old toggles again only inside genuinely new complete maximal/direct-interaction
-  recipes, plus minimal labeled current-runtime reference coordinates;
-- emit a verifier-checked `evidence_reuse_report` showing every accepted/prior/rejected
-  row and every fresh action avoided.
+`docs/data/spec0011_runtime_recipe_v2/` retains 309 immutable rows and its producer. Use
+the rows as explicit priors for option ordering, failure modes, VRAM, timing regions, and
+batch wells. The incomplete `p00310` is permanently unschedulable. Old rows do not prove
+performance under a newly upgraded runtime.
 
-No old row proves a new bundle, child, or fresh final confidence block. Old results found
-irregular batch curves and non-monotone capacity, so they are valuable coordinate priors
-but do not authorize monotone Bmax pruning.
+## Rollback boundary
 
-## Local implementation state
+Proven useful and preserved:
 
-A substantial partial v3 implementation exists in:
+- existing training/fastpath and selected-runtime work;
+- latest-PyPI Torch upgrade support;
+- immutable v2 evidence;
+- guarded Kaggle packaging and atomic publication foundations;
+- unrelated dirty repository changes.
 
-- `src/eqvae/benchmarking/runtime_recipe_search.py`
-- `src/eqvae/benchmarking/runtime_recipe_bakeoff.py`
-- `kaggle/kernels/runtime_recipe_bakeoff/`
-- `scripts/build_kaggle_embedded_kernel.py`
-- `scripts/kaggle_kernel.sh`
-- the corresponding runtime-recipe tests.
+Removed as v4-only overbuild:
 
-It contains useful pure-policy, immutable-package, importer, checkpoint, verifier, and
-packaging work, but its v3 search/budget contract is superseded and fail-closed. Preserve
-sound helpers; after v4 relock, refactor them or surgically remove verified v3-only code
-and tests. Do not use bulk Git restoration or run the partial controller.
+- the activation/controller/identity/inventory/measurement/independent-verifier stack;
+- the v4 maximal-cover/statistical policy and audit-focused tests;
+- v4 artifact-parent, certificate, and executor-readiness packaging assumptions.
 
-Previous focused checks reached 65 passing tests plus touched Ruff/format, Bash syntax,
-pure-policy BasedPyright, and `git diff --check`. Full controller typing had unresolved
-diagnostics, and neither the bakeoff preflight nor full repo quality gate was run after
-the contract contradiction.
+The large failed-v3 controller and the later one-use direct probe kernel are removed. Do
+not restore their exact-Bmax, main-effects, beam/frontier, exhaustive-audit, certificate,
+or bespoke packaging behavior. The measured winner is retained as one compact config.
 
-## Exact next action
+## Selected non-equivariant runtime
 
-1. Refactor the v3 partial implementation to the accepted v4 schema and policy in the
-   implementation order listed by Spec 0011.
-2. Run focused mutation tests, Ruff, BasedPyright, Bash syntax, embedded-kernel preflight,
-   `git diff --check`, and `./scripts/python_quality.sh`; then run two post-implementation
-   adversarial reviews and update the handoff.
-3. Stop locally. A Kaggle push/run/output action needs a separate explicit approval.
+Use per-rank batch 25 (global 50), conservative FP16 AMP, channels-last, compiled whole
+step, Python DDP reducer, compiled autograd, compute/communication reorder, fused AdamW,
+TF32, high matmul precision, gradient-as-bucket-view, bucket cap 50 MB, no buffer
+broadcast, and foreach clipping. Exact recipe and compact measurement pointers live in
+`configs/spec0001/non_eq_vae_runtime_winner.json`.
 
-Only a complete independently verified artifact may emit compute finalists. Loader
-starvation, paired real-data quality/LR work, selected-runtime promotion, full training,
-and the continuous-`SO(2)` repeat remain later gates.
+Fresh batch-25 measurements were 749.8 and 778.7 ms/step, projecting 4499 and 4672 s per
+300,000-patch epoch; their mean is about 4585 s (1.27 h). Neighbor batches 18 and 35
+projected 4719 and 4954 s; batch 56 projected 5166 s. Baseline AMP projected 10155 s.
+VRAM reserved was 6078-6104 MB at the selected coordinate. All selected rows had finite
+updates, synchronized ranks, zero AMP skips, zero graph breaks/recompiles after settle,
+and zero measured data-wait fraction. Kaggle kernel version 14 is the final confirmation;
+do not run more batch probes.
+
+Raw downloaded rows remain ignored under `runs/kaggle/runtime_recipe_probe_v9` and
+`runtime_recipe_probe_v14`. The one-use `runtime_recipe_bakeoff` module, Kaggle kernel,
+CLI actions, guards, generated launcher, and focused tests were removed. Only the compact
+winner JSON and immutable v2 evidence remain.
+
+Exact removed probe surfaces: `src/eqvae/benchmarking/runtime_recipe_bakeoff.py`,
+`tests/test_runtime_recipe_bakeoff.py`, `kaggle/kernels/runtime_recipe_bakeoff/`, and all
+of their dedicated wiring in `scripts/kaggle_kernel.sh`,
+`scripts/build_kaggle_embedded_kernel.py`, `scripts/agent_preflight.sh`, `.gitignore`, and
+`tests/test_kaggle_embedded_kernel.py`. The generic latest-Torch policy test remains.
+
+## Missing before full training
+
+- Before session 2, add only the concrete checkpoint transport exposed by session 1:
+  publish/attach its latest complete boundary checkpoint and point
+  `EQVAE_SELECTED_RUNTIME_FULL_RESUME` at that Kaggle input. The current kernel accepts
+  the path, but its metadata/push guard intentionally allows only the UBC dataset, so a
+  fresh worker cannot see the checkpoint yet. Do this after the real filename/output
+  exists; do not build a generic transport layer.
+- Use lean checkpoint-only sessions because the projected ~12.7-hour training time
+  exceeds Kaggle's 8-hour limit. Every session still targets update 60000 and runs until
+  it completes or Kaggle closes it; there is no artificial session cap. Every 3000-update
+  boundary flushes metrics, fixed-25 evaluation artifacts, and a resumable checkpoint.
+  After cancellation, download the whole session into its own local directory and give
+  the next Kaggle worker only the latest fully completed boundary checkpoint. Resume in
+  a fresh output directory with index-only loader offsetting and rank-local stochastic
+  streams. The checkpoint named and hashed in
+  `benchmark/checkpoint_resume_proof.json` is the session commit point. Use
+  `latest_checkpoint_step` as the inclusive cutoff; exclude any preflushed CSV rows or
+  fixed-25 artifacts above it, and reject a missing/hash-mismatched/non-3000 boundary.
+  After update 60000, concatenate the committed CSV prefixes locally by absolute
+  optimizer step and choose the global best from downloaded validation results. Keep
+  session copies until the merged result is verified; delete redundant copies only
+  afterward.
+- The full push guard requires a clean committed source state. The reviewed local
+  session-1 preparation is committed without a GitHub push; remote Kaggle execution
+  still requires separate user direction.
+- Full training remains a separate explicitly confirmed Kaggle action.
+
+The user prefers direct, bounded Kaggle experiments over defensive local machinery and is
+comfortable with liberal probe pushes. Still use the repository's `KAGGLE_*_CONFIRMED`
+guards; never infer permission for the full training launch from probe permission.
+
+`configs/spec0001/non_eq_vae_selected_runtime.json` is a hash-linked runtime snapshot.
+Its `full_training_launch_ready=false` and probe-era blocker strings record creation-time
+state; do not casually edit them and invalidate downloaded runtime/debug evidence. Live
+readiness and the remaining multi-session blocker are recorded here.
+
+## Verification state
+
+Before the direction correction, the overbuilt implementation passed its focused tests,
+the full 768-test Python quality gate, `git diff --check`, and both preflights. Those
+results do not verify the replacement. Rerun focused tests and every required gate after
+the rollback and lean implementation.
+
+No Kaggle action or GitHub push has occurred.
+
+Kaggle LR-range kernel v1 passed: 192/192 two-rank updates from `2e-5` to `3e-3`, zero
+AMP skips/non-finites, and smoothed loss `0.645 -> 0.251`. Manual curve inspection chose
+effective `7.216878e-4` for tiny overfit and peak `1e-3` for scheduled full training; the
+automatic `2e-5` recommendation was rejected as startup-noise-biased.
+
+Kaggle debug/tiny kernel v6 passed. Resume loaded update 4 and continued to update 8.
+The fixed-32 check completed exactly 128 updates on both ranks with zero skips/non-finites;
+smoothed L1 improved `0.2388 -> 0.1717` (28.1%) and reconstruction loss improved
+`0.3048 -> 0.2361` (22.5%). The strict downloaded-output verifier passed.
+
+The stricter clean-memorization probe removes corruption, latent sampling, and KL
+(`beta=0`, deterministic `z=mu`) while retaining the selected runtime/LR. Kaggle v7
+stopped before training because the zero corruption probability did not match the named
+locked profile; the direct fix added the explicit `no_corruption_probe` profile. V8 then
+completed 512 two-rank updates with zero skips/non-finites. Smoothed L1 improved
+`0.2416 -> 0.0930` (61.5%) and reconstruction loss `0.3076 -> 0.1451` (52.8%); the final
+64-step block still descended, so the network clearly learns but has not met the stricter
+memorization target of 80% L1 reduction or L1 below 0.05. Evidence is under
+`runs/kaggle/selected_runtime_clean_memorization_v8`. Its legacy tiny-summary status is
+expectedly `fail` only because that old gate requires exactly 128 updates; the v8 kernel
+itself completed and the raw 512-step evidence is valid.
+
+The same clean probe ran for 1024 updates as Kaggle kernel v9. It completed 1024 two-rank
+updates with zero skips/non-finites; smoothed L1 improved `0.2534 -> 0.0788` (68.9%) and
+reconstruction loss `0.3194 -> 0.1230` (61.5%). Every 64-step bin improved and the last
+step reached L1 `0.0780`, but the run did not meet the deliberately strict 80% reduction
+or L1-below-0.05 target. These are deterministic clean fixed-training-batch measurements.
+The saved image artifact is instead a clean held-out validation sample and must not be
+used to diagnose fixed-set memorization. Evidence is under
+`runs/kaggle/selected_runtime_clean_memorization_v9`.
+The one-off kernel branch was removed after the run; the compact probe config/evidence
+contract remains. Kaggle v10 then completed the paired regularized fixed-32 probes with
+the same seed, 512-step beta ramp, and 1024 updates. In the post-training clean
+`model.eval()`, `z=mu`, beta-zero evaluation, final beta `0.01` produced reconstruction
+loss `0.11872`, L1 `0.07748`, SSIM `0.58764`, and unweighted KL `0.47441`; final beta
+`0.1` produced `0.14724`, `0.09708`, `0.49837`, and `0.10411`, respectively. Both runs
+completed with zero skips/non-finites. Beta `0.1` compresses more but materially degrades
+the retained image information, so it is not the default candidate. Evidence is under
+`runs/kaggle/selected_runtime_beta_probe_v10`. The original beta-1 run drove KL
+effectively to zero.
+
+Latest local verification for session-1 preparation: the dedicated full-kernel preflight
+passes 210 tests, and `./scripts/python_quality.sh` passes formatting, Ruff, 681 tests
+with 1 skip, and BasedPyright with 0 errors. Repo/workspace preflights and
+`git diff --check` pass. Post-fix clean-context audits found no launch blocker. They
+confirmed atomic checkpoint publication, the hashed 3000-step checkpoint as the session
+commit point, index-only loader continuation, rank/segment-separated stochastic streams,
+fixed-25 completion before checkpoint commitment, exact generated-wrapper verification,
+beta `0.01`, and the measured Torch `2.13.0+cu130` / CUDA `13.0` stack. The checkpoint
+state was also cross-checked against `kaggle/fsq_train_reference.py`: model, optimizer,
+scaler, RNG, progress, and best metric are covered; LR/beta progress derives from the
+absolute successful-update count. No Kaggle action or Git push has occurred.
+
+## Fresh-agent execution order
+
+1. Keep beta `0.01` locked for the matched baseline/continuous-`SO(2)` comparison; beta
+   `0.1` is rejected and no intermediate beta probe is planned. Downstream performance
+   will evaluate usefulness, not reopen beta tuning by default.
+2. Keep the multi-session implementation deliberately small: let Kaggle close an
+   unfinished worker, resume from its latest complete 3000-step checkpoint, and
+   concatenate downloaded CSVs locally after completion. Do not build an artificial
+   session cap, remote artifact-tree transport, generalized session manager, merge
+   service, or cleanup framework.
+3. Treat paired-probe removal, index-only resume, per-rank RNG rebasing, atomic
+   checkpoint publication, focused tests, full quality, full-kernel preflight,
+   repo/workspace preflights, and the post-fix clean-context audits as complete.
+4. The commit containing this update is the reviewed local session-1 experiment slice.
+   Rebuild and verify the ignored generated full payload from that committed source
+   before requesting any remote action.
+5. Ask separately before the guarded session-1 full-kernel push in
+   `docs/kaggle_cli_workflow.md`; after approval, perform the API check, push, one status
+   read, and hand back rather than continuously polling.
+6. After Kaggle closes session 1, download its complete output, identify the latest
+   complete `step_*.pt`, and add the smallest concrete dataset attachment/path needed by
+   session 2. Upload/attach/resume only with separate explicit Kaggle permission.
+
+Full training and the continuous-`SO(2)` repeat remain later gates.

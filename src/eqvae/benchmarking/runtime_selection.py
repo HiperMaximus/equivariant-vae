@@ -24,6 +24,7 @@ from eqvae.benchmarking.runtime_schema import (
     GATE_HEALTH_COLUMNS,
     NUMERICAL_CHECK_COLUMNS,
     RUNTIME_MATRIX_COLUMNS,
+    validate_efficiency_proof_reference_batch_size,
 )
 from eqvae.benchmarking.schedule import training_steps_per_epoch
 from eqvae.config import resolve_json_config
@@ -177,6 +178,7 @@ class _EfficiencyPolicySelection:
     runtime_policy_id: str
     precision_policy: str
     compile_scope: str
+    diagnostic_only: bool
 
 
 @dataclass(frozen=True)
@@ -198,6 +200,7 @@ class _SelectionSettings:
     minimum_material_speedup_fraction: float
     efficiency_accelerator_modes: tuple[str, ...]
     efficiency_batch_sizes: tuple[int, ...]
+    efficiency_proof_reference_batch_size: int
     efficiency_corruption_strategies: tuple[str, ...]
     efficiency_policies: tuple[_EfficiencyPolicySelection, ...]
 
@@ -230,7 +233,7 @@ def write_runtime_selection_benchmark(  # noqa: PLR0914
     v8_provenance = _v8_provenance_payload(settings.v8_artifact_dir)
     evidence = request.evidence or _blocked_local_evidence(settings=settings)
     runtime_rows = _enforce_compiled_rows_diagnostic_only(evidence.runtime_rows)
-    amp_policy = _amp_followup_policy(runtime_rows)
+    amp_policy = _amp_followup_policy(settings=settings, rows=runtime_rows)
     dual_gate = _dual_gate_payload(
         settings=settings,
         runtime_rows=runtime_rows,
@@ -353,6 +356,22 @@ def _settings(
     first_stage = _stage(stages, "v8_shortlist_fp32_eager_confirmation")
     dual_stage = _stage(stages, "dual_t4_train_step_gate")
     efficiency = _optional_object(selection, "efficiency_followup") or {}
+    dual_batch_sizes = _int_tuple(dual_stage, "per_device_batch_sizes")
+    efficiency_batch_sizes = (
+        () if not efficiency else _int_tuple(efficiency, "per_device_batch_sizes")
+    )
+    efficiency_proof_reference_batch_size = (
+        0
+        if not efficiency
+        else validate_efficiency_proof_reference_batch_size(
+            batch_size=_required_int(
+                efficiency,
+                "proof_reference_per_device_batch_size",
+            ),
+            dual_gate_batch_sizes=dual_batch_sizes,
+            efficiency_batch_sizes=efficiency_batch_sizes,
+        )
+    )
     v8_carry_forward = _required_object(runtime, "v8_carry_forward")
     v8_dir_value = request.v8_artifact_dir or Path(
         _required_str(v8_carry_forward, "artifact_dir"),
@@ -369,7 +388,7 @@ def _settings(
         v8_artifact_dir=v8_dir_value,
         fp32_batch_sizes=_int_tuple(first_stage, "per_device_batch_sizes"),
         fallback_batch_sizes=_int_tuple(first_stage, "fallback_per_device_batch_sizes"),
-        dual_batch_sizes=_int_tuple(dual_stage, "per_device_batch_sizes"),
+        dual_batch_sizes=dual_batch_sizes,
         corruption_strategies=_str_tuple(dual_stage, "corruption_strategies"),
         baseline_selected_runtime_path=None
         if not baseline_path
@@ -392,9 +411,8 @@ def _settings(
         efficiency_accelerator_modes=()
         if not efficiency
         else _str_tuple(efficiency, "accelerator_modes"),
-        efficiency_batch_sizes=()
-        if not efficiency
-        else _int_tuple(efficiency, "per_device_batch_sizes"),
+        efficiency_batch_sizes=efficiency_batch_sizes,
+        efficiency_proof_reference_batch_size=(efficiency_proof_reference_batch_size),
         efficiency_corruption_strategies=()
         if not efficiency
         else _str_tuple(efficiency, "corruption_strategies"),
@@ -414,6 +432,11 @@ def _efficiency_policy_selections(
             runtime_policy_id=_required_str(policy, "runtime_policy_id"),
             precision_policy=_required_str(policy, "precision_policy"),
             compile_scope=_required_str(policy, "compile_scope"),
+            diagnostic_only=_optional_bool_or_default(
+                policy,
+                "diagnostic_only",
+                default=False,
+            ),
         )
         for policy in policies
     )
@@ -661,7 +684,7 @@ def _runtime_row(  # noqa: PLR0913
         "ddp_gradient_as_bucket_view": "false",
         "optimizer_implementation": "adamw_default",
         "zero_grad_set_to_none": "true",
-        "gradient_clip_foreach": "false",
+        "gradient_clip_foreach": "true",
         "compile_dynamic": "false",
         # Spec 0011 S13: eager recipe knobs (local/default rows carry no measured
         # recipe; S14's real dual-T4 search sources these on the winner row).
@@ -741,7 +764,6 @@ def _linked_row(  # noqa: C901, PLR0912, PLR0913
     rank: int,
     split: str,
 ) -> CsvRow:
-    del settings
     row: dict[str, str] = dict.fromkeys(columns, "")
     shared = {
         "run_name": runtime_row["run_name"],
@@ -760,7 +782,10 @@ def _linked_row(  # noqa: C901, PLR0912, PLR0913
     if "candidate_row_id" in row:
         row["candidate_row_id"] = runtime_row["row_id"]
     if "reference_row_id" in row:
-        row["reference_row_id"] = _reference_row_id(runtime_row)
+        row["reference_row_id"] = _reference_row_id(
+            settings=settings,
+            runtime_row=runtime_row,
+        )
     if "batch_index" in row:
         row["batch_index"] = "0"
     if "precision_policy" in row:
@@ -790,13 +815,34 @@ def _linked_row(  # noqa: C901, PLR0912, PLR0913
     return row
 
 
-def _reference_row_id(runtime_row: CsvRow) -> str:
+def _reference_row_id(*, settings: _SelectionSettings, runtime_row: CsvRow) -> str:
+    candidate_batch_size = int(runtime_row["per_device_batch_size"])
+    proof_batch_size = (
+        settings.efficiency_proof_reference_batch_size
+        if _is_efficiency_runtime_row(settings=settings, row=runtime_row)
+        else candidate_batch_size
+    )
     return _row_id(
         accelerator_mode=runtime_row["accelerator_mode"],
-        batch_size=int(runtime_row["per_device_batch_size"]),
+        batch_size=min(candidate_batch_size, proof_batch_size),
         precision_policy=AMP_OFF_FP32,
         compile_scope=COMPILE_NONE,
         corruption_strategy=BRANCHLESS_ALL,
+    )
+
+
+def _is_efficiency_runtime_row(
+    *,
+    settings: _SelectionSettings,
+    row: Mapping[str, str],
+) -> bool:
+    policy_ids = {policy.runtime_policy_id for policy in settings.efficiency_policies}
+    return (
+        _runtime_policy_id(row) in policy_ids
+        and row.get("accelerator_mode") in settings.efficiency_accelerator_modes
+        and _optional_csv_int(row.get("per_device_batch_size", ""))
+        in settings.efficiency_batch_sizes
+        and row.get("corruption_strategy") in settings.efficiency_corruption_strategies
     )
 
 
@@ -829,42 +875,41 @@ def _compiled_row_stable(row: CsvRow) -> bool:
     settle_steps = _optional_csv_int(row.get("compile_settle_steps", ""))
     graph_breaks = _optional_csv_int(row.get("graph_break_count", ""))
     recompiles = _optional_csv_int(row.get("recompile_count", ""))
-    # Spec 0011 S12: whole-step compile (COMPILE_STEP, the measured winner recipe's
-    # scope) joins model-forward as a first-class compiled candidate, gated on the SAME
-    # fail-closed settle relationship (a missing settle/graph-break/recompile field is
-    # None != 0 -> not stable -> stays diagnostic-only). Keeping both lets throughput
-    # decide. Inert until the grid emits step rows (S13) and the executor measures them.
-    #
-    # KNOWN DEFECT -- Spec 0011 "A6", do not "fix" a compiled row by chasing its graph
-    # breaks to zero until this is addressed. `graph_breaks == 0` structurally EXCLUDES
-    # `optimize_ddp="ddp_optimizer"`, because that mode SPLITS the model graph to match
-    # DDP buckets BY DESIGN (torch's own config doc: mode 1 splits "to allow DDP
-    # comm/compute overlap"; only `python_reducer`/`no_optimization` promise no breaks).
-    # The compiled-fastpath probe measured `ddp_optimizer_whole_step` as the WINNER at
-    # every batch (59.2 samples/s, 1.42x, 2531 MB vs eager 6.2 GB), and this rule would
-    # reject it -- as it already rejects both compiled rows in the v5 matrix (gb=1,
-    # rc=2), whose break IS the bucket split, not instability. The rule conflates a
-    # genuine instability (unsettled recompiles) with a load-bearing split. Fix =
-    # make the break check MODE-AWARE (allowed under ddp_optimizer, still zero under
-    # python_reducer/no_optimization) or gate on "no NEW breaks after settle", then let
-    # measured throughput decide between the three modes.
+    optimize_ddp = row.get("optimize_ddp", "")
     return (
         row["compile_scope"] in _STABLE_COMPILE_SCOPES
         and _runtime_policy_id(row) != DEFAULT_RUNTIME_POLICY_ID
+        and optimize_ddp
+        in {
+            "ddp_optimizer",
+            "python_reducer",
+            "python_reducer_without_compiled_forward",
+            "no_optimization",
+        }
         and settle_steps is not None
         and settle_steps >= REQUIRED_COMPILE_SETTLE_STEPS
-        and graph_breaks == 0
+        # Graph breaks/partitions are measured telemetry, not a universal failure.
+        # DDPOptimizer deliberately partitions around bucket boundaries and current
+        # reducer modes may expose different stable overlap structures. Availability
+        # still fails closed; only post-settle recompilation is disqualifying.
+        and graph_breaks is not None
+        and graph_breaks >= 0
         and recompiles == 0
     )
 
 
-def _amp_followup_policy(rows: Sequence[CsvRow]) -> JsonObject:
-    pass_fp32_keys = {
-        _row_key(row)
+def _amp_followup_policy(
+    *,
+    settings: _SelectionSettings,
+    rows: Sequence[CsvRow],
+) -> JsonObject:
+    pass_fp32_row_ids = {
+        row["row_id"]
         for row in rows
         if row["status"] == PASS_STATUS
         and row["precision_policy"] == AMP_OFF_FP32
         and row["compile_scope"] == COMPILE_NONE
+        and row["corruption_strategy"] == BRANCHLESS_ALL
     }
     amp_rows = [
         row
@@ -874,13 +919,8 @@ def _amp_followup_policy(rows: Sequence[CsvRow]) -> JsonObject:
     violations = [
         row["row_id"]
         for row in amp_rows
-        if (
-            row["accelerator_mode"],
-            row["per_device_batch_size"],
-            COMPILE_NONE,
-            row["corruption_strategy"],
-        )
-        not in pass_fp32_keys
+        if _reference_row_id(settings=settings, runtime_row=row)
+        not in pass_fp32_row_ids
     ]
     skipped_rows = [
         row["row_id"]
@@ -894,21 +934,12 @@ def _amp_followup_policy(rows: Sequence[CsvRow]) -> JsonObject:
         "JsonObject",
         {
             "status": PASS_STATUS if not violations else FAIL_STATUS,
-            "confirmed_fp32_eager_row_count": len(pass_fp32_keys),
+            "confirmed_fp32_eager_row_count": len(pass_fp32_row_ids),
             "amp_followup_row_count": len(amp_rows),
             "violation_row_ids": violations,
             "amp_skipped_row_ids": skipped_rows,
-            "policy": "amp_followup_only_after_confirmed_eager_fp32_rows",
+            "policy": "amp_followup_only_after_exact_fp32_eager_reference_row",
         },
-    )
-
-
-def _row_key(row: CsvRow) -> tuple[str, str, str, str]:  # noqa: FURB118
-    return (
-        row["accelerator_mode"],
-        row["per_device_batch_size"],
-        row["compile_scope"],
-        row["corruption_strategy"],
     )
 
 
@@ -959,6 +990,7 @@ def _dual_gate_payload(  # noqa: PLR0913
         rows_by_id[row_id] for row_id in required_row_ids if row_id in rows_by_id
     ]
     linked_failures = _linked_failures(
+        settings=settings,
         required_rows=required_rows,
         dataloader_rows=dataloader_rows,
         numerical_rows=numerical_rows,
@@ -1034,6 +1066,7 @@ def _dual_gate_payload(  # noqa: PLR0913
 
 def _linked_failures(  # noqa: PLR0913
     *,
+    settings: _SelectionSettings,
     required_rows: Sequence[CsvRow],
     dataloader_rows: Sequence[CsvRow],
     numerical_rows: Sequence[CsvRow],
@@ -1046,9 +1079,17 @@ def _linked_failures(  # noqa: PLR0913
         row_id = runtime_row["row_id"]
         if not _dataloader_pass_for_runtime_row(dataloader_rows, runtime_row):
             failures.append(f"dataloader_matrix:{row_id}")
-        if not _numerical_pass_for_runtime_row(numerical_rows, runtime_row):
+        if not _numerical_pass_for_runtime_row(
+            settings=settings,
+            numerical_rows=numerical_rows,
+            runtime_row=runtime_row,
+        ):
             failures.append(f"numerical_checks:{row_id}")
-        if not _corruption_pass_for_runtime_row(corruption_rows, runtime_row):
+        if not _corruption_pass_for_runtime_row(
+            settings=settings,
+            corruption_rows=corruption_rows,
+            runtime_row=runtime_row,
+        ):
             failures.append(f"corruption_checks:{row_id}")
         if not _gate_health_pass_for_runtime_row(
             gate_health_rows=gate_health_rows,
@@ -1152,6 +1193,7 @@ def _selected_runtime_write_decision(  # noqa: C901, PLR0912, PLR0913
         blockers.append("selected_runtime_reuses_configured_baseline_no_replacement")
     else:
         linked_pass_row_failures = _linked_pass_row_failures(
+            settings=settings,
             runtime_rows=(selected,),
             dataloader_rows=dataloader_rows,
             numerical_rows=numerical_rows,
@@ -1163,9 +1205,17 @@ def _selected_runtime_write_decision(  # noqa: C901, PLR0912, PLR0913
             blockers.append("runtime_pass_rows_linked_proof_not_pass")
         if not _dataloader_pass_for_runtime_row(dataloader_rows, selected):
             blockers.append("selected_row_dataloader_not_pass")
-        if not _numerical_pass_for_runtime_row(numerical_rows, selected):
+        if not _numerical_pass_for_runtime_row(
+            settings=settings,
+            numerical_rows=numerical_rows,
+            runtime_row=selected,
+        ):
             blockers.append("selected_row_numerical_not_pass")
-        if not _corruption_pass_for_runtime_row(corruption_rows, selected):
+        if not _corruption_pass_for_runtime_row(
+            settings=settings,
+            corruption_rows=corruption_rows,
+            runtime_row=selected,
+        ):
             blockers.append("selected_row_corruption_not_pass")
         if not _gate_health_pass_for_runtime_row(
             gate_health_rows=gate_health_rows,
@@ -1268,12 +1318,26 @@ def _selection_candidate_scope_matches(
         and batch_size in settings.efficiency_batch_sizes
         and row["corruption_strategy"] in settings.efficiency_corruption_strategies
         and any(
-            policy.runtime_policy_id == _runtime_policy_id(row)
+            not policy.diagnostic_only
+            and policy.runtime_policy_id == _runtime_policy_id(row)
             and policy.precision_policy == row["precision_policy"]
             and policy.compile_scope == row["compile_scope"]
             for policy in settings.efficiency_policies
         )
     )
+
+
+def _optional_bool_or_default(
+    payload: JsonObject,
+    key: str,
+    *,
+    default: bool,
+) -> bool:
+    value = payload.get(key, default)
+    if type(value) is not bool:
+        message = f"{key} must be a boolean"
+        raise TypeError(message)
+    return value
 
 
 def _runtime_row_candidate_pass(row: CsvRow) -> bool:
@@ -1385,6 +1449,7 @@ def _selected_row(settings: _SelectionSettings, rows: Sequence[CsvRow]) -> CsvRo
 
 def _linked_pass_row_failures(  # noqa: PLR0913
     *,
+    settings: _SelectionSettings,
     runtime_rows: Sequence[CsvRow],
     dataloader_rows: Sequence[CsvRow],
     numerical_rows: Sequence[CsvRow],
@@ -1399,9 +1464,17 @@ def _linked_pass_row_failures(  # noqa: PLR0913
         row_id = runtime_row["row_id"]
         if not _dataloader_pass_for_runtime_row(dataloader_rows, runtime_row):
             failures.append(f"dataloader_matrix:{row_id}")
-        if not _numerical_pass_for_runtime_row(numerical_rows, runtime_row):
+        if not _numerical_pass_for_runtime_row(
+            settings=settings,
+            numerical_rows=numerical_rows,
+            runtime_row=runtime_row,
+        ):
             failures.append(f"numerical_checks:{row_id}")
-        if not _corruption_pass_for_runtime_row(corruption_rows, runtime_row):
+        if not _corruption_pass_for_runtime_row(
+            settings=settings,
+            corruption_rows=corruption_rows,
+            runtime_row=runtime_row,
+        ):
             failures.append(f"corruption_checks:{row_id}")
         if not _gate_health_pass_for_runtime_row(
             gate_health_rows=gate_health_rows,
@@ -1511,25 +1584,38 @@ def _dataloader_row_pass(row: CsvRow, runtime_row: CsvRow) -> bool:
 
 
 def _numerical_pass_for_runtime_row(
+    *,
+    settings: _SelectionSettings,
     numerical_rows: Sequence[CsvRow],
     runtime_row: CsvRow,
 ) -> bool:
     passing_batch_indices = {
         row["batch_index"]
         for row in numerical_rows
-        if _candidate_scope_matches(row, runtime_row) and _numerical_values_pass(row)
+        if _candidate_scope_matches(
+            settings=settings,
+            row=row,
+            runtime_row=runtime_row,
+        )
+        and _numerical_values_pass(row)
     }
     return REQUIRED_NUMERICAL_BATCH_INDICES.issubset(passing_batch_indices)
 
 
 def _corruption_pass_for_runtime_row(
+    *,
+    settings: _SelectionSettings,
     corruption_rows: Sequence[CsvRow],
     runtime_row: CsvRow,
 ) -> bool:
     passing_splits = {
         row["split"]
         for row in corruption_rows
-        if _common_candidate_scope_pass(row, runtime_row)
+        if _common_candidate_scope_pass(
+            settings=settings,
+            row=row,
+            runtime_row=runtime_row,
+        )
         and row.get("corruption_strategy") == runtime_row["corruption_strategy"]
         and row.get("world_size") == runtime_row["world_size"]
         and row.get("split") in REQUIRED_CORRUPTION_SPLITS
@@ -1545,9 +1631,19 @@ def _corruption_pass_for_runtime_row(
     return REQUIRED_CORRUPTION_SPLITS.issubset(passing_splits)
 
 
-def _candidate_scope_matches(row: CsvRow, runtime_row: CsvRow) -> bool:
+def _candidate_scope_matches(
+    *,
+    settings: _SelectionSettings,
+    row: CsvRow,
+    runtime_row: CsvRow,
+) -> bool:
     return (
-        _common_candidate_scope_matches(row, runtime_row, require_status=False)
+        _common_candidate_scope_matches(
+            settings=settings,
+            row=row,
+            runtime_row=runtime_row,
+            require_status=False,
+        )
         and row.get("status") in {PASS_STATUS, FAIL_STATUS}
         and row.get("precision_policy") == runtime_row["precision_policy"]
         and row.get("torch_compile_enabled") == runtime_row["torch_compile_enabled"]
@@ -1560,14 +1656,25 @@ def _nonempty_csv(row: CsvRow, key: str) -> bool:
     return bool(row.get(key, ""))
 
 
-def _common_candidate_scope_pass(row: CsvRow, runtime_row: CsvRow) -> bool:
-    return _common_candidate_scope_matches(row, runtime_row, require_status=True)
+def _common_candidate_scope_pass(
+    *,
+    settings: _SelectionSettings,
+    row: CsvRow,
+    runtime_row: CsvRow,
+) -> bool:
+    return _common_candidate_scope_matches(
+        settings=settings,
+        row=row,
+        runtime_row=runtime_row,
+        require_status=True,
+    )
 
 
 def _common_candidate_scope_matches(
+    *,
+    settings: _SelectionSettings,
     row: CsvRow,
     runtime_row: CsvRow,
-    *,
     require_status: bool,
 ) -> bool:
     return (
@@ -1576,6 +1683,8 @@ def _common_candidate_scope_matches(
         and row.get("benchmark_source") == RUNTIME_SELECTION_SOURCE
         and row.get("full_run_eligible") == "true"
         and row.get("candidate_row_id") == runtime_row["row_id"]
+        and row.get("reference_row_id")
+        == _reference_row_id(settings=settings, runtime_row=runtime_row)
         and row.get("accelerator_mode") == runtime_row["accelerator_mode"]
         and row.get("machine_shape") == runtime_row["machine_shape"]
         and _runtime_policy_matches(row, runtime_row)
@@ -1808,6 +1917,9 @@ def _efficiency_followup_payload(
         "minimum_material_speedup_fraction": (
             settings.minimum_material_speedup_fraction
         ),
+        "proof_reference_per_device_batch_size": (
+            settings.efficiency_proof_reference_batch_size
+        ),
         "baseline_samples_sec": baseline_samples,
         "selected_samples_sec": selected_samples,
         "selected_row_id": selected_row_id,
@@ -2000,8 +2112,9 @@ def _selected_runtime_payload(
                 selected_row.get("zero_grad_set_to_none", "true"),
             ),
             "gradient_clip_foreach": _bool_from_csv(
-                selected_row.get("gradient_clip_foreach", "false"),
+                selected_row.get("gradient_clip_foreach", "true"),
             ),
+            "gradient_clip_foreach_applied": True,
         },
         "relaxed_determinism": {
             "accepted": True,
@@ -2036,7 +2149,7 @@ def _selected_runtime_payload(
         "selected_row_snapshot": {
             **dict(selected_row),
             "compile_settle_protocol_sha256": _hash_text(
-                "runtime_selection_compile_none_eager_no_settle_v1",
+                _compile_settle_protocol_id(selected_row),
             ),
             "post_settle_graph_break_count": int(selected_row["graph_break_count"]),
             "post_settle_recompile_count": int(selected_row["recompile_count"]),
@@ -2046,6 +2159,23 @@ def _selected_runtime_payload(
         ),
         "resolved_full_run_config_sha256": settings.effective_config_hash,
     }
+
+
+def _compile_settle_protocol_id(selected_row: CsvRow) -> str:
+    """Return the settle-proof identity actually applied to the selected row.
+
+    Returns:
+        Stable protocol identifier whose hash is stored in the selected snapshot.
+
+    """
+    if selected_row["compile_scope"] == COMPILE_NONE:
+        return "runtime_selection_compile_none_eager_no_settle_v1"
+    return (
+        f"runtime_selection_{selected_row['compile_scope']}_"
+        f"{selected_row.get('optimize_ddp', '')}_settle_"
+        f"{selected_row['compile_settle_steps']}_reported_graph_breaks_"
+        "zero_recompiles_v1"
+    )
 
 
 def _artifact_hashes(output_dir: Path) -> JsonObject:

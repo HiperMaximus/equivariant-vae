@@ -6,6 +6,12 @@ Amended: 2026-06-18
 Decision: use a separate no-dataset Kaggle GPU timing pretest to screen and
 order candidate runtime rows before attaching the 60 GB+ real dataset.
 
+Current boundary: this decision is historical loader/H2D evidence only. Locked Spec
+0011 owns lean joint complete-recipe/integer-batch narrowing on upgraded Torch with
+coordinate-local OOM handling and the exact projected epoch objective. Synthetic v1-v4
+standings, fixed-batch throughput, and this pretest's p50 objective cannot select or
+prune that compute search.
+
 The pretest generates deterministic UBC-format binary+CSV shards under
 `/kaggle/working` and attaches no Kaggle sources. Its default profile is
 `synthetic_binary_2gib_histology_like_v1`: 10,912 total `3x256x256` CHW

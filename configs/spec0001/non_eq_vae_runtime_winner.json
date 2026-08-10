@@ -1,0 +1,41 @@
+{
+  "schema_version": "spec0011.runtime_winner.v1",
+  "status": "selected_pending_real_loader_and_lr_gates",
+  "source_config": "configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json",
+  "selection": {
+    "kaggle_kernel_version": 14,
+    "per_device_batch_size": 25,
+    "global_batch_size": 50,
+    "fresh_step_ms": [749.757, 778.665],
+    "projected_epoch_seconds": [4498.539, 4671.993],
+    "mean_projected_epoch_seconds": 4585.266,
+    "evidence_directories": [
+      "runs/kaggle/runtime_recipe_probe_v9",
+      "runs/kaggle/runtime_recipe_probe_v14"
+    ]
+  },
+  "runtime_policy": {
+    "runtime_policy_id": "compile_step_python_reducer_fp16_channels_last",
+    "precision_policy": "amp_conservative",
+    "compile_scope": "step",
+    "memory_format": "channels_last",
+    "autocast_dtype": "float16",
+    "fp32_loss": true,
+    "grad_scaler_enabled": true,
+    "cudnn_benchmark": true,
+    "cudnn_deterministic": false,
+    "tf32_enabled": true,
+    "matmul_precision": "high",
+    "ddp_static_graph": false,
+    "ddp_gradient_as_bucket_view": true,
+    "optimize_ddp": "python_reducer",
+    "compiled_autograd": true,
+    "reorder_compute_comm_overlap": true,
+    "ddp_broadcast_buffers": false,
+    "ddp_find_unused_parameters": false,
+    "ddp_bucket_cap_mb": 50,
+    "fused_optimizer": true,
+    "gradient_clip_foreach": true,
+    "zero_grad_set_to_none": true
+  }
+}

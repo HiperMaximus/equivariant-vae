@@ -134,9 +134,9 @@ Rules to keep this file from rotting (the problem it exists to fix):
   Authority: `docs/spec_driven_development.md:96-97`, `docs/agentic_review_workflow.md:88-89`.
   Fix: apply the Drop Plan below; add a bullet to `spec_driven_development.md`
   requiring STATUS blocks to hold latest state only.
-- **FU-030 — Spec 0009 is the LIVE frontier — do NOT compress to "implemented"
-  during cleanup.** `docs/specs/0009-...md:3-9,290-318`. Only normalize formatting;
-  update status after the approved status/output verification runs.
+- **FU-030 — Spec 0011 is the live frontier.** Spec 0009's run protocol remains
+  load-bearing, but its frozen runtime schedule is superseded. Keep active sequencing in
+  Spec 0011 and `CURRENT.md`; do not recreate a second plan in this file.
 - **FU-031 — Benchmark code+tests are FINISHED but load-bearing.** Re-exported by
   `src/eqvae/benchmarking/__init__.py`, imported by tests/CLIs, 7 live
   `kaggle_kernel.sh` subcommands. Fix: retire only as ONE coordinated change

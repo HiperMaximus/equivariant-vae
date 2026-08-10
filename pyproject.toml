@@ -57,7 +57,12 @@ dev = [
 ]
 
 [tool.ruff]
-extend-exclude = ["reference", "kaggle/fsq_train_reference.py"]
+extend-exclude = [
+    "reference",
+    "kaggle/fsq_train_reference.py",
+    # Hash-pinned historical evidence; linting must never rewrite these bytes.
+    "docs/data/spec0011_runtime_recipe_v2/producer/run.py",
+]
 fix = false
 line-length = 88
 preview = true

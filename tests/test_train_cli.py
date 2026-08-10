@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 import torch
 
+from eqvae import checkpointing
 from eqvae.checkpointing import load_training_checkpoint, save_training_checkpoint
 from eqvae.cli.train import main as train_main
 from eqvae.training.progress import TrainingProgressState, record_training_attempt
@@ -24,6 +25,49 @@ SHORT_TRAIN_STEPS = 2
 RESUME_TARGET_STEPS = 3
 FIXED_TINY_PATCH_COUNT = 32
 SELECTED_RUNTIME_BATCH_SIZE = 12
+
+
+def test_checkpoint_publish_is_atomic_on_serialization_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed boundary save cannot replace the last complete resume point.
+
+    Kaggle may terminate while ``torch.save`` is serializing. The existing final path
+    is the deliberate committed boundary and must survive; a partially written temp
+    file must not look like a newer resumable checkpoint.
+    """
+    checkpoint_path = tmp_path / "step_003000.pt"
+    checkpoint_path.write_bytes(b"previous-complete-checkpoint")
+    model = torch.nn.Linear(2, 1)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+
+    def fail_after_partial_write(payload: object, path: Path) -> None:
+        del payload
+        path.write_bytes(b"partial")
+        message = "simulated interrupted serialization"
+        raise OSError(message)
+
+    monkeypatch.setattr(checkpointing.torch, "save", fail_after_partial_write)
+
+    with pytest.raises(OSError, match="interrupted serialization"):
+        save_training_checkpoint(
+            path=checkpoint_path,
+            model=model,
+            optimizer=optimizer,
+            numpy_generator=np.random.default_rng(),
+            run_name="atomic_boundary",
+            config_path=tmp_path / "config.json",
+            config_sha256="config",
+            effective_config_sha256="effective",
+            optimizer_step=3000,
+            successful_optimizer_update_count=3000,
+            metric_name="loss",
+            metric_value=1.0,
+        )
+
+    assert checkpoint_path.read_bytes() == b"previous-complete-checkpoint"
+    assert not (tmp_path / ".step_003000.pt.tmp").exists()
 
 
 def test_train_cli_writes_selected_runtime_debug_artifacts(  # noqa: PLR0915

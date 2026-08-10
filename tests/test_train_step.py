@@ -16,6 +16,8 @@ from eqvae.cli.benchmark_runtime import main as benchmark_runtime_main
 from eqvae.losses.vae import beta_for_step
 from eqvae.models.latent import LATENT_CHANNELS
 from eqvae.models.non_equivariant_vae import (
+    DEFAULT_LOGVAR_CLAMP_MAX,
+    DEFAULT_LOGVAR_CLAMP_MIN,
     VaeForwardOutput,
     build_non_equivariant_vae,
 )
@@ -28,23 +30,47 @@ TEST_MAX_OPTIMIZER_STEPS = 8
 
 
 def test_forward_exposes_explicit_eps_and_clamped_logvar_contract() -> None:
-    """The model forward returns every tensor needed for paired checks."""
+    """Forward uses the clamped posterior in the derived sampling identity.
+
+    This derived relationship protects numerical safety without freezing random model
+    outputs: both saturated and interior log-variance values are forced, and nonzero
+    epsilon makes the scale term observable. It catches bypassing the clamp, changing
+    ``exp(0.5 * logvar)``, or reporting a clamp count unrelated to changed elements.
+    """
     model = build_non_equivariant_vae()
+    logvar_bias = model.logvar_head.bias
+    assert logvar_bias is not None
+    with torch.no_grad():
+        model.logvar_head.weight.zero_()
+        logvar_bias.zero_()
+        logvar_bias[0] = DEFAULT_LOGVAR_CLAMP_MIN - 2.0
+        logvar_bias[1] = DEFAULT_LOGVAR_CLAMP_MAX + 2.0
     clean_batch = _clean_batch(batch_size=TEST_BATCH_SIZE, image_size=TEST_IMAGE_SIZE)
-    eps = torch.zeros(
-        (TEST_BATCH_SIZE, LATENT_CHANNELS, TEST_IMAGE_SIZE // 8, TEST_IMAGE_SIZE // 8),
+    eps_shape = (
+        TEST_BATCH_SIZE,
+        LATENT_CHANNELS,
+        TEST_IMAGE_SIZE // 8,
+        TEST_IMAGE_SIZE // 8,
     )
+    eps = torch.linspace(-1.0, 1.0, steps=math.prod(eps_shape)).reshape(eps_shape)
 
     output: VaeForwardOutput = model.forward(clean_batch, eps=eps)
 
-    expected_z = output.mu + (torch.exp(0.5 * output.logvar_clamped) * eps)
+    expected_logvar = output.logvar.clamp(
+        min=DEFAULT_LOGVAR_CLAMP_MIN,
+        max=DEFAULT_LOGVAR_CLAMP_MAX,
+    )
+    expected_z = output.mu + (torch.exp(0.5 * expected_logvar) * eps)
+    expected_clamp_count = torch.count_nonzero(output.logvar != expected_logvar)
     assert output.reconstruction.shape == clean_batch.shape
     assert output.mu.shape == eps.shape
     assert output.logvar.shape == eps.shape
     assert output.logvar_clamped.shape == eps.shape
     assert torch.equal(output.eps, eps)
+    assert torch.equal(output.logvar_clamped, expected_logvar)
+    assert 0 < expected_clamp_count < output.logvar.numel()
+    assert torch.equal(output.logvar_clamp_count, expected_clamp_count)
     assert torch.allclose(output.z, expected_z)
-    assert output.logvar_clamp_count.ndim == 0
     assert math.isclose(_max_abs(output.reconstruction), 0.0, abs_tol=0.0)
 
 

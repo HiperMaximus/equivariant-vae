@@ -10,6 +10,7 @@ import math
 import os
 import shlex
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -19,6 +20,7 @@ import torch.distributed as dist
 from torch import nn
 from torch.amp.grad_scaler import GradScaler
 from torch.utils.data import (
+    BatchSampler,
     DataLoader,
     Dataset,
     DistributedSampler,
@@ -94,12 +96,22 @@ from eqvae.models.non_equivariant_vae import (
 )
 from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
 from eqvae.training.ddp_sync_guard import assert_ddp_parameters_in_sync
+from eqvae.training.fastpath_precision import (
+    clone_fastpath_update_probe,
+    fastpath_eps_metrics,
+    fastpath_update_probe_norm,
+    run_fastpath_optimizer_step_with_metrics,
+    transfer_fastpath_uint8,
+    write_fastpath_metric_row,
+)
 from eqvae.training.fastpath_recipe import (
     FastpathDynamoKnobs,
     apply_cudnn_flags,
     build_fastpath_optimizer,
     compiled_autograd_context,
     model_requires_buffer_broadcast,
+    register_fastpath_communication_hook,
+    resolve_fastpath_compile_invocation,
     wrap_fastpath_ddp,
 )
 from eqvae.training.fastpath_step import make_fastpath_step_fn
@@ -145,9 +157,8 @@ _BENCHMARK_SOURCE = "local_selected_runtime_train_runner"
 _STATUS_SCOPE = "local_selected_runtime_runner"
 _LOCAL_STATUS = "local_pass"
 _FAIL = "fail"
-# The checkpointed name of the per-rank training corruption generator (Spec 0011 S17f),
-# a peer of the reparameterization eps generator ("train_data"): its state is saved and
-# restored so a resume CONTINUES the corruption stream rather than replaying it.
+# Compatibility name for the retired checkpoint RNG stream. Actual paid training uses
+# ordinary device RNG; this carried state is not consumed by epsilon or corruption.
 _CORRUPTION_GENERATOR_NAME = "train_corruption"
 # The plan `compile_scope` token that selects the compiled whole-step fast path (Spec
 # 0011 S16). Matches the probe's `_COMPILE_SCOPE_STEP` and the plan token the generator
@@ -160,8 +171,11 @@ _GATE_LOW_SATURATION_THRESHOLD = 0.01
 _GATE_HIGH_SATURATION_THRESHOLD = 0.99
 _TINY_MAX_OPTIMIZER_STEPS = 128
 _TINY_SMOOTHING_WINDOW = 25
-_TINY_MIN_IMPROVEMENT_FRACTION = 0.01
+_TINY_MIN_IMPROVEMENT_FRACTION = 0.05
 _TINY_RUN_MODE = "kaggle_tiny_overfit"
+_LR_RANGE_RUN_MODE = "kaggle_learning_rate_range"
+_MIN_LR_RANGE_UPDATES = 3
+_LR_RANGE_SLOPE_WINDOW = 8
 _FULL_RUN_MODE = "kaggle_selected_runtime_full_train"
 _FULL_STATUS_SCOPE = "selected_runtime_full_training_run"
 # Policy anchors: the epoch count and validation cadence are DECLARED expectations
@@ -225,6 +239,7 @@ _TRAIN_STEP_COLUMNS = (
     "ssim_metric",
     "kl_loss",
     "beta",
+    "learning_rate",
     "grad_norm",
     "param_update_norm",
     "recon_output_rms",
@@ -264,8 +279,8 @@ _VALIDATION_LOSS_METRIC_NAMES = (
 # Column order for the per-step train-metric device buffer (Spec 0011 S17f Metrics
 # Commit T): each optimizer step index-writes these device scalars with no host sync;
 # one bulk ``.tolist()`` at the half-epoch flush boundary materializes the window. The
-# two eps telemetry values are NOT here -- they are computed on the CPU eps tensor and
-# never sync the device, so they stay host-side in ``_PendingTrainRow``.
+# epsilon summaries share the same device buffer; computing or materializing them per
+# step would add a hidden synchronization to the CUDA hot path.
 _TRAIN_STEP_METRIC_NAMES = (
     *_VALIDATION_LOSS_METRIC_NAMES,
     "grad_norm",
@@ -276,6 +291,8 @@ _TRAIN_STEP_METRIC_NAMES = (
     "frac_x_hat_lt_minus1",
     "frac_x_hat_gt_1",
     "nonfinite_count",
+    "eps_zero_fraction",
+    "eps_abs_mean",
 )
 _VALIDATION_METRIC_COLUMNS = (
     "event_id",
@@ -428,6 +445,29 @@ class SelectedRuntimeEnvironmentProbe:
 
 
 @dataclass(frozen=True)
+class _LearningRateRangeSettings:
+    """Bounded exponential LR sweep used before debug/full training."""
+
+    start: float
+    end: float
+    successful_updates: int
+    smoothing_beta: float
+    recommendation_safety_factor: float
+    divergence_multiplier: float
+
+
+@dataclass(frozen=True)
+class _LearningRateScheduleSettings:
+    """Small fixed-horizon schedule for tiny and full training."""
+
+    kind: str
+    warmup_updates: int
+    warmup_start_factor: float
+    peak: float
+    minimum: float
+
+
+@dataclass(frozen=True)
 class _RunnerSettings:
     run_name: str
     run_mode: str
@@ -456,6 +496,8 @@ class _RunnerSettings:
     corruption_seed: int
     corruption_profile: StainCorruptionProfile
     norm_groups: int
+    learning_rate_range: _LearningRateRangeSettings | None
+    learning_rate_schedule: _LearningRateScheduleSettings | None
 
 
 @dataclass(frozen=True)
@@ -473,6 +515,7 @@ class _RunArtifacts:
     checkpoint_resume_proof: Path
     gate_health_summary: Path
     tiny_overfit_summary: Path
+    learning_rate_range_summary: Path
     local_readiness: Path
     artifact_manifest: Path
     train_steps: Path
@@ -681,6 +724,48 @@ class _FixedSelectorFullBatchSampler(Sampler[int]):
         return len(self._indices)
 
 
+class _FirstEpochBatchOffsetSampler(Sampler[list[int]]):
+    """Skip already-trained batches only on the first loader traversal after resume."""
+
+    def __init__(
+        self,
+        *,
+        sampler: Sampler[int],
+        batch_size: int,
+        drop_last: bool,
+        completed_batches: int,
+    ) -> None:
+        """Wrap a normal batch sampler with an index-only first-epoch offset."""
+        self._batch_sampler = BatchSampler(sampler, batch_size, drop_last)
+        batch_count = len(self._batch_sampler)
+        self._first_offset = completed_batches % batch_count if batch_count else 0
+        self._first_iteration = True
+
+    def __iter__(self) -> Iterator[list[int]]:
+        """Yield the remaining first-epoch indices, then complete later epochs.
+
+        Returns:
+            Iterator over batches of sample indices.
+
+        """
+        batches = iter(self._batch_sampler)
+        if self._first_iteration:
+            self._first_iteration = False
+            return islice(batches, self._first_offset, None)
+        return batches
+
+    def __len__(self) -> int:
+        """Return the currently available batch count.
+
+        Returns:
+            Remaining first-epoch batches or the full later-epoch count.
+
+        """
+        if self._first_iteration:
+            return len(self._batch_sampler) - self._first_offset
+        return len(self._batch_sampler)
+
+
 def fixed_selector_full_batch_indices(
     *,
     dataset_size: int,
@@ -753,8 +838,8 @@ class _AmpExecution:
 class _EpsProof:
     eps_policy: str
     eps_seed_source: str
-    eps_zero_fraction: float
-    eps_abs_mean: float
+    eps_zero_fraction: torch.Tensor
+    eps_abs_mean: torch.Tensor
 
 
 @dataclass(frozen=True)
@@ -765,7 +850,7 @@ class _SelectedRuntimeStepResult:
     # The device-scalar metrics stay as 0-dim tensors so the hot step never syncs them
     # to the host; ``_TrainStepMetricBuffer`` materializes the whole half-epoch window
     # in one ``.tolist()`` (Spec 0011 S17f Metrics Commit T). The eps telemetry is
-    # computed on the CPU eps tensor (no device sync), so it stays host-side.
+    # buffered with the rest of the device metrics.
     grad_norm: torch.Tensor
     param_update_norm: torch.Tensor
     nonfinite_count: torch.Tensor
@@ -780,8 +865,9 @@ class _SelectedRuntimeStepResult:
     train_reparameterization: str
     eps_policy: str
     eps_seed_source: str
-    eps_zero_fraction: float
-    eps_abs_mean: float
+    eps_zero_fraction: torch.Tensor
+    eps_abs_mean: torch.Tensor
+    learning_rate: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -956,7 +1042,21 @@ def validate_selected_runtime_environment(
         errors.append("selected_runtime_runner_nproc_per_node_mismatch")
     if probe.torchrun_standalone is not plan.torchrun_standalone:
         errors.append("selected_runtime_runner_torchrun_standalone_mismatch")
+    errors.extend(_runtime_stack_environment_errors(probe=probe, plan=plan))
     errors.extend(_distributed_environment_errors(probe=probe, plan=plan))
+    return tuple(errors)
+
+
+def _runtime_stack_environment_errors(
+    *,
+    probe: SelectedRuntimeEnvironmentProbe,
+    plan: SelectedRuntimePlan,
+) -> tuple[str, ...]:
+    errors: list[str] = []
+    if plan.torch_version and probe.torch_version != plan.torch_version:
+        errors.append("selected_runtime_runner_torch_version_mismatch")
+    if plan.cuda_version is not None and probe.cuda_version != plan.cuda_version:
+        errors.append("selected_runtime_runner_cuda_version_mismatch")
     return tuple(errors)
 
 
@@ -1028,6 +1128,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
         raise ValueError(message)
     resolved = resolve_json_config(request.config_path)
     plan = parse_selected_runtime_plan(request.runtime_config)
+    _apply_selected_nccl_environment(plan)
     settings = _settings(request=request, resolved=resolved, plan=plan)
     artifacts = _artifact_paths(request.output_dir)
     runtime_identity = _runtime_identity(plan)
@@ -1052,32 +1153,52 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
         dry_run=request.dry_run,
     )
 
+    if request.dry_run:
+        rank_global_seed = settings.global_seed + distributed.rank
+        numpy_generator = np.random.default_rng(rank_global_seed)
+    else:
+        # Paid runs do not promise reproducible global RNG, but compiled corruption
+        # must still begin from a rank-local stream. ``torch.seed`` draws fresh process
+        # entropy; the rank offset prevents an identical seed if workers inherit the
+        # same source state.
+        rank_global_seed = (torch.seed() + distributed.rank) % (2**63 - 1)
+        numpy_generator = np.random.default_rng()
     manual_seed = cast("Callable[[int], torch.Generator]", torch.manual_seed)
-    manual_seed(settings.global_seed)
-    numpy_generator = np.random.default_rng(settings.global_seed)
-    train_generator = torch.Generator(device="cpu")
+    manual_seed(rank_global_seed)
+    if distributed.device.type == "cuda":
+        cuda_manual_seed = cast("Callable[[int], None]", torch.cuda.manual_seed)
+        cuda_manual_seed(rank_global_seed)
+    generator_device = (
+        distributed.device if distributed.device.type == "cuda" else "cpu"
+    )
+    train_generator = torch.Generator(device=generator_device)
     # Per-rank reparameterization-noise seed (FU-007): DDP ranks must draw
     # independent epsilon (never a shared z). Rank 0 reduces to ``data_seed``, so
     # world_size==1 values are unchanged.
     train_generator.manual_seed(
         _eps_generator_seed(data_seed=settings.data_seed, rank=distributed.rank),
     )
-    # Per-rank training-corruption generator (Spec 0011 S17f): a dedicated CPU
-    # torch.Generator stream, independent of the eps generator, whose state is
-    # checkpointed so a resume CONTINUES the corruption stream (the retired blake2b
-    # per-sample seeding is gone).
-    corruption_generator = torch.Generator(device="cpu")
+    # Keep eager corruption on the execution device too. The stream remains separate
+    # from epsilon and checkpointed, but exact continuation is not a speed contract.
+    corruption_generator = torch.Generator(device=generator_device)
     corruption_generator.manual_seed(
         _corruption_generator_seed(
             corruption_seed=settings.corruption_seed,
             rank=distributed.rank,
         ),
     )
+    resume_start_step = _resume_start_step_from_request(request)
+    _validate_full_resume_boundary(
+        request=request,
+        settings=settings,
+        start_step=resume_start_step,
+    )
     data_surface = _prepare_data_surface(
         request=request,
         settings=settings,
         plan=plan,
         distributed=distributed,
+        first_train_batch_step=resume_start_step,
     )
 
     model = build_model(
@@ -1091,11 +1212,12 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
     latent_channels = model.latent_channels
     model = _place_model(model=model, plan=plan, device=distributed.device)
     optimizer = build_fastpath_optimizer(model, config=settings.optimizer_config)
-    # The eager train step corrupts the CPU batch with the same vectorized inline-stain
-    # corruptor the compiled path fuses in-graph, but through the checkpoint-continued
-    # per-rank generator (Spec 0011 S17f). Built once on CPU (no device placement: eager
-    # corruption runs on the pre-transfer CPU batch).
-    eager_corruptor = InlineStainCorruptor(settings.corruption_profile)
+    # Both eager and compiled controls transfer uint8 once, then normalize/corrupt on
+    # the execution device. This keeps the bake-off honest and avoids the eager path's
+    # former CPU stain work plus two fp32 H2D transfers (Spec 0011 B4).
+    eager_corruptor = InlineStainCorruptor(settings.corruption_profile).to(
+        device=distributed.device,
+    )
     amp = _amp_execution(plan=plan, distributed=distributed, dry_run=request.dry_run)
     scaler = GradScaler(
         "cuda",
@@ -1120,20 +1242,36 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
         if loaded_checkpoint is None
         else loaded_checkpoint.successful_optimizer_update_count
     )
-    _reapply_per_rank_eps_offset_on_resume(
-        train_generator=train_generator,
-        settings=settings,
-        distributed=distributed,
-        loaded_checkpoint=loaded_checkpoint,
-        start_step=start_step,
-    )
-    _reapply_per_rank_corruption_offset_on_resume(
-        corruption_generator=corruption_generator,
-        settings=settings,
-        distributed=distributed,
-        loaded_checkpoint=loaded_checkpoint,
-        start_step=start_step,
-    )
+    if start_step != resume_start_step:
+        message = (
+            "resume checkpoint step changed between metadata read and restore: "
+            f"{resume_start_step} != {start_step}"
+        )
+        raise ValueError(message)
+    if loaded_checkpoint is not None and distributed.should_use_ddp:
+        # Checkpoints are written by rank 0. Rebase stochastic streams after loading
+        # that shared file so resumed ranks do not replay identical noise.
+        rank_segment_seed = settings.global_seed + distributed.rank + start_step
+        manual_seed = cast("Callable[[int], torch.Generator]", torch.manual_seed)
+        manual_seed(rank_segment_seed)
+        if distributed.device.type == "cuda":
+            cuda_manual_seed = cast("Callable[[int], None]", torch.cuda.manual_seed)
+            cuda_manual_seed(rank_segment_seed)
+        train_generator.manual_seed(
+            _eps_generator_seed(
+                data_seed=settings.data_seed,
+                rank=distributed.rank,
+                start_step=start_step,
+            ),
+        )
+        corruption_generator.manual_seed(
+            _corruption_generator_seed(
+                corruption_seed=settings.corruption_seed,
+                rank=distributed.rank,
+                start_step=start_step,
+            ),
+        )
+        numpy_generator = np.random.default_rng(rank_segment_seed)
     if start_step >= settings.max_train_steps:
         message = (
             "resume checkpoint is already at or beyond requested max_train_steps: "
@@ -1152,6 +1290,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
         distributed=distributed,
         plan=plan,
     )
+    wrapped_model = _maybe_compile_model_forward(model=wrapped_model, plan=plan)
     # The EFFECTIVE DDP broadcast_buffers decision, recomputed from the same structural
     # rule `_maybe_wrap_ddp` applies, so the interval-flush plan-applied proof records
     # what the run actually uses (the plan value, or forced on for a model with
@@ -1561,10 +1700,23 @@ def _write_final_artifacts_primary(  # noqa: PLR0913
             artifacts.tiny_overfit_summary,
             _tiny_overfit_summary(
                 runtime_identity=runtime_identity,
+                plan=plan,
                 corruption_strategy=expected_corruption_strategy(plan),
                 data_surface=data_surface,
                 metric_rows=metric_rows,
                 gate_health_summary=gate_health_summary,
+            ),
+        )
+    if _writes_learning_rate_range_summary(settings):
+        _write_json_atomic(
+            artifacts.learning_rate_range_summary,
+            _learning_rate_range_summary(
+                settings=settings,
+                plan=plan,
+                runtime_identity=runtime_identity,
+                metric_rows=metric_rows,
+                gate_health_summary=gate_health_summary,
+                plan_applied=plan_applied,
             ),
         )
     _write_json_atomic(
@@ -1777,6 +1929,11 @@ def _settings(  # noqa: PLR0914
         _optional_int(training, "validation_batches_per_view") or 0
     )
     global_batch_size = plan.per_device_batch_size * plan.world_size
+    optimizer_config = _optimizer_config(
+        effective,
+        global_batch_size=global_batch_size,
+        fused=plan.fused_optimizer,
+    )
     settings = _RunnerSettings(
         run_name=request.run_name or _required_str(run, "name"),
         run_mode=run_mode,
@@ -1815,11 +1972,7 @@ def _settings(  # noqa: PLR0914
         ssim_weight=_required_float(objective, "ssim_weight"),
         beta_target=_required_float(beta, "target"),
         beta_warmup_fraction=_required_float(beta, "step_limited_warmup_fraction"),
-        optimizer_config=_optimizer_config(
-            effective,
-            global_batch_size=global_batch_size,
-            fused=plan.fused_optimizer,
-        ),
+        optimizer_config=optimizer_config,
         optimizer_lr_scaling=_optimizer_lr_scaling(
             effective,
             global_batch_size=global_batch_size,
@@ -1831,6 +1984,16 @@ def _settings(  # noqa: PLR0914
             _required_object(effective, "corruption"),
         ),
         norm_groups=_norm_groups(resolved),
+        learning_rate_range=_learning_rate_range_settings(
+            effective,
+            run_mode=run_mode,
+        ),
+        learning_rate_schedule=_learning_rate_schedule_settings(
+            training,
+            run_mode=run_mode,
+            peak_learning_rate=optimizer_config.learning_rate,
+            target_train_steps=target_train_steps,
+        ),
     )
     _validate_settings(settings, dry_run=request.dry_run)
     return settings
@@ -1929,6 +2092,7 @@ def _artifact_paths(output_dir: Path) -> _RunArtifacts:
         checkpoint_resume_proof=benchmark / "checkpoint_resume_proof.json",
         gate_health_summary=benchmark / "gate_health_summary.json",
         tiny_overfit_summary=benchmark / "tiny_overfit_summary.json",
+        learning_rate_range_summary=benchmark / "learning_rate_range_summary.json",
         local_readiness=benchmark / "local_selected_runtime_readiness.json",
         artifact_manifest=benchmark / "artifact_manifest.json",
         train_steps=metrics / "train_steps.csv",
@@ -1940,8 +2104,11 @@ def _artifact_paths(output_dir: Path) -> _RunArtifacts:
     )
 
 
-def _apply_cuda_runtime_flags(device: torch.device) -> None:
-    """Enable the speed-first cuDNN backend flags when running on CUDA.
+def _apply_cuda_runtime_flags(
+    device: torch.device,
+    plan: SelectedRuntimePlan,
+) -> None:
+    """Apply the selected speed-first backend flags when running on CUDA.
 
     The compiled probe and the FSQ reference both run with ``cudnn.benchmark=True``/
     ``cudnn.deterministic=False`` (Spec 0011 S17f), so the paper-promotable run must
@@ -1953,6 +2120,36 @@ def _apply_cuda_runtime_flags(device: torch.device) -> None:
     if device.type != "cuda":
         return
     apply_cudnn_flags(benchmark=True, deterministic=False)
+    torch.backends.cudnn.allow_tf32 = plan.tf32_enabled
+    torch.backends.cuda.matmul.allow_tf32 = plan.tf32_enabled
+    torch.set_float32_matmul_precision(plan.matmul_precision)
+
+
+def _apply_selected_nccl_environment(plan: SelectedRuntimePlan) -> None:
+    """Apply the measured NCCL override bundle before process-group creation.
+
+    Raises:
+        TypeError: If the selected bundle is not a string-to-string JSON object.
+
+    """
+    decoded = cast("object", json.loads(plan.nccl_environment_json))
+    if not isinstance(decoded, dict):
+        message = "selected-runtime NCCL environment must be a JSON object"
+        raise TypeError(message)
+    for raw_name, raw_value in cast("dict[object, object]", decoded).items():
+        if not isinstance(raw_name, str) or not isinstance(raw_value, str):
+            message = "selected-runtime NCCL environment must map strings to strings"
+            raise TypeError(message)
+        os.environ[raw_name] = raw_value
+
+
+def _effective_selected_nccl_environment(plan: SelectedRuntimePlan) -> str:
+    decoded = cast("dict[str, object]", json.loads(plan.nccl_environment_json))
+    return json.dumps(
+        {name: os.environ.get(name) for name in decoded},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def _distributed_context(
@@ -1973,7 +2170,7 @@ def _distributed_context(
         and nproc_per_node == plan.nproc_per_node
     )
     device = torch.device("cuda", local_rank) if should_use_ddp else torch.device("cpu")
-    _apply_cuda_runtime_flags(device)
+    _apply_cuda_runtime_flags(device, plan)
     initialized_here = False
     if should_use_ddp:
         torch.cuda.set_device(device)
@@ -2113,49 +2310,6 @@ def _barrier(distributed: _DistributedContext) -> None:
         barrier()
 
 
-def _synchronized_amp_step_skipped(
-    *,
-    local_amp_step_skipped: bool,
-    distributed: _DistributedContext,
-) -> bool:
-    """Return the DDP-consistent AMP step-skip decision, failing fast on disagreement.
-
-    The half-epoch boundary path runs collectives (the FU-008 validation-selection
-    all-gather, the interval-flush gathers, the barrier) ONLY when a step is not
-    skipped, so every rank must agree on the skip decision or a multi-hour run
-    deadlocks at the first boundary collective. DDP synchronizes gradients before
-    the ``GradScaler`` inf/nan check, so the decision is normally identical across
-    ranks; this gathers the per-rank flags every step (an unconditional, symmetric
-    collective, so it cannot itself desync) and raises together if they ever
-    disagree, converting an otherwise-silent deadlock into a clear error. Because
-    ranks agree in the normal case, the returned value equals the local decision
-    and counting/metrics are unchanged (also a no-op for single-process runs).
-
-    Returns:
-        The agreed AMP step-skip decision (equal to the local decision).
-
-    Raises:
-        RuntimeError: if ranks disagree on the AMP step-skip decision.
-
-    """
-    if not distributed.should_use_ddp or not dist.is_initialized():
-        return local_amp_step_skipped
-    gathered: list[object] = [None for _ in range(distributed.world_size)]
-    all_gather_object = cast(
-        "Callable[[list[object], object], None]",
-        dist.all_gather_object,
-    )
-    all_gather_object(gathered, bool(local_amp_step_skipped))
-    flags = {bool(flag) for flag in gathered if isinstance(flag, bool)}
-    if len(flags) > 1:
-        message = (
-            "selected-runtime ranks disagree on the AMP step-skip decision; "
-            "DDP gradient synchronization should keep it identical across ranks"
-        )
-        raise RuntimeError(message)
-    return local_amp_step_skipped
-
-
 _DDP_PARAMETER_SYNC_CHECK_STEPS = 8
 
 
@@ -2209,6 +2363,10 @@ def _load_resume_artifact_history(
     start_step: int,
 ) -> _ResumeArtifactHistory:
     if start_step <= 0:
+        return _empty_resume_artifact_history()
+    if _is_full_run(settings) and not artifacts.train_steps.exists():
+        # Kaggle continuation is checkpoint-only: every session writes to a fresh
+        # output directory and its CSVs are joined locally after all sessions finish.
         return _empty_resume_artifact_history()
 
     train_rows = _read_resume_csv_prefix(
@@ -2563,6 +2721,7 @@ def _prepare_data_surface(  # noqa: PLR0914
     settings: _RunnerSettings,
     plan: SelectedRuntimePlan,
     distributed: _DistributedContext,
+    first_train_batch_step: int = 0,
 ) -> _DataSurface:
     if request.data == "synthetic":
         root = request.output_dir / "local_ubc_synthetic"
@@ -2644,6 +2803,7 @@ def _prepare_data_surface(  # noqa: PLR0914
         plan=plan,
         distributed=distributed,
         full_batch_repeated=train_sampler.full_batch_repeated,
+        first_epoch_batch_offset=first_train_batch_step,
     )
     validation_loader = _loader(
         dataset=validation_dataset,
@@ -2776,13 +2936,14 @@ def _safe_drop_last(
     return per_rank >= batch_size
 
 
-def _loader(
+def _loader(  # noqa: PLR0913
     *,
     dataset: PatchTrainingDataset | _SelectedPatchTrainingDataset,
     batch_size: int,
     plan: SelectedRuntimePlan,
     distributed: _DistributedContext,
     full_batch_repeated: bool,
+    first_epoch_batch_offset: int = 0,
 ) -> DataLoader[PatchTrainingBatch]:
     drop_last = _safe_drop_last(
         dataset_size=len(dataset),
@@ -2817,17 +2978,33 @@ def _loader(
     prefetch_factor = (
         None if plan.dataloader_num_workers == 0 else plan.dataloader_prefetch_factor
     )
-    loader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        sampler=sampler,
-        num_workers=plan.dataloader_num_workers,
-        prefetch_factor=prefetch_factor,
-        pin_memory=plan.dataloader_pin_memory,
-        persistent_workers=plan.dataloader_persistent_workers,
-        collate_fn=collate_patch_training_samples,
-        drop_last=drop_last,
-    )
+    if first_epoch_batch_offset:
+        loader = DataLoader(
+            dataset,
+            batch_sampler=_FirstEpochBatchOffsetSampler(
+                sampler=sampler,
+                batch_size=batch_size,
+                drop_last=drop_last,
+                completed_batches=first_epoch_batch_offset,
+            ),
+            num_workers=plan.dataloader_num_workers,
+            prefetch_factor=prefetch_factor,
+            pin_memory=plan.dataloader_pin_memory,
+            persistent_workers=plan.dataloader_persistent_workers,
+            collate_fn=collate_patch_training_samples,
+        )
+    else:
+        loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            sampler=sampler,
+            drop_last=drop_last,
+            num_workers=plan.dataloader_num_workers,
+            prefetch_factor=prefetch_factor,
+            pin_memory=plan.dataloader_pin_memory,
+            persistent_workers=plan.dataloader_persistent_workers,
+            collate_fn=collate_patch_training_samples,
+        )
     return cast("DataLoader[PatchTrainingBatch]", loader)
 
 
@@ -2969,7 +3146,7 @@ def _maybe_wrap_ddp(
     broadcast_buffers = plan.ddp_broadcast_buffers or model_requires_buffer_broadcast(
         model,
     )
-    return wrap_fastpath_ddp(
+    wrapped = wrap_fastpath_ddp(
         model,
         local_rank=distributed.local_rank,
         static_graph=plan.ddp_static_graph,
@@ -2981,7 +3158,10 @@ def _maybe_wrap_ddp(
         # applies these itself, immediately before building DDP (Spec 0011 S17f). None
         # on the eager plan: nothing compiles, so there is no dynamo state to establish.
         dynamo=_fastpath_dynamo_knobs(plan),
+        forward_sync_buffers=plan.ddp_forward_sync_buffers,
     )
+    register_fastpath_communication_hook(wrapped, plan.communication_hook)
+    return wrapped
 
 
 def _fastpath_step_selected(plan: SelectedRuntimePlan) -> bool:
@@ -2995,7 +3175,7 @@ def _fastpath_dynamo_knobs(plan: SelectedRuntimePlan) -> FastpathDynamoKnobs | N
         Knobs for the compiled step path; ``None`` on the eager plan.
 
     """
-    if not _fastpath_step_selected(plan):
+    if not plan.torch_compile_enabled:
         return None
     return FastpathDynamoKnobs(
         optimize_ddp=plan.optimize_ddp,
@@ -3038,11 +3218,54 @@ def _maybe_build_compiled_step(
         ssim_weight=settings.ssim_weight,
         autocast_dtype=_autocast_dtype(plan.autocast_dtype),
         autocast_enabled=amp.enabled,
+        autocast_cache_enabled=plan.autocast_cache_enabled,
     )
-    return torch.compile(  # pyright: ignore[reportUnknownMemberType]
-        step_fn,
-        dynamic=False,
-        backend=plan.compile_backend,
+    compile_mode, compile_options = resolve_fastpath_compile_invocation(
+        compile_mode=plan.compile_mode,
+        cudagraphs=plan.cudagraphs,
+        inductor_options_json=plan.inductor_options_json,
+    )
+    compile_fn = cast("Callable[..., object]", torch.compile)
+    return cast(
+        "CompiledStepFn",
+        compile_fn(
+            step_fn,
+            dynamic=False,
+            backend=plan.compile_backend,
+            mode=compile_mode,
+            options=compile_options,
+        ),
+    )
+
+
+def _maybe_compile_model_forward(
+    *,
+    model: nn.Module,
+    plan: SelectedRuntimePlan,
+) -> nn.Module:
+    """Apply a selected model-forward compilation recipe, or return ``model``.
+
+    Returns:
+        The compiled model-forward wrapper, or the unchanged model for another scope.
+
+    """
+    if not plan.torch_compile_enabled or plan.compile_scope != "model_forward":
+        return model
+    compile_mode, compile_options = resolve_fastpath_compile_invocation(
+        compile_mode=plan.compile_mode,
+        cudagraphs=plan.cudagraphs,
+        inductor_options_json=plan.inductor_options_json,
+    )
+    compile_fn = cast("Callable[..., object]", torch.compile)
+    return cast(
+        "nn.Module",
+        compile_fn(
+            model,
+            dynamic=plan.compile_dynamic,
+            backend=plan.compile_backend,
+            mode=compile_mode,
+            options=compile_options,
+        ),
     )
 
 
@@ -3113,6 +3336,31 @@ def _restore_checkpoint_if_requested(  # noqa: PLR0913
     )
 
 
+def _checked_amp_window_scale(
+    *,
+    scaler: GradScaler,
+    previous_scale: float,
+    ending_step: int,
+) -> float:
+    """Fail before boundary state advances when deferred AMP evidence backed off.
+
+    Returns:
+        The current scale for the next untimed window.
+
+    Raises:
+        RuntimeError: If any update in the completed window overflowed.
+
+    """
+    current_scale = float(scaler.get_scale())
+    if current_scale < previous_scale:
+        message = (
+            "selected-runtime AMP overflowed inside a deferred-metrics "
+            f"window ending at step {ending_step}"
+        )
+        raise RuntimeError(message)
+    return current_scale
+
+
 def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
     *,
     request: SelectedRuntimeTrainRequest,
@@ -3159,7 +3407,6 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
         distributed=distributed,
     )
     train_batches = _cycle_batches(data_surface.train_loader)
-    _advance_batches(train_batches, start_step)
     last_result: _SelectedRuntimeStepResult | None = None
     successful_count = start_step
     attempt_count = 0
@@ -3169,10 +3416,9 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
         10,
         settings.max_train_steps * 2,
     )
-    # Corruption is inline stain on both paths (Spec 0011 S17f): the compiled fast path
-    # fuses the seedless corruptor into the graph, while the eager path draws it through
-    # the checkpoint-continued per-rank generator. Train rows record which variant ran;
-    # both labels are constant across the loop.
+    # Corruption is device-side inline stain on both paths (Spec 0011 S17f): the
+    # compiled fast path fuses its RNG draws into the graph, while eager uses the
+    # rank-local device generator. Train rows record which variant ran.
     compiled_step_active = compiled_step_fn is not None
     train_corruption_label = (
         COMPILED_FASTPATH_CORRUPTION_STRATEGY
@@ -3193,6 +3439,14 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
             compiled_step_active=compiled_step_active,
         ),
     )
+    amp_window_scale = float(scaler.get_scale()) if amp.grad_scaler_enabled else 1.0
+    amp_window_boundaries = set(
+        boundary_steps(
+            interval_steps=settings.save_every_steps,
+            target_train_steps=settings.target_train_steps,
+        ),
+    )
+    amp_window_boundaries.add(settings.max_train_steps)
     while successful_count < settings.max_train_steps:
         attempt_count += 1
         if attempt_count > max_attempts:
@@ -3202,6 +3456,11 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
             )
             raise RuntimeError(message)
         batch = next(train_batches)
+        learning_rate = _apply_learning_rate_for_step(
+            optimizer=optimizer,
+            settings=settings,
+            optimizer_step_index=successful_count,
+        )
         if compiled_step_fn is not None:
             result = _run_compiled_train_step(
                 compiled_step_fn=compiled_step_fn,
@@ -3215,6 +3474,7 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
                 batch=batch,
                 optimizer_step_index=successful_count,
                 successful_optimizer_update_count=successful_count + 1,
+                learning_rate=learning_rate,
                 train_generator=train_generator,
                 device=distributed.device,
             )
@@ -3230,21 +3490,17 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
                 batch=batch,
                 optimizer_step_index=successful_count,
                 successful_optimizer_update_count=successful_count + 1,
+                learning_rate=learning_rate,
                 train_generator=train_generator,
                 corruption_generator=corruption_generator,
                 eager_corruptor=eager_corruptor,
                 device=distributed.device,
             )
         last_result = result
-        # The AMP-skip decision gates the half-epoch boundary block, which runs
-        # collectives (the FU-008 validation-selection all-gather, interval-flush
-        # gathers, the barrier). All ranks must agree on it or the run deadlocks at
-        # the first boundary collective; this fails fast on disagreement instead
-        # (an unconditional, symmetric per-step collective) rather than hanging.
-        amp_step_skipped = _synchronized_amp_step_skipped(
-            local_amp_step_skipped=result.amp_step_skipped,
-            distributed=distributed,
-        )
+        # DDP has already reduced the gradients that GradScaler checks, so all ranks
+        # take the same skip branch by construction. Do not add a Python-object
+        # collective to every hot step merely to re-observe that invariant (A5).
+        amp_step_skipped = result.amp_step_skipped
         # Fail closed if DDP stops averaging gradients (e.g. a static_graph/compile
         # misconfig) before it silently trains divergent models across ranks. Gate on
         # the process-local iteration counter (not the global optimizer step) so a
@@ -3253,7 +3509,17 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
         if attempt_count <= _DDP_PARAMETER_SYNC_CHECK_STEPS:
             _assert_ddp_parameters_in_sync(model=model, distributed=distributed)
         if not amp_step_skipped:
-            successful_count = result.successful_optimizer_update_count
+            proposed_successful_count = result.successful_optimizer_update_count
+            if (
+                amp.grad_scaler_enabled
+                and proposed_successful_count in amp_window_boundaries
+            ):
+                amp_window_scale = _checked_amp_window_scale(
+                    scaler=scaler,
+                    previous_scale=amp_window_scale,
+                    ending_step=proposed_successful_count,
+                )
+            successful_count = proposed_successful_count
         checkpoint_boundary = (
             not amp_step_skipped
             and successful_count > 0
@@ -3416,6 +3682,99 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
         best_validation_metric=best_validation_metric,
         last_result=last_result,
         equivariance_rows=tuple(equivariance_rows),
+    )
+
+
+def _apply_learning_rate_for_step(
+    *,
+    optimizer: torch.optim.Optimizer,
+    settings: _RunnerSettings,
+    optimizer_step_index: int,
+) -> float:
+    """Apply and return the base LR for one attempted optimizer update.
+
+    AMP-skipped attempts repeat the same successful-update index. Parameter-group
+    multipliers are captured once and preserved throughout the schedule.
+
+    Returns:
+        The base learning rate applied to the ordinary optimizer groups.
+
+    """
+    sweep = settings.learning_rate_range
+    if sweep is not None:
+        denominator = max(1, sweep.successful_updates - 1)
+        fraction = min(optimizer_step_index, denominator) / float(denominator)
+        learning_rate = sweep.start * math.exp(
+            math.log(sweep.end / sweep.start) * fraction,
+        )
+        return _set_optimizer_base_learning_rate(
+            optimizer=optimizer,
+            settings=settings,
+            learning_rate=learning_rate,
+        )
+    schedule = settings.learning_rate_schedule
+    if schedule is None:
+        return cast("float", optimizer.param_groups[0]["lr"])
+    if optimizer_step_index < schedule.warmup_updates:
+        denominator = max(1, schedule.warmup_updates - 1)
+        fraction = optimizer_step_index / float(denominator)
+        learning_rate = schedule.peak * (
+            schedule.warmup_start_factor
+            + (1.0 - schedule.warmup_start_factor) * fraction
+        )
+    elif schedule.kind == "linear_warmup_then_constant":
+        learning_rate = schedule.peak
+    else:
+        decay_updates = settings.target_train_steps - schedule.warmup_updates
+        decay_index = optimizer_step_index - schedule.warmup_updates
+        fraction = min(decay_index, max(1, decay_updates - 1)) / float(
+            max(1, decay_updates - 1),
+        )
+        learning_rate = schedule.minimum + 0.5 * (schedule.peak - schedule.minimum) * (
+            1.0 + math.cos(math.pi * fraction)
+        )
+    return _set_optimizer_base_learning_rate(
+        optimizer=optimizer,
+        settings=settings,
+        learning_rate=learning_rate,
+    )
+
+
+def _set_optimizer_base_learning_rate(
+    *,
+    optimizer: torch.optim.Optimizer,
+    settings: _RunnerSettings,
+    learning_rate: float,
+) -> float:
+    """Set a base LR while retaining each optimizer group's multiplier.
+
+    Returns:
+        The applied base learning rate.
+
+    """
+    base_learning_rate = settings.optimizer_config.learning_rate
+    for group in optimizer.param_groups:
+        multiplier_value = cast("float | None", group.get("lr_schedule_multiplier"))
+        if multiplier_value is None:
+            multiplier_value = cast("float", group["lr"]) / base_learning_rate
+            group["lr_schedule_multiplier"] = multiplier_value
+        group["lr"] = learning_rate * multiplier_value
+    return learning_rate
+
+
+def _resolved_step_learning_rate(
+    *,
+    optimizer: torch.optim.Optimizer,
+    explicit: float | None,
+) -> float:
+    """Return explicit sweep telemetry or the optimizer's actual base-group LR.
+
+    Returns:
+        The learning rate to record for the completed step.
+
+    """
+    return (
+        cast("float", optimizer.param_groups[0]["lr"]) if explicit is None else explicit
     )
 
 
@@ -4068,7 +4427,9 @@ def _partial_training_summary(
                 state.last_result.losses.detached_scalars(),
             ),
             "last_train_eps_policy": state.last_result.eps_policy,
-            "last_train_eps_zero_fraction": state.last_result.eps_zero_fraction,
+            "last_train_eps_zero_fraction": float(
+                state.metric_rows[-1]["eps_zero_fraction"],
+            ),
         },
     )
     if state.best_checkpoint is not None:
@@ -4212,15 +4573,7 @@ def _fsync_directory(path: Path) -> None:
         os.close(fd)
 
 
-def _advance_batches(
-    batches: Iterator[PatchTrainingBatch],
-    count: int,
-) -> None:
-    for _ in range(count):
-        next(batches)
-
-
-def _run_train_step(  # noqa: PLR0913, PLR0914
+def _run_train_step(  # noqa: PLR0913
     *,
     model: nn.Module,
     latent_channels: int,
@@ -4232,22 +4585,23 @@ def _run_train_step(  # noqa: PLR0913, PLR0914
     batch: PatchTrainingBatch,
     optimizer_step_index: int,
     successful_optimizer_update_count: int,
+    learning_rate: float | None = None,
     train_generator: torch.Generator,
     corruption_generator: torch.Generator,
     eager_corruptor: InlineStainCorruptor,
     device: torch.device,
 ) -> _SelectedRuntimeStepResult:
-    # Corrupt the CPU batch with the vectorized inline-stain corruptor through the
-    # per-rank, checkpoint-continued generator (Spec 0011 S17f) -- the retired blake2b
-    # per-sample seeding is gone. Corruption stays on CPU (pre-transfer), matching the
-    # eager path's clean/corrupted H2D pair.
-    clean_batch_cpu = normalize_uint8_batch(batch.images_uint8)
-    corrupted_cpu = cast(
+    # Match the compiled/FSQ transport path: one uint8 H2D transfer, followed by
+    # device-side normalization and inline stain corruption with rank-local device RNG.
+    x_uint8 = _to_device(batch.images_uint8, device=device, plan=plan)
+    clean_batch = normalize_uint8_batch(x_uint8)
+    input_batch = cast(
         "torch.Tensor",
-        eager_corruptor(clean_batch_cpu, generator=corruption_generator),
+        eager_corruptor(
+            clean_batch,
+            generator=corruption_generator,
+        ),
     )
-    clean_batch = _to_device(clean_batch_cpu, device=device, plan=plan)
-    input_batch = _to_device(corrupted_cpu, device=device, plan=plan)
     eps, eps_proof = _train_eps(
         batch_size=input_batch.shape[0],
         latent_channels=latent_channels,
@@ -4262,12 +4616,13 @@ def _run_train_step(  # noqa: PLR0913, PLR0914
         warmup_fraction=settings.beta_warmup_fraction,
     )
     optimizer.zero_grad(set_to_none=plan.zero_grad_set_to_none)
-    before_params = _clone_trainable_parameters(model)
+    update_probe = clone_fastpath_update_probe(model)
     dtype = _autocast_dtype(plan.autocast_dtype)
     with torch.autocast(
         device_type=device.type,
         dtype=dtype,
         enabled=amp.enabled,
+        cache_enabled=plan.autocast_cache_enabled,
     ):
         output = cast("NonEquivariantVAE", model).forward(input_batch, eps=eps)
     losses = compute_vae_loss(
@@ -4276,31 +4631,19 @@ def _run_train_step(  # noqa: PLR0913, PLR0914
         beta=beta,
         ssim_weight=settings.ssim_weight,
     )
-    if amp.grad_scaler_enabled:
-        old_scale = float(scaler.get_scale())
-        scaled_loss = scaler.scale(losses.loss)
-        scaled_backward = cast("Callable[[], None]", scaled_loss.backward)
-        scaled_backward()
-        scaler.unscale_(optimizer)
-    else:
-        old_scale = 1.0
-        backward = cast("Callable[[], None]", losses.loss.backward)
-        backward()
-    nonfinite_count = _nonfinite_gradient_count(model)
-    grad_norm = _global_grad_norm(model)
-    if settings.optimizer_config.gradient_clip_global_norm > 0.0:
-        nn.utils.clip_grad_norm_(
-            list(model.parameters()),
-            max_norm=settings.optimizer_config.gradient_clip_global_norm,
-            foreach=True,
-        )
-    if amp.grad_scaler_enabled:
-        scaler.step(optimizer)
-        scaler.update()
-        amp_step_skipped = float(scaler.get_scale()) < old_scale
-    else:
-        optimizer.step()
-        amp_step_skipped = False
+    optimizer_result = run_fastpath_optimizer_step_with_metrics(
+        loss=losses.loss,
+        optimizer=optimizer,
+        parameters=model.parameters(),
+        scaler=scaler,
+        grad_scaler_enabled=amp.grad_scaler_enabled,
+        gradient_clip_global_norm=settings.optimizer_config.gradient_clip_global_norm,
+        gradient_clip_foreach=plan.gradient_clip_foreach,
+        observe_skip=False,
+    )
+    grad_norm = optimizer_result.grad_norm
+    nonfinite_count = optimizer_result.nonfinite_count
+    amp_step_skipped = optimizer_result.step_skipped
     recon_stats = _reconstruction_output_stats(output.reconstruction)
     return _SelectedRuntimeStepResult(
         optimizer_step_index=optimizer_step_index,
@@ -4309,9 +4652,13 @@ def _run_train_step(  # noqa: PLR0913, PLR0914
             if amp_step_skipped
             else successful_optimizer_update_count
         ),
+        learning_rate=_resolved_step_learning_rate(
+            optimizer=optimizer,
+            explicit=learning_rate,
+        ),
         losses=losses,
         grad_norm=grad_norm,
-        param_update_norm=_parameter_update_norm(model, before_params),
+        param_update_norm=fastpath_update_probe_norm(update_probe),
         nonfinite_count=nonfinite_count,
         batch_size=input_batch.shape[0],
         amp_step_skipped=amp_step_skipped,
@@ -4342,6 +4689,7 @@ def _run_compiled_train_step(  # noqa: PLR0913
     batch: PatchTrainingBatch,
     optimizer_step_index: int,
     successful_optimizer_update_count: int,
+    learning_rate: float | None = None,
     train_generator: torch.Generator,
     device: torch.device,
 ) -> _SelectedRuntimeStepResult:
@@ -4350,9 +4698,8 @@ def _run_compiled_train_step(  # noqa: PLR0913
     # gradient clipping, and the optimizer step stay eager here, exactly as the probe
     # measures the recipe. Only the uint8 batch crosses the host boundary (4x fewer
     # bytes, channels_last fused into the H2D ``.to()``) -- the cast/normalize and
-    # corruption run on-device in the graph. The eager training and validation paths
-    # corrupt on CPU through their own inline-stain generators (Spec 0011 S17f); none
-    # use blake2b.
+    # corruption run on-device in the graph. Eager training uses the same device-side
+    # uint8/normalize/corrupt transport shape; none of the training paths use blake2b.
     x_uint8 = _to_device(batch.images_uint8, device=device, plan=plan)
     eps, eps_proof = _train_eps(
         batch_size=x_uint8.shape[0],
@@ -4371,37 +4718,29 @@ def _run_compiled_train_step(  # noqa: PLR0913
     # changing its value never forces a ``dynamic=False`` recompile.
     beta = torch.tensor(beta_value, dtype=torch.float32, device=device)
     optimizer.zero_grad(set_to_none=plan.zero_grad_set_to_none)
-    before_params = _clone_trainable_parameters(model)
-    old_scale = float(scaler.get_scale()) if amp.grad_scaler_enabled else 1.0
-    with compiled_autograd_context(enabled=plan.compiled_autograd):
-        output = compiled_step_fn(x_uint8, eps, beta)
-        if amp.grad_scaler_enabled:
-            scaled_backward = cast(
-                "Callable[[], None]",
-                scaler.scale(output.loss).backward,
-            )
-            scaled_backward()
-        else:
-            backward = cast("Callable[[], None]", output.loss.backward)
-            backward()
-    if amp.grad_scaler_enabled:
-        scaler.unscale_(optimizer)
-    nonfinite_count = _nonfinite_gradient_count(model)
-    grad_norm = _global_grad_norm(model)
-    if settings.optimizer_config.gradient_clip_global_norm > 0.0:
-        nn.utils.clip_grad_norm_(
-            list(model.parameters()),
-            max_norm=settings.optimizer_config.gradient_clip_global_norm,
-            foreach=True,
-        )
-    if amp.grad_scaler_enabled:
-        scaler.step(optimizer)
-        scaler.update()
-        amp_step_skipped = float(scaler.get_scale()) < old_scale
-    else:
-        optimizer.step()
-        amp_step_skipped = False
-    recon_stats = _reconstruction_output_stats(output.reconstruction)
+    update_probe = clone_fastpath_update_probe(model)
+    output = compiled_step_fn(x_uint8, eps, beta)
+    optimizer_result = run_fastpath_optimizer_step_with_metrics(
+        loss=output.loss,
+        optimizer=optimizer,
+        parameters=model.parameters(),
+        scaler=scaler,
+        grad_scaler_enabled=amp.grad_scaler_enabled,
+        gradient_clip_global_norm=settings.optimizer_config.gradient_clip_global_norm,
+        gradient_clip_foreach=plan.gradient_clip_foreach,
+        backward_context=compiled_autograd_context(enabled=plan.compiled_autograd),
+        observe_skip=False,
+    )
+    grad_norm = optimizer_result.grad_norm
+    nonfinite_count = optimizer_result.nonfinite_count
+    amp_step_skipped = optimizer_result.step_skipped
+    recon_stats = _ReconstructionOutputStats(
+        recon_output_rms=output.recon_output_rms,
+        x_hat_min=output.x_hat_min,
+        x_hat_max=output.x_hat_max,
+        frac_x_hat_lt_minus1=output.frac_x_hat_lt_minus1,
+        frac_x_hat_gt_1=output.frac_x_hat_gt_1,
+    )
     losses = VaeLossComponents(
         loss=output.loss,
         recon_loss=output.recon_loss,
@@ -4418,9 +4757,13 @@ def _run_compiled_train_step(  # noqa: PLR0913
             if amp_step_skipped
             else successful_optimizer_update_count
         ),
+        learning_rate=_resolved_step_learning_rate(
+            optimizer=optimizer,
+            explicit=learning_rate,
+        ),
         losses=losses,
         grad_norm=grad_norm,
-        param_update_norm=_parameter_update_norm(model, before_params),
+        param_update_norm=fastpath_update_probe_norm(update_probe),
         nonfinite_count=nonfinite_count,
         batch_size=x_uint8.shape[0],
         amp_step_skipped=amp_step_skipped,
@@ -4444,18 +4787,14 @@ def _to_device(
     device: torch.device,
     plan: SelectedRuntimePlan,
 ) -> torch.Tensor:
-    memory_format = (
-        torch.channels_last
-        if plan.memory_format == "channels_last"
-        else torch.preserve_format
-    )
     # Fuse the channels_last reorder into the single H2D ``.to()`` (allocates the
     # destination in the target layout, one pass) instead of a separate post-transfer
     # ``.contiguous()``; on a uint8 batch the reorder moves 1 byte/elem, not 4.
-    return tensor.to(
+    return transfer_fastpath_uint8(
+        tensor,
         device=device,
-        non_blocking=plan.dataloader_non_blocking_h2d and device.type == "cuda",
-        memory_format=memory_format,
+        non_blocking=plan.dataloader_non_blocking_h2d,
+        memory_format=plan.memory_format,
     )
 
 
@@ -4643,9 +4982,6 @@ def _validation_view_row(  # noqa: PLR0913, PLR0914
     # removes it from the on-device aggregation.
     beta = beta_for_step(
         optimizer_step_index=max(0, optimizer_step - 1),
-        # FU-022: share the training-step denominator so train/validation beta
-        # agree (equal for the full run where max == target; consistent under
-        # --dry-run where max < target).
         max_optimizer_steps=settings.max_train_steps,
         target_beta=settings.beta_target,
         warmup_fraction=settings.beta_warmup_fraction,
@@ -4768,9 +5104,9 @@ def _boundary_selection_metric(
     divide, rather than averaging rank-0's local shard or averaging per-view/per-rank
     means. The caller invokes this inside the
     half-epoch boundary block, which every rank enters together because
-    ``_synchronized_amp_step_skipped`` forces the ranks to agree on
-    ``scheduled_validation_due``; the gathered metric is therefore identical on all
-    ranks and world_size-independent for the same validation samples.
+    DDP-reduced gradients make the GradScaler skip branch identical across ranks; the
+    gathered metric is therefore identical on all ranks and world-size-independent for
+    the same validation samples.
 
     Returns:
         The global denoising-view L1, or ``None`` when no selection-view samples
@@ -4926,6 +5262,16 @@ def _ddp_progress_checkpoint_state(
     }
 
 
+def _generator_on_same_device(generator: torch.Generator) -> torch.Generator:
+    """Create a throwaway generator with the source generator's engine/device.
+
+    Returns:
+        A generator that can accept ``generator``'s serialized state layout.
+
+    """
+    return torch.Generator(device=generator.device)
+
+
 def _checkpoint_resume_proof(  # noqa: PLR0913
     *,
     checkpoint: CheckpointMetadata,
@@ -4950,7 +5296,10 @@ def _checkpoint_resume_proof(  # noqa: PLR0913
     # corruption state into a throwaway generator -- the key must still be present so
     # the exact-key-match against the checkpoint's ``{train_data, train_corruption}``
     # payload succeeds (Spec 0011 S17f).
-    proof_corruption_generator = torch.Generator(device="cpu")
+    # CUDA and CPU generator states use different engines/state layouts (Philox vs
+    # MT19937). Restore into the same generator kind that wrote the checkpoint; a CPU
+    # throwaway generator would make the paid CUDA run fail during final proof.
+    proof_corruption_generator = _generator_on_same_device(train_generator)
     probe_scaler = GradScaler(
         "cuda",
         init_scale=amp.grad_scaler_init_scale,
@@ -5026,9 +5375,11 @@ def _checkpoint_resume_proof(  # noqa: PLR0913
             "ddp_sampler_progress_state_status_match": ddp_status_ok,
             "torch_cuda_rng_state_status_match": cuda_status_ok,
             "grad_scaler_state_restore_attempted": amp.grad_scaler_enabled,
-            "grad_scaler_state_restored": amp_status_ok,
+            "grad_scaler_state_restored": amp.grad_scaler_enabled and amp_status_ok,
             "cuda_rng_state_restore_attempted": distributed.device.type == "cuda",
-            "cuda_rng_state_restored": cuda_status_ok,
+            "cuda_rng_state_restored": (
+                distributed.device.type == "cuda" and cuda_status_ok
+            ),
             "sampler_progress_restored": ddp_status_ok,
             "sampler_progress_offset_batches": loaded.successful_optimizer_update_count,
             "optimizer_scheduler_progress_restored": True,
@@ -5130,9 +5481,11 @@ def _loaded_checkpoint_resume_proof(  # noqa: PLR0913
             "ddp_sampler_progress_state_status_match": ddp_status_ok,
             "torch_cuda_rng_state_status_match": cuda_status_ok,
             "grad_scaler_state_restore_attempted": amp.grad_scaler_enabled,
-            "grad_scaler_state_restored": amp_status_ok,
+            "grad_scaler_state_restored": amp.grad_scaler_enabled and amp_status_ok,
             "cuda_rng_state_restore_attempted": distributed.device.type == "cuda",
-            "cuda_rng_state_restored": cuda_status_ok,
+            "cuda_rng_state_restored": (
+                distributed.device.type == "cuda" and cuda_status_ok
+            ),
             "sampler_progress_restored": ddp_status_ok,
             "sampler_progress_offset_batches": loaded.successful_optimizer_update_count,
             "optimizer_scheduler_progress_restored": True,
@@ -5198,17 +5551,110 @@ def _write_reconstruction_sample(  # noqa: PLR0913
         dtype=torch.float32,
         device=device,
     )
+    was_training = model.training
     model.eval()
     with torch.no_grad():
         output = cast("NonEquivariantVAE", model).forward(clean_batch, eps=eps)
-    model.train()
-    payload = {
+    payload: dict[str, object] = {
         "target": clean_batch.detach().cpu(),
         "reconstruction": output.reconstruction.detach().cpu(),
     }
+    fixed_train_eval = _fixed_train_deterministic_eval(
+        model=model,
+        latent_channels=latent_channels,
+        settings=settings,
+        data_surface=data_surface,
+        device=device,
+    )
+    if fixed_train_eval is not None:
+        payload["fixed_train_deterministic_eval"] = fixed_train_eval
+    if was_training:
+        model.train()
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(payload, path)
     return bool(clean_batch.numel() > 0 and torch.isfinite(output.reconstruction).all())
+
+
+def _fixed_train_deterministic_eval(
+    *,
+    model: nn.Module,
+    latent_channels: int,
+    settings: _RunnerSettings,
+    data_surface: _DataSurface,
+    device: torch.device,
+) -> JsonObject | None:
+    """Score the terminal tiny model on all fixed train patches with ``z=mu``.
+
+    Returns:
+        Reconstruction-only metrics, or ``None`` outside the fixed-32 tiny probe.
+
+    """
+    if (
+        settings.run_mode != _TINY_RUN_MODE
+        or data_surface.fixed_train_patch_count != FIXED_32_TRAIN_OVERFIT_COUNT
+    ):
+        return None
+    loader = cast(
+        "DataLoader[PatchTrainingBatch]",
+        DataLoader(
+            data_surface.train_dataset,
+            batch_size=settings.batch_size,
+            sampler=SequentialSampler(data_surface.train_dataset),
+            num_workers=0,
+            collate_fn=collate_patch_training_samples,
+            drop_last=False,
+        ),
+    )
+    totals = {
+        "recon_loss": 0.0,
+        "l1_loss": 0.0,
+        "ssim_metric": 0.0,
+        "kl_loss": 0.0,
+    }
+    sample_count = 0
+    batch_count = 0
+    with torch.no_grad():
+        for batch in cast("Iterable[PatchTrainingBatch]", loader):
+            clean_batch = normalize_uint8_batch(batch.images_uint8).to(device=device)
+            eps = _zero_eps(
+                batch_size=clean_batch.shape[0],
+                latent_channels=latent_channels,
+                settings=settings,
+                device=device,
+            )
+            output = cast("NonEquivariantVAE", model).forward(clean_batch, eps=eps)
+            losses = compute_vae_loss(
+                output,
+                clean_batch,
+                beta=0.0,
+                ssim_weight=settings.ssim_weight,
+            )
+            count = int(clean_batch.shape[0])
+            totals["recon_loss"] += float(losses.recon_loss.item()) * count
+            totals["l1_loss"] += float(losses.l1_loss.item()) * count
+            totals["ssim_metric"] += float(losses.ssim_metric.item()) * count
+            totals["kl_loss"] += float(losses.kl_loss.item()) * count
+            sample_count += count
+            batch_count += 1
+    status = _FAIL
+    if sample_count == FIXED_32_TRAIN_OVERFIT_COUNT:
+        status = _LOCAL_STATUS
+    return cast(
+        "JsonObject",
+        {
+            "status": status,
+            "patch_count": sample_count,
+            "batch_count": batch_count,
+            "model_mode": "eval",
+            "input_view": "clean",
+            "latent_policy": "posterior_mu_deterministic",
+            "evaluation_beta": 0.0,
+            **{
+                name: value / sample_count if sample_count > 0 else 0.0
+                for name, value in totals.items()
+            },
+        },
+    )
 
 
 def _gate_health_rows(  # noqa: PLR0913
@@ -5390,7 +5836,8 @@ def _plan_applied_proof(  # noqa: PLR0913
         ddp_static_graph=plan.ddp_static_graph,
         ddp_gradient_as_bucket_view=plan.ddp_gradient_as_bucket_view,
         zero_grad_set_to_none=last_result.zero_grad_set_to_none,
-        # The compiled fast-path recipe knobs. Eight are the applied plan values; DDP
+        gradient_clip_foreach=plan.gradient_clip_foreach,
+        # The remaining compiled fast-path recipe knobs are applied plan values; DDP
         # itself is not built on the local proof, so they mirror the plan the run
         # consumes. ``ddp_broadcast_buffers`` records the EFFECTIVE decision, which the
         # runner may force on for a model with rank-divergent buffers -- the mirror
@@ -5404,6 +5851,17 @@ def _plan_applied_proof(  # noqa: PLR0913
         ddp_find_unused_parameters=plan.ddp_find_unused_parameters,
         ddp_bucket_cap_mb=plan.ddp_bucket_cap_mb,
         fused_optimizer=plan.fused_optimizer,
+        compile_mode=plan.compile_mode,
+        cudagraphs=plan.cudagraphs,
+        inductor_options_json=plan.inductor_options_json,
+        autocast_cache_enabled=plan.autocast_cache_enabled,
+        ddp_forward_sync_buffers=plan.ddp_forward_sync_buffers,
+        communication_hook=plan.communication_hook,
+        nccl_environment_json=_effective_selected_nccl_environment(plan),
+        tf32_enabled=_observed_tf32_enabled(plan=plan, ddp_pass=ddp_pass),
+        matmul_precision=(
+            torch.get_float32_matmul_precision() if ddp_pass else plan.matmul_precision
+        ),
         local_ddp_status=(
             EXPECTED_DDP_APPLICATION_STATUS
             if ddp_pass
@@ -5417,6 +5875,16 @@ def _plan_applied_proof(  # noqa: PLR0913
         observed=observed,
         status_scope=_status_scope(settings),
     )
+
+
+def _observed_tf32_enabled(*, plan: SelectedRuntimePlan, ddp_pass: bool) -> bool:
+    if not ddp_pass:
+        return plan.tf32_enabled
+    cudnn_value = bool(torch.backends.cudnn.allow_tf32)
+    matmul_value = bool(torch.backends.cuda.matmul.allow_tf32)
+    if cudnn_value == matmul_value:
+        return cudnn_value
+    return not plan.tf32_enabled
 
 
 def _local_readiness_summary(
@@ -5544,6 +6012,7 @@ def _training_summary(  # noqa: PLR0913
             "optimizer_lr_scaling": settings.optimizer_lr_scaling,
             "max_train_steps": settings.max_train_steps,
             "target_optimizer_updates": settings.target_train_steps,
+            "session_complete": settings.max_train_steps == settings.target_train_steps,
             "requested_epochs": settings.requested_epochs,
             "optimizer_updates_per_epoch": settings.optimizer_updates_per_epoch,
             "half_epoch_interval_steps": settings.half_epoch_interval_steps,
@@ -5621,7 +6090,9 @@ def _training_summary(  # noqa: PLR0913
             "reconstruction_sample_nonblank": reconstruction_nonblank,
             "last_loss": cast("JsonObject", last_result.losses.detached_scalars()),
             "last_train_eps_policy": last_result.eps_policy,
-            "last_train_eps_zero_fraction": last_result.eps_zero_fraction,
+            "last_train_eps_zero_fraction": float(
+                metric_rows[-1]["eps_zero_fraction"],
+            ),
             "nonfinite_count": _nonfinite_metric_count(metric_rows),
         },
     )
@@ -5682,10 +6153,6 @@ def _selected_runtime_debug_summary(  # noqa: PLR0913
                 data_surface.train_sampler_policy
                 == _FIXED32_TINY_FULL_BATCH_SAMPLER_POLICY
             ),
-            "uses_resolve_patch_data_paths": True,
-            "uses_patch_training_dataset": True,
-            "uses_collate_patch_training_samples": True,
-            "uses_normalize_uint8_batch": True,
             "artifact_manifest": "benchmark/artifact_manifest.json",
             "real_kaggle_debug_status": "pending_permission_gated_remote_run",
             "launch_blockers_remaining": remote_blockers,
@@ -5747,6 +6214,7 @@ def _selected_runtime_full_summary(  # noqa: C901, PLR0913
             "optimizer_lr_scaling": settings.optimizer_lr_scaling,
             "target_optimizer_updates": settings.target_train_steps,
             "optimizer_steps_completed": completed_steps,
+            "session_complete": completed_steps == settings.target_train_steps,
             "requested_epochs": settings.requested_epochs,
             "optimizer_updates_per_epoch": settings.optimizer_updates_per_epoch,
             "half_epoch_interval_steps": settings.half_epoch_interval_steps,
@@ -5797,17 +6265,34 @@ def _selected_runtime_full_summary(  # noqa: C901, PLR0913
     )
 
 
-def _tiny_overfit_summary(
+def _tiny_overfit_summary(  # noqa: PLR0913, PLR0914
     *,
     runtime_identity: _RuntimeIdentity,
+    plan: SelectedRuntimePlan,
     corruption_strategy: str,
     data_surface: _DataSurface,
     metric_rows: Sequence[CsvRow],
     gate_health_summary: JsonObject,
 ) -> JsonObject:
     successful_rows = _successful_metric_rows(metric_rows)
-    l1_values = [float(row["l1_loss"]) for row in successful_rows]
-    recon_values = [float(row["recon_loss"]) for row in successful_rows]
+    by_step: dict[int, dict[int, CsvRow]] = {}
+    for row in successful_rows:
+        step = int(row["successful_optimizer_update_count"])
+        rank = int(row["rank"])
+        by_step.setdefault(step, {})[rank] = row
+    required_ranks = set(range(plan.world_size))
+    complete_steps = all(
+        set(rank_rows) == required_ranks for rank_rows in by_step.values()
+    )
+    ordered_rank_rows = [rows for _, rows in sorted(by_step.items())]
+    l1_values = [
+        _mean([float(row["l1_loss"]) for row in rows.values()])
+        for rows in ordered_rank_rows
+    ]
+    recon_values = [
+        _mean([float(row["recon_loss"]) for row in rows.values()])
+        for rows in ordered_rank_rows
+    ]
     batch_size_values = _batch_size_values(successful_rows)
     smoothing_window = min(_TINY_SMOOTHING_WINDOW, len(successful_rows))
     initial_l1 = _mean(l1_values[:smoothing_window])
@@ -5818,11 +6303,15 @@ def _tiny_overfit_summary(
     recon_improvement = _improvement_fraction(initial_recon, final_recon)
     nonfinite_count = sum(int(row.get("nonfinite_count", "0")) for row in metric_rows)
     amp_skip_count = _amp_step_skipped_count(metric_rows)
+    observed_ranks = sorted({int(row["rank"]) for row in successful_rows})
+    successful_updates = _successful_optimizer_update_count(metric_rows)
     status = (
         _LOCAL_STATUS
         if data_surface.fixed_train_patch_count == FIXED_32_TRAIN_OVERFIT_COUNT
-        and _successful_optimizer_update_count(metric_rows) <= _TINY_MAX_OPTIMIZER_STEPS
-        and _successful_optimizer_update_count(metric_rows) > 0
+        and successful_updates == _TINY_MAX_OPTIMIZER_STEPS
+        and observed_ranks == list(range(plan.world_size))
+        and len(by_step) == _TINY_MAX_OPTIMIZER_STEPS
+        and complete_steps
         and amp_skip_count == 0
         and nonfinite_count == 0
         and l1_improvement >= _TINY_MIN_IMPROVEMENT_FRACTION
@@ -5858,7 +6347,11 @@ def _tiny_overfit_summary(
                 data_surface.train_sampler_policy
                 == _FIXED32_TINY_FULL_BATCH_SAMPLER_POLICY
             ),
-            "optimizer_steps": _successful_optimizer_update_count(metric_rows),
+            "optimizer_steps": successful_updates,
+            "required_optimizer_steps": _TINY_MAX_OPTIMIZER_STEPS,
+            "observed_ranks": observed_ranks,
+            "required_ranks": list(range(plan.world_size)),
+            "complete_two_rank_update_coverage": complete_steps,
             "metric_row_count": len(metric_rows),
             "successful_metric_row_count": len(successful_rows),
             "amp_step_skipped_count": amp_skip_count,
@@ -5866,6 +6359,7 @@ def _tiny_overfit_summary(
             "grad_scaler_init_scale": SELECTED_RUNTIME_AMP_GRAD_SCALER_INIT_SCALE,
             "observed_batch_sizes": batch_size_values,
             "smoothing_window_steps": smoothing_window,
+            "minimum_improvement_fraction": _TINY_MIN_IMPROVEMENT_FRACTION,
             "corruption_strategy": _observed_corruption_strategy(
                 metric_rows,
                 fallback=corruption_strategy,
@@ -5882,6 +6376,175 @@ def _tiny_overfit_summary(
             "failure_kind": ""
             if status == _LOCAL_STATUS
             else "tiny_overfit_bounds_not_met",
+        },
+    )
+
+
+def _learning_rate_range_summary(  # noqa: PLR0913, PLR0914
+    *,
+    settings: _RunnerSettings,
+    plan: SelectedRuntimePlan,
+    runtime_identity: _RuntimeIdentity,
+    metric_rows: Sequence[CsvRow],
+    gate_health_summary: JsonObject,
+    plan_applied: JsonObject,
+) -> JsonObject:
+    """Summarize the real-data sweep and recommend a conservative base LR.
+
+    Returns:
+        JSON-safe sweep evidence and the recommended base learning rate.
+
+    """
+    sweep = settings.learning_rate_range
+    if sweep is None:
+        return cast(
+            "JsonObject",
+            {"status": _FAIL, "failure_kind": "learning_rate_range_missing"},
+        )
+    by_step: dict[int, list[CsvRow]] = {}
+    for row in _successful_metric_rows(metric_rows):
+        step = int(row["successful_optimizer_update_count"])
+        by_step.setdefault(step, []).append(row)
+    curve: list[tuple[int, float, float, float, float]] = []
+    for step, rows in sorted(by_step.items()):
+        curve.append(
+            (
+                step,
+                _mean([float(row["learning_rate"]) for row in rows]),
+                _mean([float(row["loss"]) for row in rows]),
+                _mean([float(row["l1_loss"]) for row in rows]),
+                _mean([float(row["recon_loss"]) for row in rows]),
+            ),
+        )
+    required_ranks = set(range(plan.world_size))
+    complete_rank_coverage = all(
+        {int(row["rank"]) for row in rows} == required_ranks
+        for rows in by_step.values()
+    )
+    smoothed_losses: list[float] = []
+    exponential_average = 0.0
+    for index, (_, _, loss, _, _) in enumerate(curve):
+        exponential_average = (
+            sweep.smoothing_beta * exponential_average
+            + (1.0 - sweep.smoothing_beta) * loss
+        )
+        correction = 1.0 - sweep.smoothing_beta ** (index + 1)
+        smoothed_losses.append(exponential_average / correction)
+    instability_index: int | None = None
+    running_minimum = math.inf
+    for index, loss in enumerate(smoothed_losses):
+        running_minimum = min(running_minimum, loss)
+        if (
+            index >= _LR_RANGE_SLOPE_WINDOW
+            and loss > running_minimum * sweep.divergence_multiplier
+        ):
+            instability_index = index
+            break
+    candidate_stop = instability_index or len(curve)
+    steepest_index: int | None = None
+    steepest_slope = math.inf
+    for index in range(_LR_RANGE_SLOPE_WINDOW, candidate_stop):
+        prior_index = index - _LR_RANGE_SLOPE_WINDOW
+        prior_lr = curve[prior_index][1]
+        current_lr = curve[index][1]
+        slope = (smoothed_losses[index] - smoothed_losses[prior_index]) / (
+            math.log10(current_lr) - math.log10(prior_lr)
+        )
+        if slope < steepest_slope:
+            steepest_slope = slope
+            steepest_index = index
+    recommended_lr = 0.0
+    if steepest_index is not None and steepest_slope < 0.0:
+        recommended_lr = min(
+            sweep.end,
+            max(
+                sweep.start,
+                curve[steepest_index][1] * sweep.recommendation_safety_factor,
+            ),
+        )
+    observed_ranks = sorted({int(row["rank"]) for row in metric_rows})
+    completed = len(curve) == sweep.successful_updates
+    finite = all(math.isfinite(value) for row in curve for value in row[1:])
+    loss_decreased = bool(smoothed_losses[1:]) and (
+        min(smoothed_losses[1:]) < smoothed_losses[0]
+    )
+    endpoints_match = (
+        bool(curve)
+        and math.isclose(
+            curve[0][1],
+            sweep.start,
+            rel_tol=1e-6,
+        )
+        and math.isclose(curve[-1][1], sweep.end, rel_tol=1e-6)
+    )
+    status = (
+        _LOCAL_STATUS
+        if completed
+        and finite
+        and complete_rank_coverage
+        and loss_decreased
+        and endpoints_match
+        and recommended_lr > 0.0
+        and _amp_step_skipped_count(metric_rows) == 0
+        and _nonfinite_metric_count(metric_rows) == 0
+        and observed_ranks == list(range(plan.world_size))
+        and gate_health_summary.get("status") == _LOCAL_STATUS
+        and plan_applied.get("status") == _LOCAL_STATUS
+        else _FAIL
+    )
+    return cast(
+        "JsonObject",
+        {
+            "status": status,
+            "status_scope": _STATUS_SCOPE,
+            "full_run_eligible": False,
+            "runtime_config": {
+                "path": str(runtime_identity.path),
+                "sha256": runtime_identity.sha256,
+                "selected_row_id": runtime_identity.selected_row_id,
+                "runtime_policy_id": runtime_identity.runtime_policy_id,
+            },
+            "configured_start_learning_rate": sweep.start,
+            "configured_end_learning_rate": sweep.end,
+            "configured_successful_updates": sweep.successful_updates,
+            "realized_start_learning_rate": curve[0][1] if curve else 0.0,
+            "realized_end_learning_rate": curve[-1][1] if curve else 0.0,
+            "successful_updates": len(curve),
+            "metric_row_count": len(metric_rows),
+            "observed_ranks": observed_ranks,
+            "required_ranks": list(range(plan.world_size)),
+            "complete_two_rank_update_coverage": complete_rank_coverage,
+            "smoothing_beta": sweep.smoothing_beta,
+            "divergence_multiplier": sweep.divergence_multiplier,
+            "instability_detected": instability_index is not None,
+            "instability_optimizer_step": curve[instability_index][0]
+            if instability_index is not None
+            else 0,
+            "instability_learning_rate": curve[instability_index][1]
+            if instability_index is not None
+            else 0.0,
+            "recommendation_method": (
+                "steepest_smoothed_loss_slope_times_safety_factor"
+            ),
+            "recommendation_safety_factor": sweep.recommendation_safety_factor,
+            "steepest_smoothed_loss_slope": steepest_slope
+            if math.isfinite(steepest_slope)
+            else 0.0,
+            "recommended_learning_rate": recommended_lr,
+            "initial_smoothed_loss": smoothed_losses[0] if smoothed_losses else 0.0,
+            "minimum_smoothed_loss": min(smoothed_losses) if smoothed_losses else 0.0,
+            "range_completed": completed,
+            "range_endpoints_match": endpoints_match,
+            "loss_decreased": loss_decreased,
+            "amp_step_skipped_count": _amp_step_skipped_count(metric_rows),
+            "nonfinite_count": _nonfinite_metric_count(metric_rows),
+            "gate_health_status": _string_value(gate_health_summary.get("status")),
+            "selected_runtime_plan_applied_status": _string_value(
+                plan_applied.get("status"),
+            ),
+            "failure_kind": ""
+            if status == _LOCAL_STATUS
+            else "learning_rate_range_evidence_incomplete",
         },
     )
 
@@ -5939,11 +6602,37 @@ def _resume_start_step_from_request(request: SelectedRuntimeTrainRequest) -> int
     return metadata.successful_optimizer_update_count
 
 
+def _validate_full_resume_boundary(
+    *,
+    request: SelectedRuntimeTrainRequest,
+    settings: _RunnerSettings,
+    start_step: int,
+) -> None:
+    """Reject a full-run checkpoint that is not a committed evaluation boundary.
+
+    Raises:
+        ValueError: If a full-run resume step is outside the boundary schedule.
+
+    """
+    if request.resume is None or not _is_full_run(settings):
+        return
+    committed_boundaries = boundary_steps(
+        interval_steps=settings.half_epoch_interval_steps,
+        target_train_steps=settings.target_train_steps,
+    )
+    if start_step not in committed_boundaries:
+        message = (
+            "full-run resume checkpoint must be a completed evaluation boundary: "
+            f"{start_step} not in {committed_boundaries}"
+        )
+        raise ValueError(message)
+
+
 def _stochastic_train_eps_proven(rows: Sequence[CsvRow]) -> bool:
     successful_rows = _successful_metric_rows(rows)
     return bool(successful_rows) and all(
         row.get("train_reparameterization") == _STOCHASTIC_REPARAMETERIZATION
-        and row.get("eps_policy") == "stochastic_seeded_train_generator"
+        and row.get("eps_policy") == "stochastic_rank_generator"
         and float(row.get("eps_abs_mean", "0") or "0") > 0.0
         and float(row.get("eps_zero_fraction", "1") or "1") < 1.0
         for row in successful_rows
@@ -6027,6 +6716,10 @@ def _writes_tiny_summary(settings: _RunnerSettings) -> bool:
     return settings.run_mode == _TINY_RUN_MODE
 
 
+def _writes_learning_rate_range_summary(settings: _RunnerSettings) -> bool:
+    return settings.run_mode == _LR_RANGE_RUN_MODE
+
+
 def _artifact_manifest(  # noqa: PLR0913
     *,
     artifacts: _RunArtifacts,
@@ -6064,6 +6757,10 @@ def _artifact_manifest(  # noqa: PLR0913
         artifact_paths["validation_metrics"] = artifacts.validation_metrics
     if _writes_tiny_summary(settings):
         artifact_paths["tiny_overfit_summary"] = artifacts.tiny_overfit_summary
+    if _writes_learning_rate_range_summary(settings):
+        artifact_paths["learning_rate_range_summary"] = (
+            artifacts.learning_rate_range_summary
+        )
     for checkpoint in checkpoints:
         artifact_paths[f"checkpoint:{checkpoint.path.name}"] = checkpoint.path
     missing = [
@@ -6101,9 +6798,8 @@ class _PendingTrainRow:
     """Host-side per-step train-row fields, stashed until the boundary materialize.
 
     Everything a train row needs EXCEPT the device-scalar metrics (those live in the
-    ``_TrainStepMetricBuffer``). All fields are already host values: the eps telemetry
-    is computed on the CPU eps tensor and ``beta`` is a host float, so building this
-    triggers no device sync (Spec 0011 S17f Metrics Commit T).
+    ``_TrainStepMetricBuffer``). All fields here are already host values, so building
+    this triggers no device sync (Spec 0011 S17f Metrics Commit T).
     """
 
     optimizer_step_index: int
@@ -6114,8 +6810,7 @@ class _PendingTrainRow:
     train_reparameterization: str
     eps_policy: str
     eps_seed_source: str
-    eps_zero_fraction: float
-    eps_abs_mean: float
+    learning_rate: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -6133,14 +6828,13 @@ def _pending_train_row(result: _SelectedRuntimeStepResult) -> _PendingTrainRow:
     return _PendingTrainRow(
         optimizer_step_index=result.optimizer_step_index,
         successful_optimizer_update_count=result.successful_optimizer_update_count,
+        learning_rate=result.learning_rate,
         batch_size=result.batch_size,
         amp_step_skipped=result.amp_step_skipped,
         beta=result.losses.beta,
         train_reparameterization=result.train_reparameterization,
         eps_policy=result.eps_policy,
         eps_seed_source=result.eps_seed_source,
-        eps_zero_fraction=result.eps_zero_fraction,
-        eps_abs_mean=result.eps_abs_mean,
     )
 
 
@@ -6173,9 +6867,10 @@ def _write_step_metrics(row: torch.Tensor, result: _SelectedRuntimeStepResult) -
         result.frac_x_hat_lt_minus1,
         result.frac_x_hat_gt_1,
         result.nonfinite_count,
+        result.eps_zero_fraction,
+        result.eps_abs_mean,
     )
-    for column, scalar in enumerate(scalars):
-        row[column] = scalar.detach()
+    write_fastpath_metric_row(row, scalars)
 
 
 class _TrainStepMetricBuffer:
@@ -6185,8 +6880,8 @@ class _TrainStepMetricBuffer:
     ``[capacity, len(_TRAIN_STEP_METRIC_NAMES)]`` buffer with no host sync, while its
     host-side row fields go into ``_pending``. A single ``.tolist()`` at the half-epoch
     flush boundary materializes the whole window at once, so the hot step incurs no
-    per-metric device->host sync -- ~0 syncs/step on the amp-off path, or the one
-    unavoidable fp16 GradScaler inf-check on amp (Spec 0011 S17f Metrics Commit T).
+    per-metric or GradScaler device->host sync. AMP overflow/non-finite evidence is
+    checked from the clip-returned on-device norm at the untimed flush gate.
 
     ``capacity`` is the half-epoch window (``save_every_steps``); ``record`` flushes
     early if a window ever exceeds it (an AMP-skip-heavy window overshoots the
@@ -6271,6 +6966,7 @@ def _metric_row(  # noqa: PLR0913
         "ssim_metric": _format_float(metrics["ssim_metric"]),
         "kl_loss": _format_float(metrics["kl_loss"]),
         "beta": _format_float(pending.beta),
+        "learning_rate": _format_float(pending.learning_rate),
         "grad_norm": _format_float(metrics["grad_norm"]),
         "param_update_norm": _format_float(metrics["param_update_norm"]),
         "recon_output_rms": _format_float(metrics["recon_output_rms"]),
@@ -6295,8 +6991,8 @@ def _metric_row(  # noqa: PLR0913
         "train_reparameterization": pending.train_reparameterization,
         "eps_policy": pending.eps_policy,
         "eps_seed_source": pending.eps_seed_source,
-        "eps_zero_fraction": _format_float(pending.eps_zero_fraction),
-        "eps_abs_mean": _format_float(pending.eps_abs_mean),
+        "eps_zero_fraction": _format_float(metrics["eps_zero_fraction"]),
+        "eps_abs_mean": _format_float(metrics["eps_abs_mean"]),
         "amp_step_skipped": "1" if pending.amp_step_skipped else "0",
         "checkpoint_path": checkpoint_path,
     }
@@ -6393,76 +7089,6 @@ def _improvement_fraction(initial: float, final: float) -> float:
     return (initial - final) / initial
 
 
-def _clone_trainable_parameters(model: nn.Module) -> tuple[torch.Tensor, ...]:
-    return tuple(
-        parameter.detach().clone()
-        for parameter in model.parameters()
-        if parameter.requires_grad
-    )
-
-
-def _module_device(model: nn.Module) -> torch.device:
-    for parameter in model.parameters():
-        return parameter.device
-    return torch.device("cpu")
-
-
-def _global_grad_norm(model: nn.Module) -> torch.Tensor:
-    # Reduce the per-parameter squared sums on-device and return the norm as a 0-dim
-    # device tensor -- NOT a host float -- so the hot step never syncs it (Spec 0011
-    # S17f Metrics Commit T buffers it). The reduction structure is unchanged: per-
-    # parameter fp32 sums, one fp64 cross-parameter sum, then an on-device ``sqrt`` in
-    # place of ``math.sqrt`` (both IEEE double sqrt; value is fp-tolerant telemetry).
-    gradients = [
-        parameter.grad.detach().float()
-        for parameter in model.parameters()
-        if parameter.grad is not None
-    ]
-    if not gradients:
-        return torch.zeros((), dtype=torch.float64, device=_module_device(model))
-    per_parameter_squares = torch.stack(
-        [torch.sum(gradient.square()) for gradient in gradients],
-    )
-    return per_parameter_squares.double().sum().sqrt()
-
-
-def _nonfinite_gradient_count(model: nn.Module) -> torch.Tensor:
-    # Sum the per-parameter non-finite counts on-device and return the total as a 0-dim
-    # device tensor (buffered, never read per step). The integer total is identical to
-    # the previous per-parameter tally.
-    gradients = [
-        parameter.grad for parameter in model.parameters() if parameter.grad is not None
-    ]
-    if not gradients:
-        return torch.zeros((), dtype=torch.int64, device=_module_device(model))
-    return torch.stack(
-        [torch.count_nonzero(~torch.isfinite(gradient)) for gradient in gradients],
-    ).sum()
-
-
-def _parameter_update_norm(
-    model: nn.Module,
-    before_params: Sequence[torch.Tensor],
-) -> torch.Tensor:
-    # Diff post- against pre-step parameters on-device (no per-parameter host copy) and
-    # return the norm as a 0-dim device tensor, so the hot step never syncs it. Same
-    # reduction structure as before with the ``sqrt`` moved on-device (fp-tolerant).
-    after_params = [
-        parameter.detach().float()
-        for parameter in model.parameters()
-        if parameter.requires_grad
-    ]
-    if not after_params:
-        return torch.zeros((), dtype=torch.float64, device=_module_device(model))
-    per_parameter_squares = torch.stack(
-        [
-            torch.sum((after - before.float()).square())
-            for after, before in zip(after_params, before_params, strict=True)
-        ],
-    )
-    return per_parameter_squares.double().sum().sqrt()
-
-
 def _zero_eps(
     *,
     batch_size: int,
@@ -6489,42 +7115,14 @@ def _eps_generator_seed(*, data_seed: int, rank: int, start_step: int = 0) -> in
     ``z``), so the eps generator is offset by ``rank``. ``start_step`` re-bases the
     stream after a resume so post-resume eps neither repeats the pre-resume noise
     nor collapses back to the single rank-0 stream that every rank restores from
-    the rank-0 checkpoint. Rank 0 with ``start_step == 0`` reduces to ``data_seed``,
-    so world_size==1 fresh-run values are unchanged.
+    the rank-0 checkpoint. The exact seed values are not a reproducibility contract;
+    only independent rank/segment streams matter.
 
     Returns:
         The seed for this rank's reparameterization ``torch.Generator``.
 
     """
     return data_seed + rank + start_step
-
-
-def _reapply_per_rank_eps_offset_on_resume(
-    *,
-    train_generator: torch.Generator,
-    settings: _RunnerSettings,
-    distributed: _DistributedContext,
-    loaded_checkpoint: LoadedCheckpoint | None,
-    start_step: int,
-) -> None:
-    """Re-establish per-rank eps divergence after a resume (FU-012).
-
-    Only rank 0 writes checkpoints, so every rank restores rank-0's saved
-    reparameterization generator, which would collapse the FU-007 per-rank offset
-    back to an identical-across-ranks eps stream after any resume. Re-seeding each
-    rank's eps generator from ``(data_seed, rank, start_step)`` restores the
-    divergence. Skipped for single-process runs so a world_size==1 resume keeps
-    the exact restored continuous stream.
-    """
-    if loaded_checkpoint is None or not distributed.should_use_ddp:
-        return
-    train_generator.manual_seed(
-        _eps_generator_seed(
-            data_seed=settings.data_seed,
-            rank=distributed.rank,
-            start_step=start_step,
-        ),
-    )
 
 
 def _corruption_generator_seed(
@@ -6550,35 +7148,6 @@ def _corruption_generator_seed(
     return corruption_seed + rank + start_step
 
 
-def _reapply_per_rank_corruption_offset_on_resume(
-    *,
-    corruption_generator: torch.Generator,
-    settings: _RunnerSettings,
-    distributed: _DistributedContext,
-    loaded_checkpoint: LoadedCheckpoint | None,
-    start_step: int,
-) -> None:
-    """Re-establish per-rank corruption divergence after a resume (Spec 0011 S17f).
-
-    The checkpoint restores rank-0's saved corruption generator into every rank, which
-    would collapse the per-rank corruption offset into one identical-across-ranks stream
-    after any resume. Re-seeding each rank from ``(corruption_seed, rank, start_step)``
-    restores the divergence and re-bases the stream past the pre-resume steps (the
-    ``start_step`` term), so a resumed run never replays its earlier corruption. Skipped
-    for single-process runs so a world_size==1 resume keeps the exact restored
-    continuous stream.
-    """
-    if loaded_checkpoint is None or not distributed.should_use_ddp:
-        return
-    corruption_generator.manual_seed(
-        _corruption_generator_seed(
-            corruption_seed=settings.corruption_seed,
-            rank=distributed.rank,
-            start_step=start_step,
-        ),
-    )
-
-
 def _train_eps(
     *,
     batch_size: int,
@@ -6594,17 +7163,16 @@ def _train_eps(
         settings.image_size // 8,
     )
     if settings.train_reparameterization == _STOCHASTIC_REPARAMETERIZATION:
-        eps_cpu = torch.randn(
+        eps = torch.randn(
             shape,
-            generator=train_generator,
             dtype=torch.float32,
-            device="cpu",
+            device=device,
+            generator=train_generator,
         )
-        eps = eps_cpu.to(device=device)
         return eps, _eps_proof(
-            eps_cpu,
-            eps_policy="stochastic_seeded_train_generator",
-            eps_seed_source="train_data_torch_generator",
+            eps,
+            eps_policy="stochastic_rank_generator",
+            eps_seed_source="checkpointed_rank_rebased_generator",
         )
     eps = _zero_eps(
         batch_size=batch_size,
@@ -6613,7 +7181,7 @@ def _train_eps(
         device=device,
     )
     return eps, _eps_proof(
-        eps.detach().cpu(),
+        eps,
         eps_policy="deterministic_zero",
         eps_seed_source="fixed_zero_tensor",
     )
@@ -6625,15 +7193,12 @@ def _eps_proof(
     eps_policy: str,
     eps_seed_source: str,
 ) -> _EpsProof:
-    values = eps.detach().float()
-    zero_fraction = float(torch.count_nonzero(values == 0).item()) / float(
-        values.numel(),
-    )
+    zero_fraction, abs_mean = fastpath_eps_metrics(eps)
     return _EpsProof(
         eps_policy=eps_policy,
         eps_seed_source=eps_seed_source,
         eps_zero_fraction=zero_fraction,
-        eps_abs_mean=float(values.abs().mean().item()),
+        eps_abs_mean=abs_mean,
     )
 
 
@@ -6758,6 +7323,96 @@ def _optimizer_config(
     )
 
 
+def _learning_rate_range_settings(
+    effective_config: JsonObject,
+    *,
+    run_mode: str,
+) -> _LearningRateRangeSettings | None:
+    payload = _optional_object(effective_config, "learning_rate_range")
+    if run_mode != _LR_RANGE_RUN_MODE:
+        if payload is not None:
+            message = (
+                "learning_rate_range is only valid in kaggle_learning_rate_range mode"
+            )
+            raise ValueError(message)
+        return None
+    if payload is None:
+        message = "learning-rate range mode requires learning_rate_range settings"
+        raise ValueError(message)
+    settings = _LearningRateRangeSettings(
+        start=_required_float(payload, "start"),
+        end=_required_float(payload, "end"),
+        successful_updates=_required_int(payload, "successful_updates"),
+        smoothing_beta=_required_float(payload, "smoothing_beta"),
+        recommendation_safety_factor=_required_float(
+            payload,
+            "recommendation_safety_factor",
+        ),
+        divergence_multiplier=_required_float(payload, "divergence_multiplier"),
+    )
+    if settings.start <= 0.0 or settings.end <= settings.start:
+        message = "learning-rate range must satisfy 0 < start < end"
+        raise ValueError(message)
+    if settings.successful_updates < _MIN_LR_RANGE_UPDATES:
+        message = "learning-rate range requires at least three successful updates"
+        raise ValueError(message)
+    if not 0.0 <= settings.smoothing_beta < 1.0:
+        message = "learning-rate range smoothing_beta must be in [0, 1)"
+        raise ValueError(message)
+    if not 0.0 < settings.recommendation_safety_factor <= 1.0:
+        message = "learning-rate range recommendation_safety_factor must be in (0, 1]"
+        raise ValueError(message)
+    if settings.divergence_multiplier <= 1.0:
+        message = "learning-rate range divergence_multiplier must exceed 1"
+        raise ValueError(message)
+    return settings
+
+
+def _learning_rate_schedule_settings(
+    training: JsonObject,
+    *,
+    run_mode: str,
+    peak_learning_rate: float,
+    target_train_steps: int,
+) -> _LearningRateScheduleSettings | None:
+    payload = _optional_object(training, "learning_rate_schedule")
+    if payload is None:
+        return None
+    if run_mode not in {_TINY_RUN_MODE, _FULL_RUN_MODE}:
+        message = "learning_rate_schedule is only valid for tiny or full training"
+        raise ValueError(message)
+    kind = _required_str(payload, "kind")
+    if kind not in {
+        "linear_warmup_then_constant",
+        "linear_warmup_cosine_decay",
+    }:
+        message = f"unsupported learning-rate schedule: {kind}"
+        raise ValueError(message)
+    warmup_updates = _required_int(payload, "warmup_updates")
+    warmup_start_factor = _required_float(payload, "warmup_start_factor")
+    minimum = (
+        _required_float(payload, "minimum_effective_learning_rate")
+        if kind == "linear_warmup_cosine_decay"
+        else peak_learning_rate
+    )
+    if not 1 <= warmup_updates < target_train_steps:
+        message = "learning-rate warmup must fit inside the training run"
+        raise ValueError(message)
+    if not 0.0 < warmup_start_factor <= 1.0:
+        message = "learning-rate warmup_start_factor must be in (0, 1]"
+        raise ValueError(message)
+    if not 0.0 < minimum <= peak_learning_rate:
+        message = "learning-rate minimum must be in (0, peak]"
+        raise ValueError(message)
+    return _LearningRateScheduleSettings(
+        kind=kind,
+        warmup_updates=warmup_updates,
+        warmup_start_factor=warmup_start_factor,
+        peak=peak_learning_rate,
+        minimum=minimum,
+    )
+
+
 def _optimizer_lr_scaling(
     effective_config: JsonObject,
     *,
@@ -6815,7 +7470,7 @@ def _seed(effective: JsonObject, name: str) -> int:
     return _optional_int(seeds, name) or 20260610
 
 
-def _validate_settings(  # noqa: C901
+def _validate_settings(  # noqa: C901, PLR0912
     settings: _RunnerSettings,
     *,
     dry_run: bool,
@@ -6863,6 +7518,14 @@ def _validate_settings(  # noqa: C901
             f"{settings.train_reparameterization!r}"
         )
         raise ValueError(message)
+    if settings.run_mode == _LR_RANGE_RUN_MODE:
+        sweep = settings.learning_rate_range
+        if sweep is None or settings.target_train_steps != sweep.successful_updates:
+            message = (
+                "learning-rate range max_train_steps must equal "
+                "learning_rate_range.successful_updates"
+            )
+            raise ValueError(message)
     if _is_full_run(settings):
         _validate_full_run_settings(settings, dry_run=dry_run)
 

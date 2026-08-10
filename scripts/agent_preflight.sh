@@ -301,6 +301,13 @@ else
   missing=1
 fi
 
+if git check-ignore --no-index -q kaggle/kernels/selected_runtime_lr_range/run.py; then
+  echo "ok: generated selected-runtime LR-range run.py is ignored"
+else
+  echo "error: generated selected-runtime LR-range run.py should stay ignored"
+  missing=1
+fi
+
 if git check-ignore --no-index -q kaggle/kernels/selected_runtime_full/run.py; then
   echo "ok: generated selected-runtime full run.py is ignored"
 else

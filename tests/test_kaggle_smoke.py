@@ -32,8 +32,6 @@ from eqvae.data.training_batches import (
 _IMAGE_SIZE = 64
 _TINY_SHARD_COUNT = 4
 _EXPECTED_SMOKE_STEPS = 3
-_EXPECTED_APPLIED_COUNTS = [0, 0, 1]
-_EXPECTED_SETUP_APPLIED_COUNT = 2
 
 
 @dataclass(frozen=True)
@@ -83,7 +81,13 @@ def test_patch_training_dataset_collates_semantic_metadata(tmp_path: Path) -> No
 
 
 def test_kaggle_smoke_writes_non_promotable_artifact(tmp_path: Path) -> None:
-    """A tiny synthetic UBC shard can exercise the capped smoke path locally."""
+    """The smoke proves bounded corruption and an update without pinning RNG draws.
+
+    Nonzero corruption and changed inputs are deliberate smoke requirements; per-step
+    counts are bounded derived evidence whose exact realization may change with the RNG
+    implementation. This catches missing corruption or inconsistent aggregation without
+    preserving the retiring per-sample blake2b sequence.
+    """
     data_root = _write_tiny_shards(tmp_path)
     config_path = _write_smoke_config(tmp_path, data_root=data_root)
 
@@ -108,8 +112,12 @@ def test_kaggle_smoke_writes_non_promotable_artifact(tmp_path: Path) -> None:
     assert data["data_integrity_status"] == "not_checked"
     assert data["train_record_count"] == _TINY_SHARD_COUNT
     assert train["steps_completed"] == _EXPECTED_SMOKE_STEPS
-    assert train["applied_counts"] == _EXPECTED_APPLIED_COUNTS
-    assert train["total_applied_count"] == 1
+    applied_counts = cast("list[int]", train["applied_counts"])
+    total_applied_count = cast("int", train["total_applied_count"])
+    assert len(applied_counts) == _EXPECTED_SMOKE_STEPS
+    assert all(0 <= count <= 1 for count in applied_counts)
+    assert total_applied_count == sum(applied_counts)
+    assert 0 < total_applied_count <= _EXPECTED_SMOKE_STEPS
     assert max(cast("list[float]", train["input_target_delta_maxes"])) > 0.0
     assert all(count > 0 for count in cast("list[int]", train["nonzero_update_counts"]))
     assert validation["batches_completed"] == 1
@@ -120,7 +128,12 @@ def test_kaggle_smoke_writes_non_promotable_artifact(tmp_path: Path) -> None:
 def test_setup_smoke_writes_distinct_non_promotable_artifact(
     tmp_path: Path,
 ) -> None:
-    """Synthetic setup smoke cannot be confused with real-data smoke evidence."""
+    """Setup smoke stays non-promotable and proves bounded effective corruption.
+
+    Status fields are deliberate evidence labels while application totals are derived
+    from per-step counts, not an exact RNG realization. This catches missing or
+    mis-aggregated corruption without cementing the retiring blake2b sequence.
+    """
     data_root = _write_tiny_shards(tmp_path)
     config_path = _write_smoke_config(
         tmp_path,
@@ -145,6 +158,7 @@ def test_setup_smoke_writes_distinct_non_promotable_artifact(
     data = cast("dict[str, object]", payload["data"])
     runtime = cast("dict[str, object]", payload["runtime"])
     train = cast("dict[str, object]", payload["train"])
+    limits = cast("dict[str, object]", payload["limits"])
     assert output_path == tmp_path / "run" / "benchmark" / "kaggle_setup_smoke.json"
     assert payload["status"] == "smoke_pass"
     assert payload["status_scope"] == "non_promotable_setup_smoke"
@@ -158,7 +172,15 @@ def test_setup_smoke_writes_distinct_non_promotable_artifact(
     assert runtime["requires_cuda_t4"] is False
     assert runtime["torch_version"] == str(torch.__version__)
     assert runtime["cuda_version"] == torch.version.cuda
-    assert train["total_applied_count"] == _EXPECTED_SETUP_APPLIED_COUNT
+    applied_counts = cast("list[int]", train["applied_counts"])
+    steps_completed = cast("int", train["steps_completed"])
+    batch_size = cast("int", limits["batch_size"])
+    total_applied_count = cast("int", train["total_applied_count"])
+    assert len(applied_counts) == steps_completed
+    assert all(0 <= count <= batch_size for count in applied_counts)
+    assert total_applied_count == sum(applied_counts)
+    assert 0 < total_applied_count <= steps_completed * batch_size
+    assert max(cast("list[float]", train["input_target_delta_maxes"])) > 0.0
 
 
 def test_kaggle_smoke_rejects_uncapped_config(tmp_path: Path) -> None:

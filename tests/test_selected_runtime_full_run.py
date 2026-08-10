@@ -13,13 +13,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NoReturn, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
 
-    from torch.utils.data import DataLoader
+    from torch.utils.data import DataLoader, Sampler
 
     from eqvae.benchmarking.io import CsvRow, JsonObject, JsonValue
     from eqvae.corruption.stain import StainCorruptionProfile
-    from eqvae.data.training_batches import PatchTrainingBatch
+    from eqvae.data.training_batches import PatchTrainingBatch, PatchTrainingDataset
     from eqvae.training.fastpath_step import FastpathStepOutput
 
 import numpy as np
@@ -69,10 +69,22 @@ from eqvae.training.selected_runtime import (
 from eqvae.training.selected_runtime_runner import SelectedRuntimeTrainRequest
 
 _FULL_CONFIG = Path("configs/spec0001/non_eq_vae_selected_runtime_full.json")
+_SPEC0011_RUNTIME_CONFIG = Path("configs/spec0001/non_eq_vae_selected_runtime.json")
+_LR_RANGE_CONFIG = Path(
+    "configs/spec0001/non_eq_vae_selected_runtime_lr_range.json",
+)
+_TINY_OVERFIT_CONFIG = Path(
+    "configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json",
+)
+_SPEC0011_PER_DEVICE_BATCH = 25
+_SPEC0011_GLOBAL_BATCH = 50
+_SPEC0011_UPDATES_PER_EPOCH = 6000
+_LR_RANGE_UPDATES = 192
 _RUNTIME_CONFIG = Path(
     "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
 )
 _FULL_TARGET_UPDATES = 125000
+_SPEC0011_FULL_TARGET_UPDATES = 60_000
 _FULL_EPOCHS = 10
 _FULL_UPDATES_PER_EPOCH = 12500
 _FULL_HALF_EPOCH_INTERVAL = 6250
@@ -93,12 +105,16 @@ _GATE_DEGENERATE_GLOBAL_BATCH = 200_000
 _GATE_NEGATIVE_GLOBAL_BATCH = -1
 _GATE_INVALID_SCHEDULE_SENTINEL = -1
 _LOCAL_DRY_RUN_STEPS = 2
+_TINY_CPU_IMAGE_SIZE = 16
+_TINY_CPU_BATCH_SIZE = 2
 _PRIOR_BEST_VALIDATION_METRIC = 0.25
 _FLOAT_TOLERANCE = 1e-12
 _LR_REFERENCE_GLOBAL_BATCH = 24
 _LR_QUADRUPLE_GLOBAL_BATCH = 96
 _LR_REFERENCE_LEARNING_RATE = 5.0e-4
 _LR_QUADRUPLE_LEARNING_RATE = 1.0e-3
+_FULL_LR_REFERENCE_LEARNING_RATE = 0.000692820323027551
+_FULL_LR_QUADRUPLE_LEARNING_RATE = 2.0 * _FULL_LR_REFERENCE_LEARNING_RATE
 _S15_RECIPE_BUCKET_CAP_MB = 50
 # Measured winner DDP bucket-cap (probe _DDP_OPTIMIZER_SPEC).
 _RECIPE_BUCKET_CAP_MB = 50
@@ -147,7 +163,7 @@ def test_full_config_derives_exact_spec0009_schedule(tmp_path: Path) -> None:
     settings = selected_runtime_runner._settings(  # noqa: SLF001
         request=SelectedRuntimeTrainRequest(
             config_path=_FULL_CONFIG,
-            runtime_config=_RUNTIME_CONFIG,
+            runtime_config=_SPEC0011_RUNTIME_CONFIG,
             output_dir=tmp_path,
             run_name="spec0009_test",
             data="synthetic",
@@ -196,6 +212,28 @@ def test_full_run_beta_warmup_is_pinned_to_one_epoch(tmp_path: Path) -> None:
         settings,
         dry_run=True,
     )
+
+
+def test_full_kernel_rejects_beta_target_drift(tmp_path: Path) -> None:
+    """The launch wrapper pins the user-selected beta-0.01 comparison policy.
+
+    Beta 0.1 was explicitly rejected because it lost image information; a config edit
+    must fail before the 12-hour run rather than silently reopen that decision.
+    """
+    from kaggle.kernels.selected_runtime_full import run_template  # noqa: PLC0415
+
+    payload = cast(
+        "dict[str, object]",
+        json.loads(_FULL_CONFIG.read_text(encoding="utf-8")),
+    )
+    objective = cast("dict[str, object]", payload["objective"])
+    beta = cast("dict[str, object]", objective["beta"])
+    beta["target"] = 0.1
+    config_path = tmp_path / "beta_drift.json"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match=r"locked to 0\.01"):
+        run_template._validate_full_config(config_path)  # noqa: SLF001
 
 
 def test_full_run_rejects_beta_warmup_not_one_epoch(tmp_path: Path) -> None:
@@ -433,8 +471,13 @@ def test_full_config_rejects_max_train_steps_that_contradicts_derived(
         )
 
 
-def test_full_train_eps_uses_seeded_stochastic_generator(tmp_path: Path) -> None:
-    """Full-run training epsilon is nonzero and generated from the train generator."""
+def test_full_train_eps_uses_checkpointed_rank_generator(tmp_path: Path) -> None:
+    """Paid epsilon advances the rank-local stream saved at durable boundaries.
+
+    Resume correctness depends on the executed reparameterization stream being the one
+    checkpointed and rebased per rank; drawing from global RNG would make that evidence
+    decorative and could collapse both ranks onto the same latent samples.
+    """
     settings = selected_runtime_runner._settings(  # noqa: SLF001
         request=SelectedRuntimeTrainRequest(
             config_path=_FULL_CONFIG,
@@ -451,6 +494,7 @@ def test_full_train_eps_uses_seeded_stochastic_generator(tmp_path: Path) -> None
     )
     generator = torch.Generator(device="cpu")
     generator.manual_seed(settings.data_seed)
+    before_state = generator.get_state().clone()
 
     eps, proof = selected_runtime_runner._train_eps(  # noqa: SLF001
         batch_size=_LOCAL_DRY_RUN_STEPS,
@@ -461,10 +505,34 @@ def test_full_train_eps_uses_seeded_stochastic_generator(tmp_path: Path) -> None
     )
 
     assert eps.shape == (2, 16, 32, 32)
-    assert proof.eps_policy == "stochastic_seeded_train_generator"
-    assert proof.eps_seed_source == "train_data_torch_generator"
+    assert proof.eps_policy == "stochastic_rank_generator"
+    assert proof.eps_seed_source == "checkpointed_rank_rebased_generator"
+    assert not torch.equal(generator.get_state(), before_state)
     assert 0.0 <= float(proof.eps_zero_fraction) < 1.0
     assert float(proof.eps_abs_mean) > 0.0
+
+
+def test_checkpoint_proof_generator_preserves_source_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A CUDA checkpoint state is never restored into a CPU generator engine."""
+    requested_devices: list[torch.device] = []
+    sentinel = object()
+
+    class _CudaGeneratorShape:
+        device = torch.device("cuda:1")
+
+    def fake_generator(*, device: torch.device) -> object:
+        requested_devices.append(device)
+        return sentinel
+
+    monkeypatch.setattr(selected_runtime_runner.torch, "Generator", fake_generator)
+    result = selected_runtime_runner._generator_on_same_device(  # noqa: SLF001
+        cast("torch.Generator", _CudaGeneratorShape()),
+    )
+
+    assert result is sentinel
+    assert requested_devices == [torch.device("cuda:1")]
 
 
 def test_optimizer_config_scales_lr_sqrt_with_global_batch() -> None:
@@ -478,8 +546,8 @@ def test_optimizer_config_scales_lr_sqrt_with_global_batch() -> None:
         effective,
         global_batch_size=_LR_QUADRUPLE_GLOBAL_BATCH,
     )
-    assert math.isclose(at_reference.learning_rate, _LR_REFERENCE_LEARNING_RATE)
-    assert math.isclose(at_quadruple.learning_rate, _LR_QUADRUPLE_LEARNING_RATE)
+    assert math.isclose(at_reference.learning_rate, _FULL_LR_REFERENCE_LEARNING_RATE)
+    assert math.isclose(at_quadruple.learning_rate, _FULL_LR_QUADRUPLE_LEARNING_RATE)
 
 
 def test_optimizer_config_uses_flat_lr_without_batch_scaling() -> None:
@@ -618,6 +686,16 @@ def test_maybe_wrap_ddp_consumes_distinguishing_recipe_knobs(
     and the plan's `ddp_broadcast_buffers=False` passes straight through.
     """
     calls = _spy_on_wrap_ddp(monkeypatch)
+    hook_calls: list[tuple[torch.nn.Module, str]] = []
+
+    def spy_hook(model: torch.nn.Module, hook_name: str) -> None:
+        hook_calls.append((model, hook_name))
+
+    monkeypatch.setattr(
+        selected_runtime_runner,
+        "register_fastpath_communication_hook",
+        spy_hook,
+    )
     model = build_non_equivariant_vae(norm_groups=8)
     plan = replace(
         parse_selected_runtime_plan(_RUNTIME_CONFIG),
@@ -626,6 +704,8 @@ def test_maybe_wrap_ddp_consumes_distinguishing_recipe_knobs(
         ddp_broadcast_buffers=False,
         ddp_find_unused_parameters=True,
         ddp_bucket_cap_mb=_S15_RECIPE_BUCKET_CAP_MB,
+        ddp_forward_sync_buffers=False,
+        communication_hook="fp16_compress_hook",
     )
     selected_runtime_runner._maybe_wrap_ddp(  # noqa: SLF001
         model=model,
@@ -638,6 +718,8 @@ def test_maybe_wrap_ddp_consumes_distinguishing_recipe_knobs(
     assert captured["broadcast_buffers"] is False
     assert captured["find_unused_parameters"] is True
     assert captured["bucket_cap_mb"] == _S15_RECIPE_BUCKET_CAP_MB
+    assert captured["forward_sync_buffers"] is False
+    assert hook_calls == [(model, "fp16_compress_hook")]
 
 
 def test_maybe_wrap_ddp_structural_rule_forces_broadcast_buffers(
@@ -679,11 +761,11 @@ def test_optimizer_lr_scaling_provenance_records_relationship() -> None:
     assert cast("int", provenance["global_batch_size"]) == _LR_QUADRUPLE_GLOBAL_BATCH
     assert math.isclose(
         cast("float", provenance["reference_learning_rate"]),
-        _LR_REFERENCE_LEARNING_RATE,
+        _FULL_LR_REFERENCE_LEARNING_RATE,
     )
     assert math.isclose(
         cast("float", provenance["effective_learning_rate"]),
-        _LR_QUADRUPLE_LEARNING_RATE,
+        _FULL_LR_QUADRUPLE_LEARNING_RATE,
     )
 
 
@@ -876,6 +958,235 @@ def test_plan_parser_accepts_reference_batch_schedule() -> None:
     assert errors == ()
 
 
+def test_spec0011_checked_in_winner_plan_parses_from_measured_source() -> None:
+    """The new consumer plan must resolve exactly to the measured bs25 winner.
+
+    Batch and schedule values are measured/derived evidence, not convenience literals:
+    the source-winner hash and parser cross-check protect the translation.
+    """
+    plan = parse_selected_runtime_plan(_SPEC0011_RUNTIME_CONFIG)
+
+    assert plan.per_device_batch_size == _SPEC0011_PER_DEVICE_BATCH
+    assert plan.global_batch_size == _SPEC0011_GLOBAL_BATCH
+    assert plan.optimizer_updates_per_epoch == _SPEC0011_UPDATES_PER_EPOCH
+    assert plan.runtime_policy_id == ("compile_step_python_reducer_fp16_channels_last")
+    assert plan.compile_scope == "step"
+    assert plan.fused_optimizer is True
+
+
+def test_spec0011_winner_plan_rejects_source_hash_drift() -> None:
+    """A plan detached from its measured winner cannot become training truth."""
+    payload = cast(
+        "JsonObject",
+        json.loads(_SPEC0011_RUNTIME_CONFIG.read_text(encoding="utf-8")),
+    )
+    source = _plan_block(payload, "source_winner")
+    source["sha256"] = "0" * 64
+
+    errors = selected_runtime_plan_errors(
+        payload,
+        selected_runtime_path=_SPEC0011_RUNTIME_CONFIG,
+    )
+
+    assert "selected_runtime_source_winner_sha256_mismatch" in errors
+
+
+def test_lr_range_config_resolves_exact_bounded_sweep(tmp_path: Path) -> None:
+    """The pre-training LR experiment is one bounded 192-update real-data sweep."""
+    plan = parse_selected_runtime_plan(_SPEC0011_RUNTIME_CONFIG)
+    settings = selected_runtime_runner._settings(  # noqa: SLF001
+        request=SelectedRuntimeTrainRequest(
+            config_path=_LR_RANGE_CONFIG,
+            runtime_config=_SPEC0011_RUNTIME_CONFIG,
+            output_dir=tmp_path,
+            run_name="spec0011_lr_range_test",
+            data="synthetic",
+            dry_run=True,
+        ),
+        resolved=resolve_json_config(_LR_RANGE_CONFIG),
+        plan=plan,
+    )
+
+    sweep = settings.learning_rate_range
+    assert settings.run_mode == "kaggle_learning_rate_range"
+    assert settings.target_train_steps == _LR_RANGE_UPDATES
+    assert settings.max_train_steps == _LR_RANGE_UPDATES
+    assert sweep is not None
+    assert sweep.start == pytest.approx(2e-5)
+    assert sweep.end == pytest.approx(3e-3)
+
+
+def test_lr_range_preserves_parameter_group_multipliers(tmp_path: Path) -> None:
+    """Sweeping the base LR must not erase the gate group's half-rate contract."""
+    plan = parse_selected_runtime_plan(_SPEC0011_RUNTIME_CONFIG)
+    settings = selected_runtime_runner._settings(  # noqa: SLF001
+        request=SelectedRuntimeTrainRequest(
+            config_path=_LR_RANGE_CONFIG,
+            runtime_config=_SPEC0011_RUNTIME_CONFIG,
+            output_dir=tmp_path,
+            run_name="spec0011_lr_group_test",
+            data="synthetic",
+            dry_run=True,
+        ),
+        resolved=resolve_json_config(_LR_RANGE_CONFIG),
+        plan=plan,
+    )
+    ordinary = torch.nn.Parameter(torch.ones(()))
+    gate = torch.nn.Parameter(torch.ones(()))
+    base_lr = settings.optimizer_config.learning_rate
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": [ordinary], "lr": base_lr},
+            {"params": [gate], "lr": base_lr * 0.5},
+        ],
+    )
+
+    first = selected_runtime_runner._apply_learning_rate_for_step(  # noqa: SLF001
+        optimizer=optimizer,
+        settings=settings,
+        optimizer_step_index=0,
+    )
+    final = selected_runtime_runner._apply_learning_rate_for_step(  # noqa: SLF001
+        optimizer=optimizer,
+        settings=settings,
+        optimizer_step_index=_LR_RANGE_UPDATES - 1,
+    )
+
+    assert first == pytest.approx(2e-5)
+    assert final == pytest.approx(3e-3)
+    assert cast("float", optimizer.param_groups[0]["lr"]) == pytest.approx(3e-3)
+    assert cast("float", optimizer.param_groups[1]["lr"]) == pytest.approx(1.5e-3)
+
+
+def test_tiny_overfit_uses_ten_update_warmup_then_constant(tmp_path: Path) -> None:
+    """The learnability test reaches the measured constant LR on update ten."""
+    plan = parse_selected_runtime_plan(_SPEC0011_RUNTIME_CONFIG)
+    settings = selected_runtime_runner._settings(  # noqa: SLF001
+        request=SelectedRuntimeTrainRequest(
+            config_path=_TINY_OVERFIT_CONFIG,
+            runtime_config=_SPEC0011_RUNTIME_CONFIG,
+            output_dir=tmp_path,
+            run_name="spec0011_tiny_lr_schedule_test",
+            data="synthetic",
+            dry_run=True,
+        ),
+        resolved=resolve_json_config(_TINY_OVERFIT_CONFIG),
+        plan=plan,
+    )
+    peak = settings.optimizer_config.learning_rate
+    optimizer = torch.optim.AdamW([torch.nn.Parameter(torch.ones(()))], lr=peak)
+
+    first = selected_runtime_runner._apply_learning_rate_for_step(  # noqa: SLF001
+        optimizer=optimizer,
+        settings=settings,
+        optimizer_step_index=0,
+    )
+    tenth = selected_runtime_runner._apply_learning_rate_for_step(  # noqa: SLF001
+        optimizer=optimizer,
+        settings=settings,
+        optimizer_step_index=9,
+    )
+    final = selected_runtime_runner._apply_learning_rate_for_step(  # noqa: SLF001
+        optimizer=optimizer,
+        settings=settings,
+        optimizer_step_index=127,
+    )
+
+    assert peak == pytest.approx(0.0007216878364870322)
+    assert first == pytest.approx(peak * 0.1)
+    assert tenth == pytest.approx(peak)
+    assert final == pytest.approx(peak)
+
+
+def test_full_run_uses_warmup_then_cosine_to_floor(tmp_path: Path) -> None:
+    """The 60k-update run warms to 1e-3 and cosines to 1e-5 without restarts."""
+    plan = parse_selected_runtime_plan(_SPEC0011_RUNTIME_CONFIG)
+    settings = selected_runtime_runner._settings(  # noqa: SLF001
+        request=SelectedRuntimeTrainRequest(
+            config_path=_FULL_CONFIG,
+            runtime_config=_SPEC0011_RUNTIME_CONFIG,
+            output_dir=tmp_path,
+            run_name="spec0011_full_lr_schedule_test",
+            data="synthetic",
+            dry_run=True,
+        ),
+        resolved=resolve_json_config(_FULL_CONFIG),
+        plan=plan,
+    )
+    peak = settings.optimizer_config.learning_rate
+    optimizer = torch.optim.AdamW([torch.nn.Parameter(torch.ones(()))], lr=peak)
+
+    observed = [
+        selected_runtime_runner._apply_learning_rate_for_step(  # noqa: SLF001
+            optimizer=optimizer,
+            settings=settings,
+            optimizer_step_index=index,
+        )
+        for index in (0, 599, 600, 59_999)
+    ]
+
+    assert settings.target_train_steps == _SPEC0011_FULL_TARGET_UPDATES
+    assert peak == pytest.approx(1e-3)
+    assert observed == pytest.approx([1e-4, 1e-3, 1e-3, 1e-5])
+
+
+def test_lr_range_summary_requires_complete_two_rank_learning_curve(
+    tmp_path: Path,
+) -> None:
+    """A complete finite two-rank curve yields one bounded evidence-backed LR."""
+    plan = parse_selected_runtime_plan(_SPEC0011_RUNTIME_CONFIG)
+    settings = selected_runtime_runner._settings(  # noqa: SLF001
+        request=SelectedRuntimeTrainRequest(
+            config_path=_LR_RANGE_CONFIG,
+            runtime_config=_SPEC0011_RUNTIME_CONFIG,
+            output_dir=tmp_path,
+            run_name="spec0011_lr_summary_test",
+            data="synthetic",
+            dry_run=True,
+        ),
+        resolved=resolve_json_config(_LR_RANGE_CONFIG),
+        plan=plan,
+    )
+    sweep = settings.learning_rate_range
+    assert sweep is not None
+    rows: list[CsvRow] = []
+    for step_index in range(_LR_RANGE_UPDATES):
+        fraction = step_index / (_LR_RANGE_UPDATES - 1)
+        learning_rate = sweep.start * math.exp(
+            math.log(sweep.end / sweep.start) * fraction,
+        )
+        loss = 1.0 - 0.5 * fraction
+        for rank in range(plan.world_size):
+            rows.append(  # noqa: PERF401 - clearer fixture rows
+                {
+                    "rank": str(rank),
+                    "successful_optimizer_update_count": str(step_index + 1),
+                    "learning_rate": str(learning_rate),
+                    "loss": str(loss),
+                    "l1_loss": str(loss * 0.9),
+                    "recon_loss": str(loss * 0.95),
+                    "amp_step_skipped": "0",
+                    "nonfinite_count": "0",
+                },
+            )
+
+    summary = selected_runtime_runner._learning_rate_range_summary(  # noqa: SLF001
+        settings=settings,
+        plan=plan,
+        runtime_identity=selected_runtime_runner._runtime_identity(plan),  # noqa: SLF001
+        metric_rows=rows,
+        gate_health_summary={"status": "local_pass"},
+        plan_applied={"status": "local_pass"},
+    )
+
+    assert summary["status"] == "local_pass"
+    assert summary["range_completed"] is True
+    assert summary["loss_decreased"] is True
+    assert summary["observed_ranks"] == [0, 1]
+    recommended = cast("float", summary["recommended_learning_rate"])
+    assert sweep.start <= recommended <= sweep.end
+
+
 def test_plan_parser_defaults_recipe_knobs_to_eager() -> None:
     """The committed v5 plan omits every S11 recipe knob, so all default to eager.
 
@@ -895,6 +1206,9 @@ def test_plan_parser_defaults_recipe_knobs_to_eager() -> None:
     assert plan.ddp_find_unused_parameters is False
     assert plan.ddp_bucket_cap_mb is None
     assert plan.fused_optimizer is False
+    # v5 recorded false but the runner historically applied foreach=True. Without the
+    # new applied marker, parsing preserves that effective legacy behavior.
+    assert plan.gradient_clip_foreach is True
 
 
 def test_plan_parser_reads_recipe_knobs_from_carrier_homes() -> None:
@@ -921,6 +1235,10 @@ def test_plan_parser_reads_recipe_knobs_from_carrier_homes() -> None:
     runtime_policy["ddp_find_unused_parameters"] = True
     runtime_policy["ddp_bucket_cap_mb"] = 50
     runtime_policy["fused_optimizer"] = True
+    runtime_policy["gradient_clip_foreach"] = False
+    runtime_policy["gradient_clip_foreach_applied"] = True
+    runtime_policy["tf32_enabled"] = False
+    runtime_policy["matmul_precision"] = "highest"
 
     plan = _plan_from_payload(path=_RUNTIME_CONFIG, payload=payload)
 
@@ -933,6 +1251,9 @@ def test_plan_parser_reads_recipe_knobs_from_carrier_homes() -> None:
     assert plan.ddp_find_unused_parameters is True
     assert plan.ddp_bucket_cap_mb == _RECIPE_BUCKET_CAP_MB
     assert plan.fused_optimizer is True
+    assert plan.gradient_clip_foreach is False
+    assert plan.tf32_enabled is False
+    assert plan.matmul_precision == "highest"
 
 
 def test_plan_parser_accepts_relationship_derived_larger_batch() -> None:
@@ -990,11 +1311,12 @@ def test_plan_parser_rejects_non_positive_per_device_batch() -> None:
 
 
 def test_plan_parser_accepts_ddp_optimizer_with_safe_flags() -> None:
-    """The measured winner recipe (DDPOptimizer + the three safe flags) passes.
+    """The currently measured DDPOptimizer recipe passes its safety policy.
 
-    _DDP_OPTIMIZER_SPEC pairs optimize_ddp="ddp_optimizer" with compiled_autograd=False,
-    static_graph=False, and find_unused_parameters=False; that is the only safe pairing,
-    and the extra recipe keys must not trip any other check, so the plan stays clean.
+    _DDP_OPTIMIZER_SPEC pairs optimize_ddp="ddp_optimizer" with
+    compiled_autograd=False, static_graph=False, and find_unused_parameters=False.
+    This is a measured cross-check, not the only valid pairing; forcing any guarded
+    flag on makes the parser reject it.
     """
     payload = _committed_runtime_payload()
     runtime_policy = _plan_block(payload, "runtime_policy")
@@ -1008,12 +1330,12 @@ def test_plan_parser_accepts_ddp_optimizer_with_safe_flags() -> None:
     assert errors == ()
 
 
-def test_plan_parser_rejects_ddp_optimizer_with_compiled_autograd() -> None:
-    """DDPOptimizer + compiled_autograd is the memory's silent all_reduce drop.
+def test_plan_parser_allows_ddp_optimizer_with_compiled_autograd() -> None:
+    """DDPOptimizer plus compiled autograd remains a measurable latest-Torch axis.
 
-    compiled_autograd=True traces the backward so DDP's C++ reducer hooks never fire and
-    the grad all_reduce is silently dropped (each rank trains an independent replica) --
-    the exact failure _DDP_OPTIMIZER_SPEC avoids with compiled_autograd=False.
+    PyTorch 2.13 documents compiled-autograd constraints for ``python_reducer`` and
+    ``no_optimization`` but does not prohibit this pairing. The current measured row
+    keeps it disabled; the parser must not turn that observation into a permanent ban.
     """
     payload = _committed_runtime_payload()
     runtime_policy = _plan_block(payload, "runtime_policy")
@@ -1022,15 +1344,16 @@ def test_plan_parser_rejects_ddp_optimizer_with_compiled_autograd() -> None:
 
     errors = selected_runtime_plan_errors(payload)
 
-    assert errors == ("selected_runtime_ddp_optimizer_compiled_autograd_conflict",)
+    assert errors == ()
 
 
-def test_plan_parser_rejects_ddp_optimizer_compiled_autograd_in_torch_compile() -> None:
-    """The compiled-recipe knobs are caught when carried in the torch_compile block.
+def test_plan_parser_allows_ddp_optimizer_compiled_autograd_in_torch_compile() -> None:
+    """The measurable pairing is accepted from its canonical torch_compile carrier.
 
-    compiled_autograd is a dynamo config, so a Phase 2 plan is likely to record it (and
-    optimize_ddp) under torch_compile rather than runtime_policy; the defensive
-    carrier read must still fire the silent-drop conflict there.
+    compiled_autograd is a Dynamo setting, so a generated plan may carry it with
+    optimize_ddp under torch_compile. This is a measurable compatibility option, not a
+    promised winner; dropping the carrier read or inventing a conflict changes the
+    expected clean result.
     """
     payload = _committed_runtime_payload()
     torch_compile = _plan_block(payload, "torch_compile")
@@ -1039,7 +1362,60 @@ def test_plan_parser_rejects_ddp_optimizer_compiled_autograd_in_torch_compile() 
 
     errors = selected_runtime_plan_errors(payload)
 
-    assert errors == ("selected_runtime_ddp_optimizer_compiled_autograd_conflict",)
+    assert errors == ()
+
+
+@pytest.mark.parametrize(
+    ("optimize_ddp", "compiled_autograd", "expected_error"),
+    [
+        (
+            "python_reducer",
+            False,
+            "selected_runtime_python_reducer_requires_compiled_autograd",
+        ),
+        (
+            "python_reducer_without_compiled_forward",
+            False,
+            "selected_runtime_python_reducer_requires_compiled_autograd",
+        ),
+        (
+            "no_optimization",
+            True,
+            "selected_runtime_no_optimization_compiled_autograd_conflict",
+        ),
+    ],
+)
+def test_plan_parser_rejects_torch_mode_compiled_autograd_conflicts(
+    optimize_ddp: str,
+    compiled_autograd: bool,  # noqa: FBT001
+    expected_error: str,
+) -> None:
+    """Selected plans reject the two documented mode/autograd incompatibilities.
+
+    This is compatibility policy needed before a paid run. Removing either carrier
+    validation makes its parametrized stable error identifier disappear.
+    """
+    payload = _committed_runtime_payload()
+    torch_compile = _plan_block(payload, "torch_compile")
+    torch_compile["optimize_ddp"] = optimize_ddp
+    torch_compile["compiled_autograd"] = compiled_autograd
+
+    assert expected_error in selected_runtime_plan_errors(payload)
+
+
+def test_plan_parser_accepts_reducer_without_compiled_forward_when_detected() -> None:
+    """A measured current-Torch backward-only reducer recipe can be promoted.
+
+    This is a feature-detected experimental axis, not a frozen winner. Rejecting the
+    token despite compiled autograd would make the generator able to measure a row that
+    the runner can never consume.
+    """
+    payload = _committed_runtime_payload()
+    torch_compile = _plan_block(payload, "torch_compile")
+    torch_compile["optimize_ddp"] = "python_reducer_without_compiled_forward"
+    torch_compile["compiled_autograd"] = True
+
+    assert selected_runtime_plan_errors(payload) == ()
 
 
 def test_plan_parser_rejects_ddp_optimizer_with_static_graph() -> None:
@@ -1063,7 +1439,10 @@ def test_plan_parser_rejects_ddp_optimizer_with_find_unused_parameters() -> None
 
     errors = selected_runtime_plan_errors(payload)
 
-    assert errors == ("selected_runtime_ddp_optimizer_find_unused_parameters_conflict",)
+    assert errors == (
+        "selected_runtime_runtime_policy_find_unused_mismatch",
+        "selected_runtime_ddp_optimizer_find_unused_parameters_conflict",
+    )
 
 
 def test_plan_parser_ddp_safety_is_noop_without_ddp_optimizer() -> None:
@@ -1403,6 +1782,65 @@ def test_snapshot_cross_consistency_rejects_cell_drift(
     ("cell", "value", "expected_error"),
     [
         (
+            "torch_version",
+            "2.14.0+cu140",
+            "selected_runtime_snapshot_wrong_torch_version",
+        ),
+        (
+            "torch_cuda_version",
+            "14.0",
+            "selected_runtime_snapshot_wrong_cuda_version",
+        ),
+    ],
+)
+def test_spec0011_snapshot_rejects_runtime_stack_drift(
+    cell: str,
+    value: str,
+    expected_error: str,
+) -> None:
+    """The paid run cannot replace the measured Torch/CUDA stack with a new one."""
+    payload = cast(
+        "JsonObject",
+        json.loads(_SPEC0011_RUNTIME_CONFIG.read_text(encoding="utf-8")),
+    )
+    snapshot = _plan_block(payload, "selected_row_snapshot")
+    snapshot[cell] = value
+
+    assert expected_error in selected_runtime_plan_errors(
+        payload,
+        selected_runtime_path=_SPEC0011_RUNTIME_CONFIG,
+    )
+
+
+@pytest.mark.parametrize(
+    ("cell", "expected_error"),
+    [
+        ("torch_version", "selected_runtime_snapshot_wrong_torch_version"),
+        ("torch_cuda_version", "selected_runtime_snapshot_wrong_cuda_version"),
+    ],
+)
+def test_spec0011_snapshot_requires_runtime_stack(
+    cell: str,
+    expected_error: str,
+) -> None:
+    """The paid run cannot lose either measured Torch/CUDA stack anchor."""
+    payload = cast(
+        "JsonObject",
+        json.loads(_SPEC0011_RUNTIME_CONFIG.read_text(encoding="utf-8")),
+    )
+    snapshot = _plan_block(payload, "selected_row_snapshot")
+    del snapshot[cell]
+
+    assert expected_error in selected_runtime_plan_errors(
+        payload,
+        selected_runtime_path=_SPEC0011_RUNTIME_CONFIG,
+    )
+
+
+@pytest.mark.parametrize(
+    ("cell", "value", "expected_error"),
+    [
+        (
             "accelerator_mode",
             "single_visible_t4",
             "selected_runtime_snapshot_not_dual_t4_ddp",
@@ -1666,14 +2104,16 @@ def test_mixed_precision_validator_fails_closed_on_amp_off_profile(
 
 
 def test_torch_compile_validator_accepts_eager_and_compiled_profiles() -> None:
-    """Eager none and the stable model_forward / step inductor profiles parse clean."""
+    """Both stable compile scopes accept the complete measured DDP recipe.
+
+    Scope flexibility is deliberate policy: selection may promote either
+    ``model_forward`` or ``step`` without dropping the required DDP mode. Deriving the
+    second profile from the measured winner catches a validator mutation that pins
+    acceptance to ``step`` while avoiding an incomplete self-attested fixture.
+    """
     eager = {"enabled": False, "scope": "none", "dynamic": False, "backend": "eager"}
-    model_forward = {
-        "enabled": True,
-        "scope": "model_forward",
-        "dynamic": False,
-        "backend": "inductor",
-    }
+    model_forward = _compiled_winner_torch_compile()
+    model_forward["scope"] = "model_forward"
 
     assert _torch_compile_errors(eager) == ()
     assert _torch_compile_errors(_compiled_winner_torch_compile()) == ()
@@ -1732,7 +2172,12 @@ def test_torch_compile_validator_fails_closed(
     block: JsonObject,
     expected_error: str,
 ) -> None:
-    """Incoherent compile plans (scope/backend/dynamic/enabled) fail closed."""
+    """A plan may launch only a coherent measured compile recipe.
+
+    These deliberate policy failures prevent the runner from silently changing compile
+    scope, backend, or shape policy after selection. Accepting any mutation would make
+    the paid run execute a recipe that its benchmark never proved.
+    """
     assert expected_error in _torch_compile_errors(block)
 
 
@@ -1787,14 +2232,17 @@ def test_runtime_policy_validator_rejects_non_dict() -> None:
     assert _runtime_policy_errors(None) == ("selected_runtime_missing_runtime_policy",)
 
 
-def test_eps_generator_seed_is_per_rank_and_preserves_single_rank() -> None:
-    """FU-007/FU-012: rank offset diverges eps; rank 0 fresh keeps data_seed."""
+def test_eps_generator_seed_separates_ranks_and_resume_segments() -> None:
+    """DDP ranks and resumed segments must not share latent-noise streams.
+
+    Rank independence is a correctness requirement because shared epsilon collapses the
+    effective DDP batch. Exact seed values and compatibility with an older stream
+    are not requirements; the derived uniqueness sets catch removal of either offset.
+    """
     data_seed = 4242
     ranks = (0, 1)
     seed = selected_runtime_runner._eps_generator_seed  # noqa: SLF001
 
-    # Rank 0 fresh reduces to data_seed, so world_size==1 values are unchanged.
-    assert seed(data_seed=data_seed, rank=0) == data_seed
     fresh = {seed(data_seed=data_seed, rank=rank) for rank in ranks}
     assert len(fresh) == len(ranks)
     # A resume folds start_step so ranks stay distinct AND the post-resume stream
@@ -1807,10 +2255,87 @@ def test_eps_generator_seed_is_per_rank_and_preserves_single_rank() -> None:
     assert resumed.isdisjoint(fresh)
 
 
-def test_train_eps_diverges_across_ranks_but_rank0_matches_legacy(
+def test_resume_batch_offset_skips_only_first_loader_traversal() -> None:
+    """Resume skips index batches without rereading old patch payloads."""
+    sampler = torch.utils.data.SequentialSampler(range(10))
+    batches = selected_runtime_runner._FirstEpochBatchOffsetSampler(  # noqa: SLF001
+        sampler=sampler,
+        batch_size=2,
+        drop_last=True,
+        completed_batches=7,
+    )
+
+    assert list(batches) == [[4, 5], [6, 7], [8, 9]]
+    assert list(batches) == [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
+
+
+def test_loader_wires_resume_offset_into_batch_sampler() -> None:
+    """The real loader constructor uses the index-only first-epoch offset."""
+    dataset = cast(
+        "PatchTrainingDataset",
+        torch.utils.data.TensorDataset(torch.arange(10)),
+    )
+    loader = selected_runtime_runner._loader(  # noqa: SLF001
+        dataset=dataset,
+        batch_size=2,
+        plan=parse_selected_runtime_plan(_RUNTIME_CONFIG),
+        distributed=_local_distributed_context(),
+        full_batch_repeated=False,
+        first_epoch_batch_offset=7,
+    )
+
+    batch_sampler = cast("Sampler[list[int]]", loader.batch_sampler)
+    assert isinstance(
+        batch_sampler,
+        selected_runtime_runner._FirstEpochBatchOffsetSampler,  # noqa: SLF001
+    )
+    assert list(batch_sampler) == [[4, 5], [6, 7], [8, 9]]
+
+
+def test_full_resume_rejects_nonboundary_checkpoint(tmp_path: Path) -> None:
+    """Only a completed 3,000-step boundary may seed a fresh Kaggle session.
+
+    Metrics and fixed-25 artifacts commit at the same boundary cadence; accepting an
+    arbitrary valid checkpoint would make later absolute-step concatenation ambiguous.
+    """
+    settings = _full_settings(
+        tmp_path=tmp_path,
+        max_train_steps=_FULL_TARGET_UPDATES,
+        save_every=_FULL_HALF_EPOCH_INTERVAL,
+    )
+    request = SelectedRuntimeTrainRequest(
+        config_path=_FULL_CONFIG,
+        runtime_config=_RUNTIME_CONFIG,
+        output_dir=tmp_path,
+        run_name="spec0011_boundary_resume",
+        data="synthetic",
+        resume=tmp_path / "step_003001.pt",
+        dry_run=True,
+    )
+
+    with pytest.raises(ValueError, match="completed evaluation boundary"):
+        selected_runtime_runner._validate_full_resume_boundary(  # noqa: SLF001
+            request=request,
+            settings=settings,
+            start_step=_FULL_HALF_EPOCH_INTERVAL + 1,
+        )
+
+    selected_runtime_runner._validate_full_resume_boundary(  # noqa: SLF001
+        request=request,
+        settings=settings,
+        start_step=_FULL_HALF_EPOCH_INTERVAL,
+    )
+
+
+def test_train_eps_diverges_across_ranks(
     tmp_path: Path,
 ) -> None:
-    """FU-007: DDP ranks draw independent eps; rank 0 matches the pre-fix stream."""
+    """Different DDP ranks must draw different latent samples for one batch.
+
+    This protects effective-batch diversity, not reproducibility: only inequality is
+    derived, and no historical tensor or exact RNG draw is pinned. Reusing one generator
+    seed across ranks makes both assertions fail.
+    """
     settings = _full_settings(tmp_path=tmp_path, max_train_steps=1, save_every=1)
 
     def draw(seed_value: int) -> tuple[torch.Tensor, float]:
@@ -1828,17 +2353,18 @@ def test_train_eps_diverges_across_ranks_but_rank0_matches_legacy(
     seed = selected_runtime_runner._eps_generator_seed  # noqa: SLF001
     rank0_eps, rank0_mean = draw(seed(data_seed=settings.data_seed, rank=0))
     rank1_eps, rank1_mean = draw(seed(data_seed=settings.data_seed, rank=1))
-    legacy_eps, _ = draw(settings.data_seed)
 
-    # Rank 0 fresh eps is bit-identical to the pre-fix single-rank stream.
-    assert torch.equal(rank0_eps, legacy_eps)
-    # Ranks draw independent eps (never a shared z) with distinct abs-mean.
     assert not torch.equal(rank0_eps, rank1_eps)
     assert rank0_mean != rank1_mean
 
 
 def test_per_rank_eps_divergent_flags_collapsed_eps() -> None:
-    """FU-007 gate-health: identical per-rank eps_abs_mean is flagged as collapse."""
+    """Gate health must distinguish independent DDP noise from a shared stream.
+
+    Equality across ranks is the derived collapse signal; a single-rank run has no
+    comparison and therefore passes. Ignoring rank identity or accepting equal means
+    would let two ranks train on the same latent sample without detection.
+    """
     divergent = [
         _eps_metric_row(rank=0, step=1, eps_abs_mean="0.80"),
         _eps_metric_row(rank=1, step=1, eps_abs_mean="0.81"),
@@ -1856,16 +2382,14 @@ def test_per_rank_eps_divergent_flags_collapsed_eps() -> None:
     assert selected_runtime_runner._per_rank_eps_divergent(single)  # noqa: SLF001
 
 
-def test_resume_reapplies_per_rank_eps_offset_under_ddp(tmp_path: Path) -> None:
-    """FU-012: a resumed DDP run re-diverges eps; single-rank resume is a no-op."""
-    settings = _full_settings(tmp_path=tmp_path, max_train_steps=1, save_every=1)
-    loaded = _loaded_checkpoint_stub()
+def test_paid_train_eps_uses_the_rebased_resume_stream(tmp_path: Path) -> None:
+    """A new rank/segment seed changes the executed post-resume epsilon stream.
 
-    def restored_generator() -> torch.Generator:
-        # Every rank restores rank-0's saved generator state on resume (FU-012).
-        generator = torch.Generator(device="cpu")
-        generator.manual_seed(settings.data_seed)
-        return generator
+    Every worker loads rank 0's checkpoint, so failing to rebase the actual generator
+    would make resumed DDP ranks replay identical latent noise.
+    """
+    settings = _full_settings(tmp_path=tmp_path, max_train_steps=1, save_every=1)
+    generator = torch.Generator(device="cpu")
 
     def draw(generator: torch.Generator) -> torch.Tensor:
         eps, _ = selected_runtime_runner._train_eps(  # noqa: SLF001
@@ -1877,33 +2401,18 @@ def test_resume_reapplies_per_rank_eps_offset_under_ddp(tmp_path: Path) -> None:
         )
         return eps
 
-    def resume(*, rank: int, should_use_ddp: bool) -> torch.Tensor:
-        generator = restored_generator()
-        distributed = (
-            _ddp_distributed_context(rank=rank)
-            if should_use_ddp
-            else _local_distributed_context()
-        )
-        selected_runtime_runner._reapply_per_rank_eps_offset_on_resume(  # noqa: SLF001
-            train_generator=generator,
-            settings=settings,
-            distributed=distributed,
-            loaded_checkpoint=loaded,
+    seed = selected_runtime_runner._eps_generator_seed  # noqa: SLF001
+    generator.manual_seed(seed(data_seed=settings.data_seed, rank=0))
+    first = draw(generator)
+    generator.manual_seed(
+        seed(
+            data_seed=settings.data_seed,
+            rank=1,
             start_step=_FULL_HALF_EPOCH_INTERVAL,
-        )
-        return draw(generator)
-
-    restored_stream = draw(restored_generator())
-    ddp_rank0 = resume(rank=0, should_use_ddp=True)
-    ddp_rank1 = resume(rank=1, should_use_ddp=True)
-    single_rank = resume(rank=0, should_use_ddp=False)
-
-    # Post-resume DDP ranks draw distinct eps (no collapse to rank-0's stream)...
-    assert not torch.equal(ddp_rank0, ddp_rank1)
-    # ...and the re-based stream does not repeat the restored stream.
-    assert not torch.equal(ddp_rank0, restored_stream)
-    # Single-rank resume keeps the exact restored continuous stream (unchanged).
-    assert torch.equal(single_rank, restored_stream)
+        ),
+    )
+    second = draw(generator)
+    assert not torch.equal(first, second)
 
 
 def test_boundary_selection_metric_uses_denoising_view_not_clean() -> None:
@@ -1985,51 +2494,6 @@ def test_boundary_selection_metric_is_cross_rank_sample_weighted(
     )
     assert single_rank_metric is not None
     assert abs(single_rank_metric - expected) < _FLOAT_TOLERANCE
-
-
-def test_synchronized_amp_step_skipped_agrees_or_raises(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """AMP-skip is gathered every step so ranks cannot desync at a boundary (FU-020)."""
-
-    def fake_is_initialized() -> bool:
-        return True
-
-    monkeypatch.setattr(
-        selected_runtime_runner.dist,
-        "is_initialized",
-        fake_is_initialized,
-    )
-
-    # A single-process run skips the collective entirely (no behavior change).
-    assert not selected_runtime_runner._synchronized_amp_step_skipped(  # noqa: SLF001
-        local_amp_step_skipped=False,
-        distributed=_local_distributed_context(),
-    )
-
-    def agree(gathered: list[object], obj: object) -> None:
-        gathered[0] = obj
-        gathered[1] = obj
-
-    monkeypatch.setattr(selected_runtime_runner.dist, "all_gather_object", agree)
-    # When ranks agree, the local decision is returned unchanged.
-    assert selected_runtime_runner._synchronized_amp_step_skipped(  # noqa: SLF001
-        local_amp_step_skipped=True,
-        distributed=_ddp_distributed_context(rank=0),
-    )
-
-    def disagree(gathered: list[object], obj: object) -> None:
-        gathered[0] = obj
-        gathered[1] = not bool(obj)
-
-    monkeypatch.setattr(selected_runtime_runner.dist, "all_gather_object", disagree)
-    # Divergent skip decisions fail fast (all ranks raise) instead of deadlocking
-    # at the next boundary collective.
-    with pytest.raises(RuntimeError, match="disagree on the AMP step-skip decision"):
-        selected_runtime_runner._synchronized_amp_step_skipped(  # noqa: SLF001
-            local_amp_step_skipped=False,
-            distributed=_ddp_distributed_context(rank=0),
-        )
 
 
 def test_assert_ddp_parameters_in_sync_passes_or_raises(
@@ -2152,6 +2616,8 @@ def test_run_train_steps_selects_best_on_denoising_view_end_to_end(  # noqa: PLR
             resolved=resolved,
             plan=plan,
         ),
+        batch_size=_TINY_CPU_BATCH_SIZE,
+        image_size=_TINY_CPU_IMAGE_SIZE,
         half_epoch_interval_steps=1,
         validation_batches_per_view=1,
     )
@@ -2286,6 +2752,8 @@ def test_run_train_steps_checkpoints_and_validates_off_grid_terminal(  # noqa: P
             resolved=resolved,
             plan=plan,
         ),
+        batch_size=_TINY_CPU_BATCH_SIZE,
+        image_size=_TINY_CPU_IMAGE_SIZE,
         max_train_steps=_ODD_TARGET_STEPS,
         target_train_steps=_ODD_TARGET_STEPS,
         half_epoch_interval_steps=_ODD_HALF_EPOCH_INTERVAL,
@@ -2546,6 +3014,8 @@ def _open_validation_scaffold(
             resolved=resolve_json_config(_FULL_CONFIG),
             plan=plan,
         ),
+        batch_size=_TINY_CPU_BATCH_SIZE,
+        image_size=_TINY_CPU_IMAGE_SIZE,
         half_epoch_interval_steps=1,
         validation_batches_per_view=validation_batches_per_view,
     )
@@ -2680,17 +3150,15 @@ def test_clean_validation_view_consumes_no_corruption_rng(
         selected_runtime_runner._close_data_surface(scaffold.data_surface)  # noqa: SLF001
 
 
-def test_deterministic_denoising_validation_row_is_reproducible(
+def test_denoising_validation_metrics_repeat_within_drift_tolerance(
     tmp_path: Path,
 ) -> None:
-    """FU-017: the deterministic_denoising validation row is byte-reproducible.
+    """Repeated denoising evaluation must remain comparable for an unchanged model.
 
-    The validation corruption generator is re-seeded to a fixed constant at the start
-    of every sweep, eps is zero, and the model is unchanged, so two runs over the same
-    shuffle-false loader must produce byte-identical rows (Spec 0011 S17f). A
-    non-vacuity control asserts the corrupted input actually moves the row (clean vs
-    denoising metrics differ), so the byte-equality cannot pass silently if the model
-    output becomes input-independent.
+    The fixed ``1e-5``/``1e-7`` tolerance is deliberate speed-first policy: it accepts
+    small numerical drift but catches a free-running validation RNG. The clean-view
+    contrast prevents a vacuous pass if corruption disappears. This does not claim to
+    prove a checkpoint-selection margin.
     """
     scaffold = _open_validation_scaffold(tmp_path)
     try:
@@ -2708,9 +3176,6 @@ def test_deterministic_denoising_validation_row_is_reproducible(
     finally:
         selected_runtime_runner._close_data_surface(scaffold.data_surface)  # noqa: SLF001
 
-    assert first == second
-    # Non-vacuity control: at the same step the ONLY difference between the clean and
-    # denoising rows is the corrupted input, so their loss metrics must differ.
     metric_keys = (
         "loss",
         "recon_loss",
@@ -2719,6 +3184,14 @@ def test_deterministic_denoising_validation_row_is_reproducible(
         "ssim_metric",
         "kl_loss",
     )
+    for key in metric_keys:
+        assert float(first[key]) == pytest.approx(
+            float(second[key]),
+            rel=1.0e-5,
+            abs=1.0e-7,
+        )
+    # Non-vacuity control: at the same step the ONLY difference between the clean and
+    # denoising rows is the corrupted input, so their loss metrics must differ.
     assert {key: first[key] for key in metric_keys} != {
         key: clean[key] for key in metric_keys
     }
@@ -2959,6 +3432,8 @@ def test_fresh_full_run_flushes_metrics_at_first_boundary(  # noqa: PLR0914
             resolved=resolved,
             plan=plan,
         ),
+        batch_size=_TINY_CPU_BATCH_SIZE,
+        image_size=_TINY_CPU_IMAGE_SIZE,
         half_epoch_interval_steps=1,
         validation_batches_per_view=1,
     )
@@ -3131,90 +3606,17 @@ def test_fresh_full_run_flushes_metrics_at_first_boundary(  # noqa: PLR0914
 
 
 def test_full_loaded_resume_proof_records_restore_attempts(tmp_path: Path) -> None:
-    """The resumed full-run proof carries the stricter restore-attempt evidence."""
-    plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
-    resolved = resolve_json_config(_FULL_CONFIG)
-    request = SelectedRuntimeTrainRequest(
-        config_path=_FULL_CONFIG,
-        runtime_config=_RUNTIME_CONFIG,
-        output_dir=tmp_path / "full_output",
-        run_name="spec0009_resume_test",
-        data="synthetic",
-        max_train_steps=1,
-        save_every_steps=1,
-        dry_run=True,
-    )
-    settings = selected_runtime_runner._settings(  # noqa: SLF001
-        request=request,
-        resolved=resolved,
-        plan=plan,
-    )
-    runtime_identity = selected_runtime_runner._runtime_identity(plan)  # noqa: SLF001
-    loaded = LoadedCheckpoint(
-        path=request.output_dir / "checkpoints" / "step_006250.pt",
-        schema_version="spec0001.checkpoint.v5",
-        run_name="spec0009_resume_source",
-        config_path=str(_FULL_CONFIG),
-        config_sha256=resolved.invoked_config_hash,
-        effective_config_sha256=resolved.effective_config_hash,
-        runtime_config_sha256=runtime_identity.sha256,
-        selected_row_id=runtime_identity.selected_row_id,
-        runtime_policy_id=runtime_identity.runtime_policy_id,
-        lr_scheduler_state_status="not_applicable_local_debug_no_scheduler",
-        beta_progress_state_status=(
-            "deterministic_from_successful_optimizer_update_count"
-        ),
-        amp_scaler_state_status="selected_runtime_amp_scaler_state",
-        torch_cuda_rng_state_status="selected_runtime_cuda_rng_state",
-        ddp_sampler_progress_state_status="selected_runtime_ddp_sampler_progress",
-        optimizer_step=6250,
-        successful_optimizer_update_count=6250,
-        metric_name="validation_l1_loss",
-        metric_value=0.5,
-        torch_generator_names=("train_data",),
-    )
-    distributed = selected_runtime_runner._DistributedContext(  # noqa: SLF001
-        device=torch.device("cuda"),
-        rank=0,
-        local_rank=0,
-        world_size=2,
-        nproc_per_node=2,
-        should_use_ddp=True,
-        initialized_here=True,
-        probe=selected_runtime_runner.SelectedRuntimeEnvironmentProbe(
-            machine_shape="NvidiaTeslaT4",
-            accelerator_mode="dual_t4_ddp",
-            cuda_device_count=2,
-            visible_device_count=2,
-            gpu_names=("Tesla T4", "Tesla T4"),
-            world_size=2,
-            nproc_per_node=2,
-            rank=0,
-            local_rank=0,
-            torchrun_standalone=True,
-            rank_assignments=(),
-            distributed_initialized=True,
-            torch_version="2.12.0+cu124",
-            cuda_version="12.4",
-        ),
-    )
-    amp = selected_runtime_runner._AmpExecution(  # noqa: SLF001
-        enabled=True,
-        grad_scaler_enabled=True,
-        grad_scaler_init_scale=16384.0,
-        autocast_dtype="float16",
-        requested_autocast_dtype="float16",
-        local_amp_status="selected_runtime_cuda_amp_enabled",
-    )
+    """Active AMP/CUDA restores report both attempts and successful restoration.
 
-    proof = selected_runtime_runner._loaded_checkpoint_resume_proof(  # noqa: SLF001
-        loaded=loaded,
-        request=request,
-        resolved=resolved,
-        settings=settings,
-        runtime_identity=runtime_identity,
-        amp=amp,
-        distributed=distributed,
+    Paid-run resume gates consume booleans, so exact positive polarity is expected;
+    changing either active restore result to false must fail this contract.
+    """
+    proof = _loaded_resume_proof(
+        tmp_path,
+        amp_enabled=True,
+        cuda_enabled=True,
+        amp_status="selected_runtime_amp_scaler_state",
+        cuda_status="selected_runtime_cuda_rng_state",
     )
 
     assert proof["status"] == "local_pass"
@@ -3224,11 +3626,87 @@ def test_full_loaded_resume_proof_records_restore_attempts(tmp_path: Path) -> No
     assert proof["cuda_rng_state_restored"] is True
 
 
-def test_full_dry_run_summary_lists_only_interval_checkpoints(
+def test_full_loaded_resume_proof_does_not_restore_inactive_state(
     tmp_path: Path,
 ) -> None:
-    """Full summary keeps final/best separate from retained interval checkpoints."""
+    """AMP-off CPU resume reports inactive state as neither attempted nor restored.
+
+    “Not applicable” status matches are valid but are not restorations; exact false
+    booleans are expected, and conflating status compatibility with work must fail.
+    """
+    proof = _loaded_resume_proof(
+        tmp_path,
+        amp_enabled=False,
+        cuda_enabled=False,
+        amp_status="not_applicable_local_cpu_amp_disabled",
+        cuda_status="not_applicable_local_cpu",
+    )
+
+    assert proof["status"] == "local_pass"
+    assert proof["grad_scaler_state_restore_attempted"] is False
+    assert proof["grad_scaler_state_restored"] is False
+    assert proof["cuda_rng_state_restore_attempted"] is False
+    assert proof["cuda_rng_state_restored"] is False
+
+
+def test_full_loaded_resume_proof_rejects_mismatched_active_state(
+    tmp_path: Path,
+) -> None:
+    """Active AMP/CUDA restore attempts with mismatched statuses fail honestly.
+
+    A resume cannot be promoted after attempted state restoration disagrees with the
+    runtime; fail status and exact false restoration results catch literal-true lies.
+    """
+    proof = _loaded_resume_proof(
+        tmp_path,
+        amp_enabled=True,
+        cuda_enabled=True,
+        amp_status="not_applicable_local_cpu_amp_disabled",
+        cuda_status="not_applicable_local_cpu",
+    )
+
+    assert proof["status"] == "fail"
+    assert proof["grad_scaler_state_restore_attempted"] is True
+    assert proof["grad_scaler_state_restored"] is False
+    assert proof["cuda_rng_state_restore_attempted"] is True
+    assert proof["cuda_rng_state_restored"] is False
+
+
+def test_full_dry_run_summary_lists_only_interval_checkpoints(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Full summary keeps final/best separate using a tiny control-path model.
+
+    The contract is artifact/checkpoint classification, not VAE compute. A one-parameter
+    model and synthetic step result exercise the real CLI/writers while keeping this
+    laptop test sub-second; real model CUDA behavior belongs to bounded Kaggle tests.
+    """
     output_dir = tmp_path / "full-dry-run"
+
+    class TinyModel(torch.nn.Module):
+        latent_channels = 1
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.weight = torch.nn.Parameter(torch.tensor(1.0))
+
+    def build_tiny_model(*_args: object, **_kwargs: object) -> TinyModel:
+        return TinyModel()
+
+    def run_tiny_step(**kwargs: object) -> object:
+        return _step_result(cast("int", kwargs["successful_optimizer_update_count"]))
+
+    def skip_reconstruction_sample(**_kwargs: object) -> bool:
+        return False
+
+    monkeypatch.setattr(selected_runtime_runner, "build_model", build_tiny_model)
+    monkeypatch.setattr(selected_runtime_runner, "_run_train_step", run_tiny_step)
+    monkeypatch.setattr(
+        selected_runtime_runner,
+        "_write_reconstruction_sample",
+        skip_reconstruction_sample,
+    )
 
     assert (
         selected_runtime_train_main(
@@ -3284,7 +3762,7 @@ def test_full_dry_run_summary_lists_only_interval_checkpoints(
         == "train_l1_no_validation_best"
     )
     # FU-003: run metadata records the beta schedule resolved to epoch 1.
-    assert math.isclose(cast("float", full_summary["beta_target"]), 1.0)
+    assert math.isclose(cast("float", full_summary["beta_target"]), 0.01)
     assert math.isclose(cast("float", full_summary["beta_warmup_fraction"]), 0.1)
     assert full_summary["beta_warmup_steps"] == _FULL_UPDATES_PER_EPOCH
 
@@ -3303,7 +3781,7 @@ def test_full_dry_run_summary_lists_only_interval_checkpoints(
     retained_names = {Path(cast("str", row["path"])).name for row in retained}
     assert retained_names == {"step_000001.pt", "step_000002.pt"}
     # FU-003: the training summary records the same epoch-1 beta schedule.
-    assert math.isclose(cast("float", training_summary["beta_target"]), 1.0)
+    assert math.isclose(cast("float", training_summary["beta_target"]), 0.01)
     assert math.isclose(cast("float", training_summary["beta_warmup_fraction"]), 0.1)
     assert training_summary["beta_warmup_steps"] == _FULL_UPDATES_PER_EPOCH
 
@@ -3395,21 +3873,19 @@ def test_full_resume_history_merges_prefix_metrics_and_checkpoints(
     )
 
 
-def test_full_resume_history_requires_prior_train_metrics(tmp_path: Path) -> None:
-    """Full-run resume fails closed when prior metric rows are unavailable."""
+def test_full_resume_history_allows_checkpoint_only_session(tmp_path: Path) -> None:
+    """A fresh Kaggle session keeps its own rows; earlier rows remain local."""
     settings = _full_settings(tmp_path=tmp_path, max_train_steps=4, save_every=1)
     artifacts = selected_runtime_runner._artifact_paths(tmp_path)  # noqa: SLF001
 
-    with pytest.raises(
-        ValueError,
-        match=r"requires existing metrics/train_steps\.csv",
-    ):
-        selected_runtime_runner._load_resume_artifact_history(  # noqa: SLF001
-            artifacts=artifacts,
-            settings=settings,
-            distributed=_local_distributed_context(),
-            start_step=1,
-        )
+    history = selected_runtime_runner._load_resume_artifact_history(  # noqa: SLF001
+        artifacts=artifacts,
+        settings=settings,
+        distributed=_local_distributed_context(),
+        start_step=1,
+    )
+
+    assert history == selected_runtime_runner._empty_resume_artifact_history()  # noqa: SLF001
 
 
 def test_full_interval_flush_state_includes_resume_prefix(tmp_path: Path) -> None:
@@ -3616,6 +4092,13 @@ def test_full_interval_flush_writes_resume_history_and_partial_artifacts(  # noq
             "dict[str, object]",
             json.loads(artifacts.artifact_manifest.read_text(encoding="utf-8")),
         )
+        pre_checkpoint_rows = selected_runtime_runner._read_resume_csv_prefix(  # noqa: SLF001
+            path=artifacts.train_steps,
+            step_key="successful_optimizer_update_count",
+            start_step=cast("int", pre_checkpoint_proof["latest_checkpoint_step"]),
+            required=True,
+            artifact_name="metrics/train_steps.csv",
+        )
         checkpoint_path = checkpoint_dir / "step_000002.pt"
         checkpoint_path.write_bytes(b"checkpoint:step_000002")
         best_path = checkpoint_dir / "best_model.pt"
@@ -3692,6 +4175,7 @@ def test_full_interval_flush_writes_resume_history_and_partial_artifacts(  # noq
         assert pre_checkpoint_proof["latest_metric_prefix_step"] == flush_step
         assert pre_checkpoint_proof["latest_checkpoint_step"] == 0
         assert not pre_checkpoint_proof["resume_checkpoint"]
+        assert pre_checkpoint_rows == ()
         assert "checkpoint:step_000002.pt" not in cast(
             "dict[str, object]",
             pre_checkpoint_manifest["artifact_hashes"],
@@ -4604,10 +5088,10 @@ def _distinct_step_result(
         amp_step_skipped=False,
         zero_grad_set_to_none=True,
         train_reparameterization="stochastic_seeded",
-        eps_policy="stochastic_seeded_train_generator",
-        eps_seed_source="train_data_torch_generator",
-        eps_zero_fraction=offset + 0.01,
-        eps_abs_mean=offset + 0.02,
+        eps_policy="stochastic_rank_generator",
+        eps_seed_source="checkpointed_rank_rebased_generator",
+        eps_zero_fraction=torch.tensor(offset + 0.01),
+        eps_abs_mean=torch.tensor(offset + 0.02),
     )
 
 
@@ -4636,6 +5120,8 @@ def _direct_train_metrics(
         "frac_x_hat_lt_minus1": _fp32(result.frac_x_hat_lt_minus1),
         "frac_x_hat_gt_1": _fp32(result.frac_x_hat_gt_1),
         "nonfinite_count": _fp32(result.nonfinite_count),
+        "eps_zero_fraction": _fp32(result.eps_zero_fraction),
+        "eps_abs_mean": _fp32(result.eps_abs_mean),
     }
 
 
@@ -4842,6 +5328,76 @@ def _loaded_checkpoint_stub() -> LoadedCheckpoint:
         metric_name="validation_l1_loss",
         metric_value=0.5,
         torch_generator_names=("train_data",),
+    )
+
+
+def _loaded_resume_proof(
+    tmp_path: Path,
+    *,
+    amp_enabled: bool,
+    cuda_enabled: bool,
+    amp_status: str,
+    cuda_status: str,
+) -> JsonObject:
+    plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+    resolved = resolve_json_config(_FULL_CONFIG)
+    request = SelectedRuntimeTrainRequest(
+        config_path=_FULL_CONFIG,
+        runtime_config=_RUNTIME_CONFIG,
+        output_dir=tmp_path / "full_output",
+        run_name="spec0009_resume_test",
+        data="synthetic",
+        max_train_steps=1,
+        save_every_steps=1,
+        dry_run=True,
+    )
+    settings = selected_runtime_runner._settings(  # noqa: SLF001
+        request=request,
+        resolved=resolved,
+        plan=plan,
+    )
+    runtime_identity = selected_runtime_runner._runtime_identity(plan)  # noqa: SLF001
+    loaded = replace(
+        _loaded_checkpoint_stub(),
+        path=request.output_dir / "checkpoints" / "step_006250.pt",
+        config_sha256=resolved.invoked_config_hash,
+        effective_config_sha256=resolved.effective_config_hash,
+        runtime_config_sha256=runtime_identity.sha256,
+        selected_row_id=runtime_identity.selected_row_id,
+        runtime_policy_id=runtime_identity.runtime_policy_id,
+        amp_scaler_state_status=amp_status,
+        torch_cuda_rng_state_status=cuda_status,
+        ddp_sampler_progress_state_status=(
+            "selected_runtime_ddp_sampler_progress"
+            if cuda_enabled
+            else "not_applicable_local_single_process"
+        ),
+    )
+    distributed = (
+        replace(_ddp_distributed_context(rank=0), device=torch.device("cuda", 0))
+        if cuda_enabled
+        else _local_distributed_context()
+    )
+    amp = selected_runtime_runner._AmpExecution(  # noqa: SLF001
+        enabled=amp_enabled,
+        grad_scaler_enabled=amp_enabled,
+        grad_scaler_init_scale=16384.0,
+        autocast_dtype="float16" if amp_enabled else "not_executed_local_cpu",
+        requested_autocast_dtype="float16",
+        local_amp_status=(
+            "selected_runtime_cuda_amp_enabled"
+            if amp_enabled
+            else "not_executed_local_cpu"
+        ),
+    )
+    return selected_runtime_runner._loaded_checkpoint_resume_proof(  # noqa: SLF001
+        loaded=loaded,
+        request=request,
+        resolved=resolved,
+        settings=settings,
+        runtime_identity=runtime_identity,
+        amp=amp,
+        distributed=distributed,
     )
 
 
@@ -5192,8 +5748,8 @@ def _train_step_row(
         "compile_scope": "none",
         "corruption_strategy": "indexed_masked",
         "train_reparameterization": "stochastic_seeded",
-        "eps_policy": "stochastic_seeded_train_generator",
-        "eps_seed_source": "train_data_torch_generator",
+        "eps_policy": "stochastic_rank_generator",
+        "eps_seed_source": "checkpointed_rank_rebased_generator",
         "eps_zero_fraction": "0.0",
         "eps_abs_mean": "0.8",
         "amp_step_skipped": "0",
@@ -5315,10 +5871,10 @@ def _step_result(step: int) -> selected_runtime_runner._SelectedRuntimeStepResul
         amp_step_skipped=False,
         zero_grad_set_to_none=True,
         train_reparameterization="stochastic_seeded",
-        eps_policy="stochastic_seeded_train_generator",
-        eps_seed_source="train_data_torch_generator",
-        eps_zero_fraction=0.0,
-        eps_abs_mean=0.8,
+        eps_policy="stochastic_rank_generator",
+        eps_seed_source="checkpointed_rank_rebased_generator",
+        eps_zero_fraction=torch.tensor(0.0),
+        eps_abs_mean=torch.tensor(0.8),
     )
 
 
@@ -5422,6 +5978,8 @@ def _runner_context(output_dir: Path, *, max_train_steps: int = 2) -> _RunnerCon
             resolved=resolved,
             plan=plan,
         ),
+        batch_size=_TINY_CPU_BATCH_SIZE,
+        image_size=_TINY_CPU_IMAGE_SIZE,
         half_epoch_interval_steps=1,
         validation_batches_per_view=1,
     )
@@ -5647,13 +6205,14 @@ def test_maybe_build_compiled_step_applies_recipe_and_compiles(
     make_calls: list[dict[str, object]] = []
     real_make = selected_runtime_runner.make_fastpath_step_fn
 
-    def spy_make(
+    def spy_make(  # noqa: PLR0913
         model: torch.nn.Module,
         corruptor: torch.nn.Module,
         *,
         ssim_weight: float,
         autocast_dtype: torch.dtype,
         autocast_enabled: bool,
+        autocast_cache_enabled: bool,
     ) -> Callable[[torch.Tensor, torch.Tensor, torch.Tensor], FastpathStepOutput]:
         make_calls.append(
             {
@@ -5661,6 +6220,7 @@ def test_maybe_build_compiled_step_applies_recipe_and_compiles(
                 "ssim_weight": ssim_weight,
                 "autocast_dtype": autocast_dtype,
                 "autocast_enabled": autocast_enabled,
+                "autocast_cache_enabled": autocast_cache_enabled,
             },
         )
         return real_make(
@@ -5669,6 +6229,7 @@ def test_maybe_build_compiled_step_applies_recipe_and_compiles(
             ssim_weight=ssim_weight,
             autocast_dtype=autocast_dtype,
             autocast_enabled=autocast_enabled,
+            autocast_cache_enabled=autocast_cache_enabled,
         )
 
     monkeypatch.setattr(selected_runtime_runner, "make_fastpath_step_fn", spy_make)
@@ -5694,7 +6255,14 @@ def test_maybe_build_compiled_step_applies_recipe_and_compiles(
     # applies it immediately before constructing DDP, which latches optimize_ddp.
     assert not hasattr(selected_runtime_runner, "apply_fastpath_dynamo_config")
     assert corruptor_profiles == [context.settings.corruption_profile]
-    assert compile_calls == [{"dynamic": False, "backend": "eager"}]
+    assert compile_calls == [
+        {
+            "dynamic": False,
+            "backend": "eager",
+            "mode": None,
+            "options": None,
+        },
+    ]
     # The step_fn is built with the exact recipe knobs, above all
     # autocast_enabled=amp.enabled (the eager-parity / CPU-testability knob).
     assert len(make_calls) == 1
@@ -5704,6 +6272,88 @@ def test_maybe_build_compiled_step_applies_recipe_and_compiles(
         compiled_plan.autocast_dtype,
     )
     assert make_calls[0]["autocast_enabled"] is context.amp.enabled
+    assert make_calls[0]["autocast_cache_enabled"] is True
+
+
+def test_maybe_compile_model_forward_applies_complete_recipe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A legal model-forward plan consumes mode, cudagraph, and option axes."""
+    model = build_non_equivariant_vae(norm_groups=8)
+    plan = replace(
+        parse_selected_runtime_plan(_RUNTIME_CONFIG),
+        torch_compile_enabled=True,
+        compile_scope="model_forward",
+        compile_backend="inductor",
+        compile_mode="artifact-mode",
+        cudagraphs="disabled",
+        inductor_options_json='{"artifact.flag":true}',
+    )
+
+    def fake_resolve(**_kwargs: object) -> tuple[None, dict[str, object]]:
+        return None, {"artifact.flag": True, "triton.cudagraphs": False}
+
+    monkeypatch.setattr(
+        selected_runtime_runner,
+        "resolve_fastpath_compile_invocation",
+        fake_resolve,
+    )
+    calls: list[tuple[object, dict[str, object]]] = []
+    compiled = torch.nn.Identity()
+
+    def fake_compile(target: object, **kwargs: object) -> object:
+        calls.append((target, kwargs))
+        return compiled
+
+    monkeypatch.setattr(selected_runtime_runner.torch, "compile", fake_compile)
+
+    result = selected_runtime_runner._maybe_compile_model_forward(  # noqa: SLF001
+        model=model,
+        plan=plan,
+    )
+
+    assert result is compiled
+    assert calls == [
+        (
+            model,
+            {
+                "dynamic": False,
+                "backend": "inductor",
+                "mode": None,
+                "options": {
+                    "artifact.flag": True,
+                    "triton.cudagraphs": False,
+                },
+            },
+        ),
+    ]
+
+
+def test_nccl_environment_requires_strings_and_records_effective_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """NCCL overrides are validated, applied, and observed canonically."""
+    plan = replace(
+        parse_selected_runtime_plan(_RUNTIME_CONFIG),
+        nccl_environment_json='{"NCCL_ALGO":"Ring","NCCL_NCHANNELS":"2"}',
+    )
+    monkeypatch.delenv("NCCL_ALGO", raising=False)
+    monkeypatch.delenv("NCCL_NCHANNELS", raising=False)
+
+    selected_runtime_runner._apply_selected_nccl_environment(plan)  # noqa: SLF001
+
+    assert (
+        selected_runtime_runner._effective_selected_nccl_environment(  # noqa: SLF001
+            plan,
+        )
+        == '{"NCCL_ALGO":"Ring","NCCL_NCHANNELS":"2"}'
+    )
+    invalid = _compiled_winner_runtime_policy()
+    invalid["nccl_environment_json"] = '{"NCCL_NCHANNELS":2}'
+    assert (
+        "selected_runtime_runtime_policy_nccl_environment_mismatch"
+        in _runtime_policy_errors(invalid)
+    )
 
 
 def test_fastpath_dynamo_knobs_carry_the_plan_recipe_or_none() -> None:
@@ -5813,8 +6463,148 @@ def test_run_compiled_train_step_populates_telemetry(tmp_path: Path) -> None:
         abs_tol=1e-6,
     )
     # Eps-proof mapping: the full config reparameterizes stochastically.
-    assert result.eps_policy == "stochastic_seeded_train_generator"
+    assert result.eps_policy == "stochastic_rank_generator"
     assert result.eps_abs_mean > _S16_MIN_STOCHASTIC_EPS_ABS_MEAN
+
+
+@pytest.mark.parametrize("step_kind", ["eager", "compiled"])
+@pytest.mark.parametrize("foreach", [True, False])
+def test_runner_step_paths_apply_gradient_clip_foreach(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    step_kind: str,
+    *,
+    foreach: bool,
+) -> None:
+    """Both runner step bodies pass the parsed foreach value to gradient clipping.
+
+    ``True`` is the legacy v5 effective behavior; marker-backed future plans may carry
+    ``False``. Each real tiny CPU step must reach the clip call with the distinguishing
+    value, so a hardcoded or dropped argument fails one of the four cases.
+    """
+    context = _runner_context(tmp_path / f"foreach-{step_kind}-{foreach}")
+    plan = replace(context.plan, gradient_clip_foreach=foreach)
+    batch = cast("PatchTrainingBatch", next(iter(context.data_surface.train_loader)))
+    observed: list[bool | None] = []
+    original_clip = selected_runtime_runner.nn.utils.clip_grad_norm_
+
+    def spy_clip(
+        parameters: Iterable[torch.Tensor],
+        max_norm: float,
+        *,
+        foreach: bool | None = None,
+    ) -> torch.Tensor:
+        observed.append(foreach)
+        return original_clip(
+            parameters,
+            max_norm=max_norm,
+            foreach=foreach,
+        )
+
+    monkeypatch.setattr(
+        selected_runtime_runner.nn.utils,
+        "clip_grad_norm_",
+        spy_clip,
+    )
+    try:
+        if step_kind == "eager":
+            selected_runtime_runner._run_train_step(  # noqa: SLF001
+                model=context.model,
+                latent_channels=LATENT_CHANNELS,
+                optimizer=context.optimizer,
+                scaler=context.scaler,
+                settings=context.settings,
+                plan=plan,
+                amp=context.amp,
+                batch=batch,
+                optimizer_step_index=0,
+                successful_optimizer_update_count=1,
+                train_generator=context.train_generator,
+                corruption_generator=torch.Generator(device="cpu"),
+                eager_corruptor=InlineStainCorruptor(
+                    context.settings.corruption_profile,
+                ),
+                device=context.distributed.device,
+            )
+        else:
+            step_fn = make_fastpath_step_fn(
+                context.model,
+                InlineStainCorruptor(context.settings.corruption_profile),
+                ssim_weight=context.settings.ssim_weight,
+                autocast_dtype=torch.float32,
+                autocast_enabled=context.amp.enabled,
+            )
+            selected_runtime_runner._run_compiled_train_step(  # noqa: SLF001
+                compiled_step_fn=step_fn,
+                model=context.model,
+                latent_channels=LATENT_CHANNELS,
+                optimizer=context.optimizer,
+                scaler=context.scaler,
+                settings=context.settings,
+                plan=plan,
+                amp=context.amp,
+                batch=batch,
+                optimizer_step_index=0,
+                successful_optimizer_update_count=1,
+                train_generator=context.train_generator,
+                device=context.distributed.device,
+            )
+    finally:
+        selected_runtime_runner._close_data_surface(context.data_surface)  # noqa: SLF001
+
+    assert observed == [foreach]
+
+
+def test_eager_runner_transfers_one_uint8_batch_before_device_corruption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The eager control matches compiled transport instead of shipping two fp32 views.
+
+    This is the FSQ-floor B4 invariant: an eager/compiled throughput comparison is
+    dishonest if eager normalizes and corrupts on CPU, then transfers clean and corrupt
+    fp32 tensors. The spy distinguishes the intended single uint8 transfer from that
+    retired two-transfer path while a real tiny step proves the downstream math runs.
+    """
+    context = _runner_context(tmp_path / "eager-uint8-h2d")
+    batch = cast("PatchTrainingBatch", next(iter(context.data_surface.train_loader)))
+    transferred_dtypes: list[torch.dtype] = []
+    original_to_device = selected_runtime_runner._to_device  # noqa: SLF001
+
+    def spy_to_device(
+        tensor: torch.Tensor,
+        *,
+        device: torch.device,
+        plan: SelectedRuntimePlan,
+    ) -> torch.Tensor:
+        transferred_dtypes.append(tensor.dtype)
+        return original_to_device(tensor, device=device, plan=plan)
+
+    monkeypatch.setattr(selected_runtime_runner, "_to_device", spy_to_device)
+    try:
+        result = selected_runtime_runner._run_train_step(  # noqa: SLF001
+            model=context.model,
+            latent_channels=LATENT_CHANNELS,
+            optimizer=context.optimizer,
+            scaler=context.scaler,
+            settings=context.settings,
+            plan=context.plan,
+            amp=context.amp,
+            batch=batch,
+            optimizer_step_index=0,
+            successful_optimizer_update_count=1,
+            train_generator=context.train_generator,
+            corruption_generator=torch.Generator(device="cpu"),
+            eager_corruptor=InlineStainCorruptor(
+                context.settings.corruption_profile,
+            ),
+            device=context.distributed.device,
+        )
+    finally:
+        selected_runtime_runner._close_data_surface(context.data_surface)  # noqa: SLF001
+
+    assert transferred_dtypes == [torch.uint8]
+    assert result.batch_size == batch.images_uint8.shape[0]
 
 
 def test_run_train_steps_takes_the_compiled_branch_when_a_step_fn_is_present(

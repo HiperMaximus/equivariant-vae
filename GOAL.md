@@ -98,22 +98,21 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   and equivariant model remove FSQ quantization/codebooks/rounding/discrete
   latents and sub-pixel/PixelShuffle upsampling because they do not mix well
   with continuous `SO(2)` equivariance.
-  The FSQ run did not search or ablate its flags/hyperparameters: it proves that one recipe
-  trained, not that batch 60, LR 5e-4, its DDP/compile pair, layout, loader, mmap/advice,
-  optimizer, warmup, or telemetry choices were optimal. FSQ is one complete control row, not the
-  search-space definition. Discover every plausibly throughput-affecting option exposed by the
-  newest installed PyTorch/CUDA/DDP/Inductor/NCCL stack, including experimental/internal options;
-  benchmark it or record a concrete inapplicability reason, then test important interactions on
-  each target model/hardware.
+  The FSQ run did not search its flags/hyperparameters: it proves that one complete recipe
+  trained, not that batch 60, LR 5e-4, its DDP/compile pair, layout, optimizer, or loader
+  choices were optimal. Use it and the immutable Spec 0011 v2 rows as strong priors for a
+  compact search of reviewed complete bundles. This is a two-architecture tuning campaign,
+  not an exhaustive inventory of every internal runtime value. Neutral or redundant options
+  may remain in the winning recipe.
 - Before the first full Kaggle run, choose the fastest settled TIME-PER-EPOCH recipe on the
   latest PyTorch release for the real dual-T4. FP16 AMP + `torch.compile` is the primary
   candidate, not a risky afterthought. Compile time is a NON-COST for a ~30h run, so
-  `max-autotune` and experimental/beta features are in-bounds. Measure the verbatim FSQ
-  `compiled_autograd=True` + `optimize_ddp=False` pair and every supported modern DDP overlap
-  expression (`ddp_optimizer`, `python_reducer` + compiled autograd,
-  `python_reducer_without_compiled_forward` when exposed, and useful controls). A stable DDP
-  partition/graph break that starts all-reduce earlier may beat a break-free graph; zero graph
-  breaks is diagnostic information, not a universal eligibility rule. The timed train step
+  `max-autotune` and relevant experimental/beta features are in-bounds. Measure a reviewed
+  set of broad compatible DDP/compile bundles, including the verbatim FSQ
+  `compiled_autograd=True` + `optimize_ddp=False` pair and useful modern overlap controls
+  exposed by the installed runtime. A stable DDP partition/graph break that starts all-reduce
+  earlier may beat a break-free graph; zero graph breaks is diagnostic information, not a
+  universal eligibility rule. The timed train step
   must avoid `.item()`/`.cpu()` host synchronization and keep telemetry on-device. Corruption is
   no longer a benchmark axis — it is a FIXED runtime property (the vectorized inline
   `InlineStainCorruptor`, RNG swap `5dde097`); the blake2b branchless-vs-indexed
@@ -176,20 +175,38 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   not approval for the long full run.
 - Spec 0009 is implemented and locally verified for the first full
   selected-runtime run: a dedicated full-run kernel and guarded Kaggle script
-  actions exist; the selected-runtime runner derives the 10-epoch schedule as
-  125000 optimizer updates with half-epoch intervals of 6250 updates;
+  actions exist; under the new global-50 winner the selected-runtime runner derives the
+  10-epoch schedule as 60000 optimizer updates with half-epoch intervals of 3000 updates;
   validation, checkpoint retention, best/final artifacts, resume hardening,
   artifact manifests, and the strict full-run verifier are in place; and
   adversarial fixes have been applied. Do not launch or poll the remote full
   run without fresh explicit user approval of the exact dedicated full-kernel
   command.
-- Current status pointer (2026-08-08): Spec 0009's frozen schedule is superseded by
-  Spec 0010 (fixed-25 protocol) and active Spec 0011 v4. V4 inventories all plausible
-  installed acceleration values, tests maximal compatible bundles and declared complex
-  interactions, reuses the immutable 309-row evidence without repeating old singleton
-  sweeps, and ranks complete recipe/batch pairs by the exact `drop_last=True` projected
-  epoch objective. It has no minimal-toggle or total Kaggle GPU-time objective. The local
-  v3 implementation is quarantined partial work pending v4 relock. No runtime is selected.
+- Current status pointer (2026-08-09): active Spec 0011 is a lean, one-off Kaggle
+  configuration search, not the superseded v4 audit platform. Direct dual-T4 probes
+  selected per-rank batch 25 (global 50), FP16 channels-last compiled whole-step,
+  Python DDP reducer/compiled autograd, fused AdamW, and the other settings recorded in
+  `configs/spec0001/non_eq_vae_runtime_winner.json`. Two fresh measurements project
+  about 4499 and 4672 seconds per 300,000-patch epoch. A compact hash-linked consumer
+  plan, bounded 192-update LR-range v1, and strict 128-update fixed-32 overfit gate v6
+  now pass on real dual-T4 Kaggle. Fixed-32 smoothed L1 improved 28.1% and reconstruction
+  loss 22.5%. A clean beta-zero/deterministic/no-corruption probe improved L1 61.5%
+  through 512 updates and remained descending, proving the network learns. The
+  1024-update clean Kaggle
+  v9 improved deterministic clean fixed-training L1 68.9% to `0.0788`, with every
+  64-step bin descending. Its saved image is held-out validation and is not fixed-set
+  memorization evidence. Paired v10 probes then showed beta `0.01` retained materially
+  better deterministic reconstruction than beta `0.1` (L1 `0.07748` versus `0.09708`;
+  SSIM `0.58764` versus `0.49837`) while keeping nonzero KL. The user locked beta `0.01`
+  for the matched baseline/continuous-`SO(2)` comparison; do not run another beta probe.
+  Next remove the completed one-off probe branch and verify the lean multi-session path:
+  run toward the full target until Kaggle closes the worker, continue from the latest
+  complete half-epoch checkpoint into separate session outputs, and concatenate metrics
+  locally after training. Do not build an artificial session cap, remote artifact
+  transport, or a general session framework. Then verify the dedicated full kernel and
+  request separate session-1 approval. The full plan
+  uses a one-epoch beta ramp, 600-step LR warmup to effective `1e-3`, and cosine decay to
+  `1e-5`; full launch remains separately authorized.
   This GOAL states the north star, not the frontier; read
   `CURRENT.md` and
   `docs/specs/0011-reusable-goal-derived-runtime-and-compiled-fastpath.md`.

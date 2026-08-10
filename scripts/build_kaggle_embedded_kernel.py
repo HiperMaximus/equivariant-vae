@@ -28,6 +28,7 @@ GIT_EXECUTABLE = shutil.which("git") or "git"
 DEFAULT_READY_MARKER = "KAGGLE_SETUP_SMOKE_READY = True"
 RUNTIME_SELECTION_KERNEL_ID = "maximusshtefan/eqvae-runtime-selection"
 SELECTED_RUNTIME_DEBUG_KERNEL_ID = "maximusshtefan/eqvae-selected-runtime-debug"
+SELECTED_RUNTIME_LR_RANGE_KERNEL_ID = "maximusshtefan/eqvae-selected-runtime-lr-range"
 SELECTED_RUNTIME_FULL_KERNEL_ID = "maximusshtefan/eqvae-selected-runtime-full"
 RUNTIME_SELECTION_V8_ARTIFACT_ROOT = Path(
     "runs/kaggle/real_data_runtime_pretest_v8",
@@ -48,6 +49,7 @@ RUNTIME_SELECTION_BASELINE_ARTIFACTS = (
 SELECTED_RUNTIME_FULL_CONFIG = Path(
     "configs/spec0001/non_eq_vae_selected_runtime_full.json",
 )
+SELECTED_RUNTIME_PLAN = Path("configs/spec0001/non_eq_vae_selected_runtime.json")
 FULL_TARGET_UPDATES_PATTERN = re.compile(r"(?m)^FULL_TARGET_UPDATES = \d+$")
 FULL_HALF_EPOCH_INTERVAL_PATTERN = re.compile(r"(?m)^FULL_HALF_EPOCH_INTERVAL = \d+$")
 EMBEDDED_B64_PATTERN = re.compile(
@@ -165,7 +167,7 @@ def _derive_full_schedule(repo_root: Path) -> tuple[int, int, int]:
     plan = cast(
         "dict[str, object]",
         json.loads(
-            (repo_root / RUNTIME_SELECTION_BASELINE_ARTIFACTS[0]).read_text(
+            (repo_root / SELECTED_RUNTIME_PLAN).read_text(
                 encoding="utf-8",
             ),
         ),
@@ -260,6 +262,14 @@ def verify_run_file(args: BuildArgs) -> None:
         repo_root=args.repo_root,
         fallback_template_path=args.template_path,
     )
+    expected_run_text = _render_template_with_embedded_payload(
+        run_text=run_text,
+        template_path=template_path,
+        repo_root=args.repo_root,
+    )
+    if run_text != expected_run_text:
+        message = "generated run.py wrapper does not match current run_template.py"
+        raise RuntimeError(message)
     _validate_zip_members(
         zip_bytes=zip_bytes,
         manifest=manifest,
@@ -271,6 +281,45 @@ def verify_run_file(args: BuildArgs) -> None:
         template_path=template_path,
         allow_dirty=args.allow_dirty,
     )
+
+
+def _render_template_with_embedded_payload(
+    *,
+    run_text: str,
+    template_path: Path,
+    repo_root: Path,
+) -> str:
+    """Render the current wrapper around the already-verified embedded payload.
+
+    Returns:
+        Exact generated source expected around the embedded archive.
+
+    """
+    substitutions = {
+        "embedded_payload_b64": _required_match(EMBEDDED_B64_PATTERN, run_text),
+        "embedded_payload_zip_sha256": _required_match(
+            EMBEDDED_ZIP_HASH_PATTERN,
+            run_text,
+        ),
+        "embedded_payload_manifest_sha256": _required_match(
+            EMBEDDED_MANIFEST_HASH_PATTERN,
+            run_text,
+        ),
+    }
+    expected = Template(template_path.read_text(encoding="utf-8")).safe_substitute(
+        substitutions,
+    )
+    if (
+        FULL_TARGET_UPDATES_PATTERN.search(expected) is not None
+        or FULL_HALF_EPOCH_INTERVAL_PATTERN.search(expected) is not None
+    ):
+        _, target, half = _derive_full_schedule(repo_root)
+        expected = _apply_full_schedule_substitution(
+            expected,
+            target=target,
+            half=half,
+        )
+    return expected
 
 
 def _parse_args() -> BuildArgs:
@@ -355,7 +404,7 @@ def _payload_manifest(
     }
     if _is_runtime_selection_kernel(kernel_dir):
         entries.update(_runtime_selection_entry_hashes(repo_root))
-    elif _is_selected_runtime_kernel(kernel_dir):
+    elif _ships_legacy_selected_runtime_baseline(kernel_dir):
         entries.update(_selected_runtime_baseline_entry_hashes(repo_root))
     return {
         "schema_version": PAYLOAD_SCHEMA_VERSION,
@@ -411,7 +460,7 @@ def _payload_files(
     )
     if _is_runtime_selection_kernel(kernel_dir):
         files.extend(_runtime_selection_payload_files(repo_root))
-    elif _is_selected_runtime_kernel(kernel_dir):
+    elif _ships_legacy_selected_runtime_baseline(kernel_dir):
         files.extend(_selected_runtime_baseline_payload_files(repo_root))
     return tuple(files)
 
@@ -428,7 +477,29 @@ def _is_selected_runtime_full_kernel(kernel_dir: Path) -> bool:
     return _kernel_id(kernel_dir) == SELECTED_RUNTIME_FULL_KERNEL_ID
 
 
+def _is_selected_runtime_lr_range_kernel(kernel_dir: Path) -> bool:
+    return _kernel_id(kernel_dir) == SELECTED_RUNTIME_LR_RANGE_KERNEL_ID
+
+
 def _is_selected_runtime_kernel(kernel_dir: Path) -> bool:
+    return (
+        _is_selected_runtime_debug_kernel(
+            kernel_dir,
+        )
+        or _is_selected_runtime_full_kernel(
+            kernel_dir,
+        )
+        or _is_selected_runtime_lr_range_kernel(kernel_dir)
+    )
+
+
+def _ships_legacy_selected_runtime_baseline(kernel_dir: Path) -> bool:
+    """Return whether compatibility tests still require the historical v5 pair.
+
+    Returns:
+        Whether to package the historical v5 plan/proof pair.
+
+    """
     return _is_selected_runtime_debug_kernel(
         kernel_dir,
     ) or _is_selected_runtime_full_kernel(kernel_dir)
@@ -575,7 +646,7 @@ def _validate_manifest_against_source(  # noqa: C901
     kernel_dir = repo_root / _metadata_kernel_dir(manifest)
     if _is_runtime_selection_kernel(kernel_dir):
         expected_entries.update(_runtime_selection_entry_hashes(repo_root))
-    elif _is_selected_runtime_kernel(kernel_dir):
+    elif _ships_legacy_selected_runtime_baseline(kernel_dir):
         expected_entries.update(_selected_runtime_baseline_entry_hashes(repo_root))
     raw_entries = manifest.get("entries")
     if not isinstance(raw_entries, dict):

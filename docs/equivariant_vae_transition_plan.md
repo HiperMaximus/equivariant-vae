@@ -1,7 +1,7 @@
 # Equivariant VAE Transition Plan
 
-Status: draft working plan
-Last updated: 2026-06-12
+Status: architecture reference; not the active execution plan
+Last updated: 2026-08-01
 
 ## Purpose
 
@@ -959,47 +959,11 @@ decisions such as the continuous `SO(2)` scope.
 | Downsampling | Locked repo-owned 5x5 separable binomial fieldwise low-pass + decimation | Chosen from the SO(2) side first, then mirrored exactly in the Conv2d baseline; resize/area is future fallback only. |
 | Upsampling | Bilinear scale factor + conv | Directly mirrors fieldwise SO(2) upsampling and avoids PixelShuffle. |
 
-## Immediate Next Tasks
+## Execution pointer
 
-1. Treat this document as the active checklist for the branch.
-2. Keep the implemented `src/eqvae` scaffold, topology-count slice,
-   data/metrics slice, selector/dataloader slice, local benchmark pre-test, and
-   model/loss train-step contract aligned with spec 0001:
-   layered `source_config` resolution, observed `model_count.json`,
-   `model_inventory.csv`, local data/metric focused tests, deterministic
-   data-root resolution, mmap tensor-only loaders, fixed selector schema tests,
-   model-only config inheritance for Kaggle/debug/full-run configs, and
-   measured local CPU dataloader pre-tests, and non-promotable
-   `benchmark/model_loss_train_step.json` are local evidence only, not a Kaggle
-   runtime selection.
-3. Spec-lock the next narrow slice before coding, likely corrected HED/stain
-   corruption or trainer/checkpoint acceptance. Do not implement real
-   training/resume, Kaggle payload changes, or paper artifacts without an
-   explicit ready contract.
-4. Use the implemented local CPU synthetic dataloader pre-test before remote
-   Kaggle benchmarking: it writes tiny UBC-format shards, varies the locked
-   loader knobs, and writes `benchmark/dataloader_matrix.csv` rows with
-   `status = "local_pass"` or explicit candidate failure status and
-   `full_run_eligible = false`. The checked-in debug pre-test was rerun outside
-   the sandbox on 2026-06-12 and all configured local CPU candidates measured
-   successfully.
-5. Generate the real fixed-25 validation and fixed-32 tiny-overfit selector
-   JSON files only after the real Kaggle train/validation shards are available
-   locally; canonical overwrites require CRC validation and explicit overwrite.
-6. Finish the remaining broad implementation blockers before marking spec 0001
-   `locked / implementation-ready`: future SO(2) count ceiling, Kaggle T4
-   metadata validation plus single/dual launch-mode checks, remaining artifact
-   protocol, package/import policy, and final adversarial spec review.
-7. Extract data/checkpoint/logging utilities from the Kaggle notebook only after
-   the relevant spec exception authorizes the slice.
-8. Add banned-operation, activation-policy, shape, compile, and precision tests
-   as each corresponding implementation slice is authorized.
-9. Replace the placeholder Kaggle debug kernel with the real CLI-managed
-   launcher after local verification passes.
-10. Run the short Kaggle runtime benchmark after explicit user permission, then
-    choose single/dual GPU, AMP, compile, batch size, `precision.policy`, and
-    `corruption.strategy`. Record this in `benchmark/selected_runtime.json` and
-    the resolved full-run config.
-11. Run the first 10-epoch Kaggle baseline only after benchmark selection and
-    explicit user permission.
-11. Implement the custom SO(2) feasibility spike.
+This file preserves the architecture transition constraints. It is not an active
+checklist. Use `CURRENT.md` for the exact handoff and Spec 0011 for the only active
+runtime plan. The fixed selectors, trainer/checkpoint mechanics, CLI-managed kernels,
+and local scaffold described by the former task list are already implemented; do not
+recreate them. The custom continuous `SO(2)` work starts only after the baseline runtime
+and paper-promotable evidence are accepted.

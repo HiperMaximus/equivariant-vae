@@ -16,8 +16,17 @@
     "machine_shape": "NvidiaTeslaT4",
     "remote_execution_requires_permission": true,
     "selected_runtime_required": true,
-    "runtime_config": "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
-    "required_debug_gate_output": "runs/kaggle/selected_runtime_debug_v5"
+    "runtime_config": "configs/spec0001/non_eq_vae_selected_runtime.json",
+    "learning_rate_source": "kaggle_lr_range_v1_manual_plateau_selection",
+    "required_debug_gate_output": "runs/kaggle/selected_runtime_debug"
+  },
+  "optimizer": {
+    "learning_rate": 0.000692820323027551
+  },
+  "objective": {
+    "beta": {
+      "target": 0.01
+    }
   },
   "training": {
     "epochs": 10,
@@ -36,11 +45,17 @@
       "artifacts"
     ],
     "checkpoint_retention": "best_final_latest_four_interval",
-    "resume_supported": true
+    "resume_supported": true,
+    "learning_rate_schedule": {
+      "kind": "linear_warmup_cosine_decay",
+      "warmup_updates": 600,
+      "warmup_start_factor": 0.1,
+      "minimum_effective_learning_rate": 0.00001
+    }
   },
   "selected_runtime_full": {
     "selected_runtime_full_run_contract_ready": true,
-    "required_debug_gate_output": "runs/kaggle/selected_runtime_debug_v5",
+    "required_debug_gate_output": "runs/kaggle/selected_runtime_debug",
     "remote_pass_ready": false,
     "remote_launch_requires_explicit_approval": true
   },

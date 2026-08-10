@@ -47,6 +47,8 @@ runtime_selection_kernel_dir="kaggle/kernels/runtime_selection"
 runtime_selection_output_dir="runs/kaggle/runtime_selection"
 selected_runtime_debug_kernel_dir="kaggle/kernels/selected_runtime_debug"
 selected_runtime_debug_output_dir="runs/kaggle/selected_runtime_debug"
+selected_runtime_lr_range_kernel_dir="kaggle/kernels/selected_runtime_lr_range"
+selected_runtime_lr_range_output_dir="runs/kaggle/selected_runtime_lr_range"
 selected_runtime_full_kernel_dir="kaggle/kernels/selected_runtime_full"
 selected_runtime_full_output_dir="runs/kaggle/selected_runtime_full"
 fixed25_selector_kernel_dir="kaggle/kernels/fixed25_selector"
@@ -63,6 +65,7 @@ Usage:
   ./scripts/kaggle_kernel.sh preflight-fixed32-selector-readiness
   ./scripts/kaggle_kernel.sh preflight-selected-runtime-runner
   ./scripts/kaggle_kernel.sh preflight-selected-runtime-debug
+  ./scripts/kaggle_kernel.sh preflight-selected-runtime-lr-range
   ./scripts/kaggle_kernel.sh preflight-selected-runtime-full
   ./scripts/kaggle_kernel.sh preflight-fixed25-selector
   ./scripts/kaggle_kernel.sh api-check [kernel_dir]
@@ -72,6 +75,7 @@ Usage:
   ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest
   ./scripts/kaggle_kernel.sh status-runtime-selection
   ./scripts/kaggle_kernel.sh status-selected-runtime-debug
+  ./scripts/kaggle_kernel.sh status-selected-runtime-lr-range
   ./scripts/kaggle_kernel.sh status-selected-runtime-full
   ./scripts/kaggle_kernel.sh status-fixed25-selector
   ./scripts/kaggle_kernel.sh wait [kernel_id] [poll_seconds] [max_polls] [max_queued_seconds]
@@ -82,6 +86,7 @@ Usage:
   ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest [output_dir]
   ./scripts/kaggle_kernel.sh output-runtime-selection [output_dir]
   ./scripts/kaggle_kernel.sh output-selected-runtime-debug [output_dir]
+  ./scripts/kaggle_kernel.sh output-selected-runtime-lr-range [output_dir]
   ./scripts/kaggle_kernel.sh output-selected-runtime-full [output_dir]
   ./scripts/kaggle_kernel.sh output-fixed25-selector [output_dir]
   ./scripts/kaggle_kernel.sh pull [kernel_id] [kernel_dir]
@@ -396,6 +401,15 @@ validate_kernel_dir() {
     echo "ok: selected-runtime debug embedded payload matches current worktree"
   fi
 
+  if [[ "$kernel_dir" == "$selected_runtime_lr_range_kernel_dir" ]]; then
+    build_kernel_py \
+      --kernel-dir "$kernel_dir" \
+      --ready-marker "KAGGLE_SELECTED_RUNTIME_LR_RANGE_READY = True" \
+      --verify-only \
+      --allow-dirty
+    echo "ok: selected-runtime LR-range embedded payload matches current worktree"
+  fi
+
   if [[ "$kernel_dir" == "$selected_runtime_full_kernel_dir" ]]; then
     build_kernel_py \
       --kernel-dir "$kernel_dir" \
@@ -563,6 +577,9 @@ embedded_ready_marker() {
     maximusshtefan/eqvae-selected-runtime-debug)
       printf '%s\n' "KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True"
       ;;
+    maximusshtefan/eqvae-selected-runtime-lr-range)
+      printf '%s\n' "KAGGLE_SELECTED_RUNTIME_LR_RANGE_READY = True"
+      ;;
     maximusshtefan/eqvae-selected-runtime-full)
       printf '%s\n' "KAGGLE_SELECTED_RUNTIME_FULL_READY = True"
       ;;
@@ -627,6 +644,11 @@ EOF
 
   if grep -q "KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True" "$kernel_dir/$code_file"; then
     guard_selected_runtime_debug_push_ready "$kernel_dir" "$metadata"
+    return
+  fi
+
+  if grep -q "KAGGLE_SELECTED_RUNTIME_LR_RANGE_READY = True" "$kernel_dir/$code_file"; then
+    guard_selected_runtime_lr_range_push_ready "$kernel_dir" "$metadata"
     return
   fi
 
@@ -1682,6 +1704,60 @@ PY
   done
 }
 
+guard_selected_runtime_lr_range_push_ready() {
+  local kernel_dir="$1"
+  local _metadata="$2"
+  local python_bin="${PYTHON:-.venv/bin/python}"
+
+  if [[ -d "$kernel_dir/payload" ]]; then
+    echo "error: LR-range kernel must be one generated run.py, not a sibling payload" >&2
+    exit 1
+  fi
+  if [[ "${KAGGLE_FULL_DATASET_CONFIRMED:-}" != "1" ]]; then
+    cat >&2 <<'EOF'
+error: set KAGGLE_FULL_DATASET_CONFIRMED=1 only after accepting the real
+patch dataset attachment/setup cost for the selected-runtime LR-range run.
+EOF
+    exit 1
+  fi
+  if [[ ! -x "$python_bin" ]]; then
+    echo "error: missing executable $python_bin" >&2
+    exit 1
+  fi
+
+  PYTHONPATH=src "$python_bin" - <<'PYLRCONFIG'
+from pathlib import Path
+
+from eqvae.config import resolve_json_config
+from eqvae.training.selected_runtime import parse_selected_runtime_plan
+
+plan = parse_selected_runtime_plan(
+    Path("configs/spec0001/non_eq_vae_selected_runtime.json"),
+)
+config = resolve_json_config(
+    Path("configs/spec0001/non_eq_vae_selected_runtime_lr_range.json"),
+).effective_config
+sweep = config.get("learning_rate_range")
+training = config.get("training")
+errors = []
+if plan.per_device_batch_size != 25 or plan.global_batch_size != 50:
+    errors.append("selected runtime must be the measured bs25/global50 winner")
+if not isinstance(sweep, dict) or sweep.get("start") != 0.00002 \
+        or sweep.get("end") != 0.003 or sweep.get("successful_updates") != 192:
+    errors.append("LR range must be the bounded 2e-5..3e-3, 192-update sweep")
+if not isinstance(training, dict) or training.get("max_train_steps") != 192:
+    errors.append("LR range training.max_train_steps must be 192")
+if errors:
+    raise SystemExit("\n".join(f"error: {error}" for error in errors))
+PYLRCONFIG
+
+  build_kernel_py \
+    --kernel-dir "$kernel_dir" \
+    --ready-marker "KAGGLE_SELECTED_RUNTIME_LR_RANGE_READY = True" \
+    --verify-only \
+    --allow-dirty
+}
+
 guard_selected_runtime_debug_push_ready() {
   local kernel_dir="$1"
   local metadata="$2"
@@ -1729,7 +1805,7 @@ EOF
     --selector-generation-mode remote_generate \
     --debug-config configs/spec0001/non_eq_vae_selected_runtime_debug.json \
     --tiny-config configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json \
-    --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json \
+    --runtime-config configs/spec0001/non_eq_vae_selected_runtime.json \
     --fixed-train-patches configs/spec0001/fixed_32_train_overfit_patches.json
   preflight_fixed32_selector_readiness
 
@@ -1777,7 +1853,8 @@ PY
   build_kernel_py \
     --kernel-dir "$kernel_dir" \
     --ready-marker "KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True" \
-    --verify-only
+    --verify-only \
+    --allow-dirty
 
   local run_file="$kernel_dir/run.py"
   PYTHONPATH=src "$python_bin" - "$run_file" <<'PYDEBUGPAYLOAD'
@@ -1843,8 +1920,8 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         "configs/spec0001/non_eq_vae_selected_runtime_debug.json",
         "configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json",
         "configs/spec0001/fixed_32_train_overfit_patches.json",
-        "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
-        "runs/kaggle/runtime_selection_v5/benchmark/runtime_proof.json",
+        "configs/spec0001/non_eq_vae_selected_runtime.json",
+        "configs/spec0001/non_eq_vae_runtime_winner.json",
     }
     missing = sorted(required_files - names)
     if missing:
@@ -1866,9 +1943,7 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             archive.read("configs/spec0001/fixed_32_train_overfit_patches.json"),
         )
         selected_runtime = json.loads(
-            archive.read(
-                "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
-            ),
+            archive.read("configs/spec0001/non_eq_vae_selected_runtime.json"),
         )
     except KeyError as error:
         print(f"error: selected-runtime debug payload missing {error}", file=sys.stderr)
@@ -2031,8 +2106,8 @@ EOFGUARD
   fi
   PYTHONPATH=src "$python_bin" -m eqvae.cli.selected_runtime_gate \
     --verify-output \
-    --output-dir runs/kaggle/selected_runtime_debug_v5 \
-    --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json
+    --output-dir runs/kaggle/selected_runtime_debug \
+    --runtime-config configs/spec0001/non_eq_vae_selected_runtime.json
 
   python3 - "$metadata" <<'PYFULLMETA'
 import json
@@ -2120,15 +2195,19 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         "src/eqvae/training/selected_runtime.py",
         "src/eqvae/training/selected_runtime_runner.py",
         "configs/spec0001/non_eq_vae_selected_runtime_full.json",
-        "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
-        "runs/kaggle/runtime_selection_v5/benchmark/runtime_proof.json",
+        "configs/spec0001/non_eq_vae_selected_runtime.json",
+        "configs/spec0001/non_eq_vae_runtime_winner.json",
     }
     missing = sorted(required_files - names)
     if missing:
         errors.append(f"embedded payload missing required files: {missing!r}")
     full_config = json.loads(archive.read("configs/spec0001/non_eq_vae_selected_runtime_full.json"))
-    selected_runtime = json.loads(archive.read("runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json"))
+    selected_runtime = json.loads(archive.read("configs/spec0001/non_eq_vae_selected_runtime.json"))
     training = full_config.get("training") if isinstance(full_config, dict) else None
+    objective = full_config.get("objective") if isinstance(full_config, dict) else None
+    beta = objective.get("beta") if isinstance(objective, dict) else None
+    if not isinstance(beta, dict) or beta.get("target") != 0.01:
+        errors.append("full config objective.beta.target must be locked to 0.01")
     # Spec 0011 S8: derive the schedule from the plan's measured global batch and the
     # single-sourced patch count instead of pinning the reference literals. At the
     # reference global batch 24 these reproduce 12500/125000/6250 exactly, so the built
@@ -2496,6 +2575,22 @@ preflight_selected_runtime_debug() {
     -q
 }
 
+preflight_selected_runtime_lr_range() {
+  local python_bin="${PYTHON:-.venv/bin/python}"
+
+  if [[ ! -x "$python_bin" ]]; then
+    echo "error: missing executable $python_bin; run repo setup before preflight" >&2
+    exit 1
+  fi
+  build_embedded_kernel "$selected_runtime_lr_range_kernel_dir"
+  validate_kernel_dir "$selected_runtime_lr_range_kernel_dir"
+  KAGGLE_FULL_DATASET_CONFIRMED=1 guard_selected_runtime_lr_range_push_ready \
+    "$selected_runtime_lr_range_kernel_dir" \
+    "$selected_runtime_lr_range_kernel_dir/kernel-metadata.json"
+  "$python_bin" -m pytest -q tests/test_selected_runtime_full_run.py \
+    -k 'spec0011_checked_in_winner_plan or spec0011_winner_plan_rejects or lr_range'
+}
+
 preflight_selected_runtime_full() {
   local python_bin="${PYTHON:-.venv/bin/python}"
 
@@ -2506,8 +2601,8 @@ preflight_selected_runtime_full() {
 
   PYTHONPATH=src "$python_bin" -m eqvae.cli.selected_runtime_gate \
     --verify-output \
-    --output-dir runs/kaggle/selected_runtime_debug_v5 \
-    --runtime-config runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json
+    --output-dir runs/kaggle/selected_runtime_debug \
+    --runtime-config configs/spec0001/non_eq_vae_selected_runtime.json
 
   build_embedded_kernel "$selected_runtime_full_kernel_dir"
   validate_kernel_dir "$selected_runtime_full_kernel_dir"
@@ -2637,6 +2732,9 @@ case "$action" in
   preflight-selected-runtime-debug)
     preflight_selected_runtime_debug
     ;;
+  preflight-selected-runtime-lr-range)
+    preflight_selected_runtime_lr_range
+    ;;
   preflight-selected-runtime-full)
     preflight_selected_runtime_full
     ;;
@@ -2750,6 +2848,12 @@ case "$action" in
     require_kaggle_cli
     kaggle_api kernels status "$kernel_id"
     ;;
+  status-selected-runtime-lr-range)
+    kernel_id="$(kernel_id_from_metadata "$selected_runtime_lr_range_kernel_dir")"
+    require_remote_confirmed
+    require_kaggle_cli
+    kaggle_api kernels status "$kernel_id"
+    ;;
   status-selected-runtime-full)
     kernel_id="$(kernel_id_from_metadata "$selected_runtime_full_kernel_dir")"
     require_remote_confirmed
@@ -2807,6 +2911,14 @@ case "$action" in
   output-selected-runtime-debug)
     kernel_id="$(kernel_id_from_metadata "$selected_runtime_debug_kernel_dir")"
     output_dir="${2:-$selected_runtime_debug_output_dir}"
+    require_remote_confirmed
+    require_kaggle_cli
+    mkdir -p "$output_dir"
+    kaggle_api kernels output "$kernel_id" -p "$output_dir"
+    ;;
+  output-selected-runtime-lr-range)
+    kernel_id="$(kernel_id_from_metadata "$selected_runtime_lr_range_kernel_dir")"
+    output_dir="${2:-$selected_runtime_lr_range_output_dir}"
     require_remote_confirmed
     require_kaggle_cli
     mkdir -p "$output_dir"

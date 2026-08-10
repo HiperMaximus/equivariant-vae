@@ -8,6 +8,7 @@ import base64
 import hashlib
 import io
 import json
+import math
 import os
 import subprocess  # noqa: S404
 import sys
@@ -37,14 +38,15 @@ KERNEL_METADATA = {
 DEFAULT_KAGGLE_OUTPUT_DIR = Path("/kaggle/working")
 LOCAL_FALLBACK_OUTPUT_DIR = Path("runs/kaggle/selected_runtime_full_local")
 BASELINE_SELECTED_RUNTIME = Path(
-    "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
+    "configs/spec0001/non_eq_vae_selected_runtime.json",
 )
 FULL_CONFIG = Path("configs/spec0001/non_eq_vae_selected_runtime_full.json")
+FULL_BETA_TARGET = 0.01
 # FULL_TARGET_UPDATES / FULL_HALF_EPOCH_INTERVAL are DERIVED per selected plan at build
 # time from floor(REAL_TRAIN_PATCH_COUNT / global_batch) in the kernel builder; the
 # literals here are the batch-24 default the builder rewrites for a non-24 plan.
-FULL_TARGET_UPDATES = 125000
-FULL_HALF_EPOCH_INTERVAL = 6250
+FULL_TARGET_UPDATES = 60000
+FULL_HALF_EPOCH_INTERVAL = 3000
 FULL_EPOCHS = 10
 IMPORT_ARTIFACT = "selected_runtime_full_import.json"
 EMBEDDED_PAYLOAD_B64 = """
@@ -108,6 +110,10 @@ def main() -> int:
         )
         if exit_code != 0:
             return exit_code
+        if os.environ.get("EQVAE_SELECTED_RUNTIME_FULL_RESUME"):
+            # Each Kaggle session is downloaded and kept separately. The strict
+            # whole-experiment verifier runs only after their CSVs are merged locally.
+            return 0
         return _verify_full_output(
             payload_src=payload_src,
             output_dir=output_dir,
@@ -309,6 +315,7 @@ def _validate_baseline_selected_runtime(path: Path) -> None:
 def _validate_full_config(path: Path) -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
     run = payload.get("run")
+    objective = payload.get("objective")
     training = payload.get("training")
     if (
         not isinstance(run, dict)
@@ -317,6 +324,14 @@ def _validate_full_config(path: Path) -> None:
         raise RuntimeError("full config run.mode mismatch")
     if not isinstance(training, dict):
         raise RuntimeError("full config training must be an object")
+    beta = objective.get("beta") if isinstance(objective, dict) else None
+    beta_target = beta.get("target") if isinstance(beta, dict) else None
+    if (
+        not isinstance(beta_target, int | float)
+        or isinstance(beta_target, bool)
+        or not math.isclose(float(beta_target), FULL_BETA_TARGET)
+    ):
+        raise RuntimeError("full config objective.beta.target must be locked to 0.01")
     # The step schedule (optimizer_updates_per_epoch, max_train_steps,
     # half_epoch_interval_steps, save_every_steps) is DERIVED by the runner from
     # epochs * floor(real_train_patch_count / global_batch) via the selected-runtime

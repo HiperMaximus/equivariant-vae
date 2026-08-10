@@ -41,12 +41,20 @@ def test_auto_data_root_uses_env_without_cwd_dependence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`auto` checks the environment path before repo-local candidates."""
+    """The environment root has deliberate precedence over another complete root.
+
+    Operators use the environment variable to select a mounted dataset regardless of
+    CWD. This policy assertion catches reordering auto candidates while deriving the
+    expected path from the fixture rather than a machine-specific location.
+    """
     root = tmp_path / "env-data-root"
+    competing_root = tmp_path / "known-auto-root"
     other_cwd = tmp_path / "other-cwd"
     other_cwd.mkdir()
     _write_complete_root(root)
+    _write_complete_root(competing_root)
     monkeypatch.setenv(DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setattr(roots, "KNOWN_AUTO_DATA_ROOTS", (competing_root,))
     monkeypatch.chdir(other_cwd)
 
     paths = resolve_patch_data_paths("auto")
@@ -134,12 +142,21 @@ def test_data_root_diagnostics_report_kaggle_input_snapshot(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Diagnostics expose safe mount paths and missing files for logs/artifacts."""
+    """Diagnostics derive complete and missing-path evidence for each candidate.
+
+    Actionable logs must distinguish an accepted Kaggle mount from an incomplete
+    fallback. These fixture-derived values catch a producer that reports only candidate
+    presence, hardcodes completeness, or drops the exact missing-file inventory.
+    """
     kaggle_input = tmp_path / "kaggle" / "input"
     mounted_root = kaggle_input / "patches-pre-shuffled-ubc-ocean"
+    incomplete_root = tmp_path / "incomplete-root"
     _write_complete_root(mounted_root)
+    incomplete_dataset = incomplete_root / "dataset"
+    incomplete_dataset.mkdir(parents=True)
+    (incomplete_dataset / TRAIN_BIN_NAME).write_bytes(b"")
     monkeypatch.setattr(roots, "KAGGLE_INPUT_ROOT", kaggle_input)
-    monkeypatch.setattr(roots, "KNOWN_AUTO_DATA_ROOTS", ())
+    monkeypatch.setattr(roots, "KNOWN_AUTO_DATA_ROOTS", (incomplete_root,))
     monkeypatch.delenv(DATA_ROOT_ENV_VAR, raising=False)
 
     diagnostics = roots.data_root_resolution_diagnostics("auto")
@@ -158,6 +175,17 @@ def test_data_root_diagnostics_report_kaggle_input_snapshot(
         candidate["candidate_is_expected_kaggle_mount"] is True
         for candidate in accepted_candidates
     )
+    incomplete = next(
+        candidate
+        for candidate in candidates
+        if candidate["candidate_root"] == str(incomplete_root)
+    )
+    assert incomplete["complete"] is False
+    assert incomplete["missing_paths"] == [
+        str(incomplete_dataset / TRAIN_CSV_NAME),
+        str(incomplete_dataset / VALIDATION_BIN_NAME),
+        str(incomplete_dataset / VALIDATION_CSV_NAME),
+    ]
     assert diagnostics["complete_unaccepted_candidate_count"] == 0
     snapshot = cast("list[dict[str, object]]", diagnostics["kaggle_input_snapshot"])
     assert any(
@@ -166,9 +194,23 @@ def test_data_root_diagnostics_report_kaggle_input_snapshot(
 
 
 def test_missing_data_root_reports_all_required_files(tmp_path: Path) -> None:
-    """Missing roots fail before a loader can use an incomplete shard."""
-    with pytest.raises(FileNotFoundError, match=TRAIN_BIN_NAME):
+    """A missing root reports the full derived four-file shard requirement.
+
+    Complete diagnostics matter because train and validation files must arrive as a
+    unit. This expected-name set is deliberate schema policy and catches error handling
+    that mentions only the first missing file.
+    """
+    with pytest.raises(FileNotFoundError) as exc_info:
         resolve_patch_data_paths(tmp_path / "missing")
+
+    message = str(exc_info.value)
+    for filename in (
+        TRAIN_BIN_NAME,
+        TRAIN_CSV_NAME,
+        VALIDATION_BIN_NAME,
+        VALIDATION_CSV_NAME,
+    ):
+        assert filename in message
 
 
 def _write_complete_root(root: Path) -> None:

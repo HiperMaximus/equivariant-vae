@@ -14,7 +14,9 @@
   "runtime": {
     "machine_shape": "NvidiaTeslaT4",
     "remote_execution_requires_permission": true,
-    "selected_runtime_required": true
+    "selected_runtime_required": true,
+    "runtime_config": "configs/spec0001/non_eq_vae_selected_runtime.json",
+    "learning_rate_source": "kaggle_lr_range_v1_manual_plateau_selection"
   },
   "selected_runtime_debug": {
     "benchmark_kind": "kaggle_selected_runtime_debug_resume_tiny_gate",

@@ -46,7 +46,7 @@ KERNEL_METADATA = {
 DEFAULT_KAGGLE_OUTPUT_DIR = Path("/kaggle/working")
 LOCAL_FALLBACK_OUTPUT_DIR = Path("runs/kaggle/selected_runtime_debug_local")
 BASELINE_SELECTED_RUNTIME = Path(
-    "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json",
+    "configs/spec0001/non_eq_vae_selected_runtime.json",
 )
 DEBUG_CONFIG = Path("configs/spec0001/non_eq_vae_selected_runtime_debug.json")
 TINY_CONFIG = Path("configs/spec0001/non_eq_vae_kaggle_tiny_overfit.json")
@@ -58,11 +58,11 @@ DEBUG_FINAL_STEP = 8
 TINY_MAX_STEP = 128
 TINY_SAVE_EVERY_STEP = 64
 FIXED_TINY_SELECTOR_COUNT = 32
-TINY_MIN_IMPROVEMENT_FRACTION = 0.01
+TINY_MIN_IMPROVEMENT_FRACTION = 0.05
 TINY_FULL_BATCH_SAMPLER_POLICY = "fixed32_tiny_full_batch_repeated"
-TINY_EXPECTED_BATCH_SIZE = 12
-TINY_EFFECTIVE_GLOBAL_EPOCH_SAMPLES = 48
-TINY_EFFECTIVE_PER_RANK_EPOCH_SAMPLES = 24
+TINY_EXPECTED_BATCH_SIZE = 25
+TINY_EFFECTIVE_GLOBAL_EPOCH_SAMPLES = 50
+TINY_EFFECTIVE_PER_RANK_EPOCH_SAMPLES = 25
 AMP_GRAD_SCALER_INIT_SCALE = 16384.0
 IMPORT_ARTIFACT = "selected_runtime_debug_import.json"
 ALLOWED_BENCHMARK_ARTIFACTS = {
@@ -177,7 +177,6 @@ def _run_selected_runtime_debug(output_dir: Path) -> int:
             output_dir=output_dir,
             selected_runtime_path=selected_runtime_path,
             data_root=data_root_value,
-            fixed_train_patches=generated_selector_path,
         )
         if exit_code != 0:
             return exit_code
@@ -332,14 +331,13 @@ def _selector_generation_failure_kind(selector_status: dict[str, object]) -> str
     return "fixed32_remote_selector_not_canonical_real"
 
 
-def _run_real_selected_runtime_debug(  # noqa: PLR0913
+def _run_real_selected_runtime_debug(
     *,
     payload_src: Path,
     payload_dir: Path,
     output_dir: Path,
     selected_runtime_path: Path,
     data_root: str,
-    fixed_train_patches: Path,
 ) -> int:
     phase1_dir = output_dir / "resume_probe_phase1"
     phase1_args = [
@@ -351,8 +349,6 @@ def _run_real_selected_runtime_debug(  # noqa: PLR0913
         "ubc-pre-shuffled",
         "--data-root",
         data_root,
-        "--fixed-train-patches",
-        str(fixed_train_patches),
         "--output-dir",
         str(phase1_dir),
         "--run-name",
@@ -383,8 +379,6 @@ def _run_real_selected_runtime_debug(  # noqa: PLR0913
         "ubc-pre-shuffled",
         "--data-root",
         data_root,
-        "--fixed-train-patches",
-        str(fixed_train_patches),
         "--output-dir",
         str(output_dir),
         "--run-name",
@@ -713,7 +707,8 @@ def _assert_import_origin(*, module_file: Path, payload_src: Path) -> None:
 def _validate_baseline_selected_runtime(path: Path) -> None:
     # Spec 0011 S17b-3: delegate to the single-source plan validator instead of the
     # hand-mirrored _baseline_* checks, which had drifted to still literal-pin
-    # identity, the AMP recipe, and batch 12/24 while the parser was de-pinned in
+    # identity, the AMP recipe, and the historical 12/24 batch while the parser was
+    # de-pinned in
     # S17a/S17b to accept a re-measured compiled winner. selected_runtime_plan_errors
     # is the same gatekeeper debug.py parses through at launch, keeps every hardware
     # and topology anchor pinned, and selected_runtime_path=None skips only the
@@ -960,7 +955,7 @@ def _validate_real_runner_artifacts(  # noqa: C901, PLR0912, PLR0914, PLR0915
         message = "selected-runtime tiny-overfit per-rank epoch samples mismatch"
         raise RuntimeError(message)
     if tiny_summary.get("observed_batch_sizes") != [TINY_EXPECTED_BATCH_SIZE]:
-        message = "selected-runtime tiny-overfit did not use full bs12 batches"
+        message = "selected-runtime tiny-overfit did not use full batch-25 batches"
         raise RuntimeError(message)
     if tiny_summary.get("l1_improvement_fraction", 0.0) < TINY_MIN_IMPROVEMENT_FRACTION:
         message = "selected-runtime tiny-overfit L1 improvement is below threshold"

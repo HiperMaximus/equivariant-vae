@@ -60,7 +60,6 @@ from eqvae.data.roots import (
 )
 from eqvae.data.synthetic import SyntheticPatchSpec, write_synthetic_patch_shard
 
-_EXPECTED_SETUP_APPLIED_COUNT = 2
 _EXPECTED_SYNTHETIC_TIMING_BLOCKED_CLAIMS = {
     "final_batch_size",
     "final_precision_policy",
@@ -103,12 +102,10 @@ _EMBEDDED_PAYLOAD_B64_PATTERN = re.compile(
 _MASKED_HOLDOUT_CSV_PAYLOAD_PATH = "docs/data/ubc_ocean_masked_holdout_ids.csv"
 _EXPECTED_SELECTED_RUNTIME_DEBUG_RUNNER_CALLS = 2
 _FULL_EPOCHS = 10
-_FULL_TARGET_UPDATES = 125000
-_FULL_HALF_EPOCH_INTERVAL = 6250
+_FULL_TARGET_UPDATES = 60000
+_FULL_HALF_EPOCH_INTERVAL = 3000
 _FULL_CONFIG_PAYLOAD_PATH = "configs/spec0001/non_eq_vae_selected_runtime_full.json"
-_SELECTED_RUNTIME_PAYLOAD_PATH = (
-    "runs/kaggle/runtime_selection_v5/benchmark/selected_runtime.json"
-)
+_SELECTED_RUNTIME_PAYLOAD_PATH = "configs/spec0001/non_eq_vae_selected_runtime.json"
 _FULL_PUSH_GUARD_HEREDOC_PATTERN = re.compile(
     r"<<'PYFULLPAYLOAD'\n(?P<body>.*?)\nPYFULLPAYLOAD",
     flags=re.DOTALL,
@@ -118,7 +115,7 @@ _DEBUG_PUSH_GUARD_HEREDOC_PATTERN = re.compile(
     flags=re.DOTALL,
 )
 _FULL_TARGET_UPDATES_TOKEN = f"FULL_TARGET_UPDATES = {_FULL_TARGET_UPDATES}"
-_FULL_UPDATES_PER_EPOCH = 12500
+_FULL_UPDATES_PER_EPOCH = 6000
 _BUILD_SCRIPT_MODULE = "build_kaggle_embedded_kernel"
 # A NON-dividing batch (64 does not divide REAL_TRAIN_PATCH_COUNT=300000): floor
 # 300000//64 = 4687 differs from ceil 4688, so the derive test genuinely guards floor.
@@ -139,7 +136,12 @@ class UploadSimulation:
 def test_embedded_setup_kernel_survives_single_file_upload_simulation(
     tmp_path: Path,
 ) -> None:
-    """The setup smoke works when only metadata plus `run.py` are present."""
+    """The embedded setup smoke proves bounded corruption after single-file upload.
+
+    Upload survival and nonzero changed inputs are deliberate requirements; corruption
+    totals are derived from bounded per-step counts rather than a frozen RNG draw. This
+    catches payload/import breakage or false aggregation without retaining blake2b.
+    """
     repo_root = Path(__file__).resolve().parents[1]
     simulation = _build_upload_simulation(
         tmp_path=tmp_path,
@@ -160,6 +162,7 @@ def test_embedded_setup_kernel_survives_single_file_upload_simulation(
     data = cast("dict[str, object]", payload["data"])
     runtime = cast("dict[str, object]", payload["runtime"])
     train = cast("dict[str, object]", payload["train"])
+    limits = cast("dict[str, object]", payload["limits"])
     manifest = cast("dict[str, object]", payload["payload_manifest"])
     assert payload["status"] == "smoke_pass"
     assert payload["status_scope"] == "non_promotable_setup_smoke"
@@ -170,7 +173,15 @@ def test_embedded_setup_kernel_survives_single_file_upload_simulation(
     assert not data["dataset_slug"]
     assert data["origin"] == _expected_data_origin(tmp_path)
     assert runtime["requires_cuda_t4"] is False
-    assert train["total_applied_count"] == _EXPECTED_SETUP_APPLIED_COUNT
+    applied_counts = cast("list[int]", train["applied_counts"])
+    steps_completed = cast("int", train["steps_completed"])
+    batch_size = cast("int", limits["batch_size"])
+    total_applied_count = cast("int", train["total_applied_count"])
+    assert len(applied_counts) == steps_completed
+    assert all(0 <= count <= batch_size for count in applied_counts)
+    assert total_applied_count == sum(applied_counts)
+    assert 0 < total_applied_count <= steps_completed * batch_size
+    assert max(cast("list[float]", train["input_target_delta_maxes"])) > 0.0
     assert manifest["schema_version"] == "spec0001.kaggle_payload_manifest.v1"
 
 
@@ -457,7 +468,12 @@ def test_embedded_runtime_selection_kernel_import_simulation(
 def test_embedded_fixed25_selector_kernel_import_simulation(
     tmp_path: Path,
 ) -> None:
-    """Fixed-25 selector kernel imports and carries the selector configs + CLIs."""
+    """Import-only fixed-25 execution records payload and runtime-stack evidence.
+
+    The resolved Torch/CUDA artifact is measured producer evidence required for stack
+    parity, not a self-attested flag. These assertions catch removing its writer or
+    returning from the import-only path before the upgraded runtime is recorded.
+    """
     repo_root = Path(__file__).resolve().parents[1]
     simulation = _build_upload_simulation(
         tmp_path=tmp_path,
@@ -478,7 +494,18 @@ def test_embedded_fixed25_selector_kernel_import_simulation(
     benchmark_dir = simulation.output_dir / "benchmark"
     assert {path.name for path in benchmark_dir.iterdir()} == {
         "fixed25_selector_import.json",
+        "fixed25_selector_runtime_environment.json",
     }
+    runtime_environment = _load_json(
+        benchmark_dir / "fixed25_selector_runtime_environment.json",
+    )
+    assert runtime_environment["status"] == "pass"
+    assert (
+        runtime_environment["benchmark_kind"] == "fixed25_selector_runtime_environment"
+    )
+    assert isinstance(runtime_environment["torch_version"], str)
+    assert runtime_environment["torch_version"]
+    assert isinstance(runtime_environment["cuda_available"], bool)
     payload = _load_json(benchmark_dir / "fixed25_selector_import.json")
     manifest = cast("dict[str, object]", payload["payload_manifest"])
     assert payload["status"] == "import_smoke_pass"
@@ -499,7 +526,13 @@ def test_embedded_fixed25_selector_kernel_import_simulation(
 def test_embedded_runtime_selection_kernel_full_local_fail_closed_simulation(
     tmp_path: Path,
 ) -> None:
-    """Generated runtime-selection launcher validates fail-closed artifacts."""
+    """A dataset-free local launch must fail without fabricating a winner.
+
+    This executes the generated single-file launcher rather than inspecting source text.
+    A missing data root must still write diagnostic artifacts and omit
+    ``selected_runtime.json``; returning success-ready evidence catches a fail-open
+    kernel.
+    """
     repo_root = Path(__file__).resolve().parents[1]
     simulation = _build_upload_simulation(
         tmp_path=tmp_path,
@@ -604,7 +637,7 @@ def test_embedded_selected_runtime_full_kernel_import_simulation(
     environment = _run_environment(simulation.output_dir)
     environment["EQVAE_SELECTED_RUNTIME_FULL_IMPORT_ONLY"] = "1"
     environment["EQVAE_SELECTED_RUNTIME_FULL_OUTPUT_DIR"] = str(simulation.output_dir)
-    resume_checkpoint = simulation.output_dir / "checkpoints" / "step_006250.pt"
+    resume_checkpoint = simulation.output_dir / "checkpoints" / "step_003000.pt"
     environment["EQVAE_SELECTED_RUNTIME_FULL_RESUME"] = str(resume_checkpoint)
 
     subprocess.run(  # noqa: S603
@@ -638,6 +671,33 @@ def test_embedded_selected_runtime_full_kernel_import_simulation(
     assert _RUNTIME_SELECTION_BASELINE_PAYLOAD_FILES.issubset(
         _embedded_payload_names(simulation.upload_dir / "run.py"),
     )
+
+
+def test_embedded_selected_runtime_lr_range_kernel_is_self_contained(
+    tmp_path: Path,
+) -> None:
+    """The LR kernel ships the bounded runner/plan without retired search machinery."""
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="selected_runtime_lr_range",
+        ready_marker="KAGGLE_SELECTED_RUNTIME_LR_RANGE_READY = True",
+    )
+    run_path = simulation.upload_dir / "run.py"
+    run_text = run_path.read_text(encoding="utf-8")
+    names = _embedded_payload_names(run_path)
+
+    assert "--nproc_per_node=2" in run_text
+    assert "EXPECTED_UPDATES = 192" in run_text
+    assert "EXPECTED_START_LR = 2e-5" in run_text
+    assert "EXPECTED_END_LR = 3e-3" in run_text
+    assert "configs/spec0001/non_eq_vae_selected_runtime.json" in names
+    assert "configs/spec0001/non_eq_vae_runtime_winner.json" in names
+    assert "configs/spec0001/non_eq_vae_selected_runtime_lr_range.json" in names
+    assert "src/eqvae/training/selected_runtime_runner.py" in names
+    assert not any("runtime_recipe_bakeoff" in name for name in names)
+    assert not any(name in names for name in _RUNTIME_SELECTION_BASELINE_PAYLOAD_FILES)
 
 
 def test_selected_runtime_full_push_rejects_preflight_dirty_bypass_env(
@@ -734,6 +794,33 @@ def test_full_push_guard_rejects_refrozen_schedule_key(tmp_path: Path) -> None:
     )
     assert result.returncode != 0
     assert "must not re-freeze" in result.stderr
+
+
+def test_full_push_guard_rejects_beta_target_drift(tmp_path: Path) -> None:
+    """The shell push guard independently pins the accepted beta-0.01 policy."""
+    repo_root = Path(__file__).resolve().parents[1]
+    simulation = _build_upload_simulation(
+        tmp_path=tmp_path,
+        repo_root=repo_root,
+        kernel_name="selected_runtime_full",
+        ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
+    )
+    run_py = simulation.upload_dir / "run.py"
+    run_py.write_text(
+        _rewrite_embedded_payload(
+            run_py.read_text(encoding="utf-8"),
+            _set_rejected_beta_target,
+        ),
+        encoding="utf-8",
+    )
+    guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
+    result = _run_push_guard(
+        guard_py=guard_py,
+        run_py=run_py,
+        repo_root=repo_root,
+    )
+    assert result.returncode != 0
+    assert "objective.beta.target must be locked to 0.01" in result.stderr
 
 
 def test_full_push_guard_rejects_off_derivation_updates(tmp_path: Path) -> None:
@@ -986,14 +1073,7 @@ def test_build_derives_non_reference_full_schedule(tmp_path: Path) -> None:
     fake_repo = tmp_path / "repo"
     (fake_repo / "src").mkdir(parents=True)
     (fake_repo / "src" / "eqvae").symlink_to(repo_root / "src" / "eqvae")
-    plan_path = (
-        fake_repo
-        / "runs"
-        / "kaggle"
-        / "runtime_selection_v5"
-        / "benchmark"
-        / "selected_runtime.json"
-    )
+    plan_path = fake_repo / "configs" / "spec0001" / "non_eq_vae_selected_runtime.json"
     plan_path.parent.mkdir(parents=True)
     plan_path.write_text(
         json.dumps({"global_batch_size": _NON_REFERENCE_GLOBAL_BATCH}),
@@ -1002,7 +1082,7 @@ def test_build_derives_non_reference_full_schedule(tmp_path: Path) -> None:
     config_path = (
         fake_repo / "configs" / "spec0001" / "non_eq_vae_selected_runtime_full.json"
     )
-    config_path.parent.mkdir(parents=True)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
         json.dumps({"training": {"epochs": _FULL_EPOCHS}}),
         encoding="utf-8",
@@ -1460,7 +1540,6 @@ def test_selected_runtime_debug_real_runner_uses_resume_sequence(
     payload_src = payload_dir / "src"
     output_dir = tmp_path / "output"
     selected_runtime_path = tmp_path / "selected_runtime.json"
-    fixed_train_patches = tmp_path / "fixed_32_train_overfit_patches.json"
 
     def fake_selected_runtime_train(*, payload_src: Path, args: object) -> int:
         values = _arg_tuple(args)
@@ -1484,7 +1563,6 @@ def test_selected_runtime_debug_real_runner_uses_resume_sequence(
         output_dir=output_dir,
         selected_runtime_path=selected_runtime_path,
         data_root="auto",
-        fixed_train_patches=fixed_train_patches,
     )
 
     assert exit_code == 0
@@ -1499,7 +1577,7 @@ def test_selected_runtime_debug_real_runner_uses_resume_sequence(
     assert _option_value(phase1, "--max-train-steps") == "4"
     assert _option_value(phase1, "--save-every-steps") == "4"
     assert _option_value(phase1, "--data") == "ubc-pre-shuffled"
-    assert _option_value(phase1, "--fixed-train-patches") == str(fixed_train_patches)
+    assert "--fixed-train-patches" not in phase1
     assert _option_value(phase2, "--output-dir") == str(output_dir)
     assert _option_value(phase2, "--resume") == str(
         output_dir / "resume_probe_phase1" / "checkpoints" / "step_000004.pt",
@@ -1507,7 +1585,7 @@ def test_selected_runtime_debug_real_runner_uses_resume_sequence(
     assert _option_value(phase2, "--max-train-steps") == "8"
     assert _option_value(phase2, "--save-every-steps") == "4"
     assert _option_value(phase2, "--data") == "ubc-pre-shuffled"
-    assert _option_value(phase2, "--fixed-train-patches") == str(fixed_train_patches)
+    assert "--fixed-train-patches" not in phase2
 
 
 def test_selected_runtime_debug_tiny_runner_uses_generated_selector(
@@ -1541,12 +1619,14 @@ def test_selected_runtime_debug_tiny_runner_uses_generated_selector(
                     "nonfinite_count": 0,
                     "grad_scaler_init_scale": run_template.AMP_GRAD_SCALER_INIT_SCALE,
                     "train_sampler_policy": "fixed32_tiny_full_batch_repeated",
-                    "train_effective_global_epoch_samples": 48,
-                    "train_effective_per_rank_epoch_samples": 24,
+                    "train_effective_global_epoch_samples": 50,
+                    "train_effective_per_rank_epoch_samples": 25,
                     "fixed_train_repeated_to_full_batch": True,
-                    "observed_batch_sizes": [12],
-                    "l1_improvement_fraction": 0.02,
-                    "recon_loss_improvement_fraction": 0.02,
+                    "observed_batch_sizes": [25],
+                    "observed_ranks": [0, 1],
+                    "complete_two_rank_update_coverage": True,
+                    "l1_improvement_fraction": 0.08,
+                    "recon_loss_improvement_fraction": 0.08,
                 },
                 sort_keys=True,
             ),
@@ -1661,7 +1741,60 @@ def test_embedded_kernel_verify_rejects_stale_template(tmp_path: Path) -> None:
     )
 
     assert completed.returncode != 0
-    assert "payload template does not match current run_template.py" in completed.stderr
+    assert "generated run.py wrapper does not match current run_template.py" in (
+        completed.stderr
+    )
+
+
+def test_embedded_kernel_verify_rejects_tampered_wrapper(tmp_path: Path) -> None:
+    """Ignored run.py code outside the payload must match the tracked template.
+
+    The clean-tree manifest covers embedded files, but Kaggle executes the surrounding
+    wrapper first. A local edit that bypasses the mandatory Torch upgrade must therefore
+    fail verification even when every payload hash remains valid.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    source_kernel = repo_root / "kaggle" / "kernels" / "setup_smoke"
+    build_script = repo_root / "scripts" / "build_kaggle_embedded_kernel.py"
+    generated_kernel = tmp_path / "generated_setup_smoke"
+    generated_kernel.mkdir()
+    shutil.copy2(source_kernel / "kernel-metadata.json", generated_kernel)
+
+    base_command = (
+        sys.executable,
+        str(build_script),
+        "--repo-root",
+        str(repo_root),
+        "--kernel-dir",
+        str(generated_kernel),
+        "--template",
+        str(source_kernel / "run_template.py"),
+        "--ready-marker",
+        "KAGGLE_SETUP_SMOKE_READY = True",
+        "--allow-dirty",
+    )
+    subprocess.run(base_command, cwd=repo_root, check=True)  # noqa: S603
+    run_path = generated_kernel / "run.py"
+    run_text = run_path.read_text(encoding="utf-8")
+    run_path.write_text(
+        run_text.replace(
+            "    _ensure_latest_torch(cpu_only=True)",
+            "    if False:\n        _ensure_latest_torch(cpu_only=True)",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(  # noqa: S603
+        (*base_command, "--verify-only"),
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "wrapper does not match current run_template.py" in completed.stderr
 
 
 def _build_upload_simulation(
@@ -1877,6 +2010,14 @@ def _set_float_epochs(members: dict[str, bytes]) -> None:
     config = cast("dict[str, object]", json.loads(members[_FULL_CONFIG_PAYLOAD_PATH]))
     training = cast("dict[str, object]", config["training"])
     training["epochs"] = float(_FULL_EPOCHS)
+    members[_FULL_CONFIG_PAYLOAD_PATH] = json.dumps(config).encode("utf-8")
+
+
+def _set_rejected_beta_target(members: dict[str, bytes]) -> None:
+    config = cast("dict[str, object]", json.loads(members[_FULL_CONFIG_PAYLOAD_PATH]))
+    objective = cast("dict[str, object]", config["objective"])
+    beta = cast("dict[str, object]", objective["beta"])
+    beta["target"] = 0.1
     members[_FULL_CONFIG_PAYLOAD_PATH] = json.dumps(config).encode("utf-8")
 
 

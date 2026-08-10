@@ -39,6 +39,7 @@ _CANONICAL_CAP_VALIDATION_PATCHES = 2_048
 _CANONICAL_WINDOW_PATCHES = 2_048
 _CANONICAL_VALIDATION_WINDOW_PATCHES = 1_024
 _TEST_GATE_QUANTILE_CAP = 4
+_TEST_COMPILED_BATCH_SIZE = 2
 _FLOAT_TOLERANCE = 1.0e-6
 _RUNTIME_BENCHMARK_CONFIG = Path(
     "configs/spec0001/non_eq_vae_kaggle_runtime_benchmark.json",
@@ -551,53 +552,28 @@ def test_model_for_compile_scope_leaves_whole_step_uncompiled() -> None:
     assert forward_result is not model
 
 
-def test_build_compiled_step_rejects_amp_precision() -> None:
-    """The single-GPU compiled-step builder fails closed on an AMP precision (S14b).
-
-    The compiled closure hardcodes fp32 (no autocast, no GradScaler) to mirror the
-    runner's fp32 fast path, so an AMP precision must raise rather than silently screen
-    fp32. The guard runs before any CUDA work, so this is CPU-safe.
-    """
-    from eqvae.corruption.stain import profile_from_config  # noqa: PLC0415
-    from eqvae.models.registry import (  # noqa: PLC0415
-        MODEL_KIND_NON_EQ_TRANSLATABLE,
-        build_model,
-    )
-
-    settings = pretest._settings(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-        resolve_json_config(_RUNTIME_BENCHMARK_CONFIG),
-        data_root_override=None,
-    )
-    amp_step_spec = replace(
-        _first_single_visible_step_row_spec(settings),
-        precision_policy="amp_conservative",
-    )
-    model = build_model(
-        MODEL_KIND_NON_EQ_TRANSLATABLE,
-        model_config={"norm_groups": settings.norm_groups},
-    )
-    profile = profile_from_config(settings.corruption_config)
-
-    with pytest.raises(ValueError, match="precision_policy must be"):
-        pretest._build_compiled_step(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-            raw_model=model,
-            device=torch.device("cpu"),
-            profile=profile,
-            settings=settings,
-            row_spec=amp_step_spec,
-        )
-
-
+@pytest.mark.parametrize(
+    ("precision_policy", "autocast_dtype", "grad_scaler_enabled", "expected_dtype"),
+    [
+        ("amp_off_fp32", "float32", False, torch.float32),
+        ("amp_conservative", "float16", True, torch.float16),
+    ],
+)
 def test_build_compiled_step_wires_the_measured_recipe(
     monkeypatch: pytest.MonkeyPatch,
+    precision_policy: str,
+    autocast_dtype: str,
+    grad_scaler_enabled: object,
+    expected_dtype: torch.dtype,
 ) -> None:
-    """_build_compiled_step threads the S14a recipe into the compiled step (S14b).
+    """_build_compiled_step threads fp32 and AMP recipes into the compiled step.
 
     Spies on the three recipe seams (dynamo config, the step-fn factory, torch.compile)
-    prove the single-GPU builder wires the row's knobs, forwards fp32/no-autocast,
-    returns the model unwrapped, and compiles ``dynamic=False`` on the inductor backend
-    -- the same recipe the dual-T4 executor measures and the runner consumes. CPU-safe:
-    ``torch.compile`` and the factory are stubbed, so nothing is actually traced.
+    prove the single-GPU builder wires the row's knobs and the requested autocast,
+    returns the model unwrapped, and compiles ``dynamic=False`` on inductor. The AMP
+    case replaces the stale rejection contract: deleting row-derived autocast now
+    makes the float16 case fail instead of blessing a silently measured fp32 recipe.
+    CPU-safe: ``torch.compile`` and the factory are stubbed, so nothing is traced.
     """
     from eqvae.corruption.stain import profile_from_config  # noqa: PLC0415
     from eqvae.models.registry import (  # noqa: PLC0415
@@ -610,7 +586,12 @@ def test_build_compiled_step_wires_the_measured_recipe(
         resolve_json_config(_RUNTIME_BENCHMARK_CONFIG),
         data_root_override=None,
     )
-    step_spec = _first_single_visible_step_row_spec(settings)
+    step_spec = replace(
+        _first_single_visible_step_row_spec(settings),
+        precision_policy=precision_policy,
+        autocast_dtype=autocast_dtype,
+        grad_scaler_enabled=bool(grad_scaler_enabled),
+    )
     model = build_model(
         MODEL_KIND_NON_EQ_TRANSLATABLE,
         model_config={"norm_groups": settings.norm_groups},
@@ -669,12 +650,111 @@ def test_build_compiled_step_wires_the_measured_recipe(
     ]
     assert len(make_calls) == 1
     assert make_calls[0]["model"] is model
-    assert make_calls[0]["autocast_enabled"] is False
-    assert make_calls[0]["autocast_dtype"] is torch.float32
+    assert make_calls[0]["autocast_enabled"] is bool(grad_scaler_enabled)
+    assert make_calls[0]["autocast_dtype"] is expected_dtype
     assert make_calls[0]["ssim_weight"] == settings.ssim_weight
     assert compile_calls == [
         ("step_fn_sentinel", False, pretest._STEP_COMPILE_BACKEND),  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
     ]
+
+
+def test_run_compiled_step_batch_forwards_amp_scaler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The compiled pretest step forwards its persistent scaler and AMP policy.
+
+    Builder-level autocast proof is insufficient if the driver later performs an
+    ordinary optimizer step. This spy guards the second A2 seam: the exact scaler built
+    by the child reaches the shared scale/unscale/clip/update helper, its skip result is
+    returned to telemetry, and the row's enabled flag is not replaced by a constant.
+    """
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from eqvae.data.training_batches import PatchTrainingBatch  # noqa: PLC0415
+    from eqvae.models.registry import (  # noqa: PLC0415
+        MODEL_KIND_NON_EQ_TRANSLATABLE,
+        build_model,
+    )
+
+    settings = pretest._settings(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        resolve_json_config(_RUNTIME_BENCHMARK_CONFIG),
+        data_root_override=None,
+    )
+    row_spec = replace(
+        _first_single_visible_step_row_spec(settings),
+        precision_policy="amp_conservative",
+        autocast_dtype="float16",
+        grad_scaler_enabled=True,
+    )
+    model = build_model(
+        MODEL_KIND_NON_EQ_TRANSLATABLE,
+        model_config={"norm_groups": settings.norm_groups},
+    )
+    optimizer = torch.optim.AdamW(model.parameters())
+    scaler = cast("torch.amp.GradScaler", object())
+    calls: list[dict[str, object]] = []
+
+    def fake_optimizer_step(**kwargs: object) -> bool:
+        calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr(pretest, "run_fastpath_optimizer_step", fake_optimizer_step)
+    batch = PatchTrainingBatch(
+        images_uint8=torch.zeros(
+            (
+                _TEST_COMPILED_BATCH_SIZE,
+                settings.channels,
+                settings.image_size,
+                settings.image_size,
+            ),
+            dtype=torch.uint8,
+        ),
+        split="train",
+        file_indices=(),
+        row_indices=(),
+        wsi_ids=(),
+        labels=(),
+        xs=(),
+        ys=(),
+        semantic_sample_keys=(),
+        sample_ids=(),
+    )
+    output = SimpleNamespace(loss=torch.tensor(1.0))
+
+    def fake_compiled_step(*args: torch.Tensor) -> object:
+        del args
+        return output
+
+    def fake_beta(
+        *,
+        optimizer_step_index: int,
+        max_optimizer_steps: int,
+        target_beta: float,
+        warmup_fraction: float,
+    ) -> float:
+        del optimizer_step_index, max_optimizer_steps, target_beta, warmup_fraction
+        return 0.0
+
+    batch_size, skipped = pretest._run_compiled_step_batch(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        iterator=iter([batch]),
+        compiled_step_fn=fake_compiled_step,
+        optimizer=optimizer,
+        scaler=scaler,
+        model=model,
+        device=torch.device("cpu"),
+        settings=settings,
+        step_index=0,
+        row_spec=row_spec,
+        latent_channels=model.latent_channels,
+        beta_for_step_fn=fake_beta,
+    )
+
+    assert batch_size == _TEST_COMPILED_BATCH_SIZE
+    assert skipped is True
+    assert len(calls) == 1
+    assert calls[0]["scaler"] is scaler
+    assert calls[0]["grad_scaler_enabled"] is True
+    assert calls[0]["optimizer"] is optimizer
 
 
 def test_step_compile_backend_matches_dual_t4_executor() -> None:
@@ -1425,3 +1505,43 @@ def test_accelerator_observation_stamps_torch_and_cuda_version() -> None:
 
     assert observation["torch_version"] == str(torch.__version__)
     assert observation["cuda_version"] == torch.version.cuda
+
+
+def test_numerical_delta_fails_and_records_an_amp_skipped_proof_step() -> None:
+    """A skipped candidate update cannot masquerade as successful numerical proof.
+
+    The two steps are otherwise identical, so the skip bit is the only reason the
+    delta fails. Hardcoding the emitted field or omitting it from ``passed`` breaks both
+    assertions.
+    """
+    losses: JsonObject = {
+        "loss": 1.0,
+        "recon_loss": 1.0,
+        "l1_loss": 1.0,
+        "ssim_loss": 1.0,
+        "kl_loss": 1.0,
+    }
+    reference: JsonObject = {
+        "losses": losses,
+        "grad_norm": 1.0,
+        "param_update_norm": 1.0,
+        "x_hat_min": -0.5,
+        "x_hat_max": 0.5,
+        "mu_mean": 0.0,
+        "mu_std": 1.0,
+        "logvar_mean": 0.0,
+        "logvar_std": 1.0,
+        "nonfinite_count": 0,
+        "logvar_clamp_count": 0,
+        "amp_step_skipped": False,
+    }
+    candidate = dict(reference)
+    candidate["amp_step_skipped"] = True
+
+    delta = pretest._numerical_delta_payload(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        reference=reference,
+        candidate=candidate,
+    )
+
+    assert delta["passed"] is False
+    assert delta["amp_step_skipped"] is True

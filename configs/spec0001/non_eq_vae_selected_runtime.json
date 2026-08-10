@@ -1,0 +1,106 @@
+{
+  "schema_version": "spec0011.selected_runtime_plan.v1",
+  "status": "pass",
+  "benchmark_kind": "kaggle_runtime_selection",
+  "benchmark_source": "kaggle_runtime_benchmark",
+  "full_run_eligible": true,
+  "full_training_launch_ready": false,
+  "launch_blockers": [
+    "real_data_lr_range_pending",
+    "selected_runtime_debug_resume_pending",
+    "fixed32_tiny_overfit_pending"
+  ],
+  "source_winner": {
+    "path": "configs/spec0001/non_eq_vae_runtime_winner.json",
+    "sha256": "d25db74c3f227b3342783cbcd0abaf1ac7246508e1ba86ef5ae9e837964c9f54"
+  },
+  "accelerator_mode": "dual_t4_ddp",
+  "machine_shape": "NvidiaTeslaT4",
+  "world_size": 2,
+  "nproc_per_node": 2,
+  "per_device_batch_size": 25,
+  "global_batch_size": 50,
+  "gradient_accumulation_steps": 1,
+  "optimizer_updates_per_epoch": 6000,
+  "selected_row_id": "dual_t4_ddp__bs25__amp_conservative__compile_step__indexed_masked__policy_compile_step_python_reducer_fp16_channels_last",
+  "runtime_policy_id": "compile_step_python_reducer_fp16_channels_last",
+  "mixed_precision": {
+    "policy": "amp_conservative",
+    "enabled": true,
+    "autocast_dtype": "float16",
+    "autocast_cache_enabled": true,
+    "fp32_loss": true,
+    "grad_scaler_enabled": true
+  },
+  "torch_compile": {
+    "enabled": true,
+    "scope": "step",
+    "backend": "inductor",
+    "dynamic": false,
+    "mode": "default",
+    "cudagraphs": "mode_default",
+    "inductor_options_json": "{}",
+    "optimize_ddp": "python_reducer",
+    "compiled_autograd": true,
+    "reorder_compute_comm_overlap": true
+  },
+  "runtime_policy": {
+    "memory_format": "channels_last",
+    "cudnn_benchmark": true,
+    "cudnn_deterministic": false,
+    "deterministic_algorithms": false,
+    "tf32_enabled": true,
+    "matmul_precision": "high",
+    "ddp_static_graph": false,
+    "ddp_gradient_as_bucket_view": true,
+    "ddp_broadcast_buffers": false,
+    "ddp_find_unused_parameters": false,
+    "ddp_bucket_cap_mb": 50,
+    "ddp_forward_sync_buffers": null,
+    "communication_hook": "none",
+    "nccl_environment_json": "{}",
+    "fused_optimizer": true,
+    "gradient_clip_foreach": true,
+    "gradient_clip_foreach_applied": true,
+    "zero_grad_set_to_none": true
+  },
+  "dataloader": {
+    "num_workers": 0,
+    "prefetch_factor": null,
+    "pin_memory": false,
+    "persistent_workers": false,
+    "non_blocking_h2d": true,
+    "real_loader_status": "pending_direct_gate"
+  },
+  "corruption": {
+    "strategy": "indexed_masked",
+    "executed_training_path": "compiled_fastpath_inline_stain"
+  },
+  "safety": {
+    "amp_step_skipped_count": 0,
+    "corruption_check_status": "pass",
+    "dataloader_status": "pass",
+    "gate_health_status": "pass",
+    "numerical_check_status": "pass",
+    "real_loader_status": "pending_direct_gate"
+  },
+  "selected_row_snapshot": {
+    "row_id": "dual_t4_ddp__bs25__amp_conservative__compile_step__indexed_masked__policy_compile_step_python_reducer_fp16_channels_last",
+    "runtime_policy_id": "compile_step_python_reducer_fp16_channels_last",
+    "status": "pass",
+    "accelerator_mode": "dual_t4_ddp",
+    "machine_shape": "NvidiaTeslaT4",
+    "world_size": "2",
+    "nproc_per_node": "2",
+    "precision_policy": "amp_conservative",
+    "per_device_batch_size": "25",
+    "global_batch_size": "50",
+    "grad_scaler_enabled": "true",
+    "autocast_dtype": "float16",
+    "steady_step_ms_confirmations": "[749.757, 778.665]",
+    "projected_epoch_seconds_confirmations": "[4498.539, 4671.993]",
+    "max_vram_reserved_mb_range": "[6078, 6104]",
+    "torch_version": "2.13.0+cu130",
+    "torch_cuda_version": "13.0"
+  }
+}

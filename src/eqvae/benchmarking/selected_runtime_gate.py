@@ -161,7 +161,7 @@ REMOTE_DEBUG_REQUIRED_SUCCESSFUL_STEPS = tuple(
     range(REMOTE_DEBUG_RESUME_STEP + 1, REMOTE_DEBUG_FINAL_STEP + 1),
 )
 REMOTE_TINY_MAX_STEP = 128
-REMOTE_TINY_MIN_IMPROVEMENT_FRACTION = 0.01
+REMOTE_TINY_MIN_IMPROVEMENT_FRACTION = 0.05
 REMOTE_TINY_FULL_BATCH_SAMPLER_POLICY = "fixed32_tiny_full_batch_repeated"
 REMOTE_AMP_GRAD_SCALER_INIT_SCALE = EXPECTED_RUNNER_AMP_GRAD_SCALER_INIT_SCALE
 RUNNER_OK_STATUS = "local_pass"
@@ -1031,7 +1031,7 @@ def _remote_full_train_step_blockers(  # noqa: C901, PLR0912
         blockers.append("selected_runtime_full_output_train_steps_batch_size_invalid")
     if any(
         row.get("train_reparameterization") != "stochastic_seeded"
-        or row.get("eps_policy") != "stochastic_seeded_train_generator"
+        or row.get("eps_policy") != "stochastic_rank_generator"
         or _float_value(row.get("eps_abs_mean")) <= 0.0
         or _float_value(row.get("eps_zero_fraction")) >= 1.0
         for row in successful_rows
@@ -1429,6 +1429,14 @@ def _remote_output_tiny_summary_blockers(
         (
             tiny_summary.get("optimizer_steps") == REMOTE_TINY_MAX_STEP,
             "selected_runtime_output_tiny_steps_not_128",
+        ),
+        (
+            tiny_summary.get("observed_ranks") == [0, 1],
+            "selected_runtime_output_tiny_rank_coverage_mismatch",
+        ),
+        (
+            tiny_summary.get("complete_two_rank_update_coverage") is True,
+            "selected_runtime_output_tiny_update_coverage_incomplete",
         ),
         (
             tiny_summary.get("amp_step_skipped_count") == 0,

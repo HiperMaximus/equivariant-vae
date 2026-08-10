@@ -1,5 +1,14 @@
 # Spec 0009: First Full Selected-Runtime Training Run
 
+> Current-runtime notice (2026-08-09): this spec records historical v1 and the
+> durability/DDP requirements learned from it. Its batch `12`/global `24`, eager runtime,
+> `125000`-update, and `6250`-boundary literals are superseded by active Spec 0011's
+> batch `25`/global `50` compiled runtime, `60000` total updates, and `3000` half-epoch
+> boundaries. V1 is not a resume base. Active Spec 0011 lets each worker run toward
+> update 60000 until Kaggle closes it, passes only the latest fully completed boundary
+> checkpoint to the next fresh worker, keeps each session's outputs locally, and merges
+> metrics after all 60000 updates.
+
 Status: full kernel version 1 canceled with resumable checkpoint; future
 two-phase cancellation metric flushing fixed locally; v1 policy DECIDED
 (restart from scratch, discard v1 as a resume base — 2026-07-02); fixed-25

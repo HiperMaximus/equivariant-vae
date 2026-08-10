@@ -235,7 +235,12 @@ def test_rot90_exactness_and_k0_equivariance_are_zero(tmp_path: Path) -> None:
 
 
 def test_pca_to_rgb_shape_range_and_reproducible() -> None:
-    """The EQ-VAE PCA visualization is a reproducible RGB image in [0, 1]."""
+    """PCA yields a nonconstant projection distinct from the first-three fallback.
+
+    The fixed-seed latent is only a discriminating fixture: range, repeatability, and
+    distinction are derived relationships, not frozen PCA pixels. They catch replacing
+    the eigenspace projection with zeros or ``first3_to_rgb`` while preserving shape.
+    """
     _manual_seed(1)
     latent = torch.randn(1, 16, _PCA_SPATIAL, _PCA_SPATIAL)
     expected_shape = (1, 3, _PCA_SPATIAL, _PCA_SPATIAL)
@@ -249,6 +254,9 @@ def test_pca_to_rgb_shape_range_and_reproducible() -> None:
     assert float(rgb.max()) <= 1.0
     assert torch.equal(rgb, rgb_again)
     assert fallback.shape == expected_shape
+    channel_ranges = rgb.amax(dim=(-2, -1)) - rgb.amin(dim=(-2, -1))
+    assert torch.all(channel_ranges > 0.0)
+    assert not torch.equal(rgb, fallback)
 
 
 def test_parse_config_rejects_non_rot90_convention() -> None:

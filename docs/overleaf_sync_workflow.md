@@ -63,14 +63,14 @@ One-time setup:
 
 ```bash
 sudo apt-get install -y libsecret-1-dev libsecret-tools pkg-config
-mkdir -p /home/maximus/Documents/Tesis/.agent-tools
-gcc -o /home/maximus/Documents/Tesis/.agent-tools/git-credential-libsecret \
+mkdir -p /home/n00b1337/Documents/Max/Tesis/.agent-tools
+gcc -o /home/n00b1337/Documents/Max/Tesis/.agent-tools/git-credential-libsecret \
   /usr/share/doc/git/contrib/credential/libsecret/git-credential-libsecret.c \
   $(pkg-config --cflags --libs libsecret-1)
-cd /home/maximus/Documents/Tesis/equivariant-vae
+cd /home/n00b1337/Documents/Max/Tesis/equivariant-vae
 git config --local --add credential.https://git.overleaf.com.helper ""
 git config --local --add credential.https://git.overleaf.com.helper \
-  /home/maximus/Documents/Tesis/.agent-tools/git-credential-libsecret
+  /home/n00b1337/Documents/Max/Tesis/.agent-tools/git-credential-libsecret
 git config --local credential.https://git.overleaf.com.username git
 ```
 
