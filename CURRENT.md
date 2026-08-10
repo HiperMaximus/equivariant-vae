@@ -8,9 +8,10 @@ Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, and active Spec
 0011 completely. Baseline full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
 boundary. Its output and checkpoint are verified locally; the FSQ-aligned AMP runtime
-and full-output verification corrections are implemented and verified, while the private
-checkpoint-dataset upload and session-2 launch are explicitly approved and in guarded
-launch preparation. Do not poll continuously.
+and full-output verification corrections are implemented and verified. Session 2 is
+Kaggle kernel version 3 from clean source commit `65112aa`; its immediate status at
+2026-08-10 11:24 COT was `KernelWorkerStatus.RUNNING`. Do not poll continuously; the
+next deliberate check is at or after 11:55 COT unless the user asks earlier.
 Preserve any later unrelated or ambiguous work: do not reset, checkout, blanket-restore,
 or recreate the tree. Inspect every diff before surgical removal.
 
@@ -142,13 +143,11 @@ of their dedicated wiring in `scripts/kaggle_kernel.sh`,
 
 ## Multi-session handoff
 
-- Before session 2, add only the concrete checkpoint transport exposed by session 1:
-  publish/attach verified `step_015000.pt` and point the launcher at that exact Kaggle
-  input. The ignored upload payload is ready at
-  `runs/kaggle/session1_resume_dataset` for proposed private dataset
-  `maximusshtefan/eqvae-baseline-session1-step15000`. The user explicitly approved that
-  exact private upload and the resumed-kernel push on 2026-08-10. The session-2 metadata,
-  path, and SHA-256 guard are being prepared; do not build a generic transport layer.
+- Session-2 transport is complete. Private dataset
+  `maximusshtefan/eqvae-baseline-session1-step15000` contains only the verified
+  `step_015000.pt`; the kernel attaches it beside the UBC patch dataset and rejects a
+  missing or hash-mismatched checkpoint before GPU work. Keep this one-off transport;
+  do not build a generic layer.
 - Use lean checkpoint-only sessions because the projected ~12.7-hour training time
   exceeds Kaggle's 8-hour limit. Every session still targets update 60000 and runs until
   it completes or Kaggle closes it; there is no artificial session cap. Every 3000-update
@@ -167,6 +166,9 @@ of their dedicated wiring in `scripts/kaggle_kernel.sh`,
 - Session 1 version 2 was pushed from clean commit `81b5017` and ended in error after the
   completed 15000 boundary. Its output is downloaded and verified; do not replace or
   rerun it without new explicit direction.
+- Session 2 version 3 was pushed from clean commit `65112aa` at 2026-08-10 11:24 COT.
+  Its single immediate check returned `KernelWorkerStatus.RUNNING`. Check again at or
+  after 11:55 COT, then use deliberate status/log checks rather than continuous polling.
 
 The user prefers direct, bounded Kaggle experiments over defensive local machinery and is
 comfortable with liberal probe pushes. Still use the repository's `KAGGLE_*_CONFIRMED`
@@ -241,8 +243,8 @@ absolute successful-update count. Source commit `81b5017` is on GitHub. Kaggle s
 version 2 ended `ERROR`: logs show completed boundaries through update 15000 and an AMP
 overflow guard failure in the window ending at update 18000. Its downloaded proof,
 checkpoint hash, metric prefix, and fixed-25 boundaries verify update 15000 as the commit
-point. The exact private checkpoint-dataset upload and resumed session-2 kernel push were
-explicitly approved on 2026-08-10 and are now in guarded launch preparation.
+point. The exact private checkpoint dataset is uploaded, source commit `65112aa` is on
+GitHub, and resumed Kaggle kernel version 3 is running from that clean source.
 
 ## Fresh-agent execution order
 
@@ -263,12 +265,11 @@ explicitly approved on 2026-08-10 and are now in guarded launch preparation.
    FSQ comparison, FSQ-aligned AMP runtime/full-output correction, full quality gate, and
    full-kernel preflight as complete. The checkpoint is accepted with one lost physical
    optimizer update under the user's stated tolerance.
-6. Permission is complete for both exact remote actions: upload
-   `step_015000.pt` to private Kaggle dataset
-   `maximusshtefan/eqvae-baseline-session1-step15000`, then attach it and launch session 2
-   of `maximusshtefan/eqvae-selected-runtime-full`. Add the smallest exact
-   metadata/path/hash guard, rerun preflight from a clean commit, upload the checkpoint
-   dataset, and push the resumed kernel.
+6. Treat the exact private checkpoint upload, session-2 path/hash guard, clean commit
+   `65112aa`, GitHub push, and Kaggle kernel version 3 launch as complete. The immediate
+   status was `RUNNING` at 11:24 COT.
+7. Check session 2 once at or after 11:55 COT unless the user asks earlier. If it is still
+   running, stop after that bounded check; do not continuously poll.
 
-Baseline full training is paused after the failed first session; the continuous-`SO(2)`
-repeat remains a later gate.
+Baseline full training is running in session 2; the continuous-`SO(2)` repeat remains a
+later gate.

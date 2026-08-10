@@ -1,6 +1,6 @@
 # Spec 0011: Kaggle Training-Configuration Search
 
-Status: v5 lean contract / session 1 checkpoint verified / session 2 transport approved
+Status: v5 lean contract / session 1 checkpoint verified / session 2 running
 
 Last updated: 2026-08-10
 
@@ -288,6 +288,9 @@ exactly that dataset beside the UBC patch dataset and must reject a missing or
 hash-mismatched `/kaggle/input/eqvae-baseline-session1-step15000/step_015000.pt`; the
 accepted SHA-256 is
 `8f1b2af601354642036d4d71dca8865ea9c7896a71da4ed69f3871559c448f4f`.
+The private dataset upload completed and session 2 launched as Kaggle kernel version 3
+from clean source commit `65112aa`; its immediate 2026-08-10 11:24 COT status was
+`KernelWorkerStatus.RUNNING`.
 Downstream probes remain the final compression-utility criterion. Repeat only the lean
 architecture-specific tuning required for continuous `SO(2)` later; do not reopen the
 shared beta choice by default.
