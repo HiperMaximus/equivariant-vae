@@ -3336,31 +3336,6 @@ def _restore_checkpoint_if_requested(  # noqa: PLR0913
     )
 
 
-def _checked_amp_window_scale(
-    *,
-    scaler: GradScaler,
-    previous_scale: float,
-    ending_step: int,
-) -> float:
-    """Fail before boundary state advances when deferred AMP evidence backed off.
-
-    Returns:
-        The current scale for the next untimed window.
-
-    Raises:
-        RuntimeError: If any update in the completed window overflowed.
-
-    """
-    current_scale = float(scaler.get_scale())
-    if current_scale < previous_scale:
-        message = (
-            "selected-runtime AMP overflowed inside a deferred-metrics "
-            f"window ending at step {ending_step}"
-        )
-        raise RuntimeError(message)
-    return current_scale
-
-
 def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
     *,
     request: SelectedRuntimeTrainRequest,
@@ -3439,14 +3414,6 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
             compiled_step_active=compiled_step_active,
         ),
     )
-    amp_window_scale = float(scaler.get_scale()) if amp.grad_scaler_enabled else 1.0
-    amp_window_boundaries = set(
-        boundary_steps(
-            interval_steps=settings.save_every_steps,
-            target_train_steps=settings.target_train_steps,
-        ),
-    )
-    amp_window_boundaries.add(settings.max_train_steps)
     while successful_count < settings.max_train_steps:
         attempt_count += 1
         if attempt_count > max_attempts:
@@ -3509,17 +3476,7 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
         if attempt_count <= _DDP_PARAMETER_SYNC_CHECK_STEPS:
             _assert_ddp_parameters_in_sync(model=model, distributed=distributed)
         if not amp_step_skipped:
-            proposed_successful_count = result.successful_optimizer_update_count
-            if (
-                amp.grad_scaler_enabled
-                and proposed_successful_count in amp_window_boundaries
-            ):
-                amp_window_scale = _checked_amp_window_scale(
-                    scaler=scaler,
-                    previous_scale=amp_window_scale,
-                    ending_step=proposed_successful_count,
-                )
-            successful_count = proposed_successful_count
+            successful_count = result.successful_optimizer_update_count
         checkpoint_boundary = (
             not amp_step_skipped
             and successful_count > 0
@@ -4639,7 +4596,7 @@ def _run_train_step(  # noqa: PLR0913
         grad_scaler_enabled=amp.grad_scaler_enabled,
         gradient_clip_global_norm=settings.optimizer_config.gradient_clip_global_norm,
         gradient_clip_foreach=plan.gradient_clip_foreach,
-        observe_skip=False,
+        observe_skip=True,
     )
     grad_norm = optimizer_result.grad_norm
     nonfinite_count = optimizer_result.nonfinite_count
@@ -4729,7 +4686,7 @@ def _run_compiled_train_step(  # noqa: PLR0913
         gradient_clip_global_norm=settings.optimizer_config.gradient_clip_global_norm,
         gradient_clip_foreach=plan.gradient_clip_foreach,
         backward_context=compiled_autograd_context(enabled=plan.compiled_autograd),
-        observe_skip=False,
+        observe_skip=True,
     )
     grad_norm = optimizer_result.grad_norm
     nonfinite_count = optimizer_result.nonfinite_count
@@ -6880,8 +6837,9 @@ class _TrainStepMetricBuffer:
     ``[capacity, len(_TRAIN_STEP_METRIC_NAMES)]`` buffer with no host sync, while its
     host-side row fields go into ``_pending``. A single ``.tolist()`` at the half-epoch
     flush boundary materializes the whole window at once, so the hot step incurs no
-    per-metric or GradScaler device->host sync. AMP overflow/non-finite evidence is
-    checked from the clip-returned on-device norm at the untimed flush gate.
+    per-metric device->host sync. GradScaler skip detection remains per-attempt so a
+    backed-off scale can retry without advancing optimizer-step schedules, matching the
+    FSQ training behavior.
 
     ``capacity`` is the half-epoch window (``save_every_steps``); ``record`` flushes
     early if a window ever exceeds it (an AMP-skip-heavy window overshoots the

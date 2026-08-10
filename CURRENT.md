@@ -7,7 +7,9 @@ Last updated: 2026-08-10
 Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, and active Spec
 0011 completely. Baseline full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
-boundary. Do not poll continuously.
+boundary. Its output and checkpoint are verified locally; a small AMP skip-handling fix
+is ready, while the private checkpoint-dataset upload and session-2 launch still require
+explicit approval naming those remote writes. Do not poll continuously.
 Preserve any later unrelated or ambiguous work: do not reset, checkout, blanket-restore,
 or recreate the tree. Inspect every diff before surgical removal.
 
@@ -20,14 +22,25 @@ approved its push on 2026-08-10; the guarded API check and push passed. The term
 status is `KernelWorkerStatus.ERROR`. Logs show successful boundary evaluation and
 checkpoint completion at updates 3000, 6000, 9000, 12000, and 15000, followed by an
 intentional failure on both ranks when the AMP guard detected an overflow in the
-deferred-metrics window ending at update 18000. Output has not been downloaded, so treat
-15000 as the expected latest commit point until
-`benchmark/checkpoint_resume_proof.json` and its checkpoint hash are verified. Runtime,
-real-data LR range, resume, fixed-32 learnability, and beta-selection checks passed before
-launch. The user locked beta `0.01` on 2026-08-09; do not run an intermediate beta probe.
-The next action needs user direction: download/verify the failed session output, then
-diagnose whether to adjust the strict AMP policy before resuming from the verified
-checkpoint. Do not rerun or resume automatically.
+deferred-metrics window ending at update 18000. Output is downloaded under ignored
+`runs/kaggle/selected_runtime_full_v2`. Its resume proof names update 15000 and SHA-256
+`8f1b2af601354642036d4d71dca8865ea9c7896a71da4ed69f3871559c448f4f`; the local
+checkpoint hash matches exactly. Its committed CSV prefix and fixed-25 boundaries also
+end at 15000. The fixed-25 output includes originals, reconstruction progress, rotated
+inputs and latents at 90/180/270 degrees, error maps, deterministic posterior-`mu`
+arrays, first-three-channel views, and PCA views.
+
+The failure was stricter than FSQ, not checkpoint corruption or missing norm clipping.
+Both real runner paths passed `observe_skip=False`, so GradScaler skipped/backed off but
+the hot loop could not gate successful-step progress immediately; a deferred scale-drop
+assertion then killed the run. The update-15000 checkpoint shows scale `1048576`, growth
+factor `2`, backoff factor `0.5`, and growth interval `2000`, consistent with normal
+dynamic-scale growth/backoff. Gradient clipping was already global norm `1.0` with
+foreach. The local fix sets `observe_skip=True` on eager and compiled paths and removes
+the deferred fatal assertion: skipped attempts are logged but do not advance LR, beta,
+validation, checkpoint, or successful-update counters. Runtime, real-data LR range,
+resume, fixed-32 learnability, and beta-selection checks passed before launch. The user
+locked beta `0.01` on 2026-08-09; do not run an intermediate beta probe.
 
 ## Current objective
 
@@ -121,11 +134,14 @@ of their dedicated wiring in `scripts/kaggle_kernel.sh`,
 ## Multi-session handoff
 
 - Before session 2, add only the concrete checkpoint transport exposed by session 1:
-  publish/attach its latest complete boundary checkpoint and point
+  publish/attach verified `step_015000.pt` and point
   `EQVAE_SELECTED_RUNTIME_FULL_RESUME` at that Kaggle input. The current kernel accepts
   the path, but its metadata/push guard intentionally allows only the UBC dataset, so a
-  fresh worker cannot see the checkpoint yet. Do this after the real filename/output
-  exists; do not build a generic transport layer.
+  fresh worker cannot see the checkpoint yet. The ignored upload payload is ready at
+  `runs/kaggle/session1_resume_dataset` for proposed private dataset
+  `maximusshtefan/eqvae-baseline-session1-step15000`. The external-action safety gate
+  rejected creation until the user explicitly approves that exact checkpoint upload and
+  destination. Do not build a generic transport layer.
 - Use lean checkpoint-only sessions because the projected ~12.7-hour training time
   exceeds Kaggle's 8-hour limit. Every session still targets update 60000 and runs until
   it completes or Kaggle closes it; there is no artificial session cap. Every 3000-update
@@ -142,8 +158,8 @@ of their dedicated wiring in `scripts/kaggle_kernel.sh`,
   session copies until the merged result is verified; delete redundant copies only
   afterward.
 - Session 1 version 2 was pushed from clean commit `81b5017` and ended in error after the
-  completed 15000 boundary; do not replace, download, or rerun it without new explicit
-  direction.
+  completed 15000 boundary. Its output is downloaded and verified; do not replace or
+  rerun it without new explicit direction.
 
 The user prefers direct, bounded Kaggle experiments over defensive local machinery and is
 comfortable with liberal probe pushes. Still use the repository's `KAGGLE_*_CONFIRMED`
@@ -202,8 +218,8 @@ the retained image information, so it is not the default candidate. Evidence is 
 `runs/kaggle/selected_runtime_beta_probe_v10`. The original beta-1 run drove KL
 effectively to zero.
 
-Latest local verification for session-1 preparation: the dedicated full-kernel preflight
-passes 210 tests, and `./scripts/python_quality.sh` passes formatting, Ruff, 681 tests
+Latest local verification after the AMP skip fix: the dedicated full-kernel preflight
+passes 210 tests, and `./scripts/python_quality.sh` passes formatting, Ruff, 680 tests
 with 1 skip, and BasedPyright with 0 errors. Repo/workspace preflights and
 `git diff --check` pass. Post-fix clean-context audits found no launch blocker. They
 confirmed atomic checkpoint publication, the hashed 3000-step checkpoint as the session
@@ -214,10 +230,11 @@ state was also cross-checked against `kaggle/fsq_train_reference.py`: model, opt
 scaler, RNG, progress, and best metric are covered; LR/beta progress derives from the
 absolute successful-update count. Source commit `81b5017` is on GitHub. Kaggle session 1
 version 2 ended `ERROR`: logs show completed boundaries through update 15000 and an AMP
-overflow guard failure in the window ending at update 18000. Its output remains
-undownloaded and the expected update-15000 commit point remains unverified locally. The
-kernel metadata attaches exactly `maximusshtefan/patches-pre-shuffled-ubc-ocean`; the
-guarded push rejects any other dataset list.
+overflow guard failure in the window ending at update 18000. Its downloaded proof,
+checkpoint hash, metric prefix, and fixed-25 boundaries verify update 15000 as the commit
+point. The current kernel metadata still attaches exactly
+`maximusshtefan/patches-pre-shuffled-ubc-ocean`; adding the proposed private resume
+dataset and launching session 2 remain pending explicit remote-write approval.
 
 ## Fresh-agent execution order
 
@@ -234,13 +251,16 @@ guarded push rejects any other dataset list.
    repo/workspace preflights, and the post-fix clean-context audits as complete.
 4. Treat source commit `81b5017`, GitHub push, guarded API check, Kaggle kernel version 2
    push, and terminal `ERROR` status/log reads as complete. Do not continuously poll.
-5. Wait for explicit user direction before downloading output or changing the AMP/run
-   policy. Do not infer permission to resume from the earlier session-1 launch approval.
-6. If directed, download the complete output, verify
-   `benchmark/checkpoint_resume_proof.json`, its hash, and the expected update-15000
-   `step_*.pt`, then diagnose the AMP overflow before preparing the smallest concrete
-   checkpoint attachment/path for session 2. Upload/attach/resume only with separate
-   explicit Kaggle permission.
+5. Treat the session-1 output download, update-15000 proof/hash/CSV/fixed-25 verification,
+   FSQ comparison, AMP skip-handling fix, full quality gate, and full-kernel preflight as
+   complete.
+6. Obtain explicit permission naming both remote actions: upload
+   `step_015000.pt` to private Kaggle dataset
+   `maximusshtefan/eqvae-baseline-session1-step15000`, then attach it and launch session 2
+   of `maximusshtefan/eqvae-selected-runtime-full`. After permission, add the smallest
+   exact metadata/path/hash guard, rerun preflight from a clean commit, upload the
+   checkpoint dataset, and push the resumed kernel. Do not infer this permission from the
+   earlier broad approval; the external-action safety gate rejected that interpretation.
 
 Baseline full training is paused after the failed first session; the continuous-`SO(2)`
 repeat remains a later gate.

@@ -11,6 +11,7 @@ import math
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NoReturn, cast
+from unittest.mock import Mock
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -6469,24 +6470,28 @@ def test_run_compiled_train_step_populates_telemetry(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("step_kind", ["eager", "compiled"])
 @pytest.mark.parametrize("foreach", [True, False])
-def test_runner_step_paths_apply_gradient_clip_foreach(
+def test_runner_step_paths_clip_and_observe_amp_skips(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     step_kind: str,
     *,
     foreach: bool,
 ) -> None:
-    """Both runner step bodies pass the parsed foreach value to gradient clipping.
+    """Both runner step bodies preserve clipping and immediate AMP skip detection.
 
     ``True`` is the legacy v5 effective behavior; marker-backed future plans may carry
     ``False``. Each real tiny CPU step must reach the clip call with the distinguishing
-    value, so a hardcoded or dropped argument fails one of the four cases.
+    value and request per-attempt scaler observation, so hardcoded or dropped arguments
+    fail one of the four cases.
     """
     context = _runner_context(tmp_path / f"foreach-{step_kind}-{foreach}")
     plan = replace(context.plan, gradient_clip_foreach=foreach)
     batch = cast("PatchTrainingBatch", next(iter(context.data_surface.train_loader)))
     observed: list[bool | None] = []
     original_clip = selected_runtime_runner.nn.utils.clip_grad_norm_
+    optimizer_step = Mock(
+        wraps=selected_runtime_runner.run_fastpath_optimizer_step_with_metrics,
+    )
 
     def spy_clip(
         parameters: Iterable[torch.Tensor],
@@ -6505,6 +6510,11 @@ def test_runner_step_paths_apply_gradient_clip_foreach(
         selected_runtime_runner.nn.utils,
         "clip_grad_norm_",
         spy_clip,
+    )
+    monkeypatch.setattr(
+        selected_runtime_runner,
+        "run_fastpath_optimizer_step_with_metrics",
+        optimizer_step,
     )
     try:
         if step_kind == "eager":
@@ -6553,6 +6563,8 @@ def test_runner_step_paths_apply_gradient_clip_foreach(
         selected_runtime_runner._close_data_surface(context.data_surface)  # noqa: SLF001
 
     assert observed == [foreach]
+    assert optimizer_step.call_count == 1
+    assert optimizer_step.call_args.kwargs["observe_skip"] is True
 
 
 def test_eager_runner_transfers_one_uint8_batch_before_device_corruption(

@@ -7,11 +7,12 @@ import csv
 import json
 from dataclasses import replace
 from pathlib import Path
-from typing import cast
-from unittest.mock import Mock
+from typing import TYPE_CHECKING, cast
 
-import pytest
 import torch
+
+if TYPE_CHECKING:
+    import pytest
 
 from eqvae.cli.selected_runtime_train import main as selected_runtime_train_main
 from eqvae.data.fixed_selectors import (
@@ -59,19 +60,6 @@ SINGLE_TINY_FULL_BATCH_EPOCH_SAMPLES = (
     SELECTED_RUNTIME_BATCH_SIZE * SINGLE_TINY_EPOCH_BATCHES
 )
 IMAGE_SIZE = 64
-
-
-def test_deferred_amp_window_fails_before_accepting_scale_backoff() -> None:
-    """A hot-window overflow is rejected at its untimed completion boundary."""
-    scaler = Mock()
-    scaler.get_scale.return_value = 8.0  # pyright: ignore[reportAny]
-
-    with pytest.raises(RuntimeError, match="window ending at step 25"):
-        selected_runtime_runner._checked_amp_window_scale(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-            scaler=cast("torch.amp.GradScaler", scaler),
-            previous_scale=16.0,
-            ending_step=25,
-        )
 
 
 def test_selected_runtime_runner_dry_run_writes_required_artifacts(  # noqa: PLR0914, PLR0915

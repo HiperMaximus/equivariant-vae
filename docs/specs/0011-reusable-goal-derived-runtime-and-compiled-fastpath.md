@@ -1,6 +1,6 @@
 # Spec 0011: Kaggle Training-Configuration Search
 
-Status: v5 lean contract / runtime selected / baseline session 1 failed after update 15000
+Status: v5 lean contract / session 1 checkpoint verified / AMP fix ready / resume pending
 
 Last updated: 2026-08-10
 
@@ -257,10 +257,25 @@ Baseline session 1 launched with explicit approval on 2026-08-10 as Kaggle kerne
 `81b5017`. The guarded API check and push passed. Its terminal status was
 `KernelWorkerStatus.ERROR`: logs show complete boundaries at updates 3000, 6000, 9000,
 12000, and 15000, then both ranks intentionally failed when the AMP guard detected an
-overflow in the deferred-metrics window ending at update 18000. The output has not been
-downloaded; update 15000 is the expected commit point until the proof and checkpoint hash
-are verified locally. Do not download, alter the AMP policy, or rerun it without new
-direction.
+overflow in the deferred-metrics window ending at update 18000. The approved download is
+under ignored `runs/kaggle/selected_runtime_full_v2`: its resume proof names update 15000
+and SHA-256
+`8f1b2af601354642036d4d71dca8865ea9c7896a71da4ed69f3871559c448f4f`, which matches
+the downloaded checkpoint. The committed CSV and complete fixed-25 artifact boundaries
+also end at 15000. The checkpointed GradScaler had grown from 16384 to 1048576 with the
+default factor-2/2000-update growth policy. Gradient clipping was already global norm
+1.0 with foreach. The failure came from the runner's extra deferred zero-skip assertion:
+both real paths suppressed immediate skip observation, so normal GradScaler backoff was
+made fatal at the window boundary. The smallest FSQ-aligned correction observes every
+skip immediately, lets GradScaler back off and retry, and prevents a skipped attempt from
+advancing successful-update LR/beta/evaluation/checkpoint schedules. The deferred fatal
+assertion is removed. Full Python quality and the 210-test full-kernel preflight pass.
+
+The verified checkpoint-only payload is ready locally for proposed private Kaggle dataset
+`maximusshtefan/eqvae-baseline-session1-step15000`. Remote dataset creation was rejected
+by the external-action safety gate pending explicit user approval naming that checkpoint
+upload and the subsequent session-2 kernel push. Until that approval, keep the current
+kernel metadata unchanged and do not resume.
 Downstream probes remain the final compression-utility criterion. Repeat only the lean
 architecture-specific tuning required for continuous `SO(2)` later; do not reopen the
 shared beta choice by default.
