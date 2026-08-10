@@ -10,8 +10,9 @@ commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000
 boundary. Its output and checkpoint are verified locally; the FSQ-aligned AMP runtime
 and full-output verification corrections are implemented and verified. Session 2 is
 Kaggle kernel version 3 from clean source commit `65112aa`; its immediate status at
-2026-08-10 11:24 COT was `KernelWorkerStatus.RUNNING`. Do not poll continuously; the
-next deliberate check is at or after 11:55 COT unless the user asks earlier.
+2026-08-10 11:24 COT was `KernelWorkerStatus.RUNNING`. A bounded live-log read at
+13:33 COT confirmed the new update-18000/epoch-3.0 boundary completed and both ranks
+resumed training. Do not poll continuously.
 Preserve any later unrelated or ambiguous work: do not reset, checkout, blanket-restore,
 or recreate the tree. Inspect every diff before surgical removal.
 
@@ -167,8 +168,13 @@ of their dedicated wiring in `scripts/kaggle_kernel.sh`,
   completed 15000 boundary. Its output is downloaded and verified; do not replace or
   rerun it without new explicit direction.
 - Session 2 version 3 was pushed from clean commit `65112aa` at 2026-08-10 11:24 COT.
-  Its single immediate check returned `KernelWorkerStatus.RUNNING`. Check again at or
-  after 11:55 COT, then use deliberate status/log checks rather than continuous polling.
+  Its immediate check returned `KernelWorkerStatus.RUNNING`; a later bounded live-log
+  read confirmed the update-18000 boundary completed and training resumed. The current
+  local source adds FSQ-aligned rank-0 resume breadcrumbs for data preparation,
+  checkpoint-load start, load duration/restored epoch-step/LR/GradScaler scale, and the
+  first successful resumed optimizer update with LR/attempt count. It also logs every
+  rare AMP non-finite/overflow skip with its consecutive streak and new scaler scale,
+  then logs recovery. These apply to the next session, not already-running version 3.
 
 The user prefers direct, bounded Kaggle experiments over defensive local machinery and is
 comfortable with liberal probe pushes. Still use the repository's `KAGGLE_*_CONFIRMED`
@@ -227,11 +233,11 @@ the retained image information, so it is not the default candidate. Evidence is 
 `runs/kaggle/selected_runtime_beta_probe_v10`. The original beta-1 run drove KL
 effectively to zero.
 
-Latest local verification after the AMP and session-2 transport corrections: the focused
-full-run suite passes 215 tests, the dedicated full-kernel preflight passes 215 tests, and
-`./scripts/python_quality.sh` passes formatting, Ruff, 685 tests with 1 skip, and
-BasedPyright with 0 errors. Repo preflight passes; rerun the workspace preflight and
-`git diff --check` before commit. Earlier clean-context audits found no launch blocker in
+Latest local verification after the resume/AMP observability addition: the focused
+full-run suite passes 216 tests, the dedicated full-kernel preflight passes 217 tests, and
+`./scripts/python_quality.sh` passes formatting, Ruff, 687 tests with 1 skip, and
+BasedPyright with 0 errors. The repo/workspace preflights and `git diff --check` pass.
+Earlier clean-context audits found no launch blocker in
 the checkpoint/session/runtime slice. They
 confirmed atomic checkpoint publication, the hashed 3000-step checkpoint as the session
 commit point, index-only loader continuation, rank/segment-separated stochastic streams,
@@ -268,8 +274,9 @@ GitHub, and resumed Kaggle kernel version 3 is running from that clean source.
 6. Treat the exact private checkpoint upload, session-2 path/hash guard, clean commit
    `65112aa`, GitHub push, and Kaggle kernel version 3 launch as complete. The immediate
    status was `RUNNING` at 11:24 COT.
-7. Check session 2 once at or after 11:55 COT unless the user asks earlier. If it is still
-   running, stop after that bounded check; do not continuously poll.
+7. Treat the bounded session-2 log check through the completed update-18000 boundary as
+   complete. Do not continuously poll; check again only on user request or a deliberate
+   later handoff.
 
 Baseline full training is running in session 2; the continuous-`SO(2)` repeat remains a
 later gate.

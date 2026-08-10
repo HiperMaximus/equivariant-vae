@@ -417,6 +417,83 @@ def test_full_boundary_logging_waits_at_barrier(
     assert barrier_ranks == [0]
 
 
+def test_resume_lifecycle_logging_is_concise_and_rank0_only(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Resume timing breadcrumbs identify load/setup gaps without duplicate DDP logs."""
+    primary = _local_distributed_context()
+    secondary = replace(primary, rank=1, world_size=2, should_use_ddp=True)
+
+    selected_runtime_runner._log_resume_lifecycle(  # noqa: SLF001
+        distributed=primary,
+        event="checkpoint load complete",
+        details="restored_update=15000/60000; load_seconds=0.125",
+    )
+    selected_runtime_runner._log_resume_lifecycle(  # noqa: SLF001
+        distributed=primary,
+        event="first optimizer update complete",
+        details="update=15001/60000; attempts=1",
+    )
+    selected_runtime_runner._log_resume_lifecycle(  # noqa: SLF001
+        distributed=secondary,
+        event="checkpoint load complete",
+        details="must not be printed",
+    )
+    selected_runtime_runner._log_resume_lifecycle(  # noqa: SLF001
+        distributed=primary,
+        event="data surface ready",
+        details="disabled event must not be printed",
+        enabled=False,
+    )
+
+    output = capsys.readouterr().out
+    assert "[RANK 0] selected-runtime resume checkpoint load complete" in output
+    assert "restored_update=15000/60000" in output
+    assert "selected-runtime resume first optimizer update complete" in output
+    assert "update=15001/60000" in output
+    assert "must not be printed" not in output
+    assert "disabled event" not in output
+
+
+def test_amp_scaler_logging_exposes_skip_streak_and_recovery(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Rare non-finite skips are visible without duplicate DDP-rank messages."""
+    primary = _local_distributed_context()
+    secondary = replace(primary, rank=1, world_size=2, should_use_ddp=True)
+
+    selected_runtime_runner._log_amp_scaler_event(  # noqa: SLF001
+        distributed=primary,
+        event="optimizer step skipped",
+        details=(
+            "pending_update=15001/60000; attempt=2; consecutive_skips=2; "
+            "nonfinite_grad_norm=1; new_scaler_scale=16384"
+        ),
+    )
+    selected_runtime_runner._log_amp_scaler_event(  # noqa: SLF001
+        distributed=primary,
+        event="optimizer updates recovered",
+        details=(
+            "completed_update=15001/60000; attempt=3; "
+            "preceding_consecutive_skips=2; scaler_scale=16384"
+        ),
+    )
+    selected_runtime_runner._log_amp_scaler_event(  # noqa: SLF001
+        distributed=secondary,
+        event="optimizer step skipped",
+        details="must not be printed",
+    )
+
+    output = capsys.readouterr().out
+    assert "selected-runtime AMP optimizer step skipped" in output
+    assert "pending_update=15001/60000" in output
+    assert "consecutive_skips=2" in output
+    assert "nonfinite_grad_norm=1" in output
+    assert "selected-runtime AMP optimizer updates recovered" in output
+    assert "preceding_consecutive_skips=2" in output
+    assert "must not be printed" not in output
+
+
 def _full_config_payload_with_training_edit(
     tmp_path: Path,
     *,

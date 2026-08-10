@@ -9,6 +9,7 @@ import json
 import math
 import os
 import shlex
+import time
 from dataclasses import dataclass
 from itertools import islice
 from pathlib import Path
@@ -1193,12 +1194,23 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
         settings=settings,
         start_step=resume_start_step,
     )
+    data_prepare_started_at = time.perf_counter()
     data_surface = _prepare_data_surface(
         request=request,
         settings=settings,
         plan=plan,
         distributed=distributed,
         first_train_batch_step=resume_start_step,
+    )
+    _log_resume_lifecycle(
+        distributed=distributed,
+        event="data surface ready",
+        details=(
+            f"source={data_surface.source}; "
+            f"prepare_seconds={time.perf_counter() - data_prepare_started_at:.3f}; "
+            "building model"
+        ),
+        enabled=request.resume is not None,
     )
 
     model = build_model(
@@ -1224,6 +1236,13 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
         init_scale=amp.grad_scaler_init_scale,
         enabled=amp.grad_scaler_enabled,
     )
+    resume_load_started_at = time.perf_counter()
+    if request.resume is not None:
+        _log_resume_lifecycle(
+            distributed=distributed,
+            event="checkpoint load start",
+            details=f"path={request.resume}; metadata_update={resume_start_step}",
+        )
     loaded_checkpoint = _restore_checkpoint_if_requested(
         request=request,
         model=model,
@@ -1248,6 +1267,21 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
             f"{resume_start_step} != {start_step}"
         )
         raise ValueError(message)
+    if loaded_checkpoint is not None:
+        load_seconds = time.perf_counter() - resume_load_started_at
+        epoch_fraction = _full_boundary_epoch_fraction(settings, start_step)
+        restored_lr = cast("float", optimizer.param_groups[0]["lr"])
+        restored_scale = scaler.get_scale()
+        _log_resume_lifecycle(
+            distributed=distributed,
+            event="checkpoint load complete",
+            details=(
+                f"path={request.resume}; restored_update={start_step}/"
+                f"{settings.target_train_steps}; epoch={epoch_fraction:.1f}; "
+                f"optimizer_lr={restored_lr:.6g}; scaler_scale={restored_scale:.6g}; "
+                f"load_seconds={load_seconds:.3f}"
+            ),
+        )
     if loaded_checkpoint is not None and distributed.should_use_ddp:
         # Checkpoints are written by rank 0. Rebase stochastic streams after loading
         # that shared file so resumed ranks do not replay identical noise.
@@ -2302,6 +2336,35 @@ def _gather_rank_assignments(
 
 def _is_primary_rank(distributed: _DistributedContext) -> bool:
     return not distributed.should_use_ddp or distributed.rank == 0
+
+
+def _log_resume_lifecycle(
+    *,
+    distributed: _DistributedContext,
+    event: str,
+    details: str,
+    enabled: bool = True,
+) -> None:
+    if not enabled or not _is_primary_rank(distributed):
+        return
+    print(  # noqa: T201 - one rank-0 breadcrumb per resume lifecycle event.
+        f"[RANK 0] selected-runtime resume {event}: {details}",
+        flush=True,
+    )
+
+
+def _log_amp_scaler_event(
+    *,
+    distributed: _DistributedContext,
+    event: str,
+    details: str,
+) -> None:
+    if not _is_primary_rank(distributed):
+        return
+    print(  # noqa: T201 - rare rank-0 warning/recovery breadcrumb.
+        f"[RANK 0] selected-runtime AMP {event}: {details}",
+        flush=True,
+    )
 
 
 def _barrier(distributed: _DistributedContext) -> None:
@@ -3385,6 +3448,7 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
     last_result: _SelectedRuntimeStepResult | None = None
     successful_count = start_step
     attempt_count = 0
+    consecutive_amp_skips = 0
     best_validation_metric = initial_best_validation_metric
     best_validation_checkpoint: CheckpointMetadata | None = None
     max_attempts = (settings.max_train_steps - start_step) + max(
@@ -3475,8 +3539,43 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
         # iteration on every rank, so this stays symmetric.
         if attempt_count <= _DDP_PARAMETER_SYNC_CHECK_STEPS:
             _assert_ddp_parameters_in_sync(model=model, distributed=distributed)
-        if not amp_step_skipped:
+        if amp_step_skipped:
+            consecutive_amp_skips += 1
+            nonfinite_grad_norm = int(result.nonfinite_count.detach().cpu().item())
+            _log_amp_scaler_event(
+                distributed=distributed,
+                event="optimizer step skipped",
+                details=(
+                    f"pending_update={successful_count + 1}/"
+                    f"{settings.target_train_steps}; attempt={attempt_count}; "
+                    f"consecutive_skips={consecutive_amp_skips}; "
+                    f"nonfinite_grad_norm={nonfinite_grad_norm}; "
+                    f"new_scaler_scale={scaler.get_scale():.6g}"
+                ),
+            )
+        else:
             successful_count = result.successful_optimizer_update_count
+            if consecutive_amp_skips > 0:
+                _log_amp_scaler_event(
+                    distributed=distributed,
+                    event="optimizer updates recovered",
+                    details=(
+                        f"completed_update={successful_count}/"
+                        f"{settings.target_train_steps}; attempt={attempt_count}; "
+                        f"preceding_consecutive_skips={consecutive_amp_skips}; "
+                        f"scaler_scale={scaler.get_scale():.6g}"
+                    ),
+                )
+                consecutive_amp_skips = 0
+            if start_step > 0 and successful_count == start_step + 1:
+                _log_resume_lifecycle(
+                    distributed=distributed,
+                    event="first optimizer update complete",
+                    details=(
+                        f"update={successful_count}/{settings.target_train_steps}; "
+                        f"lr={learning_rate:.6g}; attempts={attempt_count}"
+                    ),
+                )
         checkpoint_boundary = (
             not amp_step_skipped
             and successful_count > 0

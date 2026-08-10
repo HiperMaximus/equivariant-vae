@@ -278,8 +278,8 @@ a skipped attempt from advancing successful-update LR/beta/evaluation/checkpoint
 schedules. The deferred fatal assertion is removed. Full-run summaries and the
 downloaded-output verifier now accept logged skipped attempts while continuing to reject
 any non-finite successful row; exact successful step/rank coverage remains mandatory and
-short readiness probes remain strict zero-skip. The focused 215-test full-run suite, full
-Python quality (685 passed, 1 skipped), and the 215-test full-kernel preflight pass.
+short readiness probes remain strict zero-skip. The focused 216-test full-run suite, full
+Python quality (687 passed, 1 skipped), and the 217-test full-kernel preflight pass.
 
 The verified checkpoint-only payload is ready locally for private Kaggle dataset
 `maximusshtefan/eqvae-baseline-session1-step15000`. The user explicitly approved both
@@ -290,7 +290,14 @@ accepted SHA-256 is
 `8f1b2af601354642036d4d71dca8865ea9c7896a71da4ed69f3871559c448f4f`.
 The private dataset upload completed and session 2 launched as Kaggle kernel version 3
 from clean source commit `65112aa`; its immediate 2026-08-10 11:24 COT status was
-`KernelWorkerStatus.RUNNING`.
+`KernelWorkerStatus.RUNNING`. A bounded live-log read later confirmed the new
+update-18000/epoch-3.0 boundary completed and training resumed. Future resumed sessions
+emit FSQ-aligned rank-0 breadcrumbs after data preparation, at checkpoint-load start,
+after load with duration/restored epoch-step/LR/GradScaler scale, and after the first
+successful resumed optimizer update with LR/attempt count. They also emit a rank-0 line
+for every rare AMP non-finite/overflow skip with its pending update, consecutive streak,
+attempt count, and backed-off scale, followed by one recovery line; ordinary finite
+updates stay quiet. Version 3 predates those new messages.
 Downstream probes remain the final compression-utility criterion. Repeat only the lean
 architecture-specific tuning required for continuous `SO(2)` later; do not reopen the
 shared beta choice by default.
