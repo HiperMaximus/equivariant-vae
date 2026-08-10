@@ -1,6 +1,6 @@
 # Spec 0011: Kaggle Training-Configuration Search
 
-Status: v5 lean contract / runtime selected / baseline session 1 running
+Status: v5 lean contract / runtime selected / baseline session 1 failed after update 15000
 
 Last updated: 2026-08-10
 
@@ -254,8 +254,13 @@ absolute successful-update count. This is the smallest experiment-specific conti
 contract; no generalized checkpoint/session framework is planned.
 Baseline session 1 launched with explicit approval on 2026-08-10 as Kaggle kernel
 `maximusshtefan/eqvae-selected-runtime-full`, version 2, from GitHub source commit
-`81b5017`. The guarded API check and push passed; the single handoff status read was
-`KernelWorkerStatus.RUNNING`. Do not continuously poll or rerun it without new direction.
+`81b5017`. The guarded API check and push passed. Its terminal status was
+`KernelWorkerStatus.ERROR`: logs show complete boundaries at updates 3000, 6000, 9000,
+12000, and 15000, then both ranks intentionally failed when the AMP guard detected an
+overflow in the deferred-metrics window ending at update 18000. The output has not been
+downloaded; update 15000 is the expected commit point until the proof and checkpoint hash
+are verified locally. Do not download, alter the AMP policy, or rerun it without new
+direction.
 Downstream probes remain the final compression-utility criterion. Repeat only the lean
 architecture-specific tuning required for continuous `SO(2)` later; do not reopen the
 shared beta choice by default.

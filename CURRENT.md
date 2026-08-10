@@ -6,23 +6,28 @@ Last updated: 2026-08-10
 
 Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, and active Spec
 0011 completely. Baseline full-run session 1 is Kaggle kernel version 2 from source
-commit `81b5017`; its latest user-requested status read was still `RUNNING`. Do not poll
-continuously.
+commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
+boundary. Do not poll continuously.
 Preserve any later unrelated or ambiguous work: do not reset, checkout, blanket-restore,
 or recreate the tree. Inspect every diff before surgical removal.
 
 Non-equivariant runtime selection is complete. Do not execute old-v2 `p00310` or the
 failed-v3 Bmax/main-effects controller. Source commit `81b5017` is pushed to GitHub.
 
-Baseline full-run session 1 is running on Kaggle as
+Baseline full-run session 1 ran on Kaggle as
 `maximusshtefan/eqvae-selected-runtime-full`, kernel version 2. The user explicitly
-approved its push on 2026-08-10; the guarded API check and push passed, and both the
-initial and later user-requested status reads returned `KernelWorkerStatus.RUNNING`.
-The later logs endpoint read succeeded but returned no text yet. Runtime, real-data LR range,
-resume, fixed-32 learnability, and beta-selection checks have passed. The user locked
-beta `0.01` on 2026-08-09; do not run an intermediate beta probe. The next implementation
-gap is the one-time checkpoint attachment used only after Kaggle closes session 1. Do
-not spend more time searching runtime flags, learning rates, or beta values.
+approved its push on 2026-08-10; the guarded API check and push passed. The terminal
+status is `KernelWorkerStatus.ERROR`. Logs show successful boundary evaluation and
+checkpoint completion at updates 3000, 6000, 9000, 12000, and 15000, followed by an
+intentional failure on both ranks when the AMP guard detected an overflow in the
+deferred-metrics window ending at update 18000. Output has not been downloaded, so treat
+15000 as the expected latest commit point until
+`benchmark/checkpoint_resume_proof.json` and its checkpoint hash are verified. Runtime,
+real-data LR range, resume, fixed-32 learnability, and beta-selection checks passed before
+launch. The user locked beta `0.01` on 2026-08-09; do not run an intermediate beta probe.
+The next action needs user direction: download/verify the failed session output, then
+diagnose whether to adjust the strict AMP policy before resuming from the verified
+checkpoint. Do not rerun or resume automatically.
 
 ## Current objective
 
@@ -136,8 +141,9 @@ of their dedicated wiring in `scripts/kaggle_kernel.sh`,
   optimizer step and choose the global best from downloaded validation results. Keep
   session copies until the merged result is verified; delete redundant copies only
   afterward.
-- Session 1 version 2 was pushed from clean commit `81b5017`; do not replace or rerun it
-  without new explicit direction.
+- Session 1 version 2 was pushed from clean commit `81b5017` and ended in error after the
+  completed 15000 boundary; do not replace, download, or rerun it without new explicit
+  direction.
 
 The user prefers direct, bounded Kaggle experiments over defensive local machinery and is
 comfortable with liberal probe pushes. Still use the repository's `KAGGLE_*_CONFIRMED`
@@ -154,8 +160,6 @@ Before the direction correction, the overbuilt implementation passed its focused
 the full 768-test Python quality gate, `git diff --check`, and both preflights. Those
 results do not verify the replacement. Rerun focused tests and every required gate after
 the rollback and lean implementation.
-
-No Kaggle action or GitHub push has occurred.
 
 Kaggle LR-range kernel v1 passed: 192/192 two-rank updates from `2e-5` to `3e-3`, zero
 AMP skips/non-finites, and smoothed loss `0.645 -> 0.251`. Manual curve inspection chose
@@ -208,10 +212,12 @@ fixed-25 completion before checkpoint commitment, exact generated-wrapper verifi
 beta `0.01`, and the measured Torch `2.13.0+cu130` / CUDA `13.0` stack. The checkpoint
 state was also cross-checked against `kaggle/fsq_train_reference.py`: model, optimizer,
 scaler, RNG, progress, and best metric are covered; LR/beta progress derives from the
-absolute successful-update count. Source commit `81b5017` is on GitHub, and Kaggle
-session 1 version 2 remained `RUNNING` at the latest requested status read. Its kernel
-metadata attaches exactly `maximusshtefan/patches-pre-shuffled-ubc-ocean`; the guarded
-push rejects any other dataset list.
+absolute successful-update count. Source commit `81b5017` is on GitHub. Kaggle session 1
+version 2 ended `ERROR`: logs show completed boundaries through update 15000 and an AMP
+overflow guard failure in the window ending at update 18000. Its output remains
+undownloaded and the expected update-15000 commit point remains unverified locally. The
+kernel metadata attaches exactly `maximusshtefan/patches-pre-shuffled-ubc-ocean`; the
+guarded push rejects any other dataset list.
 
 ## Fresh-agent execution order
 
@@ -227,10 +233,14 @@ push rejects any other dataset list.
    checkpoint publication, focused tests, full quality, full-kernel preflight,
    repo/workspace preflights, and the post-fix clean-context audits as complete.
 4. Treat source commit `81b5017`, GitHub push, guarded API check, Kaggle kernel version 2
-   push, and the requested `RUNNING` status reads as complete. Do not continuously poll.
-5. Wait for explicit user direction before any later Kaggle status/output action.
-6. After Kaggle closes session 1, download its complete output, identify the latest
-   complete `step_*.pt`, and add the smallest concrete dataset attachment/path needed by
-   session 2. Upload/attach/resume only with separate explicit Kaggle permission.
+   push, and terminal `ERROR` status/log reads as complete. Do not continuously poll.
+5. Wait for explicit user direction before downloading output or changing the AMP/run
+   policy. Do not infer permission to resume from the earlier session-1 launch approval.
+6. If directed, download the complete output, verify
+   `benchmark/checkpoint_resume_proof.json`, its hash, and the expected update-15000
+   `step_*.pt`, then diagnose the AMP overflow before preparing the smallest concrete
+   checkpoint attachment/path for session 2. Upload/attach/resume only with separate
+   explicit Kaggle permission.
 
-Baseline full training is active; the continuous-`SO(2)` repeat remains a later gate.
+Baseline full training is paused after the failed first session; the continuous-`SO(2)`
+repeat remains a later gate.
