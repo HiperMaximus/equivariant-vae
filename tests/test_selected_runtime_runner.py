@@ -750,6 +750,7 @@ def test_distributed_context_drives_cuda_runtime_flags_for_the_resolved_device(
     dropping the call or hardcoding the CPU dry-run device must fail.
     """
     seen: list[torch.device] = []
+    process_group_kwargs: dict[str, object] = {}
 
     def spy(device: torch.device, _plan: SelectedRuntimePlan) -> None:
         seen.append(device)
@@ -760,8 +761,8 @@ def test_distributed_context_drives_cuda_runtime_flags_for_the_resolved_device(
     def fake_get_device_name(index: int) -> str:
         return f"Tesla T4 rank {index}"
 
-    def fake_init_process_group(**_kwargs: object) -> None:
-        return
+    def fake_init_process_group(**kwargs: object) -> None:
+        process_group_kwargs.update(kwargs)
 
     monkeypatch.setattr(selected_runtime_runner, "_apply_cuda_runtime_flags", spy)
     monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
@@ -788,6 +789,11 @@ def test_distributed_context_drives_cuda_runtime_flags_for_the_resolved_device(
 
     assert seen == [torch.device("cuda", 1)]
     assert distributed.device == torch.device("cuda", 1)
+    assert process_group_kwargs == {
+        "backend": "nccl",
+        "init_method": "env://",
+        "device_id": torch.device("cuda", 1),
+    }
 
 
 def _runtime_config(tmp_path: Path) -> Path:

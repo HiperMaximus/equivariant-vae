@@ -297,7 +297,10 @@ after load with duration/restored epoch-step/LR/GradScaler scale, and after the 
 successful resumed optimizer update with LR/attempt count. They also emit a rank-0 line
 for every rare AMP non-finite/overflow skip with its pending update, consecutive streak,
 attempt count, and backed-off scale, followed by one recovery line; ordinary finite
-updates stay quiet. Version 3 predates those new messages.
+updates stay quiet. NCCL process-group initialization now receives the resolved
+rank-local CUDA device explicitly, matching the FSQ reference and preventing PyTorch
+2.13 barriers from warning that their device is inferred from the current context.
+Version 3 predates those changes.
 Downstream probes remain the final compression-utility criterion. Repeat only the lean
 architecture-specific tuning required for continuous `SO(2)` later; do not reopen the
 shared beta choice by default.

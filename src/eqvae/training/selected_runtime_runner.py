@@ -2209,7 +2209,11 @@ def _distributed_context(
     if should_use_ddp:
         torch.cuda.set_device(device)
         if not dist.is_initialized():
-            dist.init_process_group(backend="nccl", init_method="env://")
+            dist.init_process_group(
+                backend="nccl",
+                init_method="env://",
+                device_id=device,
+            )
             initialized_here = True
     gpu_names = _gpu_names(cuda_count)
     assignments = _rank_assignments(

@@ -174,7 +174,9 @@ of their dedicated wiring in `scripts/kaggle_kernel.sh`,
   checkpoint-load start, load duration/restored epoch-step/LR/GradScaler scale, and the
   first successful resumed optimizer update with LR/attempt count. It also logs every
   rare AMP non-finite/overflow skip with its consecutive streak and new scaler scale,
-  then logs recovery. These apply to the next session, not already-running version 3.
+  then logs recovery. NCCL initialization also receives the resolved rank-local CUDA
+  device explicitly, removing PyTorch 2.13's ambiguous-barrier-device warning. These
+  apply to the next session, not already-running version 3.
 
 The user prefers direct, bounded Kaggle experiments over defensive local machinery and is
 comfortable with liberal probe pushes. Still use the repository's `KAGGLE_*_CONFIRMED`
