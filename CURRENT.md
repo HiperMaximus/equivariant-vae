@@ -6,7 +6,8 @@ Last updated: 2026-08-10
 
 Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, and active Spec
 0011 completely. Baseline full-run session 1 is Kaggle kernel version 2 from source
-commit `81b5017`; its first and only status read was `RUNNING`. Do not poll continuously.
+commit `81b5017`; its latest user-requested status read was still `RUNNING`. Do not poll
+continuously.
 Preserve any later unrelated or ambiguous work: do not reset, checkout, blanket-restore,
 or recreate the tree. Inspect every diff before surgical removal.
 
@@ -15,8 +16,9 @@ failed-v3 Bmax/main-effects controller. Source commit `81b5017` is pushed to Git
 
 Baseline full-run session 1 is running on Kaggle as
 `maximusshtefan/eqvae-selected-runtime-full`, kernel version 2. The user explicitly
-approved its push on 2026-08-10; the guarded API check and push passed, and the one
-agreed status read returned `KernelWorkerStatus.RUNNING`. Runtime, real-data LR range,
+approved its push on 2026-08-10; the guarded API check and push passed, and both the
+initial and later user-requested status reads returned `KernelWorkerStatus.RUNNING`.
+The later logs endpoint read succeeded but returned no text yet. Runtime, real-data LR range,
 resume, fixed-32 learnability, and beta-selection checks have passed. The user locked
 beta `0.01` on 2026-08-09; do not run an intermediate beta probe. The next implementation
 gap is the one-time checkpoint attachment used only after Kaggle closes session 1. Do
@@ -207,7 +209,9 @@ beta `0.01`, and the measured Torch `2.13.0+cu130` / CUDA `13.0` stack. The chec
 state was also cross-checked against `kaggle/fsq_train_reference.py`: model, optimizer,
 scaler, RNG, progress, and best metric are covered; LR/beta progress derives from the
 absolute successful-update count. Source commit `81b5017` is on GitHub, and Kaggle
-session 1 version 2 was `RUNNING` at its single status read.
+session 1 version 2 remained `RUNNING` at the latest requested status read. Its kernel
+metadata attaches exactly `maximusshtefan/patches-pre-shuffled-ubc-ocean`; the guarded
+push rejects any other dataset list.
 
 ## Fresh-agent execution order
 
@@ -223,7 +227,7 @@ session 1 version 2 was `RUNNING` at its single status read.
    checkpoint publication, focused tests, full quality, full-kernel preflight,
    repo/workspace preflights, and the post-fix clean-context audits as complete.
 4. Treat source commit `81b5017`, GitHub push, guarded API check, Kaggle kernel version 2
-   push, and the single `RUNNING` status read as complete. Do not continuously poll.
+   push, and the requested `RUNNING` status reads as complete. Do not continuously poll.
 5. Wait for explicit user direction before any later Kaggle status/output action.
 6. After Kaggle closes session 1, download its complete output, identify the latest
    complete `step_*.pt`, and add the smallest concrete dataset attachment/path needed by
