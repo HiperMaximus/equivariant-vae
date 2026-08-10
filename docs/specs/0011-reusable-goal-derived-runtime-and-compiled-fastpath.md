@@ -1,6 +1,6 @@
 # Spec 0011: Kaggle Training-Configuration Search
 
-Status: v5 lean contract / session 1 checkpoint verified / full-run AMP policy corrected / resume pending
+Status: v5 lean contract / session 1 checkpoint verified / session 2 transport approved
 
 Last updated: 2026-08-10
 
@@ -278,14 +278,16 @@ a skipped attempt from advancing successful-update LR/beta/evaluation/checkpoint
 schedules. The deferred fatal assertion is removed. Full-run summaries and the
 downloaded-output verifier now accept logged skipped attempts while continuing to reject
 any non-finite successful row; exact successful step/rank coverage remains mandatory and
-short readiness probes remain strict zero-skip. The focused 212-test full-run suite, full
-Python quality (608 passed, 1 skipped), and the 213-test full-kernel preflight pass.
+short readiness probes remain strict zero-skip. The focused 215-test full-run suite, full
+Python quality (685 passed, 1 skipped), and the 215-test full-kernel preflight pass.
 
-The verified checkpoint-only payload is ready locally for proposed private Kaggle dataset
-`maximusshtefan/eqvae-baseline-session1-step15000`. Remote dataset creation was rejected
-by the external-action safety gate pending explicit user approval naming that checkpoint
-upload and the subsequent session-2 kernel push. Until that approval, keep the current
-kernel metadata unchanged and do not resume.
+The verified checkpoint-only payload is ready locally for private Kaggle dataset
+`maximusshtefan/eqvae-baseline-session1-step15000`. The user explicitly approved both
+its upload and the subsequent session-2 kernel push on 2026-08-10. Session 2 attaches
+exactly that dataset beside the UBC patch dataset and must reject a missing or
+hash-mismatched `/kaggle/input/eqvae-baseline-session1-step15000/step_015000.pt`; the
+accepted SHA-256 is
+`8f1b2af601354642036d4d71dca8865ea9c7896a71da4ed69f3871559c448f4f`.
 Downstream probes remain the final compression-utility criterion. Repeat only the lean
 architecture-specific tuning required for continuous `SO(2)` later; do not reopen the
 shared beta choice by default.

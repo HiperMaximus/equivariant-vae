@@ -237,6 +237,39 @@ def test_full_kernel_rejects_beta_target_drift(tmp_path: Path) -> None:
         run_template._validate_full_config(config_path)  # noqa: SLF001
 
 
+def test_full_kernel_accepts_only_the_pinned_resume_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Session 2 must fail closed before GPU work if its attached checkpoint drifts.
+
+    The dataset slug alone does not identify immutable file bytes, so the wrapper hashes
+    the exact checkpoint that established session 1's committed 15000-update boundary.
+    """
+    from kaggle.kernels.selected_runtime_full import run_template  # noqa: PLC0415
+
+    checkpoint = tmp_path / "step_015000.pt"
+    checkpoint.write_bytes(b"verified session-1 checkpoint")
+    expected_sha256 = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+    monkeypatch.setattr(run_template, "RESUME_CHECKPOINT_SHA256", expected_sha256)
+
+    run_template._validate_resume_checkpoint(checkpoint)  # noqa: SLF001
+    checkpoint.write_bytes(b"different checkpoint bytes")
+    with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
+        run_template._validate_resume_checkpoint(checkpoint)  # noqa: SLF001
+
+
+def test_full_kernel_defaults_to_the_attached_session1_checkpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fresh Kaggle worker resumes from the exact attached session-1 boundary."""
+    from kaggle.kernels.selected_runtime_full import run_template  # noqa: PLC0415
+
+    monkeypatch.delenv("EQVAE_SELECTED_RUNTIME_FULL_RESUME", raising=False)
+
+    assert run_template._resume_checkpoint_path() == run_template.RESUME_CHECKPOINT  # noqa: SLF001
+
+
 def test_full_run_rejects_beta_warmup_not_one_epoch(tmp_path: Path) -> None:
     """FU-003: a warmup fraction that desyncs from one epoch fails closed."""
     settings = _full_settings(tmp_path=tmp_path, max_train_steps=2, save_every=1)

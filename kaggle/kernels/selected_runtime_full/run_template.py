@@ -20,6 +20,13 @@ from typing import cast
 KAGGLE_SELECTED_RUNTIME_FULL_READY = True
 SELECTED_RUNTIME_FULL_RUN_CONTRACT_READY = "selected_runtime_full_run_contract_ready"
 EXPECTED_DATASET_SLUG = "maximusshtefan/patches-pre-shuffled-ubc-ocean"
+RESUME_DATASET_SLUG = "maximusshtefan/eqvae-baseline-session1-step15000"
+RESUME_CHECKPOINT = Path(
+    "/kaggle/input/eqvae-baseline-session1-step15000/step_015000.pt",
+)
+RESUME_CHECKPOINT_SHA256 = (
+    "8f1b2af601354642036d4d71dca8865ea9c7896a71da4ed69f3871559c448f4f"
+)
 KERNEL_METADATA = {
     "id": "maximusshtefan/eqvae-selected-runtime-full",
     "title": "eqvae selected runtime full",
@@ -30,7 +37,7 @@ KERNEL_METADATA = {
     "enable_gpu": "true",
     "enable_internet": "true",
     "machine_shape": "NvidiaTeslaT4",
-    "dataset_sources": [EXPECTED_DATASET_SLUG],
+    "dataset_sources": [EXPECTED_DATASET_SLUG, RESUME_DATASET_SLUG],
     "competition_sources": [],
     "kernel_sources": [],
     "model_sources": [],
@@ -101,45 +108,46 @@ def main() -> int:
             )
             _validate_import_only_artifacts(output_dir=output_dir)
             return 0
+        resume_checkpoint = _resume_checkpoint_path()
+        _validate_resume_checkpoint(resume_checkpoint)
         exit_code = _run_selected_runtime_full_torchrun(
             payload_src=payload_src,
-            payload_dir=payload_dir,
             output_dir=output_dir,
             selected_runtime_path=selected_runtime_path,
             full_config_path=full_config_path,
-        )
-        if exit_code != 0:
-            return exit_code
-        if os.environ.get("EQVAE_SELECTED_RUNTIME_FULL_RESUME"):
-            # Each Kaggle session is downloaded and kept separately. The strict
-            # whole-experiment verifier runs only after their CSVs are merged locally.
-            return 0
-        return _verify_full_output(
-            payload_src=payload_src,
-            output_dir=output_dir,
-            selected_runtime_path=selected_runtime_path,
+            resume_checkpoint=resume_checkpoint,
         )
     except Exception:  # noqa: BLE001
         traceback.print_exc()
         return 1
+    else:
+        # Each Kaggle session is downloaded and kept separately. The strict
+        # whole-experiment verifier runs after their CSVs are merged locally.
+        return exit_code
 
 
 def _run_selected_runtime_full_torchrun(
     *,
     payload_src: Path,
-    payload_dir: Path,
     output_dir: Path,
     selected_runtime_path: Path,
     full_config_path: Path,
+    resume_checkpoint: Path,
 ) -> int:
     command = _selected_runtime_full_torchrun_command(
         selected_runtime_path=selected_runtime_path,
         full_config_path=full_config_path,
         output_dir=output_dir,
+        resume_checkpoint=resume_checkpoint,
     )
     env = os.environ.copy()
     env["PYTHONPATH"] = _pythonpath(payload_src, env.get("PYTHONPATH", ""))
-    result = subprocess.run(command, cwd=payload_dir, env=env, check=False)  # noqa: S603
+    result = subprocess.run(  # noqa: S603
+        command,
+        cwd=payload_src.parent,
+        env=env,
+        check=False,
+    )
     return int(result.returncode)
 
 
@@ -148,6 +156,7 @@ def _selected_runtime_full_torchrun_command(
     selected_runtime_path: Path,
     full_config_path: Path,
     output_dir: Path,
+    resume_checkpoint: Path | None = None,
 ) -> list[str]:
     data_root = os.environ.get("EQVAE_SELECTED_RUNTIME_FULL_DATA_ROOT") or "auto"
     command = [
@@ -171,32 +180,25 @@ def _selected_runtime_full_torchrun_command(
         "--run-name",
         "non_eq_vae_spec0001_selected_runtime_full",
     ]
-    resume_checkpoint = os.environ.get("EQVAE_SELECTED_RUNTIME_FULL_RESUME")
-    if resume_checkpoint:
-        command.extend(["--resume", str(Path(resume_checkpoint).resolve())])
+    checkpoint = resume_checkpoint or _resume_checkpoint_path()
+    command.extend(["--resume", str(checkpoint.resolve())])
     return command
 
 
-def _verify_full_output(
-    *,
-    payload_src: Path,
-    output_dir: Path,
-    selected_runtime_path: Path,
-) -> int:
-    env = os.environ.copy()
-    env["PYTHONPATH"] = _pythonpath(payload_src, env.get("PYTHONPATH", ""))
-    command = [
-        sys.executable,
-        "-m",
-        "eqvae.cli.selected_runtime_gate",
-        "--verify-full-output",
-        "--output-dir",
-        str(output_dir),
-        "--runtime-config",
-        str(selected_runtime_path),
-    ]
-    result = subprocess.run(command, env=env, check=False)  # noqa: S603
-    return int(result.returncode)
+def _resume_checkpoint_path() -> Path:
+    override = os.environ.get("EQVAE_SELECTED_RUNTIME_FULL_RESUME")
+    return Path(override).resolve() if override else RESUME_CHECKPOINT
+
+
+def _validate_resume_checkpoint(path: Path) -> None:
+    if not path.is_file():
+        raise RuntimeError(f"resume checkpoint missing: {path}")
+    observed = _sha256_file(path)
+    if observed != RESUME_CHECKPOINT_SHA256:
+        raise RuntimeError(
+            "resume checkpoint SHA-256 mismatch: "
+            f"expected {RESUME_CHECKPOINT_SHA256}, observed {observed}",
+        )
 
 
 def _output_dir() -> Path:
@@ -371,6 +373,8 @@ def _write_import_only_artifact(
         "half_epoch_interval_steps": FULL_HALF_EPOCH_INTERVAL,
         "selected_runtime_sha256": _sha256_file(selected_runtime_path),
         "full_config_sha256": _sha256_file(full_config_path),
+        "resume_dataset_slug": RESUME_DATASET_SLUG,
+        "resume_checkpoint_sha256": RESUME_CHECKPOINT_SHA256,
         "payload_git_commit": payload_manifest.get("git_commit", ""),
         "torchrun_command": " ".join(
             _selected_runtime_full_torchrun_command(

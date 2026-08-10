@@ -9,8 +9,8 @@ Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, and active Spec
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
 boundary. Its output and checkpoint are verified locally; the FSQ-aligned AMP runtime
 and full-output verification corrections are implemented and verified, while the private
-checkpoint-dataset upload and session-2 launch still require
-explicit approval naming those remote writes. Do not poll continuously.
+checkpoint-dataset upload and session-2 launch are explicitly approved and in guarded
+launch preparation. Do not poll continuously.
 Preserve any later unrelated or ambiguous work: do not reset, checkout, blanket-restore,
 or recreate the tree. Inspect every diff before surgical removal.
 
@@ -143,14 +143,12 @@ of their dedicated wiring in `scripts/kaggle_kernel.sh`,
 ## Multi-session handoff
 
 - Before session 2, add only the concrete checkpoint transport exposed by session 1:
-  publish/attach verified `step_015000.pt` and point
-  `EQVAE_SELECTED_RUNTIME_FULL_RESUME` at that Kaggle input. The current kernel accepts
-  the path, but its metadata/push guard intentionally allows only the UBC dataset, so a
-  fresh worker cannot see the checkpoint yet. The ignored upload payload is ready at
+  publish/attach verified `step_015000.pt` and point the launcher at that exact Kaggle
+  input. The ignored upload payload is ready at
   `runs/kaggle/session1_resume_dataset` for proposed private dataset
-  `maximusshtefan/eqvae-baseline-session1-step15000`. The external-action safety gate
-  rejected creation until the user explicitly approves that exact checkpoint upload and
-  destination. Do not build a generic transport layer.
+  `maximusshtefan/eqvae-baseline-session1-step15000`. The user explicitly approved that
+  exact private upload and the resumed-kernel push on 2026-08-10. The session-2 metadata,
+  path, and SHA-256 guard are being prepared; do not build a generic transport layer.
 - Use lean checkpoint-only sessions because the projected ~12.7-hour training time
   exceeds Kaggle's 8-hour limit. Every session still targets update 60000 and runs until
   it completes or Kaggle closes it; there is no artificial session cap. Every 3000-update
@@ -227,9 +225,9 @@ the retained image information, so it is not the default candidate. Evidence is 
 `runs/kaggle/selected_runtime_beta_probe_v10`. The original beta-1 run drove KL
 effectively to zero.
 
-Latest local verification after the complete AMP policy correction: the focused full-run
-suite passes 212 tests, the dedicated full-kernel preflight passes 213 tests, and
-`./scripts/python_quality.sh` passes formatting, Ruff, 608 tests with 1 skip, and
+Latest local verification after the AMP and session-2 transport corrections: the focused
+full-run suite passes 215 tests, the dedicated full-kernel preflight passes 215 tests, and
+`./scripts/python_quality.sh` passes formatting, Ruff, 685 tests with 1 skip, and
 BasedPyright with 0 errors. Repo preflight passes; rerun the workspace preflight and
 `git diff --check` before commit. Earlier clean-context audits found no launch blocker in
 the checkpoint/session/runtime slice. They
@@ -243,9 +241,8 @@ absolute successful-update count. Source commit `81b5017` is on GitHub. Kaggle s
 version 2 ended `ERROR`: logs show completed boundaries through update 15000 and an AMP
 overflow guard failure in the window ending at update 18000. Its downloaded proof,
 checkpoint hash, metric prefix, and fixed-25 boundaries verify update 15000 as the commit
-point. The current kernel metadata still attaches exactly
-`maximusshtefan/patches-pre-shuffled-ubc-ocean`; adding the proposed private resume
-dataset and launching session 2 remain pending explicit remote-write approval.
+point. The exact private checkpoint-dataset upload and resumed session-2 kernel push were
+explicitly approved on 2026-08-10 and are now in guarded launch preparation.
 
 ## Fresh-agent execution order
 
@@ -266,13 +263,12 @@ dataset and launching session 2 remain pending explicit remote-write approval.
    FSQ comparison, FSQ-aligned AMP runtime/full-output correction, full quality gate, and
    full-kernel preflight as complete. The checkpoint is accepted with one lost physical
    optimizer update under the user's stated tolerance.
-6. Obtain explicit permission naming both remote actions: upload
+6. Permission is complete for both exact remote actions: upload
    `step_015000.pt` to private Kaggle dataset
    `maximusshtefan/eqvae-baseline-session1-step15000`, then attach it and launch session 2
-   of `maximusshtefan/eqvae-selected-runtime-full`. After permission, add the smallest
-   exact metadata/path/hash guard, rerun preflight from a clean commit, upload the
-   checkpoint dataset, and push the resumed kernel. Do not infer this permission from the
-   earlier broad approval; the external-action safety gate rejected that interpretation.
+   of `maximusshtefan/eqvae-selected-runtime-full`. Add the smallest exact
+   metadata/path/hash guard, rerun preflight from a clean commit, upload the checkpoint
+   dataset, and push the resumed kernel.
 
 Baseline full training is paused after the failed first session; the continuous-`SO(2)`
 repeat remains a later gate.

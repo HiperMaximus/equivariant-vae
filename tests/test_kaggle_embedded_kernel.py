@@ -661,6 +661,18 @@ def test_embedded_selected_runtime_full_kernel_import_simulation(
     )
     assert payload["target_optimizer_updates"] == _FULL_TARGET_UPDATES
     assert payload["half_epoch_interval_steps"] == _FULL_HALF_EPOCH_INTERVAL
+    assert (
+        payload["resume_dataset_slug"]
+        == "maximusshtefan/eqvae-baseline-session1-step15000"
+    )
+    assert payload["resume_checkpoint_sha256"] == (
+        "8f1b2af601354642036d4d71dca8865ea9c7896a71da4ed69f3871559c448f4f"
+    )
+    metadata = _load_json(simulation.upload_dir / "kernel-metadata.json")
+    assert metadata["dataset_sources"] == [
+        "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+        "maximusshtefan/eqvae-baseline-session1-step15000",
+    ]
     command = str(payload["torchrun_command"])
     assert "non_eq_vae_selected_runtime_full.json" in command
     assert "eqvae.cli.selected_runtime_train" in command
