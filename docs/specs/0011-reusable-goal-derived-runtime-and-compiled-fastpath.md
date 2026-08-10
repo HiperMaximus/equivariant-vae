@@ -1,6 +1,6 @@
 # Spec 0011: Kaggle Training-Configuration Search
 
-Status: v5 lean contract / session 1 checkpoint verified / AMP fix ready / resume pending
+Status: v5 lean contract / session 1 checkpoint verified / full-run AMP policy corrected / resume pending
 
 Last updated: 2026-08-10
 
@@ -192,6 +192,12 @@ uses a 600-update linear warmup to effective `1e-3`, then cosine decay without r
 10. Full-run publication pins the measured Torch/CUDA stack and beta target, verifies
     the entire generated wrapper against its source template, and publishes each
     checkpoint atomically before hashing it.
+11. Full training follows GradScaler/FSQ skip semantics: an overflowed attempt is
+    logged and its optimizer update is skipped, the next data batch is consumed, and
+    successful-update LR/beta/evaluation/checkpoint counters do not advance. Occasional
+    skipped rows may contain non-finite gradient telemetry; every successful row must be
+    finite and exact successful step/rank coverage must still reach the target. The
+    bounded LR-range, debug, tiny-overfit, and runtime-selection gates remain zero-skip.
 
 ## Implementation state
 
@@ -267,9 +273,13 @@ default factor-2/2000-update growth policy. Gradient clipping was already global
 1.0 with foreach. The failure came from the runner's extra deferred zero-skip assertion:
 both real paths suppressed immediate skip observation, so normal GradScaler backoff was
 made fatal at the window boundary. The smallest FSQ-aligned correction observes every
-skip immediately, lets GradScaler back off and retry, and prevents a skipped attempt from
-advancing successful-update LR/beta/evaluation/checkpoint schedules. The deferred fatal
-assertion is removed. Full Python quality and the 210-test full-kernel preflight pass.
+skip immediately, lets GradScaler back off, advances to the next data batch, and prevents
+a skipped attempt from advancing successful-update LR/beta/evaluation/checkpoint
+schedules. The deferred fatal assertion is removed. Full-run summaries and the
+downloaded-output verifier now accept logged skipped attempts while continuing to reject
+any non-finite successful row; exact successful step/rank coverage remains mandatory and
+short readiness probes remain strict zero-skip. The focused 212-test full-run suite, full
+Python quality (608 passed, 1 skipped), and the 213-test full-kernel preflight pass.
 
 The verified checkpoint-only payload is ready locally for proposed private Kaggle dataset
 `maximusshtefan/eqvae-baseline-session1-step15000`. Remote dataset creation was rejected

@@ -563,6 +563,12 @@ KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-selected-runtime-ful
 
 Full training uses beta target `0.01` with a one-epoch beta ramp, 600-update linear LR
 warmup to effective `1e-3`, then cosine decay without restarts to `1e-5` at update 60000.
+Its AMP policy matches the working FSQ control and PyTorch GradScaler: an overflowed
+attempt is logged, the unsafe optimizer update is skipped, and training consumes the next
+batch without advancing successful-update LR/beta/evaluation/checkpoint counters. Full-run
+verification permits non-finite telemetry only on skipped rows; successful rows must be
+finite and must cover every scheduled update on every rank. LR-range, debug, tiny-overfit,
+and runtime-selection gates remain zero-skip.
 The projected total is longer than one Kaggle session, so the exact
 checkpoint/download/resume sequence must pass local review before launch approval.
 Each worker targets update 60000 and runs until completion or Kaggle's session limit

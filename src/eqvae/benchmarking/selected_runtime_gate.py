@@ -828,8 +828,10 @@ def _remote_full_json_blockers(  # noqa: PLR0913
             training_summary.get("train_reparameterization") == "stochastic_seeded",
             "train_reparameterization_not_stochastic",
         ),
-        (training_summary.get("amp_step_skipped_count") == 0, "amp_skips_nonzero"),
-        (training_summary.get("nonfinite_count") == 0, "nonfinite_nonzero"),
+        (
+            training_summary.get("successful_nonfinite_count") == 0,
+            "successful_nonfinite_nonzero",
+        ),
         (
             training_summary.get("checkpoint_retention")
             == "best_final_latest_four_interval",
@@ -959,7 +961,7 @@ def _full_retained_interval_checkpoint_names(summary: JsonObject) -> tuple[str, 
     return tuple(names)
 
 
-def _remote_full_train_step_blockers(  # noqa: C901, PLR0912
+def _remote_full_train_step_blockers(  # noqa: C901
     path: Path,
     *,
     max_batch_size: int,
@@ -1019,10 +1021,10 @@ def _remote_full_train_step_blockers(  # noqa: C901, PLR0912
         coverage.get(step) != expected_ranks for step in range(1, target_updates + 1)
     ):
         blockers.append("selected_runtime_full_output_train_steps_schedule_incomplete")
-    if any(row.get("amp_step_skipped") != "0" for row in rows):
-        blockers.append("selected_runtime_full_output_train_steps_amp_skip")
-    if any(_int_value(row.get("nonfinite_count")) != 0 for row in rows):
-        blockers.append("selected_runtime_full_output_train_steps_nonfinite")
+    if any(_int_value(row.get("nonfinite_count")) != 0 for row in successful_rows):
+        blockers.append(
+            "selected_runtime_full_output_train_steps_successful_nonfinite",
+        )
     if any(
         (batch_size := _int_value(row.get("batch_size"))) <= 0
         or (max_batch_size > 0 and batch_size > max_batch_size)
@@ -1117,6 +1119,9 @@ _REMOTE_FULL_CROSS_CONSISTENCY_KEYS = (
     "half_epoch_interval_steps",
     "validation_batches_per_view",
     "validation_views",
+    "amp_step_skipped_count",
+    "nonfinite_count",
+    "successful_nonfinite_count",
 )
 
 

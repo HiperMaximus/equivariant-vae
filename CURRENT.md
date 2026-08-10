@@ -7,14 +7,17 @@ Last updated: 2026-08-10
 Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, and active Spec
 0011 completely. Baseline full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
-boundary. Its output and checkpoint are verified locally; a small AMP skip-handling fix
-is ready, while the private checkpoint-dataset upload and session-2 launch still require
+boundary. Its output and checkpoint are verified locally; the FSQ-aligned AMP runtime
+and full-output verification corrections are implemented and verified, while the private
+checkpoint-dataset upload and session-2 launch still require
 explicit approval naming those remote writes. Do not poll continuously.
 Preserve any later unrelated or ambiguous work: do not reset, checkout, blanket-restore,
 or recreate the tree. Inspect every diff before surgical removal.
 
 Non-equivariant runtime selection is complete. Do not execute old-v2 `p00310` or the
-failed-v3 Bmax/main-effects controller. Source commit `81b5017` is pushed to GitHub.
+failed-v3 Bmax/main-effects controller. Session-1 source commit `81b5017` and the first
+AMP runtime correction are pushed to GitHub; the current HEAD includes the full-output
+policy correction.
 
 Baseline full-run session 1 ran on Kaggle as
 `maximusshtefan/eqvae-selected-runtime-full`, kernel version 2. The user explicitly
@@ -36,11 +39,17 @@ the hot loop could not gate successful-step progress immediately; a deferred sca
 assertion then killed the run. The update-15000 checkpoint shows scale `1048576`, growth
 factor `2`, backoff factor `0.5`, and growth interval `2000`, consistent with normal
 dynamic-scale growth/backoff. Gradient clipping was already global norm `1.0` with
-foreach. The local fix sets `observe_skip=True` on eager and compiled paths and removes
-the deferred fatal assertion: skipped attempts are logged but do not advance LR, beta,
-validation, checkpoint, or successful-update counters. Runtime, real-data LR range,
-resume, fixed-32 learnability, and beta-selection checks passed before launch. The user
-locked beta `0.01` on 2026-08-09; do not run an intermediate beta probe.
+foreach. The downloaded rows show one actual two-rank overflow at event label 14007; the
+old path let its data/schedule label advance even though GradScaler discarded that
+physical optimizer update. The update-15000 checkpoint is finite and loadable but
+therefore represents 14999 physical optimizer updates; the user explicitly accepts losing
+one or a few updates. The fix sets `observe_skip=True` on eager and compiled paths,
+removes the deferred fatal assertion, consumes the next batch after a skip, and does not
+advance LR, beta, validation, checkpoint, or successful-update counters. Full-run
+summaries and the downloaded-output verifier allow non-finite telemetry only on skipped
+rows and still require every successful row to be finite with exact step/rank coverage.
+Runtime selection, LR-range, debug, and tiny-overfit gates remain strict zero-skip.
+The user locked beta `0.01` on 2026-08-09; do not run an intermediate beta probe.
 
 ## Current objective
 
@@ -218,10 +227,12 @@ the retained image information, so it is not the default candidate. Evidence is 
 `runs/kaggle/selected_runtime_beta_probe_v10`. The original beta-1 run drove KL
 effectively to zero.
 
-Latest local verification after the AMP skip fix: the dedicated full-kernel preflight
-passes 210 tests, and `./scripts/python_quality.sh` passes formatting, Ruff, 680 tests
-with 1 skip, and BasedPyright with 0 errors. Repo/workspace preflights and
-`git diff --check` pass. Post-fix clean-context audits found no launch blocker. They
+Latest local verification after the complete AMP policy correction: the focused full-run
+suite passes 212 tests, the dedicated full-kernel preflight passes 213 tests, and
+`./scripts/python_quality.sh` passes formatting, Ruff, 608 tests with 1 skip, and
+BasedPyright with 0 errors. Repo preflight passes; rerun the workspace preflight and
+`git diff --check` before commit. Earlier clean-context audits found no launch blocker in
+the checkpoint/session/runtime slice. They
 confirmed atomic checkpoint publication, the hashed 3000-step checkpoint as the session
 commit point, index-only loader continuation, rank/segment-separated stochastic streams,
 fixed-25 completion before checkpoint commitment, exact generated-wrapper verification,
@@ -252,8 +263,9 @@ dataset and launching session 2 remain pending explicit remote-write approval.
 4. Treat source commit `81b5017`, GitHub push, guarded API check, Kaggle kernel version 2
    push, and terminal `ERROR` status/log reads as complete. Do not continuously poll.
 5. Treat the session-1 output download, update-15000 proof/hash/CSV/fixed-25 verification,
-   FSQ comparison, AMP skip-handling fix, full quality gate, and full-kernel preflight as
-   complete.
+   FSQ comparison, FSQ-aligned AMP runtime/full-output correction, full quality gate, and
+   full-kernel preflight as complete. The checkpoint is accepted with one lost physical
+   optimizer update under the user's stated tolerance.
 6. Obtain explicit permission naming both remote actions: upload
    `step_015000.pt` to private Kaggle dataset
    `maximusshtefan/eqvae-baseline-session1-step15000`, then attach it and launch session 2

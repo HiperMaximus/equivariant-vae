@@ -5924,7 +5924,7 @@ def _training_summary(  # noqa: PLR0913
         "JsonObject",
         {
             "status": _LOCAL_STATUS
-            if _nonfinite_metric_count(metric_rows) == 0
+            if _blocking_nonfinite_metric_count(settings, metric_rows) == 0
             else _FAIL,
             "status_scope": _status_scope(settings),
             "proof_scope": _status_scope(settings),
@@ -5996,6 +5996,9 @@ def _training_summary(  # noqa: PLR0913
             "validation_metric_row_count": len(validation_rows),
             "amp_step_skipped_count": sum(
                 1 for row in metric_rows if row["amp_step_skipped"] == "1"
+            ),
+            "successful_nonfinite_count": _successful_nonfinite_metric_count(
+                metric_rows,
             ),
             "fixed_train_patches": ""
             if data_surface.fixed_train_patches is None
@@ -6117,7 +6120,7 @@ def _selected_runtime_debug_summary(  # noqa: PLR0913
     )
 
 
-def _selected_runtime_full_summary(  # noqa: C901, PLR0913
+def _selected_runtime_full_summary(  # noqa: PLR0913
     *,
     plan: SelectedRuntimePlan,
     settings: _RunnerSettings,
@@ -6137,10 +6140,8 @@ def _selected_runtime_full_summary(  # noqa: C901, PLR0913
     blockers: list[str] = []
     if completed_steps != settings.target_train_steps:
         blockers.append("target_optimizer_updates_not_completed")
-    if _amp_step_skipped_count(metric_rows) != 0:
-        blockers.append("amp_step_skip_observed")
-    if _nonfinite_metric_count(metric_rows) != 0:
-        blockers.append("nonfinite_train_metric_observed")
+    if _successful_nonfinite_metric_count(metric_rows) != 0:
+        blockers.append("nonfinite_successful_train_metric_observed")
     if not _stochastic_train_eps_proven(metric_rows):
         blockers.append("stochastic_seeded_train_epsilon_not_proven")
     if not _per_rank_eps_divergent(metric_rows):
@@ -6206,6 +6207,11 @@ def _selected_runtime_full_summary(  # noqa: C901, PLR0913
             "best_validation_metric": best_validation_metric,
             "amp_execution_status": amp.local_amp_status,
             "grad_scaler_init_scale": amp.grad_scaler_init_scale,
+            "amp_step_skipped_count": _amp_step_skipped_count(metric_rows),
+            "nonfinite_count": _nonfinite_metric_count(metric_rows),
+            "successful_nonfinite_count": _successful_nonfinite_metric_count(
+                metric_rows,
+            ),
             "ddp_rank_device_status": _string_value(ddp_proof.get("status")),
             "selected_runtime_plan_applied_status": _string_value(
                 plan_applied.get("status"),
@@ -6532,8 +6538,7 @@ def _full_run_artifacts_eligible(  # noqa: PLR0913
         and request.data == "ubc-pre-shuffled"
         and _successful_optimizer_update_count(metric_rows)
         == settings.target_train_steps
-        and _amp_step_skipped_count(metric_rows) == 0
-        and _nonfinite_metric_count(metric_rows) == 0
+        and _successful_nonfinite_metric_count(metric_rows) == 0
         and _stochastic_train_eps_proven(metric_rows)
         and _validation_schedule_complete(settings, validation_rows)
         and plan_applied.get("status") == _LOCAL_STATUS
@@ -7006,6 +7011,19 @@ def _amp_step_skipped_count(rows: Sequence[CsvRow]) -> int:
 
 def _nonfinite_metric_count(rows: Sequence[CsvRow]) -> int:
     return sum(int(row.get("nonfinite_count", "0")) for row in rows)
+
+
+def _successful_nonfinite_metric_count(rows: Sequence[CsvRow]) -> int:
+    return _nonfinite_metric_count(_successful_metric_rows(rows))
+
+
+def _blocking_nonfinite_metric_count(
+    settings: _RunnerSettings,
+    rows: Sequence[CsvRow],
+) -> int:
+    if _is_full_run(settings):
+        return _successful_nonfinite_metric_count(rows)
+    return _nonfinite_metric_count(rows)
 
 
 def _batch_size_values(rows: Sequence[CsvRow]) -> tuple[int, ...]:

@@ -3787,6 +3787,153 @@ def test_full_dry_run_summary_lists_only_interval_checkpoints(
     assert training_summary["beta_warmup_steps"] == _FULL_UPDATES_PER_EPOCH
 
 
+def test_full_summaries_allow_scaler_skips_but_require_finite_successes(
+    tmp_path: Path,
+) -> None:
+    """Full-run promotion tolerates overflow telemetry only on skipped attempts.
+
+    Dynamic loss scaling may discard an unsafe update without harming training, as in
+    the FSQ control. Requiring the target's exact successful coverage while rejecting
+    non-finite successful rows prevents either a normal skip or a corrupted update from
+    being misclassified.
+    """
+    plan = parse_selected_runtime_plan(_RUNTIME_CONFIG)
+    settings = replace(
+        _full_settings(tmp_path=tmp_path, max_train_steps=2, save_every=1),
+        target_train_steps=2,
+        max_train_steps=2,
+        half_epoch_interval_steps=1,
+        validation_views=(),
+    )
+    request = SelectedRuntimeTrainRequest(
+        config_path=_FULL_CONFIG,
+        runtime_config=_RUNTIME_CONFIG,
+        output_dir=tmp_path,
+        run_name="full_amp_skip_policy",
+        data="ubc-pre-shuffled",
+        max_train_steps=2,
+        save_every_steps=1,
+    )
+    contract = _FullOutputContract(2, 1, 2, 1, 0, 4, plan.world_size)
+    metric_rows = _train_step_rows(contract)
+    metric_rows[1]["eps_abs_mean"] = "0.9"
+    for rank in range(plan.world_size):
+        skipped = _train_step_row(contract=contract, step=1, rank=rank)
+        skipped.update(
+            {
+                "event_id": f"rank{rank}_train_attempt_skipped",
+                "successful_optimizer_update_count": "0",
+                "grad_norm": "inf",
+                "param_update_norm": "0.0",
+                "nonfinite_count": "1",
+                "amp_step_skipped": "1",
+                "checkpoint_path": "",
+            },
+        )
+        metric_rows.append(skipped)
+    amp = selected_runtime_runner._amp_execution(  # noqa: SLF001
+        plan=plan,
+        distributed=_local_distributed_context(),
+        dry_run=True,
+    )
+    data_surface = cast(
+        "selected_runtime_runner._DataSurface",  # noqa: SLF001
+        Mock(
+            source="ubc-pre-shuffled",
+            root=tmp_path,
+            synthetic_generated=False,
+            fixed_train_patches=None,
+            fixed_train_patches_sha256="",
+            fixed_train_patch_count=0,
+            train_sampler_policy="distributed_sampler_shuffle_false_drop_last_true",
+            train_effective_global_epoch_samples=4,
+            train_effective_per_rank_epoch_samples=2,
+        ),
+    )
+    proof = cast("JsonObject", {"status": "local_pass"})
+    summary = selected_runtime_runner._selected_runtime_full_summary(  # noqa: SLF001
+        plan=plan,
+        settings=settings,
+        plan_applied=proof,
+        ddp_proof=proof,
+        amp=amp,
+        checkpoint_resume_proof=proof,
+        gate_health_summary=proof,
+        data_surface=data_surface,
+        metric_rows=metric_rows,
+        validation_rows=(),
+        checkpoints=(),
+        best_validation_metric=None,
+    )
+
+    assert summary["status"] == "local_pass"
+    assert summary["amp_step_skipped_count"] == plan.world_size
+    assert summary["nonfinite_count"] == plan.world_size
+    assert summary["successful_nonfinite_count"] == 0
+    assert selected_runtime_runner._full_run_artifacts_eligible(  # noqa: SLF001
+        settings=settings,
+        request=request,
+        metric_rows=metric_rows,
+        validation_rows=(),
+        plan_applied=proof,
+        gate_health_summary=proof,
+    )
+    checkpoint = CheckpointMetadata(
+        path=tmp_path / "checkpoints" / "final.pt",
+        sha256="checkpoint",
+        optimizer_step=2,
+        successful_optimizer_update_count=2,
+    )
+    training_summary = selected_runtime_runner._training_summary(  # noqa: SLF001
+        request=request,
+        resolved=resolve_json_config(_FULL_CONFIG),
+        settings=settings,
+        plan=plan,
+        runtime_identity=selected_runtime_runner._runtime_identity(plan),  # noqa: SLF001
+        launch_command=cast(
+            "selected_runtime_runner.SelectedRuntimeLaunchCommand",
+            Mock(shell_command="torchrun full"),
+        ),
+        ddp_proof=proof,
+        amp=amp,
+        data_surface=data_surface,
+        metric_rows=metric_rows,
+        validation_rows=(),
+        checkpoints=(),
+        final_checkpoint=checkpoint,
+        best_checkpoint=checkpoint,
+        best_validation_metric=None,
+        last_result=_step_result(step=2),
+        plan_applied=proof,
+        checkpoint_resume_proof=proof,
+        gate_health_summary=proof,
+        reconstruction_nonblank=False,
+    )
+    assert training_summary["status"] == "local_pass"
+    assert training_summary["full_run_eligible"] is True
+    assert training_summary["successful_nonfinite_count"] == 0
+
+    metric_rows[0]["nonfinite_count"] = "1"
+    failed = selected_runtime_runner._selected_runtime_full_summary(  # noqa: SLF001
+        plan=plan,
+        settings=settings,
+        plan_applied=proof,
+        ddp_proof=proof,
+        amp=amp,
+        checkpoint_resume_proof=proof,
+        gate_health_summary=proof,
+        data_surface=data_surface,
+        metric_rows=metric_rows,
+        validation_rows=(),
+        checkpoints=(),
+        best_validation_metric=None,
+    )
+    assert failed["status"] == "fail"
+    assert failed["launch_blockers_remaining"] == [
+        "nonfinite_successful_train_metric_observed",
+    ]
+
+
 def test_full_resume_history_merges_prefix_metrics_and_checkpoints(
     tmp_path: Path,
 ) -> None:
@@ -4840,6 +4987,97 @@ def test_full_output_verifier_retires_reconstruction_sample_requirement(
     assert not any("reconstruction" in blocker for blocker in blockers)
 
 
+def test_full_output_verifier_accepts_amp_skips_with_finite_successes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Full output may contain scaler-discarded overflow attempts as telemetry.
+
+    The experiment is complete when every scheduled rank/update has a finite successful
+    row; rejecting extra paired skip rows would recreate the session-1 failure despite
+    GradScaler correctly protecting the parameters.
+    """
+    contract = _small_full_output_contract(monkeypatch)
+    output_dir = tmp_path / "full_output"
+    _write_full_output_fixture(output_dir=output_dir, contract=contract)
+    benchmark = output_dir / "benchmark"
+    for name in ("training_summary", "selected_runtime_full_summary"):
+        path = benchmark / f"{name}.json"
+        payload = cast(
+            "dict[str, object]",
+            json.loads(path.read_text(encoding="utf-8")),
+        )
+        payload["amp_step_skipped_count"] = contract.world_size
+        payload["nonfinite_count"] = contract.world_size
+        payload["successful_nonfinite_count"] = 0
+        _write_json(path, payload)
+        _refresh_manifest_hash(
+            output_dir=output_dir,
+            artifact_name=name,
+            artifact_path=path,
+        )
+    rows = _train_step_rows(contract)
+    for rank in range(contract.world_size):
+        skipped = _train_step_row(contract=contract, step=1, rank=rank)
+        skipped.update(
+            {
+                "event_id": f"rank{rank}_train_attempt_skipped",
+                "successful_optimizer_update_count": "0",
+                "grad_norm": "inf",
+                "param_update_norm": "0.0",
+                "nonfinite_count": "1",
+                "amp_step_skipped": "1",
+                "checkpoint_path": "",
+            },
+        )
+        rows.append(skipped)
+    train_steps = output_dir / "metrics" / "train_steps.csv"
+    _write_csv(train_steps, _train_step_columns(), rows)
+    _refresh_manifest_hash(
+        output_dir=output_dir,
+        artifact_name="train_steps",
+        artifact_path=train_steps,
+    )
+
+    blockers = verify_selected_runtime_full_output(
+        output_dir=output_dir,
+        selected_runtime_path=_RUNTIME_CONFIG,
+    )
+
+    assert blockers == ()
+
+
+def test_full_output_verifier_rejects_nonfinite_successful_row(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-finite row marked successful invalidates the paid-run artifact.
+
+    GradScaler protection applies only when the optimizer update is skipped; accepting a
+    non-finite successful row could bless corrupted model state even with exact schedule
+    coverage.
+    """
+    contract = _small_full_output_contract(monkeypatch)
+    output_dir = tmp_path / "full_output"
+    _write_full_output_fixture(output_dir=output_dir, contract=contract)
+    rows = _train_step_rows(contract)
+    rows[0]["nonfinite_count"] = "1"
+    train_steps = output_dir / "metrics" / "train_steps.csv"
+    _write_csv(train_steps, _train_step_columns(), rows)
+    _refresh_manifest_hash(
+        output_dir=output_dir,
+        artifact_name="train_steps",
+        artifact_path=train_steps,
+    )
+
+    blockers = verify_selected_runtime_full_output(
+        output_dir=output_dir,
+        selected_runtime_path=_RUNTIME_CONFIG,
+    )
+
+    assert "selected_runtime_full_output_train_steps_successful_nonfinite" in blockers
+
+
 def test_full_output_verifier_rejects_missing_fixed25_error_maps(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -5477,6 +5715,7 @@ def _write_full_output_fixture(
             "train_reparameterization": "stochastic_seeded",
             "amp_step_skipped_count": 0,
             "nonfinite_count": 0,
+            "successful_nonfinite_count": 0,
             "checkpoint_retention": "best_final_latest_four_interval",
             "resume_supported": True,
             "retained_interval_checkpoint_count": contract.keep_count,
@@ -5500,6 +5739,9 @@ def _write_full_output_fixture(
             "half_epoch_interval_steps": contract.half_interval,
             "validation_batches_per_view": 0,  # 0 = full validation sweep (S17f)
             "validation_views": ["clean", "deterministic_denoising"],
+            "amp_step_skipped_count": 0,
+            "nonfinite_count": 0,
+            "successful_nonfinite_count": 0,
             "stochastic_train_eps_proven": True,
             "per_rank_reparameterization_eps_divergent": True,
             "best_validation_selection_view": "deterministic_denoising",
