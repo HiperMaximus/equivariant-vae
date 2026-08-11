@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
 ## Fresh-session start here
 
@@ -8,11 +8,10 @@ Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, and active Spec
 0011 completely. Baseline full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
 boundary. Its output and checkpoint are verified locally; the FSQ-aligned AMP runtime
-and full-output verification corrections are implemented and verified. Session 2 is
-Kaggle kernel version 3 from clean source commit `65112aa`; its immediate status at
-2026-08-10 11:24 COT was `KernelWorkerStatus.RUNNING`. A bounded live-log read at
-13:33 COT confirmed the new update-18000/epoch-3.0 boundary completed and both ranks
-resumed training. Do not poll continuously.
+and full-output verification corrections are implemented and verified. Session 2 was
+Kaggle kernel version 3 from clean source commit `65112aa`; Kaggle closed it with
+`KernelWorkerStatus.CANCEL_ACKNOWLEDGED` after the complete update-45000/epoch-7.5
+boundary. Its output is downloaded and the checkpoint/proof prefix is verified locally.
 Preserve any later unrelated or ambiguous work: do not reset, checkout, blanket-restore,
 or recreate the tree. Inspect every diff before surgical removal.
 
@@ -167,16 +166,30 @@ of their dedicated wiring in `scripts/kaggle_kernel.sh`,
 - Session 1 version 2 was pushed from clean commit `81b5017` and ended in error after the
   completed 15000 boundary. Its output is downloaded and verified; do not replace or
   rerun it without new explicit direction.
-- Session 2 version 3 was pushed from clean commit `65112aa` at 2026-08-10 11:24 COT.
-  Its immediate check returned `KernelWorkerStatus.RUNNING`; a later bounded live-log
-  read confirmed the update-18000 boundary completed and training resumed. The current
-  local source adds FSQ-aligned rank-0 resume breadcrumbs for data preparation,
+- Session 2 version 3 was pushed from clean commit `65112aa` at 2026-08-10 11:24 COT and
+  ended `CANCEL_ACKNOWLEDGED` after the completed update-45000 boundary. Its output is
+  downloaded under ignored `runs/kaggle/selected_runtime_full_v3_session2`. The resume
+  proof names `checkpoints/step_045000.pt` with SHA-256
+  `e7a0f05e013bff4f7a5bfbfd4442f3c9a6d19cf261c42f54a6d04391be76e88b`; the local
+  file hash and loadable schema-v5 metadata match. Fixed-25/validation boundaries are
+  complete from 18000 through 45000. The session logged 26 skip rows: 13 synchronized
+  two-rank AMP skips, all isolated (maximum consecutive streak one), with zero non-finite
+  successful updates. Clean validation L1 improved `0.07733 -> 0.05965` and denoising
+  L1 `0.08172 -> 0.06279` from update 3000 through 45000; corresponding SSIM rose
+  `0.5690 -> 0.7272` and `0.5647 -> 0.7192`. Visual comparison of the same fixed-25
+  originals at updates 3000, 15000, and 45000 shows continued edge/nuclear-contrast
+  improvement without collapse: tissue layout, stain, glands, nuclei, stroma, and empty
+  regions remain recognizable, with expected VAE smoothing of fine chromatin detail.
+  Session-1/session-2 `originals.png` and `originals.pt` hashes match exactly, proving the
+  comparison did not replace the fixed examples. The two session output directories are
+  separate; do not overwrite either when preparing session 3.
+- The current local source adds FSQ-aligned rank-0 resume breadcrumbs for data preparation,
   checkpoint-load start, load duration/restored epoch-step/LR/GradScaler scale, and the
   first successful resumed optimizer update with LR/attempt count. It also logs every
   rare AMP non-finite/overflow skip with its consecutive streak and new scaler scale,
   then logs recovery. NCCL initialization also receives the resolved rank-local CUDA
   device explicitly, removing PyTorch 2.13's ambiguous-barrier-device warning. These
-  apply to the next session, not already-running version 3.
+  apply to session 3; version 3 predates them.
 
 The user prefers direct, bounded Kaggle experiments over defensive local machinery and is
 comfortable with liberal probe pushes. Still use the repository's `KAGGLE_*_CONFIRMED`
@@ -251,8 +264,9 @@ absolute successful-update count. Source commit `81b5017` is on GitHub. Kaggle s
 version 2 ended `ERROR`: logs show completed boundaries through update 15000 and an AMP
 overflow guard failure in the window ending at update 18000. Its downloaded proof,
 checkpoint hash, metric prefix, and fixed-25 boundaries verify update 15000 as the commit
-point. The exact private checkpoint dataset is uploaded, source commit `65112aa` is on
-GitHub, and resumed Kaggle kernel version 3 is running from that clean source.
+point. Session 2 then advanced the committed prefix through update 45000; its exact
+checkpoint hash, loadable state, finite successful rows, validation curve, fixed-25
+boundaries, and partial manifest are verified locally.
 
 ## Fresh-agent execution order
 
@@ -273,12 +287,12 @@ GitHub, and resumed Kaggle kernel version 3 is running from that clean source.
    FSQ comparison, FSQ-aligned AMP runtime/full-output correction, full quality gate, and
    full-kernel preflight as complete. The checkpoint is accepted with one lost physical
    optimizer update under the user's stated tolerance.
-6. Treat the exact private checkpoint upload, session-2 path/hash guard, clean commit
-   `65112aa`, GitHub push, and Kaggle kernel version 3 launch as complete. The immediate
-   status was `RUNNING` at 11:24 COT.
-7. Treat the bounded session-2 log check through the completed update-18000 boundary as
-   complete. Do not continuously poll; check again only on user request or a deliberate
-   later handoff.
+6. Treat the exact session-1 checkpoint upload, session-2 path/hash guard, clean commit
+   `65112aa`, GitHub push, version-3 launch, terminal cancellation, output download, and
+   committed update-45000 verification as complete.
+7. Prepare the smallest one-off session-3 transport for the verified update-45000
+   checkpoint. Do not build a generic session manager. Ask separately before uploading
+   the private checkpoint dataset or pushing/running the next Kaggle kernel.
 
-Baseline full training is running in session 2; the continuous-`SO(2)` repeat remains a
-later gate.
+Baseline full training has 15000 successful updates remaining; the continuous-`SO(2)`
+repeat remains a later gate.

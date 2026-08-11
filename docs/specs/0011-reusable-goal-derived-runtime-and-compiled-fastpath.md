@@ -1,8 +1,8 @@
 # Spec 0011: Kaggle Training-Configuration Search
 
-Status: v5 lean contract / session 1 checkpoint verified / session 2 running
+Status: v5 lean contract / session 2 checkpoint verified at update 45000
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
 ## Decision
 
@@ -289,9 +289,7 @@ hash-mismatched `/kaggle/input/eqvae-baseline-session1-step15000/step_015000.pt`
 accepted SHA-256 is
 `8f1b2af601354642036d4d71dca8865ea9c7896a71da4ed69f3871559c448f4f`.
 The private dataset upload completed and session 2 launched as Kaggle kernel version 3
-from clean source commit `65112aa`; its immediate 2026-08-10 11:24 COT status was
-`KernelWorkerStatus.RUNNING`. A bounded live-log read later confirmed the new
-update-18000/epoch-3.0 boundary completed and training resumed. Future resumed sessions
+from clean source commit `65112aa`. Future resumed sessions
 emit FSQ-aligned rank-0 breadcrumbs after data preparation, at checkpoint-load start,
 after load with duration/restored epoch-step/LR/GradScaler scale, and after the first
 successful resumed optimizer update with LR/attempt count. They also emit a rank-0 line
@@ -300,7 +298,19 @@ attempt count, and backed-off scale, followed by one recovery line; ordinary fin
 updates stay quiet. NCCL process-group initialization now receives the resolved
 rank-local CUDA device explicitly, matching the FSQ reference and preventing PyTorch
 2.13 barriers from warning that their device is inferred from the current context.
-Version 3 predates those changes.
+Version 3 predates those changes. Kaggle closed version 3 with
+`CANCEL_ACKNOWLEDGED` after the complete update-45000 boundary. The downloaded output
+under `runs/kaggle/selected_runtime_full_v3_session2` verifies loadable schema-v5
+checkpoint `step_045000.pt` at SHA-256
+`e7a0f05e013bff4f7a5bfbfd4442f3c9a6d19cf261c42f54a6d04391be76e88b`, complete
+fixed-25/validation boundaries through 45000, 13 isolated synchronized AMP-skip attempts,
+and zero non-finite successful updates. Validation continues to learn through 45000:
+clean/denoising L1 are `0.05965/0.06279` versus `0.07733/0.08172` at update 3000.
+The same fixed-25 originals hash identically across both downloaded sessions. Visual
+inspection through 45000 shows preserved tissue/stain morphology and improving edge and
+nuclear contrast without collapse, while fine chromatin remains VAE-smoothed.
+Session 3 must transport only this committed checkpoint and run the remaining 15000
+successful updates after separate remote-write approval.
 Downstream probes remain the final compression-utility criterion. Repeat only the lean
 architecture-specific tuning required for continuous `SO(2)` later; do not reopen the
 shared beta choice by default.
