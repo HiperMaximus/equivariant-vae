@@ -3,7 +3,9 @@
 Status: active gate installed; production scope excludes historical `reference/nn`
 Implementation readiness: active and passing for production Python work
 Owner/workstream: agentic Python quality and local CPU verification
-Last updated: 2026-08-02
+Latest broad verification: 687 passed, 1 expected GPU-only skip, Ruff clean, and
+BasedPyright 0 errors on 2026-08-11.
+Last updated: 2026-08-11
 
 ## Purpose
 

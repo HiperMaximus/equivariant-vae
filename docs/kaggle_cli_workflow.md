@@ -545,15 +545,20 @@ range completed 192 two-rank updates without skips/non-finites. Fixed-32 overfit
 smoothed L1 by 28.1% and reconstruction loss by 22.5% over 128 updates. The strict output
 verifier passes.
 
-The next local preparation is:
+The normal-VAE full run completed on 2026-08-11 at update 60000 across three
+checkpoint-only sessions. Raw outputs remain separate under
+`runs/kaggle/selected_runtime_full_v2`,
+`runs/kaggle/selected_runtime_full_v3_session2`, and
+`runs/kaggle/selected_runtime_full_v4_session3`; never overwrite them. The ignored
+`runs/kaggle/selected_runtime_full_combined_verified` directory is a derived,
+non-authoritative committed-range verification view. `CURRENT.md` and active Spec 0011
+record the final hashes, metrics, images, and accepted legacy exception.
+
+For a deliberate future full-run push only, rerun preflight and obtain fresh explicit
+permission before using the guarded sequence:
 
 ```bash
 ./scripts/kaggle_kernel.sh preflight-selected-runtime-full
-```
-
-After separate explicit permission for the full training write and reads, use exactly:
-
-```bash
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check kaggle/kernels/selected_runtime_full
 KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_full
 KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-selected-runtime-full
@@ -569,22 +574,20 @@ batch without advancing successful-update LR/beta/evaluation/checkpoint counters
 verification permits non-finite telemetry only on skipped rows; successful rows must be
 finite and must cover every scheduled update on every rank. LR-range, debug, tiny-overfit,
 and runtime-selection gates remain zero-skip.
-The projected total is longer than one Kaggle session, so the exact
-checkpoint/download/resume sequence must pass local review before launch approval.
-Each worker targets update 60000 and runs until completion or Kaggle's session limit
-closes it. Every 3000-update boundary has already flushed validation, fixed-25 images and
-latent artifacts, metrics, and a checkpoint. Download the canceled session to a distinct
-local directory. The session commit point is the checkpoint named and hashed by
+The run proved the multi-session contract: each worker targets update 60000 and runs
+until completion or Kaggle's session limit closes it. Every 3000-update boundary flushes
+validation, fixed-25 images and latent artifacts, metrics, and a checkpoint. Download a
+closed session to a distinct local directory. The session commit point is the checkpoint
+named and hashed by
 `benchmark/checkpoint_resume_proof.json`: use `latest_checkpoint_step` as the inclusive
 cutoff, and reject the session if the named checkpoint/hash is absent or the step is not
 a 3000-update boundary. A hard close may preserve preflushed CSV/artifact data above that
 cutoff; exclude those rows and fixed-25 boundary artifacts from final concatenation.
-Upload/attach only the committed checkpoint for session 2, which writes a new output
-directory. Keep all session outputs locally and concatenate each session's committed
-absolute-step CSV prefix only after update 60000. Earlier remote metrics/artifacts are
-not inputs to the next session. Do not add an artificial session cap or build a remote
-merge/artifact-transport framework.
-Probe permission does not authorize this long run.
+For any continuation, upload/attach only the latest committed checkpoint and write a new
+output directory. Earlier remote metrics/artifacts are not inputs to the next session.
+Keep raw sessions and concatenate committed absolute-step CSV prefixes only for local
+verification. Do not add an artificial cap or build a remote merge/artifact-transport
+framework. Probe permission never authorizes a long run.
 
 `synthetic_timing` is quarantined (FU-031); if deliberately rerun, filter to its four small
 benchmark files and exclude `synthetic_timing_data/`.

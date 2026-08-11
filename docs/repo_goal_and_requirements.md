@@ -1,7 +1,7 @@
 # Repo Goal And Requirements Tracker
 
 Status: active tracker
-Last updated: 2026-06-10
+Last updated: 2026-08-11
 
 This document keeps the repo horizon visible. It consolidates the research goal,
 GitHub issue requirements, paper obligations, and evaluation artifacts so they
@@ -23,9 +23,9 @@ Issue screenshots are part of the evidence. Read
 
 Build and evaluate a comparable pair of histopathology patch VAEs:
 
-1. A non-equivariant denoising VAE whose operations can be translated to the
-   steerable model.
-2. A continuous `SO(2)`-steerable denoising VAE implemented with repo-owned,
+1. The completed 60000-update non-equivariant denoising VAE control, whose operations
+   translate to the steerable model.
+2. The next gate: a continuous `SO(2)`-steerable denoising VAE implemented with repo-owned,
    compile-compatible SO(2) layers, using `escnn` as a reference.
 
 The final claim should compare models that share:

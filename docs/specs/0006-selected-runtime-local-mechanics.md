@@ -1,9 +1,9 @@
 # Spec 0006: Selected-Runtime Local Mechanics
 
 Status: implemented / locally verified
-Implementation readiness: implemented locally; remote proof remains blocked
+Implementation readiness: implemented and exercised by the completed remote baseline
 Owner/workstream: comparable non-equivariant VAE baseline, selected runtime gate
-Last updated: 2026-06-22
+Last updated: 2026-08-11
 
 ## Purpose
 
@@ -149,7 +149,7 @@ PYTHONPATH=src .venv/bin/pytest tests/test_selected_runtime_gate.py -q
 ./scripts/python_quality.sh
 git diff --check
 ./scripts/agent_preflight.sh
-cd /home/maximus/Documents/Tesis && ./agent_preflight.sh
+cd /home/n00b1337/Documents/Max/Tesis && ./agent_preflight.sh
 ```
 
 Add focused tests for the new parser, local UBC-format mechanics, AMP skip

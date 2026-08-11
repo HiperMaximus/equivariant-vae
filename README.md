@@ -159,6 +159,12 @@ pinned commit; see
 
 ## Current Experiment Horizon
 
+The normal-VAE control completed 60000 update counters and local artifact verification
+on 2026-08-11. Its fixed-25 reconstructions and rotation/latent evidence are under the
+ignored session-3 run named in `CURRENT.md`. The next experiment gate is the matched
+continuous-`SO(2)` model; beta `0.01`, data, schedule, fixed examples, metrics, and
+downstream probes remain locked for the comparison.
+
 The comparison should be fair by construction:
 
 - same histopathology patch pipeline;
@@ -203,7 +209,7 @@ docs/issue_image_inventory.md
 The thesis repository is separate:
 
 ```text
-/home/maximus/Documents/Tesis/Tesis
+/home/n00b1337/Documents/Max/Tesis/Tesis
 https://github.com/HiperMaximus/Tesis.git
 ```
 

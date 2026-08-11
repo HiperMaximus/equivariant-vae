@@ -1,16 +1,16 @@
 # Spec 0004: SIPAIM Paper Scaffold
 
 Status: draft active / scaffold slice implemented
-Implementation readiness: ready only for outline, title, placeholder text,
-paper-local figure copies, and bibliography scaffolding; not ready for result
-claims
+Implementation readiness: verified normal-VAE evidence is available for bounded
+method/result reporting; matched comparison claims still require continuous `SO(2)` and
+downstream evidence
 Owner/workstream: SIPAIM 2026 paper planning
-Last updated: 2026-06-19
+Last updated: 2026-08-11
 
 ## Purpose
 
-Create a safe first paper scaffold while the Kaggle benchmark and full
-experiments are still pending.
+Maintain the paper scaffold while the verified normal-VAE control advances to the
+continuous-`SO(2)` and downstream comparison stages.
 
 The paper should follow the user's thesis framing: first learn representations
 from many unlabeled histopathology patches with an autoencoder/VAE-style model,
@@ -32,7 +32,7 @@ evaluation protocol.
 ## Inputs And Data Contract
 
 - Paper source: `paper/sipaim2026`.
-- Thesis reference source: `/home/maximus/Documents/Tesis/Tesis/main.tex`,
+- Thesis reference source: `/home/n00b1337/Documents/Max/Tesis/Tesis/main.tex`,
   figures, and bibliography files.
 - Current experiment source: `GOAL.md`, `CURRENT.md`,
   `docs/repo_goal_and_requirements.md`,

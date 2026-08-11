@@ -1,7 +1,7 @@
 # Equivariant VAE Transition Plan
 
 Status: architecture reference; not the active execution plan
-Last updated: 2026-08-01
+Last updated: 2026-08-11
 
 ## Purpose
 
@@ -22,16 +22,13 @@ Read this plan together with:
 - `docs/spec_driven_development.md` and `docs/specs/` for spec-first
   implementation contracts.
 
-The current Kaggle runs proved that the UBC-OCEAN patch pipeline, DDP loop,
-stain/noise corruption, ResNet-like encoder/decoder macro-architecture,
-checkpointing, and evaluation artifact flow can work. The latest model,
-however, is an FSQ autoencoder, not a normal VAE. The replacement keeps the
-broad ResNet18-like architecture family but removes or replaces operations and
-assumptions that do not translate cleanly.
+The completed 60000-update normal-VAE baseline proves the UBC-OCEAN patch pipeline,
+DDP/AMP loop, stain/noise corruption, ResNet-like encoder/decoder macro-architecture,
+checkpointing, and evaluation artifact flow. It replaced the historical FSQ
+autoencoder while removing operations and assumptions that do not translate cleanly.
 
-This plan replaces the current non-equivariant experiment with a continuous
-denoising VAE baseline whose operations are equivariant-translatable by
-construction. The baseline should be the "shadow" of the future equivariant model:
+This plan now guides translation of that locked non-equivariant control into the
+continuous `SO(2)` model. The baseline is the "shadow" of the future equivariant model:
 the same data contract, layer schedule, losses, logging, and evaluation gates,
 with only the layer factory and field representations swapped.
 

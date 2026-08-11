@@ -318,7 +318,7 @@ PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-push
 ./scripts/python_quality.sh
 git diff --check
 ./scripts/agent_preflight.sh
-cd /home/maximus/Documents/Tesis && ./agent_preflight.sh
+cd /home/n00b1337/Documents/Max/Tesis && ./agent_preflight.sh
 ```
 
 The implementation provides

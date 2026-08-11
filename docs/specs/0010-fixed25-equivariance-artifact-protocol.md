@@ -1,13 +1,14 @@
 # Spec 0010: Fixed-25 Embedding-Equivariance Evaluation Protocol
 
-Status: implemented (on working tree, uncommitted; 2026-07-01)
+Status: implemented, committed, and exercised through baseline update 60000
 Implementation readiness: implemented and locally verified (gate green, 6-lens
 adversarial review integrated); the REAL fixed-25 selector is generated and committed
-(FU-041 DONE, 2026-07-02), so a real full run can now produce promotable fixed-25 output
+(FU-041 DONE, 2026-07-02); the real baseline produced promotable fixed-25 output at all
+20 half-epoch boundaries
 Owner/workstream: comparable non-equivariant VAE baseline, qualitative and
 embedding-equivariance evaluation artifacts (FU-040, token
 `fixed25_equivariance_artifact_protocol`)
-Last updated: 2026-07-02
+Last updated: 2026-08-11
 
 ## Framing: what this is (and is not)
 
@@ -635,14 +636,14 @@ Commands (run only when implementation exists; raw pytest needs the repo-safe TM
 per the window environment notes):
 
 ```bash
-TMPDIR=/home/maximus/Documents/Tesis/.agent-tmp/equivariant-vae \
+TMPDIR=/home/n00b1337/Documents/Max/Tesis/.agent-tmp/equivariant-vae \
   PYTHONPATH=src .venv/bin/pytest tests/test_fixed25_equivariance_artifacts.py -q
-TMPDIR=/home/maximus/Documents/Tesis/.agent-tmp/equivariant-vae \
+TMPDIR=/home/n00b1337/Documents/Max/Tesis/.agent-tmp/equivariant-vae \
   PYTHONPATH=src .venv/bin/pytest tests/test_selected_runtime_full_run.py -q
 ./scripts/python_quality.sh          # ~5 min; pass ~600000 ms timeout
 git diff --check
 ./scripts/agent_preflight.sh
-cd /home/maximus/Documents/Tesis && ./agent_preflight.sh
+cd /home/n00b1337/Documents/Max/Tesis && ./agent_preflight.sh
 ```
 
 ## Implementation Blockers

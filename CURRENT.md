@@ -185,8 +185,8 @@ of their dedicated wiring in `scripts/kaggle_kernel.sh`,
   improvement without collapse: tissue layout, stain, glands, nuclei, stroma, and empty
   regions remain recognizable, with expected VAE smoothing of fine chromatin detail.
   Session-1/session-2 `originals.png` and `originals.pt` hashes match exactly, proving the
-  comparison did not replace the fixed examples. The two session output directories are
-  separate; do not overwrite either when preparing session 3.
+  comparison did not replace the fixed examples. All three raw session directories are
+  separate and must remain unchanged.
 - Session 3 version 4 completed update 60000/epoch 10.0 and is downloaded under ignored
   `runs/kaggle/selected_runtime_full_v4_session3`; the first two session directories are
   unchanged. `step_060000.pt` hashes to
@@ -199,13 +199,17 @@ of their dedicated wiring in `scripts/kaggle_kernel.sh`,
   or missing step/rank. The strict gate's sole blocker is the accepted old session-1
   update-14007 telemetry: both ranks have finite loss, `grad_norm=inf`, zero parameter
   update, and old `amp_step_skipped=0`; every other successful row is finite.
+- Primary image evidence is local and ignored, not available on GitHub: fixed originals
+  are at `runs/kaggle/selected_runtime_full_v4_session3/artifacts/fixed25/originals.png`;
+  final reconstructions, the rotated-input/rotated-embedding grid, and latent PCA/first3
+  views are under `artifacts/fixed25/boundary_060000` in that session directory.
 - The current local source adds FSQ-aligned rank-0 resume breadcrumbs for data preparation,
   checkpoint-load start, load duration/restored epoch-step/LR/GradScaler scale, and the
   first successful resumed optimizer update with LR/attempt count. It also logs every
   rare AMP non-finite/overflow skip with its consecutive streak and new scaler scale,
   then logs recovery. NCCL initialization also receives the resolved rank-local CUDA
-  device explicitly, removing PyTorch 2.13's ambiguous-barrier-device warning. These
-  apply to session 3; version 3 predates them.
+  device explicitly, removing PyTorch 2.13's ambiguous-barrier-device warning. Session 3
+  exercised these changes successfully; version 3 predates them.
 
 The user prefers direct, bounded Kaggle experiments over defensive local machinery and is
 comfortable with liberal probe pushes. Still use the repository's `KAGGLE_*_CONFIRMED`

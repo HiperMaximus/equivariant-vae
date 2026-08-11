@@ -1,7 +1,9 @@
 # Spec 0001: Translatable Normal VAE Baseline
 
-Status: draft active / reopened for architecture and objective corrections.
-Implementation readiness: not locked for broad implementation. The durable
+Status: normal-VAE baseline implemented and verified at update 60000; matched
+continuous-`SO(2)` architecture remains active.
+Implementation readiness: the baseline is locked as the comparison control, but broad
+equivariant implementation is not yet ready. The durable
 contract below (`## Purpose` onward) is the state of record; the dated per-slice
 implementation chronology that preceded it was removed on 2026-07-17 (git
 history, `CURRENT.md`, and child specs 0006–0011 hold that narrative). The
@@ -21,7 +23,7 @@ fail-closed broad-implementation push guard to PASS):
   `selected_runtime_debug_gate_contract_ready`
 
 Owner/workstream: comparable non-equivariant VAE baseline.
-Last updated: 2026-07-17
+Last updated: 2026-08-11
 
 ## Purpose
 

@@ -1,10 +1,10 @@
 # Spec 0007: Real UBC DDP AMP Selected-Runtime Runner
 
-Status: implemented / locally verified
-Implementation readiness: local implementation complete; remote proof remains
-sequenced through Spec 0008
+Status: implemented / remote baseline verified
+Implementation readiness: complete for the normal-VAE control; Spec 0011 records the
+current recipe and full-run evidence
 Owner/workstream: comparable non-equivariant VAE baseline, real selected runtime
-Last updated: 2026-06-28
+Last updated: 2026-08-11
 
 ## Purpose
 
@@ -15,7 +15,7 @@ inspection station. This spec builds the runner path that can actually execute
 the selected runtime on real Kaggle data once the narrow remote debug/tiny gate
 is approved in Spec 0008.
 
-The selected runtime remains the v5 fallback row:
+The following v5 row is historical and was superseded by Spec 0011:
 
 ```text
 dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative
@@ -237,7 +237,7 @@ PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_train \
 ./scripts/python_quality.sh
 git diff --check
 ./scripts/agent_preflight.sh
-cd /home/maximus/Documents/Tesis && ./agent_preflight.sh
+cd /home/n00b1337/Documents/Max/Tesis && ./agent_preflight.sh
 ```
 
 Final pass status:

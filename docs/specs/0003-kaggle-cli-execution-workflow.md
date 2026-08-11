@@ -1,18 +1,10 @@
 # Spec 0003: Kaggle CLI Execution Workflow
 
-Status: draft active workflow scaffold.
-
-Selected runtime (locked fallback): runtime-selection v5 wrote
-`benchmark/selected_runtime.json` selecting
-`dual_t4_ddp__bs12__amp_conservative__compile_none__indexed_masked__policy_amp_fp16_conservative`
-— dual-T4 bs12 AMP-conservative, zero AMP skips, ~30.4 h projected for 10 epochs.
-Spec 0008's capped selected-runtime debug/tiny gate passed strict
-downloaded-output verification for v5 (`runs/kaggle/selected_runtime_debug_v5`),
-but that gate is intentionally non-promotable and is not a full-run launcher:
-Spec 0009 owns the guarded full-run kernel, exact 10-epoch schedule,
-validation/checkpoint cadence, resume hardening, verifier, and approval gate.
-Spec 0011 re-derives the runtime as a reusable per-(model × hardware) search;
-v5 stays the fallback until that generator emits a new `selected_runtime.json`.
+Status: implemented and proven through the three-session 60000-update normal-VAE
+baseline. The current selected recipe is Spec 0011's dual-T4 per-rank batch 25,
+FP16/channels-last compiled whole-step plan. Guarded push/status/output, checkpoint-only
+resume, separate downloads, and final local verification all completed. Historical v5
+batch-12 and Spec 0009 v1 values are not current launch defaults.
 
 The historical FSQ script is runtime reference material only (launch/env, loader,
 AMP, DDP, compile, layout, and checkpoint hypotheses); it is not a source for FSQ
@@ -20,7 +12,7 @@ quantization, PixelShuffle/sub-pixel upsampling, final `tanh` bounding, the exac
 old corruptor, or `rot90`/discrete-latent equivariance artifacts.
 
 Owner/workstream: Kaggle GPU execution and artifact retrieval
-Last updated: 2026-07-16
+Last updated: 2026-08-11
 
 ## Purpose
 

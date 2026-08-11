@@ -300,7 +300,7 @@ clean/denoising L1 are `0.05965/0.06279` versus `0.07733/0.08172` at update 3000
 The same fixed-25 originals hash identically across both downloaded sessions. Visual
 inspection through 45000 shows preserved tissue/stain morphology and improving edge and
 nuclear contrast without collapse, while fine chromatin remains VAE-smoothed.
-Session 3 must transport only this committed checkpoint and run the remaining 15000
+Session 3 transported only this committed checkpoint and completed the remaining 15000
 successful updates after separate remote-write approval. Its ignored one-off local
 upload payload `runs/kaggle/session2_resume_dataset` contains exactly metadata plus the
 47,757,473-byte `step_045000.pt`; its copied checkpoint hashes to the verified SHA-256

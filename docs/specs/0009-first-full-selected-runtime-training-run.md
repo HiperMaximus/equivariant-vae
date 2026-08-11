@@ -7,7 +7,8 @@
 > boundaries. V1 is not a resume base. Active Spec 0011 lets each worker run toward
 > update 60000 until Kaggle closes it, passes only the latest fully completed boundary
 > checkpoint to the next fresh worker, keeps each session's outputs locally, and merges
-> metrics after all 60000 updates.
+> metrics after all 60000 updates. That replacement baseline completed and was verified
+> on 2026-08-11; this spec remains historical only.
 
 Status: full kernel version 1 canceled with resumable checkpoint; future
 two-phase cancellation metric flushing fixed locally; v1 policy DECIDED
@@ -332,7 +333,7 @@ PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-outp
 ./scripts/python_quality.sh
 git diff --check
 ./scripts/agent_preflight.sh
-cd /home/maximus/Documents/Tesis && ./agent_preflight.sh
+cd /home/n00b1337/Documents/Max/Tesis && ./agent_preflight.sh
 ```
 
 Local verification on 2026-06-30 passed after the canceled-v1 interval-flush
@@ -351,9 +352,9 @@ fixes:
 - `./scripts/python_quality.sh` passed with `246 passed` and basedpyright
   `0 errors, 0 warnings, 0 notes`.
 - `git diff --check`, repo `./scripts/agent_preflight.sh`, and workspace
-  `/home/maximus/Documents/Tesis/agent_preflight.sh` passed.
+  `/home/n00b1337/Documents/Max/Tesis/agent_preflight.sh` passed.
 - Heavy local gates were run with workspace-local scratch under
-  `/home/maximus/Documents/Tesis/.agent-tmp/equivariant-vae`, and the scratch
+  `/home/n00b1337/Documents/Max/Tesis/.agent-tmp/equivariant-vae`, and the scratch
   contents were deleted after use. `tests/test_kaggle_embedded_kernel.py` now
   handles non-`/tmp` pytest scratch directories by checking the actual ancestor
   path that can resolve the masked-holdout CSV.

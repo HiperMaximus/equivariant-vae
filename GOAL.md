@@ -182,8 +182,9 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   adversarial fixes have been applied. Do not launch or poll the remote full
   run without fresh explicit user approval of the exact dedicated full-kernel
   command.
-- Current status pointer (2026-08-09): active Spec 0011 is a lean, one-off Kaggle
-  configuration search, not the superseded v4 audit platform. Direct dual-T4 probes
+- Current status pointer (2026-08-11): active Spec 0011 is a lean, one-off Kaggle
+  configuration search and full-run contract, not the superseded v4 audit platform.
+  Direct dual-T4 probes
   selected per-rank batch 25 (global 50), FP16 channels-last compiled whole-step,
   Python DDP reducer/compiled autograd, fused AdamW, and the other settings recorded in
   `configs/spec0001/non_eq_vae_runtime_winner.json`. Two fresh measurements project
@@ -199,14 +200,13 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   better deterministic reconstruction than beta `0.1` (L1 `0.07748` versus `0.09708`;
   SSIM `0.58764` versus `0.49837`) while keeping nonzero KL. The user locked beta `0.01`
   for the matched baseline/continuous-`SO(2)` comparison; do not run another beta probe.
-  Next remove the completed one-off probe branch and verify the lean multi-session path:
-  run toward the full target until Kaggle closes the worker, continue from the latest
-  complete half-epoch checkpoint into separate session outputs, and concatenate metrics
-  locally after training. Do not build an artificial session cap, remote artifact
-  transport, or a general session framework. Then verify the dedicated full kernel and
-  request separate session-1 approval. The full plan
-  uses a one-epoch beta ramp, 600-step LR warmup to effective `1e-3`, and cosine decay to
-  `1e-5`; full launch remains separately authorized.
+  The normal-VAE baseline completed 60000 update counters across three checkpoint-only
+  sessions and is locally verified with the user-approved single physical-update legacy
+  exception. Clean/denoising L1 reached `0.05925/0.06236`, fixed-25 images and rotation
+  artifacts are complete, and the final checkpoint is loadable. The next experiment
+  gate is the matched continuous-`SO(2)` implementation/run: preserve beta, data,
+  schedule, fixed examples, metrics, and downstream probes; tune only
+  architecture-specific runtime details. Do not build a general session framework.
   This GOAL states the north star, not the frontier; read
   `CURRENT.md` and
   `docs/specs/0011-reusable-goal-derived-runtime-and-compiled-fastpath.md`.
