@@ -1,6 +1,6 @@
 # Spec 0011: Kaggle Training-Configuration Search
 
-Status: v5 lean contract / final session locally ready from update 45000
+Status: v5 lean contract / final session running from update 45000
 
 Last updated: 2026-08-11
 
@@ -309,6 +309,10 @@ above. Final-run metadata, wrapper, and launch guards accept only private slug
 `/kaggle/input/eqvae-baseline-session2-step45000/step_045000.pt`. The dedicated kernel
 preflight passes all 217 tests, and the full Python gate passes 687 tests with one
 expected GPU-only skip, Ruff clean, and BasedPyright at zero errors.
+The private dataset upload is complete and its remote file listing reports the exact
+47,757,473-byte checkpoint. Clean source commit `462c9e1` is on GitHub; the guarded push
+launched final-session Kaggle kernel version 4, which entered
+`KernelWorkerStatus.RUNNING` on 2026-08-11.
 Downstream probes remain the final compression-utility criterion. Repeat only the lean
 architecture-specific tuning required for continuous `SO(2)` later; do not reopen the
 shared beta choice by default.

@@ -12,6 +12,8 @@ and full-output verification corrections are implemented and verified. Session 2
 Kaggle kernel version 3 from clean source commit `65112aa`; Kaggle closed it with
 `KernelWorkerStatus.CANCEL_ACKNOWLEDGED` after the complete update-45000/epoch-7.5
 boundary. Its output is downloaded and the checkpoint/proof prefix is verified locally.
+Final session 3 is Kaggle kernel version 4 from clean source commit `462c9e1`; it is
+`KernelWorkerStatus.RUNNING` from that exact update-45000 checkpoint.
 Preserve any later unrelated or ambiguous work: do not reset, checkout, blanket-restore,
 or recreate the tree. Inspect every diff before surgical removal.
 
@@ -295,9 +297,10 @@ boundaries, and partial manifest are verified locally.
    verified update-45000 checkpoint. Final-run metadata, wrapper, and launch guards are
    pinned to private slug `maximusshtefan/eqvae-baseline-session2-step45000`, exact
    Kaggle path, and SHA-256. Do not build a generic session manager.
-8. Ask separately before uploading that private checkpoint dataset or pushing/running
-   the final Kaggle kernel. After approval, upload the dataset first, then use the
-   guarded full-kernel push; do not replace either downloaded prior-session directory.
+8. Treat the private checkpoint-dataset upload, source commit `462c9e1` GitHub push,
+   guarded final-kernel push, and Kaggle version-4 launch as complete. The remote dataset
+   lists the expected 47,757,473-byte checkpoint, and version 4 is `RUNNING`. Monitor it;
+   do not replace either downloaded prior-session directory when retrieving final output.
 
 Baseline full training has 15000 successful updates remaining; the continuous-`SO(2)`
 repeat remains a later gate.
