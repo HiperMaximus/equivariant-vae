@@ -12,8 +12,9 @@ and full-output verification corrections are implemented and verified. Session 2
 Kaggle kernel version 3 from clean source commit `65112aa`; Kaggle closed it with
 `KernelWorkerStatus.CANCEL_ACKNOWLEDGED` after the complete update-45000/epoch-7.5
 boundary. Its output is downloaded and the checkpoint/proof prefix is verified locally.
-Final session 3 is Kaggle kernel version 4 from clean source commit `462c9e1`; it is
-`KernelWorkerStatus.RUNNING` from that exact update-45000 checkpoint.
+Final session 3 is Kaggle kernel version 4 from clean source commit `462c9e1`; it reached
+`KernelWorkerStatus.COMPLETE` at update 60000/epoch 10.0 from the exact update-45000
+checkpoint. Its remote output is not yet downloaded or locally verified.
 Preserve any later unrelated or ambiguous work: do not reset, checkout, blanket-restore,
 or recreate the tree. Inspect every diff before surgical removal.
 
@@ -298,9 +299,13 @@ boundaries, and partial manifest are verified locally.
    pinned to private slug `maximusshtefan/eqvae-baseline-session2-step45000`, exact
    Kaggle path, and SHA-256. Do not build a generic session manager.
 8. Treat the private checkpoint-dataset upload, source commit `462c9e1` GitHub push,
-   guarded final-kernel push, and Kaggle version-4 launch as complete. The remote dataset
-   lists the expected 47,757,473-byte checkpoint, and version 4 is `RUNNING`. Monitor it;
-   do not replace either downloaded prior-session directory when retrieving final output.
+   guarded final-kernel push, and Kaggle version-4 execution as complete. Remote logs
+   show completed boundaries 48000, 51000, 54000, 57000, and 60000, with six isolated
+   AMP skips that each recovered on the following attempt. The remote output lists
+   `step_060000.pt`, `final.pt`, summaries, manifests, and fixed-25 artifacts.
+9. Download version-4 output into a new ignored session-3 directory, never either prior
+   session directory; run the strict verifier, validate the final checkpoint/proof and
+   concatenated metrics, then inspect update-60000 reconstructions and rotated artifacts.
 
-Baseline full training has 15000 successful updates remaining; the continuous-`SO(2)`
-repeat remains a later gate.
+Baseline full training reached all 60000 successful updates; local final-output
+verification remains. The continuous-`SO(2)` repeat remains a later gate.
