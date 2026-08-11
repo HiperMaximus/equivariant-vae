@@ -14,7 +14,8 @@ Kaggle kernel version 3 from clean source commit `65112aa`; Kaggle closed it wit
 boundary. Its output is downloaded and the checkpoint/proof prefix is verified locally.
 Final session 3 is Kaggle kernel version 4 from clean source commit `462c9e1`; it reached
 `KernelWorkerStatus.COMPLETE` at update 60000/epoch 10.0 from the exact update-45000
-checkpoint. Its remote output is not yet downloaded or locally verified.
+checkpoint. Its output, final checkpoint, complete metric coverage, and fixed-25 evidence
+are downloaded and verified locally with the accepted single-update session-1 exception.
 Preserve any later unrelated or ambiguous work: do not reset, checkout, blanket-restore,
 or recreate the tree. Inspect every diff before surgical removal.
 
@@ -186,6 +187,18 @@ of their dedicated wiring in `scripts/kaggle_kernel.sh`,
   Session-1/session-2 `originals.png` and `originals.pt` hashes match exactly, proving the
   comparison did not replace the fixed examples. The two session output directories are
   separate; do not overwrite either when preparing session 3.
+- Session 3 version 4 completed update 60000/epoch 10.0 and is downloaded under ignored
+  `runs/kaggle/selected_runtime_full_v4_session3`; the first two session directories are
+  unchanged. `step_060000.pt` hashes to
+  `f733304e9178e468546113642bdf01e11348570b340c366cf148973083cb9075` and loads as
+  schema v5 with update/scaler/model/optimizer/RNG/generator/sampler state intact. Its six
+  AMP skips were isolated and recovered immediately. A one-off ignored verification view
+  at `runs/kaggle/selected_runtime_full_combined_verified` filters the three committed
+  ranges and gives exact 1..60000 two-rank coverage: 120000 successful rows, 38 skip
+  rows/19 synchronized attempts, 80 validation rows, 360 equivariance rows, no duplicate
+  or missing step/rank. The strict gate's sole blocker is the accepted old session-1
+  update-14007 telemetry: both ranks have finite loss, `grad_norm=inf`, zero parameter
+  update, and old `amp_step_skipped=0`; every other successful row is finite.
 - The current local source adds FSQ-aligned rank-0 resume breadcrumbs for data preparation,
   checkpoint-load start, load duration/restored epoch-step/LR/GradScaler scale, and the
   first successful resumed optimizer update with LR/attempt count. It also logs every
@@ -269,7 +282,14 @@ overflow guard failure in the window ending at update 18000. Its downloaded proo
 checkpoint hash, metric prefix, and fixed-25 boundaries verify update 15000 as the commit
 point. Session 2 then advanced the committed prefix through update 45000; its exact
 checkpoint hash, loadable state, finite successful rows, validation curve, fixed-25
-boundaries, and partial manifest are verified locally.
+boundaries, and partial manifest are verified locally. Session 3 advances through 60000
+with a loadable hash-matched final checkpoint and complete boundaries. Across updates
+3000 to 60000, clean L1 improves `0.07733 -> 0.05925` and SSIM `0.5690 -> 0.7336`;
+denoising L1 improves `0.08172 -> 0.06236` and SSIM `0.5647 -> 0.7257`. Update-60000
+reconstructions preserve tissue/stain morphology without collapse and show expected VAE
+smoothing. Rotated-input/rotated-embedding grids, latent tensors, PCA/first-three views,
+and error maps are complete; rotation exactness is zero, while the non-equivariant
+control's learned representation is correctly not claimed to be equivariant.
 
 ## Fresh-agent execution order
 
@@ -303,9 +323,14 @@ boundaries, and partial manifest are verified locally.
    show completed boundaries 48000, 51000, 54000, 57000, and 60000, with six isolated
    AMP skips that each recovered on the following attempt. The remote output lists
    `step_060000.pt`, `final.pt`, summaries, manifests, and fixed-25 artifacts.
-9. Download version-4 output into a new ignored session-3 directory, never either prior
-   session directory; run the strict verifier, validate the final checkpoint/proof and
-   concatenated metrics, then inspect update-60000 reconstructions and rotated artifacts.
+9. Treat the separate version-4 download, final-checkpoint hash/schema/state validation,
+   committed-range concatenation, metric coverage analysis, and update-60000 visual
+   inspection as complete. Preserve all three raw downloads; the combined view is derived
+   and explicitly non-authoritative. Accept only the known update-14007 physical skip
+   under the user's stated tolerance; do not hide or rewrite its legacy telemetry.
+10. Use the verified normal-VAE baseline as the control for the continuous-`SO(2)` run.
+    Preserve beta `0.01`, the downstream probes, fixed examples, schedules, and reporting
+    contract; tune only architecture-specific runtime details when that work begins.
 
-Baseline full training reached all 60000 successful updates; local final-output
-verification remains. The continuous-`SO(2)` repeat remains a later gate.
+Baseline full training and final-output verification are complete. The continuous-`SO(2)`
+repeat is the next experiment gate.

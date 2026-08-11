@@ -1,6 +1,6 @@
 # Spec 0011: Kaggle Training-Configuration Search
 
-Status: v5 lean contract / baseline reached update 60000; final output pending verification
+Status: v5 lean contract / baseline update 60000 verified
 
 Last updated: 2026-08-11
 
@@ -314,10 +314,25 @@ The private dataset upload is complete and its remote file listing reports the e
 Kaggle kernel version 4 reached `KernelWorkerStatus.COMPLETE` at update 60000/epoch 10.0
 on 2026-08-11. Remote logs show complete 48000, 51000, 54000, 57000, and 60000
 boundaries and six isolated AMP skips, each recovered on the immediately following
-attempt. The remote inventory includes `step_060000.pt`, `final.pt`, summaries,
-manifests, fixed-25 outputs, and rotated latent-space artifacts. Download version 4 to a
-new ignored session-3 directory and verify it locally before accepting final metrics or
-image quality.
+attempt. Version 4 is downloaded to the new ignored session-3 directory
+`runs/kaggle/selected_runtime_full_v4_session3`; the prior sessions remain unchanged.
+The download contains `step_060000.pt`, `final.pt`, summaries, manifests, fixed-25
+outputs, and rotated latent-space artifacts.
+The update-60000 checkpoint hashes to
+`f733304e9178e468546113642bdf01e11348570b340c366cf148973083cb9075` and loads as
+schema v5 with complete training state. The three committed ranges give exact 1..60000
+two-rank coverage with no duplicates or gaps: 120000 successful rows, 38 logged skip
+rows/19 synchronized attempts, 80 validation rows, and 360 equivariance rows. The strict
+gate's only blocker is the explicitly accepted legacy session-1 update-14007 physical
+skip, whose two old rows record infinite gradient norm and zero parameter update but were
+mislabeled successful; all other successful rows are finite. Clean/denoising L1 improve
+from `0.07733/0.08172` at update 3000 to `0.05925/0.06236` at update 60000, while SSIM
+rises from `0.5690/0.5647` to `0.7336/0.7257`. Final visual inspection shows stable
+tissue/stain morphology without collapse and expected VAE smoothing. Fixed originals
+remain hash-identical across sessions, and all rotated-input/rotated-embedding, latent,
+PCA/first-three, and error-map artifacts are present. This normal-VAE control is not
+claimed to be equivariant; the continuous-`SO(2)` result must beat its measured rotation
+errors under the same downstream contract.
 Downstream probes remain the final compression-utility criterion. Repeat only the lean
 architecture-specific tuning required for continuous `SO(2)` later; do not reopen the
 shared beta choice by default.
