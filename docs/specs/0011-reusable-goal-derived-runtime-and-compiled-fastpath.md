@@ -1,6 +1,6 @@
 # Spec 0011: Kaggle Training-Configuration Search
 
-Status: v5 lean contract / session 2 checkpoint verified at update 45000
+Status: v5 lean contract / final session locally ready from update 45000
 
 Last updated: 2026-08-11
 
@@ -245,11 +245,9 @@ boundary schedule. Resume must
 skip old data by sampler indices rather than rereading old patch payloads, and must
 re-separate stochastic streams per DDP rank after loading the rank-0 checkpoint. Do not
 add an artificial session cap, remote artifact-tree transport, a generalized session
-manager/merge service, or automated cleanup. Run focused/broad gates and a clean launch
-review, then request separate approval for the guarded session-1 baseline push. Before
-session 2, attach only the concrete latest checkpoint downloaded from session 1; the
-current metadata/push guard still permits only the UBC dataset and therefore cannot yet
-expose that checkpoint to a fresh worker.
+manager/merge service, or automated cleanup. The final session attaches only the
+concrete update-45000 checkpoint downloaded from session 2 beside the UBC dataset; its
+metadata, wrapper, and push guard fail closed on any other checkpoint path or hash.
 Session-1 local review additionally pins the beta target and measured Torch
 `2.13.0+cu130` / CUDA `13.0` stack at launch, verifies the complete ignored wrapper
 against its tracked template, and publishes checkpoints through a temporary sibling and
@@ -281,15 +279,8 @@ any non-finite successful row; exact successful step/rank coverage remains manda
 short readiness probes remain strict zero-skip. The focused 216-test full-run suite, full
 Python quality (687 passed, 1 skipped), and the 217-test full-kernel preflight pass.
 
-The verified checkpoint-only payload is ready locally for private Kaggle dataset
-`maximusshtefan/eqvae-baseline-session1-step15000`. The user explicitly approved both
-its upload and the subsequent session-2 kernel push on 2026-08-10. Session 2 attaches
-exactly that dataset beside the UBC patch dataset and must reject a missing or
-hash-mismatched `/kaggle/input/eqvae-baseline-session1-step15000/step_015000.pt`; the
-accepted SHA-256 is
-`8f1b2af601354642036d4d71dca8865ea9c7896a71da4ed69f3871559c448f4f`.
-The private dataset upload completed and session 2 launched as Kaggle kernel version 3
-from clean source commit `65112aa`. Future resumed sessions
+The session-1 private checkpoint dataset upload completed and session 2 launched as
+Kaggle kernel version 3 from clean source commit `65112aa`. Future resumed sessions
 emit FSQ-aligned rank-0 breadcrumbs after data preparation, at checkpoint-load start,
 after load with duration/restored epoch-step/LR/GradScaler scale, and after the first
 successful resumed optimizer update with LR/attempt count. They also emit a rank-0 line
@@ -310,7 +301,14 @@ The same fixed-25 originals hash identically across both downloaded sessions. Vi
 inspection through 45000 shows preserved tissue/stain morphology and improving edge and
 nuclear contrast without collapse, while fine chromatin remains VAE-smoothed.
 Session 3 must transport only this committed checkpoint and run the remaining 15000
-successful updates after separate remote-write approval.
+successful updates after separate remote-write approval. Its ignored one-off local
+upload payload `runs/kaggle/session2_resume_dataset` contains exactly metadata plus the
+47,757,473-byte `step_045000.pt`; its copied checkpoint hashes to the verified SHA-256
+above. Final-run metadata, wrapper, and launch guards accept only private slug
+`maximusshtefan/eqvae-baseline-session2-step45000` and
+`/kaggle/input/eqvae-baseline-session2-step45000/step_045000.pt`. The dedicated kernel
+preflight passes all 217 tests, and the full Python gate passes 687 tests with one
+expected GPU-only skip, Ruff clean, and BasedPyright at zero errors.
 Downstream probes remain the final compression-utility criterion. Repeat only the lean
 architecture-specific tuning required for continuous `SO(2)` later; do not reopen the
 shared beta choice by default.

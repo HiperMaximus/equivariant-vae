@@ -20,12 +20,12 @@ from typing import cast
 KAGGLE_SELECTED_RUNTIME_FULL_READY = True
 SELECTED_RUNTIME_FULL_RUN_CONTRACT_READY = "selected_runtime_full_run_contract_ready"
 EXPECTED_DATASET_SLUG = "maximusshtefan/patches-pre-shuffled-ubc-ocean"
-RESUME_DATASET_SLUG = "maximusshtefan/eqvae-baseline-session1-step15000"
+RESUME_DATASET_SLUG = "maximusshtefan/eqvae-baseline-session2-step45000"
 RESUME_CHECKPOINT = Path(
-    "/kaggle/input/eqvae-baseline-session1-step15000/step_015000.pt",
+    "/kaggle/input/eqvae-baseline-session2-step45000/step_045000.pt",
 )
 RESUME_CHECKPOINT_SHA256 = (
-    "8f1b2af601354642036d4d71dca8865ea9c7896a71da4ed69f3871559c448f4f"
+    "e7a0f05e013bff4f7a5bfbfd4442f3c9a6d19cf261c42f54a6d04391be76e88b"
 )
 KERNEL_METADATA = {
     "id": "maximusshtefan/eqvae-selected-runtime-full",

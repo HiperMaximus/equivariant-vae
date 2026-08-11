@@ -290,9 +290,14 @@ boundaries, and partial manifest are verified locally.
 6. Treat the exact session-1 checkpoint upload, session-2 path/hash guard, clean commit
    `65112aa`, GitHub push, version-3 launch, terminal cancellation, output download, and
    committed update-45000 verification as complete.
-7. Prepare the smallest one-off session-3 transport for the verified update-45000
-   checkpoint. Do not build a generic session manager. Ask separately before uploading
-   the private checkpoint dataset or pushing/running the next Kaggle kernel.
+7. Treat the smallest one-off session-3 transport as locally ready at ignored
+   `runs/kaggle/session2_resume_dataset`: it contains only dataset metadata and the
+   verified update-45000 checkpoint. Final-run metadata, wrapper, and launch guards are
+   pinned to private slug `maximusshtefan/eqvae-baseline-session2-step45000`, exact
+   Kaggle path, and SHA-256. Do not build a generic session manager.
+8. Ask separately before uploading that private checkpoint dataset or pushing/running
+   the final Kaggle kernel. After approval, upload the dataset first, then use the
+   guarded full-kernel push; do not replace either downloaded prior-session directory.
 
 Baseline full training has 15000 successful updates remaining; the continuous-`SO(2)`
 repeat remains a later gate.

@@ -2138,10 +2138,10 @@ for key, expected in required.items():
         errors.append(f"{key} must be {expected!r}")
 expected_datasets = [
     "maximusshtefan/patches-pre-shuffled-ubc-ocean",
-    "maximusshtefan/eqvae-baseline-session1-step15000",
+    "maximusshtefan/eqvae-baseline-session2-step45000",
 ]
 if data.get("dataset_sources") != expected_datasets:
-    errors.append("dataset_sources must attach the exact UBC and session-1 datasets")
+    errors.append("dataset_sources must attach the exact UBC and session-2 datasets")
 for source_field in ("competition_sources", "kernel_sources", "model_sources"):
     if data.get(source_field) != []:
         errors.append(f"{source_field} must be empty")
@@ -2298,9 +2298,9 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         "--nproc_per_node=2",
         "eqvae.cli.selected_runtime_train",
         "--resume",
-        "maximusshtefan/eqvae-baseline-session1-step15000",
-        "/kaggle/input/eqvae-baseline-session1-step15000/step_015000.pt",
-        "8f1b2af601354642036d4d71dca8865ea9c7896a71da4ed69f3871559c448f4f",
+        "maximusshtefan/eqvae-baseline-session2-step45000",
+        "/kaggle/input/eqvae-baseline-session2-step45000/step_045000.pt",
+        "e7a0f05e013bff4f7a5bfbfd4442f3c9a6d19cf261c42f54a6d04391be76e88b",
         "dual_t4_ddp",
     )
     for token in required_text:
