@@ -74,7 +74,6 @@ OUTPUT_RELATIVE_LIMIT: Final = 5e-3
 GRADIENT_RELATIVE_LIMIT: Final = 2e-2
 COMPILED_EAGER_RATIO_LIMIT: Final = 1.10
 NORMAL_RATIO_LIMIT: Final = 5.0
-TIMING_CV_LIMIT: Final = 0.10
 PEAK_RESERVED_MIB_LIMIT: Final = 14.5 * 1024.0
 PEAK_ALLOCATED_MIB_LIMIT: Final = 13.5 * 1024.0
 DDP_REFERENCE_LIMIT: Final = 1e-6
@@ -1103,7 +1102,20 @@ def _assembly_diagnostic(
     )
 
 
-def _verdict(  # noqa: C901
+def _finite_timing_summary(summary: JsonObject) -> bool:
+    samples = cast("list[object]", summary.get("samples_ms", []))
+    values = (
+        summary.get("median_ms"),
+        summary.get("coefficient_variation"),
+        *samples,
+    )
+    return all(
+        isinstance(value, int | float) and math.isfinite(float(value))
+        for value in values
+    )
+
+
+def _verdict(  # noqa: C901, PLR0914
     updates: dict[str, object],
     rank_results: Sequence[JsonObject],
 ) -> tuple[bool, list[str]]:
@@ -1164,6 +1176,14 @@ def _verdict(  # noqa: C901
             failures.append(f"rank{rank}:block_set")
         assembly = cast("JsonObject", rank_result.get("assembly_diagnostic", {}))
         assembly_windows = cast("list[JsonObject]", assembly.get("windows", []))
+        assembly_summaries = [
+            cast("JsonObject", window.get(path, {}))
+            for window in assembly_windows
+            for path in ("expansion", "complete")
+        ] + [
+            cast("JsonObject", assembly.get(path, {}))
+            for path in ("pooled_expansion", "pooled_complete")
+        ]
         assembly_schema_valid = (
             assembly.get("selection_gate") is False
             and len(assembly_windows) == TIMED_WINDOW_COUNT
@@ -1194,6 +1214,7 @@ def _verdict(  # noqa: C901
                 == 2 * TIMED_WINDOW_UPDATES
                 for path in ("pooled_expansion", "pooled_complete")
             )
+            and all(_finite_timing_summary(summary) for summary in assembly_summaries)
         )
         if not assembly_schema_valid:
             failures.append(f"rank{rank}:assembly_diagnostic_schema")
@@ -1267,14 +1288,8 @@ def _verdict(  # noqa: C901
                     )
                 ):
                     failures.append(f"rank{rank}:{name}:{path_name}:sample_schema")
-                for summary_index, summary in enumerate(summaries):
-                    if (
-                        float(cast("float", summary["coefficient_variation"]))
-                        > TIMING_CV_LIMIT
-                    ):
-                        failures.append(
-                            f"rank{rank}:{name}:{path_name}:cv{summary_index}",
-                        )
+                if any(not _finite_timing_summary(summary) for summary in summaries):
+                    failures.append(f"rank{rank}:{name}:{path_name}:timing_schema")
     return not failures, failures
 
 

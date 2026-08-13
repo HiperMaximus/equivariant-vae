@@ -6,9 +6,9 @@
   "worktree_dirty": true,
   "source_files_sha256": {
     "src/eqvae/models/so2_architecture_probe.py": "e6908a39cde1c5817670ca27e716956a0f9654f850c52874f2a2d117f33f0fd8",
-    "src/eqvae/benchmarking/so2_architecture_probe.py": "c8875ec040b58c6286057851db23a70636fec5bf2a77b307475cc5ab5f441afc",
+    "src/eqvae/benchmarking/so2_architecture_probe.py": "a6b3ba42bb22c5843b3e5d0ca33c65855072ba9bc57d9fd462c8e28526e5cd8a",
     "tests/test_so2_architecture_probe.py": "57917e063e9283941b076239bec524ecc8554f07138d5182e52820c8bf404d9a",
-    "tests/test_so2_architecture_probe_kernel.py": "c952595ffb11065996b8571f62dd8c5e984c9514e2e88f0f4fe2d49c15576042",
+    "tests/test_so2_architecture_probe_kernel.py": "c4c4f40bc8b8951e656eb0329b479ae39aaae8c7faeb83d9fb127c31537be0c7",
     "kaggle/kernels/so2_architecture_probe/run_template.py": "3121190cc7d30f5aa5e647cf80ad14b5d87a80d3a416a2d141189d086b958446",
     "scripts/kaggle_kernel.sh": "718868e5acbb044d25f64c065f12ff75dd30d717377e1720f143be460ddb3601"
   },
@@ -198,7 +198,7 @@
       "status": "pass_after_resolution",
       "resolved": [
         "consume and hash the exact selected runtime JSON with compiler and DDP readbacks",
-        "make all AMP skips, nonfinite results, and eager/compiled/control timing CVs load-bearing",
+        "make all AMP skips and nonfinite results load-bearing and retain eager/compiled/control timing CVs as diagnostics",
         "run the fullgraph diagnostic at the locked batch and record initial graph breaks",
         "time DDP-wrapped selected-runtime blocks and compiled FP16 assembly",
         "rebuild and verify the embedded runner after source changes",
@@ -208,7 +208,7 @@
     }
   },
   "dual_t4": {
-    "status": "final_probe_completed_with_remote_timing_cv_failure",
+    "status": "final_probe_accepted_with_timing_cv_diagnostic",
     "kernel": "kaggle/kernels/so2_architecture_probe",
     "local_preflight_command": "./scripts/kaggle_kernel.sh preflight-so2-architecture-probe"
   }

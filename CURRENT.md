@@ -126,9 +126,10 @@ Fresh mathematical review found no premise error and required complete named
 coefficient-gradient, pair/angle, initialization/bias/count, and source-binding
 coverage; all were added. Fresh compile/performance/scope review required the
 exact selected-runtime JSON hash and live compiler/DDP readbacks, batch-4
-fullgraph and initial-break evidence, load-bearing AMP/finiteness and all timing
-CVs, DDP-wrapped matched timing, and compiled-FP16 assembly timing; all were
-added. The generated runner was rebuilt after the final source changes.
+fullgraph and initial-break evidence, load-bearing AMP/finiteness, recorded raw
+timing and CV diagnostics, DDP-wrapped matched timing, and compiled-FP16
+assembly timing; all were added. The generated runner was rebuilt after the
+final source changes.
 
 The reviewed local slice was committed and pushed as `e57f086`. With explicit
 permission, private Kaggle kernel version 1 ran the exact selected Spec 0011
@@ -154,21 +155,22 @@ selected the fastest measured path: padded `bmm` plus direct assembly. The old
 `1.828x` "topology-weighted" v1 aggregate is also not a final gate because four
 multi-convolution probe blocks do not map exactly onto all 43 positions.
 
-Spec 0013 is locally verified and its one final singular confirmation is
-complete. Kaggle kernel v3 from `c823a7e` passed every correctness,
-compiled/eager, EQ/normal, AMP, DDP, graph, and VRAM gate, but failed the
-unchanged 10% timing-CV gate. Maximum output/gradient errors were
+Spec 0013 is accepted and complete. Kaggle kernel v3 from `c823a7e` passed every
+correctness, compiled/eager, EQ/normal, AMP, DDP, graph, and VRAM gate. It
+originally reported fail only because the per-window 10% timing-CV diagnostic
+was still load-bearing. Maximum output/gradient errors were
 `0.000619/0.000662`; compiled/eager ratios were `0.385..0.721`, EQ/normal ratios
 were `1.118..2.014`, parameters matched exactly across ranks, and reserved
 memory was `954 MiB`. CV failures mirrored across ranks: encoder window 0,
 D-to-D window 1, and the decoder normal-control pool. The tracked summary is
 `docs/data/spec0013_so2_dual_t4_probe_v3.json`.
 
-Per the predeclared final-probe stop rule, do not rerun, add a mechanics arm,
-change a runtime axis or tolerance, or assemble the full VAE without a new
-explicit user/spec decision. The implementation is numerically sound and fast
-relative to both eager and normal controls; the sole blocker is unstable timing
-under this measurement protocol.
+On 2026-08-13 the user selected compiled execution, made raw CV diagnostic, and
+accepted the existing evidence without a rerun. Padded `bmm` plus direct
+assembly is the fixed mechanics. Eager timings remain a reference; compiled
+medians and the matched compiled normal controls are the performance evidence.
+Do not add another mechanics arm or runtime option. Full-VAE assembly remains a
+separate explicit authorization.
 
 This remains one-off experiment code. Do not ship runtime architecture,
 support, radial, field-layout, or group options; do not retain rejected
@@ -476,9 +478,9 @@ control's learned representation is correctly not claimed to be equivariant.
     failures, not infrastructure failures, and preserve both tracked summaries.
     The user replaced the isolated 10% gate and selected padded `bmm` plus direct
     assembly. That singular path, its focused local checks, reviews, and guarded
-    runner are complete. Kaggle v3 failed only the timing-CV gate. Stop: do not
-    rerun, add another arm, alter the gate/runtime, or assemble the full VAE
-    without a new explicit user/spec decision.
+    runner are complete. Accept Kaggle v3 under the user's decision that timing
+    CV is diagnostic, not an architecture gate. Do not rerun or add another arm.
+    Full-VAE assembly requires separate explicit authorization.
 
 Fresh-session launch prompt for the next step:
 
@@ -495,9 +497,10 @@ correctness and establishes padded bmm/direct as the fastest fixed mechanics.
 The user replaced the isolated 10% fraction with per-block operational gates.
 That path is singular and its 69 focused tests, source-bound CPU artifact,
 Ruff, BasedPyright, exact basis check, local kernel preflight, and two fresh
-adversarial reviews pass. The one guarded four-path dual-T4 final probe passed
-all gates except timing CV. Stop and request a new explicit decision; do not
-rerun, add an arm, assemble the full VAE, or add runtime options.
+adversarial reviews pass. The one guarded four-path dual-T4 probe passes the
+accepted contract: compiled execution is selected and CV is diagnostic only.
+Spec 0013 is complete. Do not rerun, add an arm, assemble the full VAE, or add
+runtime options; request separate authorization for full-model coding.
 ```
 
 Baseline full training and final-output verification are complete. The continuous-`SO(2)`

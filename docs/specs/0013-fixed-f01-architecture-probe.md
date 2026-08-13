@@ -1,6 +1,6 @@
 # Spec 0013: Fixed F01 Architecture Probe
 
-Status: final dual-T4 probe failed timing-CV gate / explicit decision required
+Status: complete / padded-bmm direct mechanics accepted
 Owner/workstream: one-off continuous-`SO(2)` architecture probe
 Last updated: 2026-08-13
 
@@ -50,33 +50,38 @@ The one-use dual-T4 runner is locally built and guarded at
 `kaggle/kernels/so2_architecture_probe`. It reads and hashes the exact selected
 Spec 0011 runtime plan, verifies compiler/DDP readbacks, measures the four fixed
 signatures against matched controls, and makes all accuracy, AMP, finiteness,
-timing-CV, latency, graph, and VRAM limits load-bearing. Versions 1 and 2 are
-complete. On 2026-08-13 the user accepted the evidence-based contract revision
-below and selected padded `bmm` plus direct assembly for one final four-path
-confirmation. Full-VAE assembly remains separately unauthorized.
+compiled latency, graph, and VRAM limits load-bearing while retaining timing CV
+as a diagnostic. Versions 1 and 2 are complete. On 2026-08-13 the user accepted
+the evidence-based contract revision below and the completed v3 evidence for
+padded `bmm` plus direct assembly. Full-VAE assembly remains separately
+unauthorized.
 
 ### Dual-T4 v3 final result
 
 Private Kaggle kernel version 3 ran from clean commit `c823a7e` on 2026-08-13.
-Its tracked summary is `docs/data/spec0013_so2_dual_t4_probe_v3.json`. It passed
-every numerical and operational gate except timing CV: maximum output and
+Its tracked summary is `docs/data/spec0013_so2_dual_t4_probe_v3.json`. Under the
+original contract it passed every numerical and operational gate except timing CV: maximum output and
 coefficient-gradient relative RMS were `0.000619` and `0.000662`, all
-compiled/eager ratios were `0.385..0.721`, all EQ/normal ratios were
-`1.118..2.014`, parameters matched exactly across ranks, AMP/graph/recompile
+pooled compiled/eager ratios were `0.385..0.721` and their per-window range was
+`0.381..0.725`; pooled EQ/normal ratios were `1.118..2.014` and their per-window
+range was `1.070..2.359`. Parameters matched exactly across ranks, AMP/graph/recompile
 counts were zero, and peak allocated/reserved memory was `798/954 MiB`.
 
-The 10% timing-CV gate failed in 26 rank/block/path summaries. The pattern was
+The original 10% timing-CV gate failed in 26 rank/block/path summaries. The pattern was
 nearly identical across ranks: encoder window 0 and its pools failed for all
 three modes, D-to-D window 1 and its pools failed for all three modes, and the
 decoder normal-control pool narrowly failed. Window CVs ranged up to `0.598`;
-pooled CVs ranged up to `0.538`. This shared-mode, shared-rank pattern is
-consistent with environmental timing disturbance, but the predeclared rule is
-still a failure. The D-to-D assembly fractions were diagnostic-only at
+pooled CVs ranged up to `0.538`. This shared-mode, shared-rank pattern identifies
+a shared timing disturbance/nonstationarity; this protocol does not identify
+its cause. Under the original contract it was still a failure. The D-to-D assembly fractions were diagnostic-only at
 `0.387/0.374`.
 
-The final-run stop rule is active. Do not rerun, add a mechanics arm, change a
-runtime axis or tolerance, or assemble the full VAE without a new explicit
-user/spec decision.
+On 2026-08-13 the user selected compiled execution and removed per-window CV as
+a blocking mechanics criterion. This is an evidence interpretation change, not
+a tolerance change or rerun: raw samples and CV remain recorded, while compiled
+medians and matched compiled normal controls decide performance. The existing
+v3 evidence is accepted without another Kaggle run. Padded `bmm` plus direct
+assembly is fixed; full-VAE assembly remains separately unauthorized.
 
 ### Dual-T4 v1 result and fixed follow-up
 
@@ -475,12 +480,13 @@ bundle. Exclude compile/startup from timing. For each block, prepare its eager-
 EQ, compiled-EQ, and compiled-normal DDP steps; interleave one sample per mode
 in window one order eager -> compiled -> normal and exact reverse order in
 window two. Use 20 warmups and two untrimmed 50-sample windows, record every
-sample, and require each window and its pool to satisfy the timing-CV limit.
+sample, and retain each window and pool's timing CV as diagnostic evidence.
 
 V3 is the final transfer check of the exact selected non-equivariant runtime
-flags and values with the selected singular mechanics. If it passes every
-limit, accept the mechanics and stop. If it fails, stop for a new explicit
-decision; do not add an arm, runtime axis, or generic tuner.
+flags and values with the selected singular mechanics. Compiled execution is
+the selected deployment path. Eager remains a correctness/performance
+reference, not an alternative runtime candidate. No arm, runtime axis, generic
+tuner, or repeated Kaggle run follows this measurement.
 
 After this mechanics gate passes and the full model is separately assembled,
 Spec 0011 starts from the selected probe bundle. It may use a small number of
@@ -492,7 +498,7 @@ or treat runtime tuning as permission to change the locked SO(2) architecture.
 Acceptance requires all of:
 
 - 32 settled forward/backward optimizer updates with deterministic but rank-
-  distinct inputs/targets, two visible T4s, `world_size=2`, distinct
+  distinct synthetic inputs/objectives, two visible T4s, `world_size=2`, distinct
   rank-to-device identities, finite loss/gradients/parameters, and zero AMP
   skips;
 - local pre-reduction gradients must differ across ranks, while the observed
@@ -507,7 +513,7 @@ Acceptance requires all of:
   1.10x its eager-FP16 pooled median after settle;
 - each EQ composite block pooled median is no more than 5.0x its matched
   compiled normal-Conv2d control;
-- timed-step coefficient of variation `<=10%` per rank;
+- raw per-window and pooled timing CV recorded per rank as diagnostic evidence;
 - peak reserved VRAM `<14.5 GiB` and peak allocated VRAM `<13.5 GiB` per T4 at
   batch 4, leaving operational headroom on a 16 GiB device;
 - no hidden host synchronization in the timed body and no runtime basis/layout
@@ -549,8 +555,8 @@ The local implementation produces:
    uses exactly one dense `conv2d`.
 3. Pass: focused escnn, gradient, layout, norm, gate, bias, residual,
    resampling, RGB, and scalar-latent checks pass.
-4. Fail: the singular dual-T4 final probe passes all correctness and operational
-   ratios but fails the unchanged 10% timing-CV gate.
+4. Pass after explicit contract decision: the singular dual-T4 probe passes all
+   correctness and operational ratios; correlated timing CV remains diagnostic.
 5. Pass: counts remain exactly 1,172,304 coefficients, 3,600 norm parameters,
    4,096 gate parameters, 35 scalar biases, and 1,180,035 total learned
    parameters for the eventual 43-convolution topology.
@@ -581,10 +587,9 @@ and raw artifact/log hashes are tracked in the v3 evidence file above.
 
 ## Implementation Blockers
 
-The final probe failed only the timing-CV gate. Progress requires a new explicit
-decision about whether the cross-rank correlated noise invalidates this CV
-protocol; no rerun, arm, runtime-axis change, tolerance change, or full-VAE work
-is authorized meanwhile.
+None for Spec 0013. Compiled padded `bmm` plus direct assembly is accepted from
+the existing v3 evidence. Full-VAE work remains a separate explicit
+authorization; no mechanics rerun, arm, or runtime-axis search is needed.
 
 ## Adversarial Review Findings
 
@@ -647,9 +652,8 @@ architecture or tolerance.
 
 ## Open Questions
 
-Whether to retain the per-window 10% CV protocol after its strongly correlated
-two-rank failure. Any revision or rerun requires a new explicit user/spec
-decision. Full-VAE coding remains separately unauthorized.
+None for the mechanics probe. Full-VAE coding and its true end-to-end compiled
+throughput measurement remain separately unauthorized.
 
 ## Related Files
 

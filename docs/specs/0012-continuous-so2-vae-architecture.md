@@ -1,7 +1,7 @@
 # Spec 0012: Continuous SO(2) VAE Architecture
 
-Status: radial/layout oracle complete / equal-copy F01 fixed / Spec 0013 timing-CV failure
-Full-VAE readiness: blocked by explicit measurement-protocol decision
+Status: radial/layout oracle complete / equal-copy F01 fixed / Spec 0013 accepted
+Full-VAE readiness: mechanics ready / coding requires separate authorization
 Owner/workstream: matched continuous-`SO(2)` VAE
 Last updated: 2026-08-13
 
@@ -27,8 +27,8 @@ docs/data/spec0012_so2_basis_audit.json
 tests/test_so2_basis.py
 ```
 
-The selected basis outcome, equal-copy F0/F1 layout, and support assignment are
-locked. Only the concrete convolution mechanics await the compiled probe. The
+The selected basis outcome, equal-copy F0/F1 layout, support assignment, and
+compiled convolution mechanics are locked and accepted. The
 oracle's global profiles were:
 
 | profile | centres | widths | qmax | result |
@@ -84,9 +84,10 @@ field norm/gate AMP rules, compile guards, and focused escnn/CPU tests. V2
 passes every numerical/runtime-correctness gate and establishes padded `bmm`
 plus direct assembly as the fastest fixed path. The user replaced the isolated
 10% assembly decomposition with per-block operational gates. The singular
-four-path confirmation passed all numerical/runtime ratios but failed timing CV
-in a cross-rank correlated pattern. The full convolution topology and VAE remain
-unauthorized pending an explicit measurement-protocol decision.
+four-path confirmation passed all numerical/runtime ratios. The user selected
+compiled execution and made its cross-rank correlated timing CV diagnostic, so
+Spec 0013 is accepted without a rerun. The full convolution topology and VAE
+remain separately unauthorized.
 
 ## Non-Goals
 
@@ -882,8 +883,8 @@ capacity convention.
 4. Complete: Spec 0013 locks RGB lifting/projection, field layout, residual
    compatibility, normalization, radial gates, resampling, contraction and
    assembly mechanics, and compiled dual-T4 acceptance limits.
-5. Blocked: the singular padded-`bmm` implementation passes focused local
-   correctness and every remote gate except timing CV. The accepted
+5. Complete: the singular padded-`bmm` implementation passes focused local
+   correctness and the accepted remote compiled-performance contract. The
    baseline downsample phase error is reported rather than misclassified as a
    kernel failure. Full-model runtime selection remains later Spec 0011 work.
 

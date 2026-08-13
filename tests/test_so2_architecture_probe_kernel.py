@@ -207,8 +207,8 @@ def test_remote_accuracy_paths_keep_selected_scaled_backward_contract(
     assert "_selected_accuracy_backward(compiled_loss, compiled_source)" in source
 
 
-def test_so2_probe_verdict_rejects_noisy_or_skipped_timing_rows() -> None:
-    """Make control CV, AMP skip, and nonfinite timing evidence load-bearing."""
+def test_so2_probe_verdict_keeps_cv_diagnostic_and_rejects_invalid_steps() -> None:
+    """Keep raw timing noise visible without rejecting valid compiled mechanics."""
     updates: dict[str, object] = {
         "amp_skip_count": 0,
         "nonfinite_loss_count": 0,
@@ -224,6 +224,7 @@ def test_so2_probe_verdict_rejects_noisy_or_skipped_timing_rows() -> None:
     def summary(count: int) -> dict[str, object]:
         return {
             "samples_ms": [1.0] * count,
+            "median_ms": 1.0,
             "coefficient_variation": 0.01,
         }
 
@@ -304,8 +305,29 @@ def test_so2_probe_verdict_rejects_noisy_or_skipped_timing_rows() -> None:
         rank_results,
     )
     assert not passed
-    assert "rank0:identity_A:equivariant_eager:cv0" in failures
+    assert all(":cv" not in failure for failure in failures)
     assert "rank0:identity_A:equivariant_compiled:invalid_step" in failures
+
+    paths["equivariant_compiled"]["amp_skip_count"] = 0
+    eager_windows[0]["coefficient_variation"] = float("nan")
+    passed, failures = so2_architecture_probe._verdict(  # noqa: SLF001
+        updates,
+        rank_results,
+    )
+    assert not passed
+    assert "rank0:identity_A:equivariant_eager:timing_schema" in failures
+
+    eager_windows[0]["coefficient_variation"] = 0.01
+    assembly = cast("JsonObject", rank_results[0]["assembly_diagnostic"])
+    assembly_windows = cast("list[JsonObject]", assembly["windows"])
+    expansion = cast("JsonObject", assembly_windows[0]["expansion"])
+    expansion["median_ms"] = float("nan")
+    passed, failures = so2_architecture_probe._verdict(  # noqa: SLF001
+        updates,
+        rank_results,
+    )
+    assert not passed
+    assert "rank0:assembly_diagnostic_schema" in failures
 
 
 def test_final_verdict_requires_complete_measurement_schema() -> None:
