@@ -95,6 +95,7 @@ to Kaggle is data egress to an external service. Resume only after the user
 explicitly confirms that risk, then run:
 
 ```bash
+./scripts/kaggle_kernel.sh preflight-so2-runtime-readiness
 KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/so2_runtime_readiness
 ```
 
