@@ -95,7 +95,13 @@ from eqvae.models.non_equivariant_vae import (
     DEFAULT_GROUPNORM_GROUPS,
     NonEquivariantVAE,
 )
-from eqvae.models.registry import MODEL_KIND_NON_EQ_TRANSLATABLE, build_model
+from eqvae.models.registry import (
+    MODEL_KIND_NON_EQ_TRANSLATABLE,
+    MODEL_KIND_SO2_FIXED,
+    SupportedVAE,
+    assert_fixed_so2_model,
+    build_model,
+)
 from eqvae.training.ddp_sync_guard import assert_ddp_parameters_in_sync
 from eqvae.training.fastpath_precision import (
     clone_fastpath_update_probe,
@@ -496,6 +502,7 @@ class _RunnerSettings:
     data_seed: int
     corruption_seed: int
     corruption_profile: StainCorruptionProfile
+    model_kind: str
     norm_groups: int
     learning_rate_range: _LearningRateRangeSettings | None
     learning_rate_schedule: _LearningRateScheduleSettings | None
@@ -1213,10 +1220,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
         enabled=request.resume is not None,
     )
 
-    model = build_model(
-        MODEL_KIND_NON_EQ_TRANSLATABLE,
-        model_config={"norm_groups": settings.norm_groups},
-    )
+    model = _build_selected_model(settings)
     # Reparameterization eps shape follows the built model, never a frozen module
     # constant, so a future model with a different latent width re-runs this same
     # machinery unchanged (Spec 0011 R1). Captured here at the concrete-typed seam
@@ -2017,6 +2021,7 @@ def _settings(  # noqa: PLR0914
         corruption_profile=profile_from_config(
             _required_object(effective, "corruption"),
         ),
+        model_kind=_model_kind(resolved),
         norm_groups=_norm_groups(resolved),
         learning_rate_range=_learning_rate_range_settings(
             effective,
@@ -3182,10 +3187,10 @@ def _effective_train_epoch_samples(
 
 def _place_model(
     *,
-    model: NonEquivariantVAE,
+    model: SupportedVAE,
     plan: SelectedRuntimePlan,
     device: torch.device,
-) -> NonEquivariantVAE:
+) -> SupportedVAE:
     if plan.memory_format == "channels_last":
         model.to(  # pyright: ignore[reportCallIssue]
             device=device,
@@ -3198,7 +3203,7 @@ def _place_model(
 
 def _maybe_wrap_ddp(
     *,
-    model: NonEquivariantVAE,
+    model: SupportedVAE,
     distributed: _DistributedContext,
     plan: SelectedRuntimePlan,
 ) -> nn.Module:
@@ -5344,10 +5349,7 @@ def _checkpoint_resume_proof(  # noqa: PLR0913
     amp: _AmpExecution,
     distributed: _DistributedContext,
 ) -> JsonObject:
-    model = build_model(
-        MODEL_KIND_NON_EQ_TRANSLATABLE,
-        model_config={"norm_groups": settings.norm_groups},
-    )
+    model = _build_selected_model(settings)
     model = _place_model(model=model, plan=plan, device=distributed.device)
     optimizer = build_fastpath_optimizer(model, config=settings.optimizer_config)
     numpy_generator = np.random.default_rng(settings.global_seed)
@@ -7540,8 +7542,27 @@ def _optimizer_lr_scaling(
 
 def _norm_groups(resolved: ResolvedConfig) -> int:
     model = _required_object(resolved.effective_config, "model")
-    normalization = _required_object(model, "normalization")
+    normalization = _optional_object(model, "normalization") or {}
     return _optional_int(normalization, "num_groups") or DEFAULT_GROUPNORM_GROUPS
+
+
+def _model_kind(resolved: ResolvedConfig) -> str:
+    model = _required_object(resolved.effective_config, "model")
+    kind = _required_str(model, "kind")
+    if kind not in {MODEL_KIND_NON_EQ_TRANSLATABLE, MODEL_KIND_SO2_FIXED}:
+        message = f"unsupported selected-runtime model kind: {kind!r}"
+        raise ValueError(message)
+    return kind
+
+
+def _build_selected_model(settings: _RunnerSettings) -> SupportedVAE:
+    model_config: JsonObject = {}
+    if settings.model_kind == MODEL_KIND_NON_EQ_TRANSLATABLE:
+        model_config = {"norm_groups": settings.norm_groups}
+    model = build_model(settings.model_kind, model_config=model_config)
+    if settings.model_kind == MODEL_KIND_SO2_FIXED:
+        return assert_fixed_so2_model(model)
+    return model
 
 
 def _seed(effective: JsonObject, name: str) -> int:

@@ -5,14 +5,14 @@ Last updated: 2026-08-13
 ## Fresh-session start here
 
 Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, active Specs
-0011-0014, and Decision 0004 completely. The normal-VAE baseline is complete;
-the locked Spec 0012 architecture, accepted Spec 0013 mechanics, and Spec 0014
-full fixed 43-convolution SO(2) VAE are implemented and locally verified. Do not
+0011-0015, and Decision 0004 completely. The normal-VAE baseline is complete;
+the locked Spec 0012 architecture, accepted Spec 0013 mechanics, Spec 0014
+fixed 43-convolution SO(2) VAE, and Spec 0015 local selected-runtime integration
+are implemented and verified. Do not
 reopen radial profiles, F2, multiplicities, topology, contraction/assembly arms,
-compilation-time tuning, or diagnostic timing CV. The next separately authorized
-slice is selected-runtime registration, F0/F1 gate-health integration, and one
-narrow dual-T4 compile/VRAM/settled-execution readiness check. This does not
-authorize the full training run. Baseline
+compilation-time tuning, or diagnostic timing CV. The next action is the already
+authorized one-shot private, no-dataset, batch-1-per-rank dual-T4 Spec 0015
+readiness run. This does not authorize real-data debug or full training. Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
 boundary. Its output and checkpoint are verified locally; the FSQ-aligned AMP runtime
@@ -65,6 +65,29 @@ Runtime selection, LR-range, debug, and tiny-overfit gates remain strict zero-sk
 The user locked beta `0.01` on 2026-08-09; do not run an intermediate beta probe.
 
 ## Current objective
+
+Spec 0015 is locally implemented, reviewed, and ready for its single guarded
+remote coordinate. Registry kind `so2_vae_fixed` accepts no architecture
+options and fails closed on exact `SO2VAE` identity, latent width 16, 43 learned
+convolutions, 34 radial gates, and `1,180,035` parameters. The shared runner now
+selects that kind without changing normal-model behavior. The one-use readiness
+executor pins the exact selected-runtime artifact hash and complete FP16 /
+Inductor / compiled-autograd / Python-reducer DDP / channels-last / fused-AdamW
+bundle. It uses two rank-local generated `1x3x256x256` inputs and no dataset,
+proves precompile buffer identity, DDP gradient averaging and parameter sync,
+zero-head then named upstream updates, finite settled execution, and captures
+actual FP16 F0/F1 activation evidence with FP32 gate math for exactly 68 rows.
+The strict downloaded-artifact validator cross-checks both rank records,
+aggregates, exact proof bodies, and exact 34-module-by-two-family identities.
+
+Post-review `./scripts/python_quality.sh` passes Ruff format/check, 780 tests
+with one expected GPU-only skip, and BasedPyright with zero errors. Two fresh
+read-only reviews covered runtime/DDP/compile/AMP/optimizer correctness and
+gate/evidence/performance/scope correctness. Their plan pinning, executed gate
+semantics, gradient/update, cross-rank counter, validator, identity, generated
+launcher, and mutation-test findings were fixed; both reviewers rechecked with
+zero unresolved findings. Local kernel preflight and `git diff --check` pass.
+Hardware evidence remains pending until the guarded Kaggle run completes.
 
 Spec 0014 is complete locally. `src/eqvae/models/so2_vae.py` mirrors all 43
 normal-VAE convolution positions with the locked `9-low` stem, `7-low`
@@ -383,6 +406,14 @@ state; do not casually edit them and invalidate downloaded runtime/debug evidenc
 readiness and the remaining multi-session blocker are recorded here.
 
 ## Verification state
+
+Spec 0015 local acceptance is complete: the final post-review quality gate is
+780 passed, 1 expected GPU-only skip, with Ruff formatting/check and
+BasedPyright at zero errors. The dedicated embedded-kernel preflight verifies a
+private dual-T4 kernel with empty dataset, competition, kernel, and model source
+lists. Two clean-context adversarial reviews have zero unresolved findings.
+The only open acceptance item is the one authorized hardware run and its exact
+JSON/68-row CSV evidence; no real data or training is authorized.
 
 Spec 0014 focused verification passes 84 analytic-basis/primitive/kernel/model/
 optimizer tests; its 11 full-model tests cover exact topology/counts, complete

@@ -601,6 +601,22 @@ push guard must instead prove all Kaggle source lists are empty, GPU/T4 metadata
 is present, the generated payload is fresh, and the launcher cannot write
 promotable runtime-selection artifacts.
 
+The fixed Spec 0015 SO2 readiness kernel is a separate one-shot no-dataset
+route. It embeds the exact committed tree, runs only generated batch-1 inputs on
+two T4 ranks, and cannot launch real training or select a runtime:
+
+```bash
+./scripts/kaggle_kernel.sh preflight-so2-runtime-readiness
+KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/so2_runtime_readiness
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-so2-runtime-readiness
+# After completion:
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-so2-runtime-readiness runs/kaggle/so2_runtime_readiness_v1
+```
+
+Do not set the full-dataset confirmation variable for this route. If it remains
+active beyond the normal in-turn window, record the exact status in `CURRENT.md`
+and resume only after the user says `continue`.
+
 Check whether the Kaggle CLI is installed and whether local metadata is valid:
 
 ```bash

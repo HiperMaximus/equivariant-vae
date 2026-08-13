@@ -30,6 +30,7 @@ RUNTIME_SELECTION_KERNEL_ID = "maximusshtefan/eqvae-runtime-selection"
 SELECTED_RUNTIME_DEBUG_KERNEL_ID = "maximusshtefan/eqvae-selected-runtime-debug"
 SELECTED_RUNTIME_LR_RANGE_KERNEL_ID = "maximusshtefan/eqvae-selected-runtime-lr-range"
 SELECTED_RUNTIME_FULL_KERNEL_ID = "maximusshtefan/eqvae-selected-runtime-full"
+SO2_RUNTIME_READINESS_KERNEL_ID = "maximusshtefan/eqvae-so2-runtime-readiness"
 RUNTIME_SELECTION_V8_ARTIFACT_ROOT = Path(
     "runs/kaggle/real_data_runtime_pretest_v8",
 )
@@ -406,6 +407,10 @@ def _payload_manifest(
         entries.update(_runtime_selection_entry_hashes(repo_root))
     elif _ships_legacy_selected_runtime_baseline(kernel_dir):
         entries.update(_selected_runtime_baseline_entry_hashes(repo_root))
+    if _is_so2_runtime_readiness_kernel(kernel_dir):
+        entries["configs/spec0015"] = _digest_tree(
+            repo_root / "configs" / "spec0015",
+        )
     return {
         "schema_version": PAYLOAD_SCHEMA_VERSION,
         "git_commit": _git_output(repo_root, "rev-parse", "HEAD"),
@@ -443,6 +448,11 @@ def _payload_files(
         (repo_root / "src" / "eqvae", Path("src/eqvae")),
         (repo_root / "configs" / "spec0001", Path("configs/spec0001")),
     )
+    if _is_so2_runtime_readiness_kernel(kernel_dir):
+        roots = (
+            *roots,
+            (repo_root / "configs" / "spec0015", Path("configs/spec0015")),
+        )
     files: list[tuple[Path, str]] = []
     for source_root, archive_root in roots:
         for path in sorted(candidate for candidate in source_root.rglob("*")):
@@ -467,6 +477,10 @@ def _payload_files(
 
 def _is_runtime_selection_kernel(kernel_dir: Path) -> bool:
     return _kernel_id(kernel_dir) == RUNTIME_SELECTION_KERNEL_ID
+
+
+def _is_so2_runtime_readiness_kernel(kernel_dir: Path) -> bool:
+    return _kernel_id(kernel_dir) == SO2_RUNTIME_READINESS_KERNEL_ID
 
 
 def _is_selected_runtime_debug_kernel(kernel_dir: Path) -> bool:
@@ -606,7 +620,7 @@ def _template_path_for_verify(
     return repo_root / path
 
 
-def _validate_manifest_against_source(  # noqa: C901
+def _validate_manifest_against_source(  # noqa: C901, PLR0912
     *,
     manifest: dict[str, object],
     repo_root: Path,
@@ -648,6 +662,10 @@ def _validate_manifest_against_source(  # noqa: C901
         expected_entries.update(_runtime_selection_entry_hashes(repo_root))
     elif _ships_legacy_selected_runtime_baseline(kernel_dir):
         expected_entries.update(_selected_runtime_baseline_entry_hashes(repo_root))
+    if _is_so2_runtime_readiness_kernel(kernel_dir):
+        expected_entries["configs/spec0015"] = _digest_tree(
+            repo_root / "configs" / "spec0015",
+        )
     raw_entries = manifest.get("entries")
     if not isinstance(raw_entries, dict):
         errors.append("payload manifest entries must be an object")

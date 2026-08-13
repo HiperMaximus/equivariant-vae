@@ -9,8 +9,7 @@
     "src/eqvae/benchmarking/so2_architecture_probe.py": "a6b3ba42bb22c5843b3e5d0ca33c65855072ba9bc57d9fd462c8e28526e5cd8a",
     "tests/test_so2_architecture_probe.py": "57917e063e9283941b076239bec524ecc8554f07138d5182e52820c8bf404d9a",
     "tests/test_so2_architecture_probe_kernel.py": "c4c4f40bc8b8951e656eb0329b479ae39aaae8c7faeb83d9fb127c31537be0c7",
-    "kaggle/kernels/so2_architecture_probe/run_template.py": "3121190cc7d30f5aa5e647cf80ad14b5d87a80d3a416a2d141189d086b958446",
-    "scripts/kaggle_kernel.sh": "718868e5acbb044d25f64c065f12ff75dd30d717377e1720f143be460ddb3601"
+    "kaggle/kernels/so2_architecture_probe/run_template.py": "3121190cc7d30f5aa5e647cf80ad14b5d87a80d3a416a2d141189d086b958446"
   },
   "runtime": {
     "python": "3.12.3",

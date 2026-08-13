@@ -12,6 +12,8 @@ from eqvae.models.non_equivariant_vae import (
 )
 from eqvae.models.registry import (
     MODEL_KIND_NON_EQ_TRANSLATABLE,
+    MODEL_KIND_SO2_FIXED,
+    assert_fixed_so2_model,
     build_model,
 )
 from eqvae.models.resampling import (
@@ -23,12 +25,14 @@ from eqvae.models.so2_vae import SO2VAE, build_so2_vae
 __all__ = [
     "LATENT_CHANNELS",
     "MODEL_KIND_NON_EQ_TRANSLATABLE",
+    "MODEL_KIND_SO2_FIXED",
     "SO2VAE",
     "FieldwiseBilinearUpsample2x",
     "FixedBinomialLowpassDownsample2x",
     "GatedScalarActivation",
     "NonEquivariantVAE",
     "VaeForwardOutput",
+    "assert_fixed_so2_model",
     "build_model",
     "build_non_equivariant_vae",
     "build_so2_vae",

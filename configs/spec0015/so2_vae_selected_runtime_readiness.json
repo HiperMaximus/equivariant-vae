@@ -1,0 +1,48 @@
+{
+  "schema_version": "spec0015.so2_readiness.v1",
+  "status": "generated_data_dual_t4_readiness_only",
+  "shared_training_contract": "configs/spec0001/non_eq_vae_model_base.json",
+  "run": {
+    "name": "so2_vae_spec0015_selected_runtime_readiness",
+    "mode": "so2_generated_data_selected_runtime_readiness"
+  },
+  "model": {
+    "kind": "so2_vae_fixed",
+    "architecture_id": "spec0014_fixed_f01_so2_vae",
+    "topology_version": "spec0014.fixed_f01.v1",
+    "implementation_status": "fixed_selected_runtime_readiness",
+    "input_shape": [1, 3, 256, 256],
+    "latent_shape": [1, 16, 32, 32],
+    "normalization": {
+      "kind": "fixed_f01_field_norm",
+      "force_fp32": true
+    },
+    "activation": {
+      "kind": "fixed_f01_radial_gate",
+      "families": ["f0_scalar", "f1_radial"],
+      "force_fp32": true,
+      "lr_multiplier": 0.5,
+      "weight_decay": 0.0
+    },
+    "expected_model_count": {
+      "learned_convolution_count": 43,
+      "normalization_module_count": 40,
+      "gate_module_count": 34,
+      "gate_family_row_count": 68,
+      "total_learned_parameters": 1180035
+    }
+  },
+  "data": {
+    "kind": "generated_device_resident",
+    "image_size": 256,
+    "dataset_sources": []
+  },
+  "readiness": {
+    "world_size": 2,
+    "per_device_batch_size": 1,
+    "warmup_updates": 3,
+    "settled_updates": 3,
+    "full_training_authorized": false,
+    "runtime_config": "configs/spec0001/non_eq_vae_selected_runtime.json"
+  }
+}
