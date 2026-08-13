@@ -18,10 +18,12 @@ from eqvae.models.resampling import (
     FieldwiseBilinearUpsample2x,
     FixedBinomialLowpassDownsample2x,
 )
+from eqvae.models.so2_vae import SO2VAE, build_so2_vae
 
 __all__ = [
     "LATENT_CHANNELS",
     "MODEL_KIND_NON_EQ_TRANSLATABLE",
+    "SO2VAE",
     "FieldwiseBilinearUpsample2x",
     "FixedBinomialLowpassDownsample2x",
     "GatedScalarActivation",
@@ -29,4 +31,5 @@ __all__ = [
     "VaeForwardOutput",
     "build_model",
     "build_non_equivariant_vae",
+    "build_so2_vae",
 ]

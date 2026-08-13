@@ -687,11 +687,10 @@ Exit criteria:
 
 - Operation translation table has no "unknown" entries for the first baseline.
 - The run config names the group, input size, latent shape, and layer schedule.
-- Broad `docs/specs/0001-translatable-normal-vae-baseline.md`
-  `locked / implementation-ready` remains a future milestone with exact smoke,
-  debug, resume, evaluator, and artifact-generation commands. Until then,
-  implementation may proceed only through explicitly authorized narrow readiness
-  labels. Current verified local labels include `model_loss_train_step_ready`.
+- The normal-VAE implementation, smoke/debug/resume/evaluator paths, and full
+  baseline run are complete. Specs 0012-0014 likewise fix and locally verify the
+  SO(2) architecture; its selected-runtime readiness and training remain later
+  explicit authorization boundaries.
 
 ### Phase 1: Extract Reusable Infrastructure
 
@@ -922,8 +921,9 @@ Issue #6, equivariant VAE validation:
   The final four-path confirmation passes every correctness and compiled-
   performance gate. The user selected compiled execution and retained its
   mirrored timing CV only as a diagnostic. Spec 0013 is accepted without a
-  rerun; do not assemble the full convolution topology or VAE without separate
-  authorization.
+  rerun. Spec 0014 now assembles and locally verifies the complete fixed
+  43-convolution VAE at exactly `1,180,035` parameters. Do not reopen its
+  topology or start full training without separate authorization.
 - Use a repo-owned, compile-compatible SO(2) implementation; use `escnn` as a
   reference rather than a runtime dependency.
 - Explicitly test nonlinearities, normalization, upsampling, VAE sampling, and
@@ -961,11 +961,10 @@ Spec 0013 local probe are complete. Dual-T4 v2 from `afec7af` validates the
 corrected accuracy/runtime path and identifies padded `bmm` plus direct
 assembly as fastest. The singular four-path dual-T4 confirmation passes the
 accepted compiled-performance contract; correlated CV remains diagnostic. Do
-not rerun or add an arm. Full-VAE assembly is the next implementation slice,
-but it requires separate explicit authorization and should start in a fresh
-window/session with a new active spec. The user authorizes narrow direct
-dual-T4 checks during that slice when they answer concrete compile, VRAM, or
-settled-execution questions faster than local overengineering. Once the full
-model is authorized, Spec 0011 may likewise run a few targeted batch/runtime
-probes instead of assuming every baseline value transfers or recreating the
-discarded generic search. Full training remains separately authorized.
+not rerun or add an arm. Spec 0014's fixed VAE assembly, local eager/AMP and
+fullgraph checks, exact counts, equivariance evidence, and fresh reviews are
+complete. The next separate readiness slice must register only this model in
+the selected runner, add its F0/F1 gate telemetry, and then use one narrow
+dual-T4 generated-data check for compile settlement, VRAM, and settled execution
+rather than assuming every baseline value transfers or recreating the discarded
+generic search. Full training remains separately unauthorized.

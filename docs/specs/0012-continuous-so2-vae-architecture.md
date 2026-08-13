@@ -863,12 +863,10 @@ claim of task-optimal field proportions is permitted.
 The separately reviewed Spec 0013 architecture-probe slice implemented the
 selected convolution mechanics, normalization, gates, one residual block, and
 one encoder/decoder transition. Its compiled dual-T4 forward/backward proof at
-per-device batch 4 is accepted. Full-VAE coding is mechanically ready but
-remains a new, separately authorized implementation slice. Later measured
-full-model runtime may trigger only a narrow Spec 0011 follow-up. A minimal
-executable model may be checked directly on dual T4s during implementation when
-that is faster and more faithful than speculative local portability work; it
-must not silently change the field schedule or become a tuner.
+per-device batch 4 is accepted. Spec 0014 now implements and locally verifies
+the full fixed VAE without changing this architecture. Later measured full-model
+runtime belongs only to a narrow Spec 0011 readiness follow-up; it must not
+silently change the field schedule or become a tuner.
 
 No training search over F0/F1 proportions, width multipliers, or radial
 hyperparameters is planned. The equal-copy F01 layout is the single selected

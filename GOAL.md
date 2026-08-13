@@ -203,14 +203,15 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   The normal-VAE baseline completed 60000 update counters across three checkpoint-only
   sessions and is locally verified with the user-approved single physical-update legacy
   exception. Clean/denoising L1 reached `0.05925/0.06236`, fixed-25 images and rotation
-  artifacts are complete, and the final checkpoint is loadable. Specs 0012 and
-  0013 now lock and accept the continuous-`SO(2)` architecture mechanics. The
-  next experiment gate is a separately authorized, fresh-session implementation
-  of the fixed full equivariant VAE: preserve beta, data, schedule, fixed examples,
-  metrics, and downstream probes; tune only later measured architecture-specific
-  runtime details. Use narrow direct dual-T4 checks during implementation when
-  needed to answer concrete compile, VRAM, or settled-throughput questions; do
-  not overengineer local portability or build a general session framework.
+  artifacts are complete, and the final checkpoint is loadable. Specs 0012-0014
+  now lock, implement, and locally verify the fixed 43-convolution continuous-
+  `SO(2)` VAE at exactly `1,180,035` parameters. The next experiment gate is a
+  separately authorized readiness slice: register this singular model in the
+  selected runtime, add F0/F1 gate telemetry, and use one narrow direct dual-T4
+  check for compile settlement, VRAM, and execution compatibility. Preserve beta,
+  data, schedule, fixed examples, metrics, and downstream probes; do not reopen
+  architecture/mechanics, recreate a tuner, or start full training without
+  separate explicit authorization.
   This GOAL states the north star, not the frontier; read
   `CURRENT.md` and
   `docs/specs/0011-reusable-goal-derived-runtime-and-compiled-fastpath.md`.

@@ -11,6 +11,12 @@ import torch
 from torch import nn
 
 from eqvae.models.activations import GatedScalarActivation
+from eqvae.models.so2_architecture_probe import (
+    FixedF01RadialGate,
+    _F01ToF01Conv,  # pyright: ignore[reportPrivateUsage]
+    _F01ToScalarConv,  # pyright: ignore[reportPrivateUsage]
+    _ScalarToF01Conv,  # pyright: ignore[reportPrivateUsage]
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -276,8 +282,13 @@ def _group_name_for_parameter(
 ) -> str:
     module_name, _, leaf_name = parameter_name.rpartition(".")
     module = module_by_name.get(module_name)
-    if isinstance(module, GatedScalarActivation):
+    if isinstance(module, GatedScalarActivation | FixedF01RadialGate):
         return "gate_no_decay"
+    if isinstance(
+        module,
+        _ScalarToF01Conv | _F01ToF01Conv | _F01ToScalarConv,
+    ) and leaf_name.startswith("coeff"):
+        return "decay"
     if isinstance(module, nn.Conv2d) and leaf_name == "weight":
         return "decay"
     return "no_decay"
@@ -289,6 +300,15 @@ def _gate_parameter_ids(model: nn.Module) -> set[int]:
         if isinstance(module, GatedScalarActivation):
             parameter_ids.add(id(module.a))
             parameter_ids.add(id(module.b))
+        elif isinstance(module, FixedF01RadialGate):
+            parameter_ids.update(
+                {
+                    id(module.f0_a),
+                    id(module.f0_b),
+                    id(module.f1_a),
+                    id(module.f1_b),
+                },
+            )
     return parameter_ids
 
 

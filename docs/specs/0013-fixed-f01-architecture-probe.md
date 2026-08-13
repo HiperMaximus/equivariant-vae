@@ -81,7 +81,8 @@ a blocking mechanics criterion. This is an evidence interpretation change, not
 a tolerance change or rerun: raw samples and CV remain recorded, while compiled
 medians and matched compiled normal controls decide performance. The existing
 v3 evidence is accepted without another Kaggle run. Padded `bmm` plus direct
-assembly is fixed; full-VAE assembly remains separately unauthorized.
+assembly is fixed; Spec 0014's separately authorized full-VAE assembly is now
+implemented and locally verified.
 
 ### Dual-T4 v1 result and fixed follow-up
 
@@ -488,8 +489,8 @@ the selected deployment path. Eager remains a correctness/performance
 reference, not an alternative runtime candidate. No arm, runtime axis, generic
 tuner, or repeated Kaggle run follows this measurement.
 
-After this mechanics gate passes and the full model is separately assembled,
-Spec 0011 starts from the selected probe bundle. It may use a small number of
+This mechanics gate passes and Spec 0014 separately assembles the full model.
+Spec 0011 now starts from the selected probe bundle and may use a small number of
 full-model Kaggle probes to select feasible batch size and only those runtime
 options shown to be architecture-sensitive. It must not blindly inherit a
 baseline value that fails measurement, repeat the discarded generic search,
@@ -524,17 +525,17 @@ raw samples as diagnostic evidence, but is not a pass/fail condition. A large
 internal fraction is actionable only if it causes a representative composite
 or later full-model operational failure.
 
-Passing these limits accepts the concrete convolution mechanics and permits a
-separately authorized full model to be coded. It does **not** establish full-topology activation
+Passing these limits accepts the concrete convolution mechanics; Spec 0014 now
+provides the separately authorized full model. This probe does **not** establish full-topology activation
 memory, optimizer/DDP-bucket VRAM, end-to-end step time, or epoch time. Those
 must be measured on the assembled model by Spec 0011 before any run. The
 isolated `<14.5/<13.5 GiB` limits are only fail-fast bounds for an obviously
 unusable block implementation.
 
 The accepted v3 evidence closes this gate. Do not revise mechanics, runtime,
-field multiplicities, or radial profiles within this completed spec. A new
-explicitly authorized implementation spec must own full-model assembly; later
-full-model runtime measurement remains Spec 0011 work.
+field multiplicities, or radial profiles within this completed spec. Spec 0014
+owns the completed full-model assembly; later full-model runtime measurement
+remains Spec 0011 work.
 
 ## Outputs And Acceptance Artifacts
 
@@ -560,9 +561,8 @@ The local implementation produces:
 5. Pass: counts remain exactly 1,172,304 coefficients, 3,600 norm parameters,
    4,096 gate parameters, 35 scalar biases, and 1,180,035 total learned
    parameters for the eventual 43-convolution topology.
-6. Pass: v3 evidence and handoffs are updated; do not assemble the full VAE.
-
-Only then may a separate implementation step assemble the full equivariant VAE.
+6. Pass: v3 evidence and handoffs are updated. Spec 0014's separately authorized
+   implementation step has since assembled and locally verified the full VAE.
 
 ## Verification Commands
 

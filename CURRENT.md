@@ -5,16 +5,14 @@ Last updated: 2026-08-13
 ## Fresh-session start here
 
 Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, active Specs
-0011-0013, and Decision 0004 completely. The normal-VAE baseline is complete;
-the locked Spec 0012 architecture oracle and accepted Spec 0013 compiled mechanics
-are also complete. Do not reopen radial profiles, F2, multiplicities, contraction
-arms, compilation-time tuning, or diagnostic timing CV. The next implementation
-slice is the full fixed 43-convolution equivariant VAE, but it requires explicit
-user authorization and should start in a fresh window/session with a new active
-implementation spec. The user explicitly authorizes narrow Kaggle checks during
-that slice when a compile, VRAM, or settled-execution question genuinely depends
-on the dual-T4 setup; use them early instead of engineering local support for
-hypothetical cases. This does not authorize the full training run. Baseline
+0011-0014, and Decision 0004 completely. The normal-VAE baseline is complete;
+the locked Spec 0012 architecture, accepted Spec 0013 mechanics, and Spec 0014
+full fixed 43-convolution SO(2) VAE are implemented and locally verified. Do not
+reopen radial profiles, F2, multiplicities, topology, contraction/assembly arms,
+compilation-time tuning, or diagnostic timing CV. The next separately authorized
+slice is selected-runtime registration, F0/F1 gate-health integration, and one
+narrow dual-T4 compile/VRAM/settled-execution readiness check. This does not
+authorize the full training run. Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
 boundary. Its output and checkpoint are verified locally; the FSQ-aligned AMP runtime
@@ -67,6 +65,18 @@ Runtime selection, LR-range, debug, and tiny-overfit gates remain strict zero-sk
 The user locked beta `0.01` on 2026-08-09; do not run an intermediate beta probe.
 
 ## Current objective
+
+Spec 0014 is complete locally. `src/eqvae/models/so2_vae.py` mirrors all 43
+normal-VAE convolution positions with the locked `9-low` stem, `7-low`
+remainder, A/B/C/D equal-copy layouts, scalar RGB/latent boundaries, six
+branch-local downsamplers, and six branch-local upsamplers. The instantiated
+model is exactly `1,180,035` learned parameters with the locked
+`1,172,304/3,600/4,096/35` coefficient/norm/gate/bias partition. Eager
+two-step gradient-driven updates, optimizer grouping, CPU autocast, base and
+autocast fullgraph reuse, deployment shapes, contraction call counts, and
+cardinal/non-cardinal endpoint evidence pass. The next objective is not
+training: integrate only this fixed model with the selected runner and gate
+telemetry, then answer its concrete dual-T4 readiness question directly.
 
 Spec 0012's small non-training basis oracle is implemented and measured. The
 tracked manifest selects the fixed F0/F1 contingency (`F01`), not an F2 model.
@@ -179,8 +189,9 @@ On 2026-08-13 the user selected compiled execution, made raw CV diagnostic, and
 accepted the existing evidence without a rerun. Padded `bmm` plus direct
 assembly is the fixed mechanics. Eager timings remain a reference; compiled
 medians and the matched compiled normal controls are the performance evidence.
-Do not add another mechanics arm or runtime option. Full-VAE assembly remains a
-separate explicit authorization.
+Do not add another mechanics arm or runtime option. Spec 0014's authorized
+full-VAE assembly is complete; selected-runtime readiness is the next separate
+authorization boundary.
 
 This remains one-off experiment code. Do not ship runtime architecture,
 support, radial, field-layout, or group options; do not retain rejected
@@ -373,10 +384,17 @@ readiness and the remaining multi-session blocker are recorded here.
 
 ## Verification state
 
-Before the direction correction, the overbuilt implementation passed its focused tests,
-the full 768-test Python quality gate, `git diff --check`, and both preflights. Those
-results do not verify the replacement. Rerun focused tests and every required gate after
-the rollback and lean implementation.
+Spec 0014 focused verification passes 84 analytic-basis/primitive/kernel/model/
+optimizer tests; its 11 full-model tests cover exact topology/counts, complete
+branch order and shapes, one-conv/bmm/mm contracts, two-step finite gradients
+and updates, AMP-facing state, base/autocast fullgraph reuse, independent decoder
+equivariance, raw transform floor, and accepted fixed-downsampler phase error.
+Fresh mathematical/topology and compile/performance/scope reviews pass after
+their acceptance-test findings were corrected. No Kaggle probe was run because
+the remaining hardware question belongs to selected-runtime integration, not
+model assembly. Final `./scripts/python_quality.sh` passes Ruff formatting/check,
+767 tests with one expected GPU-only skip, and BasedPyright with zero errors.
+Both repo/workspace preflights and `git diff --check` pass.
 
 Kaggle LR-range kernel v1 passed: 192/192 two-rank updates from `2e-5` to `3e-3`, zero
 AMP skips/non-finites, and smoothed loss `0.645 -> 0.251`. Manual curve inspection chose
@@ -491,35 +509,15 @@ control's learned representation is correctly not claimed to be equivariant.
     assembly. That singular path, its focused local checks, reviews, and guarded
     runner are complete. Accept Kaggle v3 under the user's decision that timing
     CV and one-time compilation duration are diagnostic, not architecture gates.
-    Do not rerun or add another arm. Full-VAE assembly requires separate explicit
-    authorization and should begin in a new window/session.
+    Do not rerun or add another arm. Treat Spec 0014's full fixed VAE assembly,
+    exact counts, focused verification, and corrected fresh reviews as complete.
+11. Before any remote execution, add the one fixed model to the selected runtime
+    and extend bounded gate-health rows to its F0/F1 families. Do not add general
+    layouts or dynamic architecture configuration.
+12. Then run at most one narrow generated-data dual-T4 readiness check for the
+    selected compiled bundle's full-model settlement, VRAM, and settled execution.
+    Compilation duration and raw timing CV remain diagnostic. Do not create a
+    tuner or launch full training without separate explicit authorization.
 
-Fresh-session launch prompt for the next step:
-
-```text
-FULLY GROUND YOURSELF AND UNDERSTAND INTENT; DO NOT FOLLOW THE PLAN BLINDLY.
-Read the workspace and repo AGENTS.md files, equivariant-vae/CURRENT.md,
-GOAL.md, Spec 0012, Decision 0004, and the referenced baseline/model sources
-before acting. This is one one-off experiment, not a reusable equivariance
-library.
-
-Treat the completed Spec 0012 oracle, local Spec 0013 proof, and tracked dual-T4
-v1/v2 failure summaries as source of truth. V2 passes numerical/runtime
-correctness and establishes padded bmm/direct as the fastest fixed mechanics.
-The user replaced the isolated 10% fraction with per-block operational gates.
-That path is singular and its 69 focused tests, source-bound CPU artifact,
-Ruff, BasedPyright, exact basis check, local kernel preflight, and two fresh
-adversarial reviews pass. The one guarded four-path dual-T4 probe passes the
-accepted contract: compiled execution is selected and CV is diagnostic only.
-Spec 0013 is complete. Initial compilation duration is excluded; only settled
-compiled execution matters. Do not rerun or add mechanics/runtime arms. The next
-task, only after explicit user authorization and preferably in a fresh window,
-is a new spec-driven slice that assembles and locally verifies the fixed
-43-convolution equivariant VAE. Narrow guarded Kaggle compile/VRAM/settled-
-execution checks are authorized when they avoid speculative local engineering;
-keep them minimal and tied to a concrete question. Do not build a tuner or
-launch the full training run without separate authorization.
-```
-
-Baseline full training and final-output verification are complete. The continuous-`SO(2)`
-repeat is the next experiment gate.
+Baseline full training/final-output verification and local continuous-`SO(2)`
+model assembly are complete. Selected-runtime readiness is the next gate.
