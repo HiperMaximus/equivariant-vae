@@ -88,6 +88,15 @@ semantics, gradient/update, cross-rank counter, validator, identity, generated
 launcher, and mutation-test findings were fixed; both reviewers rechecked with
 zero unresolved findings. Local kernel preflight and `git diff --check` pass.
 Hardware evidence remains pending until the guarded Kaggle run completes.
+The guarded upload was attempted from clean local commit `6da340a` but the
+external-write approval layer rejected it before any Kaggle version was
+created: the generated kernel embeds private repository source and uploading it
+to Kaggle is data egress to an external service. Resume only after the user
+explicitly confirms that risk, then run:
+
+```bash
+KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/so2_runtime_readiness
+```
 
 Spec 0014 is complete locally. `src/eqvae/models/so2_vae.py` mirrors all 43
 normal-VAE convolution positions with the locked `9-low` stem, `7-low`
@@ -412,8 +421,10 @@ Spec 0015 local acceptance is complete: the final post-review quality gate is
 BasedPyright at zero errors. The dedicated embedded-kernel preflight verifies a
 private dual-T4 kernel with empty dataset, competition, kernel, and model source
 lists. Two clean-context adversarial reviews have zero unresolved findings.
-The only open acceptance item is the one authorized hardware run and its exact
-JSON/68-row CSV evidence; no real data or training is authorized.
+The only open acceptance item is the hardware run and its exact JSON/68-row CSV
+evidence. Its first upload attempt was blocked before remote creation pending
+explicit approval to send the embedded private repository payload to Kaggle;
+no real data or training is authorized.
 
 Spec 0014 focused verification passes 84 analytic-basis/primitive/kernel/model/
 optimizer tests; its 11 full-model tests cover exact topology/counts, complete
