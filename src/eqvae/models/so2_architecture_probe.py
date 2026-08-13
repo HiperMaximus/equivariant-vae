@@ -329,12 +329,9 @@ class _ScalarToF01Conv(nn.Module):
 
 
 class _F01ToF01Conv(nn.Module):
-    """Fixed F01-to-F01 learned convolution with four unrolled contractions."""
+    """Fixed F01-to-F01 convolution with one padded batched contraction."""
 
-    basis00: torch.Tensor
-    basis10: torch.Tensor
-    basis01: torch.Tensor
-    basis11: torch.Tensor
+    packed_bases: torch.Tensor
 
     def __init__(
         self,
@@ -349,10 +346,16 @@ class _F01ToF01Conv(nn.Module):
         basis10 = _build_pair_bank(0, 1, _PROFILE_7)
         basis01 = _build_pair_bank(1, 0, _PROFILE_7)
         basis11 = _build_pair_bank(1, 1, _PROFILE_7)
-        self.register_buffer("basis00", basis00, persistent=True)
-        self.register_buffer("basis10", basis10, persistent=True)
-        self.register_buffer("basis01", basis01, persistent=True)
-        self.register_buffer("basis11", basis11, persistent=True)
+        packed_bases = basis00.new_zeros((4, 14, 196))
+        packed_bases[0, :4, :49] = basis00
+        packed_bases[1, :6, :98] = basis10
+        packed_bases[2, :6, :98] = basis01
+        packed_bases[3, :14, :196] = basis11
+        self.register_buffer(
+            "packed_bases",
+            packed_bases.contiguous(),
+            persistent=True,
+        )
         self.coeff00 = _new_coefficients(
             output_copies=output_layout.n0,
             input_copies=input_layout.n0,
@@ -379,51 +382,61 @@ class _F01ToF01Conv(nn.Module):
         )
 
     def expanded_kernel(self) -> torch.Tensor:
-        """Expand four pair blocks and assemble the canonical packed kernel.
+        """Expand four pair blocks and directly assemble the packed kernel.
 
         Returns:
             Dense canonical packed kernel.
 
         """
-        kernel00 = _expand_pair(
-            self.coeff00,
-            self.basis00,
-            output_copies=self.output_layout.n0,
-            input_copies=self.input_layout.n0,
-            output_dimension=1,
-            input_dimension=1,
-            kernel_size=self.kernel_size,
+        coefficients = torch.stack(
+            (
+                functional.pad(self.coeff00, (0, 10)),
+                functional.pad(self.coeff10, (0, 8)),
+                functional.pad(self.coeff01, (0, 8)),
+                self.coeff11,
+            ),
         )
-        kernel10 = _expand_pair(
-            self.coeff10,
-            self.basis10,
-            output_copies=self.output_layout.n1,
-            input_copies=self.input_layout.n0,
-            output_dimension=2,
-            input_dimension=1,
-            kernel_size=self.kernel_size,
+        expanded = torch.bmm(coefficients, self.packed_bases)
+        output_copies = self.output_layout.n0
+        input_copies = self.input_layout.n0
+
+        kernel00 = (
+            expanded[0, :, :49]
+            .view(output_copies, input_copies, 1, 1, 7, 7)
+            .permute(0, 2, 1, 3, 4, 5)
+            .reshape(output_copies, input_copies, 7, 7)
         )
-        kernel01 = _expand_pair(
-            self.coeff01,
-            self.basis01,
-            output_copies=self.output_layout.n0,
-            input_copies=self.input_layout.n1,
-            output_dimension=1,
-            input_dimension=2,
-            kernel_size=self.kernel_size,
+        kernel10 = (
+            expanded[1, :, :98]
+            .view(output_copies, input_copies, 2, 1, 7, 7)
+            .permute(0, 2, 1, 3, 4, 5)
+            .reshape(2 * output_copies, input_copies, 7, 7)
         )
-        kernel11 = _expand_pair(
-            self.coeff11,
-            self.basis11,
-            output_copies=self.output_layout.n1,
-            input_copies=self.input_layout.n1,
-            output_dimension=2,
-            input_dimension=2,
-            kernel_size=self.kernel_size,
+        kernel01 = (
+            expanded[2, :, :98]
+            .view(output_copies, input_copies, 1, 2, 7, 7)
+            .permute(0, 2, 1, 3, 4, 5)
+            .reshape(output_copies, 2 * input_copies, 7, 7)
         )
-        top = torch.cat((kernel00, kernel01), dim=1)
-        bottom = torch.cat((kernel10, kernel11), dim=1)
-        return torch.cat((top, bottom), dim=0)
+        kernel11 = (
+            expanded[3]
+            .view(output_copies, input_copies, 2, 2, 7, 7)
+            .permute(0, 2, 1, 3, 4, 5)
+            .reshape(2 * output_copies, 2 * input_copies, 7, 7)
+        )
+        kernel = kernel00.new_empty(
+            (
+                self.output_layout.channels,
+                self.input_layout.channels,
+                7,
+                7,
+            ),
+        )
+        kernel[:output_copies, :input_copies] = kernel00
+        kernel[:output_copies, input_copies:] = kernel01
+        kernel[output_copies:, :input_copies] = kernel10
+        kernel[output_copies:, input_copies:] = kernel11
+        return kernel
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         """Expand once and execute exactly one learned dense convolution.

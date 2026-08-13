@@ -438,9 +438,21 @@ def test_locked_layouts_banks_coefficients_and_full_counts() -> None:
     assert lift.basis10.shape == (8, 162)
     assert lift.coeff00.shape == (48, 5)
     assert lift.coeff10.shape == (48, 8)
-    assert hidden.basis00.shape == (4, 49)
-    assert hidden.basis10.shape == hidden.basis01.shape == (6, 98)
-    assert hidden.basis11.shape == (14, 196)
+    assert hidden.packed_bases.shape == (4, 14, 196)
+    expected_banks = (
+        _build_pair_bank(0, 0, _PROFILE_7),
+        _build_pair_bank(0, 1, _PROFILE_7),
+        _build_pair_bank(1, 0, _PROFILE_7),
+        _build_pair_bank(1, 1, _PROFILE_7),
+    )
+    valid_shapes = ((4, 49), (6, 98), (6, 98), (14, 196))
+    for index, (basis, shape) in enumerate(
+        zip(expected_banks, valid_shapes, strict=True),
+    ):
+        rows, columns = shape
+        assert torch.equal(hidden.packed_bases[index, :rows, :columns], basis)
+        assert not bool(hidden.packed_bases[index, rows:].count_nonzero())
+        assert not bool(hidden.packed_bases[index, :rows, columns:].count_nonzero())
     assert [
         parameter.shape
         for parameter in (
@@ -461,7 +473,7 @@ def test_locked_layouts_banks_coefficients_and_full_counts() -> None:
         buffer.dtype == torch.float32 and buffer.is_contiguous()
         for buffer in hidden.buffers()
     )
-    assert set(hidden.state_dict()) >= {"basis00", "basis10", "basis01", "basis11"}
+    assert "packed_bases" in hidden.state_dict()
     assert locked_full_architecture_coefficient_count() == _EXPECTED_COEFFICIENTS
     norm_count = 10 * sum(
         2 * layout.n0 + layout.n1 for layout in (A_LAYOUT, B_LAYOUT, C_LAYOUT, D_LAYOUT)
@@ -719,7 +731,7 @@ def test_representative_multicopy_assembly_matches_escnn_pair_banks() -> None:
     """Validate the three static block layouts with nontrivial copy counts."""
     escnn = _load_local_escnn()
     input_layout = FixedF01Layout("X", 2, 2)
-    output_layout = FixedF01Layout("Y", 3, 2)
+    output_layout = FixedF01Layout("Y", 3, 3)
     scalar_lift = _ScalarToF01Conv(2, input_layout, _PROFILE_7)
     hidden = _F01ToF01Conv(input_layout, output_layout)
     scalar_head = _F01ToScalarConv(input_layout, 3, zero_initialize=False)
@@ -765,12 +777,12 @@ def test_representative_multicopy_assembly_matches_escnn_pair_banks() -> None:
                     _direct_expand_loop(
                         hidden.coeff10,
                         bank10,
-                        shape=(2, 2, 2, 1, 7),
+                        shape=(3, 2, 2, 1, 7),
                     ),
                     _direct_expand_loop(
                         hidden.coeff11,
                         bank11,
-                        shape=(2, 2, 2, 2, 7),
+                        shape=(3, 2, 2, 2, 7),
                     ),
                 ),
                 dim=1,
@@ -801,6 +813,95 @@ def test_representative_multicopy_assembly_matches_escnn_pair_banks() -> None:
         assert _relative_rms(observed, expected) <= _KERNEL_RELATIVE_LIMIT
 
 
+def test_selected_padded_bmm_gradients_match_four_mm_oracle() -> None:
+    """Keep direct assembly differentiable for inputs and every coefficient bank."""
+    selected = _F01ToF01Conv(A_LAYOUT, B_LAYOUT).double()
+    reference = copy.deepcopy(selected)
+    generator = torch.Generator().manual_seed(43013)
+    selected_inputs = torch.randn(
+        1,
+        A_LAYOUT.channels,
+        9,
+        9,
+        generator=generator,
+        dtype=torch.float64,
+        requires_grad=True,
+    )
+    reference_inputs = selected_inputs.detach().clone().requires_grad_()
+
+    kernel00 = _expand_pair(
+        reference.coeff00,
+        _build_pair_bank(0, 0, _PROFILE_7).double(),
+        output_copies=B_LAYOUT.n0,
+        input_copies=A_LAYOUT.n0,
+        output_dimension=1,
+        input_dimension=1,
+        kernel_size=7,
+    )
+    kernel10 = _expand_pair(
+        reference.coeff10,
+        _build_pair_bank(0, 1, _PROFILE_7).double(),
+        output_copies=B_LAYOUT.n1,
+        input_copies=A_LAYOUT.n0,
+        output_dimension=2,
+        input_dimension=1,
+        kernel_size=7,
+    )
+    kernel01 = _expand_pair(
+        reference.coeff01,
+        _build_pair_bank(1, 0, _PROFILE_7).double(),
+        output_copies=B_LAYOUT.n0,
+        input_copies=A_LAYOUT.n1,
+        output_dimension=1,
+        input_dimension=2,
+        kernel_size=7,
+    )
+    kernel11 = _expand_pair(
+        reference.coeff11,
+        _build_pair_bank(1, 1, _PROFILE_7).double(),
+        output_copies=B_LAYOUT.n1,
+        input_copies=A_LAYOUT.n1,
+        output_dimension=2,
+        input_dimension=2,
+        kernel_size=7,
+    )
+    reference_kernel = torch.cat(
+        (
+            torch.cat((kernel00, kernel01), dim=1),
+            torch.cat((kernel10, kernel11), dim=1),
+        ),
+        dim=0,
+    )
+    selected_output = cast("torch.Tensor", selected(selected_inputs))
+    selected_loss = selected_output.square().mean()
+    reference_loss = (
+        functional
+        .conv2d(
+            reference_inputs,
+            reference_kernel,
+            padding=3,
+        )
+        .square()
+        .mean()
+    )
+    selected_gradients = torch.autograd.grad(
+        selected_loss,
+        (selected_inputs, *selected.parameters()),
+    )
+    reference_gradients = torch.autograd.grad(
+        reference_loss,
+        (reference_inputs, *reference.parameters()),
+    )
+    assert all(
+        _relative_rms(observed, expected) <= _GRADIENT_RELATIVE_LIMIT
+        for observed, expected in zip(
+            selected_gradients,
+            reference_gradients,
+            strict=True,
+        )
+    )
+
+
 def test_all_locked_oriented_signatures_have_fixed_shapes() -> None:
     """Cover every eventual map shape without assembling the unauthorized VAE."""
     hidden_pairs = (
@@ -817,6 +918,50 @@ def test_all_locked_oriented_signatures_have_fixed_shapes() -> None:
     )
     for input_layout, output_layout in hidden_pairs:
         module = _F01ToF01Conv(input_layout, output_layout)
+        kernel00 = _expand_pair(
+            module.coeff00,
+            _build_pair_bank(0, 0, _PROFILE_7),
+            output_copies=output_layout.n0,
+            input_copies=input_layout.n0,
+            output_dimension=1,
+            input_dimension=1,
+            kernel_size=7,
+        )
+        kernel10 = _expand_pair(
+            module.coeff10,
+            _build_pair_bank(0, 1, _PROFILE_7),
+            output_copies=output_layout.n1,
+            input_copies=input_layout.n0,
+            output_dimension=2,
+            input_dimension=1,
+            kernel_size=7,
+        )
+        kernel01 = _expand_pair(
+            module.coeff01,
+            _build_pair_bank(1, 0, _PROFILE_7),
+            output_copies=output_layout.n0,
+            input_copies=input_layout.n1,
+            output_dimension=1,
+            input_dimension=2,
+            kernel_size=7,
+        )
+        kernel11 = _expand_pair(
+            module.coeff11,
+            _build_pair_bank(1, 1, _PROFILE_7),
+            output_copies=output_layout.n1,
+            input_copies=input_layout.n1,
+            output_dimension=2,
+            input_dimension=2,
+            kernel_size=7,
+        )
+        expected_kernel = torch.cat(
+            (
+                torch.cat((kernel00, kernel01), dim=1),
+                torch.cat((kernel10, kernel11), dim=1),
+            ),
+            dim=0,
+        )
+        assert torch.allclose(module.expanded_kernel(), expected_kernel)
         result = cast(
             "torch.Tensor",
             module(torch.randn(1, input_layout.channels, 3, 3)),

@@ -55,7 +55,7 @@ fixed25_selector_kernel_dir="kaggle/kernels/fixed25_selector"
 fixed25_selector_output_dir="runs/kaggle/fixed25_selector"
 selected_runtime_compile_probe_kernel_dir="kaggle/kernels/selected_runtime_compile_probe"
 so2_architecture_probe_kernel_dir="kaggle/kernels/so2_architecture_probe"
-so2_architecture_probe_output_dir="runs/kaggle/so2_architecture_probe_v2"
+so2_architecture_probe_output_dir="runs/kaggle/so2_architecture_probe_v3"
 
 usage() {
   cat <<'EOF'
@@ -1356,8 +1356,9 @@ PYSO2METADATA
   local run_file="$kernel_dir/run.py"
   for required_text in \
     "spec0013_so2_dual_t4_probe.json" \
-    "spec0013.so2_dual_t4_follow_up.v1" \
-    "locked_so2_architecture_mechanics_follow_up" \
+    "spec0013.so2_dual_t4_final.v1" \
+    "locked_so2_architecture_mechanics_final" \
+    "padded_bmm_direct" \
     "compile_step_python_reducer_fp16_channels_last" \
     "e9e998fd161f0955959c64aed7cd7ddbdfcb55a271b9ce05805903c97c93efb8" \
     "torch.distributed.run" \
@@ -1387,11 +1388,9 @@ with zipfile.ZipFile(io.BytesIO(base64.b64decode(match.group("payload")))) as ar
 required = (
     "PER_DEVICE_BATCH: Final = 4",
     "SETTLED_UPDATES: Final = 32",
-    "FOLLOW_UP_WARMUPS: Final = 20",
-    "FOLLOW_UP_WINDOW_UPDATES: Final = 50",
+    "WARMUP_UPDATES: Final = 20",
+    "TIMED_WINDOW_UPDATES: Final = 50",
     'RUNTIME_BUNDLE_ID: Final = "compile_step_python_reducer_fp16_channels_last"',
-    "class _DDirectAssemblyConv",
-    "class _DPaddedBmmAssemblyConv",
     "SO2LargestDDConv",
     "def _gradient_mean_check(",
     "def _check_buffers_across_ranks(",
@@ -1399,6 +1398,9 @@ required = (
 missing = [item for item in required if item not in source]
 if missing:
     raise SystemExit("\n".join(f"error: embedded SO(2) source missing {item}" for item in missing))
+for forbidden in ("four_mm_three_cat", "four_mm_direct", "_follow_up_verdict"):
+    if forbidden in source:
+        raise SystemExit(f"error: embedded final SO(2) source retains {forbidden}")
 PYSO2PAYLOAD
 }
 

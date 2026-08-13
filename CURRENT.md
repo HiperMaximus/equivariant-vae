@@ -103,8 +103,9 @@ sections are unchanged.
 
 The fixed Spec 0013 local probe is now implemented. It hard-codes only the
 selected F0/F1 layouts and pair banks, expands FP32 master coefficients with
-fixed `torch.mm`, performs minimal static assembly and exactly one dense
-`conv2d`, keeps basis/layout construction outside forward, and adds only the
+the selected padded `torch.bmm` for hidden maps (fixed `torch.mm` at scalar
+boundaries), performs direct static assembly and exactly one dense `conv2d`,
+keeps basis/layout construction outside forward, and adds only the
 locked norm/gates, identity block, encoder/decoder transitions, resampling, RGB
 interfaces, and scalar latent heads. It does not assemble or expose the
 43-convolution VAE. Exact eventual counts remain `1,180,035`.
@@ -146,19 +147,21 @@ comfortably below `0.005/0.02`. DDP, AMP, compile, buffer, VRAM, compiled/eager,
 EQ/normal, and corrected-control CV gates pass. Bitwise equality remains
 diagnostic only; no numerical correctness gate failed.
 
-V2 validly rejected all three predeclared mechanics on the unchanged `0.10`
-assembly-fraction gate. Pooled fractions were `0.5042/0.5162` for four-mm/
-three-cat, `0.5025/0.5175` for four-mm/direct, and `0.4465/0.4534` for padded-
-bmm/direct across ranks; every window was `0.4024..0.5630`. Padded `bmm` was
-fastest at a worst-rank `1.2655 ms` complete-forward median, but still missed
-the limit by more than 4x. Independent review reproduced every fraction and
-showed timing noise cannot rescue any arm. Per the predeclared stop rule, do
-not add a fourth arm, singularize a candidate, run another mechanics probe, or
-assemble the full VAE. The exact next step is an explicit user/spec decision:
-retain the 10% performance contract and revise the architecture, or justify a
-scientifically appropriate replacement for that contract. This is a
-performance-policy decision, not a request for bitwise exactness or
-production-grade engineering.
+V2 validly rejected all three predeclared mechanics on the old isolated `0.10`
+assembly-fraction gate. On 2026-08-13 the user accepted replacing that
+microbenchmark gate with experiment-relevant per-block runtime checks and
+selected the fastest measured path: padded `bmm` plus direct assembly. The old
+`1.828x` "topology-weighted" v1 aggregate is also not a final gate because four
+multi-convolution probe blocks do not map exactly onto all 43 positions.
+
+Spec 0013 is locally verified and ready for exactly one final singular confirmation:
+padded `bmm` plus direct assembly is now the only F01-to-F01 path; the runner will test the fixed
+identity, encoder transition, decoder transition, and D-to-D paths against
+their matched normal controls using two raw timing windows; retain every
+numerical, AMP, DDP, compile, CV, per-block latency, and VRAM limit; record the
+D-to-D assembly fraction only as a diagnostic. Do not add another mechanics
+arm or assemble the full VAE. After this probe passes, full-model coding and
+actual whole-network step/epoch measurement still require separate work.
 
 This remains one-off experiment code. Do not ship runtime architecture,
 support, radial, field-layout, or group options; do not retain rejected
@@ -464,9 +467,11 @@ control's learned representation is correctly not claimed to be equivariant.
     refresh, manifest handoff, and Spec 0013's fixed local mechanics/CPU proof
     as complete. Treat private dual-T4 versions 1 and 2 as measured mechanics
     failures, not infrastructure failures, and preserve both tracked summaries.
-    V2 exhausted the three predeclared D-to-D arms. Do not add another arm,
-    singularize mechanics, or assemble the full VAE without an explicit new
-    architecture-or-performance-contract decision.
+    The user replaced the isolated 10% gate and selected padded `bmm` plus direct
+    assembly. That singular path, its focused local checks, reviews, and guarded
+    runner are complete. Commit/push it, run one final four-path dual-T4
+    confirmation, and stop on any failure. Do not add another arm or assemble
+    the full VAE in this session.
 
 Fresh-session launch prompt for the next step:
 
@@ -479,10 +484,12 @@ library.
 
 Treat the completed Spec 0012 oracle, local Spec 0013 proof, and tracked dual-T4
 v1/v2 failure summaries as source of truth. V2 passes numerical/runtime
-correctness but exhausts all predeclared mechanics at 44.6-51.7% assembly
-fraction versus 10%. Stop. Ask for an explicit decision to revise architecture
-or replace that performance contract. Do not add an arm, run another mechanics
-probe, assemble the full VAE, or add runtime options.
+correctness and establishes padded bmm/direct as the fastest fixed mechanics.
+The user replaced the isolated 10% fraction with per-block operational gates.
+That path is singular and its 69 focused tests, source-bound CPU artifact,
+Ruff, BasedPyright, exact basis check, local kernel preflight, and two fresh
+adversarial reviews pass. Run exactly one guarded four-path dual-T4 final probe.
+Do not add an arm, assemble the full VAE, or add runtime options.
 ```
 
 Baseline full training and final-output verification are complete. The continuous-`SO(2)`

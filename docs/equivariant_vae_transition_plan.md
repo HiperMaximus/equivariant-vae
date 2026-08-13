@@ -915,10 +915,12 @@ Issue #6, equivariant VAE validation:
 - The target is SO(2).
 - Spec 0013's narrow F01 architecture probe is locally verified. Dual-T4 v1
   transferred the runtime correctly but failed the expansion/assembly gate;
-  dual-T4 v2 passes numerical/runtime correctness but rejects all three
-  predeclared mechanics at `44.6..51.7%` versus the `10%` assembly limit. Stop
-  until an explicit architecture-or-performance-contract decision; do not
-  assemble the full convolution topology or VAE.
+  dual-T4 v2 passes numerical/runtime correctness and identifies padded `bmm`
+  plus direct assembly as the fastest path; the user then selected it while
+  replacing the isolated 10% gate with per-block operational checks. The
+  singular implementation and guarded runner pass focused local verification;
+  run one four-path confirmation;
+  do not assemble the full convolution topology or VAE yet.
 - Use a repo-owned, compile-compatible SO(2) implementation; use `escnn` as a
   reference rather than a runtime dependency.
 - Explicitly test nonlinearities, normalization, upsampling, VAE sampling, and
@@ -953,10 +955,9 @@ trainer/checkpoint mechanics, CLI-managed kernels,
 and local scaffold described by the former task list are already implemented; do not
 recreate them. The equal-copy F01 count/init/manifest refresh and fixed local
 Spec 0013 local probe are complete. Dual-T4 v2 from `afec7af` validates the
-corrected accuracy/runtime path but rejects all three predeclared D-to-D arms
-at `44.6..51.7%` assembly fraction against `10%`. The exact next action is an
-explicit decision to revise architecture or replace that performance gate
-under a new spec. Do not add an arm or assemble the full VAE. Once the full
-model is authorized, Spec 0011 may
+corrected accuracy/runtime path and identifies padded `bmm` plus direct
+assembly as fastest. The exact next action is the one locked singular
+four-path dual-T4 confirmation under per-block operational gates. Do not add an
+arm or assemble the full VAE. Once the full model is authorized, Spec 0011 may
 likewise run a few targeted batch/runtime probes instead of assuming every
 baseline value transfers or recreating the discarded generic search.

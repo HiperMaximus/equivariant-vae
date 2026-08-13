@@ -2,15 +2,15 @@
   "schema_version": "spec0013.so2_cpu_probe.v1",
   "status": "pass",
   "measured_at": "2026-08-13",
-  "git_head": "e57f08606ae6c0a44a16bf4cdc92f439bf56e5ef",
+  "git_head": "2543a97508b27520817470ff604bcb39ac370ff8",
   "worktree_dirty": true,
   "source_files_sha256": {
-    "src/eqvae/models/so2_architecture_probe.py": "526571e3a3d8a980016093f84c138c5ccd33d26c751bf78fbb9bc1cffdd9d365",
-    "src/eqvae/benchmarking/so2_architecture_probe.py": "7f260b50ad86e987ed5284dd135d36700a9047f01085c68366d253092fe61ea6",
-    "tests/test_so2_architecture_probe.py": "0275033f6c8d5057a34ae2c90fa83502a75ef98feb7257adcdd05890d354f4c1",
-    "tests/test_so2_architecture_probe_kernel.py": "a7fbfcc2638680e0a16e3fd3aa289e9665af9a5998a39b0e3d05111aa6800aa9",
-    "kaggle/kernels/so2_architecture_probe/run_template.py": "9ca35b45258064c4b0e7bb3ee23a755fef9739b8b734e51257e95533989bfc86",
-    "scripts/kaggle_kernel.sh": "01588a16e7f01ca57d599c78564f0693996dc34127dbaa9a2572c5cf7fed1eee"
+    "src/eqvae/models/so2_architecture_probe.py": "e6908a39cde1c5817670ca27e716956a0f9654f850c52874f2a2d117f33f0fd8",
+    "src/eqvae/benchmarking/so2_architecture_probe.py": "c8875ec040b58c6286057851db23a70636fec5bf2a77b307475cc5ab5f441afc",
+    "tests/test_so2_architecture_probe.py": "57917e063e9283941b076239bec524ecc8554f07138d5182e52820c8bf404d9a",
+    "tests/test_so2_architecture_probe_kernel.py": "c952595ffb11065996b8571f62dd8c5e984c9514e2e88f0f4fe2d49c15576042",
+    "kaggle/kernels/so2_architecture_probe/run_template.py": "3121190cc7d30f5aa5e647cf80ad14b5d87a80d3a416a2d141189d086b958446",
+    "scripts/kaggle_kernel.sh": "718868e5acbb044d25f64c065f12ff75dd30d717377e1720f143be460ddb3601"
   },
   "runtime": {
     "python": "3.12.3",
@@ -168,7 +168,8 @@
   },
   "mechanics": {
     "exactly_one_dense_conv2d_per_learned_layer": "pass",
-    "vectorized_mm_matches_direct_copy_loop": "pass",
+    "padded_bmm_matches_four_mm_oracle": "pass",
+    "direct_nonoverlapping_quadrant_assembly": "pass",
     "persistent_basis_buffers_fp32_contiguous": "pass",
     "amp_facing_fp32_norm_and_gate_islands": "pass",
     "eager_forward_backward_optimizer_step": "pass",
@@ -177,7 +178,7 @@
   "verification": {
     "pytest": {
       "command": ".venv/bin/pytest -q tests/test_so2_basis.py tests/test_so2_architecture_probe.py tests/test_so2_architecture_probe_kernel.py",
-      "result": "67 passed, 329 pinned-escnn/SciPy deprecation warnings in 10.73s"
+      "result": "69 passed, 329 pinned-escnn/SciPy deprecation warnings"
     },
     "ruff": "pass",
     "basedpyright": "pass",
@@ -200,12 +201,14 @@
         "make all AMP skips, nonfinite results, and eager/compiled/control timing CVs load-bearing",
         "run the fullgraph diagnostic at the locked batch and record initial graph breaks",
         "time DDP-wrapped selected-runtime blocks and compiled FP16 assembly",
-        "rebuild and verify the embedded runner after source changes"
+        "rebuild and verify the embedded runner after source changes",
+        "verify exact rank/device, four-block, three-path, and sample schema",
+        "compare final compiled-DDP parameters across ranks"
       ]
     }
   },
   "dual_t4": {
-    "status": "follow_up_locally_verified_pending_clean_source_commit_and_fresh_explicit_remote_write_permission",
+    "status": "final_probe_locally_verified_pending_clean_source_commit_and_authorized_remote_launch",
     "kernel": "kaggle/kernels/so2_architecture_probe",
     "local_preflight_command": "./scripts/kaggle_kernel.sh preflight-so2-architecture-probe"
   }

@@ -1,6 +1,6 @@
 # Copyright 2026 HiperMaximus
 # ruff: noqa: EM101, TRY003
-"""Generated launcher for the locked Spec 0013 dual-T4 mechanics follow-up."""
+"""Generated launcher for the final locked Spec 0013 dual-T4 mechanics probe."""
 
 from __future__ import annotations
 
@@ -19,14 +19,17 @@ from typing import cast
 KAGGLE_SO2_ARCHITECTURE_PROBE_READY = True
 PROBE_MODULE = "eqvae.benchmarking.so2_architecture_probe"
 ARTIFACT_FILENAME = "spec0013_so2_dual_t4_probe.json"
-SCHEMA_VERSION = "spec0013.so2_dual_t4_follow_up.v1"
-PROBE_KIND = "locked_so2_architecture_mechanics_follow_up"
+SCHEMA_VERSION = "spec0013.so2_dual_t4_final.v1"
+PROBE_KIND = "locked_so2_architecture_mechanics_final"
 RUNTIME_BUNDLE_ID = "compile_step_python_reducer_fp16_channels_last"
 SELECTED_RUNTIME_SHA256 = (
     "e9e998fd161f0955959c64aed7cd7ddbdfcb55a271b9ce05805903c97c93efb8"
 )
 SELECTED_RUNTIME_PATH = Path("configs/spec0001/non_eq_vae_selected_runtime.json")
 SETTLED_UPDATES = 32
+TIMED_WINDOW_UPDATES = 50
+TIMED_WINDOW_COUNT = 2
+REQUIRED_GPU_NAME = "Tesla T4"
 PROBE_TIMEOUT_SECONDS = 10800
 DEFAULT_OUTPUT_DIR = Path("/kaggle/working")
 EMBEDDED_PAYLOAD_B64 = """
@@ -145,7 +148,7 @@ def _extract_payload(destination: Path) -> Path:
     return destination
 
 
-def _validate_artifact(  # noqa: C901, PLR0912
+def _validate_artifact(  # noqa: C901, PLR0912, PLR0914, PLR0915
     *,
     output_dir: Path,
     payload_dir: Path,
@@ -164,6 +167,7 @@ def _validate_artifact(  # noqa: C901, PLR0912
         "benchmark_kind": PROBE_KIND,
         "status": "pass",
         "architecture_locked": True,
+        "selected_mechanics": "padded_bmm_direct",
         "full_vae_assembled": False,
         "world_size": 2,
         "nproc_per_node": 2,
@@ -199,16 +203,107 @@ def _validate_artifact(  # noqa: C901, PLR0912
         or updates.get("settled_updates") != SETTLED_UPDATES
     ):
         errors.append("compiled DDP probe must complete 32 settled updates")
+    assignments = payload.get("rank_device_assignments")
+    if not isinstance(assignments, list) or {
+        (item.get("rank"), item.get("local_rank"), item.get("current_device"))
+        for item in assignments
+        if isinstance(item, dict)
+    } != {(0, 0, 0), (1, 1, 1)}:
+        errors.append("rank-to-device assignments must be the two-device bijection")
+    elif [item.get("device_name") for item in assignments] != [REQUIRED_GPU_NAME] * 2:
+        errors.append("rank-to-device assignments must use two Tesla T4 GPUs")
+    if payload.get("gpu_names") != [REQUIRED_GPU_NAME] * 2:
+        errors.append("gpu_names must identify exactly two Tesla T4 GPUs")
+    rank_measurements = payload.get("rank_measurements")
+    expected_blocks = {
+        "identity_A",
+        "encoder_A_to_B",
+        "decoder_B_to_A",
+        "largest_D_to_D",
+    }
+    expected_paths = {
+        "equivariant_eager",
+        "equivariant_compiled",
+        "normal_compiled",
+    }
+    if not isinstance(rank_measurements, list) or [
+        row.get("rank") for row in rank_measurements if isinstance(row, dict)
+    ] != [0, 1]:
+        errors.append("rank_measurements must contain ranks 0 and 1")
+    else:
+        for rank_row in rank_measurements:
+            if not isinstance(rank_row, dict):
+                errors.append("every rank measurement must be an object")
+                continue
+            blocks = rank_row.get("blocks")
+            if (
+                not isinstance(blocks, list)
+                or len(blocks) != len(expected_blocks)
+                or {block.get("name") for block in blocks if isinstance(block, dict)}
+                != expected_blocks
+            ):
+                errors.append("every rank must contain the exact four block results")
+                continue
+            for block in blocks:
+                paths = block.get("paths") if isinstance(block, dict) else None
+                if not isinstance(paths, dict) or set(paths) != expected_paths:
+                    errors.append(
+                        "every block must contain the exact three timing paths",
+                    )
+                    continue
+                for path in paths.values():
+                    if not isinstance(path, dict):
+                        errors.append("every timing path must be an object")
+                        continue
+                    windows = path.get("windows")
+                    pooled = path.get("pooled")
+                    if (
+                        not isinstance(windows, list)
+                        or len(windows) != TIMED_WINDOW_COUNT
+                        or any(
+                            not isinstance(window, dict)
+                            or len(window.get("samples_ms", [])) != TIMED_WINDOW_UPDATES
+                            for window in windows
+                        )
+                        or not isinstance(pooled, dict)
+                        or len(pooled.get("samples_ms", [])) != 2 * TIMED_WINDOW_UPDATES
+                    ):
+                        errors.append("every timing path must contain two full windows")
+            assembly = rank_row.get("assembly_diagnostic")
+            assembly_windows = (
+                assembly.get("windows") if isinstance(assembly, dict) else None
+            )
+            assembly_header_valid = (
+                isinstance(assembly, dict)
+                and assembly.get("selection_gate") is False
+                and isinstance(assembly_windows, list)
+                and len(assembly_windows) == TIMED_WINDOW_COUNT
+            )
+            assembly_windows_valid = isinstance(assembly_windows, list) and all(
+                isinstance(window, dict)
+                and all(
+                    isinstance(window.get(name), dict)
+                    and len(window[name].get("samples_ms", [])) == TIMED_WINDOW_UPDATES
+                    for name in ("expansion", "complete")
+                )
+                for window in assembly_windows
+            )
+            assembly_pooled_valid = isinstance(assembly, dict) and all(
+                isinstance(assembly.get(name), dict)
+                and len(assembly[name].get("samples_ms", []))
+                == 2 * TIMED_WINDOW_UPDATES
+                for name in ("pooled_expansion", "pooled_complete")
+            )
+            if (
+                not assembly_header_valid
+                or not assembly_windows_valid
+                or not assembly_pooled_valid
+            ):
+                errors.append("assembly diagnostic must contain two full windows")
     if payload.get("acceptance_failures") != []:
         errors.append("acceptance_failures must be empty")
-    if payload.get("selected_arm") not in {
-        "four_mm_three_cat",
-        "four_mm_direct",
-        "padded_bmm_direct",
-    }:
-        errors.append("follow-up must select one predeclared passing arm")
     if payload.get("follow_up_probe_permitted") is not False:
-        errors.append("follow-up runner must not authorize another remote arm")
+        errors.append("final runner must not authorize another remote arm")
     if errors:
         raise RuntimeError("; ".join(errors))
     if Path("/kaggle/working").exists() and output_dir != DEFAULT_OUTPUT_DIR:

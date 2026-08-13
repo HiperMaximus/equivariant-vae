@@ -1,6 +1,6 @@
 # Spec 0013: Fixed F01 Architecture Probe
 
-Status: dual-T4 v2 measured fail / architecture-or-contract decision required
+Status: final padded-bmm mechanics probe locally verified / dual-T4 run ready
 Owner/workstream: one-off continuous-`SO(2)` architecture probe
 Last updated: 2026-08-13
 
@@ -50,9 +50,10 @@ The one-use dual-T4 runner is locally built and guarded at
 `kaggle/kernels/so2_architecture_probe`. It reads and hashes the exact selected
 Spec 0011 runtime plan, verifies compiler/DDP readbacks, measures the four fixed
 signatures against matched controls, and makes all accuracy, AMP, finiteness,
-timing-CV, latency, assembly, graph, and VRAM limits load-bearing. Versions 1
-and 2 are complete. Full-VAE assembly remains blocked because v2 exhausted the
-predeclared mechanics candidates without a pass.
+timing-CV, latency, graph, and VRAM limits load-bearing. Versions 1 and 2 are
+complete. On 2026-08-13 the user accepted the evidence-based contract revision
+below and selected padded `bmm` plus direct assembly for one final four-path
+confirmation. Full-VAE assembly remains separately unauthorized.
 
 ### Dual-T4 v1 result and fixed follow-up
 
@@ -127,13 +128,23 @@ complete-forward median, but is not selectable under the contract. Narrow
 pooled-CV failures do not affect this conclusion because every arm fails every
 rank/window assembly gate independently.
 
-The predeclared follow-up is exhausted. No fourth arm, runtime axis,
-singularization, complete acceptance run, or full-VAE assembly is authorized.
-The blocker is now a new explicit decision: retain the 10% performance gate
-and revise architecture/mechanics under a new spec, or justify a replacement
-acceptance contract based on the experiment's scientific and operational
-needs. The numerical-tolerance contract already passes; relaxing bitwise
-exactness or adding production abstractions is irrelevant to this blocker.
+The predeclared follow-up is exhausted. No fourth arm or runtime axis is useful.
+The user explicitly chose the experiment-level alternative on 2026-08-13:
+remove the isolated 10% fraction as a selection gate, lock padded `bmm` plus
+direct assembly, and run one singular four-path confirmation. Kernel expansion
+remains an unavoidable differentiable training cost because coefficients change
+after every optimizer step. V2 already shows that the selected path is 10.5%
+faster than the original D-to-D forward (`1.2655 ms` versus `1.4143 ms`) while
+all numerical/runtime-correctness checks pass.
+
+The old `1.828x` "topology-weighted" value is retained only in the v1 evidence,
+not reused as a final gate. Its four composite-block weights do not map exactly
+onto the 43 convolution positions: a measured residual block contains multiple
+convolutions, transition signatures occur at different spatial resolutions,
+and scalar stem/latent/head paths are absent. The final mechanics probe instead
+requires every measured composite independently to pass its matched normal
+control. Actual whole-model steps/second, peak memory, and projected epoch time
+remain Spec 0011 measurements after separate full-model authorization.
 
 ## Non-Goals
 
@@ -224,42 +235,48 @@ user-supplied layer options.
 
 ## Training Forward Contract
 
-Use `torch.mm`, not a multi-input `einsum`, for every pair expansion:
+The selected F01-to-F01 implementation pads the four coefficient matrices to
+the locked largest basis shape, stacks them, and uses one `torch.bmm` against a
+single persistent packed-basis buffer. It then reshapes the four result slices
+and writes them into non-overlapping quadrants of one fresh dense kernel:
 
 ```text
-flat_block = coefficients @ pair_basis
-flat_block -> view(n_out,n_in,d_out,d_in,k,k)
+coefficients = stack(pad(C00), pad(C10), pad(C01), C11)
+expanded = bmm(coefficients, packed_bases)
+pair slice -> view(n_out,n_in,d_out,d_in,k,k)
            -> permute(n_out,d_out,n_in,d_in,k,k)
            -> reshape(d_out*n_out,d_in*n_in,k,k)
+kernel = fresh dense buffer
+kernel fixed quadrants = K00, K01, K10, K11
 ```
 
-`mm` makes the contraction explicit, has no path-planning dependency, and is a
-CUDA autocast-to-FP16 operation in current PyTorch. Each F01-to-F01 layer uses
-exactly four `mm` calls. Assemble the quadrants with three concatenations:
+For a layer with `n_out*n_in` copy-pair rows, the packed coefficients are
+`[4,n_out*n_in,14]`, the packed bases are `[4,14,196]`, and the valid flattened
+result lengths are `[49,98,98,196]` for `00/10/01/11`; all padding outside the
+corresponding coefficient/basis submatrices is exactly zero.
 
-```text
-top    = cat((K00, K01), dim=input_channel)
-bottom = cat((K10, K11), dim=input_channel)
-kernel = cat((top, bottom), dim=output_channel)
-output = conv2d(input, kernel, bias=None, padding=k//2)
-```
+`bmm` has no path-planning dependency and is a CUDA autocast-to-FP16 operation
+in the selected runtime. V2 measured this exact contraction and direct assembly
+as the fastest predeclared path. The padding dimensions, slices, offsets, and
+quadrants are fixed in `__init__`/source; there is no runtime discovery or
+branching. `output = conv2d(input, kernel, bias=None, padding=k//2)` remains the
+only learned convolution call.
 
-Scalar-to-F01 lifting uses one output-channel concatenation. F01-to-scalar
-projection uses one input-channel concatenation. Missing quadrants are absent,
-not zero-filled. No output-sized preallocation followed by slice assignment is
-allowed unless the dual-T4 probe proves it materially faster and the spec is
-updated first; such writes create another large temporary and complicate
-autograd/functionalization.
+Scalar-to-F01 lifting and F01-to-scalar projection retain their two fixed `mm`
+expansions and one concatenation because the selected four-bank batching applies
+only when all F0/F1 pairs are present. Missing quadrants are absent, not
+zero-filled.
 
 Every learned convolution executes exactly one dense `conv2d`. Forward has no
 loop over copies or pairs, no data-dependent branch, no `.item()`, no tensor-to-
-Python conversion, and no device/dtype conversion of fixed buffers. A private
-helper may remove source duplication, but the four pair calls and assembly are
-statically unrolled for each of the three map kinds.
+Python conversion, and no device/dtype conversion of fixed buffers. Python
+helper calls only express a statically traceable tensor graph; no Python logic
+survives in the compiled hot path.
 
 The largest `D -> D` dense kernel contains 1,016,064 elements (3.88 MiB FP32 or
-1.94 MiB FP16). Tests record peak temporary memory because concatenation can
-briefly retain pair blocks, row blocks, and the final kernel together.
+1.94 MiB FP16). Tests record peak temporary memory because padded coefficients,
+the batched expansion, pair views/copies, and the final kernel can overlap in
+lifetime.
 
 ## Buffer, Device, Dtype, And AMP Policy
 
@@ -406,8 +423,9 @@ Add only focused tests for:
 
 - exact layouts, offsets, pair-bank shapes, coefficient shapes, and parameter
   count contribution;
-- `mm` expansion/reshape/permutation against a direct loop oracle in tests;
-- static three-cat assembly and exactly one dense `conv2d` per learned layer;
+- padded `bmm` expansion/reshape/permutation/direct assembly against the prior
+  four-`mm` test-only oracle for every F01-to-F01 fixed signature;
+- packed-basis shape/content and exactly one dense `conv2d` per learned layer;
 - output/input shapes for every distinct fixed signature;
 - F0/F1 norm invariance/equivariance, shared-component radial gates, FP32 math,
   and finite gradients near zero radius;
@@ -424,24 +442,22 @@ invariant and why its failure would invalidate the experiment.
 
 ## Later Dual-T4 Benchmark And Acceptance Limits
 
-The later remote probe requires fresh Kaggle write permission and the same
-latest-PyPI Torch bootstrap used by the training runtime. It attaches no real
+The final remote probe requires explicit in-scope Kaggle write permission and
+uses the same latest-PyPI Torch bootstrap used by the training runtime. It attaches no real
 dataset and uses generated fixed-shape tensors. Test per-rank batch 4 on two
 visible T4s for the high-resolution `A` identity block, `A -> B` encoder
 transition, `B -> A` decoder transition, and isolated largest `D -> D`
 expansion. Run matched normal-Conv2d probe blocks under the identical runtime
-bundle. Exclude compile/startup from timing.
+bundle. Exclude compile/startup from timing. For each block, prepare its eager-
+EQ, compiled-EQ, and compiled-normal DDP steps; interleave one sample per mode
+in window one order eager -> compiled -> normal and exact reverse order in
+window two. Use 20 warmups and two untrimmed 50-sample windows, record every
+sample, and require each window and its pool to satisfy the timing-CV limit.
 
-The first Kaggle run is a transfer check of the exact selected
-non-equivariant runtime flags and values; do not assume they fail merely
-because the architecture changed. If that bundle passes every limit, select it
-and stop. If a measured compile, memory, or latency failure implicates a
-specific runtime interaction, predeclare a small set of follow-up probes that
-changes only the implicated runtime flags or contraction/assembly choice. Keep
-the field multiplicities, profiles, parameterization, and acceptance limits
-fixed. This is a few architecture-specific comparisons, not a recreation of
-the baseline's broad runtime search, and every Kaggle write still requires
-fresh permission.
+V3 is the final transfer check of the exact selected non-equivariant runtime
+flags and values with the selected singular mechanics. If it passes every
+limit, accept the mechanics and stop. If it fails, stop for a new explicit
+decision; do not add an arm, runtime axis, or generic tuner.
 
 After this mechanics gate passes and the full model is separately assembled,
 Spec 0011 starts from the selected probe bundle. It may use a small number of
@@ -464,32 +480,32 @@ Acceptance requires all of:
   zero graph breaks and zero recompiles after settle;
 - compiled FP16 output relative RMS `<=5e-3` and coefficient-gradient relative
   RMS `<=2e-2` against eager FP32 on the same fixed inputs/coefficients;
-- compiled median step time for each composite block is no more than 1.10x its
-  eager-FP16 median after settle; coefficient expansion plus assembly is no more
-  than 10% of isolated `D -> D` expanded-kernel-plus-convolution forward time;
-- each EQ composite block median and the topology-position-weighted sum of the
-  measured signatures are no more than 5.0x their matched compiled normal-
-  Conv2d controls; this is a mechanics projection, not an epoch-time claim;
+- compiled pooled median step time for each composite block is no more than
+  1.10x its eager-FP16 pooled median after settle;
+- each EQ composite block pooled median is no more than 5.0x its matched
+  compiled normal-Conv2d control;
 - timed-step coefficient of variation `<=10%` per rank;
 - peak reserved VRAM `<14.5 GiB` and peak allocated VRAM `<13.5 GiB` per T4 at
   batch 4, leaving operational headroom on a 16 GiB device;
 - no hidden host synchronization in the timed body and no runtime basis/layout
   construction.
 
-Passing these limits selects the concrete convolution mechanics and permits the
-full model to be coded. It does **not** establish full-topology activation
+The isolated D-to-D expansion/complete-forward fraction remains recorded with
+raw samples as diagnostic evidence, but is not a pass/fail condition. A large
+internal fraction is actionable only if it causes a representative composite
+or later full-model operational failure.
+
+Passing these limits accepts the concrete convolution mechanics and permits a
+separately authorized full model to be coded. It does **not** establish full-topology activation
 memory, optimizer/DDP-bucket VRAM, end-to-end step time, or epoch time. Those
 must be measured on the assembled model by Spec 0011 before any run. The
 isolated `<14.5/<13.5 GiB` limits are only fail-fast bounds for an obviously
 unusable block implementation.
 
-If correctness fails, fix the implementation or this spec's mathematical
-premise before full-VAE work. If correctness passes but a performance/memory
-limit fails, measure only the concrete `mm`/assembly issue responsible and
-revise the contraction or assembly inside this probe; do not change field
-multiplicities, radial profiles, or build a generic tuning framework. Spec 0011
-and full-model coding remain blocked until the revised Spec 0013 probe passes
-every limit.
+If any final correctness, performance, or memory limit fails, stop and report
+the evidence. Do not revise mechanics, runtime, field multiplicities, or radial
+profiles within this spec. Spec 0011 and full-model coding remain blocked until
+a new explicit decision or a passing Spec 0013 probe.
 
 ## Outputs And Acceptance Artifacts
 
@@ -499,24 +515,24 @@ The local implementation produces:
   public API;
 - focused CPU tests;
 - one compact tracked CPU mechanics/equivariance summary;
-- one narrow guarded runner and the fixed measured three-arm follow-up described
-  above; no extensible controller or generic configuration system.
+- one narrow guarded singular four-path runner; no arm comparison, extensible
+  controller, or generic configuration system.
 
 ## Acceptance Criteria Before Full-VAE Coding
 
 1. Pass: all offline/layout construction is absent from training forward.
-2. Pass: every convolution uses the fixed `mm` contractions, minimal static
-   assembly, and exactly one dense `conv2d`.
+2. Pass: F01-to-F01 convolutions use the selected padded `bmm` plus
+   direct assembly; scalar boundary maps retain fixed `mm`; every learned layer
+   uses exactly one dense `conv2d`.
 3. Pass: focused escnn, gradient, layout, norm, gate, bias, residual,
    resampling, RGB, and scalar-latent checks pass.
-4. Fail: CPU fullgraph and all numerical/runtime correctness checks pass, but
-   dual-T4 v2 rejected every predeclared arm on the 10% assembly gate.
+4. Pending: run the one singular four-path dual-T4 final probe under the revised
+   experiment-level contract.
 5. Pass: counts remain exactly 1,172,304 coefficients, 3,600 norm parameters,
    4,096 gate parameters, 35 scalar biases, and 1,180,035 total learned
    parameters for the eventual 43-convolution topology.
-6. Blocked: v1/v2 evidence and handoffs are updated; the exact next step is an
-   explicit architecture-or-acceptance-contract decision, not another arm or
-   full-VAE coding.
+6. Pending: update v3 evidence and handoffs; do not assemble the full VAE in
+   this implementation session.
 
 Only then may a separate implementation step assemble the full equivariant VAE.
 
@@ -535,16 +551,16 @@ The exact local verification commands are:
 git diff --check
 ```
 
-The focused tests pass `67 passed` with 329 pinned-escnn/SciPy deprecation
-warnings. Ruff format/lint and BasedPyright pass. The exact artifact check and
-local Kaggle preflight pass. Remote writes remain explicitly permission-gated.
+The v3 focused suite passes `69 passed` with 329 pinned-escnn/SciPy deprecation
+warnings. Source hashes, Ruff format/lint, BasedPyright, the exact basis check,
+artifact check, local Kaggle preflight, agent preflight, and `git diff --check`
+pass. The user authorized this final remote launch; the repository guard still
+requires `KAGGLE_PUSH_CONFIRMED=1` on the write command.
 
 ## Implementation Blockers
 
-The three-arm follow-up is complete and all arms fail the 10% assembly gate.
-No implementation task remains authorized under this spec. Progress requires
-a new explicit decision on architecture or the scientific necessity and
-replacement of that performance contract.
+None for the final fixed mechanics probe. Padded `bmm` plus direct assembly is
+the only runtime path; no further arm or runtime-axis search is authorized.
 
 ## Adversarial Review Findings
 
@@ -558,6 +574,13 @@ control CV plus AMP/finiteness rows, and a fresh embedded runner; each was
 added. The reviewer also caught an early raw-module timing draft; the final
 probe times DDP-wrapped modules under the selected runtime and measures
 assembly in the compiled FP16 path.
+
+Fresh v3 mathematical review found no defect in packed-basis ordering, padded
+`bmm`, direct quadrants, fixed signatures, FP64 autograd comparison,
+initialization/count/buffer policy, or the tolerance-based contract. Fresh v3
+performance/scope review required and verified compiled-DDP cross-rank parameter
+agreement, max-reduced initial graph breaks, exact rank/device and raw-sample
+schemas, and two actual Tesla T4s. No substantive finding remains.
 
 After v1, fresh read-only mathematical review identified the unscaled FP16
 gradient diagnostic and required GradScaler, compiled autograd, unscaled master
@@ -577,7 +600,8 @@ architecture or tolerance.
   suggests; the probe may be correct but too slow.
 - Autocast or compiler changes in a newer Torch release may alter contraction
   lowering; the benchmark records and uses the exact upgraded runtime.
-- Concatenation temporaries may matter more than analytic expansion MACs.
+- Packed expansion and direct-assembly temporaries may matter more than analytic
+  expansion MACs.
 - The retained 5x5 downsample has known sampled-grid phase error.
 - A cache used before optimizer completion would silently serve stale kernels;
   the default path therefore never caches.
@@ -599,11 +623,8 @@ architecture or tolerance.
 
 ## Open Questions
 
-The predeclared follow-up must determine whether any of the three fixed
-contraction/assembly choices meets the unchanged limit. V2 established that
-none does. No architecture search or additional arm is permitted under this
-spec; the open question is whether to revise the architecture or replace the
-10% performance gate under a new explicit decision.
+None for mechanics implementation. Full-VAE coding and its real end-to-end
+runtime measurement remain a separate authorization after this probe passes.
 
 ## Related Files
 

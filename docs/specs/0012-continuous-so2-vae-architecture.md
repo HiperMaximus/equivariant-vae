@@ -1,7 +1,7 @@
 # Spec 0012: Continuous SO(2) VAE Architecture
 
-Status: radial/layout oracle complete / equal-copy F01 fixed / Spec 0013 v2 rejected
-Full-VAE readiness: blocked by architecture-or-performance-contract decision
+Status: radial/layout oracle complete / equal-copy F01 fixed / Spec 0013 final probe locally ready
+Full-VAE readiness: blocked by singular mechanics confirmation
 Owner/workstream: matched continuous-`SO(2)` VAE
 Last updated: 2026-08-13
 
@@ -77,16 +77,15 @@ and the equal-copy layout. Rejected profiles and the premise finding remain only
 in the audit. Hashes of the audit's search, profile, escnn-reference, high-order,
 and locked-premise sections are unchanged by the refresh.
 
-Spec 0013's local architecture probe now implements and verifies the fixed
-`torch.mm` pair expansions, static minimal block assembly, one dense `conv2d`,
-field norm/gate AMP rules, compile guards, and focused escnn/CPU tests. Its
-first dual-T4 run transferred the selected runtime correctly but measured
-expansion plus assembly at `0.407..0.413` of the D-to-D forward, above Spec
-0013's `0.10` limit. The corrected v2 comparison passes every numerical and
-runtime-correctness gate but rejects all three predeclared arms at
-`0.446..0.517` pooled assembly fraction. The search is exhausted. The full
-convolution topology and VAE remain unauthorized pending an explicit decision
-to revise the architecture or replace the performance gate under a new spec.
+Spec 0013's local architecture probe now implements and verifies fixed padded
+`torch.bmm` hidden expansion, fixed `torch.mm` scalar-boundary expansion,
+direct static block assembly, one dense `conv2d`,
+field norm/gate AMP rules, compile guards, and focused escnn/CPU tests. V2
+passes every numerical/runtime-correctness gate and establishes padded `bmm`
+plus direct assembly as the fastest fixed path. The user replaced the isolated
+10% assembly decomposition with per-block operational gates. The singular
+four-path confirmation is pending; the full convolution topology and VAE remain
+unauthorized until it passes and full-model coding is separately approved.
 
 ## Non-Goals
 
@@ -882,11 +881,10 @@ capacity convention.
 4. Complete: Spec 0013 locks RGB lifting/projection, field layout, residual
    compatibility, normalization, radial gates, resampling, contraction and
    assembly mechanics, and compiled dual-T4 acceptance limits.
-5. Blocked: the local Spec 0013 implementation and numerical evidence pass, but
-   dual-T4 v2 rejects all predeclared arms on the assembly-performance gate.
-   The accepted baseline downsample phase error is reported rather than
-   misclassified as a kernel failure. Full runtime selection remains Spec 0011
-   work after the architecture/contract decision.
+5. Pending remote only: the singular padded-`bmm` implementation and guarded
+   runner pass focused local correctness; one final dual-T4 four-path confirmation remains. The accepted
+   baseline downsample phase error is reported rather than misclassified as a
+   kernel failure. Full-model runtime selection remains later Spec 0011 work.
 
 ## Related Files
 

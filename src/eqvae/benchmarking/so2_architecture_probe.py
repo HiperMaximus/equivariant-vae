@@ -3,8 +3,7 @@
 
 This is deliberately a singular benchmark, not a runtime tuner. It executes the
 selected Spec 0011 bundle once on generated fixed-shape tensors and writes one
-compact result. Any follow-up arm must first be justified by this run and added
-explicitly to Spec 0013.
+compact result. The padded-bmm/direct mechanics are singular and fixed.
 """
 # pyright: reportPrivateUsage=false, reportUnusedFunction=false
 
@@ -20,7 +19,6 @@ import os
 import statistics
 import time
 from dataclasses import dataclass
-from itertools import starmap
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, cast
 
@@ -31,7 +29,6 @@ from torch import nn
 from torch._dynamo.utils import counters  # noqa: PLC2701
 from torch._inductor import config as inductor_config  # noqa: PLC2701
 from torch.amp.grad_scaler import GradScaler
-from torch.nn import functional
 
 from eqvae.benchmarking.io import write_json
 from eqvae.benchmarking.torch_runtime import torch_runtime_versions
@@ -44,7 +41,6 @@ from eqvae.models.so2_architecture_probe import (
     SO2EncoderTransitionAB,
     SO2IdentityResidualBlockA,
     SO2LargestDDConv,
-    _expand_pair,
 )
 from eqvae.training.fastpath_recipe import (
     FastpathDynamoKnobs,
@@ -58,16 +54,15 @@ if TYPE_CHECKING:
 
     from eqvae.benchmarking.io import JsonObject
 
-SCHEMA_VERSION: Final = "spec0013.so2_dual_t4_follow_up.v1"
+SCHEMA_VERSION: Final = "spec0013.so2_dual_t4_final.v1"
 ARTIFACT_FILENAME: Final = "spec0013_so2_dual_t4_probe.json"
-PROBE_KIND: Final = "locked_so2_architecture_mechanics_follow_up"
+PROBE_KIND: Final = "locked_so2_architecture_mechanics_final"
 RUNTIME_BUNDLE_ID: Final = "compile_step_python_reducer_fp16_channels_last"
 PER_DEVICE_BATCH: Final = 4
 SETTLED_UPDATES: Final = 32
-WARMUP_UPDATES: Final = 5
-TIMED_UPDATES: Final = 20
-FOLLOW_UP_WARMUPS: Final = 20
-FOLLOW_UP_WINDOW_UPDATES: Final = 50
+WARMUP_UPDATES: Final = 20
+TIMED_WINDOW_UPDATES: Final = 50
+TIMED_WINDOW_COUNT: Final = 2
 IMAGE_SIZE: Final = 256
 LATENT_SIZE: Final = 32
 GRAD_SCALER_INIT_SCALE: Final = 16384.0
@@ -78,14 +73,13 @@ BYTES_PER_MIB: Final = 1024.0**2
 OUTPUT_RELATIVE_LIMIT: Final = 5e-3
 GRADIENT_RELATIVE_LIMIT: Final = 2e-2
 COMPILED_EAGER_RATIO_LIMIT: Final = 1.10
-ASSEMBLY_FRACTION_LIMIT: Final = 0.10
 NORMAL_RATIO_LIMIT: Final = 5.0
 TIMING_CV_LIMIT: Final = 0.10
 PEAK_RESERVED_MIB_LIMIT: Final = 14.5 * 1024.0
 PEAK_ALLOCATED_MIB_LIMIT: Final = 13.5 * 1024.0
 DDP_REFERENCE_LIMIT: Final = 1e-6
-FP32_CANDIDATE_KERNEL_LIMIT: Final = 1e-6
 REQUIRED_WORLD_SIZE: Final = 2
+REQUIRED_GPU_NAME: Final = "Tesla T4"
 _PRIMARY_RANK: Final = 0
 _SELECTED_RUNTIME_PATH: Final = Path(
     "configs/spec0001/non_eq_vae_selected_runtime.json",
@@ -110,25 +104,6 @@ class _BlockCase:
     equivariant: nn.Module
     normal: nn.Module
     shape: tuple[int, int, int, int]
-    topology_weight: int
-
-
-@dataclass(frozen=True)
-class _TimingResult:
-    median_ms: float
-    coefficient_variation: float
-    samples_ms: tuple[float, ...]
-    amp_skip_count: int
-    nonfinite_loss_count: int
-    nonfinite_gradient_count: int
-
-
-@dataclass(frozen=True)
-class _CompiledArm:
-    name: str
-    module: nn.Module
-    expand: Callable[[], torch.Tensor]
-    forward: Callable[[torch.Tensor], torch.Tensor]
 
 
 @dataclass(frozen=True)
@@ -136,174 +111,6 @@ class _PreparedStep:
     name: str
     step: Callable[[], tuple[torch.Tensor, torch.Tensor]]
     scaler: GradScaler
-
-
-class _DDirectAssemblyConv(nn.Module):
-    """Measured D-to-D candidate: four mm calls and one final slice buffer."""
-
-    def __init__(self, source: SO2LargestDDConv) -> None:
-        super().__init__()
-        self.conv = copy.deepcopy(source.conv)
-
-    def expanded_kernel(self) -> torch.Tensor:
-        """Expand four fixed pairs into one freshly allocated dense kernel.
-
-        Returns:
-            Dense D-to-D kernel.
-
-        """
-        conv = self.conv
-        kernel00 = _expand_pair(
-            conv.coeff00,
-            conv.basis00,
-            output_copies=D_LAYOUT.n0,
-            input_copies=D_LAYOUT.n0,
-            output_dimension=1,
-            input_dimension=1,
-            kernel_size=7,
-        )
-        kernel10 = _expand_pair(
-            conv.coeff10,
-            conv.basis10,
-            output_copies=D_LAYOUT.n1,
-            input_copies=D_LAYOUT.n0,
-            output_dimension=2,
-            input_dimension=1,
-            kernel_size=7,
-        )
-        kernel01 = _expand_pair(
-            conv.coeff01,
-            conv.basis01,
-            output_copies=D_LAYOUT.n0,
-            input_copies=D_LAYOUT.n1,
-            output_dimension=1,
-            input_dimension=2,
-            kernel_size=7,
-        )
-        kernel11 = _expand_pair(
-            conv.coeff11,
-            conv.basis11,
-            output_copies=D_LAYOUT.n1,
-            input_copies=D_LAYOUT.n1,
-            output_dimension=2,
-            input_dimension=2,
-            kernel_size=7,
-        )
-        kernel = kernel00.new_empty(
-            (D_LAYOUT.channels, D_LAYOUT.channels, 7, 7),
-        )
-        kernel[: D_LAYOUT.n0, : D_LAYOUT.n0] = kernel00
-        kernel[: D_LAYOUT.n0, D_LAYOUT.n0 :] = kernel01
-        kernel[D_LAYOUT.n0 :, : D_LAYOUT.n0] = kernel10
-        kernel[D_LAYOUT.n0 :, D_LAYOUT.n0 :] = kernel11
-        return kernel
-
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        """Execute exactly one dense convolution with the direct assembly.
-
-        Returns:
-            D-layout output.
-
-        """
-        return functional.conv2d(inputs, self.expanded_kernel(), padding=3)
-
-
-def _reshape_padded_pair(
-    flat: torch.Tensor,
-    *,
-    output_dimension: int,
-    input_dimension: int,
-) -> torch.Tensor:
-    selected = flat[:, : output_dimension * input_dimension * 7 * 7]
-    return (
-        selected
-        .view(
-            D_LAYOUT.n0,
-            D_LAYOUT.n0,
-            output_dimension,
-            input_dimension,
-            7,
-            7,
-        )
-        .permute(0, 2, 1, 3, 4, 5)
-        .reshape(
-            D_LAYOUT.n0 * output_dimension,
-            D_LAYOUT.n0 * input_dimension,
-            7,
-            7,
-        )
-    )
-
-
-class _DPaddedBmmAssemblyConv(nn.Module):
-    """Measured D-to-D candidate: one padded bmm and direct final assembly."""
-
-    packed_bases: torch.Tensor
-
-    def __init__(self, source: SO2LargestDDConv) -> None:
-        super().__init__()
-        self.conv = copy.deepcopy(source.conv)
-        packed = self.conv.basis00.new_zeros((4, 14, 196))
-        packed[0, :4, :49] = self.conv.basis00
-        packed[1, :6, :98] = self.conv.basis10
-        packed[2, :6, :98] = self.conv.basis01
-        packed[3, :14, :196] = self.conv.basis11
-        self.register_buffer("packed_bases", packed.contiguous(), persistent=True)
-
-    def expanded_kernel(self) -> torch.Tensor:
-        """Expand all four fixed pairs in one padded batched contraction.
-
-        Returns:
-            Dense D-to-D kernel.
-
-        """
-        conv = self.conv
-        coefficients = torch.stack(
-            (
-                functional.pad(conv.coeff00, (0, 10)),
-                functional.pad(conv.coeff10, (0, 8)),
-                functional.pad(conv.coeff01, (0, 8)),
-                conv.coeff11,
-            ),
-        )
-        expanded = torch.bmm(coefficients, self.packed_bases)
-        kernel00 = _reshape_padded_pair(
-            expanded[0],
-            output_dimension=1,
-            input_dimension=1,
-        )
-        kernel10 = _reshape_padded_pair(
-            expanded[1],
-            output_dimension=2,
-            input_dimension=1,
-        )
-        kernel01 = _reshape_padded_pair(
-            expanded[2],
-            output_dimension=1,
-            input_dimension=2,
-        )
-        kernel11 = _reshape_padded_pair(
-            expanded[3],
-            output_dimension=2,
-            input_dimension=2,
-        )
-        kernel = kernel00.new_empty(
-            (D_LAYOUT.channels, D_LAYOUT.channels, 7, 7),
-        )
-        kernel[: D_LAYOUT.n0, : D_LAYOUT.n0] = kernel00
-        kernel[: D_LAYOUT.n0, D_LAYOUT.n0 :] = kernel01
-        kernel[D_LAYOUT.n0 :, : D_LAYOUT.n0] = kernel10
-        kernel[D_LAYOUT.n0 :, D_LAYOUT.n0 :] = kernel11
-        return kernel
-
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        """Execute exactly one dense convolution with the padded contraction.
-
-        Returns:
-            D-layout output.
-
-        """
-        return functional.conv2d(inputs, self.expanded_kernel(), padding=3)
 
 
 class _MechanicsSuite(nn.Module):
@@ -343,18 +150,44 @@ def _init_distributed() -> _Distributed:
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     nproc_per_node = int(os.environ.get("LOCAL_WORLD_SIZE", str(world_size)))
+    launch_values = (world_size, nproc_per_node, torch.cuda.device_count())
+    ranks_valid = rank in range(REQUIRED_WORLD_SIZE) and local_rank in range(
+        REQUIRED_WORLD_SIZE,
+    )
     if (
-        world_size != REQUIRED_WORLD_SIZE
-        or nproc_per_node != REQUIRED_WORLD_SIZE
-        or torch.cuda.device_count() != REQUIRED_WORLD_SIZE
+        launch_values != (REQUIRED_WORLD_SIZE,) * 3
+        or not ranks_valid
+        or rank != local_rank
     ):
         message = "Spec 0013 probe requires exactly two visible GPUs and world_size=2"
         raise RuntimeError(message)
     device = torch.device("cuda", local_rank)
     torch.cuda.set_device(device)
     if not dist.is_initialized():
-        dist.init_process_group(backend="nccl", init_method="env://")
+        dist.init_process_group(backend="nccl", init_method="env://", device_id=device)
     return _Distributed(device, rank, local_rank, world_size, nproc_per_node)
+
+
+def _device_assignments(distributed: _Distributed) -> list[dict[str, object]]:
+    local: dict[str, object] = {
+        "rank": distributed.rank,
+        "local_rank": distributed.local_rank,
+        "current_device": torch.cuda.current_device(),
+        "device_name": torch.cuda.get_device_name(distributed.device),
+    }
+    gathered: list[object] = [None] * distributed.world_size
+    cast("Callable[..., None]", dist.all_gather_object)(gathered, local)
+    assignments = [cast("dict[str, object]", item) for item in gathered]
+    if {
+        (item["rank"], item["local_rank"], item["current_device"])
+        for item in assignments
+    } != {(0, 0, 0), (1, 1, 1)}:
+        message = f"rank-to-device assignment is not bijective: {assignments}"
+        raise RuntimeError(message)
+    if [item["device_name"] for item in assignments] != [REQUIRED_GPU_NAME] * 2:
+        message = f"Spec 0013 requires two {REQUIRED_GPU_NAME} GPUs: {assignments}"
+        raise RuntimeError(message)
+    return assignments
 
 
 def _apply_selected_runtime() -> dict[str, object]:
@@ -687,7 +520,7 @@ def _unique_graph_total() -> int:
     return int(cast("dict[str, int]", counters["stats"]).get("unique_graphs", 0))
 
 
-def _compiled_ddp_updates(  # noqa: PLR0914
+def _compiled_ddp_updates(  # noqa: PLR0914, PLR0915
     distributed: _Distributed,
 ) -> tuple[dict[str, object], _MechanicsSuite]:
     torch_dynamo.reset()
@@ -758,6 +591,23 @@ def _compiled_ddp_updates(  # noqa: PLR0914
         bool(torch.isfinite(parameter).all().item()) for parameter in raw.parameters()
     )
     nonfinite_losses = sum(not math.isfinite(loss) for loss in losses)
+    local_worst_parameter = ""
+    local_parameter_difference = 0.0
+    for name, parameter in raw.named_parameters():
+        rank_zero = parameter.detach().clone()
+        cast("Callable[..., object]", dist.broadcast)(rank_zero, src=0)
+        difference = float((parameter.detach() - rank_zero).abs().max())
+        if difference > local_parameter_difference:
+            local_parameter_difference = difference
+            local_worst_parameter = name
+    gathered_parameter_differences: list[object] = [None] * distributed.world_size
+    cast("Callable[..., None]", dist.all_gather_object)(
+        gathered_parameter_differences,
+        (local_parameter_difference, local_worst_parameter),
+    )
+    parameter_difference, worst_parameter = max(
+        cast("list[tuple[float, str]]", gathered_parameter_differences),
+    )
     rank_max = torch.tensor(
         [
             allocated,
@@ -767,11 +617,12 @@ def _compiled_ddp_updates(  # noqa: PLR0914
             float(recompiles),
             float(nonfinite_losses),
             float(not finite),
+            float(initial_graph_breaks),
         ],
         device=distributed.device,
     )
     cast("Callable[..., object]", dist.all_reduce)(rank_max, op=dist.ReduceOp.MAX)
-    rank_values = [float(rank_max[index].item()) for index in range(7)]
+    rank_values = [float(rank_max[index].item()) for index in range(8)]
     (
         allocated,
         reserved,
@@ -780,6 +631,7 @@ def _compiled_ddp_updates(  # noqa: PLR0914
         recompile_float,
         nonfinite_float,
         nonfinite_parameters_float,
+        initial_graph_breaks_float,
     ) = rank_values
     result: dict[str, object] = {
         "warmup_updates": WARMUP_UPDATES,
@@ -789,7 +641,9 @@ def _compiled_ddp_updates(  # noqa: PLR0914
         "amp_skip_count": int(skipped_float),
         "post_settle_graph_break_count": int(graph_float),
         "post_settle_recompile_count": int(recompile_float),
-        "initial_graph_break_count": initial_graph_breaks,
+        "initial_graph_break_count": int(initial_graph_breaks_float),
+        "cross_rank_parameter_max_abs_difference": parameter_difference,
+        "cross_rank_worst_parameter_name": worst_parameter,
         "peak_allocated_mib": allocated,
         "peak_reserved_mib": reserved,
         "buffers": buffer_result,
@@ -815,7 +669,6 @@ def _block_cases() -> tuple[_BlockCase, ...]:
                 norm_groups=8,
             ),
             (PER_DEVICE_BATCH, A_LAYOUT.channels, IMAGE_SIZE, IMAGE_SIZE),
-            7,
         ),
         _BlockCase(
             "encoder_A_to_B",
@@ -827,7 +680,6 @@ def _block_cases() -> tuple[_BlockCase, ...]:
                 norm_groups=8,
             ),
             (PER_DEVICE_BATCH, A_LAYOUT.channels, IMAGE_SIZE, IMAGE_SIZE),
-            2,
         ),
         _BlockCase(
             "decoder_B_to_A",
@@ -839,7 +691,6 @@ def _block_cases() -> tuple[_BlockCase, ...]:
                 norm_groups=8,
             ),
             (PER_DEVICE_BATCH, B_LAYOUT.channels, IMAGE_SIZE // 2, IMAGE_SIZE // 2),
-            2,
         ),
         _BlockCase(
             "largest_D_to_D",
@@ -852,87 +703,7 @@ def _block_cases() -> tuple[_BlockCase, ...]:
                 bias=False,
             ),
             (PER_DEVICE_BATCH, D_LAYOUT.channels, LATENT_SIZE, LATENT_SIZE),
-            7,
         ),
-    )
-
-
-def _time_block(
-    module: nn.Module,
-    inputs: torch.Tensor,
-    distributed: _Distributed,
-    *,
-    compile_module: bool,
-) -> _TimingResult:
-    optimizer = torch.optim.AdamW(module.parameters(), lr=1e-4, fused=True)
-    scaler = GradScaler("cuda", init_scale=GRAD_SCALER_INIT_SCALE)
-    ddp = _wrap_selected_ddp(module, distributed)
-
-    def forward_loss(values: torch.Tensor) -> torch.Tensor:
-        with torch.autocast("cuda", dtype=torch.float16, cache_enabled=True):
-            output = cast("torch.Tensor", ddp(values))
-        return output.float().square().mean()
-
-    callable_step = (
-        cast(
-            "Callable[[torch.Tensor], torch.Tensor]",
-            torch.compile(  # pyright: ignore[reportUnknownMemberType]
-                forward_loss,
-                backend="inductor",
-                dynamic=False,
-            ),
-        )
-        if compile_module
-        else forward_loss
-    )
-
-    def step() -> tuple[torch.Tensor, torch.Tensor]:
-        optimizer.zero_grad(set_to_none=True)
-        with compiled_autograd_context(enabled=compile_module):
-            loss = callable_step(inputs)
-            scaler.scale(loss).backward()  # pyright: ignore[reportUnknownMemberType]
-        scaler.unscale_(optimizer)
-        finite_gradients = torch.stack(
-            tuple(
-                torch.isfinite(parameter.grad).all()
-                for parameter in module.parameters()
-                if parameter.grad is not None
-            ),
-        ).all()
-        torch.nn.utils.clip_grad_norm_(
-            module.parameters(),
-            max_norm=MAX_GRAD_NORM,
-            foreach=True,
-        )
-        scaler.step(optimizer)
-        scaler.update()
-        return loss.detach(), finite_gradients
-
-    for _ in range(WARMUP_UPDATES):
-        step()
-    samples: list[float] = []
-    skips = 0
-    nonfinite_losses = 0
-    nonfinite_gradients = 0
-    for _ in range(TIMED_UPDATES):
-        previous_scale = scaler.get_scale()
-        torch.cuda.synchronize(inputs.device)
-        start = time.perf_counter()
-        loss, finite_gradients = step()
-        torch.cuda.synchronize(inputs.device)
-        samples.append((time.perf_counter() - start) * MILLISECONDS_PER_SECOND)
-        skips += int(scaler.get_scale() < previous_scale)
-        nonfinite_losses += int(not bool(torch.isfinite(loss).item()))
-        nonfinite_gradients += int(not bool(finite_gradients.item()))
-    median = statistics.median(samples)
-    coefficient_variation = statistics.pstdev(samples) / statistics.mean(samples)
-    return _TimingResult(
-        median,
-        coefficient_variation,
-        tuple(samples),
-        skips,
-        nonfinite_losses,
-        nonfinite_gradients,
     )
 
 
@@ -1042,196 +813,6 @@ def _accuracy_case(  # noqa: PLR0914
     }
 
 
-def _measure_blocks(
-    distributed: _Distributed,
-) -> tuple[list[JsonObject], float]:
-    rows: list[JsonObject] = []
-    weighted_equivariant = 0.0
-    weighted_normal = 0.0
-    for case in _block_cases():
-        generator = torch.Generator(device=distributed.device)
-        generator.manual_seed(430013 + distributed.rank)
-        inputs = torch.randn(
-            case.shape,
-            generator=generator,
-            device=distributed.device,
-        ).contiguous(memory_format=torch.channels_last)
-        accuracy = _accuracy_case(case, distributed.device)
-        eager_module = _to_device(copy.deepcopy(case.equivariant), distributed.device)
-        compiled_module = _to_device(
-            copy.deepcopy(case.equivariant),
-            distributed.device,
-        )
-        normal_module = _to_device(case.normal, distributed.device)
-        eager = _time_block(
-            eager_module,
-            inputs,
-            distributed,
-            compile_module=False,
-        )
-        compiled = _time_block(
-            compiled_module,
-            inputs,
-            distributed,
-            compile_module=True,
-        )
-        normal = _time_block(
-            normal_module,
-            inputs,
-            distributed,
-            compile_module=True,
-        )
-        ratio = compiled.median_ms / normal.median_ms
-        weighted_equivariant += case.topology_weight * compiled.median_ms
-        weighted_normal += case.topology_weight * normal.median_ms
-        rows.append(
-            cast(
-                "JsonObject",
-                {
-                    "name": case.name,
-                    "shape": list(case.shape),
-                    "topology_weight": case.topology_weight,
-                    **accuracy,
-                    "eager_fp16_step_ms_p50": eager.median_ms,
-                    "compiled_fp16_step_ms_p50": compiled.median_ms,
-                    "normal_compiled_step_ms_p50": normal.median_ms,
-                    "compiled_over_eager": compiled.median_ms / eager.median_ms,
-                    "equivariant_over_normal": ratio,
-                    "eager_timing_cv": eager.coefficient_variation,
-                    "compiled_timing_cv": compiled.coefficient_variation,
-                    "normal_timing_cv": normal.coefficient_variation,
-                    "eager_amp_skip_count": eager.amp_skip_count,
-                    "compiled_amp_skip_count": compiled.amp_skip_count,
-                    "normal_amp_skip_count": normal.amp_skip_count,
-                    "eager_nonfinite_loss_count": eager.nonfinite_loss_count,
-                    "compiled_nonfinite_loss_count": compiled.nonfinite_loss_count,
-                    "normal_nonfinite_loss_count": normal.nonfinite_loss_count,
-                    "eager_nonfinite_gradient_count": eager.nonfinite_gradient_count,
-                    "compiled_nonfinite_gradient_count": (
-                        compiled.nonfinite_gradient_count
-                    ),
-                    "normal_nonfinite_gradient_count": normal.nonfinite_gradient_count,
-                },
-            ),
-        )
-        del eager_module, compiled_module, normal_module, inputs
-        torch_dynamo.reset()
-        gc.collect()
-        torch.cuda.empty_cache()
-    return rows, weighted_equivariant / weighted_normal
-
-
-def _gather_rank_measurements(
-    rows: list[JsonObject],
-    weighted_ratio: float,
-    assembly_fraction: float,
-    distributed: _Distributed,
-) -> tuple[list[JsonObject], float, float]:
-    local = cast(
-        "JsonObject",
-        {
-            "rank": distributed.rank,
-            "blocks": rows,
-            "topology_weighted_equivariant_over_normal": weighted_ratio,
-            "largest_D_to_D_assembly_fraction": assembly_fraction,
-        },
-    )
-    gathered: list[object] = [None] * distributed.world_size
-    cast("Callable[..., None]", dist.all_gather_object)(gathered, local)
-    rank_results = [cast("JsonObject", item) for item in gathered]
-    worst_weighted = max(
-        float(cast("float", item["topology_weighted_equivariant_over_normal"]))
-        for item in rank_results
-    )
-    worst_assembly = max(
-        float(cast("float", item["largest_D_to_D_assembly_fraction"]))
-        for item in rank_results
-    )
-    return rank_results, worst_weighted, worst_assembly
-
-
-def _assembly_fraction(
-    model: _MechanicsSuite,
-    distributed: _Distributed,
-) -> float:
-    largest = model.largest
-    inputs = _inputs(distributed)[-1]
-
-    def expand() -> torch.Tensor:
-        with torch.autocast("cuda", dtype=torch.float16, cache_enabled=True):
-            return largest.expanded_kernel()
-
-    def forward(values: torch.Tensor) -> torch.Tensor:
-        with torch.autocast("cuda", dtype=torch.float16, cache_enabled=True):
-            return cast("torch.Tensor", largest(values))
-
-    compiled_expand = torch.compile(  # pyright: ignore[reportUnknownMemberType]
-        expand,
-        backend="inductor",
-        fullgraph=True,
-        dynamic=False,
-    )
-    compiled_forward = cast(
-        "Callable[[torch.Tensor], torch.Tensor]",
-        torch.compile(  # pyright: ignore[reportUnknownMemberType]
-            forward,
-            backend="inductor",
-            fullgraph=True,
-            dynamic=False,
-        ),
-    )
-    for _ in range(WARMUP_UPDATES):
-        compiled_expand()
-        compiled_forward(inputs)
-    assembly: list[float] = []
-    complete: list[float] = []
-    for _ in range(TIMED_UPDATES):
-        torch.cuda.synchronize(distributed.device)
-        start = time.perf_counter()
-        compiled_expand()
-        torch.cuda.synchronize(distributed.device)
-        assembly.append(time.perf_counter() - start)
-        start = time.perf_counter()
-        compiled_forward(inputs)
-        torch.cuda.synchronize(distributed.device)
-        complete.append(time.perf_counter() - start)
-    return statistics.median(assembly) / statistics.median(complete)
-
-
-def _compile_follow_up_arm(
-    name: str,
-    module: nn.Module,
-) -> _CompiledArm:
-    def expand() -> torch.Tensor:
-        with torch.autocast("cuda", dtype=torch.float16, cache_enabled=True):
-            expanded_kernel = cast(
-                "Callable[[], torch.Tensor]",
-                module.expanded_kernel,  # pyright: ignore[reportAttributeAccessIssue]
-            )
-            return expanded_kernel()
-
-    def forward(values: torch.Tensor) -> torch.Tensor:
-        with torch.autocast("cuda", dtype=torch.float16, cache_enabled=True):
-            return cast("torch.Tensor", module(values))
-
-    compiled_expand = torch.compile(  # pyright: ignore[reportUnknownMemberType]
-        expand,
-        backend="inductor",
-        fullgraph=True,
-        dynamic=False,
-    )
-    compiled_forward = cast(
-        "Callable[[torch.Tensor], torch.Tensor]",
-        torch.compile(  # pyright: ignore[reportUnknownMemberType]
-            forward,
-            backend="inductor",
-            fullgraph=True,
-            dynamic=False,
-        ),
-    )
-    return _CompiledArm(name, module, compiled_expand, compiled_forward)
-
-
 def _timed_cuda_call(
     function: Callable[..., torch.Tensor],
     device: torch.device,
@@ -1252,7 +833,7 @@ def _window_summary(samples: Sequence[float]) -> dict[str, object]:
     }
 
 
-def _prepare_follow_up_step(
+def _prepare_timed_step(
     name: str,
     module: nn.Module,
     inputs: torch.Tensor,
@@ -1304,7 +885,7 @@ def _prepare_follow_up_step(
     return _PreparedStep(name, step, scaler)
 
 
-def _timed_follow_up_step(
+def _timed_step(
     prepared: _PreparedStep,
     device: torch.device,
 ) -> tuple[float, bool, bool, bool]:
@@ -1320,44 +901,41 @@ def _timed_follow_up_step(
     return elapsed, did_skip, finite_loss, finite_gradient
 
 
-def _follow_up_step_controls(
-    source: SO2LargestDDConv,
+def _measure_case_steps(
+    case: _BlockCase,
     distributed: _Distributed,
 ) -> JsonObject:
-    inputs = _inputs(distributed)[-1]
+    generator = torch.Generator(device=distributed.device)
+    generator.manual_seed(430013 + distributed.rank)
+    inputs = torch.randn(
+        case.shape,
+        generator=generator,
+        device=distributed.device,
+    ).contiguous(memory_format=torch.channels_last)
     paths = (
-        _prepare_follow_up_step(
+        _prepare_timed_step(
             "equivariant_eager",
-            _to_device(copy.deepcopy(source), distributed.device),
+            _to_device(copy.deepcopy(case.equivariant), distributed.device),
             inputs,
             distributed,
             compile_module=False,
         ),
-        _prepare_follow_up_step(
+        _prepare_timed_step(
             "equivariant_compiled",
-            _to_device(copy.deepcopy(source), distributed.device),
+            _to_device(copy.deepcopy(case.equivariant), distributed.device),
             inputs,
             distributed,
             compile_module=True,
         ),
-        _prepare_follow_up_step(
+        _prepare_timed_step(
             "normal_compiled",
-            _to_device(
-                nn.Conv2d(
-                    D_LAYOUT.channels,
-                    D_LAYOUT.channels,
-                    kernel_size=5,
-                    padding=2,
-                    bias=False,
-                ),
-                distributed.device,
-            ),
+            _to_device(copy.deepcopy(case.normal), distributed.device),
             inputs,
             distributed,
             compile_module=True,
         ),
     )
-    for _ in range(FOLLOW_UP_WARMUPS):
+    for _ in range(WARMUP_UPDATES):
         for path in paths:
             path.step()
     rows: dict[str, dict[str, object]] = {
@@ -1371,9 +949,9 @@ def _follow_up_step_controls(
     }
     for order in (paths, tuple(reversed(paths))):
         samples: dict[str, list[float]] = {path.name: [] for path in paths}
-        for _ in range(FOLLOW_UP_WINDOW_UPDATES):
+        for _ in range(TIMED_WINDOW_UPDATES):
             for path in order:
-                elapsed, skipped, finite_loss, finite_gradient = _timed_follow_up_step(
+                elapsed, skipped, finite_loss, finite_gradient = _timed_step(
                     path,
                     distributed.device,
                 )
@@ -1422,6 +1000,9 @@ def _follow_up_step_controls(
     return cast(
         "JsonObject",
         {
+            "name": case.name,
+            "shape": list(case.shape),
+            **_accuracy_case(case, distributed.device),
             "paths": rows,
             "compiled_over_eager": compiled_median / eager_median,
             "equivariant_over_normal": compiled_median / normal_median,
@@ -1429,198 +1010,117 @@ def _follow_up_step_controls(
     )
 
 
-def _follow_up_arm_accuracy(  # noqa: PLR0914
-    reference: SO2LargestDDConv,
-    candidate: nn.Module,
-    inputs: torch.Tensor,
-) -> dict[str, object]:
-    eager = copy.deepcopy(reference)
-    compiled_source = copy.deepcopy(candidate)
-    eager_inputs = inputs.detach().clone().requires_grad_()
-    compiled_inputs = inputs.detach().clone().requires_grad_()
-    eager_output = cast("torch.Tensor", eager(eager_inputs))
-    eager_output.square().mean().backward()  # pyright: ignore[reportUnknownMemberType]
-    compiled = cast(
+def _measure_blocks(distributed: _Distributed) -> list[JsonObject]:
+    rows: list[JsonObject] = []
+    for case in _block_cases():
+        rows.append(_measure_case_steps(case, distributed))
+        torch_dynamo.reset()
+        gc.collect()
+        torch.cuda.empty_cache()
+    return rows
+
+
+def _assembly_diagnostic(
+    source: SO2LargestDDConv,
+    distributed: _Distributed,
+) -> JsonObject:
+    inputs = _inputs(distributed)[-1]
+    module = _to_device(copy.deepcopy(source), distributed.device)
+
+    def expand() -> torch.Tensor:
+        with torch.autocast("cuda", dtype=torch.float16, cache_enabled=True):
+            return cast("SO2LargestDDConv", module).expanded_kernel()
+
+    def forward(values: torch.Tensor) -> torch.Tensor:
+        with torch.autocast("cuda", dtype=torch.float16, cache_enabled=True):
+            return cast("torch.Tensor", module(values))
+
+    compiled_expand = torch.compile(  # pyright: ignore[reportUnknownMemberType]
+        expand,
+        backend="inductor",
+        fullgraph=True,
+        dynamic=False,
+    )
+    compiled_forward = cast(
         "Callable[[torch.Tensor], torch.Tensor]",
         torch.compile(  # pyright: ignore[reportUnknownMemberType]
-            compiled_source,
+            forward,
             backend="inductor",
             fullgraph=True,
             dynamic=False,
         ),
     )
-    with torch.autocast("cuda", dtype=torch.float16, cache_enabled=True):
-        compiled_output = compiled(compiled_inputs)
-    compiled_loss = compiled_output.float().square().mean()
-    _selected_accuracy_backward(compiled_loss, compiled_source)
-    (
-        gradient_error,
-        worst_name,
-        reference_rms,
-        difference_rms,
-        missing,
-        nonfinite,
-    ) = _coefficient_gradient_comparison(eager, compiled_source)
-    eager_kernel = eager.expanded_kernel()
-    candidate_kernel = cast("torch.Tensor", candidate.expanded_kernel())  # type: ignore[attr-defined]
-    return {
-        "fp32_kernel_exact": torch.equal(candidate_kernel, eager_kernel),
-        "fp32_kernel_relative_rms": _relative_rms(candidate_kernel, eager_kernel),
-        "output_relative_rms": _relative_rms(compiled_output.float(), eager_output),
-        "max_coefficient_gradient_relative_rms": gradient_error,
-        "worst_coefficient_gradient_name": worst_name,
-        "worst_coefficient_gradient_reference_rms": reference_rms,
-        "worst_coefficient_gradient_difference_rms": difference_rms,
-        "missing_coefficient_gradients": missing,
-        "nonfinite_coefficient_gradient_count": nonfinite,
-    }
-
-
-def _candidate_runtime_evidence(
-    name: str,
-    module: nn.Module,
-    inputs: torch.Tensor,
-    distributed: _Distributed,
-) -> JsonObject:
-    buffers = _check_buffers_across_ranks(module, distributed)
-    torch_dynamo.reset()
-    counters.clear()
-    arm = _compile_follow_up_arm(name, module)
-    for _ in range(FOLLOW_UP_WARMUPS):
-        arm.expand()
-        arm.forward(inputs)
-    initial_graph_breaks = _graph_break_total()
-    graph_before = _graph_break_total()
-    unique_before = _unique_graph_total()
-    torch.cuda.reset_peak_memory_stats(distributed.device)
-    for _ in range(FOLLOW_UP_WINDOW_UPDATES):
-        arm.expand()
-        arm.forward(inputs)
-    torch.cuda.synchronize(distributed.device)
+    for _ in range(WARMUP_UPDATES):
+        compiled_expand()
+        compiled_forward(inputs)
+    windows: list[JsonObject] = []
+    expansion_pooled: list[float] = []
+    complete_pooled: list[float] = []
+    for reverse in (False, True):
+        expansion: list[float] = []
+        complete: list[float] = []
+        for _ in range(TIMED_WINDOW_UPDATES):
+            calls = (
+                (
+                    (compiled_forward, (inputs,), complete),
+                    (compiled_expand, (), expansion),
+                )
+                if reverse
+                else (
+                    (compiled_expand, (), expansion),
+                    (compiled_forward, (inputs,), complete),
+                )
+            )
+            for function, arguments, samples in calls:
+                samples.append(
+                    _timed_cuda_call(function, distributed.device, *arguments),
+                )
+        expansion_pooled.extend(expansion)
+        complete_pooled.extend(complete)
+        windows.append(
+            cast(
+                "JsonObject",
+                {
+                    "expansion": _window_summary(expansion),
+                    "complete": _window_summary(complete),
+                    "assembly_fraction": (
+                        statistics.median(expansion) / statistics.median(complete)
+                    ),
+                },
+            ),
+        )
     return cast(
         "JsonObject",
         {
-            "buffers": buffers,
-            "initial_graph_break_count": initial_graph_breaks,
-            "post_settle_graph_break_count": _graph_break_total() - graph_before,
-            "post_settle_recompile_count": _unique_graph_total() - unique_before,
-            "peak_allocated_mib": (
-                float(torch.cuda.max_memory_allocated(distributed.device))
-                / BYTES_PER_MIB
-            ),
-            "peak_reserved_mib": (
-                float(torch.cuda.max_memory_reserved(distributed.device))
-                / BYTES_PER_MIB
+            "selection_gate": False,
+            "windows": windows,
+            "pooled_expansion": _window_summary(expansion_pooled),
+            "pooled_complete": _window_summary(complete_pooled),
+            "assembly_fraction": (
+                statistics.median(expansion_pooled) / statistics.median(complete_pooled)
             ),
         },
     )
 
 
-def _follow_up_modules(
-    source: SO2LargestDDConv,
-    device: torch.device,
-) -> tuple[tuple[str, nn.Module], ...]:
-    return (
-        ("four_mm_three_cat", _to_device(copy.deepcopy(source), device)),
-        ("four_mm_direct", _to_device(_DDirectAssemblyConv(source), device)),
-        ("padded_bmm_direct", _to_device(_DPaddedBmmAssemblyConv(source), device)),
-    )
-
-
-def _follow_up_assembly_arms(
-    source: SO2LargestDDConv,
-    distributed: _Distributed,
-) -> list[JsonObject]:
-    inputs = _inputs(distributed)[-1]
-    runtime_evidence: dict[str, JsonObject] = {}
-    for name, module in _follow_up_modules(source, distributed.device):
-        runtime_evidence[name] = _candidate_runtime_evidence(
-            name,
-            module,
-            inputs,
-            distributed,
-        )
-        del module
-        torch_dynamo.reset()
-        gc.collect()
-        torch.cuda.empty_cache()
-    modules = _follow_up_modules(source, distributed.device)
-    source_copy = cast("SO2LargestDDConv", modules[0][1])
-    accuracy = {
-        name: _follow_up_arm_accuracy(source_copy, module, inputs)
-        for name, module in modules
-    }
-    arms = tuple(starmap(_compile_follow_up_arm, modules))
-    for arm in arms:
-        for _ in range(FOLLOW_UP_WARMUPS):
-            arm.expand()
-            arm.forward(inputs)
-    windows: dict[str, dict[str, list[list[float]]]] = {
-        arm.name: {"expansion": [], "complete": []} for arm in arms
-    }
-    for order in (arms, tuple(reversed(arms))):
-        expansion: dict[str, list[float]] = {arm.name: [] for arm in arms}
-        complete: dict[str, list[float]] = {arm.name: [] for arm in arms}
-        for _ in range(FOLLOW_UP_WINDOW_UPDATES):
-            for arm in order:
-                expansion[arm.name].append(
-                    _timed_cuda_call(arm.expand, distributed.device),
-                )
-                complete[arm.name].append(
-                    _timed_cuda_call(arm.forward, distributed.device, inputs),
-                )
-        for arm in arms:
-            windows[arm.name]["expansion"].append(expansion[arm.name])
-            windows[arm.name]["complete"].append(complete[arm.name])
-    rows: list[JsonObject] = []
-    for arm in arms:
-        expansion_windows = windows[arm.name]["expansion"]
-        complete_windows = windows[arm.name]["complete"]
-        expansion_pooled = expansion_windows[0] + expansion_windows[1]
-        complete_pooled = complete_windows[0] + complete_windows[1]
-        window_summaries = [
-            {
-                "expansion": _window_summary(expansion_window),
-                "complete": _window_summary(complete_window),
-                "assembly_fraction": (
-                    statistics.median(expansion_window)
-                    / statistics.median(complete_window)
-                ),
-            }
-            for expansion_window, complete_window in zip(
-                expansion_windows,
-                complete_windows,
-                strict=True,
-            )
-        ]
-        rows.append(
-            cast(
-                "JsonObject",
-                {
-                    "name": arm.name,
-                    "runtime": runtime_evidence[arm.name],
-                    "accuracy": accuracy[arm.name],
-                    "windows": window_summaries,
-                    "pooled_expansion": _window_summary(expansion_pooled),
-                    "pooled_complete": _window_summary(complete_pooled),
-                    "assembly_fraction": (
-                        statistics.median(expansion_pooled)
-                        / statistics.median(complete_pooled)
-                    ),
-                },
-            ),
-        )
-    return rows
-
-
-def _verdict(
+def _verdict(  # noqa: C901
     updates: dict[str, object],
     rank_results: Sequence[JsonObject],
-    *,
-    assembly_fraction: float,
-    weighted_ratio: float,
 ) -> tuple[bool, list[str]]:
     failures: list[str] = []
+    expected_blocks = {
+        "identity_A",
+        "encoder_A_to_B",
+        "decoder_B_to_A",
+        "largest_D_to_D",
+    }
+    expected_paths = {
+        "equivariant_eager",
+        "equivariant_compiled",
+        "normal_compiled",
+    }
+    if [cast("int", row.get("rank")) for row in rank_results] != [0, 1]:
+        failures.append("rank_measurement_set")
     scalar_checks = (
         (int(cast("int", updates["amp_skip_count"])) == 0, "amp_skips"),
         (
@@ -1631,6 +1131,10 @@ def _verdict(
         (
             int(cast("int", updates["post_settle_graph_break_count"])) == 0,
             "graph_breaks",
+        ),
+        (
+            int(cast("int", updates["initial_graph_break_count"])) == 0,
+            "initial_graph_breaks",
         ),
         (int(cast("int", updates["post_settle_recompile_count"])) == 0, "recompiles"),
         (
@@ -1643,13 +1147,57 @@ def _verdict(
             < PEAK_RESERVED_MIB_LIMIT,
             "reserved_vram",
         ),
-        (assembly_fraction <= ASSEMBLY_FRACTION_LIMIT, "assembly_fraction"),
-        (weighted_ratio <= NORMAL_RATIO_LIMIT, "weighted_normal_ratio"),
+        (
+            float(cast("float", updates["cross_rank_parameter_max_abs_difference"]))
+            <= DDP_REFERENCE_LIMIT,
+            "cross_rank_parameters",
+        ),
     )
     failures.extend(name for passed, name in scalar_checks if not passed)
     for rank_result in rank_results:
         rank = cast("int", rank_result["rank"])
-        for row in cast("list[JsonObject]", rank_result["blocks"]):
+        blocks = cast("list[JsonObject]", rank_result.get("blocks", []))
+        if (
+            len(blocks) != len(expected_blocks)
+            or {cast("str", row.get("name")) for row in blocks} != expected_blocks
+        ):
+            failures.append(f"rank{rank}:block_set")
+        assembly = cast("JsonObject", rank_result.get("assembly_diagnostic", {}))
+        assembly_windows = cast("list[JsonObject]", assembly.get("windows", []))
+        assembly_schema_valid = (
+            assembly.get("selection_gate") is False
+            and len(assembly_windows) == TIMED_WINDOW_COUNT
+            and all(
+                len(
+                    cast(
+                        "list[object]",
+                        cast("JsonObject", window.get(path, {})).get(
+                            "samples_ms",
+                            [],
+                        ),
+                    ),
+                )
+                == TIMED_WINDOW_UPDATES
+                for window in assembly_windows
+                for path in ("expansion", "complete")
+            )
+            and all(
+                len(
+                    cast(
+                        "list[object]",
+                        cast("JsonObject", assembly.get(path, {})).get(
+                            "samples_ms",
+                            [],
+                        ),
+                    ),
+                )
+                == 2 * TIMED_WINDOW_UPDATES
+                for path in ("pooled_expansion", "pooled_complete")
+            )
+        )
+        if not assembly_schema_valid:
+            failures.append(f"rank{rank}:assembly_diagnostic_schema")
+        for row in blocks:
             name = cast("str", row["name"])
             checks = (
                 (
@@ -1682,296 +1230,65 @@ def _verdict(
                     <= NORMAL_RATIO_LIMIT,
                     "normal_ratio",
                 ),
-                (
-                    float(cast("float", row["compiled_timing_cv"])) <= TIMING_CV_LIMIT,
-                    "timing_cv",
-                ),
-                (
-                    float(cast("float", row["eager_timing_cv"])) <= TIMING_CV_LIMIT,
-                    "eager_timing_cv",
-                ),
-                (
-                    float(cast("float", row["normal_timing_cv"])) <= TIMING_CV_LIMIT,
-                    "normal_timing_cv",
-                ),
-                (
-                    sum(
-                        int(cast("int", row[key]))
-                        for key in (
-                            "eager_amp_skip_count",
-                            "compiled_amp_skip_count",
-                            "normal_amp_skip_count",
-                        )
-                    )
-                    == 0,
-                    "timed_amp_skip",
-                ),
-                (
-                    sum(
-                        int(cast("int", row[key]))
-                        for key in (
-                            "eager_nonfinite_loss_count",
-                            "compiled_nonfinite_loss_count",
-                            "normal_nonfinite_loss_count",
-                            "eager_nonfinite_gradient_count",
-                            "compiled_nonfinite_gradient_count",
-                            "normal_nonfinite_gradient_count",
-                        )
-                    )
-                    == 0,
-                    "timed_nonfinite",
-                ),
             )
             failures.extend(
                 f"rank{rank}:{name}:{metric}" for passed, metric in checks if not passed
             )
-    return not failures, failures
-
-
-def _follow_up_verdict(  # noqa: C901, PLR0912, PLR0914, PLR0915
-    updates: dict[str, object],
-    rank_results: Sequence[JsonObject],
-) -> tuple[str | None, list[str], dict[str, list[str]]]:
-    failures: list[str] = []
-    update_checks = (
-        (int(cast("int", updates["amp_skip_count"])) == 0, "amp_skips"),
-        (
-            int(cast("int", updates["nonfinite_loss_count"])) == 0,
-            "nonfinite_losses",
-        ),
-        (bool(cast("bool", updates["finite_parameters"])), "nonfinite_parameters"),
-        (
-            int(cast("int", updates["post_settle_graph_break_count"])) == 0,
-            "graph_breaks",
-        ),
-        (
-            int(cast("int", updates["post_settle_recompile_count"])) == 0,
-            "recompiles",
-        ),
-        (
-            float(cast("float", updates["peak_allocated_mib"]))
-            < PEAK_ALLOCATED_MIB_LIMIT,
-            "allocated_vram",
-        ),
-        (
-            float(cast("float", updates["peak_reserved_mib"]))
-            < PEAK_RESERVED_MIB_LIMIT,
-            "reserved_vram",
-        ),
-    )
-    failures.extend(name for passed, name in update_checks if not passed)
-    passing_arms: list[tuple[float, str]] = []
-    rejected_arms: dict[str, list[str]] = {}
-    arm_names = ("four_mm_three_cat", "four_mm_direct", "padded_bmm_direct")
-    for rank_result in rank_results:
-        rank = int(cast("int", rank_result["rank"]))
-        controls = cast("JsonObject", rank_result["corrected_step_controls"])
-        if (
-            float(cast("float", controls["compiled_over_eager"]))
-            > COMPILED_EAGER_RATIO_LIMIT
-        ):
-            failures.append(f"rank{rank}:largest_D_to_D:compiled_eager")
-        if (
-            float(cast("float", controls["equivariant_over_normal"]))
-            > NORMAL_RATIO_LIMIT
-        ):
-            failures.append(f"rank{rank}:largest_D_to_D:normal_ratio")
-        for path_name, raw_path in cast(
-            "dict[str, object]",
-            controls["paths"],
-        ).items():
-            path = cast("JsonObject", raw_path)
-            if sum(
-                int(cast("int", path[key]))
-                for key in (
-                    "amp_skip_count",
-                    "nonfinite_loss_count",
-                    "nonfinite_gradient_count",
-                )
-            ):
-                failures.append(f"rank{rank}:largest_D_to_D:{path_name}:invalid_step")
-            summaries = [
-                *cast("list[JsonObject]", path["windows"]),
-                cast("JsonObject", path["pooled"]),
-            ]
-            for summary_index, summary in enumerate(summaries):
-                if (
-                    float(cast("float", summary["coefficient_variation"]))
-                    > TIMING_CV_LIMIT
-                ):
-                    failures.append(
-                        f"rank{rank}:largest_D_to_D:{path_name}:cv{summary_index}",
+            paths = cast("dict[str, object]", row.get("paths", {}))
+            if set(paths) != expected_paths:
+                failures.append(f"rank{rank}:{name}:path_set")
+            for path_name, raw_path in paths.items():
+                path = cast("JsonObject", raw_path)
+                invalid_steps = sum(
+                    int(cast("int", path[key]))
+                    for key in (
+                        "amp_skip_count",
+                        "nonfinite_loss_count",
+                        "nonfinite_gradient_count",
                     )
-        for accuracy in cast("list[JsonObject]", rank_result["corrected_accuracy"]):
-            name = cast("str", accuracy["name"])
-            if (
-                float(cast("float", accuracy["output_relative_rms"]))
-                > OUTPUT_RELATIVE_LIMIT
-            ):
-                failures.append(f"rank{rank}:{name}:output")
-            if (
-                float(
-                    cast(
-                        "float",
-                        accuracy["max_coefficient_gradient_relative_rms"],
-                    ),
                 )
-                > GRADIENT_RELATIVE_LIMIT
-            ):
-                failures.append(f"rank{rank}:{name}:gradient")
-            if cast("list[object]", accuracy["missing_coefficient_gradients"]):
-                failures.append(f"rank{rank}:{name}:missing_gradient")
-            if (
-                int(
-                    cast(
-                        "int",
-                        accuracy["nonfinite_coefficient_gradient_count"],
-                    ),
-                )
-                != 0
-            ):
-                failures.append(f"rank{rank}:{name}:nonfinite_gradient")
-    for arm_name in arm_names:
-        arm_failures: list[str] = []
-        worst_median = 0.0
-        for rank_result in rank_results:
-            rank = int(cast("int", rank_result["rank"]))
-            arm = next(
-                row
-                for row in cast("list[JsonObject]", rank_result["arms"])
-                if row["name"] == arm_name
-            )
-            accuracy = cast("JsonObject", arm["accuracy"])
-            runtime = cast("JsonObject", arm["runtime"])
-            checks = (
-                (
-                    int(cast("int", runtime["initial_graph_break_count"])) == 0,
-                    "initial_graph_breaks",
-                ),
-                (
-                    int(cast("int", runtime["post_settle_graph_break_count"])) == 0,
-                    "graph_breaks",
-                ),
-                (
-                    int(cast("int", runtime["post_settle_recompile_count"])) == 0,
-                    "recompiles",
-                ),
-                (
-                    float(cast("float", runtime["peak_allocated_mib"]))
-                    < PEAK_ALLOCATED_MIB_LIMIT,
-                    "allocated_vram",
-                ),
-                (
-                    float(cast("float", runtime["peak_reserved_mib"]))
-                    < PEAK_RESERVED_MIB_LIMIT,
-                    "reserved_vram",
-                ),
-                (
-                    float(cast("float", accuracy["fp32_kernel_relative_rms"]))
-                    <= FP32_CANDIDATE_KERNEL_LIMIT,
-                    "fp32_kernel",
-                ),
-                (
-                    float(cast("float", accuracy["output_relative_rms"]))
-                    <= OUTPUT_RELATIVE_LIMIT,
-                    "output",
-                ),
-                (
-                    float(
-                        cast(
-                            "float",
-                            accuracy["max_coefficient_gradient_relative_rms"],
+                if invalid_steps:
+                    failures.append(f"rank{rank}:{name}:{path_name}:invalid_step")
+                summaries = [
+                    *cast("list[JsonObject]", path.get("windows", [])),
+                    cast("JsonObject", path.get("pooled", {})),
+                ]
+                if len(summaries) != TIMED_WINDOW_COUNT + 1 or any(
+                    len(cast("list[object]", summary.get("samples_ms", [])))
+                    != expected_count
+                    for summary, expected_count in zip(
+                        summaries,
+                        (
+                            TIMED_WINDOW_UPDATES,
+                            TIMED_WINDOW_UPDATES,
+                            2 * TIMED_WINDOW_UPDATES,
                         ),
+                        strict=True,
                     )
-                    <= GRADIENT_RELATIVE_LIMIT,
-                    "gradient",
-                ),
-                (
-                    cast("list[object]", accuracy["missing_coefficient_gradients"])
-                    == [],
-                    "missing_gradient",
-                ),
-                (
-                    int(
-                        cast(
-                            "int",
-                            accuracy["nonfinite_coefficient_gradient_count"],
-                        ),
-                    )
-                    == 0,
-                    "nonfinite_gradient",
-                ),
-                (
-                    float(cast("float", arm["assembly_fraction"]))
-                    <= ASSEMBLY_FRACTION_LIMIT,
-                    "assembly_fraction",
-                ),
-            )
-            arm_failures.extend(
-                f"rank{rank}:{arm_name}:{metric}"
-                for passed, metric in checks
-                if not passed
-            )
-            for window_index, window in enumerate(
-                cast("list[JsonObject]", arm["windows"]),
-            ):
-                if (
-                    float(cast("float", window["assembly_fraction"]))
-                    > ASSEMBLY_FRACTION_LIMIT
                 ):
-                    arm_failures.append(
-                        f"rank{rank}:{arm_name}:window{window_index}:assembly_fraction",
-                    )
-                for path in ("expansion", "complete"):
-                    summary = cast("JsonObject", window[path])
+                    failures.append(f"rank{rank}:{name}:{path_name}:sample_schema")
+                for summary_index, summary in enumerate(summaries):
                     if (
                         float(cast("float", summary["coefficient_variation"]))
                         > TIMING_CV_LIMIT
                     ):
-                        arm_failures.append(
-                            f"rank{rank}:{arm_name}:window{window_index}:{path}_cv",
+                        failures.append(
+                            f"rank{rank}:{name}:{path_name}:cv{summary_index}",
                         )
-            for path in ("pooled_expansion", "pooled_complete"):
-                summary = cast("JsonObject", arm[path])
-                if (
-                    float(cast("float", summary["coefficient_variation"]))
-                    > TIMING_CV_LIMIT
-                ):
-                    arm_failures.append(f"rank{rank}:{arm_name}:{path}_cv")
-            pooled_complete = cast("JsonObject", arm["pooled_complete"])
-            worst_median = max(
-                worst_median,
-                float(cast("float", pooled_complete["median_ms"])),
-            )
-        if not arm_failures:
-            passing_arms.append((worst_median, arm_name))
-        else:
-            rejected_arms[arm_name] = arm_failures
-    provisional_selection = min(passing_arms)[1] if passing_arms else None
-    if provisional_selection is None:
-        failures.extend(
-            failure
-            for arm_failures in rejected_arms.values()
-            for failure in arm_failures
-        )
-        failures.append("no_follow_up_arm_passed")
-    selected = provisional_selection if not failures else None
-    return selected, failures, rejected_arms
+    return not failures, failures
 
 
-def _gather_follow_up(
-    corrected_accuracy: list[JsonObject],
-    corrected_step_controls: JsonObject,
-    arms: list[JsonObject],
+def _gather_rank_results(
+    blocks: list[JsonObject],
+    assembly_diagnostic: JsonObject,
     distributed: _Distributed,
 ) -> list[JsonObject]:
     local = cast(
         "JsonObject",
         {
             "rank": distributed.rank,
-            "corrected_accuracy": corrected_accuracy,
-            "corrected_step_controls": corrected_step_controls,
-            "arms": arms,
+            "blocks": blocks,
+            "assembly_diagnostic": assembly_diagnostic,
         },
     )
     gathered: list[object] = [None] * distributed.world_size
@@ -1990,6 +1307,7 @@ def run(output_dir: Path) -> JsonObject:
 
     """
     distributed = _init_distributed()
+    device_assignments = _device_assignments(distributed)
     requested_effective_runtime = _apply_selected_runtime()
     gradient_mean = _gradient_mean_check(distributed)
     updates, trained_suite = _compiled_ddp_updates(distributed)
@@ -1997,29 +1315,14 @@ def run(output_dir: Path) -> JsonObject:
     del trained_suite
     gc.collect()
     torch.cuda.empty_cache()
-    corrected_accuracy = [
-        cast(
-            "JsonObject",
-            {"name": case.name, **_accuracy_case(case, distributed.device)},
-        )
-        for case in _block_cases()
-    ]
-    corrected_step_controls = _follow_up_step_controls(
-        largest,
+    blocks = _measure_blocks(distributed)
+    assembly_diagnostic = _assembly_diagnostic(largest, distributed)
+    rank_results = _gather_rank_results(
+        blocks,
+        assembly_diagnostic,
         distributed,
     )
-    arms = _follow_up_assembly_arms(
-        largest,
-        distributed,
-    )
-    rank_results = _gather_follow_up(
-        corrected_accuracy,
-        corrected_step_controls,
-        arms,
-        distributed,
-    )
-    selected_arm, failures, rejected_arms = _follow_up_verdict(updates, rank_results)
-    passed = selected_arm is not None and not failures
+    passed, failures = _verdict(updates, rank_results)
     result = cast(
         "JsonObject",
         {
@@ -2027,6 +1330,7 @@ def run(output_dir: Path) -> JsonObject:
             "benchmark_kind": PROBE_KIND,
             "status": "pass" if passed else "fail",
             "architecture_locked": True,
+            "selected_mechanics": "padded_bmm_direct",
             "full_vae_assembled": False,
             "follow_up_probe_permitted": False,
             "world_size": distributed.world_size,
@@ -2035,6 +1339,7 @@ def run(output_dir: Path) -> JsonObject:
                 torch.cuda.get_device_name(index)
                 for index in range(torch.cuda.device_count())
             ],
+            "rank_device_assignments": device_assignments,
             **torch_runtime_versions(),
             "per_device_batch_size": PER_DEVICE_BATCH,
             "fixed_shapes": {
@@ -2067,8 +1372,6 @@ def run(output_dir: Path) -> JsonObject:
             "gradient_mean_reference": gradient_mean,
             "compiled_ddp_updates": updates,
             "rank_measurements": rank_results,
-            "selected_arm": selected_arm,
-            "rejected_arms": rejected_arms,
             "acceptance_failures": failures,
         },
     )

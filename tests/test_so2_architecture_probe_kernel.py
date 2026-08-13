@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import base64
-import copy
 import hashlib
 import inspect
 import io
@@ -20,74 +19,25 @@ from typing import TYPE_CHECKING, cast
 import torch
 
 from eqvae.benchmarking import so2_architecture_probe
-from eqvae.models.so2_architecture_probe import SO2LargestDDConv
+from eqvae.models.so2_architecture_probe import _F01ToF01Conv  # noqa: PLC2701
 
 # pyright: reportAny=false, reportPrivateUsage=false, reportUnknownMemberType=false
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     import pytest
 
     from eqvae.benchmarking.io import JsonObject
 
 
-def test_follow_up_assembly_arms_preserve_kernel_output_and_gradients() -> None:
-    """Keep both measured assembly candidates mathematically identical locally."""
-    cast("Callable[[int], torch.Generator]", torch.manual_seed)(130013)
-    source = SO2LargestDDConv()
-    inputs = torch.randn(1, 144, 9, 9)
-    for candidate in (
-        so2_architecture_probe._DDirectAssemblyConv(source),  # noqa: SLF001
-        so2_architecture_probe._DPaddedBmmAssemblyConv(source),  # noqa: SLF001
-    ):
-        reference = copy.deepcopy(source)
-        candidate_inputs = inputs.detach().clone().requires_grad_()
-        reference_inputs = inputs.detach().clone().requires_grad_()
-        candidate_output = cast("torch.Tensor", candidate(candidate_inputs))
-        reference_output = cast("torch.Tensor", reference(reference_inputs))
-        assert torch.allclose(candidate_output, reference_output, rtol=1e-6, atol=1e-7)
-        assert torch.allclose(
-            candidate.expanded_kernel(),
-            reference.expanded_kernel(),
-            rtol=1e-6,
-            atol=1e-7,
-        )
-        candidate_output.square().mean().backward()
-        reference_output.square().mean().backward()
-        candidate_parameters = dict(candidate.named_parameters())
-        reference_parameters = dict(reference.named_parameters())
-        assert candidate_parameters.keys() == reference_parameters.keys()
-        for name, parameter in candidate_parameters.items():
-            assert parameter.grad is not None
-            assert reference_parameters[name].grad is not None
-            candidate_gradient = parameter.grad
-            reference_gradient = cast(
-                "torch.Tensor",
-                reference_parameters[name].grad,
-            )
-            assert torch.allclose(
-                candidate_gradient,
-                reference_gradient,
-                rtol=2e-6,
-                atol=1e-8,
-            )
-        assert torch.allclose(
-            cast("torch.Tensor", candidate_inputs.grad),
-            cast("torch.Tensor", reference_inputs.grad),
-            rtol=2e-6,
-            atol=1e-8,
-        )
-        compiled = cast(
-            "Callable[[torch.Tensor], torch.Tensor]",
-            torch.compile(  # pyright: ignore[reportUnknownMemberType]
-                candidate,
-                backend="eager",
-                fullgraph=True,
-                dynamic=False,
-            ),
-        )
-        assert torch.allclose(compiled(inputs), reference_output.detach())
+def test_selected_runtime_has_one_static_padded_bmm_direct_path() -> None:
+    """Prevent rejected contractions or concatenation assembly from returning."""
+    source = inspect.getsource(_F01ToF01Conv.expanded_kernel)
+    assert source.count("torch.bmm") == 1
+    assert "torch.mm" not in source
+    assert "_expand_pair" not in source
+    assert "new_empty" in source
+    assert "torch.cat" not in source
+    assert "for " not in source
 
 
 def test_so2_cpu_evidence_is_bound_to_the_current_probe_sources() -> None:
@@ -161,11 +111,11 @@ def test_so2_probe_build_embeds_fixed_runner_without_data(tmp_path: Path) -> Non
     assert "src/eqvae/models/so2_architecture_probe.py" in names
     assert "PER_DEVICE_BATCH: Final = 4" in runner
     assert "SETTLED_UPDATES: Final = 32" in runner
-    assert "FOLLOW_UP_WARMUPS: Final = 20" in runner
-    assert "FOLLOW_UP_WINDOW_UPDATES: Final = 50" in runner
-    assert 'SCHEMA_VERSION: Final = "spec0013.so2_dual_t4_follow_up.v1"' in runner
-    assert "class _DDirectAssemblyConv" in runner
-    assert "class _DPaddedBmmAssemblyConv" in runner
+    assert "WARMUP_UPDATES: Final = 20" in runner
+    assert "TIMED_WINDOW_UPDATES: Final = 50" in runner
+    assert 'SCHEMA_VERSION: Final = "spec0013.so2_dual_t4_final.v1"' in runner
+    assert "four_mm_three_cat" not in runner
+    assert "four_mm_direct" not in runner
     assert "compile_step_python_reducer_fp16_channels_last" in runner
     assert "full_vae_assembled" in runner
 
@@ -253,12 +203,8 @@ def test_remote_accuracy_paths_keep_selected_scaled_backward_contract(
         "exit_compiled_autograd",
         "unscale",
     ]
-    for function in (
-        so2_architecture_probe._accuracy_case,  # noqa: SLF001
-        so2_architecture_probe._follow_up_arm_accuracy,  # noqa: SLF001
-    ):
-        source = inspect.getsource(function)
-        assert "_selected_accuracy_backward(compiled_loss, compiled_source)" in source
+    source = inspect.getsource(so2_architecture_probe._accuracy_case)  # noqa: SLF001
+    assert "_selected_accuracy_backward(compiled_loss, compiled_source)" in source
 
 
 def test_so2_probe_verdict_rejects_noisy_or_skipped_timing_rows() -> None:
@@ -268,185 +214,139 @@ def test_so2_probe_verdict_rejects_noisy_or_skipped_timing_rows() -> None:
         "nonfinite_loss_count": 0,
         "finite_parameters": True,
         "post_settle_graph_break_count": 0,
+        "initial_graph_break_count": 0,
         "post_settle_recompile_count": 0,
-        "peak_allocated_mib": 1.0,
-        "peak_reserved_mib": 1.0,
-    }
-    row: dict[str, object] = {
-        "name": "identity_A",
-        "output_relative_rms": 0.0,
-        "max_coefficient_gradient_relative_rms": 0.0,
-        "missing_coefficient_gradients": [],
-        "nonfinite_coefficient_gradient_count": 0,
-        "compiled_over_eager": 1.0,
-        "equivariant_over_normal": 1.0,
-        "compiled_timing_cv": 0.01,
-        "eager_timing_cv": 0.01,
-        "normal_timing_cv": 0.01,
-        "eager_amp_skip_count": 0,
-        "compiled_amp_skip_count": 0,
-        "normal_amp_skip_count": 0,
-        "eager_nonfinite_loss_count": 0,
-        "compiled_nonfinite_loss_count": 0,
-        "normal_nonfinite_loss_count": 0,
-        "eager_nonfinite_gradient_count": 0,
-        "compiled_nonfinite_gradient_count": 0,
-        "normal_nonfinite_gradient_count": 0,
-    }
-    rank_results = cast(
-        "list[JsonObject]",
-        [{"rank": 0, "blocks": [cast("JsonObject", row)]}],
-    )
-    passed, failures = so2_architecture_probe._verdict(  # noqa: SLF001
-        updates,
-        rank_results,
-        assembly_fraction=0.01,
-        weighted_ratio=1.0,
-    )
-    assert passed
-    assert failures == []
-    row["eager_timing_cv"] = 0.11
-    row["compiled_amp_skip_count"] = 1
-    passed, failures = so2_architecture_probe._verdict(  # noqa: SLF001
-        updates,
-        rank_results,
-        assembly_fraction=0.01,
-        weighted_ratio=1.0,
-    )
-    assert not passed
-    assert "rank0:identity_A:eager_timing_cv" in failures
-    assert "rank0:identity_A:timed_amp_skip" in failures
-
-
-def test_follow_up_selects_a_passing_arm_without_accepting_rejected_arms() -> None:
-    """Permit selection among fixed arms while preserving every rejection reason."""
-    updates: dict[str, object] = {
-        "amp_skip_count": 0,
-        "nonfinite_loss_count": 0,
-        "finite_parameters": True,
-        "post_settle_graph_break_count": 0,
-        "post_settle_recompile_count": 0,
+        "cross_rank_parameter_max_abs_difference": 0.0,
         "peak_allocated_mib": 1.0,
         "peak_reserved_mib": 1.0,
     }
 
-    def arm(name: str, assembly_fraction: float, median_ms: float) -> JsonObject:
-        summary = cast(
-            "JsonObject",
-            {
-                "samples_ms": [median_ms] * 4,
-                "median_ms": median_ms,
-                "coefficient_variation": 0.0,
-            },
-        )
+    def summary(count: int) -> dict[str, object]:
+        return {
+            "samples_ms": [1.0] * count,
+            "coefficient_variation": 0.01,
+        }
+
+    def block(name: str) -> JsonObject:
         return cast(
             "JsonObject",
             {
                 "name": name,
-                "runtime": {
-                    "initial_graph_break_count": int(name == "four_mm_three_cat"),
-                    "post_settle_graph_break_count": 0,
-                    "post_settle_recompile_count": 0,
-                    "peak_allocated_mib": 1.0,
-                    "peak_reserved_mib": 1.0,
+                "output_relative_rms": 0.0,
+                "max_coefficient_gradient_relative_rms": 0.0,
+                "missing_coefficient_gradients": [],
+                "nonfinite_coefficient_gradient_count": 0,
+                "compiled_over_eager": 1.0,
+                "equivariant_over_normal": 1.0,
+                "paths": {
+                    path_name: {
+                        "windows": [summary(50), summary(50)],
+                        "pooled": summary(100),
+                        "amp_skip_count": 0,
+                        "nonfinite_loss_count": 0,
+                        "nonfinite_gradient_count": 0,
+                    }
+                    for path_name in (
+                        "equivariant_eager",
+                        "equivariant_compiled",
+                        "normal_compiled",
+                    )
                 },
-                "accuracy": {
-                    "fp32_kernel_relative_rms": 0.0,
-                    "output_relative_rms": 0.0,
-                    "max_coefficient_gradient_relative_rms": 0.0,
-                    "missing_coefficient_gradients": [],
-                    "nonfinite_coefficient_gradient_count": 0,
-                },
-                "windows": [
-                    {
-                        "expansion": summary,
-                        "complete": summary,
-                        "assembly_fraction": assembly_fraction,
-                    },
-                    {
-                        "expansion": summary,
-                        "complete": summary,
-                        "assembly_fraction": assembly_fraction,
-                    },
-                ],
-                "pooled_expansion": summary,
-                "pooled_complete": summary,
-                "assembly_fraction": assembly_fraction,
             },
         )
 
-    rank_results = cast(
-        "list[JsonObject]",
-        [
+    def rank_result(rank: int) -> JsonObject:
+        return cast(
+            "JsonObject",
             {
-                "rank": 0,
-                "corrected_step_controls": {
-                    "compiled_over_eager": 1.0,
-                    "equivariant_over_normal": 1.0,
-                    "paths": {
-                        name: {
-                            "windows": [
-                                {
-                                    "samples_ms": [1.0],
-                                    "median_ms": 1.0,
-                                    "coefficient_variation": 0.0,
-                                },
-                                {
-                                    "samples_ms": [1.0],
-                                    "median_ms": 1.0,
-                                    "coefficient_variation": 0.0,
-                                },
-                            ],
-                            "pooled": {
-                                "samples_ms": [1.0, 1.0],
-                                "median_ms": 1.0,
-                                "coefficient_variation": 0.0,
-                            },
-                            "amp_skip_count": 0,
-                            "nonfinite_loss_count": 0,
-                            "nonfinite_gradient_count": 0,
-                        }
-                        for name in (
-                            "equivariant_eager",
-                            "equivariant_compiled",
-                            "normal_compiled",
-                        )
-                    },
+                "rank": rank,
+                "blocks": [
+                    block(name)
+                    for name in (
+                        "identity_A",
+                        "encoder_A_to_B",
+                        "decoder_B_to_A",
+                        "largest_D_to_D",
+                    )
+                ],
+                "assembly_diagnostic": {
+                    "selection_gate": False,
+                    "windows": [
+                        {
+                            "expansion": summary(50),
+                            "complete": summary(50),
+                        },
+                        {
+                            "expansion": summary(50),
+                            "complete": summary(50),
+                        },
+                    ],
+                    "pooled_expansion": summary(100),
+                    "pooled_complete": summary(100),
                 },
-                "corrected_accuracy": [
-                    {
-                        "name": "decoder_B_to_A",
-                        "output_relative_rms": 0.0,
-                        "max_coefficient_gradient_relative_rms": 0.0,
-                        "missing_coefficient_gradients": [],
-                        "nonfinite_coefficient_gradient_count": 0,
-                    },
-                ],
-                "arms": [
-                    arm("four_mm_three_cat", 0.4, 5.0),
-                    arm("four_mm_direct", 0.08, 4.0),
-                    arm("padded_bmm_direct", 0.2, 3.0),
-                ],
             },
-        ],
-    )
-    selected, failures, rejected = so2_architecture_probe._follow_up_verdict(  # noqa: SLF001
-        updates,
-        rank_results,
-    )
-    assert selected == "four_mm_direct"
-    assert failures == []
-    assert set(rejected) == {"four_mm_three_cat", "padded_bmm_direct"}
+        )
 
-    corrected_accuracy = cast(
-        "list[JsonObject]",
-        rank_results[0]["corrected_accuracy"],
-    )
-    corrected_accuracy[0]["max_coefficient_gradient_relative_rms"] = 0.03
-    selected, failures, rejected = so2_architecture_probe._follow_up_verdict(  # noqa: SLF001
+    rank_results = [rank_result(0), rank_result(1)]
+    passed, failures = so2_architecture_probe._verdict(  # noqa: SLF001
         updates,
         rank_results,
     )
-    assert selected is None
-    assert failures == ["rank0:decoder_B_to_A:gradient"]
-    assert set(rejected) == {"four_mm_three_cat", "padded_bmm_direct"}
+    assert passed
+    assert failures == []
+    rank_zero_blocks = cast("list[JsonObject]", rank_results[0]["blocks"])
+    paths = cast("dict[str, JsonObject]", rank_zero_blocks[0]["paths"])
+    eager_windows = cast("list[JsonObject]", paths["equivariant_eager"]["windows"])
+    eager_windows[0]["coefficient_variation"] = 0.11
+    paths["equivariant_compiled"]["amp_skip_count"] = 1
+    passed, failures = so2_architecture_probe._verdict(  # noqa: SLF001
+        updates,
+        rank_results,
+    )
+    assert not passed
+    assert "rank0:identity_A:equivariant_eager:cv0" in failures
+    assert "rank0:identity_A:equivariant_compiled:invalid_step" in failures
+
+
+def test_final_verdict_requires_complete_measurement_schema() -> None:
+    """Reject missing blocks and truncated windows instead of silently passing."""
+    updates: dict[str, object] = {
+        "amp_skip_count": 0,
+        "nonfinite_loss_count": 0,
+        "finite_parameters": True,
+        "initial_graph_break_count": 0,
+        "post_settle_graph_break_count": 0,
+        "post_settle_recompile_count": 0,
+        "cross_rank_parameter_max_abs_difference": 0.0,
+        "peak_allocated_mib": 1.0,
+        "peak_reserved_mib": 1.0,
+    }
+    passed, failures = so2_architecture_probe._verdict(  # noqa: SLF001
+        updates,
+        [cast("JsonObject", {"rank": 0, "blocks": []})],
+    )
+    assert not passed
+    assert "rank_measurement_set" in failures
+    assert "rank0:block_set" in failures
+    assert "rank0:assembly_diagnostic_schema" in failures
+
+
+def test_final_verdict_requires_compiled_ddp_parameter_agreement() -> None:
+    """Reject a selected compiled path whose optimizer updates diverge by rank."""
+    updates: dict[str, object] = {
+        "amp_skip_count": 0,
+        "nonfinite_loss_count": 0,
+        "finite_parameters": True,
+        "initial_graph_break_count": 0,
+        "post_settle_graph_break_count": 0,
+        "post_settle_recompile_count": 0,
+        "cross_rank_parameter_max_abs_difference": 2e-6,
+        "peak_allocated_mib": 1.0,
+        "peak_reserved_mib": 1.0,
+    }
+    passed, failures = so2_architecture_probe._verdict(  # noqa: SLF001
+        updates,
+        [],
+    )
+    assert not passed
+    assert "cross_rank_parameters" in failures
