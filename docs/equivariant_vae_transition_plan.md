@@ -949,4 +949,9 @@ trainer/checkpoint mechanics, CLI-managed kernels,
 and local scaffold described by the former task list are already implemented; do not
 recreate them. The equal-copy F01 count/init/manifest refresh is complete and
 Spec 0013 is locked. The exact next action is its fixed local architecture
-probe; full-VAE assembly remains blocked until that probe passes.
+probe; full-VAE assembly remains blocked until that probe passes. Its later
+Kaggle check starts with the selected non-equivariant runtime bundle and uses
+only a small predeclared architecture-specific follow-up set when a measured
+flag interaction requires it. Once the full model is authorized, Spec 0011 may
+likewise run a few targeted batch/runtime probes instead of assuming every
+baseline value transfers or recreating the discarded generic search.

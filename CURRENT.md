@@ -122,6 +122,16 @@ transition, one decoder transition, RGB interfaces, and scalar heads; run its
 focused CPU and later guarded dual-T4 probe. Do not assemble the 43-convolution
 model or VAE until that probe passes.
 
+For the later Kaggle mechanics probe, begin with the exact runtime flags and
+values selected for the non-equivariant baseline. If they pass the SO(2) limits,
+stop; if measurement exposes an architecture-specific compile, memory, or
+latency interaction, run only a small predeclared set of follow-up probes over
+the implicated runtime options or contraction/assembly choice. After the probe
+passes and full-model coding is authorized, Spec 0011 may similarly use a few
+full-model probes to select feasible batch/runtime values. Neither step reopens
+the field layout, profiles, learned parameterization, or a generic search
+surface. Every Kaggle write requires fresh explicit permission.
+
 This remains one-off experiment code. Do not ship runtime architecture,
 support, radial, field-layout, or group options; do not retain rejected
 candidates as selectable model branches.

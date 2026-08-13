@@ -318,6 +318,24 @@ transition, `B -> A` decoder transition, and isolated largest `D -> D`
 expansion. Run matched normal-Conv2d probe blocks under the identical runtime
 bundle. Exclude compile/startup from timing.
 
+The first Kaggle run is a transfer check of the exact selected
+non-equivariant runtime flags and values; do not assume they fail merely
+because the architecture changed. If that bundle passes every limit, select it
+and stop. If a measured compile, memory, or latency failure implicates a
+specific runtime interaction, predeclare a small set of follow-up probes that
+changes only the implicated runtime flags or contraction/assembly choice. Keep
+the field multiplicities, profiles, parameterization, and acceptance limits
+fixed. This is a few architecture-specific comparisons, not a recreation of
+the baseline's broad runtime search, and every Kaggle write still requires
+fresh permission.
+
+After this mechanics gate passes and the full model is separately assembled,
+Spec 0011 starts from the selected probe bundle. It may use a small number of
+full-model Kaggle probes to select feasible batch size and only those runtime
+options shown to be architecture-sensitive. It must not blindly inherit a
+baseline value that fails measurement, repeat the discarded generic search,
+or treat runtime tuning as permission to change the locked SO(2) architecture.
+
 Acceptance requires all of:
 
 - 32 settled forward/backward optimizer updates with deterministic but rank-
