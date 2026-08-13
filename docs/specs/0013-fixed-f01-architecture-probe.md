@@ -1,6 +1,6 @@
 # Spec 0013: Fixed F01 Architecture Probe
 
-Status: dual-T4 v1 measured fail / v2 follow-up locally verified
+Status: dual-T4 v2 measured fail / architecture-or-contract decision required
 Owner/workstream: one-off continuous-`SO(2)` architecture probe
 Last updated: 2026-08-13
 
@@ -50,9 +50,9 @@ The one-use dual-T4 runner is locally built and guarded at
 `kaggle/kernels/so2_architecture_probe`. It reads and hashes the exact selected
 Spec 0011 runtime plan, verifies compiler/DDP readbacks, measures the four fixed
 signatures against matched controls, and makes all accuracy, AMP, finiteness,
-timing-CV, latency, assembly, graph, and VRAM limits load-bearing. Version 1 is
-complete; no version-2 remote write has occurred. Full-VAE assembly remains
-blocked until one candidate is singularized and the complete probe passes.
+timing-CV, latency, assembly, graph, and VRAM limits load-bearing. Versions 1
+and 2 are complete. Full-VAE assembly remains blocked because v2 exhausted the
+predeclared mechanics candidates without a pass.
 
 ### Dual-T4 v1 result and fixed follow-up
 
@@ -101,6 +101,39 @@ Exactly one targeted follow-up is predeclared before another remote write:
 This is an architecture-specific mechanics comparison forced by measurement,
 not a runtime tuner. It does not reopen profiles, multiplicities, F2, or the
 full-VAE scope.
+
+### Dual-T4 v2 result and stop decision
+
+Private Kaggle version 2 ran from clean commit `afec7af` on 2026-08-13. Its
+tracked summary is `docs/data/spec0013_so2_dual_t4_probe_v2.json`. Corrected
+accuracy passes comfortably: worst output relative RMS is `0.00061934` against
+`0.005`, worst coefficient-gradient relative RMS is `0.00066145` against
+`0.02`, and the formerly invalid decoder result is now `0.000554/0.000553`
+across ranks. There are no missing/nonfinite gradients. Corrected D-to-D
+compiled/eager is `0.817/0.813`, EQ/normal is `1.210/1.120`, all corrected-
+control CVs pass, and DDP/AMP/compile/buffer/VRAM evidence is healthy.
+
+No mechanics arm meets the unchanged assembly-fraction limit:
+
+- four `mm` plus three cats: pooled `0.5042/0.5162`;
+- four `mm` plus direct buffer: pooled `0.5025/0.5175`;
+- padded `bmm` plus direct buffer: pooled `0.4465/0.4534`.
+
+All per-window fractions lie in `0.4024..0.5630`, versus `0.10`. Independent
+review recomputed the raw samples exactly and found that even each arm's most
+favorable minimum-expansion/maximum-complete combination remains
+`0.3107..0.3524`. Padded `bmm` is the fastest arm, at a `1.2655 ms` worst-rank
+complete-forward median, but is not selectable under the contract. Narrow
+pooled-CV failures do not affect this conclusion because every arm fails every
+rank/window assembly gate independently.
+
+The predeclared follow-up is exhausted. No fourth arm, runtime axis,
+singularization, complete acceptance run, or full-VAE assembly is authorized.
+The blocker is now a new explicit decision: retain the 10% performance gate
+and revise architecture/mechanics under a new spec, or justify a replacement
+acceptance contract based on the experiment's scientific and operational
+needs. The numerical-tolerance contract already passes; relaxing bitwise
+exactness or adding production abstractions is irrelevant to this blocker.
 
 ## Non-Goals
 
@@ -476,14 +509,14 @@ The local implementation produces:
    assembly, and exactly one dense `conv2d`.
 3. Pass: focused escnn, gradient, layout, norm, gate, bias, residual,
    resampling, RGB, and scalar-latent checks pass.
-4. Partial: CPU fullgraph mechanics and both follow-up candidates pass locally;
-   dual-T4 v1 failed expansion/assembly, and v2 awaits a separately authorized
-   Kaggle run.
+4. Fail: CPU fullgraph and all numerical/runtime correctness checks pass, but
+   dual-T4 v2 rejected every predeclared arm on the 10% assembly gate.
 5. Pass: counts remain exactly 1,172,304 coefficients, 3,600 norm parameters,
    4,096 gate parameters, 35 scalar biases, and 1,180,035 total learned
    parameters for the eventual 43-convolution topology.
-6. Partial: v1 evidence and handoffs are updated; the exact next step is the
-   guarded follow-up, not full-VAE coding.
+6. Blocked: v1/v2 evidence and handoffs are updated; the exact next step is an
+   explicit architecture-or-acceptance-contract decision, not another arm or
+   full-VAE coding.
 
 Only then may a separate implementation step assemble the full equivariant VAE.
 
@@ -508,10 +541,10 @@ local Kaggle preflight pass. Remote writes remain explicitly permission-gated.
 
 ## Implementation Blockers
 
-None for the local follow-up. The remote guard requires this reviewed work to
-be in a clean source commit plus fresh explicit Kaggle write permission. The
-three arms above are the complete predeclared set; no additional candidate or
-runtime axis is authorized if they fail.
+The three-arm follow-up is complete and all arms fail the 10% assembly gate.
+No implementation task remains authorized under this spec. Progress requires
+a new explicit decision on architecture or the scientific necessity and
+replacement of that performance contract.
 
 ## Adversarial Review Findings
 
@@ -567,8 +600,10 @@ architecture or tolerance.
 ## Open Questions
 
 The predeclared follow-up must determine whether any of the three fixed
-contraction/assembly choices meets the unchanged limit. No architecture search
-or additional arm is permitted if all three fail.
+contraction/assembly choices meets the unchanged limit. V2 established that
+none does. No architecture search or additional arm is permitted under this
+spec; the open question is whether to revise the architecture or replace the
+10% performance gate under a new explicit decision.
 
 ## Related Files
 
@@ -577,6 +612,8 @@ or additional arm is permitted if all three fail.
 - `docs/equivariant_vae_transition_plan.md`
 - `configs/spec0012/so2_basis_manifest.json`
 - `docs/data/spec0012_so2_basis_audit.json`
+- `docs/data/spec0013_so2_dual_t4_probe_v1.json`
+- `docs/data/spec0013_so2_dual_t4_probe_v2.json`
 - `src/eqvae/models/so2_basis.py`
 - `src/eqvae/models/non_equivariant_vae.py`
 - `src/eqvae/models/resampling.py`

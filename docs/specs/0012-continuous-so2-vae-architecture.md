@@ -1,7 +1,7 @@
 # Spec 0012: Continuous SO(2) VAE Architecture
 
-Status: radial/layout oracle complete / equal-copy F01 fixed / dual-T4 v2 pending
-Full-VAE readiness: blocked by Spec 0013 expansion/assembly gate
+Status: radial/layout oracle complete / equal-copy F01 fixed / Spec 0013 v2 rejected
+Full-VAE readiness: blocked by architecture-or-performance-contract decision
 Owner/workstream: matched continuous-`SO(2)` VAE
 Last updated: 2026-08-13
 
@@ -82,11 +82,11 @@ Spec 0013's local architecture probe now implements and verifies the fixed
 field norm/gate AMP rules, compile guards, and focused escnn/CPU tests. Its
 first dual-T4 run transferred the selected runtime correctly but measured
 expansion plus assembly at `0.407..0.413` of the D-to-D forward, above Spec
-0013's `0.10` limit. The exact next step is the single predeclared three-arm
-D-to-D mechanics comparison after corrected GradScaler and timing telemetry;
-both candidates pass local parity and CPU fullgraph checks. The full
-convolution topology and VAE remain unauthorized until the resulting singular
-mechanics pass full acceptance.
+0013's `0.10` limit. The corrected v2 comparison passes every numerical and
+runtime-correctness gate but rejects all three predeclared arms at
+`0.446..0.517` pooled assembly fraction. The search is exhausted. The full
+convolution topology and VAE remain unauthorized pending an explicit decision
+to revise the architecture or replace the performance gate under a new spec.
 
 ## Non-Goals
 
@@ -882,11 +882,11 @@ capacity convention.
 4. Complete: Spec 0013 locks RGB lifting/projection, field layout, residual
    compatibility, normalization, radial gates, resampling, contraction and
    assembly mechanics, and compiled dual-T4 acceptance limits.
-5. Partial: the local Spec 0013 implementation and CPU evidence pass; dual-T4
-   v1 failed expansion/assembly and the locally verified narrow follow-up awaits
-   its remote run. The accepted baseline downsample phase error is reported
-   rather than misclassified as a kernel failure. Full runtime selection
-   remains Spec 0011 work.
+5. Blocked: the local Spec 0013 implementation and numerical evidence pass, but
+   dual-T4 v2 rejects all predeclared arms on the assembly-performance gate.
+   The accepted baseline downsample phase error is reported rather than
+   misclassified as a kernel failure. Full runtime selection remains Spec 0011
+   work after the architecture/contract decision.
 
 ## Related Files
 

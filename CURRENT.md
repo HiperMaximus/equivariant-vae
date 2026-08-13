@@ -138,22 +138,27 @@ matching cross-rank buffers and DDP mean/update reference, `797/950 MiB`
 allocated/reserved, `0.43..0.92x` compiled/eager, `1.02..2.04x` EQ/normal, and
 `1.828x` topology-weighted EQ/normal.
 
-The real blocker is expansion plus assembly at `0.407/0.413` of the compiled
-D-to-D forward versus the unchanged `0.10` limit. Review found the decoder
-gradient failure (`0.05019`) was measured without the selected GradScaler and
-compiled-autograd path, while the short eager/control CV failures included
-host scalar synchronizations inside the timed body; those are measurement
-defects, not accepted model failures. Spec 0013 now predeclares exactly one
-narrow follow-up: correct both diagnostics and compare only current four-mm/
-three-cat, four-mm/direct-buffer, and padded-bmm/direct-buffer D-to-D mechanics
-with two untrimmed 50-sample windows. Corrected eager/compiled/control updates,
-per-window assembly fractions, candidate buffer/graph/VRAM evidence, and the
-immutable selected-runtime hash are load-bearing. All architecture and
-acceptance limits remain fixed. Local kernel/output/input-gradient/all-
-coefficient-gradient parity and CPU fullgraph tests pass for both candidates.
-No second Kaggle write has occurred; the exact next action is fresh explicit
-permission for version 2.
-Full-VAE coding remains blocked.
+Private Kaggle version 2 ran from clean commit `afec7af`; its reviewed compact
+summary is `docs/data/spec0013_so2_dual_t4_probe_v2.json`. The corrected
+GradScaler diagnostic resolves v1's false decoder alarm: the worst output and
+coefficient-gradient relative RMS values are `0.00061934` and `0.00066145`,
+comfortably below `0.005/0.02`. DDP, AMP, compile, buffer, VRAM, compiled/eager,
+EQ/normal, and corrected-control CV gates pass. Bitwise equality remains
+diagnostic only; no numerical correctness gate failed.
+
+V2 validly rejected all three predeclared mechanics on the unchanged `0.10`
+assembly-fraction gate. Pooled fractions were `0.5042/0.5162` for four-mm/
+three-cat, `0.5025/0.5175` for four-mm/direct, and `0.4465/0.4534` for padded-
+bmm/direct across ranks; every window was `0.4024..0.5630`. Padded `bmm` was
+fastest at a worst-rank `1.2655 ms` complete-forward median, but still missed
+the limit by more than 4x. Independent review reproduced every fraction and
+showed timing noise cannot rescue any arm. Per the predeclared stop rule, do
+not add a fourth arm, singularize a candidate, run another mechanics probe, or
+assemble the full VAE. The exact next step is an explicit user/spec decision:
+retain the 10% performance contract and revise the architecture, or justify a
+scientifically appropriate replacement for that contract. This is a
+performance-policy decision, not a request for bitwise exactness or
+production-grade engineering.
 
 This remains one-off experiment code. Do not ship runtime architecture,
 support, radial, field-layout, or group options; do not retain rejected
@@ -457,11 +462,11 @@ control's learned representation is correctly not claimed to be equivariant.
    under the user's stated tolerance; do not hide or rewrite its legacy telemetry.
 10. Treat Spec 0012's radial basis oracle, F01 selection, equal-copy count/init
     refresh, manifest handoff, and Spec 0013's fixed local mechanics/CPU proof
-    as complete. Treat private dual-T4 version 1 from `e57f086` as a measured
-    mechanics failure, not infrastructure failure. Preserve its tracked compact
-    summary. Complete only the predeclared three-arm D-to-D follow-up and request
-    fresh permission before version 2. Do not yet assemble the final convolution
-    topology or full VAE.
+    as complete. Treat private dual-T4 versions 1 and 2 as measured mechanics
+    failures, not infrastructure failures, and preserve both tracked summaries.
+    V2 exhausted the three predeclared D-to-D arms. Do not add another arm,
+    singularize mechanics, or assemble the full VAE without an explicit new
+    architecture-or-performance-contract decision.
 
 Fresh-session launch prompt for the next step:
 
@@ -472,11 +477,12 @@ GOAL.md, Spec 0012, Decision 0004, and the referenced baseline/model sources
 before acting. This is one one-off experiment, not a reusable equivariance
 library.
 
-Treat the completed Spec 0012 oracle, locally verified Spec 0013 mechanics, and
-tracked dual-T4 v1 failure summary as source of truth. Complete only the
-predeclared corrected three-arm D-to-D follow-up. Preserve every architecture
-and tolerance. After local review and a clean commit, request fresh permission
-for Kaggle v2. Do not assemble the full equivariant VAE or add runtime options.
+Treat the completed Spec 0012 oracle, local Spec 0013 proof, and tracked dual-T4
+v1/v2 failure summaries as source of truth. V2 passes numerical/runtime
+correctness but exhausts all predeclared mechanics at 44.6-51.7% assembly
+fraction versus 10%. Stop. Ask for an explicit decision to revise architecture
+or replace that performance contract. Do not add an arm, run another mechanics
+probe, assemble the full VAE, or add runtime options.
 ```
 
 Baseline full training and final-output verification are complete. The continuous-`SO(2)`

@@ -1,0 +1,140 @@
+{
+  "schema_version": "spec0013.so2_dual_t4_follow_up_summary.v1",
+  "status": "fail",
+  "measured_at": "2026-08-13",
+  "source_commit": "afec7af022eccc53b7285c841b928f004ad1b766",
+  "kaggle_kernel": "maximusshtefan/eqvae-so2-architecture-probe",
+  "kaggle_kernel_version": 2,
+  "raw_download": {
+    "artifact_sha256": "d021f64043e17075d7e02b8b1f8f47a30ec69c53541894ba7da4db0dbffdb286",
+    "log_sha256": "ab1b309d1c3d59e1e8c85fefa0cf54165b37f1d578ba95c38507181bb93adac6",
+    "local_directory": "runs/kaggle/so2_architecture_probe_v2"
+  },
+  "hardware_runtime": {
+    "gpu_names": ["Tesla T4", "Tesla T4"],
+    "torch_version": "2.13.0+cu130",
+    "cuda_version": "13.0",
+    "world_size": 2,
+    "nproc_per_node": 2,
+    "per_device_batch_size": 4,
+    "runtime_policy_id": "compile_step_python_reducer_fp16_channels_last",
+    "selected_runtime_sha256": "e9e998fd161f0955959c64aed7cd7ddbdfcb55a271b9ce05805903c97c93efb8",
+    "requested_equals_effective": true
+  },
+  "correctness": {
+    "maximum_output_relative_rms": 0.0006193397348101953,
+    "output_limit": 0.005,
+    "maximum_coefficient_gradient_relative_rms": 0.0006614492560246809,
+    "gradient_limit": 0.02,
+    "decoder_gradient_relative_rms_by_rank": [
+      0.0005541744630219651,
+      0.0005525972890502004
+    ],
+    "missing_coefficient_gradients": 0,
+    "nonfinite_coefficient_gradients": 0,
+    "candidate_fp32_kernel_relative_rms_maximum": 0.0,
+    "candidate_output_relative_rms_range": [
+      0.0004625831754570541,
+      0.0004626585026572921
+    ],
+    "candidate_gradient_relative_rms_range": [
+      0.0005582027708578262,
+      0.0005679524032853624
+    ],
+    "status": "pass"
+  },
+  "compiled_ddp_updates": {
+    "settled_updates": 32,
+    "amp_skip_count": 0,
+    "nonfinite_loss_count": 0,
+    "finite_parameters": true,
+    "initial_graph_break_count": 0,
+    "post_settle_graph_break_count": 0,
+    "post_settle_recompile_count": 0,
+    "peak_allocated_mib": 797.03955078125,
+    "peak_reserved_mib": 950.0,
+    "persistent_buffer_count": 38,
+    "persistent_buffers_identical_across_ranks": true
+  },
+  "gradient_mean_reference": {
+    "status": "pass",
+    "local_pre_reduction_gradients_differ": true,
+    "reduced_gradient_max_abs_error": 1.862645149230957e-09,
+    "final_update_max_abs_error": 3.725290298461914e-09
+  },
+  "corrected_step_controls": {
+    "compiled_over_eager_by_rank": [
+      0.8169254767314135,
+      0.8126175099418476
+    ],
+    "equivariant_over_normal_by_rank": [
+      1.2104786121859816,
+      1.1200175289798753
+    ],
+    "all_window_and_pooled_cv_at_most": 0.07334545048647259,
+    "amp_skip_count": 0,
+    "nonfinite_loss_count": 0,
+    "nonfinite_gradient_count": 0,
+    "status": "pass"
+  },
+  "arms": {
+    "four_mm_three_cat": {
+      "pooled_assembly_fraction_by_rank": [
+        0.5041809121114617,
+        0.5162445383082577
+      ],
+      "window_assembly_fraction_range": [
+        0.4770069912341051,
+        0.5630314832433757
+      ],
+      "worst_rank_pooled_complete_median_ms": 1.4143444999490384,
+      "pooled_complete_cv_by_rank": [
+        0.10085817943545182,
+        0.11339239383338888
+      ],
+      "status": "fail"
+    },
+    "four_mm_direct": {
+      "pooled_assembly_fraction_by_rank": [
+        0.5025479308474795,
+        0.5174782764841854
+      ],
+      "window_assembly_fraction_range": [
+        0.46682079658174475,
+        0.5627827404277931
+      ],
+      "worst_rank_pooled_complete_median_ms": 1.413990499997908,
+      "pooled_complete_cv_by_rank": [
+        0.1052336876814939,
+        0.11951272391815504
+      ],
+      "status": "fail"
+    },
+    "padded_bmm_direct": {
+      "pooled_assembly_fraction_by_rank": [
+        0.44647789553561235,
+        0.45337786302936517
+      ],
+      "window_assembly_fraction_range": [
+        0.40235408810506135,
+        0.4995646274510301
+      ],
+      "worst_rank_pooled_complete_median_ms": 1.2655004999828634,
+      "pooled_complete_cv_by_rank": [
+        0.10743188214290106,
+        0.12192058550782493
+      ],
+      "status": "fail"
+    }
+  },
+  "assembly_fraction_limit": 0.1,
+  "selected_arm": null,
+  "acceptance_result": "no_follow_up_arm_passed",
+  "review": {
+    "mathematical_correctness": "pass; no numerical gate failed and exact equality is diagnostic only",
+    "compile_performance_scope": "valid rejection; independent recomputation matched every fraction and timing CV",
+    "noise_cannot_rescue_result": "even each arm's minimum expansion divided by maximum complete timing is 0.3107-0.3524"
+  },
+  "next_step": "stop the predeclared mechanics search; require a new explicit decision on the architecture or the scientific necessity of the 10% assembly-fraction contract",
+  "full_vae_status": "blocked"
+}

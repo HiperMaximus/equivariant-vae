@@ -915,9 +915,10 @@ Issue #6, equivariant VAE validation:
 - The target is SO(2).
 - Spec 0013's narrow F01 architecture probe is locally verified. Dual-T4 v1
   transferred the runtime correctly but failed the expansion/assembly gate;
-  its predeclared mechanics follow-up passes local parity and CPU fullgraph
-  checks and awaits dual-T4 v2 before assembling the full convolution topology
-  or VAE.
+  dual-T4 v2 passes numerical/runtime correctness but rejects all three
+  predeclared mechanics at `44.6..51.7%` versus the `10%` assembly limit. Stop
+  until an explicit architecture-or-performance-contract decision; do not
+  assemble the full convolution topology or VAE.
 - Use a repo-owned, compile-compatible SO(2) implementation; use `escnn` as a
   reference rather than a runtime dependency.
 - Explicitly test nonlinearities, normalization, upsampling, VAE sampling, and
@@ -951,12 +952,11 @@ checklist. Use `CURRENT.md` and Spec 0012 for the exact handoff. The fixed selec
 trainer/checkpoint mechanics, CLI-managed kernels,
 and local scaffold described by the former task list are already implemented; do not
 recreate them. The equal-copy F01 count/init/manifest refresh and fixed local
-Spec 0013 local probe are complete. Dual-T4 v1 from `e57f086` measured a clean
-runtime transfer but failed the `10%` expansion/assembly limit at
-`40.7..41.3%`. The exact next action is the single predeclared corrected
-three-arm D-to-D follow-up, which is locally verified; obtain fresh permission
-before its Kaggle write.
-Full-VAE assembly remains blocked until the selected singular mechanics pass
-the complete probe. Once the full model is authorized, Spec 0011 may
+Spec 0013 local probe are complete. Dual-T4 v2 from `afec7af` validates the
+corrected accuracy/runtime path but rejects all three predeclared D-to-D arms
+at `44.6..51.7%` assembly fraction against `10%`. The exact next action is an
+explicit decision to revise architecture or replace that performance gate
+under a new spec. Do not add an arm or assemble the full VAE. Once the full
+model is authorized, Spec 0011 may
 likewise run a few targeted batch/runtime probes instead of assuming every
 baseline value transfers or recreating the discarded generic search.
