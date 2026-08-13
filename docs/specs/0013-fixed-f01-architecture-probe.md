@@ -16,6 +16,16 @@ spec does not reopen that result. It fixes how those coefficients become one
 dense kernel, how fixed fields are packed, and how the surrounding operations
 behave under AMP and `torch.compile`.
 
+Prefer the fastest simple implementation for these exact layouts, supports,
+Torch runtime, dual-T4 hardware, and fixed shapes—even when that specialization
+would be unsuitable as a general layer. Do not add abstractions, fallbacks,
+dynamic options, generalized shape handling, or portability machinery unless a
+measured acceptance failure requires the smallest such change. Bitwise equality
+with escnn, eager FP32, or transformed finite-grid outputs is not a goal. The
+explicit relative-error and sampled-equivariance limits below are the
+correctness contract; ordinary FP16/compile rounding and the documented
+resampling floor are acceptable within those limits.
+
 The count refresh exposes an important cost premise: `1,180,035` learned
 parameters are only 29.81% of the baseline cap, but the packed-width 9x9/7x7
 dense convolutions cost `159,837,585,408` MAC/sample, 4.383x the baseline's
@@ -34,6 +44,8 @@ layout to hide the cost.
 - No full encoder, decoder, VAE, training run, checkpoint migration, or runtime
   search platform.
 - No equivariance regularizer, O(2), reflection path, or new downsampling rule.
+- No bitwise-reference parity, cross-hardware generality, or deterministic-mode
+  work that is not required by an explicit acceptance check.
 
 ## Locked Inputs
 

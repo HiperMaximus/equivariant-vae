@@ -134,7 +134,12 @@ surface. Every Kaggle write requires fresh explicit permission.
 
 This remains one-off experiment code. Do not ship runtime architecture,
 support, radial, field-layout, or group options; do not retain rejected
-candidates as selectable model branches.
+candidates as selectable model branches. Optimize the simplest singular path
+for the locked layouts, fixed shapes, current Torch runtime, and dual-T4 target;
+do not add abstractions, fallbacks, portability, or generalized shape handling
+without a measured need. Bitwise parity is not required: the explicit Spec
+0013 numerical and sampled-equivariance tolerances are the contract, including
+ordinary AMP/compiler rounding and the documented finite-grid resampling floor.
 For the eventual EQ convolution, all radial/trigonometric sampling, masks,
 field offsets, legal-pair selection, QR coordinates, and basis buffers are
 resolved offline or in `__init__`. Training `forward` contains only fixed-shape
