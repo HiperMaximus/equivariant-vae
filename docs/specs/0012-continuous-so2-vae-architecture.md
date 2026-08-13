@@ -860,12 +860,13 @@ brittle to small radial changes, and is computationally feasible. They cannot
 establish whether F2 improves reconstruction quality without training, so no
 claim of task-optimal field proportions is permitted.
 
-The separately reviewed Spec 0013 architecture-probe slice may implement the
+The separately reviewed Spec 0013 architecture-probe slice implemented the
 selected convolution mechanics, normalization, gates, one residual block, and
-one encoder/decoder transition. It runs the compiled dual-T4 forward/backward
-proof at per-device batch 4. A passing probe unlocks full-VAE coding. Finite
-but slow execution triggers only the narrow Spec 0011 runtime follow-up; it
-does not silently change the field schedule.
+one encoder/decoder transition. Its compiled dual-T4 forward/backward proof at
+per-device batch 4 is accepted. Full-VAE coding is mechanically ready but
+remains a new, separately authorized implementation slice. Later measured
+full-model runtime may trigger only a narrow Spec 0011 follow-up; it must not
+silently change the field schedule.
 
 No training search over F0/F1 proportions, width multipliers, or radial
 hyperparameters is planned. The equal-copy F01 layout is the single selected

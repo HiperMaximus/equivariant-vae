@@ -182,7 +182,7 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   adversarial fixes have been applied. Do not launch or poll the remote full
   run without fresh explicit user approval of the exact dedicated full-kernel
   command.
-- Current status pointer (2026-08-11): active Spec 0011 is a lean, one-off Kaggle
+- Current status pointer (2026-08-13): active Spec 0011 is a lean, one-off Kaggle
   configuration search and full-run contract, not the superseded v4 audit platform.
   Direct dual-T4 probes
   selected per-rank batch 25 (global 50), FP16 channels-last compiled whole-step,
@@ -203,10 +203,12 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   The normal-VAE baseline completed 60000 update counters across three checkpoint-only
   sessions and is locally verified with the user-approved single physical-update legacy
   exception. Clean/denoising L1 reached `0.05925/0.06236`, fixed-25 images and rotation
-  artifacts are complete, and the final checkpoint is loadable. The next experiment
-  gate is the matched continuous-`SO(2)` implementation/run: preserve beta, data,
-  schedule, fixed examples, metrics, and downstream probes; tune only
-  architecture-specific runtime details. Do not build a general session framework.
+  artifacts are complete, and the final checkpoint is loadable. Specs 0012 and
+  0013 now lock and accept the continuous-`SO(2)` architecture mechanics. The
+  next experiment gate is a separately authorized, fresh-session implementation
+  of the fixed full equivariant VAE: preserve beta, data, schedule, fixed examples,
+  metrics, and downstream probes; tune only later measured architecture-specific
+  runtime details. Do not build a general session framework.
   This GOAL states the north star, not the frontier; read
   `CURRENT.md` and
   `docs/specs/0011-reusable-goal-derived-runtime-and-compiled-fastpath.md`.

@@ -4,8 +4,14 @@ Last updated: 2026-08-13
 
 ## Fresh-session start here
 
-Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, and active Spec
-0011 completely. Baseline full-run session 1 is Kaggle kernel version 2 from source
+Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, active Specs
+0011-0013, and Decision 0004 completely. The normal-VAE baseline is complete;
+the locked Spec 0012 architecture oracle and accepted Spec 0013 compiled mechanics
+are also complete. Do not reopen radial profiles, F2, multiplicities, contraction
+arms, compilation-time tuning, or diagnostic timing CV. The next implementation
+slice is the full fixed 43-convolution equivariant VAE, but it requires explicit
+user authorization and should start in a fresh window/session with a new active
+implementation spec. Baseline full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
 boundary. Its output and checkpoint are verified locally; the FSQ-aligned AMP runtime
 and full-output verification corrections are implemented and verified. Session 2 was
@@ -479,8 +485,9 @@ control's learned representation is correctly not claimed to be equivariant.
     The user replaced the isolated 10% gate and selected padded `bmm` plus direct
     assembly. That singular path, its focused local checks, reviews, and guarded
     runner are complete. Accept Kaggle v3 under the user's decision that timing
-    CV is diagnostic, not an architecture gate. Do not rerun or add another arm.
-    Full-VAE assembly requires separate explicit authorization.
+    CV and one-time compilation duration are diagnostic, not architecture gates.
+    Do not rerun or add another arm. Full-VAE assembly requires separate explicit
+    authorization and should begin in a new window/session.
 
 Fresh-session launch prompt for the next step:
 
@@ -499,8 +506,12 @@ That path is singular and its 69 focused tests, source-bound CPU artifact,
 Ruff, BasedPyright, exact basis check, local kernel preflight, and two fresh
 adversarial reviews pass. The one guarded four-path dual-T4 probe passes the
 accepted contract: compiled execution is selected and CV is diagnostic only.
-Spec 0013 is complete. Do not rerun, add an arm, assemble the full VAE, or add
-runtime options; request separate authorization for full-model coding.
+Spec 0013 is complete. Initial compilation duration is excluded; only settled
+compiled execution matters. Do not rerun or add mechanics/runtime arms. The next
+task, only after explicit user authorization and preferably in a fresh window,
+is a new spec-driven slice that assembles and locally verifies the fixed
+43-convolution equivariant VAE. Do not launch full-model Kaggle work or training
+as part of that coding authorization unless separately requested.
 ```
 
 Baseline full training and final-output verification are complete. The continuous-`SO(2)`

@@ -25,7 +25,7 @@ Read first:
 
 | Spec | Status | Blocked By | Next Action |
 | --- | --- | --- | --- |
-| `0001-translatable-normal-vae-baseline.md` | Normal-VAE control implemented and verified at update 60000; beta `0.01`, fixed-25 evidence, and final checkpoint are locked. | Matched continuous `SO(2)` implementation/run, downstream probes, and sealed masked-WSI test evidence. | Preserve the shared baseline contract during the locked Spec 0013 probe. |
+| `0001-translatable-normal-vae-baseline.md` | Normal-VAE control implemented and verified at update 60000; beta `0.01`, fixed-25 evidence, and final checkpoint are locked. | Matched continuous `SO(2)` implementation/run, downstream probes, and sealed masked-WSI test evidence. | Preserve the shared baseline contract during the separately authorized full equivariant-VAE implementation. |
 | `0002-strict-python-quality-gate.md` | Active and passing: 701 tests passed, 1 expected GPU-only skip, Ruff clean, BasedPyright 0 errors on 2026-08-12. | None. | Rerun `./scripts/python_quality.sh` for Python changes. |
 | `0003-kaggle-cli-execution-workflow.md` | Implemented and proven through guarded push/status/output plus three checkpoint-only baseline sessions. | Remote actions still require explicit approval and confirmation variables. | Reuse the guarded workflow for the continuous-`SO(2)` experiment. |
 | `0006-selected-runtime-local-mechanics.md` | Implemented, locally verified, and exercised by the completed baseline. | None. | Maintain fail-closed runtime identity/checkpoint checks. |

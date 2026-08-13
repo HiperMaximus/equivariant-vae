@@ -961,7 +961,8 @@ Spec 0013 local probe are complete. Dual-T4 v2 from `afec7af` validates the
 corrected accuracy/runtime path and identifies padded `bmm` plus direct
 assembly as fastest. The singular four-path dual-T4 confirmation passes the
 accepted compiled-performance contract; correlated CV remains diagnostic. Do
-not rerun, add an arm, or assemble the full VAE without separate authorization.
-Once the full model is authorized, Spec 0011 may
+not rerun or add an arm. Full-VAE assembly is the next implementation slice,
+but it requires separate explicit authorization and should start in a fresh
+window/session with a new active spec. Once the full model is authorized, Spec 0011 may
 likewise run a few targeted batch/runtime probes instead of assuming every
 baseline value transfers or recreating the discarded generic search.

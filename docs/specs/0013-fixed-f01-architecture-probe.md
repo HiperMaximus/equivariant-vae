@@ -531,10 +531,10 @@ must be measured on the assembled model by Spec 0011 before any run. The
 isolated `<14.5/<13.5 GiB` limits are only fail-fast bounds for an obviously
 unusable block implementation.
 
-If any final correctness, performance, or memory limit fails, stop and report
-the evidence. Do not revise mechanics, runtime, field multiplicities, or radial
-profiles within this spec. Spec 0011 and full-model coding remain blocked until
-a new explicit decision or a passing Spec 0013 probe.
+The accepted v3 evidence closes this gate. Do not revise mechanics, runtime,
+field multiplicities, or radial profiles within this completed spec. A new
+explicitly authorized implementation spec must own full-model assembly; later
+full-model runtime measurement remains Spec 0011 work.
 
 ## Outputs And Acceptance Artifacts
 

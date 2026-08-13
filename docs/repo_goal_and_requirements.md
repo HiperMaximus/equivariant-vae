@@ -1,7 +1,7 @@
 # Repo Goal And Requirements Tracker
 
 Status: active tracker
-Last updated: 2026-08-11
+Last updated: 2026-08-13
 
 This document keeps the repo horizon visible. It consolidates the research goal,
 GitHub issue requirements, paper obligations, and evaluation artifacts so they
@@ -25,8 +25,9 @@ Build and evaluate a comparable pair of histopathology patch VAEs:
 
 1. The completed 60000-update non-equivariant denoising VAE control, whose operations
    translate to the steerable model.
-2. The next gate: a continuous `SO(2)`-steerable denoising VAE implemented with repo-owned,
-   compile-compatible SO(2) layers, using `escnn` as a reference.
+2. The next gate: assemble the full continuous `SO(2)`-steerable denoising VAE
+   from the accepted repo-owned, compile-compatible Spec 0013 mechanics, using
+   `escnn` only as a reference. This is a new, separately authorized slice.
 
 The final claim should compare models that share:
 
@@ -56,7 +57,7 @@ The final claim should compare models that share:
 | Issue #4, VAE validation | Implement latent visualization "a la EQ-VAE". | `paper/sipaim2026/figures/latent_pca_eqvae_style.*`. |
 | Issue #5, SIPAIM writing | Maintain SIPAIM paper base in IEEE conference style. | `paper/sipaim2026/main.tex`, `sipaim2026.pdf`, Overleaf project. |
 | Issue #5, SIPAIM writing | Keep outline, related work, methodology, experiments, and result placeholders current. | Updated paper sections and tracked compiled PDF. |
-| Issue #6, equivariant validation | Use continuous `SO(2)` as the target symmetry with a repo-owned implementation; use `escnn` as a reference, not the runtime dependency. | Config records field frequencies through `F2`, pair-derived spatial kernel orders through q=4, and the custom layer/downsample implementation choices. |
+| Issue #6, equivariant validation | Use continuous `SO(2)` as the target symmetry with a repo-owned implementation; use `escnn` as a reference, not the runtime dependency. | Specs 0012/0013 record the selected F0/F1 layout, q<=2 support, fixed layer/downsample mechanics, and accepted compiled probe evidence. |
 | Issue #6, equivariant validation | Validate nonlinearities, normalization, upsampling, VAE sampling, and latent statistics for equivariance before full runs. | Unit/block tests plus a small feasibility report. |
 
 ## Required Evaluation Artifacts
