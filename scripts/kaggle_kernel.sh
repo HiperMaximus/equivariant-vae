@@ -55,7 +55,7 @@ fixed25_selector_kernel_dir="kaggle/kernels/fixed25_selector"
 fixed25_selector_output_dir="runs/kaggle/fixed25_selector"
 selected_runtime_compile_probe_kernel_dir="kaggle/kernels/selected_runtime_compile_probe"
 so2_architecture_probe_kernel_dir="kaggle/kernels/so2_architecture_probe"
-so2_architecture_probe_output_dir="runs/kaggle/so2_architecture_probe"
+so2_architecture_probe_output_dir="runs/kaggle/so2_architecture_probe_v2"
 
 usage() {
   cat <<'EOF'
@@ -1356,9 +1356,10 @@ PYSO2METADATA
   local run_file="$kernel_dir/run.py"
   for required_text in \
     "spec0013_so2_dual_t4_probe.json" \
-    "spec0013.so2_dual_t4_probe.v1" \
-    "locked_so2_architecture_mechanics" \
+    "spec0013.so2_dual_t4_follow_up.v1" \
+    "locked_so2_architecture_mechanics_follow_up" \
     "compile_step_python_reducer_fp16_channels_last" \
+    "e9e998fd161f0955959c64aed7cd7ddbdfcb55a271b9ce05805903c97c93efb8" \
     "torch.distributed.run" \
     "--nproc_per_node=2" \
     "eqvae.benchmarking.so2_architecture_probe" \
@@ -1386,7 +1387,11 @@ with zipfile.ZipFile(io.BytesIO(base64.b64decode(match.group("payload")))) as ar
 required = (
     "PER_DEVICE_BATCH: Final = 4",
     "SETTLED_UPDATES: Final = 32",
+    "FOLLOW_UP_WARMUPS: Final = 20",
+    "FOLLOW_UP_WINDOW_UPDATES: Final = 50",
     'RUNTIME_BUNDLE_ID: Final = "compile_step_python_reducer_fp16_channels_last"',
+    "class _DDirectAssemblyConv",
+    "class _DPaddedBmmAssemblyConv",
     "SO2LargestDDConv",
     "def _gradient_mean_check(",
     "def _check_buffers_across_ranks(",

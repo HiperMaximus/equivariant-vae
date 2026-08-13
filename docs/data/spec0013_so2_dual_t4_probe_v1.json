@@ -1,0 +1,180 @@
+{
+  "schema_version": "spec0013.so2_dual_t4_probe_summary.v1",
+  "status": "fail",
+  "measured_at": "2026-08-13",
+  "source_commit": "e57f08606ae6c0a44a16bf4cdc92f439bf56e5ef",
+  "kaggle_kernel": "maximusshtefan/eqvae-so2-architecture-probe",
+  "kaggle_kernel_version": 1,
+  "raw_download": {
+    "artifact_sha256": "1b85def11942815996c3e3def4b0733e522767c4cc833344af9b808a6b05763f",
+    "log_sha256": "cbab39ffa59dcae1fd1bbdecd0aa7b708f3efa8ba79ca5f2c9fb8e2ae88f4bb7"
+  },
+  "hardware_runtime": {
+    "gpu_names": ["Tesla T4", "Tesla T4"],
+    "torch_version": "2.13.0+cu130",
+    "cuda_version": "13.0",
+    "world_size": 2,
+    "nproc_per_node": 2,
+    "per_device_batch_size": 4,
+    "runtime_policy_id": "compile_step_python_reducer_fp16_channels_last",
+    "selected_runtime_sha256": "e9e998fd161f0955959c64aed7cd7ddbdfcb55a271b9ce05805903c97c93efb8",
+    "requested_equals_effective": true
+  },
+  "compiled_ddp_updates": {
+    "warmup_updates": 5,
+    "settled_updates": 32,
+    "amp_skip_count": 0,
+    "nonfinite_loss_count": 0,
+    "finite_parameters": true,
+    "initial_graph_break_count": 0,
+    "post_settle_graph_break_count": 0,
+    "post_settle_recompile_count": 0,
+    "peak_allocated_mib": 797.03955078125,
+    "peak_reserved_mib": 950.0,
+    "persistent_buffer_count": 38,
+    "persistent_buffers_identical_across_ranks": true
+  },
+  "gradient_mean_reference": {
+    "status": "pass",
+    "local_pre_reduction_gradients_differ": true,
+    "reduced_gradient_max_abs_error": 2.7939677238464355e-09,
+    "final_update_max_abs_error": 3.725290298461914e-09
+  },
+  "accuracy_worst_across_ranks": {
+    "identity_A": {
+      "output_relative_rms": 0.000470845087455077,
+      "max_coefficient_gradient_relative_rms": 0.01764302888457724,
+      "output_limit": 0.005,
+      "gradient_limit": 0.02,
+      "status": "pass"
+    },
+    "encoder_A_to_B": {
+      "output_relative_rms": 0.0006193399028179381,
+      "max_coefficient_gradient_relative_rms": 0.012899704795624946,
+      "output_limit": 0.005,
+      "gradient_limit": 0.02,
+      "status": "pass"
+    },
+    "decoder_B_to_A": {
+      "output_relative_rms": 0.0005742087725118982,
+      "max_coefficient_gradient_relative_rms": 0.05019413731332593,
+      "output_limit": 0.005,
+      "gradient_limit": 0.02,
+      "status": "fail_gradient"
+    },
+    "largest_D_to_D": {
+      "output_relative_rms": 0.00045912851654831015,
+      "max_coefficient_gradient_relative_rms": 0.0020007278355180552,
+      "output_limit": 0.005,
+      "gradient_limit": 0.02,
+      "status": "pass"
+    }
+  },
+  "timing_rank0": {
+    "identity_A": {
+      "eager_fp16_step_ms_p50": 111.49816649998456,
+      "compiled_fp16_step_ms_p50": 48.43541250005501,
+      "normal_compiled_step_ms_p50": 26.353115000006255,
+      "compiled_over_eager": 0.4344054617262403,
+      "equivariant_over_normal": 1.83793879774909,
+      "eager_cv": 0.006109905341275809,
+      "compiled_cv": 0.03577810684501486,
+      "normal_cv": 0.018203576455551006
+    },
+    "encoder_A_to_B": {
+      "eager_fp16_step_ms_p50": 111.14401100002169,
+      "compiled_fp16_step_ms_p50": 59.78185949999215,
+      "normal_compiled_step_ms_p50": 29.359513000031257,
+      "compiled_over_eager": 0.5378774705186813,
+      "equivariant_over_normal": 2.0362006515546938,
+      "eager_cv": 0.0067872362592375415,
+      "compiled_cv": 0.019912497235799936,
+      "normal_cv": 0.03096481095828155
+    },
+    "decoder_B_to_A": {
+      "eager_fp16_step_ms_p50": 156.0295680000081,
+      "compiled_fp16_step_ms_p50": 81.03597800004536,
+      "normal_compiled_step_ms_p50": 40.79763300001105,
+      "compiled_over_eager": 0.5193629581800877,
+      "equivariant_over_normal": 1.9862911654708846,
+      "eager_cv": 0.01338265424279043,
+      "compiled_cv": 0.014250025588877452,
+      "normal_cv": 0.03219199892436637
+    },
+    "largest_D_to_D": {
+      "eager_fp16_step_ms_p50": 5.298798500064095,
+      "compiled_fp16_step_ms_p50": 4.888877499979571,
+      "normal_compiled_step_ms_p50": 4.788842499976909,
+      "compiled_over_eager": 0.9226388774588117,
+      "equivariant_over_normal": 1.0208891814677858,
+      "eager_cv": 0.1738488023341753,
+      "compiled_cv": 0.029333858439652295,
+      "normal_cv": 0.11138552845341441
+    }
+  },
+  "timing_rank1": {
+    "identity_A": {
+      "eager_fp16_step_ms_p50": 111.37320899996439,
+      "compiled_fp16_step_ms_p50": 48.5483575000103,
+      "normal_compiled_step_ms_p50": 26.42542749998711,
+      "compiled_over_eager": 0.4359069648430963,
+      "equivariant_over_normal": 1.8371834287272735,
+      "eager_cv": 0.005966920527844585,
+      "compiled_cv": 0.029088612361823186,
+      "normal_cv": 0.019263281885800357
+    },
+    "encoder_A_to_B": {
+      "eager_fp16_step_ms_p50": 111.26416549996065,
+      "compiled_fp16_step_ms_p50": 59.801570499985246,
+      "normal_compiled_step_ms_p50": 29.301657999951658,
+      "compiled_over_eager": 0.5374737700253223,
+      "equivariant_over_normal": 2.0408937439677954,
+      "eager_cv": 0.00658293762878013,
+      "compiled_cv": 0.019513616933358208,
+      "normal_cv": 0.030640614263583187
+    },
+    "decoder_B_to_A": {
+      "eager_fp16_step_ms_p50": 155.9201274999964,
+      "compiled_fp16_step_ms_p50": 81.06057050002846,
+      "normal_compiled_step_ms_p50": 40.83885300002521,
+      "compiled_over_eager": 0.5198852245681388,
+      "equivariant_over_normal": 1.9848885202524769,
+      "eager_cv": 0.013941483421037158,
+      "compiled_cv": 0.013308887559679291,
+      "normal_cv": 0.03250016344645232
+    },
+    "largest_D_to_D": {
+      "eager_fp16_step_ms_p50": 5.338698000002751,
+      "compiled_fp16_step_ms_p50": 4.87676650004687,
+      "normal_compiled_step_ms_p50": 4.7742909999897165,
+      "compiled_over_eager": 0.9134748772161971,
+      "equivariant_over_normal": 1.021464024722702,
+      "eager_cv": 0.16810266339896904,
+      "compiled_cv": 0.030303277450507152,
+      "normal_cv": 0.11858148319522588
+    }
+  },
+  "topology_weighted_equivariant_over_normal": 1.8280971449507937,
+  "topology_weighted_limit": 5.0,
+  "largest_D_to_D_assembly_fraction_by_rank": [
+    0.4069684441893992,
+    0.4131681366766868
+  ],
+  "assembly_fraction_limit": 0.1,
+  "acceptance_failures": [
+    "assembly_fraction",
+    "rank0:decoder_B_to_A:gradient",
+    "rank0:largest_D_to_D:eager_timing_cv",
+    "rank0:largest_D_to_D:normal_timing_cv",
+    "rank1:decoder_B_to_A:gradient",
+    "rank1:largest_D_to_D:eager_timing_cv",
+    "rank1:largest_D_to_D:normal_timing_cv"
+  ],
+  "interpretation": {
+    "architecture_correctness": "Local escnn/FP64 gates and remote outputs pass; review invalidated the decoder gradient diagnostic because it omitted the selected GradScaler and compiled-autograd path.",
+    "runtime_transfer": "The selected baseline bundle transfers cleanly for DDP, compile stability, numerical finiteness, VRAM, latency ratios, and weighted control ratio.",
+    "credible_acceptance_failure": "Kernel expansion/assembly fraction is 40.7-41.3% against the unchanged 10% limit.",
+    "invalidated_diagnostics": "The decoder gradient path lacked GradScaler/compiled autograd; D-to-D eager/control timing included host scalar synchronization.",
+    "full_vae_status": "blocked"
+  }
+}

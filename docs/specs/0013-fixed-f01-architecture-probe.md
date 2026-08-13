@@ -1,8 +1,8 @@
 # Spec 0013: Fixed F01 Architecture Probe
 
-Status: local implementation verified / dual-T4 mechanics evidence pending
+Status: dual-T4 v1 measured fail / v2 follow-up locally verified
 Owner/workstream: one-off continuous-`SO(2)` architecture probe
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 
 ## Purpose
 
@@ -41,7 +41,7 @@ specialized convolution map kinds, fixed field norm/gates and resampling, one
 identity block, one encoder transition, one decoder transition, RGB lift/head,
 and scalar latent heads. It does not assemble or expose the full VAE. The
 focused CPU evidence is tracked in
-`docs/data/spec0013_so2_cpu_probe.json`: all 64 tests pass, every one-copy and
+`docs/data/spec0013_so2_cpu_probe.json`: all 67 tests pass, every one-copy and
 multi-copy escnn comparison passes, all 40 selected pair/angle rows pass the
 escnn-relative sampled-equivariance rule, and the exact eventual count remains
 `1,180,035`.
@@ -50,9 +50,57 @@ The one-use dual-T4 runner is locally built and guarded at
 `kaggle/kernels/so2_architecture_probe`. It reads and hashes the exact selected
 Spec 0011 runtime plan, verifies compiler/DDP readbacks, measures the four fixed
 signatures against matched controls, and makes all accuracy, AMP, finiteness,
-timing-CV, latency, assembly, graph, and VRAM limits load-bearing. No remote
-write has occurred. Full-VAE assembly remains blocked until that separately
-authorized run passes.
+timing-CV, latency, assembly, graph, and VRAM limits load-bearing. Version 1 is
+complete; no version-2 remote write has occurred. Full-VAE assembly remains
+blocked until one candidate is singularized and the complete probe passes.
+
+### Dual-T4 v1 result and fixed follow-up
+
+Private Kaggle kernel version 1 ran from clean commit `e57f086` on 2026-08-13.
+Its compact tracked summary is
+`docs/data/spec0013_so2_dual_t4_probe_v1.json`. Runtime transfer itself was
+healthy: 32 settled DDP updates completed with zero AMP skips, nonfinite values,
+graph breaks, or post-settle recompiles; persistent buffers matched across
+ranks; peak allocated/reserved memory was only `797/950 MiB`; compiled block
+latency was `0.43..0.92x` eager and `1.02..2.04x` matched normal controls; the
+topology-weighted ratio was `1.828`.
+
+The current mechanics did not pass. The credible failure is the compiled FP16
+`D -> D` coefficient-expansion-plus-assembly fraction: `0.407/0.413` across
+ranks versus the unchanged `0.10` limit. V1 also exposed two measurement-path
+defects that must be corrected, not waived: the decoder gradient diagnostic
+omitted the selected GradScaler/compiled-autograd path, and the short D-to-D
+eager/control timing body performed host scalar synchronizations. The observed
+decoder gradient `0.05019` and eager/control CV failures are therefore not
+accepted as model/runtime failures.
+
+Exactly one targeted follow-up is predeclared before another remote write:
+
+1. Make the accuracy diagnostic use selected FP16 autocast, GradScaler,
+   compiled autograd, and unscaled FP32 master gradients. Retain the `2e-2`
+   limit and record the worst parameter name, reference RMS, and difference
+   RMS.
+2. Move GradScaler and finiteness scalar reads outside timed intervals. For the
+   short D-to-D row use 20 settled warmups and two untrimmed 50-sample windows,
+   recording every sample; require each window and their pool to keep CV
+   `<=10%`, and retain the compiled/eager and equivariant/normal limits.
+3. Compare only three fixed D-to-D contraction/assembly arms: current four
+   `mm` plus three cats; the same four `mm` plus one fresh final buffer with four
+   non-overlapping fixed slice writes; and one padded four-bank `bmm` plus the
+   same direct final assembly. Reverse arm order in the second timing window.
+4. Keep coefficients, bases, layouts, parameter count, FP16 policy, gradient
+   and output limits, graph/VRAM gates, and the `10%` assembly limit unchanged.
+   Require the assembly fraction in each timing window and their pool; bind the
+   candidate buffers, graph/recompile counters, and VRAM measurements to the
+   candidate run itself.
+   Select the lowest worst-rank compiled median only among fully passing arms.
+   If none passes, stop; do not add another arm or runtime axis.
+5. After a candidate passes this isolated comparison, make it the singular
+   fixed implementation and run the complete four-signature acceptance probe.
+
+This is an architecture-specific mechanics comparison forced by measurement,
+not a runtime tuner. It does not reopen profiles, multiplicities, F2, or the
+full-VAE scope.
 
 ## Non-Goals
 
@@ -418,10 +466,8 @@ The local implementation produces:
   public API;
 - focused CPU tests;
 - one compact tracked CPU mechanics/equivariance summary;
-- one narrow guarded runner that will write one compact tracked dual-T4 summary
-  with runtime fingerprint, graph counters, accuracy, latency,
-  temporary-memory, VRAM, and pass/fail fields after explicit remote-write
-  permission; no multi-arm controller or generic configuration system.
+- one narrow guarded runner and the fixed measured three-arm follow-up described
+  above; no extensible controller or generic configuration system.
 
 ## Acceptance Criteria Before Full-VAE Coding
 
@@ -430,13 +476,14 @@ The local implementation produces:
    assembly, and exactly one dense `conv2d`.
 3. Pass: focused escnn, gradient, layout, norm, gate, bias, residual,
    resampling, RGB, and scalar-latent checks pass.
-4. Partial: CPU fullgraph mechanics pass; the explicit dual-T4 limits await a
-   separately authorized Kaggle run.
+4. Partial: CPU fullgraph mechanics and both follow-up candidates pass locally;
+   dual-T4 v1 failed expansion/assembly, and v2 awaits a separately authorized
+   Kaggle run.
 5. Pass: counts remain exactly 1,172,304 coefficients, 3,600 norm parameters,
    4,096 gate parameters, 35 scalar biases, and 1,180,035 total learned
    parameters for the eventual 43-convolution topology.
-6. Partial: local evidence and handoffs are updated; the exact next step is the
-   guarded dual-T4 run, not full-VAE coding.
+6. Partial: v1 evidence and handoffs are updated; the exact next step is the
+   guarded follow-up, not full-VAE coding.
 
 Only then may a separate implementation step assemble the full equivariant VAE.
 
@@ -455,16 +502,16 @@ The exact local verification commands are:
 git diff --check
 ```
 
-The focused tests pass `64 passed` with 329 pinned-escnn/SciPy deprecation
+The focused tests pass `67 passed` with 329 pinned-escnn/SciPy deprecation
 warnings. Ruff format/lint and BasedPyright pass. The exact artifact check and
 local Kaggle preflight pass. Remote writes remain explicitly permission-gated.
 
 ## Implementation Blockers
 
-None for the local probe. The remote guard requires this reviewed work to be in
-a clean source commit plus fresh explicit Kaggle write permission. No follow-up
-arms are predeclared because the selected baseline bundle must be measured
-first.
+None for the local follow-up. The remote guard requires this reviewed work to
+be in a clean source commit plus fresh explicit Kaggle write permission. The
+three arms above are the complete predeclared set; no additional candidate or
+runtime axis is authorized if they fail.
 
 ## Adversarial Review Findings
 
@@ -478,6 +525,18 @@ control CV plus AMP/finiteness rows, and a fresh embedded runner; each was
 added. The reviewer also caught an early raw-module timing draft; the final
 probe times DDP-wrapped modules under the selected runtime and measures
 assembly in the compiled FP16 path.
+
+After v1, fresh read-only mathematical review identified the unscaled FP16
+gradient diagnostic and required GradScaler, compiled autograd, unscaled master
+gradients, and named worst-gradient evidence. Fresh performance/scope review
+identified host synchronizations in timed telemetry and required the fixed
+three-arm, two-window comparison with raw samples and unchanged limits. The
+final reviews also made selection fail closed on global accuracy failures,
+bound buffer/graph/VRAM evidence to the candidates, made each window's assembly
+fraction load-bearing, pinned the reviewed Spec 0011 runtime SHA-256, and
+versioned the v2 download destination. The local implementation and tests
+include each correction; neither review found grounds to change the
+architecture or tolerance.
 
 ## Known Risks
 
@@ -507,8 +566,9 @@ assembly in the compiled FP16 path.
 
 ## Open Questions
 
-None that block implementation. The dual-T4 result may force a narrow revision
-of the contraction/assembly choice, but not a new architecture search.
+The predeclared follow-up must determine whether any of the three fixed
+contraction/assembly choices meets the unchanged limit. No architecture search
+or additional arm is permitted if all three fail.
 
 ## Related Files
 

@@ -1,16 +1,16 @@
 {
   "schema_version": "spec0013.so2_cpu_probe.v1",
   "status": "pass",
-  "measured_at": "2026-08-12",
-  "git_head": "536b80f62c678286fe4d6be872d840f3028e89d6",
+  "measured_at": "2026-08-13",
+  "git_head": "e57f08606ae6c0a44a16bf4cdc92f439bf56e5ef",
   "worktree_dirty": true,
   "source_files_sha256": {
     "src/eqvae/models/so2_architecture_probe.py": "526571e3a3d8a980016093f84c138c5ccd33d26c751bf78fbb9bc1cffdd9d365",
-    "src/eqvae/benchmarking/so2_architecture_probe.py": "4b6062b296c21b49f59bde0cd6c746ddbc00223065eb7f553a52538ee17197f4",
+    "src/eqvae/benchmarking/so2_architecture_probe.py": "7f260b50ad86e987ed5284dd135d36700a9047f01085c68366d253092fe61ea6",
     "tests/test_so2_architecture_probe.py": "0275033f6c8d5057a34ae2c90fa83502a75ef98feb7257adcdd05890d354f4c1",
-    "tests/test_so2_architecture_probe_kernel.py": "7f311522f7799cef1098ca579bc6c7972def42cb9d8677f770bd22d056aedabc",
-    "kaggle/kernels/so2_architecture_probe/run_template.py": "cd5d73ae54fe2ddd1c917ffe15067920fe5533453e74494f1f07b7959502176d",
-    "scripts/kaggle_kernel.sh": "c501513e492c29d7445a94d734132f9040a443b84a8f3dd1bb09a85e11a96249"
+    "tests/test_so2_architecture_probe_kernel.py": "a7fbfcc2638680e0a16e3fd3aa289e9665af9a5998a39b0e3d05111aa6800aa9",
+    "kaggle/kernels/so2_architecture_probe/run_template.py": "9ca35b45258064c4b0e7bb3ee23a755fef9739b8b734e51257e95533989bfc86",
+    "scripts/kaggle_kernel.sh": "01588a16e7f01ca57d599c78564f0693996dc34127dbaa9a2572c5cf7fed1eee"
   },
   "runtime": {
     "python": "3.12.3",
@@ -177,7 +177,7 @@
   "verification": {
     "pytest": {
       "command": ".venv/bin/pytest -q tests/test_so2_basis.py tests/test_so2_architecture_probe.py tests/test_so2_architecture_probe_kernel.py",
-      "result": "64 passed, 329 pinned-escnn/SciPy deprecation warnings in 14.57s"
+      "result": "67 passed, 329 pinned-escnn/SciPy deprecation warnings in 10.73s"
     },
     "ruff": "pass",
     "basedpyright": "pass",
@@ -205,7 +205,7 @@
     }
   },
   "dual_t4": {
-    "status": "pending_clean_source_commit_and_fresh_explicit_remote_write_permission",
+    "status": "follow_up_locally_verified_pending_clean_source_commit_and_fresh_explicit_remote_write_permission",
     "kernel": "kaggle/kernels/so2_architecture_probe",
     "local_preflight_command": "./scripts/kaggle_kernel.sh preflight-so2-architecture-probe"
   }

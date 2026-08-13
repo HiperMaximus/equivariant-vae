@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 
 ## Fresh-session start here
 
@@ -109,7 +109,7 @@ locked norm/gates, identity block, encoder/decoder transitions, resampling, RGB
 interfaces, and scalar latent heads. It does not assemble or expose the
 43-convolution VAE. Exact eventual counts remain `1,180,035`.
 
-Focused local verification passes: 64 tests with 329 pinned-escnn/SciPy
+Focused local verification passes: 67 tests with 329 pinned-escnn/SciPy
 deprecation warnings, Ruff format/lint, BasedPyright, exact check-only
 128-trial layout refresh, generated-kernel local preflight, and agent preflight.
 All pair banks and multi-copy signatures match the pinned escnn reference;
@@ -129,15 +129,31 @@ fullgraph and initial-break evidence, load-bearing AMP/finiteness and all timing
 CVs, DDP-wrapped matched timing, and compiled-FP16 assembly timing; all were
 added. The generated runner was rebuilt after the final source changes.
 
-The one-use private no-dataset dual-T4 probe is locally ready at
-`kaggle/kernels/so2_architecture_probe`. It begins with the exact selected Spec
-0011 bundle and has no generic runtime axes. No Kaggle remote write has occurred.
-The remote guard intentionally rejects a dirty source tree. The exact next step
-is to review and commit this slice, then obtain fresh explicit permission for
-the first mechanics run. If every limit passes, select it and stop; only a
-concrete measured failure may justify a small predeclared follow-up. Do not
-assemble the full VAE until the dual-T4 probe passes and full-model coding is
-separately authorized.
+The reviewed local slice was committed and pushed as `e57f086`. With explicit
+permission, private Kaggle kernel version 1 ran the exact selected Spec 0011
+bundle on two T4s and produced a valid fail artifact, now summarized at
+`docs/data/spec0013_so2_dual_t4_probe_v1.json`. The runtime transfer was healthy:
+32 settled updates, zero AMP skips/nonfinite values/graph breaks/recompiles,
+matching cross-rank buffers and DDP mean/update reference, `797/950 MiB`
+allocated/reserved, `0.43..0.92x` compiled/eager, `1.02..2.04x` EQ/normal, and
+`1.828x` topology-weighted EQ/normal.
+
+The real blocker is expansion plus assembly at `0.407/0.413` of the compiled
+D-to-D forward versus the unchanged `0.10` limit. Review found the decoder
+gradient failure (`0.05019`) was measured without the selected GradScaler and
+compiled-autograd path, while the short eager/control CV failures included
+host scalar synchronizations inside the timed body; those are measurement
+defects, not accepted model failures. Spec 0013 now predeclares exactly one
+narrow follow-up: correct both diagnostics and compare only current four-mm/
+three-cat, four-mm/direct-buffer, and padded-bmm/direct-buffer D-to-D mechanics
+with two untrimmed 50-sample windows. Corrected eager/compiled/control updates,
+per-window assembly fractions, candidate buffer/graph/VRAM evidence, and the
+immutable selected-runtime hash are load-bearing. All architecture and
+acceptance limits remain fixed. Local kernel/output/input-gradient/all-
+coefficient-gradient parity and CPU fullgraph tests pass for both candidates.
+No second Kaggle write has occurred; the exact next action is fresh explicit
+permission for version 2.
+Full-VAE coding remains blocked.
 
 This remains one-off experiment code. Do not ship runtime architecture,
 support, radial, field-layout, or group options; do not retain rejected
@@ -441,10 +457,11 @@ control's learned representation is correctly not claimed to be equivariant.
    under the user's stated tolerance; do not hide or rewrite its legacy telemetry.
 10. Treat Spec 0012's radial basis oracle, F01 selection, equal-copy count/init
     refresh, manifest handoff, and Spec 0013's fixed local mechanics/CPU proof
-    as complete. The guarded dual-T4 probe is locally ready and unlaunched.
-    Review and commit this slice, obtain fresh explicit permission, and run that
-    exact selected-runtime bundle next. Do not yet assemble the final
-    convolution topology or full VAE.
+    as complete. Treat private dual-T4 version 1 from `e57f086` as a measured
+    mechanics failure, not infrastructure failure. Preserve its tracked compact
+    summary. Complete only the predeclared three-arm D-to-D follow-up and request
+    fresh permission before version 2. Do not yet assemble the final convolution
+    topology or full VAE.
 
 Fresh-session launch prompt for the next step:
 
@@ -455,12 +472,11 @@ GOAL.md, Spec 0012, Decision 0004, and the referenced baseline/model sources
 before acting. This is one one-off experiment, not a reusable equivariance
 library.
 
-Treat the completed Spec 0012 oracle and locally verified Spec 0013 mechanics
-as source of truth. Inspect the fixed no-dataset dual-T4 runner and local
-preflight, then request fresh permission for its first Kaggle write. Start with
-the exact selected Spec 0011 bundle and stop if all limits pass. Do not assemble
-the full equivariant VAE, add runtime architecture options, or launch Kaggle
-without that separate explicit approval.
+Treat the completed Spec 0012 oracle, locally verified Spec 0013 mechanics, and
+tracked dual-T4 v1 failure summary as source of truth. Complete only the
+predeclared corrected three-arm D-to-D follow-up. Preserve every architecture
+and tolerance. After local review and a clean commit, request fresh permission
+for Kaggle v2. Do not assemble the full equivariant VAE or add runtime options.
 ```
 
 Baseline full training and final-output verification are complete. The continuous-`SO(2)`

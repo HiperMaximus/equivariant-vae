@@ -1,9 +1,9 @@
 # Spec 0012: Continuous SO(2) VAE Architecture
 
-Status: radial/layout oracle complete / equal-copy F01 fixed / local mechanics verified
-Full-VAE readiness: blocked by Spec 0013 dual-T4 mechanics evidence
+Status: radial/layout oracle complete / equal-copy F01 fixed / dual-T4 v2 pending
+Full-VAE readiness: blocked by Spec 0013 expansion/assembly gate
 Owner/workstream: matched continuous-`SO(2)` VAE
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 
 ## Purpose
 
@@ -80,10 +80,13 @@ and locked-premise sections are unchanged by the refresh.
 Spec 0013's local architecture probe now implements and verifies the fixed
 `torch.mm` pair expansions, static minimal block assembly, one dense `conv2d`,
 field norm/gate AMP rules, compile guards, and focused escnn/CPU tests. Its
-guarded dual-T4 runner is locally ready but has not been pushed. The exact next
-step is the separately authorized first dual-T4 mechanics run with the selected
-baseline runtime bundle. The full convolution topology and VAE remain
-unauthorized until that probe passes.
+first dual-T4 run transferred the selected runtime correctly but measured
+expansion plus assembly at `0.407..0.413` of the D-to-D forward, above Spec
+0013's `0.10` limit. The exact next step is the single predeclared three-arm
+D-to-D mechanics comparison after corrected GradScaler and timing telemetry;
+both candidates pass local parity and CPU fullgraph checks. The full
+convolution topology and VAE remain unauthorized until the resulting singular
+mechanics pass full acceptance.
 
 ## Non-Goals
 
@@ -879,10 +882,11 @@ capacity convention.
 4. Complete: Spec 0013 locks RGB lifting/projection, field layout, residual
    compatibility, normalization, radial gates, resampling, contraction and
    assembly mechanics, and compiled dual-T4 acceptance limits.
-5. Partial: the local Spec 0013 implementation and CPU evidence pass; only its
-   dual-T4 acceptance remains before full-VAE coding. The accepted baseline
-   downsample phase error is reported rather than misclassified as a kernel
-   failure. Full runtime selection remains Spec 0011 work.
+5. Partial: the local Spec 0013 implementation and CPU evidence pass; dual-T4
+   v1 failed expansion/assembly and the locally verified narrow follow-up awaits
+   its remote run. The accepted baseline downsample phase error is reported
+   rather than misclassified as a kernel failure. Full runtime selection
+   remains Spec 0011 work.
 
 ## Related Files
 

@@ -1,6 +1,6 @@
 # Copyright 2026 HiperMaximus
 # ruff: noqa: EM101, TRY003
-"""Generated single-file launcher for the locked Spec 0013 dual-T4 probe."""
+"""Generated launcher for the locked Spec 0013 dual-T4 mechanics follow-up."""
 
 from __future__ import annotations
 
@@ -19,9 +19,12 @@ from typing import cast
 KAGGLE_SO2_ARCHITECTURE_PROBE_READY = True
 PROBE_MODULE = "eqvae.benchmarking.so2_architecture_probe"
 ARTIFACT_FILENAME = "spec0013_so2_dual_t4_probe.json"
-SCHEMA_VERSION = "spec0013.so2_dual_t4_probe.v1"
-PROBE_KIND = "locked_so2_architecture_mechanics"
+SCHEMA_VERSION = "spec0013.so2_dual_t4_follow_up.v1"
+PROBE_KIND = "locked_so2_architecture_mechanics_follow_up"
 RUNTIME_BUNDLE_ID = "compile_step_python_reducer_fp16_channels_last"
+SELECTED_RUNTIME_SHA256 = (
+    "e9e998fd161f0955959c64aed7cd7ddbdfcb55a271b9ce05805903c97c93efb8"
+)
 SELECTED_RUNTIME_PATH = Path("configs/spec0001/non_eq_vae_selected_runtime.json")
 SETTLED_UPDATES = 32
 PROBE_TIMEOUT_SECONDS = 10800
@@ -142,7 +145,11 @@ def _extract_payload(destination: Path) -> Path:
     return destination
 
 
-def _validate_artifact(*, output_dir: Path, payload_dir: Path) -> None:
+def _validate_artifact(  # noqa: C901, PLR0912
+    *,
+    output_dir: Path,
+    payload_dir: Path,
+) -> None:
     benchmark_dir = output_dir / "benchmark"
     observed = {path.name for path in benchmark_dir.iterdir()}
     if observed != {ARTIFACT_FILENAME}:
@@ -182,6 +189,8 @@ def _validate_artifact(*, output_dir: Path, payload_dir: Path) -> None:
             errors.append("effective runtime readback must match every requested field")
         selected_path = payload_dir / SELECTED_RUNTIME_PATH
         selected_hash = hashlib.sha256(selected_path.read_bytes()).hexdigest()
+        if selected_hash != SELECTED_RUNTIME_SHA256:
+            errors.append("bundled selected runtime does not match reviewed hash")
         if runtime.get("source_sha256") != selected_hash:
             errors.append("selected runtime source hash mismatch")
     updates = payload.get("compiled_ddp_updates")
@@ -192,6 +201,14 @@ def _validate_artifact(*, output_dir: Path, payload_dir: Path) -> None:
         errors.append("compiled DDP probe must complete 32 settled updates")
     if payload.get("acceptance_failures") != []:
         errors.append("acceptance_failures must be empty")
+    if payload.get("selected_arm") not in {
+        "four_mm_three_cat",
+        "four_mm_direct",
+        "padded_bmm_direct",
+    }:
+        errors.append("follow-up must select one predeclared passing arm")
+    if payload.get("follow_up_probe_permitted") is not False:
+        errors.append("follow-up runner must not authorize another remote arm")
     if errors:
         raise RuntimeError("; ".join(errors))
     if Path("/kaggle/working").exists() and output_dir != DEFAULT_OUTPUT_DIR:
