@@ -1,0 +1,119 @@
+{
+  "schema_version": "spec0016.v1",
+  "status": "fixed_so2_training_base",
+  "seeds": {
+    "global_seed": 20260610,
+    "data_seed": 20260610,
+    "corruption_seed": 20260611,
+    "latent_seed": 20260612
+  },
+  "model": {
+    "kind": "so2_vae_fixed",
+    "architecture_id": "spec0014_fixed_f01_so2_vae",
+    "topology_version": "spec0014.fixed_f01.v1",
+    "implementation_status": "fixed_real_data_training",
+    "input_shape": [1, 3, 256, 256],
+    "latent_shape": [1, 16, 32, 32],
+    "normalization": {"kind": "fixed_f01_field_norm", "force_fp32": true},
+    "activation": {
+      "kind": "fixed_f01_radial_gate",
+      "families": ["f0_scalar", "f1_radial"],
+      "force_fp32": true,
+      "lr_multiplier": 0.5,
+      "weight_decay": 0.0
+    },
+    "expected_model_count": {
+      "learned_convolution_count": 43,
+      "normalization_module_count": 40,
+      "gate_module_count": 34,
+      "gate_family_row_count": 68,
+      "total_learned_parameters": 1180035
+    }
+  },
+  "objective": {
+    "reconstruction": "l1_plus_0_1_ssim",
+    "ssim_weight": 0.1,
+    "kl_reduction": "mean_batch_channel_spatial",
+    "logvar_clamp": [-8.0, 4.0],
+    "beta": {
+      "target": 0.01,
+      "epoch_warmup_epochs": 1,
+      "step_limited_warmup_fraction": 0.1,
+      "first_successful_update_beta": 0.0,
+      "cyclic_restarts": false
+    }
+  },
+  "optimizer": {
+    "kind": "adamw",
+    "learning_rate": 0.0005,
+    "batch_lr_scaling": {
+      "reference_global_batch_size": 24,
+      "rule": "sqrt"
+    },
+    "betas": [0.9, 0.999],
+    "epsilon": 0.00000001,
+    "weight_decay": 0.00001,
+    "gradient_clip_global_norm": 1.0,
+    "lr_warmup_fraction": 0.05,
+    "lr_decay_min": 0.000005,
+    "lr_schedule": "cosine_decay_no_restarts",
+    "parameter_groups": {
+      "decay": {"weight_decay": 0.00001, "lr_multiplier": 1.0},
+      "no_decay": {"weight_decay": 0.0, "lr_multiplier": 1.0},
+      "gate_no_decay": {"weight_decay": 0.0, "lr_multiplier": 0.5}
+    }
+  },
+  "corruption": {
+    "kind": "tellez_hed_gaussian",
+    "implementation_status": "corruption_ready",
+    "corruption_version": "spec0001.hed_corruptor.v1",
+    "profile_name": "conservative_default",
+    "corrupt_prob": 0.3,
+    "he_alpha_range": [0.8, 1.2],
+    "he_beta_range": [-0.05, 0.05],
+    "residual_alpha_range": [0.98, 1.02],
+    "residual_beta_range": [-0.01, 0.01],
+    "noise_std_range": [0.0, 0.05],
+    "hed_matrix_source": "skimage.color.colorconv.rgb_from_hed",
+    "hed_matrix_version": "0.26.0",
+    "rgb_from_hed": [[0.65, 0.7, 0.29], [0.07, 0.99, 0.11], [0.27, 0.57, 0.78]],
+    "od_epsilon": 0.000001,
+    "uses_srgb_gamma_decode": false,
+    "rng_policy": "semantic_stateless_v1",
+    "semantic_seed_fields": [
+      "corruption_seed",
+      "split",
+      "semantic_sample_key",
+      "corruption_step",
+      "corruption_view",
+      "corruption_version"
+    ],
+    "rank_in_semantic_seed": false,
+    "clean_validation_consumes_rng": false,
+    "input_domain": "normalized_rgb_minus1_1",
+    "output_domain": "normalized_rgb_minus1_1",
+    "channel_order": "NCHW_RGB",
+    "final_clamp_min": -1.0,
+    "final_clamp_max": 1.0,
+    "metadata_schema_version": "spec0001.stain_corruptor.metadata.v1"
+  },
+  "fixed25_equivariance": {
+    "enabled": false,
+    "selector_config": "configs/spec0001/fixed_25_validation_patches.json",
+    "expected_count": 25,
+    "expected_per_label": 5,
+    "rotation": {"method": "rot90", "dims": [2, 3], "k_values": [0, 1, 2, 3]},
+    "latent": {
+      "transform": "rot90_scalar_field",
+      "source": "posterior_mu_deterministic",
+      "channels": 16,
+      "spatial": 32
+    },
+    "sampled_latent": {"paired_epsilon": true, "epsilon_seed": 20260612},
+    "equivariance": {"error_eps": 0.00000001},
+    "save_every_boundary": true,
+    "pca": {"methods": ["pca_top3", "first3"], "components": 3, "fit_scope": "per_image", "sign_convention": "unpinned"},
+    "error_maps": {"masked": false},
+    "promotable_requires_real_data": true
+  }
+}

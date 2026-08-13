@@ -1,0 +1,47 @@
+{
+  "schema_version": "spec0016.v1",
+  "status": "so2_full_packaged_pending_remote_prelaunch",
+  "run": {"name": "so2_spec0016_selected_runtime_full", "mode": "kaggle_selected_runtime_full_train"},
+  "source_config": "configs/spec0016/so2_training_base.json",
+  "data": {
+    "kind": "ubc-pre-shuffled",
+    "dataset_slug": "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+    "data_root": "auto",
+    "image_size": 256
+  },
+  "runtime": {
+    "machine_shape": "NvidiaTeslaT4",
+    "remote_execution_requires_permission": true,
+    "selected_runtime_required": true,
+    "runtime_config": "configs/spec0001/non_eq_vae_selected_runtime.json",
+    "required_prelaunch_output": "runs/kaggle/so2_prelaunch"
+  },
+  "optimizer": {"learning_rate": 0.000692820323027551},
+  "objective": {"beta": {"target": 0.01}},
+  "training": {
+    "epochs": 10,
+    "schedule_derivation": "epochs * steps_per_epoch, steps_per_epoch = floor(real_train_patch_count / global_batch); max_train_steps, half_epoch_interval_steps and save_every_steps are derived by the runner from the selected-runtime plan, never frozen here",
+    "validation_batches_per_view": 0,
+    "validation_views": ["clean", "deterministic_denoising"],
+    "train_reparameterization": "stochastic_seeded",
+    "deterministic_eps_allowed_for": ["debug", "tiny", "numerical_checks", "validation", "artifacts"],
+    "checkpoint_retention": "best_final_latest_four_interval",
+    "resume_supported": true,
+    "learning_rate_schedule": {
+      "kind": "linear_warmup_cosine_decay",
+      "warmup_updates": 600,
+      "warmup_start_factor": 0.1,
+      "minimum_effective_learning_rate": 0.00001
+    }
+  },
+  "selected_runtime_full": {
+    "so2_selected_runtime_full_contract_ready": true,
+    "fresh_start_required": true,
+    "normal_checkpoint_forbidden": true,
+    "required_prelaunch_output": "runs/kaggle/so2_prelaunch",
+    "remote_pass_ready": false,
+    "remote_launch_requires_explicit_approval": true,
+    "measured_cost_requires_user_acceptance": true
+  },
+  "fixed25_equivariance": {"enabled": true}
+}

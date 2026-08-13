@@ -225,6 +225,8 @@ kaggle/kernels/fixed25_selector/run.py
 kaggle/kernels/selected_runtime_compile_probe/run.py
 kaggle/kernels/so2_architecture_probe/run.py
 kaggle/kernels/so2_runtime_readiness/run.py
+kaggle/kernels/so2_prelaunch/run.py
+kaggle/kernels/so2_selected_runtime_full/run.py
 
 # Kaggle credentials
 .kaggle/

@@ -5,14 +5,17 @@ Last updated: 2026-08-13
 ## Fresh-session start here
 
 Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, active Specs
-0011-0015, and Decision 0004 completely. The normal-VAE baseline is complete;
+0011-0016, and Decision 0004 completely. The normal-VAE baseline is complete;
 the locked Spec 0012 architecture, accepted Spec 0013 mechanics, Spec 0014
 fixed 43-convolution SO(2) VAE, and Spec 0015 local selected-runtime integration
-and dual-T4 readiness are complete. Do not
+and dual-T4 readiness are complete. Spec 0016's one-off matched real-data
+prelaunch and fresh-full packages are implemented and locally verified. Do not
 reopen radial profiles, F2, multiplicities, topology, contraction/assembly arms,
-compilation-time tuning, or diagnostic timing CV. No next experiment is
-authorized: any real-data debug or full training requires separate explicit
-permission. Baseline
+compilation-time tuning, or diagnostic timing CV. The next possible action is
+one guarded real-data debug/resume/fixed-32 prelaunch at batch 25 per rank, but
+it still requires fresh explicit Kaggle permission. A full run remains blocked
+until that downloaded proof passes and the user accepts its measured projected
+cost. Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
 boundary. Its output and checkpoint are verified locally; the FSQ-aligned AMP runtime
@@ -65,6 +68,25 @@ Runtime selection, LR-range, debug, and tiny-overfit gates remain strict zero-sk
 The user locked beta `0.01` on 2026-08-09; do not run an intermediate beta probe.
 
 ## Current objective
+
+Spec 0016 is locally implemented. It keeps the normal run's exact selected
+runtime, seeds, optimizer, corruption/RNG policy, real UBC data, objective,
+beta `0.01`, LR schedules, debug/resume bounds, fixed-32 proof, and fixed-25
+protocol while replacing only the model with the fixed Spec 0014 `SO2VAE`.
+The shared runner now captures actual activation/dtype/gradient/update evidence
+for all 34 F0/F1 gates (68 rows) and records a synchronized final 20-update
+two-rank real-loader performance window with data wait, step time, VRAM
+headroom, and post-settlement compile counters. Normal-model behavior remains
+covered by regression tests.
+
+Two private script packages are locally ready: `eqvae-so2-prelaunch` runs
+debug 4, resume 4→8, and an independent 128-update fixed-32 proof; the separate
+`eqvae-so2-selected-runtime-full` starts fresh for 10 epochs. The downloaded
+prelaunch verdict is fail-closed and bound to a clean source commit plus hashes
+of the complete `src/eqvae`, Spec 0001/0016 configs, data selector input,
+launcher templates/metadata, lock, and project metadata. The full push guard
+also requires explicit measured-cost acceptance. No remote action has occurred
+for Spec 0016.
 
 Spec 0015 is complete. Its single guarded remote coordinate passed. Registry
 kind `so2_vae_fixed` accepts no architecture
@@ -422,6 +444,15 @@ readiness and the remaining multi-session blocker are recorded here.
 
 ## Verification state
 
+Spec 0016 local verification passes both generated-kernel preflights, 244
+focused/shared-runner regression tests, `git diff --check`, Ruff format/check,
+794 full-suite tests with one expected GPU-only skip, and BasedPyright with zero
+errors. The prelaunch/full packages import from their embedded payloads, attach
+only the real UBC dataset, reject normal checkpoint lineage, and keep remote
+prelaunch/full writes permission-gated. Remote batch-25 feasibility, learning,
+and measured epoch/session cost remain intentionally unproven until the one
+authorized prelaunch runs.
+
 Spec 0015 acceptance is complete: the final post-review quality gate is
 780 passed, 1 expected GPU-only skip, with Ruff formatting/check and
 BasedPyright at zero errors. The dedicated embedded-kernel preflight verifies a
@@ -559,13 +590,16 @@ control's learned representation is correctly not claimed to be equivariant.
     CV and one-time compilation duration are diagnostic, not architecture gates.
     Do not rerun or add another arm. Treat Spec 0014's full fixed VAE assembly,
     exact counts, focused verification, and corrected fresh reviews as complete.
-11. Before any remote execution, add the one fixed model to the selected runtime
-    and extend bounded gate-health rows to its F0/F1 families. Do not add general
-    layouts or dynamic architecture configuration.
-12. Then run at most one narrow generated-data dual-T4 readiness check for the
-    selected compiled bundle's full-model settlement, VRAM, and settled execution.
-    Compilation duration and raw timing CV remain diagnostic. Do not create a
-    tuner or launch full training without separate explicit authorization.
+11. Treat Spec 0015 selected-runtime registration and its one batch-1 dual-T4
+    readiness run as complete. Treat Spec 0016's minimal parity configs, honest
+    68-row gate telemetry, settled timing window, identity-bound verdict, and
+    prelaunch/fresh-full packages as locally complete.
+12. With fresh explicit permission only, push the one
+    `eqvae-so2-prelaunch` batch-25 coordinate. Download and validate its
+    debug/resume/fixed-32/gate/performance proof. If it passes, report projected
+    epoch/session cost and ask the user to accept that cost before any full push.
+    A failure is a blocker, not implicit permission for a sweep.
 
 Baseline full training/final-output verification and local continuous-`SO(2)`
-model assembly are complete. Selected-runtime readiness is the next gate.
+prelaunch/full packaging are complete. Remote Spec 0016 prelaunch is the next
+permission-gated gate; full training is not yet authorized.

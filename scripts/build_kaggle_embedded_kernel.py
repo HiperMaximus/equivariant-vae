@@ -31,6 +31,14 @@ SELECTED_RUNTIME_DEBUG_KERNEL_ID = "maximusshtefan/eqvae-selected-runtime-debug"
 SELECTED_RUNTIME_LR_RANGE_KERNEL_ID = "maximusshtefan/eqvae-selected-runtime-lr-range"
 SELECTED_RUNTIME_FULL_KERNEL_ID = "maximusshtefan/eqvae-selected-runtime-full"
 SO2_RUNTIME_READINESS_KERNEL_ID = "maximusshtefan/eqvae-so2-runtime-readiness"
+SO2_PRELAUNCH_KERNEL_ID = "maximusshtefan/eqvae-so2-prelaunch"
+SO2_SELECTED_RUNTIME_FULL_KERNEL_ID = "maximusshtefan/eqvae-so2-selected-runtime-full"
+SO2_TRAINING_LAUNCHER_FILES = (
+    Path("kaggle/kernels/so2_prelaunch/kernel-metadata.json"),
+    Path("kaggle/kernels/so2_prelaunch/run_template.py"),
+    Path("kaggle/kernels/so2_selected_runtime_full/kernel-metadata.json"),
+    Path("kaggle/kernels/so2_selected_runtime_full/run_template.py"),
+)
 RUNTIME_SELECTION_V8_ARTIFACT_ROOT = Path(
     "runs/kaggle/real_data_runtime_pretest_v8",
 )
@@ -411,6 +419,16 @@ def _payload_manifest(
         entries["configs/spec0015"] = _digest_tree(
             repo_root / "configs" / "spec0015",
         )
+    if _is_so2_training_kernel(kernel_dir):
+        entries["configs/spec0016"] = _digest_tree(
+            repo_root / "configs" / "spec0016",
+        )
+        entries.update(
+            {
+                str(path): _digest_file(repo_root / path)
+                for path in SO2_TRAINING_LAUNCHER_FILES
+            },
+        )
     return {
         "schema_version": PAYLOAD_SCHEMA_VERSION,
         "git_commit": _git_output(repo_root, "rev-parse", "HEAD"),
@@ -453,6 +471,11 @@ def _payload_files(
             *roots,
             (repo_root / "configs" / "spec0015", Path("configs/spec0015")),
         )
+    if _is_so2_training_kernel(kernel_dir):
+        roots = (
+            *roots,
+            (repo_root / "configs" / "spec0016", Path("configs/spec0016")),
+        )
     files: list[tuple[Path, str]] = []
     for source_root, archive_root in roots:
         for path in sorted(candidate for candidate in source_root.rglob("*")):
@@ -468,6 +491,11 @@ def _payload_files(
             Path("uv.lock"),
         )
     )
+    if _is_so2_training_kernel(kernel_dir):
+        files.extend(
+            (repo_root / relative, relative.as_posix())
+            for relative in SO2_TRAINING_LAUNCHER_FILES
+        )
     if _is_runtime_selection_kernel(kernel_dir):
         files.extend(_runtime_selection_payload_files(repo_root))
     elif _ships_legacy_selected_runtime_baseline(kernel_dir):
@@ -481,6 +509,13 @@ def _is_runtime_selection_kernel(kernel_dir: Path) -> bool:
 
 def _is_so2_runtime_readiness_kernel(kernel_dir: Path) -> bool:
     return _kernel_id(kernel_dir) == SO2_RUNTIME_READINESS_KERNEL_ID
+
+
+def _is_so2_training_kernel(kernel_dir: Path) -> bool:
+    return _kernel_id(kernel_dir) in {
+        SO2_PRELAUNCH_KERNEL_ID,
+        SO2_SELECTED_RUNTIME_FULL_KERNEL_ID,
+    }
 
 
 def _is_selected_runtime_debug_kernel(kernel_dir: Path) -> bool:
@@ -665,6 +700,16 @@ def _validate_manifest_against_source(  # noqa: C901, PLR0912
     if _is_so2_runtime_readiness_kernel(kernel_dir):
         expected_entries["configs/spec0015"] = _digest_tree(
             repo_root / "configs" / "spec0015",
+        )
+    if _is_so2_training_kernel(kernel_dir):
+        expected_entries["configs/spec0016"] = _digest_tree(
+            repo_root / "configs" / "spec0016",
+        )
+        expected_entries.update(
+            {
+                str(path): _digest_file(repo_root / path)
+                for path in SO2_TRAINING_LAUNCHER_FILES
+            },
         )
     raw_entries = manifest.get("entries")
     if not isinstance(raw_entries, dict):

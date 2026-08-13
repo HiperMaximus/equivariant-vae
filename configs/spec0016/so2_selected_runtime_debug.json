@@ -1,0 +1,19 @@
+{
+  "schema_version": "spec0016.v1",
+  "status": "so2_prelaunch_debug_ready",
+  "run": {"name": "so2_spec0016_selected_runtime_debug", "mode": "selected_runtime_debug_gate_contract_fail_closed"},
+  "source_config": "configs/spec0016/so2_training_base.json",
+  "data": {
+    "kind": "ubc-pre-shuffled",
+    "dataset_slug": "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+    "data_root": "auto",
+    "image_size": 256
+  },
+  "runtime": {
+    "machine_shape": "NvidiaTeslaT4",
+    "remote_execution_requires_permission": true,
+    "selected_runtime_required": true,
+    "runtime_config": "configs/spec0001/non_eq_vae_selected_runtime.json"
+  },
+  "training": {"max_train_steps": 8, "max_val_steps": 1, "save_every_steps": 4}
+}

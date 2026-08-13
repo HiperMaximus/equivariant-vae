@@ -5722,6 +5722,8 @@ def _loaded_resume_proof(
             else "not_applicable_local_single_process"
         ),
     )
+    loaded.path.parent.mkdir(parents=True, exist_ok=True)
+    loaded.path.write_bytes(b"synthetic selected-runtime checkpoint")
     distributed = (
         replace(_ddp_distributed_context(rank=0), device=torch.device("cuda", 0))
         if cuda_enabled

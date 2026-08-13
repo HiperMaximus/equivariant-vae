@@ -58,6 +58,10 @@ so2_architecture_probe_kernel_dir="kaggle/kernels/so2_architecture_probe"
 so2_architecture_probe_output_dir="runs/kaggle/so2_architecture_probe_v3"
 so2_runtime_readiness_kernel_dir="kaggle/kernels/so2_runtime_readiness"
 so2_runtime_readiness_output_dir="runs/kaggle/so2_runtime_readiness_v1"
+so2_prelaunch_kernel_dir="kaggle/kernels/so2_prelaunch"
+so2_prelaunch_output_dir="runs/kaggle/so2_prelaunch"
+so2_full_kernel_dir="kaggle/kernels/so2_selected_runtime_full"
+so2_full_output_dir="runs/kaggle/so2_selected_runtime_full"
 
 usage() {
   cat <<'EOF'
@@ -74,6 +78,8 @@ Usage:
   ./scripts/kaggle_kernel.sh preflight-fixed25-selector
   ./scripts/kaggle_kernel.sh preflight-so2-architecture-probe
   ./scripts/kaggle_kernel.sh preflight-so2-runtime-readiness
+  ./scripts/kaggle_kernel.sh preflight-so2-prelaunch
+  ./scripts/kaggle_kernel.sh preflight-so2-selected-runtime-full
   ./scripts/kaggle_kernel.sh api-check [kernel_dir]
   ./scripts/kaggle_kernel.sh push [kernel_dir] [--wait [--wait-interval N] [--wait-max N] [--wait-queued N]] [extra kaggle args...]
   ./scripts/kaggle_kernel.sh status [kernel_id]
@@ -86,6 +92,8 @@ Usage:
   ./scripts/kaggle_kernel.sh status-fixed25-selector
   ./scripts/kaggle_kernel.sh status-so2-architecture-probe
   ./scripts/kaggle_kernel.sh status-so2-runtime-readiness
+  ./scripts/kaggle_kernel.sh status-so2-prelaunch
+  ./scripts/kaggle_kernel.sh status-so2-selected-runtime-full
   ./scripts/kaggle_kernel.sh wait [kernel_id] [poll_seconds] [max_polls] [max_queued_seconds]
   ./scripts/kaggle_kernel.sh wait-fixed25-selector [poll_seconds] [max_polls] [max_queued_seconds]
   ./scripts/kaggle_kernel.sh wait-selected-runtime-full [poll_seconds] [max_polls] [max_queued_seconds]
@@ -101,6 +109,8 @@ Usage:
   ./scripts/kaggle_kernel.sh output-fixed25-selector [output_dir]
   ./scripts/kaggle_kernel.sh output-so2-architecture-probe [output_dir]
   ./scripts/kaggle_kernel.sh output-so2-runtime-readiness [output_dir]
+  ./scripts/kaggle_kernel.sh output-so2-prelaunch [output_dir]
+  ./scripts/kaggle_kernel.sh output-so2-selected-runtime-full [output_dir]
   ./scripts/kaggle_kernel.sh pull [kernel_id] [kernel_dir]
 
 Remote writes require KAGGLE_PUSH_CONFIRMED=1.
@@ -431,6 +441,24 @@ validate_kernel_dir() {
     echo "ok: selected-runtime full embedded payload matches current worktree"
   fi
 
+  if [[ "$kernel_dir" == "$so2_prelaunch_kernel_dir" ]]; then
+    build_kernel_py \
+      --kernel-dir "$kernel_dir" \
+      --ready-marker "KAGGLE_SO2_PRELAUNCH_READY = True" \
+      --verify-only \
+      --allow-dirty
+    echo "ok: SO2 prelaunch embedded payload matches current worktree"
+  fi
+
+  if [[ "$kernel_dir" == "$so2_full_kernel_dir" ]]; then
+    build_kernel_py \
+      --kernel-dir "$kernel_dir" \
+      --ready-marker "KAGGLE_SO2_SELECTED_RUNTIME_FULL_READY = True" \
+      --verify-only \
+      --allow-dirty
+    echo "ok: SO2 full embedded payload matches current worktree"
+  fi
+
   if [[ "$kernel_dir" == "$fixed25_selector_kernel_dir" ]]; then
     build_kernel_py \
       --kernel-dir "$kernel_dir" \
@@ -607,6 +635,12 @@ embedded_ready_marker() {
     maximusshtefan/eqvae-so2-runtime-readiness)
       printf '%s\n' "KAGGLE_SO2_RUNTIME_READINESS_READY = True"
       ;;
+    maximusshtefan/eqvae-so2-prelaunch)
+      printf '%s\n' "KAGGLE_SO2_PRELAUNCH_READY = True"
+      ;;
+    maximusshtefan/eqvae-so2-selected-runtime-full)
+      printf '%s\n' "KAGGLE_SO2_SELECTED_RUNTIME_FULL_READY = True"
+      ;;
     maximusshtefan/non-eq-vae-debug)
       printf '%s\n' "KAGGLE_SMOKE_READY = True"
       ;;
@@ -692,6 +726,16 @@ EOF
 
   if grep -q "KAGGLE_SO2_RUNTIME_READINESS_READY = True" "$kernel_dir/$code_file"; then
     guard_so2_runtime_readiness_push_ready "$kernel_dir" "$metadata"
+    return
+  fi
+
+  if grep -q "KAGGLE_SO2_PRELAUNCH_READY = True" "$kernel_dir/$code_file"; then
+    guard_so2_prelaunch_push_ready "$kernel_dir" "$metadata"
+    return
+  fi
+
+  if grep -q "KAGGLE_SO2_SELECTED_RUNTIME_FULL_READY = True" "$kernel_dir/$code_file"; then
+    guard_so2_full_push_ready "$kernel_dir" "$metadata"
     return
   fi
 
@@ -1508,6 +1552,92 @@ preflight_so2_runtime_readiness() {
     "$(metadata_path "$so2_runtime_readiness_kernel_dir")" \
     "local_preflight"
   echo "ok: Spec 0015 SO(2) readiness is built and guarded; no remote write performed"
+}
+
+guard_so2_training_metadata() {
+  local metadata="$1"
+  local expected_id="$2"
+  python3 - "$metadata" "$expected_id" <<'PYSO2TRAINMETADATA'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+expected_id = sys.argv[2]
+expected = {
+    "id": expected_id,
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "true",
+    "machine_shape": "NvidiaTeslaT4",
+    "dataset_sources": ["maximusshtefan/patches-pre-shuffled-ubc-ocean"],
+    "competition_sources": [],
+    "kernel_sources": [],
+    "model_sources": [],
+}
+errors = [f"{key} must be {value!r}" for key, value in expected.items() if data.get(key) != value]
+if errors:
+    raise SystemExit("\n".join(f"error: {error}" for error in errors))
+PYSO2TRAINMETADATA
+}
+
+guard_so2_prelaunch_push_ready() {
+  local kernel_dir="$1"
+  local metadata="$2"
+  guard_so2_training_metadata "$metadata" "maximusshtefan/eqvae-so2-prelaunch"
+  build_kernel_py \
+    --kernel-dir "$kernel_dir" \
+    --ready-marker "KAGGLE_SO2_PRELAUNCH_READY = True" \
+    --verify-only
+}
+
+guard_so2_full_push_ready() {
+  local kernel_dir="$1"
+  local metadata="$2"
+  guard_so2_training_metadata "$metadata" "maximusshtefan/eqvae-so2-selected-runtime-full"
+  build_kernel_py \
+    --kernel-dir "$kernel_dir" \
+    --ready-marker "KAGGLE_SO2_SELECTED_RUNTIME_FULL_READY = True" \
+    --verify-only
+  if [[ "${KAGGLE_SO2_FULL_COST_CONFIRMED:-}" != "1" ]]; then
+    echo "error: set KAGGLE_SO2_FULL_COST_CONFIRMED=1 after accepting measured prelaunch cost" >&2
+    exit 1
+  fi
+  local verdict="runs/kaggle/so2_prelaunch/benchmark/so2_prelaunch_verdict.json"
+  if [[ ! -f "$verdict" ]]; then
+    echo "error: missing downloaded SO2 prelaunch verdict: $verdict" >&2
+    exit 1
+  fi
+  PYTHONPATH=src .venv/bin/python - "$verdict" <<'PYSO2FULLVERDICT'
+import sys
+from pathlib import Path
+from eqvae.benchmarking.so2_prelaunch import validate_prelaunch_artifacts
+
+blockers = validate_prelaunch_artifacts(Path(sys.argv[1]).parents[1], repo_root=Path.cwd())
+if blockers:
+    raise SystemExit("\n".join(f"error: {blocker}" for blocker in blockers))
+PYSO2FULLVERDICT
+}
+
+preflight_so2_prelaunch() {
+  build_embedded_kernel "$so2_prelaunch_kernel_dir"
+  guard_so2_training_metadata \
+    "$(metadata_path "$so2_prelaunch_kernel_dir")" \
+    "maximusshtefan/eqvae-so2-prelaunch"
+  PYTHONPATH=src CUDA_VISIBLE_DEVICES="" .venv/bin/python -m pytest -q \
+    tests/test_so2_prelaunch.py tests/test_so2_full_run.py
+}
+
+preflight_so2_full() {
+  build_embedded_kernel "$so2_full_kernel_dir"
+  guard_so2_training_metadata \
+    "$(metadata_path "$so2_full_kernel_dir")" \
+    "maximusshtefan/eqvae-so2-selected-runtime-full"
+  PYTHONPATH=src CUDA_VISIBLE_DEVICES="" .venv/bin/python -m pytest -q \
+    tests/test_so2_prelaunch.py tests/test_so2_full_run.py
 }
 
 guard_real_data_runtime_pretest_push_ready() {
@@ -2989,6 +3119,12 @@ case "$action" in
   preflight-so2-runtime-readiness)
     preflight_so2_runtime_readiness
     ;;
+  preflight-so2-prelaunch)
+    preflight_so2_prelaunch
+    ;;
+  preflight-so2-selected-runtime-full)
+    preflight_so2_full
+    ;;
   push)
     # Only treat the first token as kernel_dir when it is a real path, not an option
     # flag, so `push --wait ...` still falls back to the default kernel_dir instead of
@@ -3126,6 +3262,18 @@ case "$action" in
     require_kaggle_cli
     kaggle_api kernels status "$kernel_id"
     ;;
+  status-so2-prelaunch)
+    kernel_id="$(kernel_id_from_metadata "$so2_prelaunch_kernel_dir")"
+    require_remote_confirmed
+    require_kaggle_cli
+    kaggle_api kernels status "$kernel_id"
+    ;;
+  status-so2-selected-runtime-full)
+    kernel_id="$(kernel_id_from_metadata "$so2_full_kernel_dir")"
+    require_remote_confirmed
+    require_kaggle_cli
+    kaggle_api kernels status "$kernel_id"
+    ;;
   wait)
     kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"
     require_remote_confirmed
@@ -3223,6 +3371,22 @@ case "$action" in
   output-so2-runtime-readiness)
     kernel_id="$(kernel_id_from_metadata "$so2_runtime_readiness_kernel_dir")"
     output_dir="${2:-$so2_runtime_readiness_output_dir}"
+    require_remote_confirmed
+    require_kaggle_cli
+    mkdir -p "$output_dir"
+    kaggle_api kernels output "$kernel_id" -p "$output_dir"
+    ;;
+  output-so2-prelaunch)
+    kernel_id="$(kernel_id_from_metadata "$so2_prelaunch_kernel_dir")"
+    output_dir="${2:-$so2_prelaunch_output_dir}"
+    require_remote_confirmed
+    require_kaggle_cli
+    mkdir -p "$output_dir"
+    kaggle_api kernels output "$kernel_id" -p "$output_dir"
+    ;;
+  output-so2-selected-runtime-full)
+    kernel_id="$(kernel_id_from_metadata "$so2_full_kernel_dir")"
+    output_dir="${2:-$so2_full_output_dir}"
     require_remote_confirmed
     require_kaggle_cli
     mkdir -p "$output_dir"

@@ -26,7 +26,7 @@ Read first:
 | Spec | Status | Blocked By | Next Action |
 | --- | --- | --- | --- |
 | `0001-translatable-normal-vae-baseline.md` | Normal-VAE control implemented and verified at update 60000; beta `0.01`, fixed-25 evidence, and final checkpoint are locked. | Matched continuous `SO(2)` readiness/run, downstream probes, and sealed masked-WSI test evidence. | Preserve the shared baseline contract during separately authorized SO(2) runtime integration and execution. |
-| `0002-strict-python-quality-gate.md` | Active and passing: 767 tests passed, 1 expected GPU-only skip, Ruff clean, BasedPyright 0 errors on 2026-08-13. | None. | Rerun `./scripts/python_quality.sh` for Python changes. |
+| `0002-strict-python-quality-gate.md` | Active and passing: 794 tests passed, 1 expected GPU-only skip, Ruff clean, BasedPyright 0 errors on 2026-08-13. | None. | Rerun `./scripts/python_quality.sh` for Python changes. |
 | `0003-kaggle-cli-execution-workflow.md` | Implemented and proven through guarded push/status/output plus three checkpoint-only baseline sessions. | Remote actions still require explicit approval and confirmation variables. | Reuse the guarded workflow for the continuous-`SO(2)` experiment. |
 | `0006-selected-runtime-local-mechanics.md` | Implemented, locally verified, and exercised by the completed baseline. | None. | Maintain fail-closed runtime identity/checkpoint checks. |
 | `0007-real-ubc-ddp-amp-selected-runtime-runner.md` | Implemented and remote-verified through update 60000. | None for the normal-VAE runner. | Reuse shared mechanics; change only architecture-specific `SO(2)` details. |
@@ -40,6 +40,7 @@ Read first:
 | `0013-fixed-f01-architecture-probe.md` | Complete: padded-`bmm`/direct compiled mechanics pass correctness, runtime ratios, DDP/AMP/compile, and VRAM; raw CV remains diagnostic. | None. | Do not rerun or add mechanics/runtime arms. |
 | `0014-fixed-f01-full-vae.md` | Implemented and locally verified: exact 43-position topology, `1,180,035` parameters, eager gradients/optimizer, AMP, fullgraph, and equivariance evidence pass fresh reviews. | Selected-runtime registration/gate telemetry and dual-T4 readiness are later work; full training remains unauthorized. | Preserve this singular fixed model; integrate only the execution path needed for readiness. |
 | `0015-fixed-so2-selected-runtime-readiness.md` | Complete: local gate/reviews and private no-dataset dual-T4 Kaggle v1 pass at batch 1. | Stop; any real-data debug or full training requires separate explicit authorization. | Preserve the exact runtime/model evidence; do not turn readiness timing into a search or training claim. |
+| `0016-so2-real-data-prelaunch-and-full-run.md` | Locked / local implementation verified: parity configs, honest SO2 gate/performance evidence, identity-bound prelaunch, and fresh-full package pass local gates. | Remote prelaunch requires explicit permission; full push additionally requires its batch-25 pass and explicit measured-cost acceptance. | With permission, run the one prelaunch coordinate; do not push full training yet. |
 
 Guard authorization phrases retained for local push-guard scripts:
 

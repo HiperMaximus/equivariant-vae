@@ -19,6 +19,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 from torch import nn
+from torch._dynamo.utils import counters  # noqa: PLC2701
 from torch.amp.grad_scaler import GradScaler
 from torch.utils.data import (
     BatchSampler,
@@ -102,6 +103,10 @@ from eqvae.models.registry import (
     assert_fixed_so2_model,
     build_model,
 )
+from eqvae.models.so2_architecture_probe import (
+    _RADIUS_EPS,  # pyright: ignore[reportPrivateUsage]
+    FixedF01RadialGate,
+)
 from eqvae.training.ddp_sync_guard import assert_ddp_parameters_in_sync
 from eqvae.training.fastpath_precision import (
     clone_fastpath_update_probe,
@@ -143,6 +148,11 @@ from eqvae.training.selected_runtime import (
 )
 
 if TYPE_CHECKING:
+    from typing import Protocol
+
+    class _CudaDeviceProperties(Protocol):
+        total_memory: int
+
     from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 
     from numpy.random import Generator
@@ -231,6 +241,9 @@ _DEFAULT_SEQUENTIAL_SAMPLER_POLICY = "sequential_sampler"
 _DEFAULT_DDP_SAMPLER_POLICY = "distributed_sampler_shuffle_false_drop_last_true"
 _DDP_SAMPLER_POLICY_NO_DROP_LAST = "distributed_sampler_shuffle_false_drop_last_false"
 _FIXED32_TINY_FULL_BATCH_SAMPLER_POLICY = "fixed32_tiny_full_batch_repeated"
+_SO2_PRELAUNCH_SETTLED_UPDATES = 20
+_SO2_GATE_ROW_COUNT = 68
+_BYTES_PER_MIB = 1024 * 1024
 _SUPPORTED_DATA = frozenset({"synthetic", "ubc-pre-shuffled"})
 _TRAIN_STEP_COLUMNS = (
     "event_id",
@@ -561,6 +574,7 @@ class _IntervalFlushContext:
     # Effective DDP ``broadcast_buffers`` decision (Spec 0011 S17c), so the
     # partial-flush plan-applied proof records the same value as the final proof.
     broadcast_buffers: bool
+    gate_initial_state: Mapping[str, torch.Tensor] | None = None
 
 
 @dataclass(frozen=True)
@@ -903,6 +917,7 @@ class _TrainLoopResult:
     best_validation_metric: float | None
     last_result: _SelectedRuntimeStepResult
     equivariance_rows: tuple[CsvRow, ...] = ()
+    performance: JsonObject | None = None
 
 
 @dataclass(frozen=True)
@@ -1322,6 +1337,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
         distributed=distributed,
         start_step=start_step,
     )
+    gate_initial_state = _initial_so2_gate_snapshots(model)
 
     wrapped_model = _maybe_wrap_ddp(
         model=model,
@@ -1390,6 +1406,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
             data_surface=data_surface,
             distributed=distributed,
             broadcast_buffers=observed_broadcast_buffers,
+            gate_initial_state=gate_initial_state,
         )
         if _is_full_run(settings)
         else None,
@@ -1425,9 +1442,14 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
             model=model,
             optimizer_step=settings.max_train_steps,
             rank=distributed.rank,
+            settings=settings,
+            data_surface=data_surface,
+            device=distributed.device,
+            initial=gate_initial_state,
         ),
         distributed,
     )
+    performance = _gather_json_objects(train_loop.performance, distributed)
     _write_final_artifacts(
         artifacts=artifacts,
         latent_channels=latent_channels,
@@ -1458,6 +1480,7 @@ def write_selected_runtime_training_run(  # noqa: PLR0914, PLR0915
         best_validation_metric=best_validation_metric,
         last_result=last_result,
         fixed25=fixed25,
+        performance=performance,
     )
     _barrier(distributed)
     _close_data_surface(data_surface)
@@ -1505,6 +1528,7 @@ def _write_final_artifacts(  # noqa: PLR0913
     best_validation_metric: float | None,
     last_result: _SelectedRuntimeStepResult,
     fixed25: _Fixed25Runtime | None,
+    performance: Sequence[JsonObject] = (),
 ) -> _FinalArtifactWriteResult | None:
     write_error: Exception | None = None
     write_error_message: str | None = None
@@ -1541,6 +1565,7 @@ def _write_final_artifacts(  # noqa: PLR0913
                 best_validation_metric=best_validation_metric,
                 last_result=last_result,
                 fixed25=fixed25,
+                performance=performance,
             )
         except Exception as exc:  # noqa: BLE001  # pragma: no cover - DDP sync guard
             write_error = exc
@@ -1589,6 +1614,7 @@ def _write_final_artifacts_primary(  # noqa: PLR0913
     best_validation_metric: float | None,
     last_result: _SelectedRuntimeStepResult,
     fixed25: _Fixed25Runtime | None,
+    performance: Sequence[JsonObject] = (),
 ) -> _FinalArtifactWriteResult:
     final_checkpoint = _save_checkpoint(
         path=request.output_dir / "checkpoints" / "final.pt",
@@ -1743,6 +1769,8 @@ def _write_final_artifacts_primary(  # noqa: PLR0913
                 data_surface=data_surface,
                 metric_rows=metric_rows,
                 gate_health_summary=gate_health_summary,
+                performance=performance,
+                require_performance=settings.model_kind == MODEL_KIND_SO2_FIXED,
             ),
         )
     if _writes_learning_rate_range_summary(settings):
@@ -2425,6 +2453,21 @@ def _gather_csv_rows(
             if isinstance(row_object, dict)
         )
     return tuple(rows)
+
+
+def _gather_json_objects(
+    local: JsonObject | None,
+    distributed: _DistributedContext,
+) -> tuple[JsonObject, ...]:
+    if not distributed.should_use_ddp or not dist.is_initialized():
+        return () if local is None else (local,)
+    gathered: list[object] = [None for _ in range(distributed.world_size)]
+    all_gather_object = cast(
+        "Callable[[list[object], object], None]",
+        dist.all_gather_object,
+    )
+    all_gather_object(gathered, local)
+    return tuple(cast("JsonObject", value) for value in gathered if value is not None)
 
 
 def _load_resume_artifact_history(
@@ -3487,6 +3530,17 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
             compiled_step_active=compiled_step_active,
         ),
     )
+    performance_enabled = (
+        settings.model_kind == MODEL_KIND_SO2_FIXED
+        and _writes_tiny_summary(settings)
+        and settings.max_train_steps >= _SO2_PRELAUNCH_SETTLED_UPDATES
+    )
+    performance_start = settings.max_train_steps - _SO2_PRELAUNCH_SETTLED_UPDATES
+    performance_step_ms: list[float] = []
+    performance_data_wait_ms: list[float] = []
+    performance_graph_breaks_before = 0
+    performance_graphs_before = 0
+    performance_started = False
     while successful_count < settings.max_train_steps:
         attempt_count += 1
         if attempt_count > max_attempts:
@@ -3495,7 +3549,23 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
                 f"after {max_attempts} attempts"
             )
             raise RuntimeError(message)
-        batch = next(train_batches)
+        measuring = performance_enabled and successful_count >= performance_start
+        measured_step_started: float | None = None
+        measured_data_ready: float | None = None
+        if measuring and not performance_started:
+            _synchronize_device(distributed.device)
+            if distributed.device.type == "cuda":
+                torch.cuda.reset_peak_memory_stats(distributed.device)
+            performance_graph_breaks_before = _graph_break_total()
+            performance_graphs_before = _unique_graph_total()
+            performance_started = True
+        if measuring:
+            _synchronize_device(distributed.device)
+            measured_step_started = time.perf_counter()
+            batch = next(train_batches)
+            measured_data_ready = time.perf_counter()
+        else:
+            batch = next(train_batches)
         learning_rate = _apply_learning_rate_for_step(
             optimizer=optimizer,
             settings=settings,
@@ -3537,6 +3607,19 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
                 device=distributed.device,
             )
         last_result = result
+        if measuring:
+            _synchronize_device(distributed.device)
+            measured_step_finished = time.perf_counter()
+            if measured_step_started is None or measured_data_ready is None:
+                message = "SO2 settled timing window was not initialized"
+                raise RuntimeError(message)
+            if not result.amp_step_skipped:
+                performance_data_wait_ms.append(
+                    (measured_data_ready - measured_step_started) * 1000.0,
+                )
+                performance_step_ms.append(
+                    (measured_step_finished - measured_step_started) * 1000.0,
+                )
         # DDP has already reduced the gradients that GradScaler checks, so all ranks
         # take the same skip branch by construction. Do not add a Python-object
         # collective to every hot step merely to re-observe that invariant (A5).
@@ -3739,6 +3822,17 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
                 distributed=distributed,
             ),
         )
+    performance = (
+        _so2_prelaunch_performance(
+            distributed=distributed,
+            step_ms=performance_step_ms,
+            data_wait_ms=performance_data_wait_ms,
+            graph_breaks_before=performance_graph_breaks_before,
+            unique_graphs_before=performance_graphs_before,
+        )
+        if performance_started
+        else None
+    )
     return _TrainLoopResult(
         metric_rows=tuple(rows),
         validation_rows=tuple(validation_rows),
@@ -3747,6 +3841,7 @@ def _run_train_steps(  # noqa: C901, PLR0912, PLR0913, PLR0914, PLR0915
         best_validation_metric=best_validation_metric,
         last_result=last_result,
         equivariance_rows=tuple(equivariance_rows),
+        performance=performance,
     )
 
 
@@ -4051,6 +4146,10 @@ def _write_interval_artifact_flush(
             model=model,
             optimizer_step=local_state.current_step,
             rank=context.distributed.rank,
+            settings=context.settings,
+            data_surface=context.data_surface,
+            device=context.distributed.device,
+            initial=context.gate_initial_state,
         ),
         context.distributed,
     )
@@ -4878,6 +4977,70 @@ def _cycle_batches(
         yield from loader
 
 
+def _synchronize_device(device: torch.device) -> None:
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+
+
+def _graph_break_total() -> int:
+    return int(sum(cast("dict[str, int]", counters["graph_break"]).values()))
+
+
+def _unique_graph_total() -> int:
+    return int(cast("dict[str, int]", counters["stats"]).get("unique_graphs", 0))
+
+
+def _so2_prelaunch_performance(
+    *,
+    distributed: _DistributedContext,
+    step_ms: Sequence[float],
+    data_wait_ms: Sequence[float],
+    graph_breaks_before: int,
+    unique_graphs_before: int,
+) -> JsonObject:
+    reserved_mib = 0.0
+    allocated_mib = 0.0
+    total_mib = 0.0
+    if distributed.device.type == "cuda":
+        allocated_mib = (
+            torch.cuda.max_memory_allocated(distributed.device) / _BYTES_PER_MIB
+        )
+        reserved_mib = (
+            torch.cuda.max_memory_reserved(distributed.device) / _BYTES_PER_MIB
+        )
+        properties = cast(
+            "_CudaDeviceProperties",
+            torch.cuda.get_device_properties(  # pyright: ignore[reportUnknownMemberType]
+                distributed.device,
+            ),
+        )
+        total_mib = properties.total_memory / _BYTES_PER_MIB
+    return cast(
+        "JsonObject",
+        {
+            "rank": distributed.rank,
+            "settled_update_count": len(step_ms),
+            "settled_step_ms": list(step_ms),
+            "data_wait_ms": list(data_wait_ms),
+            "mean_step_ms": _mean(step_ms),
+            "mean_data_wait_ms": _mean(data_wait_ms),
+            "data_wait_fraction": _mean(data_wait_ms) / max(_mean(step_ms), 1e-12),
+            "peak_allocated_mib": allocated_mib,
+            "peak_reserved_mib": reserved_mib,
+            "total_device_memory_mib": total_mib,
+            "reserved_headroom_fraction": (
+                (total_mib - reserved_mib) / total_mib if total_mib > 0.0 else 0.0
+            ),
+            "post_settle_graph_break_count": (
+                _graph_break_total() - graph_breaks_before
+            ),
+            "post_settle_recompile_count": (
+                _unique_graph_total() - unique_graphs_before
+            ),
+        },
+    )
+
+
 def _validation_batches(
     loader: DataLoader[PatchTrainingBatch],
     cap: int,
@@ -5513,6 +5676,7 @@ def _loaded_checkpoint_resume_proof(  # noqa: PLR0913
             "full_run_eligible": _is_full_run(settings),
             "resume_sequence": "loaded_checkpoint_before_training_continued",
             "resume_checkpoint": _relative_to_output(loaded.path, request.output_dir),
+            "resume_checkpoint_sha256": _sha256_file(loaded.path),
             "loaded_schema_version": loaded.schema_version,
             "loaded_runtime_config_sha256": loaded.runtime_config_sha256,
             "current_runtime_config_sha256": runtime_identity.sha256,
@@ -5719,7 +5883,65 @@ def _fixed_train_deterministic_eval(
     )
 
 
+def _initial_so2_gate_snapshots(model: nn.Module) -> dict[str, torch.Tensor]:
+    snapshots: dict[str, torch.Tensor] = {}
+    named_modules = cast("Iterable[tuple[str, nn.Module]]", model.named_modules())
+    for name, module in named_modules:
+        if not isinstance(module, FixedF01RadialGate):
+            continue
+        for parameter_name in ("f0_a", "f0_b", "f1_a", "f1_b"):
+            parameter = cast("torch.Tensor", getattr(module, parameter_name))
+            snapshots[f"{name}.{parameter_name}"] = parameter.detach().clone()
+    return snapshots
+
+
 def _gate_health_rows(  # noqa: PLR0913
+    *,
+    run_name: str,
+    plan: SelectedRuntimePlan,
+    probe: SelectedRuntimeEnvironmentProbe,
+    amp: _AmpExecution,
+    model: nn.Module,
+    optimizer_step: int,
+    rank: int | None = None,
+    settings: _RunnerSettings | None = None,
+    data_surface: _DataSurface | None = None,
+    device: torch.device | None = None,
+    initial: Mapping[str, torch.Tensor] | None = None,
+) -> tuple[CsvRow, ...]:
+    if any(isinstance(module, FixedF01RadialGate) for module in model.modules()):
+        if (
+            rank not in {None, 0}
+            or settings is None
+            or data_surface is None
+            or device is None
+            or initial is None
+        ):
+            return ()
+        return _so2_gate_health_rows(
+            run_name=run_name,
+            plan=plan,
+            probe=probe,
+            amp=amp,
+            model=model,
+            optimizer_step=optimizer_step,
+            settings=settings,
+            data_surface=data_surface,
+            device=device,
+            initial=initial,
+        )
+    return _normal_gate_health_rows(
+        run_name=run_name,
+        plan=plan,
+        probe=probe,
+        amp=amp,
+        model=model,
+        optimizer_step=optimizer_step,
+        rank=rank,
+    )
+
+
+def _normal_gate_health_rows(  # noqa: PLR0913
     *,
     run_name: str,
     plan: SelectedRuntimePlan,
@@ -5806,6 +6028,280 @@ def _gate_health_rows(  # noqa: PLR0913
         }
         rows.append(row)
     return tuple(rows)
+
+
+def _so2_gate_health_rows(  # noqa: PLR0913, PLR0915
+    *,
+    run_name: str,
+    plan: SelectedRuntimePlan,
+    probe: SelectedRuntimeEnvironmentProbe,
+    amp: _AmpExecution,
+    model: nn.Module,
+    optimizer_step: int,
+    settings: _RunnerSettings,
+    data_surface: _DataSurface,
+    device: torch.device,
+    initial: Mapping[str, torch.Tensor],
+) -> tuple[CsvRow, ...]:
+    rows_by_module: dict[str, list[CsvRow]] = {}
+    handles: list[torch.utils.hooks.RemovableHandle] = []
+
+    def hook_for(
+        name: str,
+        gate_module: FixedF01RadialGate,
+    ) -> Callable[..., None]:
+        def hook(  # noqa: PLR0914
+            _module: nn.Module,
+            arguments: tuple[torch.Tensor, ...],
+            raw_output: torch.Tensor,
+        ) -> None:
+            gate_input = arguments[0]
+            values = gate_input.float()
+            output = raw_output.float()
+            layout = gate_module.layout
+            scalar_input = values[:, : layout.n0]
+            scalar_output = output[:, : layout.n0]
+            vector_input = values[:, layout.f1_offset :].view(
+                values.shape[0],
+                layout.n1,
+                2,
+                values.shape[2],
+                values.shape[3],
+            )
+            vector_output = output[:, layout.f1_offset :].view_as(vector_input)
+            radius = torch.sqrt(vector_input.square().sum(dim=2) + _RADIUS_EPS)
+            scalar_gate = torch.sigmoid(
+                gate_module.f0_a.view(1, -1, 1, 1) * scalar_input
+                + gate_module.f0_b.view(1, -1, 1, 1),
+            ).to(dtype=gate_input.dtype)
+            vector_gate = torch.sigmoid(
+                gate_module.f1_a.view(1, -1, 1, 1) * radius
+                + gate_module.f1_b.view(1, -1, 1, 1),
+            ).to(dtype=gate_input.dtype)
+            expected_output = torch.cat(
+                (
+                    gate_input[:, : layout.n0] * scalar_gate,
+                    (
+                        gate_input[:, layout.f1_offset :].view_as(vector_input)
+                        * vector_gate.unsqueeze(2)
+                    ).view(
+                        gate_input.shape[0],
+                        2 * layout.n1,
+                        gate_input.shape[2],
+                        gate_input.shape[3],
+                    ),
+                ),
+                dim=1,
+            )
+            expected_dtype = torch.float16 if amp.enabled else gate_input.dtype
+            executed_semantics_match = torch.equal(raw_output, expected_output)
+            precision_healthy = (
+                gate_input.dtype == expected_dtype
+                and raw_output.dtype == expected_dtype
+                and scalar_gate.dtype == expected_dtype
+                and vector_gate.dtype == expected_dtype
+                and all(
+                    parameter.dtype == torch.float32
+                    for parameter in (
+                        gate_module.f0_a,
+                        gate_module.f0_b,
+                        gate_module.f1_a,
+                        gate_module.f1_b,
+                    )
+                )
+                and executed_semantics_match
+            )
+            families = (
+                (
+                    "f0_scalar",
+                    gate_module.f0_a,
+                    gate_module.f0_b,
+                    scalar_input,
+                    scalar_output,
+                    scalar_gate,
+                ),
+                (
+                    "f1_radial",
+                    gate_module.f1_a,
+                    gate_module.f1_b,
+                    vector_input,
+                    vector_output,
+                    vector_gate,
+                ),
+            )
+            module_rows: list[CsvRow] = []
+            for family, a, b, family_input, family_output, gate in families:
+                gate_values = gate.detach().float()
+                flattened = gate_values.transpose(0, 1).flatten(1)
+                low_by_channel = (
+                    (flattened < _GATE_LOW_SATURATION_THRESHOLD).float().mean(dim=1)
+                )
+                high_by_channel = (
+                    (flattened > _GATE_HIGH_SATURATION_THRESHOLD).float().mean(dim=1)
+                )
+                a_grad = a.grad
+                b_grad = b.grad
+                a_grad_norm = 0.0 if a_grad is None else _norm(a_grad.detach().float())
+                b_grad_norm = 0.0 if b_grad is None else _norm(b_grad.detach().float())
+                initial_a = initial[f"{name}.{family[:2]}_a"]
+                initial_b = initial[f"{name}.{family[:2]}_b"]
+                a_update_ratio = _norm(a.detach().float() - initial_a.float()) / max(
+                    _norm(initial_a.float()),
+                    1e-12,
+                )
+                b_update_ratio = _norm(b.detach().float() - initial_b.float()) / max(
+                    _norm(initial_b.float()),
+                    1e-12,
+                )
+                input_rms = float(
+                    family_input.detach().float().square().mean().sqrt().item(),
+                )
+                output_rms = float(
+                    family_output.detach().float().square().mean().sqrt().item(),
+                )
+                dead_channel_count = int(
+                    torch.count_nonzero(
+                        (low_by_channel >= 1.0) | (high_by_channel >= 1.0),
+                    ).item(),
+                )
+                finite = all(
+                    bool(torch.isfinite(value).all())
+                    for value in (a, b, gate_values, family_input, family_output)
+                ) and math.isfinite(
+                    a_grad_norm
+                    + b_grad_norm
+                    + a_update_ratio
+                    + b_update_ratio
+                    + input_rms
+                    + output_rms,
+                )
+                healthy = (
+                    a_grad is not None
+                    and b_grad is not None
+                    and finite
+                    and a_grad_norm > 0.0
+                    and b_grad_norm > 0.0
+                    and a_update_ratio > 0.0
+                    and b_update_ratio > 0.0
+                    and dead_channel_count == 0
+                    and precision_healthy
+                )
+                module_rows.append(
+                    {
+                        "run_name": run_name,
+                        "benchmark_kind": _BENCHMARK_KIND,
+                        "benchmark_source": "real_validation_activation_rank0",
+                        "full_run_eligible": "false",
+                        "accelerator_mode": probe.accelerator_mode,
+                        "machine_shape": probe.machine_shape,
+                        "row_id": plan.selected_row_id,
+                        "candidate_row_id": plan.selected_row_id,
+                        "runtime_policy_id": plan.runtime_policy_id,
+                        "optimizer_step": str(optimizer_step),
+                        "module": f"{name}:{family}",
+                        "gate_kind": family,
+                        "num_channels": str(a.numel()),
+                        "num_elements": str(gate_values.numel()),
+                        "a_min": _format_float(_tensor_stat(a, "min")),
+                        "a_max": _format_float(_tensor_stat(a, "max")),
+                        "a_mean": _format_float(_tensor_stat(a, "mean")),
+                        "a_std": _format_float(_tensor_stat(a, "std")),
+                        "b_min": _format_float(_tensor_stat(b, "min")),
+                        "b_max": _format_float(_tensor_stat(b, "max")),
+                        "b_mean": _format_float(_tensor_stat(b, "mean")),
+                        "b_std": _format_float(_tensor_stat(b, "std")),
+                        "max_abs_a": _format_float(
+                            float(a.detach().abs().max().item()),
+                        ),
+                        "max_abs_b": _format_float(
+                            float(b.detach().abs().max().item()),
+                        ),
+                        "gate_mean": _format_float(float(gate_values.mean().item())),
+                        "gate_std": _format_float(_std(gate_values)),
+                        "gate_p01": _format_float(_quantile(gate_values, 0.01)),
+                        "gate_p50": _format_float(_quantile(gate_values, 0.50)),
+                        "gate_p99": _format_float(_quantile(gate_values, 0.99)),
+                        "frac_gate_lt_0_01": _format_float(
+                            _frac(gate_values < _GATE_LOW_SATURATION_THRESHOLD),
+                        ),
+                        "frac_gate_gt_0_99": _format_float(
+                            _frac(gate_values > _GATE_HIGH_SATURATION_THRESHOLD),
+                        ),
+                        "worst_channel_frac_gate_lt_0_01": _format_float(
+                            float(low_by_channel.max().item()),
+                        ),
+                        "worst_channel_frac_gate_gt_0_99": _format_float(
+                            float(high_by_channel.max().item()),
+                        ),
+                        "dead_channel_count": str(dead_channel_count),
+                        "input_rms": _format_float(input_rms),
+                        "output_rms": _format_float(output_rms),
+                        "output_input_rms_ratio": _format_float(
+                            output_rms / max(input_rms, 1e-12),
+                        ),
+                        "a_grad_norm": _format_float(a_grad_norm),
+                        "b_grad_norm": _format_float(b_grad_norm),
+                        "a_update_to_param_norm": _format_float(a_update_ratio),
+                        "b_update_to_param_norm": _format_float(b_update_ratio),
+                        "gate_force_fp32": "true",
+                        "input_dtype": str(gate_input.dtype).removeprefix("torch."),
+                        "gate_math_dtype": "float32",
+                        "gate_tensor_dtype": str(gate.dtype).removeprefix("torch."),
+                        "output_dtype": str(raw_output.dtype).removeprefix("torch."),
+                        "requested_autocast_dtype": amp.requested_autocast_dtype,
+                        "precision_proof_status": (
+                            "pass" if precision_healthy else "fail"
+                        ),
+                        "gate_health_status": "pass" if healthy else "fail",
+                    },
+                )
+            rows_by_module[name] = module_rows
+
+        return hook
+
+    named_modules = cast("Iterable[tuple[str, nn.Module]]", model.named_modules())
+    for name, module in named_modules:
+        if isinstance(module, FixedF01RadialGate):
+            handles.append(module.register_forward_hook(hook_for(name, module)))
+    batch = cast("PatchTrainingBatch", next(iter(data_surface.validation_loader)))
+    images = _to_device(batch.images_uint8[:1], device=device, plan=plan)
+    clean = normalize_uint8_batch(images)
+    selected_model = cast("SupportedVAE", model)
+    eps = torch.zeros(
+        (
+            1,
+            selected_model.latent_channels,
+            settings.image_size // 8,
+            settings.image_size // 8,
+        ),
+        dtype=torch.float32,
+        device=device,
+    )
+    was_training = model.training
+    model.eval()
+    try:
+        with (
+            torch.no_grad(),
+            torch.autocast(
+                device_type=device.type,
+                dtype=_autocast_dtype(plan.autocast_dtype),
+                enabled=amp.enabled,
+                cache_enabled=plan.autocast_cache_enabled,
+            ),
+        ):
+            selected_model.forward(clean, eps=eps)
+    finally:
+        for handle in handles:
+            handle.remove()
+        model.train(was_training)
+    rows = tuple(row for name in sorted(rows_by_module) for row in rows_by_module[name])
+    if len(rows) != _SO2_GATE_ROW_COUNT or {row["gate_kind"] for row in rows} != {
+        "f0_scalar",
+        "f1_radial",
+    }:
+        message = f"expected exactly 68 SO2 gate-family rows, got {len(rows)}"
+        raise RuntimeError(message)
+    return rows
 
 
 def _gate_health_summary(gate_rows: Sequence[CsvRow]) -> JsonObject:
@@ -6341,6 +6837,8 @@ def _tiny_overfit_summary(  # noqa: PLR0913, PLR0914
     data_surface: _DataSurface,
     metric_rows: Sequence[CsvRow],
     gate_health_summary: JsonObject,
+    performance: Sequence[JsonObject] = (),
+    require_performance: bool = False,
 ) -> JsonObject:
     successful_rows = _successful_metric_rows(metric_rows)
     by_step: dict[int, dict[int, CsvRow]] = {}
@@ -6373,6 +6871,20 @@ def _tiny_overfit_summary(  # noqa: PLR0913, PLR0914
     amp_skip_count = _amp_step_skipped_count(metric_rows)
     observed_ranks = sorted({int(row["rank"]) for row in successful_rows})
     successful_updates = _successful_optimizer_update_count(metric_rows)
+    performance_pass = (
+        len(performance) == plan.world_size
+        and {int(cast("int", row["rank"])) for row in performance}
+        == set(range(plan.world_size))
+        and all(
+            int(cast("int", row["settled_update_count"]))
+            == _SO2_PRELAUNCH_SETTLED_UPDATES
+            and int(cast("int", row["post_settle_graph_break_count"])) == 0
+            and int(cast("int", row["post_settle_recompile_count"])) == 0
+            and math.isfinite(float(cast("float", row["mean_step_ms"])))
+            and float(cast("float", row["mean_step_ms"])) > 0.0
+            for row in performance
+        )
+    )
     status = (
         _LOCAL_STATUS
         if data_surface.fixed_train_patch_count == FIXED_32_TRAIN_OVERFIT_COUNT
@@ -6385,7 +6897,12 @@ def _tiny_overfit_summary(  # noqa: PLR0913, PLR0914
         and l1_improvement >= _TINY_MIN_IMPROVEMENT_FRACTION
         and recon_improvement >= _TINY_MIN_IMPROVEMENT_FRACTION
         and gate_health_summary.get("status") == _LOCAL_STATUS
+        and (performance_pass or not require_performance)
         else _FAIL
+    )
+    slower_rank_mean_step_ms = max(
+        (float(cast("float", row["mean_step_ms"])) for row in performance),
+        default=0.0,
     )
     return cast(
         "JsonObject",
@@ -6440,6 +6957,16 @@ def _tiny_overfit_summary(  # noqa: PLR0913, PLR0914
             "l1_improvement_fraction": l1_improvement,
             "recon_loss_improvement_fraction": recon_improvement,
             "gate_health_status": _string_value(gate_health_summary.get("status")),
+            "settled_real_loader_performance_status": (
+                "pass" if performance_pass else "not_required"
+            )
+            if not require_performance or performance_pass
+            else "fail",
+            "settled_real_loader_rank_metrics": list(performance),
+            "slower_rank_mean_step_ms": slower_rank_mean_step_ms,
+            "projected_epoch_seconds": (
+                plan.optimizer_updates_per_epoch * slower_rank_mean_step_ms / 1000.0
+            ),
             "real_tiny_overfit_status": "pass" if status == _LOCAL_STATUS else "fail",
             "failure_kind": ""
             if status == _LOCAL_STATUS
