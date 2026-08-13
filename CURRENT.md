@@ -110,7 +110,7 @@ locked norm/gates, identity block, encoder/decoder transitions, resampling, RGB
 interfaces, and scalar latent heads. It does not assemble or expose the
 43-convolution VAE. Exact eventual counts remain `1,180,035`.
 
-Focused local verification passes: 67 tests with 329 pinned-escnn/SciPy
+Focused local verification passes: 69 tests with 329 pinned-escnn/SciPy
 deprecation warnings, Ruff format/lint, BasedPyright, exact check-only
 128-trial layout refresh, generated-kernel local preflight, and agent preflight.
 All pair banks and multi-copy signatures match the pinned escnn reference;
@@ -154,14 +154,21 @@ selected the fastest measured path: padded `bmm` plus direct assembly. The old
 `1.828x` "topology-weighted" v1 aggregate is also not a final gate because four
 multi-convolution probe blocks do not map exactly onto all 43 positions.
 
-Spec 0013 is locally verified and ready for exactly one final singular confirmation:
-padded `bmm` plus direct assembly is now the only F01-to-F01 path; the runner will test the fixed
-identity, encoder transition, decoder transition, and D-to-D paths against
-their matched normal controls using two raw timing windows; retain every
-numerical, AMP, DDP, compile, CV, per-block latency, and VRAM limit; record the
-D-to-D assembly fraction only as a diagnostic. Do not add another mechanics
-arm or assemble the full VAE. After this probe passes, full-model coding and
-actual whole-network step/epoch measurement still require separate work.
+Spec 0013 is locally verified and its one final singular confirmation is
+complete. Kaggle kernel v3 from `c823a7e` passed every correctness,
+compiled/eager, EQ/normal, AMP, DDP, graph, and VRAM gate, but failed the
+unchanged 10% timing-CV gate. Maximum output/gradient errors were
+`0.000619/0.000662`; compiled/eager ratios were `0.385..0.721`, EQ/normal ratios
+were `1.118..2.014`, parameters matched exactly across ranks, and reserved
+memory was `954 MiB`. CV failures mirrored across ranks: encoder window 0,
+D-to-D window 1, and the decoder normal-control pool. The tracked summary is
+`docs/data/spec0013_so2_dual_t4_probe_v3.json`.
+
+Per the predeclared final-probe stop rule, do not rerun, add a mechanics arm,
+change a runtime axis or tolerance, or assemble the full VAE without a new
+explicit user/spec decision. The implementation is numerically sound and fast
+relative to both eager and normal controls; the sole blocker is unstable timing
+under this measurement protocol.
 
 This remains one-off experiment code. Do not ship runtime architecture,
 support, radial, field-layout, or group options; do not retain rejected
@@ -469,9 +476,9 @@ control's learned representation is correctly not claimed to be equivariant.
     failures, not infrastructure failures, and preserve both tracked summaries.
     The user replaced the isolated 10% gate and selected padded `bmm` plus direct
     assembly. That singular path, its focused local checks, reviews, and guarded
-    runner are complete. Commit/push it, run one final four-path dual-T4
-    confirmation, and stop on any failure. Do not add another arm or assemble
-    the full VAE in this session.
+    runner are complete. Kaggle v3 failed only the timing-CV gate. Stop: do not
+    rerun, add another arm, alter the gate/runtime, or assemble the full VAE
+    without a new explicit user/spec decision.
 
 Fresh-session launch prompt for the next step:
 
@@ -488,8 +495,9 @@ correctness and establishes padded bmm/direct as the fastest fixed mechanics.
 The user replaced the isolated 10% fraction with per-block operational gates.
 That path is singular and its 69 focused tests, source-bound CPU artifact,
 Ruff, BasedPyright, exact basis check, local kernel preflight, and two fresh
-adversarial reviews pass. Run exactly one guarded four-path dual-T4 final probe.
-Do not add an arm, assemble the full VAE, or add runtime options.
+adversarial reviews pass. The one guarded four-path dual-T4 final probe passed
+all gates except timing CV. Stop and request a new explicit decision; do not
+rerun, add an arm, assemble the full VAE, or add runtime options.
 ```
 
 Baseline full training and final-output verification are complete. The continuous-`SO(2)`

@@ -918,9 +918,10 @@ Issue #6, equivariant VAE validation:
   dual-T4 v2 passes numerical/runtime correctness and identifies padded `bmm`
   plus direct assembly as the fastest path; the user then selected it while
   replacing the isolated 10% gate with per-block operational checks. The
-  singular implementation and guarded runner pass focused local verification;
-  run one four-path confirmation;
-  do not assemble the full convolution topology or VAE yet.
+  singular implementation and guarded runner pass focused local verification.
+  The final four-path confirmation passes every gate except timing CV, with
+  failures mirrored across ranks. Stop pending an explicit measurement-protocol
+  decision; do not assemble the full convolution topology or VAE.
 - Use a repo-owned, compile-compatible SO(2) implementation; use `escnn` as a
   reference rather than a runtime dependency.
 - Explicitly test nonlinearities, normalization, upsampling, VAE sampling, and
@@ -956,8 +957,8 @@ and local scaffold described by the former task list are already implemented; do
 recreate them. The equal-copy F01 count/init/manifest refresh and fixed local
 Spec 0013 local probe are complete. Dual-T4 v2 from `afec7af` validates the
 corrected accuracy/runtime path and identifies padded `bmm` plus direct
-assembly as fastest. The exact next action is the one locked singular
-four-path dual-T4 confirmation under per-block operational gates. Do not add an
-arm or assemble the full VAE. Once the full model is authorized, Spec 0011 may
+assembly as fastest. The singular four-path dual-T4 confirmation passes every
+gate except correlated timing CV. Stop pending an explicit measurement-protocol
+decision; do not rerun, add an arm, or assemble the full VAE. Once the full model is authorized, Spec 0011 may
 likewise run a few targeted batch/runtime probes instead of assuming every
 baseline value transfers or recreating the discarded generic search.

@@ -208,7 +208,7 @@
     }
   },
   "dual_t4": {
-    "status": "final_probe_locally_verified_pending_clean_source_commit_and_authorized_remote_launch",
+    "status": "final_probe_completed_with_remote_timing_cv_failure",
     "kernel": "kaggle/kernels/so2_architecture_probe",
     "local_preflight_command": "./scripts/kaggle_kernel.sh preflight-so2-architecture-probe"
   }

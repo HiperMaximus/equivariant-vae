@@ -1,6 +1,6 @@
 # Spec 0013: Fixed F01 Architecture Probe
 
-Status: final padded-bmm mechanics probe locally verified / dual-T4 run ready
+Status: final dual-T4 probe failed timing-CV gate / explicit decision required
 Owner/workstream: one-off continuous-`SO(2)` architecture probe
 Last updated: 2026-08-13
 
@@ -41,7 +41,7 @@ specialized convolution map kinds, fixed field norm/gates and resampling, one
 identity block, one encoder transition, one decoder transition, RGB lift/head,
 and scalar latent heads. It does not assemble or expose the full VAE. The
 focused CPU evidence is tracked in
-`docs/data/spec0013_so2_cpu_probe.json`: all 67 tests pass, every one-copy and
+`docs/data/spec0013_so2_cpu_probe.json`: all 69 tests pass, every one-copy and
 multi-copy escnn comparison passes, all 40 selected pair/angle rows pass the
 escnn-relative sampled-equivariance rule, and the exact eventual count remains
 `1,180,035`.
@@ -54,6 +54,29 @@ timing-CV, latency, graph, and VRAM limits load-bearing. Versions 1 and 2 are
 complete. On 2026-08-13 the user accepted the evidence-based contract revision
 below and selected padded `bmm` plus direct assembly for one final four-path
 confirmation. Full-VAE assembly remains separately unauthorized.
+
+### Dual-T4 v3 final result
+
+Private Kaggle kernel version 3 ran from clean commit `c823a7e` on 2026-08-13.
+Its tracked summary is `docs/data/spec0013_so2_dual_t4_probe_v3.json`. It passed
+every numerical and operational gate except timing CV: maximum output and
+coefficient-gradient relative RMS were `0.000619` and `0.000662`, all
+compiled/eager ratios were `0.385..0.721`, all EQ/normal ratios were
+`1.118..2.014`, parameters matched exactly across ranks, AMP/graph/recompile
+counts were zero, and peak allocated/reserved memory was `798/954 MiB`.
+
+The 10% timing-CV gate failed in 26 rank/block/path summaries. The pattern was
+nearly identical across ranks: encoder window 0 and its pools failed for all
+three modes, D-to-D window 1 and its pools failed for all three modes, and the
+decoder normal-control pool narrowly failed. Window CVs ranged up to `0.598`;
+pooled CVs ranged up to `0.538`. This shared-mode, shared-rank pattern is
+consistent with environmental timing disturbance, but the predeclared rule is
+still a failure. The D-to-D assembly fractions were diagnostic-only at
+`0.387/0.374`.
+
+The final-run stop rule is active. Do not rerun, add a mechanics arm, change a
+runtime axis or tolerance, or assemble the full VAE without a new explicit
+user/spec decision.
 
 ### Dual-T4 v1 result and fixed follow-up
 
@@ -526,13 +549,12 @@ The local implementation produces:
    uses exactly one dense `conv2d`.
 3. Pass: focused escnn, gradient, layout, norm, gate, bias, residual,
    resampling, RGB, and scalar-latent checks pass.
-4. Pending: run the one singular four-path dual-T4 final probe under the revised
-   experiment-level contract.
+4. Fail: the singular dual-T4 final probe passes all correctness and operational
+   ratios but fails the unchanged 10% timing-CV gate.
 5. Pass: counts remain exactly 1,172,304 coefficients, 3,600 norm parameters,
    4,096 gate parameters, 35 scalar biases, and 1,180,035 total learned
    parameters for the eventual 43-convolution topology.
-6. Pending: update v3 evidence and handoffs; do not assemble the full VAE in
-   this implementation session.
+6. Pass: v3 evidence and handoffs are updated; do not assemble the full VAE.
 
 Only then may a separate implementation step assemble the full equivariant VAE.
 
@@ -554,13 +576,15 @@ git diff --check
 The v3 focused suite passes `69 passed` with 329 pinned-escnn/SciPy deprecation
 warnings. Source hashes, Ruff format/lint, BasedPyright, the exact basis check,
 artifact check, local Kaggle preflight, agent preflight, and `git diff --check`
-pass. The user authorized this final remote launch; the repository guard still
-requires `KAGGLE_PUSH_CONFIRMED=1` on the write command.
+pass. Kaggle kernel v3 ran from clean commit `c823a7e`; its source-bound summary
+and raw artifact/log hashes are tracked in the v3 evidence file above.
 
 ## Implementation Blockers
 
-None for the final fixed mechanics probe. Padded `bmm` plus direct assembly is
-the only runtime path; no further arm or runtime-axis search is authorized.
+The final probe failed only the timing-CV gate. Progress requires a new explicit
+decision about whether the cross-rank correlated noise invalidates this CV
+protocol; no rerun, arm, runtime-axis change, tolerance change, or full-VAE work
+is authorized meanwhile.
 
 ## Adversarial Review Findings
 
@@ -623,8 +647,9 @@ architecture or tolerance.
 
 ## Open Questions
 
-None for mechanics implementation. Full-VAE coding and its real end-to-end
-runtime measurement remain a separate authorization after this probe passes.
+Whether to retain the per-window 10% CV protocol after its strongly correlated
+two-rank failure. Any revision or rerun requires a new explicit user/spec
+decision. Full-VAE coding remains separately unauthorized.
 
 ## Related Files
 

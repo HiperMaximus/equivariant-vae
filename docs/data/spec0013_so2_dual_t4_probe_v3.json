@@ -1,0 +1,64 @@
+{
+  "schema_version": "spec0013.so2_dual_t4_final_summary.v1",
+  "status": "fail",
+  "measured_at": "2026-08-13",
+  "source_commit": "c823a7e56d0f73ae5926fa2907d3b00c83012a60",
+  "kaggle_kernel": "maximusshtefan/eqvae-so2-architecture-probe",
+  "kaggle_kernel_version": 3,
+  "selected_mechanics": "padded_bmm_direct",
+  "hardware_runtime": {
+    "gpu_names": ["Tesla T4", "Tesla T4"],
+    "world_size": 2,
+    "per_device_batch_size": 4,
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "runtime_policy_id": "compile_step_python_reducer_fp16_channels_last",
+    "runtime_source_sha256": "e9e998fd161f0955959c64aed7cd7ddbdfcb55a271b9ce05805903c97c93efb8"
+  },
+  "correctness_and_runtime": {
+    "max_output_relative_rms": 0.0006193418808651944,
+    "output_relative_rms_limit": 0.005,
+    "max_coefficient_gradient_relative_rms": 0.0006620627694385543,
+    "coefficient_gradient_relative_rms_limit": 0.02,
+    "compiled_over_eager_range": [0.3848118577433494, 0.721171875301492],
+    "compiled_over_eager_limit": 1.1,
+    "equivariant_over_normal_range": [1.1178161717122945, 2.0142118681869476],
+    "equivariant_over_normal_limit": 5.0,
+    "amp_skip_count": 0,
+    "nonfinite_loss_count": 0,
+    "initial_graph_break_count": 0,
+    "post_settle_graph_break_count": 0,
+    "post_settle_recompile_count": 0,
+    "cross_rank_parameter_max_abs_difference": 0.0,
+    "buffers_identical_across_ranks": true,
+    "peak_allocated_mib": 797.61279296875,
+    "peak_reserved_mib": 954.0,
+    "status": "pass"
+  },
+  "timing_cv": {
+    "limit": 0.1,
+    "window_range": [0.005559557619906823, 0.597735506044183],
+    "pooled_range": [0.006510326806865662, 0.5378542293586969],
+    "failure_count": 26,
+    "failure_pattern": [
+      "encoder_A_to_B window 0 and pooled on both ranks for all three modes",
+      "largest_D_to_D window 1 and pooled on both ranks for all three modes",
+      "decoder_B_to_A normal_compiled pooled on both ranks"
+    ],
+    "status": "fail"
+  },
+  "assembly_diagnostic": {
+    "selection_gate": false,
+    "rank0_pooled_fraction": 0.38727728346630563,
+    "rank1_pooled_fraction": 0.37388958823666213
+  },
+  "acceptance_result": "timing_cv_failed",
+  "full_vae_status": "not_assembled_and_not_authorized",
+  "next_step": "stop; no rerun, new mechanics arm, runtime axis, tolerance change, or full-VAE assembly without a new explicit user/spec decision",
+  "raw_download": {
+    "artifact": "runs/kaggle/so2_architecture_probe_v3/benchmark/spec0013_so2_dual_t4_probe.json",
+    "artifact_sha256": "6ac75f73b35706f05bb884bd468b7e67e234ab2f8101e18bab8647c5b9c9b66a",
+    "log": "runs/kaggle/so2_architecture_probe_v3/eqvae-so2-architecture-probe.log",
+    "log_sha256": "157c21233811ccdb3b227bc1799a1d0ed720cfc938a39680ebb9d0c79430455a"
+  }
+}

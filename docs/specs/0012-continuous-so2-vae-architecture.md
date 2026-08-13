@@ -1,7 +1,7 @@
 # Spec 0012: Continuous SO(2) VAE Architecture
 
-Status: radial/layout oracle complete / equal-copy F01 fixed / Spec 0013 final probe locally ready
-Full-VAE readiness: blocked by singular mechanics confirmation
+Status: radial/layout oracle complete / equal-copy F01 fixed / Spec 0013 timing-CV failure
+Full-VAE readiness: blocked by explicit measurement-protocol decision
 Owner/workstream: matched continuous-`SO(2)` VAE
 Last updated: 2026-08-13
 
@@ -84,8 +84,9 @@ field norm/gate AMP rules, compile guards, and focused escnn/CPU tests. V2
 passes every numerical/runtime-correctness gate and establishes padded `bmm`
 plus direct assembly as the fastest fixed path. The user replaced the isolated
 10% assembly decomposition with per-block operational gates. The singular
-four-path confirmation is pending; the full convolution topology and VAE remain
-unauthorized until it passes and full-model coding is separately approved.
+four-path confirmation passed all numerical/runtime ratios but failed timing CV
+in a cross-rank correlated pattern. The full convolution topology and VAE remain
+unauthorized pending an explicit measurement-protocol decision.
 
 ## Non-Goals
 
@@ -881,8 +882,8 @@ capacity convention.
 4. Complete: Spec 0013 locks RGB lifting/projection, field layout, residual
    compatibility, normalization, radial gates, resampling, contraction and
    assembly mechanics, and compiled dual-T4 acceptance limits.
-5. Pending remote only: the singular padded-`bmm` implementation and guarded
-   runner pass focused local correctness; one final dual-T4 four-path confirmation remains. The accepted
+5. Blocked: the singular padded-`bmm` implementation passes focused local
+   correctness and every remote gate except timing CV. The accepted
    baseline downsample phase error is reported rather than misclassified as a
    kernel failure. Full-model runtime selection remains later Spec 0011 work.
 

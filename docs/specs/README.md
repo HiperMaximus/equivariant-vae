@@ -37,7 +37,7 @@ Read first:
 | `0010-fixed25-equivariance-artifact-protocol.md` | Implemented, committed, and exercised at all 20 baseline boundaries with frozen real originals. | Matched continuous-`SO(2)` evidence remains. | Reuse the identical selector, angles, latent views, grids, and error maps. |
 | `0011-reusable-goal-derived-runtime-and-compiled-fastpath.md` | Baseline runtime search, beta decision, three-session execution, update-60000 checkpoint, metrics, and visual verification complete. | Continuous-`SO(2)` architecture-specific runtime remains. | Reuse its exact selected bundle for the guarded Spec 0013 dual-T4 probe. |
 | `0012-continuous-so2-vae-architecture.md` | Radial/F2 decision and equal-copy F01 count/init handoff complete; the five layout-independent audit sections are unchanged. | Passing Spec 0013 dual-T4 mechanics evidence. | Keep the selected profiles/layout fixed; do not assemble the full VAE yet. |
-| `0013-fixed-f01-architecture-probe.md` | Final padded-`bmm`/direct mechanics and guarded runner pass 69 focused tests and two fresh reviews after the user replaced the isolated 10% gate with per-block operational checks. | Reviewed dual-T4 final evidence. | Run one four-path confirmation; do not add an arm or assemble the VAE. |
+| `0013-fixed-f01-architecture-probe.md` | Final padded-`bmm`/direct probe passes correctness, runtime ratios, DDP/AMP/compile, and VRAM but fails the 10% timing-CV gate in correlated two-rank windows. | Explicit measurement-protocol decision. | Stop; do not rerun, add an arm, change runtime/tolerance, or assemble the VAE without a new decision. |
 
 Guard authorization phrases retained for local push-guard scripts:
 
