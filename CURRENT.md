@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 ## Fresh-session start here
 
@@ -57,6 +57,91 @@ Runtime selection, LR-range, debug, and tiny-overfit gates remain strict zero-sk
 The user locked beta `0.01` on 2026-08-09; do not run an intermediate beta probe.
 
 ## Current objective
+
+Spec 0012's small non-training basis oracle is implemented and measured. The
+tracked manifest selects the fixed F0/F1 contingency (`F01`), not an F2 model.
+Selected global profiles are `7-low=(r=[1,1.90395977,2.75], sigma=[.3,.3,.3],
+qmax=[2,2,2])` and `9-low=(r=[1,1.99907757,2.87711643,3.75],
+sigma=[.3,.3,.3,.3], qmax=[2,2,2,4])`. `9-full` also passes raw rank,
+conditioning, perturbation, and `escnn` span checks at
+`r=[2,2.64125343,3.25768854,3.75]`, all widths `.3`, all qmax `4`, but its
+incremental high-order sampled-grid error is `E_high=2.0000585868`, above the
+locked `E_limit=0.1702658838` (`D_high=24`, `E_floor=0.1135105892`), so Spec
+0012 requires F2 rejection. The audit records every pair/angle error: exact
+90-degree transforms are at most `2.74e-14`, while the identified worst case
+is `F2->F2` at 45 degrees. The incremental q3/q4 subspaces match `escnn` within
+`8.01e-8` projector distance before that decision.
+
+The locked `7-full` search premise is internally incompatible: q4 must appear
+on two shells with `r>=2`, but below the 7x7 bound `2.75` the coarse grid offers
+only `2` and `sqrt(5)`, separated by less than `.25`; hence it supplies zero
+legal seeds even though the continuous point `[1,2,2.75]` with qmax `[2,4,4]`
+is feasible. The oracle records this premise failure and does not invent a
+seed. It does not affect the chosen result because 7x7 adequacy requires an
+adequate 9x9 high-order reference, and `9-full` fails that prerequisite.
+
+The user locked equal **representation-copy** capacity, not equal packed tensor
+width. At baseline logical widths `[32,48,64,96]`, the fixed F0/F1 copy pairs
+are `[(16,16),(24,24),(32,32),(48,48)]`; packed widths are
+`[48,72,96,144]`. The fixed `16F0` latent and scalar RGB interfaces are
+unchanged. The targeted layout refresh now records `1,172,304` basis
+coefficients, `3,600` normalization parameters, `4,096` gate parameters, and
+`35` scalar biases: `1,180,035` total learned parameters under the `3,958,435`
+cap. Dense-convolution MACs are `159,837,585,408` per sample and expansion MACs
+are `159,453,168` per forward. Dense learned-convolution compute is therefore
+4.383x the baseline even though learned parameters are only 29.81% of its cap;
+the comparison is parameter-bounded, not compute-matched.
+
+`scripts/select_so2_basis.py --refresh-layout` loads the locked profiles and
+recomputes only layout-dependent counts and initialization evidence. The
+128-trial comparison covers 13 distinct layer signatures and 25 frequency
+outputs; ratios span `0.9977233322..1.0079137704`, all inside `[0.9,1.1]`.
+The compact manifest retains only selected `7-low`/`9-low` plus the fixed field
+handoff; rejected profiles remain only in the audit. Hashes of the audit's
+radial search, profile, escnn-reference, high-order/F2, and locked-premise
+sections are unchanged. The focused oracle tests and touched-file Ruff/format
+checks pass: 15 tests, Ruff format/lint, BasedPyright, and the check-only
+128-trial layout refresh all reproduce exactly. Fresh independent mathematical
+review found no correctness issue. Fresh compile/performance review required
+cross-rank persistent-buffer identity checks and a strict probe-failure scope
+gate; both are now locked in Spec 0013. No implementation blocker remains.
+The earlier full quality result remains 701 tests with one expected GPU-only
+skip, Ruff clean, and BasedPyright clean; it was not rerun because this slice
+changes only the focused oracle and docs.
+
+Spec 0013 is the separately locked implementation contract. It selects fixed
+`torch.mm` contractions for all four F01 pairs, static three-cat assembly for
+mixed hidden kernels, exactly one dense `conv2d`, FP32 master/buffer and
+norm/radial-gate math with FP16 autocast for `mm`/conv, fixed compile guards,
+focused escnn/CPU checks, and explicit per-rank-batch-4 dual-T4 limits. It does
+not authorize the full VAE.
+
+The exact next implementation step is Spec 0013 only: implement the fixed
+convolution mechanics plus field norm/gates, one identity block, one encoder
+transition, one decoder transition, RGB interfaces, and scalar heads; run its
+focused CPU and later guarded dual-T4 probe. Do not assemble the 43-convolution
+model or VAE until that probe passes.
+
+This remains one-off experiment code. Do not ship runtime architecture,
+support, radial, field-layout, or group options; do not retain rejected
+candidates as selectable model branches.
+For the eventual EQ convolution, all radial/trigonometric sampling, masks,
+field offsets, legal-pair selection, QR coordinates, and basis buffers are
+resolved offline or in `__init__`. Training `forward` contains only fixed-shape
+coefficient-to-pair-block contractions, static block assembly, and one dense
+`conv2d`; it performs no manifest parsing, basis generation, pair discovery,
+SVD/QR, or adaptive branching. Kernel expansion itself must remain in training
+forward because learned coefficients change after each optimizer step.
+The ignored `reference/escnn` checkout is test-only. The existing venv can run
+its SO(2) oracle without dependency sync by using the Spec 0012 no-cache
+`joblib.Memory` shim and fail-loud `lie_learn` SO(3) sentinel; never expose that
+bootstrap to training or the general project import path.
+The completed control's fixed blur+stride-2 downsample has an even-grid
+90-degree phase error. The first EQ comparison retains that exact fieldwise
+operator, accepting and reporting the sampled-grid limitation rather than
+retraining the completed normal control. The phase-centred fixed 6x6 repair is
+reserved for a later matched rerun. Lock primitive and non-cardinal tests before
+recording error magnitudes.
 
 Spec 0011 is now a lean, two-architecture Kaggle tuning campaign. For correct dual-T4
 `drop_last=True` training, minimize
@@ -332,9 +417,27 @@ control's learned representation is correctly not claimed to be equivariant.
    inspection as complete. Preserve all three raw downloads; the combined view is derived
    and explicitly non-authoritative. Accept only the known update-14007 physical skip
    under the user's stated tolerance; do not hide or rewrite its legacy telemetry.
-10. Use the verified normal-VAE baseline as the control for the continuous-`SO(2)` run.
-    Preserve beta `0.01`, the downstream probes, fixed examples, schedules, and reporting
-    contract; tune only architecture-specific runtime details when that work begins.
+10. Treat Spec 0012's radial basis oracle, F01 selection, equal-copy count/init
+    refresh, manifest handoff, and pinned-`escnn` one-copy cross-checks as
+    complete. Spec 0013 is locked; implement only that architecture probe next.
+    Do not yet assemble the final convolution topology or full VAE.
+
+Fresh-session launch prompt for the next step:
+
+```text
+FULLY GROUND YOURSELF AND UNDERSTAND INTENT; DO NOT FOLLOW THE PLAN BLINDLY.
+Read the workspace and repo AGENTS.md files, equivariant-vae/CURRENT.md,
+GOAL.md, Spec 0012, Decision 0004, and the referenced baseline/model sources
+before acting. This is one one-off experiment, not a reusable equivariance
+library.
+
+Treat the completed Spec 0012 radial oracle, equal-copy layout refresh, and
+manifest handoff as source of truth. Implement only locked Spec 0013: the fixed
+F01 convolution mechanics, norm/gates, minimal residual/transition/RGB/latent
+probe, and its focused CPU checks. Preserve the offline/__init__/forward
+boundary. Do not assemble the full equivariant VAE, add runtime architecture
+options, or launch Kaggle without a separate explicit approval.
+```
 
 Baseline full training and final-output verification are complete. The continuous-`SO(2)`
 repeat is the next experiment gate.

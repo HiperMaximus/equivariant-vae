@@ -56,7 +56,7 @@ The final claim should compare models that share:
 | Issue #4, VAE validation | Implement latent visualization "a la EQ-VAE". | `paper/sipaim2026/figures/latent_pca_eqvae_style.*`. |
 | Issue #5, SIPAIM writing | Maintain SIPAIM paper base in IEEE conference style. | `paper/sipaim2026/main.tex`, `sipaim2026.pdf`, Overleaf project. |
 | Issue #5, SIPAIM writing | Keep outline, related work, methodology, experiments, and result placeholders current. | Updated paper sections and tracked compiled PDF. |
-| Issue #6, equivariant validation | Use continuous `SO(2)` as the target symmetry with a repo-owned implementation; use `escnn` as a reference, not the runtime dependency. | Config records continuous `SO(2)`, maximum frequency `L <= 2`, and the custom layer/downsample implementation choices. |
+| Issue #6, equivariant validation | Use continuous `SO(2)` as the target symmetry with a repo-owned implementation; use `escnn` as a reference, not the runtime dependency. | Config records field frequencies through `F2`, pair-derived spatial kernel orders through q=4, and the custom layer/downsample implementation choices. |
 | Issue #6, equivariant validation | Validate nonlinearities, normalization, upsampling, VAE sampling, and latent statistics for equivariance before full runs. | Unit/block tests plus a small feasibility report. |
 
 ## Required Evaluation Artifacts
@@ -166,7 +166,9 @@ The current inventory is in `docs/issue_image_inventory.md`.
 - Use `mu`, `logvar`, and the reparameterization trick.
 - Avoid sub-pixel/channel-to-space upsampling. Use bilinear upsampling plus
   convolution.
-- Use kernels large enough for the `L <= 2` steerable basis, such as 5x5 or 7x7.
+- Select EQ kernel support with Spec 0012's finite numerical gate so q=3/q=4
+  paths are resolved wherever `F2` is present; do not infer support from a
+  generic small-kernel rule.
 - Use Gaussian radial shells times real angular harmonics as the first
   repo-owned `SO(2)` kernel basis. Enforce zero center support for spatial
   angular frequencies `m > 0`; keep Bessel/Fourier-Bessel bases only as a future

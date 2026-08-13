@@ -304,8 +304,10 @@ The baseline must be generated from a ResNet-like layer schedule that the
 equivariant model can reuse. The non-equivariant convolutions are ordinary
 `torch.nn.Conv2d`; all channels are treated as scalar tensor channels, and each
 convolution may freely mix all input channels. The residual macro-topology,
-capacity bookkeeping, kernels, upsampling, latent shape, and gate family must
-mirror the planned `SO(2)` path.
+convolution/nonlinearity locations, upsampling, latent shape, and gate family
+are the comparison anchors. The completed control keeps its 7x7/5x5 supports;
+Spec 0012 may select larger EQ supports under the learned-parameter cap and
+must report that difference.
 
 First-run fixed choices:
 
@@ -319,18 +321,16 @@ First-run fixed choices:
 | VAE head kernels | 5x5, same padding |
 | Padding mode | zero padding for train/model code; border-cropped metrics for equivariance diagnostics |
 | Upsampling | bilinear scale factor 2 followed by convolution |
-| Future SO(2) kernel basis | Gaussian radial shells plus real angular harmonics, `L <= 2` |
+| Future SO(2) kernel basis | Gaussian radial shells plus pair-derived real angular/intertwiner paths; field frequencies only through `F2` |
 | Output | zero-initialized final 5x5 convolution to raw RGB, no final `tanh` |
 | KL convention | mean over batch, latent channels, and latent spatial positions |
 
-Future `SO(2)` kernel-basis policy is locked for the first implementation:
+Future `SO(2)` kernel-basis policy is defined by Spec 0012. Its accepted basis
+family is Gaussian radial shells and real circular harmonics; this normal-VAE
+baseline does not itself lock future EQ capacity or kernel support:
 
 - use repo-owned analytic polar-harmonic basis construction with Gaussian radial
   shells and real angular harmonics `cos(m theta), sin(m theta)`;
-- 5x5 kernels use radial shell centers `[0, 1, 2]`;
-- 7x7 kernels use radial shell centers `[0, 1, 2, 3]`;
-- use approximate ring widths `0.6` for interior rings, `0.4` for the outer
-  ring, and a tiny origin width;
 - angular frequencies `m > 0` have zero support at the kernel center; the center
   sample may only carry the `m = 0` spatial angular component, while still
   allowing legal intertwiners between compatible same-frequency input and output
@@ -339,7 +339,11 @@ Future `SO(2)` kernel-basis policy is locked for the first implementation:
 - expand to dense `conv2d` inside the compiled forward path;
 - allow scalar-output bias only where the representation policy permits it;
 - keep Fourier-Bessel/Bessel bases as a future fallback/ablation requiring a
-  separate radius, boundary, radial-order, and sampled-zero policy.
+  separate radius, boundary, radial-order, and sampled-zero policy;
+- cap hidden *field* frequencies at `F2`, but retain each input/output pair's
+  legal spatial paths through q=4 (`F1<->F2` q=3 and `F2->F2` q=4);
+- select the per-shell q cutoff and field schedule from the actual sampled-basis
+  rank/condition and parameter/runtime oracle in Spec 0012.
 
 Encoder spatial schedule:
 
@@ -357,11 +361,11 @@ Channel and future field-capacity schedule:
 | 32 | 96 | 32 | 20 | 12 |
 | latent | 16 | 16 | 0 | 0 |
 
-For the first non-equivariant baseline, the table is capacity bookkeeping only:
-it does not restrict Conv2d mixing, activation grouping, or residual addition.
-The scalar/F1/F2 columns define the planned `SO(2)` field multiplicities that a
-future steerable model should mirror when reporting capacity and parameter/FLOP
-differences.
+For the completed non-equivariant baseline, the table was capacity bookkeeping
+only: it does not restrict Conv2d mixing, activation grouping, or residual
+addition. It remains a narrow historical EQ sizing candidate, not a locked field
+schedule. Spec 0012 selects EQ multiplicities from its correct pair-basis count
+and runtime search, then reports the resulting parameter/FLOP differences.
 
 The first complete run uses scalar/trivial latent fields only. Frequency-1 or
 frequency-2 latent fields require a follow-up spec because `logvar`, sampling,

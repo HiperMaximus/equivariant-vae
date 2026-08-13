@@ -25,8 +25,8 @@ Read first:
 
 | Spec | Status | Blocked By | Next Action |
 | --- | --- | --- | --- |
-| `0001-translatable-normal-vae-baseline.md` | Normal-VAE control implemented and verified at update 60000; beta `0.01`, fixed-25 evidence, and final checkpoint are locked. | Matched continuous `SO(2)` implementation/run, downstream probes, and sealed masked-WSI test evidence. | Build the matched continuous-`SO(2)` model without changing the shared baseline contract. |
-| `0002-strict-python-quality-gate.md` | Active and passing: 687 tests passed, 1 expected GPU-only skip, Ruff clean, BasedPyright 0 errors on 2026-08-11. | None. | Rerun `./scripts/python_quality.sh` for Python changes. |
+| `0001-translatable-normal-vae-baseline.md` | Normal-VAE control implemented and verified at update 60000; beta `0.01`, fixed-25 evidence, and final checkpoint are locked. | Matched continuous `SO(2)` implementation/run, downstream probes, and sealed masked-WSI test evidence. | Preserve the shared baseline contract during the locked Spec 0013 probe. |
+| `0002-strict-python-quality-gate.md` | Active and passing: 701 tests passed, 1 expected GPU-only skip, Ruff clean, BasedPyright 0 errors on 2026-08-12. | None. | Rerun `./scripts/python_quality.sh` for Python changes. |
 | `0003-kaggle-cli-execution-workflow.md` | Implemented and proven through guarded push/status/output plus three checkpoint-only baseline sessions. | Remote actions still require explicit approval and confirmation variables. | Reuse the guarded workflow for the continuous-`SO(2)` experiment. |
 | `0006-selected-runtime-local-mechanics.md` | Implemented, locally verified, and exercised by the completed baseline. | None. | Maintain fail-closed runtime identity/checkpoint checks. |
 | `0007-real-ubc-ddp-amp-selected-runtime-runner.md` | Implemented and remote-verified through update 60000. | None for the normal-VAE runner. | Reuse shared mechanics; change only architecture-specific `SO(2)` details. |
@@ -35,7 +35,9 @@ Read first:
 | `0004-sipaim-paper-scaffold.md` | Draft active scaffold; the normal-VAE result is now available evidence. | Continuous `SO(2)`, downstream WSI classifier, and sealed test results remain pending. | Keep claims bounded until the matched comparison is complete. |
 | `0005-overleaf-empty-project-initialization.md` | implemented | None for the narrow empty-project first-sync case. It is not a general conflict-resolution or force-push policy. | Use only `scripts/sipaim_overleaf_sync.sh push`; it may initialize an empty-tree Overleaf `master` with a normal fast-forward commit, but must abort for nonempty remote content. |
 | `0010-fixed25-equivariance-artifact-protocol.md` | Implemented, committed, and exercised at all 20 baseline boundaries with frozen real originals. | Matched continuous-`SO(2)` evidence remains. | Reuse the identical selector, angles, latent views, grids, and error maps. |
-| `0011-reusable-goal-derived-runtime-and-compiled-fastpath.md` | Baseline runtime search, beta decision, three-session execution, update-60000 checkpoint, metrics, and visual verification complete. | Continuous-`SO(2)` architecture-specific runtime remains. | Start the matched continuous-`SO(2)` experiment gate. |
+| `0011-reusable-goal-derived-runtime-and-compiled-fastpath.md` | Baseline runtime search, beta decision, three-session execution, update-60000 checkpoint, metrics, and visual verification complete. | Continuous-`SO(2)` architecture-specific runtime remains. | Reuse its mechanics only after the locked F01 architecture probe passes. |
+| `0012-continuous-so2-vae-architecture.md` | Radial/F2 decision and equal-copy F01 count/init handoff complete; the five layout-independent audit sections are unchanged. | Passing Spec 0013 implementation and benchmark. | Keep the selected profiles/layout fixed while the narrow probe is implemented. |
+| `0013-fixed-f01-architecture-probe.md` | Locked / implementation-ready after count/init refresh; fixes contraction, assembly, AMP, compile, correctness, and benchmark limits. | Local probe implementation, then separately authorized dual-T4 evidence. | Implement only the fixed probe modules and focused CPU tests; do not assemble the full VAE. |
 
 Guard authorization phrases retained for local push-guard scripts:
 

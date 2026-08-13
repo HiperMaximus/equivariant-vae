@@ -207,6 +207,9 @@ paper/sipaim2026/main.pdf
 # Agent scratch (on-disk temp; use instead of the OS /tmp tmpfs)
 .agent_tmp/
 
+# Local, shallow third-party source checkouts used only as implementation references.
+reference/escnn/
+
 # Experiment and Kaggle run artifacts
 runs/
 kaggle/kernels/*/payload/

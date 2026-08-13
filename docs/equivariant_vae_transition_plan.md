@@ -110,9 +110,10 @@ Current proposal after the 2026-06-11 spec correction:
   first comparable VAE, preserving spatial coherence for the future `SO(2)`
   comparison while removing the FSQ quantizer and its learned scalar `s`
   bottleneck trick.
-- First implementation target: continuous `SO(2)` steerability via
-  `rot2dOnR2(N=-1, maximum_frequency=2)`.
-- Use frequencies up to `L <= 2` in the steerable model.
+- First implementation target: repo-owned continuous `SO(2)` steerability
+  specialized to the selected F0/F1 layout; `escnn` remains an offline oracle.
+- Use hidden field frequencies through F1. The completed oracle's F2/q3/q4
+  measurements explain the rejection and are not runtime options.
 - Treat compact `4x4` latents as later ablations unless explicitly relocked.
 - Split by WSI/patient/site where metadata allows. Never split by patch.
 
@@ -145,7 +146,7 @@ Pointwise convolution policy:
   impossible.
 - For this experiment, 1x1 convolutions are banned initially because the user
   wants the non-equivariant baseline to avoid pointwise convs and because larger
-  spatial kernels make the `L <= 2` steerable basis meaningful.
+  spatial kernels are needed for the pair-derived steerable basis.
 - Any future 1x1 exception must be listed in the config and mirrored exactly in
   the equivariant version.
 
@@ -155,16 +156,19 @@ The research target is continuous `SO(2)`.
 The experiment asks whether a non-equivariant VAE and a comparable `SO(2)`
 steerable VAE differ in usefulness for histopathology.
 
-### First Target: Continuous SO(2) With L <= 2
+### Selected Target: Continuous SO(2) With F0/F1 Hidden Fields
 
-- Use `rot2dOnR2(N=-1, maximum_frequency=2)`.
+- Use continuous `SO(2)` specialized to the selected F0/F1 layout.
 - RGB input is three trivial scalar fields.
-- Hidden layers may contain frequency-0, frequency-1, and frequency-2 fields.
+- Hidden layers contain only frequency-0 and frequency-1 fields; the offline
+  oracle's F2 checks remain evidence for why F2 was rejected.
+- Selected pair-derived spatial kernel orders reach q=2.
 - The steerable model must log every field type, multiplicity, kernel size, and
   basis frequency cutoff.
 - The non-equivariant baseline must use the same macro-topology, input size,
-  downsampling depths, latent shape, kernel sizes, losses, training budget, and
-  evaluation protocol.
+  downsampling depths, latent shape, residual/convolution/nonlinearity counts,
+  losses, training budget, and evaluation protocol. EQ kernel supports are
+  architecture choices that must be reported under the parameter cap.
 
 ### Optional Later Target: O(2)
 
@@ -185,8 +189,8 @@ Continuous image-space gate:
 | --- | --- | --- | --- | --- |
 | Encoder convolution | ResNet-style Conv2d blocks | Odd square Conv2d, usually 5x5 or 7x7 | Repo-owned SO(2) steerable convolution equivalent to `R2Conv` | Use the same abstract layer schedule in both models. |
 | Channel changes | 1x1 projections and pointwise-style mixing | Spatial kernels only at first | Repo-owned SO(2) convolution between compatible field types | 1x1 is possible but banned initially. |
-| Residual adds | Standard tensor addition | Required ResNet-like residual topology with branch-local ResNet-D / BlurPool-style downsampling for stage transitions | GeometricTensor add with same `FieldType` | Projection branches use fixed anti-aliased resampling before odd spatial projection kernels; no 1x1 pointwise projections or ad hoc shape adapters. |
-| Downsampling | Strided conv/avg-pool shortcuts | Fixed fieldwise anti-aliased 2x downsample/resizer replacing learned stride | Repo-owned fieldwise low-pass/downsample, then SO(2) convolution with stride 1 | Spec 0001 locks an explicit 5x5 separable binomial blur plus decimation; resize/area is only a later fallback if this fails an SO(2) stage-transition test. |
+| Residual adds | Standard tensor addition | Required ResNet-like residual topology with branch-local ResNet-D / BlurPool-style downsampling for stage transitions | Plain tensor add only after both branches reach the identical static `FieldSpec` | Projection branches use fixed anti-aliased resampling before odd spatial projection kernels; no 1x1 pointwise projections or ad hoc shape adapters. |
+| Downsampling | Strided conv/avg-pool shortcuts | Fixed fieldwise anti-aliased 2x downsample/resizer replacing learned stride | Repo-owned fieldwise low-pass/downsample, then SO(2) convolution with stride 1 | The first comparison retains the completed baseline's 5x5 binomial blur plus decimation and reports its sampled-grid phase error. |
 | Upsampling | PixelShuffle or nearest-like decoder code in older files | Bilinear scale factor + Conv2d | Repo-owned fieldwise bilinear upsampling + SO(2) convolution | Use uniform `scale_factor`, not arbitrary nonuniform `size`. |
 | Bottleneck | FSQ discrete 16-level latents | Gaussian VAE latent map | SO(2) scalar plus irrep-aware latent statistics | Test latent statistics under transforms. |
 | Activation | ReLU/SiLU everywhere | Gated scalar activation on all ordinary tensor channels | Same scalar gate family plus radial gates over vector norms for nontrivial fields | Treat SiLU as `x * sigmoid(x)`; do not add equivariant-only activation parameters or vector biases. |
@@ -195,15 +199,15 @@ Continuous image-space gate:
 | Loss | Charbonnier + SSIM, no KL | `L1 + 0.1 * (1 - SSIM) + beta * KL` | Same scalar losses plus optional equivariance regularizer | Composite beta-VAE-style objective, not a strict Gaussian ELBO. |
 | Equivariance metric | 25-patch artifact metric | Dataset-level metric plus qualitative artifacts | Dataset-level metric plus layer/full-model checks | 25 patches are qualitative only. |
 
-Downsampling caveat: fieldwise resize/downsample is compatible with `FieldType`
-semantics because it applies the same scalar spatial operator to every fiber
-component, but it is still an approximate sampled-grid operation.
-Spec 0001 locks a repo-owned 5x5 separable binomial low-pass filter applied
-fieldwise, then decimation by 2. This is explicit, odd-centered,
-compile-friendly, easy to mirror in the Conv2d baseline, and easy to count.
-Resize/area downsampling is only a later fallback if the locked binomial
-operator fails an SO(2) stage-transition test. Require block-level equivariance
-error tests around every stage transition.
+Downsampling caveat: fieldwise resize/downsample is representation-compatible
+because it applies the same scalar spatial operator to every fiber component,
+but it remains a sampled-grid approximation. The completed baseline's fixed 5x5
+binomial blur plus stride-2 decimation has an even-grid phase error at 90
+degrees (not a vector-field or floating-point error). The first EQ comparison
+retains that exact operator fieldwise to match the completed normal control.
+Spec 0012 retains the phase-centred 6x6 fixed filter
+`outer([1,5,10,10,5,1]/32, same)`, stride 2/padding 2, only for a later matched
+rerun. Require primitive and block-level errors around every transition.
 
 ## Baseline Architecture Direction
 
@@ -220,26 +224,24 @@ For 256x256:
   256 -> 128 -> 64 -> 32
 ```
 
-Use the same spatial schedule for both models. The equivariant model defines
-channel count through field multiplicities, while the baseline mirrors the
-resulting tensor widths without imposing steerable kernel constraints.
+Use the same spatial schedule for both models. Baseline widths define logical
+representation-slot budgets, not the equivariant model's packed tensor widths.
 
 First SO(2) field schedule:
 
 ```text
 Stage 0: scalar fields only for RGB input.
-Stage 1: scalar + frequency-1 vector fields.
-Stage 2: scalar + frequency-1 + frequency-2 vector fields.
-Stage 3+: same frequency set, larger multiplicities.
-Latent: start with scalar/trivial spatial latents for the first complete run.
-        Then add frequency-1/frequency-2 latent fields with invariant variance.
+Stages 1+: equal counts of scalar F0 and two-component vector F1 copies.
+Copy pairs by resolution: (16,16), (24,24), (32,32), (48,48).
+Packed widths: 48, 72, 96, 144.
+Latent: fixed 16F0 scalar/trivial spatial fields.
 ```
 
 The non-equivariant baseline treats all channels as ordinary scalar tensor
 channels. Its Conv2d layers may freely mix all channels, and its gated scalar
-activation is applied componentwise. The scalar/F1/F2 schedule remains capacity
-bookkeeping for the future `SO(2)` field multiplicities, not a restriction on
-baseline channel mixing.
+activation is applied componentwise. The F0/F1 schedule is capacity bookkeeping
+for the selected `SO(2)` field multiplicities, not a restriction on baseline
+channel mixing.
 
 Recommended block pattern:
 
@@ -333,30 +335,16 @@ Core building blocks:
 
 Representation plan:
 
-1. Build a central field-type registry.
-2. For SO(2), start with scalar fields, then add frequency-1 and
-   frequency-2 fields.
-3. Prevent accidental frequency or field mixing by constructing field types
-   centrally.
-4. Keep normalizations and nonlinearities selected from the field type, not from
-   ad hoc channel counts.
+1. Hard-code the four selected F0/F1 `FieldSpec` values and packed offsets.
+2. Keep equal F0/F1 copy counts at each hidden stage.
+3. Prevent accidental frequency or field mixing with fixed construction-time
+   layouts and focused tests, not a runtime field registry.
+4. Keep normalizations and nonlinearities field-aware rather than deriving them
+   from arbitrary packed channel counts.
 
-Latent plan:
-
-1. First version: scalar/trivial spatial latent fields with `(B, 16, 32, 32)`.
-2. Second version: mixed-frequency latent fields with isotropic
-   Gaussian sampling per nontrivial irrep/subfield.
-3. Add a specific test: transform input, encode, compare transformed `mu` and
-   valid `logvar` statistics, sample with controlled epsilon, and verify decoder
-   behavior under the declared representation.
-
-For nontrivial SO(2) latent fields:
-
-- `mu` transforms as the declared irrep.
-- `logvar` must not be an arbitrary per-coordinate tensor over vector components.
-- Use one invariant variance scalar per irrep copy and spatial location.
-- Sample `eps` isotropically inside each 2D irrep copy.
-- KL must be computed using the matching isotropic Gaussian policy.
+Latent plan: fixed scalar/trivial `(B,16,32,32)` fields. Test transformed `mu`
+and `logvar`, controlled-epsilon sampling, and decoder behavior. Mixed-frequency
+latents are outside this one-off experiment.
 
 ## Normalization Policy
 
@@ -370,11 +358,11 @@ Real-run default:
 - The SO(2) model uses repo-owned field-aware normalization, not raw GroupNorm
   over arbitrary tensor channels.
 - Scalar/trivial fields may have additive bias.
-- Nontrivial frequency-1/frequency-2 vector fields may have invariant scalar
-  scale parameters, but no additive learned vector bias.
+- Nontrivial frequency-1 vector fields may have invariant scalar scale
+  parameters, but no additive learned vector bias.
 - Vector/irrep normalization uses invariant energy over whole irrep copies. It
-  must never split a 2D irrep copy or normalize frequency-1 and frequency-2
-  components as if they were ordinary exchangeable channels.
+  must never split a 2D F1 copy or normalize its components as if they were
+  ordinary exchangeable channels.
 - Normalization is placed after learned convolutions and before activation.
 - Do not normalize `mu_head`, `logvar_head`, or the final RGB output head.
 - Disable convolution bias when the convolution is immediately followed by
@@ -463,43 +451,37 @@ Implementation note:
 
 ## Kernel And Frequency Policy
 
-Because the target may use frequencies up to `L <= 2`, 3x3 kernels should not be
-the default for the main 256x256 experiment.
-
-Initial settings for 256x256:
-
-- Stem kernel: 7x7.
-- Hidden block kernels: 5x5 default.
-- Early high-resolution hidden blocks: 5x5 for spec 0001; do not add optional
-  7x7 hidden blocks unless a later ablation opens that question.
-- VAE heads: 5x5.
-- Decoder post-upsampling kernels: 5x5.
-- Avoid 1x1 unless the experiment explicitly studies it.
-
-Initial settings for 32x32:
-
-- Stem/hidden kernels: 3x3 or 5x5.
-- Avoid 7x7 stride-2 stems on tiny inputs unless tested.
+Spec 0012's measured oracle rejected F2 and selected the fixed F01 schedule:
+the global `9-low` profile at the stem and global `7-low` profile everywhere
+else. The evaluated `7-full` and `9-full` profiles remain evidence only. The
+completed normal control remains 7x7 stem/5x5 elsewhere; do not rewrite it.
+The eventual training model hard-codes this one architecture and does not
+expose F2/support/radial choices, arbitrary field layouts, adaptive kernels, or
+runtime fallback logic.
+Private construction-time helpers may remove repetition, but generic library
+behavior is explicitly out of scope.
+All Gaussian/angular basis sampling, field offsets, masks, and legal-pair
+selection occur offline or in module initialization and become fixed buffers.
+The compiled training forward performs only fixed-shape coefficient expansion,
+static block assembly, and one dense `conv2d` per convolution position; it does
+not generate or inspect the basis dynamically.
 
 For the repo-owned SO(2) convolution:
 
 - Set `kernel_size` explicitly.
 - Use Gaussian radial rings times real angular harmonics as the locked first-run
   basis.
-- Set and log `frequencies_cutoff`, `rings`, and `sigma`.
-- For `L <= 2`, use a documented cutoff such as:
-  `frequencies_cutoff=lambda r: 0 if r == 0 else min(2, 2 * r)`.
+- Set and log the selected support, rings, sigma values, and per-shell q cutoff
+  from the Spec 0012 basis manifest.
+- Use pair-derived kernel paths rather than a global angular cutoff.
 - Enforce the origin rule: basis elements with angular frequency `m > 0` have
   zero support at the kernel center because the angular direction is undefined
   at `r = 0`. The center sample may only carry the `m = 0`/trivial angular
   spatial component. This does not mean "scalar fields only" at the center:
   representation-theoretic intertwiners between compatible same-frequency input
   and output irreps are still allowed.
-- Mirror the useful `escnn` defaults unless a spike shows a better option:
-  default ring centers are one radial shell per integer radius from the center
-  to the axis-aligned kernel edge, so 5x5 uses `[0, 1, 2]` and 7x7 uses
-  `[0, 1, 2, 3]`; ring widths are approximately `0.6` for interior rings,
-  `0.4` for the outer ring, and a tiny width at the origin.
+- Use `escnn` as a test-only basis-space and equivariance reference under the
+  exact same radial configuration; do not compare raw basis-column order.
 - Add a model summary that prints field types, kernel sizes, and frequency caps.
 
 Basis fallback notes:
@@ -507,7 +489,7 @@ Basis fallback notes:
 - Pixel/delta rings: simple and very local, but discrete and less smooth under
   rotation; keep only as a diagnostic.
 - Gaussian radial rings times angular harmonics are the accepted first-run
-  basis. They are smooth, local, easy to precompute on 5x5/7x7 grids, and
+  basis. They are smooth, local, easy to precompute on 7x7/9x9 grids, and
   compatible with dense `conv2d` after basis expansion. This follows the same
   design principle as `escnn`: equivariance fixes the angular/intertwiner
   structure, while the radial profile can be chosen freely, so smooth Gaussian
@@ -517,16 +499,17 @@ Basis fallback notes:
   future fallback if Gaussian rings fail. They are valid precomputed-buffer
   candidates, especially because Torch provides useful Bessel special functions,
   but the exact orders/API, disk radius, boundary convention, and sampled zeros
-  must be chosen carefully so a 5x5 or 7x7 kernel does not lose useful degrees
+  must be chosen carefully so a 7x7 or 9x9 kernel does not lose useful degrees
   of freedom at common grid locations.
 - Wavelet/scattering-style filters: strong multiscale prior, but less like a
   drop-in learned convolution basis and too much extra design surface for the
   first paper comparison.
 
-Locked first-run choice: Gaussian radial shells and real angular harmonics
-`cos(m theta), sin(m theta)` for `m <= 2`; precompute basis buffers, learn only
-expansion coefficients, enforce zero center support for `m > 0`, and use Bessel
-variants only as a later fallback/ablation if the Gaussian-ring spike fails.
+Selected first-run basis: fixed Gaussian radial shells and pair-derived real
+angular/intertwiner paths through q=2. Precompute basis buffers, learn only
+expansion coefficients, and enforce zero centre support for q>0. The completed
+q3/q4 checks are rejection evidence for F2. Spec 0012 owns the basis-rank,
+conditioning, and radial-selection record.
 
 ## Upsampling Validation Gate
 
@@ -694,7 +677,7 @@ Exit criteria:
   `(B, 16, 32, 32)`.
 - Confirm first implementation group: SO(2).
 - Decide whether `O(2)` is a later ablation.
-- Decide SO(2) representation schedule up to `L <= 2`.
+- Use the selected equal-copy F0/F1 schedule and pair-derived paths through q=2.
 - Use standard GroupNorm in the Conv2d baseline hidden/projection blocks and
   repo-owned field-aware normalization in the future SO(2) path.
 - Use corrected Tellez-style stain-aware corruption plus per-image Gaussian noise
@@ -747,9 +730,10 @@ Exit criteria:
   equivariance error, boxplots, training/evaluation dashboard, and qualitative
   artifacts are logged.
 
-### Phase 3: Implement Custom SO(2) Feasibility Spike
+### Phase 3: Specify And Run The F01 Architecture Probe
 
-- Build field type registry.
+- Use the four fixed equal-copy `FieldSpec` values; do not build a generic
+  field-type registry.
 - Implement one encoder block, one downsample path, one decoder/upscale path, one
   VAE latent policy, and one output head.
 - Test repo-owned SO(2) convolution, normalization, activation, fieldwise
@@ -764,12 +748,10 @@ Exit criteria:
   Reflection checks are only required for an explicit later `O(2)` ablation.
 - Forward/backward and one optimizer step complete.
 
-### Phase 4: Implement Full Equivariant VAE
+### Phase 4: Implement Full Equivariant VAE After The Probe
 
-- Implement the full shared layer schedule with repo-owned SO(2) layer
-  factories.
-- Add frequency-1 and frequency-2 fields for SO(2).
-- Add representation-aware latent sampling if using nontrivial latent fields.
+- Implement the full shared layer schedule with fixed repo-owned SO(2) modules.
+- Use only the selected equal-copy F0/F1 hidden fields and scalar latent.
 - Match the baseline training protocol.
 - Add equivariance regularizer only after the plain equivariant VAE trains.
 
@@ -862,9 +844,11 @@ Before claiming an equivariance result:
 
 Capacity matching policy:
 
-- Primary comparison is schedule-matched: the baseline and equivariant model use
-  the same input size, downsampling depths, latent shape, kernel sizes, decoder
-  structure, optimizer budget, and logging.
+- Primary comparison is macro-schedule-matched: the baseline and equivariant
+  model use the same input size, downsampling/upsampling positions, latent
+  shape, residual/convolution/nonlinearity counts, decoder structure, optimizer
+  budget, and logging. EQ field multiplicities and kernel supports are selected
+  under the parameter cap and reported.
 - The SO(2) equivariant model uses field multiplicities chosen so its learned
   parameter count is less than or equal to the Conv2d baseline's learned
   parameter count.
@@ -929,13 +913,14 @@ Issue #5, SIPAIM 2026 writing:
 Issue #6, equivariant VAE validation:
 
 - The target is SO(2).
-- Implement the comparable SO(2) VAE after the non-equivariant translatable VAE.
+- Spec 0013 now locks the narrow F01 architecture probe; implement and verify
+  only that probe before assembling the full convolution topology or VAE.
 - Use a repo-owned, compile-compatible SO(2) implementation; use `escnn` as a
   reference rather than a runtime dependency.
 - Explicitly test nonlinearities, normalization, upsampling, VAE sampling, and
   latent statistics for equivariance before running the full experiment.
 
-## Implementation Defaults Pending Config Lock
+## Locked Experiment Defaults
 
 These are active defaults or unresolved implementation choices that still need
 to be encoded in configs. They are not invitations to reopen settled project
@@ -945,22 +930,23 @@ decisions such as the continuous `SO(2)` scope.
 | --- | --- | --- |
 | Input size | 256x256 continuation | Matches current Kaggle data pipeline. |
 | Latent shape | `(B, 16, 32, 32)` | Preserves spatial coherence for the future continuous `SO(2)` comparison while removing FSQ quantization. |
-| First implementation group | Continuous `SO(2)`, equivalent in scope to `rot2dOnR2(N=-1, maximum_frequency=2)` | This is the actual research target. |
-| SO(2) hidden reps | Scalars plus frequency-1 and frequency-2 vector fields | Matches the `L <= 2` goal. |
-| SO(2) kernel basis | Gaussian radial shells plus real angular harmonics, `L <= 2`, with zero center support for spatial angular frequencies `m > 0` | Keeps the forward pass as dense `conv2d` after basis expansion and avoids runtime `escnn` dependency; Bessel is a future fallback only. |
-| Latent reps | Scalar first, then irrep-aware vector latents | Avoids breaking VAE sampling on day one. |
+| First implementation group | Continuous `SO(2)` with the selected F0/F1 field cap | This is the measured first-run target. |
+| SO(2) hidden reps | Equal F0/F1 copy pairs `(16,16)`, `(24,24)`, `(32,32)`, `(48,48)` | One two-component F1 copy counts as one logical representation slot; F2 was rejected. |
+| SO(2) kernel basis | Manifest `9-low` stem and `7-low` remainder, with pair-derived q<=2 real angular/intertwiner paths | Keeps the eventual forward as dense `conv2d` after fixed expansion and avoids runtime `escnn`. |
+| Latent reps | Fixed `16F0` | Preserves scalar Gaussian VAE sampling for the selected run. |
 | Normalization | Baseline GroupNorm; SO(2) field-aware norm | Preserves FSQ-like training stability while avoiding representation-breaking raw GroupNorm in the equivariant path. |
-| Kernel size | 7x7 stem, 5x5 hidden, 5x5 heads for 256x256 | Gives steerable bases enough support for low frequencies. |
+| Kernel size | 9x9 stem; 7x7 everywhere else | This is the selected F01 support assignment. |
 | Equivariance regularizer | Evaluation-only first | Separates architectural equivariance from training regularization. |
 | Pointwise convs | Banned initially | Matches the intended translatable baseline constraint. |
-| Downsampling | Locked repo-owned 5x5 separable binomial fieldwise low-pass + decimation | Chosen from the SO(2) side first, then mirrored exactly in the Conv2d baseline; resize/area is future fallback only. |
+| Downsampling | Primary: completed control's 5x5 binomial blur + decimation, fieldwise in EQ; optional strict variant: phase-centred 6x6 stride-2 blur | The primary accepts measured sampled-grid error to avoid retraining; the strict variant needs a matched normal rerun. |
 | Upsampling | Bilinear scale factor + conv | Directly mirrors fieldwise SO(2) upsampling and avoids PixelShuffle. |
 
 ## Execution pointer
 
 This file preserves the architecture transition constraints. It is not an active
-checklist. Use `CURRENT.md` for the exact handoff and Spec 0011 for the only active
-runtime plan. The fixed selectors, trainer/checkpoint mechanics, CLI-managed kernels,
+checklist. Use `CURRENT.md` and Spec 0012 for the exact handoff. The fixed selectors,
+trainer/checkpoint mechanics, CLI-managed kernels,
 and local scaffold described by the former task list are already implemented; do not
-recreate them. The custom continuous `SO(2)` work starts only after the baseline runtime
-and paper-promotable evidence are accepted.
+recreate them. The equal-copy F01 count/init/manifest refresh is complete and
+Spec 0013 is locked. The exact next action is its fixed local architecture
+probe; full-VAE assembly remains blocked until that probe passes.

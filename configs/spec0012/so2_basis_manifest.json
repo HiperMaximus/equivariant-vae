@@ -1,0 +1,105 @@
+{
+  "escnn_commit": "9ad44cc37d694d9c805c4fef4d16722a254b3bf2",
+  "profiles": {
+    "7-low": {
+      "centres": [
+        1.0,
+        1.90395977,
+        2.75
+      ],
+      "qmax": [
+        2,
+        2,
+        2
+      ],
+      "widths": [
+        0.3,
+        0.3,
+        0.3
+      ]
+    },
+    "9-low": {
+      "centres": [
+        1.0,
+        1.99907757,
+        2.87711643,
+        3.75
+      ],
+      "qmax": [
+        2,
+        2,
+        2,
+        4
+      ],
+      "widths": [
+        0.3,
+        0.3,
+        0.3,
+        0.3
+      ]
+    }
+  },
+  "schema_version": 2,
+  "scope": "fixed_equal_copy_f01_training_handoff",
+  "selected_architecture": {
+    "field_layout": {
+      "A": {
+        "copies": [
+          16,
+          16,
+          0
+        ],
+        "packed_channels": 48
+      },
+      "B": {
+        "copies": [
+          24,
+          24,
+          0
+        ],
+        "packed_channels": 72
+      },
+      "C": {
+        "copies": [
+          32,
+          32,
+          0
+        ],
+        "packed_channels": 96
+      },
+      "D": {
+        "copies": [
+          48,
+          48,
+          0
+        ],
+        "packed_channels": 144
+      },
+      "L": {
+        "copies": [
+          16,
+          0,
+          0
+        ],
+        "packed_channels": 16
+      },
+      "R": {
+        "copies": [
+          3,
+          0,
+          0
+        ],
+        "packed_channels": 3
+      }
+    },
+    "name": "F01_equal_copy",
+    "parameter_cap": 3958435,
+    "profile_assignment": {
+      "all_other_convolutions": "7-low",
+      "stem": "9-low"
+    },
+    "status": "layout_evidence_pass",
+    "total_learned_parameters": 1180035
+  },
+  "spec": "0012-continuous-so2-vae-architecture"
+}
