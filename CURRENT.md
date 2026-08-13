@@ -66,8 +66,8 @@ The user locked beta `0.01` on 2026-08-09; do not run an intermediate beta probe
 
 ## Current objective
 
-Spec 0015 is locally implemented, reviewed, and ready for its single guarded
-remote coordinate. Registry kind `so2_vae_fixed` accepts no architecture
+Spec 0015 is locally implemented and reviewed; its single guarded remote
+coordinate is running. Registry kind `so2_vae_fixed` accepts no architecture
 options and fails closed on exact `SO2VAE` identity, latent width 16, 43 learned
 convolutions, 34 radial gates, and `1,180,035` parameters. The shared runner now
 selects that kind without changing normal-model behavior. The one-use readiness
@@ -87,16 +87,17 @@ gate/evidence/performance/scope correctness. Their plan pinning, executed gate
 semantics, gradient/update, cross-rank counter, validator, identity, generated
 launcher, and mutation-test findings were fixed; both reviewers rechecked with
 zero unresolved findings. Local kernel preflight and `git diff --check` pass.
-Hardware evidence remains pending until the guarded Kaggle run completes.
-The guarded upload was attempted from clean local commit `6da340a` but the
-external-write approval layer rejected it before any Kaggle version was
-created: the generated kernel embeds private repository source and uploading it
-to Kaggle is data egress to an external service. Resume only after the user
-explicitly confirms that risk, then run:
+Hardware evidence is running as private Kaggle kernel
+`maximusshtefan/eqvae-so2-runtime-readiness`, version 1, from clean local HEAD
+`6cdccb0`. Kaggle accepted the guarded upload after the user explicitly
+approved sending the embedded private repository payload. The immediate status
+read returned `KernelWorkerStatus.RUNNING`. No second kernel or real training
+was launched. On the user's `continue`, run:
 
 ```bash
-./scripts/kaggle_kernel.sh preflight-so2-runtime-readiness
-KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push kaggle/kernels/so2_runtime_readiness
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-so2-runtime-readiness
+# After KernelWorkerStatus.COMPLETE:
+KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-so2-runtime-readiness runs/kaggle/so2_runtime_readiness_v1
 ```
 
 Spec 0014 is complete locally. `src/eqvae/models/so2_vae.py` mirrors all 43
@@ -107,9 +108,8 @@ model is exactly `1,180,035` learned parameters with the locked
 `1,172,304/3,600/4,096/35` coefficient/norm/gate/bias partition. Eager
 two-step gradient-driven updates, optimizer grouping, CPU autocast, base and
 autocast fullgraph reuse, deployment shapes, contraction call counts, and
-cardinal/non-cardinal endpoint evidence pass. The next objective is not
-training: integrate only this fixed model with the selected runner and gate
-telemetry, then answer its concrete dual-T4 readiness question directly.
+cardinal/non-cardinal endpoint evidence pass. The active objective is not
+training: finish and verify only the running dual-T4 readiness coordinate.
 
 Spec 0012's small non-training basis oracle is implemented and measured. The
 tracked manifest selects the fixed F0/F1 contingency (`F01`), not an F2 model.
@@ -422,10 +422,8 @@ Spec 0015 local acceptance is complete: the final post-review quality gate is
 BasedPyright at zero errors. The dedicated embedded-kernel preflight verifies a
 private dual-T4 kernel with empty dataset, competition, kernel, and model source
 lists. Two clean-context adversarial reviews have zero unresolved findings.
-The only open acceptance item is the hardware run and its exact JSON/68-row CSV
-evidence. Its first upload attempt was blocked before remote creation pending
-explicit approval to send the embedded private repository payload to Kaggle;
-no real data or training is authorized.
+The only open acceptance item is the running hardware probe and verification of
+its exact JSON/68-row CSV evidence. No real data or training is authorized.
 
 Spec 0014 focused verification passes 84 analytic-basis/primitive/kernel/model/
 optimizer tests; its 11 full-model tests cover exact topology/counts, complete

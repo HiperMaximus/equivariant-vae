@@ -1,7 +1,7 @@
 # Spec 0015: Fixed SO2 Selected-Runtime Readiness
 
-Status: implemented / locally verified / remote upload blocked before creation
-Implementation readiness: explicit private-source data-egress approval required; full training remains unauthorized
+Status: implemented / locally verified / private Kaggle v1 running
+Implementation readiness: hardware artifact pending; full training remains unauthorized
 Owner/workstream: fixed continuous-`SO(2)` selected-runtime integration
 Last updated: 2026-08-13
 
@@ -123,12 +123,11 @@ aggregation, strict proof/rank/module artifact validation, generated-launcher
 ignore policy, and adversarial mutation coverage. Both reviewers rechecked the
 final fixes with zero unresolved findings.
 
-The first guarded remote upload attempt from clean commit `6da340a` was rejected
-by the external-write approval layer before Kaggle created a version. The
-kernel embeds private repository source, so continuation requires explicit user
-confirmation that this payload may be sent to Kaggle. This is an authorization
-blocker, not a runtime failure, and consumes neither the one probe nor the one
-narrow-defect rerun allowance.
+After explicit user approval, private Kaggle kernel
+`maximusshtefan/eqvae-so2-runtime-readiness` version 1 was created from clean
+HEAD `6cdccb0`. Its immediate status was `KernelWorkerStatus.RUNNING`. Per the
+remote stop rule, further polling waits for the user's `continue`; no second
+kernel or training run was launched.
 
 ## Related Files
 
