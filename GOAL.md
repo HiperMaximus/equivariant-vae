@@ -208,7 +208,9 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   next experiment gate is a separately authorized, fresh-session implementation
   of the fixed full equivariant VAE: preserve beta, data, schedule, fixed examples,
   metrics, and downstream probes; tune only later measured architecture-specific
-  runtime details. Do not build a general session framework.
+  runtime details. Use narrow direct dual-T4 checks during implementation when
+  needed to answer concrete compile, VRAM, or settled-throughput questions; do
+  not overengineer local portability or build a general session framework.
   This GOAL states the north star, not the frontier; read
   `CURRENT.md` and
   `docs/specs/0011-reusable-goal-derived-runtime-and-compiled-fastpath.md`.

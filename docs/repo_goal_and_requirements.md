@@ -27,7 +27,9 @@ Build and evaluate a comparable pair of histopathology patch VAEs:
    translate to the steerable model.
 2. The next gate: assemble the full continuous `SO(2)`-steerable denoising VAE
    from the accepted repo-owned, compile-compatible Spec 0013 mechanics, using
-   `escnn` only as a reference. This is a new, separately authorized slice.
+   `escnn` only as a reference. This is a new, separately authorized slice;
+   narrow dual-T4 checks may answer concrete environment-specific questions
+   during implementation, but full training remains separately authorized.
 
 The final claim should compare models that share:
 

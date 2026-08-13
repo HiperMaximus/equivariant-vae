@@ -963,6 +963,9 @@ assembly as fastest. The singular four-path dual-T4 confirmation passes the
 accepted compiled-performance contract; correlated CV remains diagnostic. Do
 not rerun or add an arm. Full-VAE assembly is the next implementation slice,
 but it requires separate explicit authorization and should start in a fresh
-window/session with a new active spec. Once the full model is authorized, Spec 0011 may
-likewise run a few targeted batch/runtime probes instead of assuming every
-baseline value transfers or recreating the discarded generic search.
+window/session with a new active spec. The user authorizes narrow direct
+dual-T4 checks during that slice when they answer concrete compile, VRAM, or
+settled-execution questions faster than local overengineering. Once the full
+model is authorized, Spec 0011 may likewise run a few targeted batch/runtime
+probes instead of assuming every baseline value transfers or recreating the
+discarded generic search. Full training remains separately authorized.

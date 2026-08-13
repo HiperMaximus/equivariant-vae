@@ -11,7 +11,11 @@ are also complete. Do not reopen radial profiles, F2, multiplicities, contractio
 arms, compilation-time tuning, or diagnostic timing CV. The next implementation
 slice is the full fixed 43-convolution equivariant VAE, but it requires explicit
 user authorization and should start in a fresh window/session with a new active
-implementation spec. Baseline full-run session 1 is Kaggle kernel version 2 from source
+implementation spec. The user explicitly authorizes narrow Kaggle checks during
+that slice when a compile, VRAM, or settled-execution question genuinely depends
+on the dual-T4 setup; use them early instead of engineering local support for
+hypothetical cases. This does not authorize the full training run. Baseline
+full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
 boundary. Its output and checkpoint are verified locally; the FSQ-aligned AMP runtime
 and full-output verification corrections are implemented and verified. Session 2 was
@@ -183,7 +187,8 @@ support, radial, field-layout, or group options; do not retain rejected
 candidates as selectable model branches. Optimize the simplest singular path
 for the locked layouts, fixed shapes, current Torch runtime, and dual-T4 target;
 do not add abstractions, fallbacks, portability, or generalized shape handling
-without a measured need. Bitwise parity is not required: the explicit Spec
+without a measured need. Prefer a small direct Kaggle check when the alternative
+is speculative local overengineering. Bitwise parity is not required: the explicit Spec
 0013 numerical and sampled-equivariance tolerances are the contract, including
 ordinary AMP/compiler rounding and the documented finite-grid resampling floor.
 For the eventual EQ convolution, all radial/trigonometric sampling, masks,
@@ -510,8 +515,10 @@ Spec 0013 is complete. Initial compilation duration is excluded; only settled
 compiled execution matters. Do not rerun or add mechanics/runtime arms. The next
 task, only after explicit user authorization and preferably in a fresh window,
 is a new spec-driven slice that assembles and locally verifies the fixed
-43-convolution equivariant VAE. Do not launch full-model Kaggle work or training
-as part of that coding authorization unless separately requested.
+43-convolution equivariant VAE. Narrow guarded Kaggle compile/VRAM/settled-
+execution checks are authorized when they avoid speculative local engineering;
+keep them minimal and tied to a concrete question. Do not build a tuner or
+launch the full training run without separate authorization.
 ```
 
 Baseline full training and final-output verification are complete. The continuous-`SO(2)`

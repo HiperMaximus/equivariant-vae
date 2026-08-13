@@ -865,8 +865,10 @@ selected convolution mechanics, normalization, gates, one residual block, and
 one encoder/decoder transition. Its compiled dual-T4 forward/backward proof at
 per-device batch 4 is accepted. Full-VAE coding is mechanically ready but
 remains a new, separately authorized implementation slice. Later measured
-full-model runtime may trigger only a narrow Spec 0011 follow-up; it must not
-silently change the field schedule.
+full-model runtime may trigger only a narrow Spec 0011 follow-up. A minimal
+executable model may be checked directly on dual T4s during implementation when
+that is faster and more faithful than speculative local portability work; it
+must not silently change the field schedule or become a tuner.
 
 No training search over F0/F1 proportions, width multipliers, or radial
 hyperparameters is planned. The equal-copy F01 layout is the single selected
