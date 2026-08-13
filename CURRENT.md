@@ -99,38 +99,45 @@ outputs; ratios span `0.9977233322..1.0079137704`, all inside `[0.9,1.1]`.
 The compact manifest retains only selected `7-low`/`9-low` plus the fixed field
 handoff; rejected profiles remain only in the audit. Hashes of the audit's
 radial search, profile, escnn-reference, high-order/F2, and locked-premise
-sections are unchanged. The focused oracle tests and touched-file Ruff/format
-checks pass: 15 tests, Ruff format/lint, BasedPyright, and the check-only
-128-trial layout refresh all reproduce exactly. Fresh independent mathematical
-review found no correctness issue. Fresh compile/performance review required
-cross-rank persistent-buffer identity checks and a strict probe-failure scope
-gate; both are now locked in Spec 0013. No implementation blocker remains.
-The earlier full quality result remains 701 tests with one expected GPU-only
-skip, Ruff clean, and BasedPyright clean; it was not rerun because this slice
-changes only the focused oracle and docs.
+sections are unchanged.
 
-Spec 0013 is the separately locked implementation contract. It selects fixed
-`torch.mm` contractions for all four F01 pairs, static three-cat assembly for
-mixed hidden kernels, exactly one dense `conv2d`, FP32 master/buffer and
-norm/radial-gate math with FP16 autocast for `mm`/conv, fixed compile guards,
-focused escnn/CPU checks, and explicit per-rank-batch-4 dual-T4 limits. It does
-not authorize the full VAE.
+The fixed Spec 0013 local probe is now implemented. It hard-codes only the
+selected F0/F1 layouts and pair banks, expands FP32 master coefficients with
+fixed `torch.mm`, performs minimal static assembly and exactly one dense
+`conv2d`, keeps basis/layout construction outside forward, and adds only the
+locked norm/gates, identity block, encoder/decoder transitions, resampling, RGB
+interfaces, and scalar latent heads. It does not assemble or expose the
+43-convolution VAE. Exact eventual counts remain `1,180,035`.
 
-The exact next implementation step is Spec 0013 only: implement the fixed
-convolution mechanics plus field norm/gates, one identity block, one encoder
-transition, one decoder transition, RGB interfaces, and scalar heads; run its
-focused CPU and later guarded dual-T4 probe. Do not assemble the 43-convolution
-model or VAE until that probe passes.
+Focused local verification passes: 64 tests with 329 pinned-escnn/SciPy
+deprecation warnings, Ruff format/lint, BasedPyright, exact check-only
+128-trial layout refresh, generated-kernel local preflight, and agent preflight.
+All pair banks and multi-copy signatures match the pinned escnn reference;
+every one of 40 profile/pair/angle sampled-equivariance rows passes
+`ours <= max(5e-4, 1.10*escnn)`. Reduced FP64 gradients,
+generalized-He/bias/count checks, norm/gates, residuals, resampling, RGB/latent,
+eager optimization, and CPU fullgraph pass. Exact evidence and source hashes
+live in `docs/data/spec0013_so2_cpu_probe.json`. The earlier full-suite result
+remains 701 tests with one expected GPU-only skip; the suite was not rerun
+because this slice touched no shared infrastructure.
 
-For the later Kaggle mechanics probe, begin with the exact runtime flags and
-values selected for the non-equivariant baseline. If they pass the SO(2) limits,
-stop; if measurement exposes an architecture-specific compile, memory, or
-latency interaction, run only a small predeclared set of follow-up probes over
-the implicated runtime options or contraction/assembly choice. After the probe
-passes and full-model coding is authorized, Spec 0011 may similarly use a few
-full-model probes to select feasible batch/runtime values. Neither step reopens
-the field layout, profiles, learned parameterization, or a generic search
-surface. Every Kaggle write requires fresh explicit permission.
+Fresh mathematical review found no premise error and required complete named
+coefficient-gradient, pair/angle, initialization/bias/count, and source-binding
+coverage; all were added. Fresh compile/performance/scope review required the
+exact selected-runtime JSON hash and live compiler/DDP readbacks, batch-4
+fullgraph and initial-break evidence, load-bearing AMP/finiteness and all timing
+CVs, DDP-wrapped matched timing, and compiled-FP16 assembly timing; all were
+added. The generated runner was rebuilt after the final source changes.
+
+The one-use private no-dataset dual-T4 probe is locally ready at
+`kaggle/kernels/so2_architecture_probe`. It begins with the exact selected Spec
+0011 bundle and has no generic runtime axes. No Kaggle remote write has occurred.
+The remote guard intentionally rejects a dirty source tree. The exact next step
+is to review and commit this slice, then obtain fresh explicit permission for
+the first mechanics run. If every limit passes, select it and stop; only a
+concrete measured failure may justify a small predeclared follow-up. Do not
+assemble the full VAE until the dual-T4 probe passes and full-model coding is
+separately authorized.
 
 This remains one-off experiment code. Do not ship runtime architecture,
 support, radial, field-layout, or group options; do not retain rejected
@@ -433,9 +440,11 @@ control's learned representation is correctly not claimed to be equivariant.
    and explicitly non-authoritative. Accept only the known update-14007 physical skip
    under the user's stated tolerance; do not hide or rewrite its legacy telemetry.
 10. Treat Spec 0012's radial basis oracle, F01 selection, equal-copy count/init
-    refresh, manifest handoff, and pinned-`escnn` one-copy cross-checks as
-    complete. Spec 0013 is locked; implement only that architecture probe next.
-    Do not yet assemble the final convolution topology or full VAE.
+    refresh, manifest handoff, and Spec 0013's fixed local mechanics/CPU proof
+    as complete. The guarded dual-T4 probe is locally ready and unlaunched.
+    Review and commit this slice, obtain fresh explicit permission, and run that
+    exact selected-runtime bundle next. Do not yet assemble the final
+    convolution topology or full VAE.
 
 Fresh-session launch prompt for the next step:
 
@@ -446,12 +455,12 @@ GOAL.md, Spec 0012, Decision 0004, and the referenced baseline/model sources
 before acting. This is one one-off experiment, not a reusable equivariance
 library.
 
-Treat the completed Spec 0012 radial oracle, equal-copy layout refresh, and
-manifest handoff as source of truth. Implement only locked Spec 0013: the fixed
-F01 convolution mechanics, norm/gates, minimal residual/transition/RGB/latent
-probe, and its focused CPU checks. Preserve the offline/__init__/forward
-boundary. Do not assemble the full equivariant VAE, add runtime architecture
-options, or launch Kaggle without a separate explicit approval.
+Treat the completed Spec 0012 oracle and locally verified Spec 0013 mechanics
+as source of truth. Inspect the fixed no-dataset dual-T4 runner and local
+preflight, then request fresh permission for its first Kaggle write. Start with
+the exact selected Spec 0011 bundle and stop if all limits pass. Do not assemble
+the full equivariant VAE, add runtime architecture options, or launch Kaggle
+without that separate explicit approval.
 ```
 
 Baseline full training and final-output verification are complete. The continuous-`SO(2)`

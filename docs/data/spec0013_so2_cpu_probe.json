@@ -1,0 +1,212 @@
+{
+  "schema_version": "spec0013.so2_cpu_probe.v1",
+  "status": "pass",
+  "measured_at": "2026-08-12",
+  "git_head": "536b80f62c678286fe4d6be872d840f3028e89d6",
+  "worktree_dirty": true,
+  "source_files_sha256": {
+    "src/eqvae/models/so2_architecture_probe.py": "526571e3a3d8a980016093f84c138c5ccd33d26c751bf78fbb9bc1cffdd9d365",
+    "src/eqvae/benchmarking/so2_architecture_probe.py": "4b6062b296c21b49f59bde0cd6c746ddbc00223065eb7f553a52538ee17197f4",
+    "tests/test_so2_architecture_probe.py": "0275033f6c8d5057a34ae2c90fa83502a75ef98feb7257adcdd05890d354f4c1",
+    "tests/test_so2_architecture_probe_kernel.py": "7f311522f7799cef1098ca579bc6c7972def42cb9d8677f770bd22d056aedabc",
+    "kaggle/kernels/so2_architecture_probe/run_template.py": "cd5d73ae54fe2ddd1c917ffe15067920fe5533453e74494f1f07b7959502176d",
+    "scripts/kaggle_kernel.sh": "c501513e492c29d7445a94d734132f9040a443b84a8f3dd1bb09a85e11a96249"
+  },
+  "runtime": {
+    "python": "3.12.3",
+    "torch": "2.13.0+cpu"
+  },
+  "architecture": {
+    "profiles": {
+      "stem": "9-low",
+      "other_convolutions": "7-low"
+    },
+    "layouts": {
+      "R": [3, 0, 3],
+      "A": [16, 16, 48],
+      "B": [24, 24, 72],
+      "C": [32, 32, 96],
+      "D": [48, 48, 144],
+      "L": [16, 0, 16]
+    },
+    "eventual_convolution_count": 43,
+    "coefficient_count": 1172304,
+    "normalization_parameter_count": 3600,
+    "gate_parameter_count": 4096,
+    "scalar_bias_count": 35,
+    "total_learned_parameter_count": 1180035,
+    "learned_parameter_cap": 3958435
+  },
+  "escnn_reference": {
+    "profiles_tested": [7, 9],
+    "pairs_tested": ["F0->F0", "F0->F1", "F1->F0", "F1->F1"],
+    "max_kernel_relative_rms": 4.228692187751269e-08,
+    "kernel_relative_rms_limit": 5e-05,
+    "max_output_relative_rms": 1.465332200776331e-07,
+    "output_relative_rms_limit": 0.0001,
+    "multicopy_assemblies_tested": [
+      "scalar-to-F01",
+      "F01-to-F01",
+      "F01-to-scalar"
+    ]
+  },
+  "pair_sampled_equivariance": {
+    "angles_degrees": [15, 30, 45, 60, 90],
+    "crop_pixels": 7,
+    "rule": "runtime_cropped_relative_rms <= max(5e-4, 1.10 * escnn_cropped_relative_rms)",
+    "row_count": 40,
+    "all_status": "pass",
+    "max_runtime_cropped_relative_rms": 0.1557006989968872,
+    "max_runtime_to_limit_ratio": 0.9090911184262321,
+    "rows": [
+      {
+        "profile": "7-low",
+        "pair": "F0->F0",
+        "runtime": [0.0050297897502373035, 0.027928219704502447, 0.0284318201987824, 0.015138473868380081, 2.3058406333438074e-16],
+        "escnn": [0.005029789827744496, 0.027928220226926235, 0.028431820558571526, 0.015138474115621229, 2.606535230450629e-16],
+        "limit": [0.005532768810518946, 0.03072104224961886, 0.03127500261442868, 0.016652321527183354, 0.0005],
+        "status": ["pass", "pass", "pass", "pass", "pass"]
+      },
+      {
+        "profile": "7-low",
+        "pair": "F0->F1",
+        "runtime": [0.010384572801468244, 0.09248282996227021, 0.09043096815765365, 0.05183472418194788, 2.730173737277245e-16],
+        "escnn": [0.01038457279336401, 0.09248282992418375, 0.09043096804362295, 0.05183472396292046, 3.5208886619954547e-16],
+        "limit": [0.011423030072700412, 0.10173111291660213, 0.09947406484798525, 0.05701819635921251, 0.0005],
+        "status": ["pass", "pass", "pass", "pass", "pass"]
+      },
+      {
+        "profile": "7-low",
+        "pair": "F1->F0",
+        "runtime": [0.011853345865101795, 0.11325663913722804, 0.10184773759728502, 0.07457608353640278, 4.4768235022278495e-16],
+        "escnn": [0.01185334583761164, 0.11325663912255089, 0.10184773732836339, 0.07457608295336039, 5.911001987746681e-16],
+        "limit": [0.013038680421372805, 0.124582303034806, 0.11203251106119973, 0.08203369124869644, 0.0005],
+        "status": ["pass", "pass", "pass", "pass", "pass"]
+      },
+      {
+        "profile": "7-low",
+        "pair": "F1->F1",
+        "runtime": [0.07479106827169296, 0.15317378411712584, 0.1557006989968872, 0.1401932905883131, 4.607095508006259e-16],
+        "escnn": [0.07479105104964325, 0.15317375436540406, 0.155700666191821, 0.1401932620652688, 7.043404912013329e-16],
+        "limit": [0.08227015615460757, 0.16849112980194447, 0.1712707328110031, 0.1542125882717957, 0.0005],
+        "status": ["pass", "pass", "pass", "pass", "pass"]
+      },
+      {
+        "profile": "9-low",
+        "pair": "F0->F0",
+        "runtime": [0.015342397448943163, 0.04147622380491264, 0.050750874816300175, 0.029914701117341125, 3.2965743814249815e-16],
+        "escnn": [0.015342397010665336, 0.04147622280409102, 0.05075087321797894, 0.029914700355376307, 4.453648930768074e-16],
+        "limit": [0.016876636711731872, 0.04562384508450013, 0.05582596053977684, 0.03290617039091394, 0.0005],
+        "status": ["pass", "pass", "pass", "pass", "pass"]
+      },
+      {
+        "profile": "9-low",
+        "pair": "F0->F1",
+        "runtime": [0.012799903654642165, 0.05671739203622227, 0.07101473710558202, 0.031695085543511164, 2.854738580693812e-16],
+        "escnn": [0.012799900932002999, 0.056717390421256855, 0.07101473489746198, 0.0316950823520249, 4.478059490888214e-16],
+        "limit": [0.0140798910252033, 0.06238912946338255, 0.07811620838720817, 0.03486459058722739, 0.0005],
+        "status": ["pass", "pass", "pass", "pass", "pass"]
+      },
+      {
+        "profile": "9-low",
+        "pair": "F1->F0",
+        "runtime": [0.012730998339164802, 0.048726602376905334, 0.04980655273908722, 0.040225971470042, 4.434998419927077e-16],
+        "escnn": [0.012731000737650463, 0.04872660410402872, 0.049806555181358785, 0.04022597340807186, 6.331321046626238e-16],
+        "limit": [0.01400410081141551, 0.0535992645144316, 0.054787210699494666, 0.04424857074887905, 0.0005],
+        "status": ["pass", "pass", "pass", "pass", "pass"]
+      },
+      {
+        "profile": "9-low",
+        "pair": "F1->F1",
+        "runtime": [0.01536810009947168, 0.041311603536534465, 0.05809232843824208, 0.03540195160527843, 4.3367918099546775e-16],
+        "escnn": [0.015368103548072795, 0.04131160784070521, 0.05809233237066201, 0.03540195677856371, 6.060356696900283e-16],
+        "limit": [0.016904913902880077, 0.04544276862477573, 0.06390156560772822, 0.03894215245642008, 0.0005],
+        "status": ["pass", "pass", "pass", "pass", "pass"]
+      }
+    ]
+  },
+  "fp64_gradients": {
+    "coefficient_relative_rms": 5.364175405282371e-09,
+    "input_relative_rms": 2.807481342280986e-08,
+    "relative_rms_limit": 1e-06
+  },
+  "component_rotation_equivariance": {
+    "angle_radians": 0.37,
+    "field_norm_relative_rms": 7.771230128630441e-08,
+    "radial_gate_relative_rms": 6.708766223891752e-08,
+    "test_limit": 2e-06
+  },
+  "sampled_equivariance": {
+    "angles_degrees": [15, 30, 45, 60, 90],
+    "crop_pixels": 7,
+    "seed": 53013,
+    "primitive_A_to_A": {
+      "input_spatial_size": 65,
+      "full_relative_rms": [0.1303704643, 0.1427296214, 0.1412864721, 0.1423063446, 7.337397616e-07],
+      "cropped_relative_rms": [0.01245571779, 0.04942589841, 0.05365142184, 0.04767645223, 7.459098543e-07],
+      "transform_round_trip_floor": [0.02771217892, 0.1188336371, 0.1517791769, 0.1191133303, 0.0]
+    },
+    "identity_A": {
+      "input_spatial_size": 65,
+      "full_relative_rms": [0.1083122666, 0.1298647044, 0.1408751401, 0.138866467, 6.979943784e-07],
+      "cropped_relative_rms": [0.03344785754, 0.06267851308, 0.07594419561, 0.07154600526, 7.14222703e-07],
+      "transform_round_trip_floor": [0.02771217892, 0.1188336371, 0.1517791769, 0.1191133303, 0.0]
+    },
+    "encoder_A_to_B_with_locked_downsample": {
+      "input_spatial_size": 64,
+      "full_relative_rms": [0.214204107, 0.2628183343, 0.3055683253, 0.2951236613, 0.2152147511],
+      "cropped_relative_rms": [0.0956520236, 0.1479483449, 0.1792249042, 0.1956001018, 0.2130386949],
+      "transform_round_trip_floor": [0.02777090633, 0.1128974192, 0.1543545484, 0.113022548, 0.0],
+      "interpretation": "The nonzero 90-degree error is the locked 5x5 stride-2 phase floor, not a steerable-kernel failure."
+    },
+    "decoder_B_to_A_with_locked_bilinear_upsample": {
+      "input_spatial_size": 64,
+      "full_relative_rms": [0.1056948855, 0.1317014224, 0.1436207534, 0.1348930826, 8.816556862e-07],
+      "cropped_relative_rms": [0.05190773279, 0.08720792684, 0.1008382852, 0.08780583507, 8.818049795e-07],
+      "transform_round_trip_floor": [0.02719920467, 0.1160589209, 0.1570932286, 0.1164914991, 0.0]
+    }
+  },
+  "mechanics": {
+    "exactly_one_dense_conv2d_per_learned_layer": "pass",
+    "vectorized_mm_matches_direct_copy_loop": "pass",
+    "persistent_basis_buffers_fp32_contiguous": "pass",
+    "amp_facing_fp32_norm_and_gate_islands": "pass",
+    "eager_forward_backward_optimizer_step": "pass",
+    "cpu_compile_backend_eager_fullgraph_dynamic_false": "pass"
+  },
+  "verification": {
+    "pytest": {
+      "command": ".venv/bin/pytest -q tests/test_so2_basis.py tests/test_so2_architecture_probe.py tests/test_so2_architecture_probe_kernel.py",
+      "result": "64 passed, 329 pinned-escnn/SciPy deprecation warnings in 14.57s"
+    },
+    "ruff": "pass",
+    "basedpyright": "pass",
+    "kaggle_local_preflight": "pass"
+  },
+  "adversarial_reviews": {
+    "mathematical_correctness": {
+      "status": "pass_after_resolution",
+      "resolved": [
+        "compare every named coefficient gradient",
+        "gate all selected pair types and five angles against the escnn-relative limit",
+        "test generalized-He standard deviations and the complete bias/count policy",
+        "bind the evidence to exact source hashes"
+      ]
+    },
+    "compile_performance_scope": {
+      "status": "pass_after_resolution",
+      "resolved": [
+        "consume and hash the exact selected runtime JSON with compiler and DDP readbacks",
+        "make all AMP skips, nonfinite results, and eager/compiled/control timing CVs load-bearing",
+        "run the fullgraph diagnostic at the locked batch and record initial graph breaks",
+        "time DDP-wrapped selected-runtime blocks and compiled FP16 assembly",
+        "rebuild and verify the embedded runner after source changes"
+      ]
+    }
+  },
+  "dual_t4": {
+    "status": "pending_clean_source_commit_and_fresh_explicit_remote_write_permission",
+    "kernel": "kaggle/kernels/so2_architecture_probe",
+    "local_preflight_command": "./scripts/kaggle_kernel.sh preflight-so2-architecture-probe"
+  }
+}

@@ -1,6 +1,6 @@
 # Spec 0013: Fixed F01 Architecture Probe
 
-Status: locked / implementation-ready
+Status: local implementation verified / dual-T4 mechanics evidence pending
 Owner/workstream: one-off continuous-`SO(2)` architecture probe
 Last updated: 2026-08-12
 
@@ -32,6 +32,27 @@ dense convolutions cost `159,837,585,408` MAC/sample, 4.383x the baseline's
 learned-convolution MACs. Parameter compliance is not compute matching. The
 probe must measure this implementation honestly; it must not change the locked
 layout to hide the cost.
+
+## Implementation Status
+
+The fixed local probe is implemented in
+`src/eqvae/models/so2_architecture_probe.py`. It contains only the three
+specialized convolution map kinds, fixed field norm/gates and resampling, one
+identity block, one encoder transition, one decoder transition, RGB lift/head,
+and scalar latent heads. It does not assemble or expose the full VAE. The
+focused CPU evidence is tracked in
+`docs/data/spec0013_so2_cpu_probe.json`: all 64 tests pass, every one-copy and
+multi-copy escnn comparison passes, all 40 selected pair/angle rows pass the
+escnn-relative sampled-equivariance rule, and the exact eventual count remains
+`1,180,035`.
+
+The one-use dual-T4 runner is locally built and guarded at
+`kaggle/kernels/so2_architecture_probe`. It reads and hashes the exact selected
+Spec 0011 runtime plan, verifies compiler/DDP readbacks, measures the four fixed
+signatures against matched controls, and makes all accuracy, AMP, finiteness,
+timing-CV, latency, assembly, graph, and VRAM limits load-bearing. No remote
+write has occurred. Full-VAE assembly remains blocked until that separately
+authorized run passes.
 
 ## Non-Goals
 
@@ -391,52 +412,72 @@ every limit.
 
 ## Outputs And Acceptance Artifacts
 
-Later implementation produces:
+The local implementation produces:
 
 - the fixed probe modules under `src/eqvae/models/`, not exported as a generic
   public API;
 - focused CPU tests;
 - one compact tracked CPU mechanics/equivariance summary;
-- one compact tracked dual-T4 summary with runtime fingerprint, graph counters,
-  accuracy, latency, temporary-memory, VRAM, and pass/fail fields;
-- no retained one-use benchmark controller or generic configuration system.
+- one narrow guarded runner that will write one compact tracked dual-T4 summary
+  with runtime fingerprint, graph counters, accuracy, latency,
+  temporary-memory, VRAM, and pass/fail fields after explicit remote-write
+  permission; no multi-arm controller or generic configuration system.
 
 ## Acceptance Criteria Before Full-VAE Coding
 
-1. All offline/layout construction is absent from training forward.
-2. Every convolution uses the fixed `mm` contractions, minimal static assembly,
-   and exactly one dense `conv2d`.
-3. Focused escnn, gradient, layout, norm, gate, bias, residual, resampling, RGB,
-   and scalar-latent checks pass.
-4. CPU fullgraph mechanics and the explicit dual-T4 limits pass.
-5. Counts remain exactly 1,172,304 coefficients, 3,600 norm parameters, 4,096
-   gate parameters, 35 scalar biases, and 1,180,035 total learned parameters for
-   the eventual 43-convolution topology.
-6. Spec 0012, this spec, the compact evidence, and `CURRENT.md` are updated with
-   the result and exact next full-VAE step.
+1. Pass: all offline/layout construction is absent from training forward.
+2. Pass: every convolution uses the fixed `mm` contractions, minimal static
+   assembly, and exactly one dense `conv2d`.
+3. Pass: focused escnn, gradient, layout, norm, gate, bias, residual,
+   resampling, RGB, and scalar-latent checks pass.
+4. Partial: CPU fullgraph mechanics pass; the explicit dual-T4 limits await a
+   separately authorized Kaggle run.
+5. Pass: counts remain exactly 1,172,304 coefficients, 3,600 norm parameters,
+   4,096 gate parameters, 35 scalar biases, and 1,180,035 total learned
+   parameters for the eventual 43-convolution topology.
+6. Partial: local evidence and handoffs are updated; the exact next step is the
+   guarded dual-T4 run, not full-VAE coding.
 
 Only then may a separate implementation step assemble the full equivariant VAE.
 
 ## Verification Commands
 
-The implementation slice will define the exact focused filenames. Its minimum
-local commands are:
+The exact local verification commands are:
 
 ```bash
-.venv/bin/python -m pytest -q tests/test_so2_basis.py tests/test_so2_architecture_probe.py
-.venv/bin/ruff check <touched Python files>
-.venv/bin/ruff format --check <touched Python files>
+.venv/bin/pytest -q tests/test_so2_basis.py tests/test_so2_architecture_probe.py tests/test_so2_architecture_probe_kernel.py
+.venv/bin/ruff check src/eqvae/models/so2_architecture_probe.py src/eqvae/benchmarking/so2_architecture_probe.py tests/test_so2_architecture_probe.py tests/test_so2_architecture_probe_kernel.py kaggle/kernels/so2_architecture_probe/run_template.py
+.venv/bin/ruff format --check src/eqvae/models/so2_architecture_probe.py src/eqvae/benchmarking/so2_architecture_probe.py tests/test_so2_architecture_probe.py tests/test_so2_architecture_probe_kernel.py kaggle/kernels/so2_architecture_probe/run_template.py
+.venv/bin/basedpyright src/eqvae/models/so2_architecture_probe.py src/eqvae/benchmarking/so2_architecture_probe.py tests/test_so2_architecture_probe.py tests/test_so2_architecture_probe_kernel.py kaggle/kernels/so2_architecture_probe/run_template.py
+.venv/bin/python scripts/select_so2_basis.py --refresh-layout --check
+./scripts/kaggle_kernel.sh preflight-so2-architecture-probe
 ./scripts/agent_preflight.sh
 git diff --check
 ```
 
-The one-use Kaggle probe command is added only when its guarded kernel exists;
-remote writes remain explicitly permission-gated.
+The focused tests pass `64 passed` with 329 pinned-escnn/SciPy deprecation
+warnings. Ruff format/lint and BasedPyright pass. The exact artifact check and
+local Kaggle preflight pass. Remote writes remain explicitly permission-gated.
 
 ## Implementation Blockers
 
-None for the local probe. The dual-T4 portion requires explicit Kaggle remote-
-write permission when the probe implementation is ready.
+None for the local probe. The remote guard requires this reviewed work to be in
+a clean source commit plus fresh explicit Kaggle write permission. No follow-up
+arms are predeclared because the selected baseline bundle must be measured
+first.
+
+## Adversarial Review Findings
+
+Fresh read-only mathematical review found no basis/layout/norm/gate premise
+error. It required all named coefficient gradients, all pair/angle
+escnn-relative gates, instantiated generalized-He/bias/count checks, and source
+fingerprints; each was added. Fresh compile/performance/scope review required
+exact selected-runtime JSON provenance plus live compiler/DDP readback,
+batch-4 fullgraph coverage and initial-break recording, load-bearing eager and
+control CV plus AMP/finiteness rows, and a fresh embedded runner; each was
+added. The reviewer also caught an early raw-module timing draft; the final
+probe times DDP-wrapped modules under the selected runtime and measures
+assembly in the compiled FP16 path.
 
 ## Known Risks
 

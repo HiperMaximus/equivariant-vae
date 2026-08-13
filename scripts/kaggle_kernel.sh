@@ -54,6 +54,8 @@ selected_runtime_full_output_dir="runs/kaggle/selected_runtime_full"
 fixed25_selector_kernel_dir="kaggle/kernels/fixed25_selector"
 fixed25_selector_output_dir="runs/kaggle/fixed25_selector"
 selected_runtime_compile_probe_kernel_dir="kaggle/kernels/selected_runtime_compile_probe"
+so2_architecture_probe_kernel_dir="kaggle/kernels/so2_architecture_probe"
+so2_architecture_probe_output_dir="runs/kaggle/so2_architecture_probe"
 
 usage() {
   cat <<'EOF'
@@ -68,6 +70,7 @@ Usage:
   ./scripts/kaggle_kernel.sh preflight-selected-runtime-lr-range
   ./scripts/kaggle_kernel.sh preflight-selected-runtime-full
   ./scripts/kaggle_kernel.sh preflight-fixed25-selector
+  ./scripts/kaggle_kernel.sh preflight-so2-architecture-probe
   ./scripts/kaggle_kernel.sh api-check [kernel_dir]
   ./scripts/kaggle_kernel.sh push [kernel_dir] [--wait [--wait-interval N] [--wait-max N] [--wait-queued N]] [extra kaggle args...]
   ./scripts/kaggle_kernel.sh status [kernel_id]
@@ -78,9 +81,11 @@ Usage:
   ./scripts/kaggle_kernel.sh status-selected-runtime-lr-range
   ./scripts/kaggle_kernel.sh status-selected-runtime-full
   ./scripts/kaggle_kernel.sh status-fixed25-selector
+  ./scripts/kaggle_kernel.sh status-so2-architecture-probe
   ./scripts/kaggle_kernel.sh wait [kernel_id] [poll_seconds] [max_polls] [max_queued_seconds]
   ./scripts/kaggle_kernel.sh wait-fixed25-selector [poll_seconds] [max_polls] [max_queued_seconds]
   ./scripts/kaggle_kernel.sh wait-selected-runtime-full [poll_seconds] [max_polls] [max_queued_seconds]
+  ./scripts/kaggle_kernel.sh wait-so2-architecture-probe [poll_seconds] [max_polls] [max_queued_seconds]
   ./scripts/kaggle_kernel.sh output [kernel_id] [output_dir]
   ./scripts/kaggle_kernel.sh output-setup [output_dir]
   ./scripts/kaggle_kernel.sh output-real-data-runtime-pretest [output_dir]
@@ -89,6 +94,7 @@ Usage:
   ./scripts/kaggle_kernel.sh output-selected-runtime-lr-range [output_dir]
   ./scripts/kaggle_kernel.sh output-selected-runtime-full [output_dir]
   ./scripts/kaggle_kernel.sh output-fixed25-selector [output_dir]
+  ./scripts/kaggle_kernel.sh output-so2-architecture-probe [output_dir]
   ./scripts/kaggle_kernel.sh pull [kernel_id] [kernel_dir]
 
 Remote writes require KAGGLE_PUSH_CONFIRMED=1.
@@ -589,6 +595,9 @@ embedded_ready_marker() {
     maximusshtefan/eqvae-selected-runtime-compile-probe)
       printf '%s\n' "KAGGLE_SELECTED_RUNTIME_COMPILE_PROBE_READY = True"
       ;;
+    maximusshtefan/eqvae-so2-architecture-probe)
+      printf '%s\n' "KAGGLE_SO2_ARCHITECTURE_PROBE_READY = True"
+      ;;
     maximusshtefan/non-eq-vae-debug)
       printf '%s\n' "KAGGLE_SMOKE_READY = True"
       ;;
@@ -664,6 +673,11 @@ EOF
 
   if grep -q "KAGGLE_SELECTED_RUNTIME_COMPILE_PROBE_READY = True" "$kernel_dir/$code_file"; then
     guard_selected_runtime_compile_probe_push_ready "$kernel_dir" "$metadata"
+    return
+  fi
+
+  if grep -q "KAGGLE_SO2_ARCHITECTURE_PROBE_READY = True" "$kernel_dir/$code_file"; then
+    guard_so2_architecture_probe_push_ready "$kernel_dir" "$metadata"
     return
   fi
 
@@ -1277,6 +1291,119 @@ PY
       exit 1
     fi
   done
+}
+
+guard_so2_architecture_probe_push_ready() {
+  local kernel_dir="$1"
+  local metadata="$2"
+  local mode="${3:-push}"
+
+  if [[ -d "$kernel_dir/payload" ]]; then
+    echo "error: SO(2) probe must be one generated run.py, not a sibling payload" >&2
+    exit 1
+  fi
+  if [[ "${KAGGLE_FULL_DATASET_CONFIRMED:-}" == "1" ]]; then
+    echo "error: do not attach a dataset to the generated-tensor SO(2) probe" >&2
+    exit 1
+  fi
+
+  python3 - "$metadata" <<'PYSO2METADATA'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+expected = {
+    "id": "maximusshtefan/eqvae-so2-architecture-probe",
+    "title": "eqvae so2 architecture probe",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "true",
+    "machine_shape": "NvidiaTeslaT4",
+}
+errors = [
+    f"{key} must be {value!r}"
+    for key, value in expected.items()
+    if (
+        str(data.get(key, "")).lower()
+        if value in {"true", "false"}
+        else str(data.get(key, ""))
+    ) != value
+]
+for field in ("dataset_sources", "competition_sources", "kernel_sources", "model_sources"):
+    if data.get(field) != []:
+        errors.append(f"{field} must be empty")
+if errors:
+    raise SystemExit("\n".join(f"error: {error}" for error in errors))
+PYSO2METADATA
+
+  local verify_args=(
+    --kernel-dir "$kernel_dir"
+    --ready-marker "KAGGLE_SO2_ARCHITECTURE_PROBE_READY = True"
+    --verify-only
+  )
+  if [[ "$mode" == "local_preflight" ]]; then
+    verify_args+=(--allow-dirty)
+  elif [[ "$mode" != "push" ]]; then
+    echo "error: unsupported SO(2) probe guard mode: $mode" >&2
+    exit 1
+  fi
+  build_kernel_py "${verify_args[@]}"
+
+  local run_file="$kernel_dir/run.py"
+  for required_text in \
+    "spec0013_so2_dual_t4_probe.json" \
+    "spec0013.so2_dual_t4_probe.v1" \
+    "locked_so2_architecture_mechanics" \
+    "compile_step_python_reducer_fp16_channels_last" \
+    "torch.distributed.run" \
+    "--nproc_per_node=2" \
+    "eqvae.benchmarking.so2_architecture_probe" \
+    "graph_breaks,recompiles"; do
+    if ! grep -q -- "$required_text" "$run_file"; then
+      echo "error: SO(2) probe run.py missing required text: $required_text" >&2
+      exit 1
+    fi
+  done
+
+  python3 - "$run_file" <<'PYSO2PAYLOAD'
+import base64
+import io
+import re
+import sys
+import zipfile
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+match = re.search(r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""', text, re.DOTALL)
+if match is None:
+    raise SystemExit("error: SO(2) probe has no embedded payload")
+with zipfile.ZipFile(io.BytesIO(base64.b64decode(match.group("payload")))) as archive:
+    source = archive.read("src/eqvae/benchmarking/so2_architecture_probe.py").decode()
+required = (
+    "PER_DEVICE_BATCH: Final = 4",
+    "SETTLED_UPDATES: Final = 32",
+    'RUNTIME_BUNDLE_ID: Final = "compile_step_python_reducer_fp16_channels_last"',
+    "SO2LargestDDConv",
+    "def _gradient_mean_check(",
+    "def _check_buffers_across_ranks(",
+)
+missing = [item for item in required if item not in source]
+if missing:
+    raise SystemExit("\n".join(f"error: embedded SO(2) source missing {item}" for item in missing))
+PYSO2PAYLOAD
+}
+
+preflight_so2_architecture_probe() {
+  build_embedded_kernel "$so2_architecture_probe_kernel_dir"
+  guard_so2_architecture_probe_push_ready \
+    "$so2_architecture_probe_kernel_dir" \
+    "$(metadata_path "$so2_architecture_probe_kernel_dir")" \
+    "local_preflight"
+  echo "ok: Spec 0013 dual-T4 probe is built and locally guarded; no remote write performed"
 }
 
 guard_real_data_runtime_pretest_push_ready() {
@@ -2752,6 +2879,9 @@ case "$action" in
   preflight-fixed25-selector)
     preflight_fixed25_selector
     ;;
+  preflight-so2-architecture-probe)
+    preflight_so2_architecture_probe
+    ;;
   push)
     # Only treat the first token as kernel_dir when it is a real path, not an option
     # flag, so `push --wait ...` still falls back to the default kernel_dir instead of
@@ -2877,6 +3007,12 @@ case "$action" in
     require_kaggle_cli
     kaggle_api kernels status "$kernel_id"
     ;;
+  status-so2-architecture-probe)
+    kernel_id="$(kernel_id_from_metadata "$so2_architecture_probe_kernel_dir")"
+    require_remote_confirmed
+    require_kaggle_cli
+    kaggle_api kernels status "$kernel_id"
+    ;;
   wait)
     kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"
     require_remote_confirmed
@@ -2894,6 +3030,12 @@ case "$action" in
     require_remote_confirmed
     require_kaggle_cli
     wait_kernel_until_settled "$kernel_id" "${2:-300}" "${3:-480}" "${4:-600}"
+    ;;
+  wait-so2-architecture-probe)
+    kernel_id="$(kernel_id_from_metadata "$so2_architecture_probe_kernel_dir")"
+    require_remote_confirmed
+    require_kaggle_cli
+    wait_kernel_until_settled "$kernel_id" "${2:-300}" "${3:-36}" "${4:-600}"
     ;;
   output)
     kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"
@@ -2946,6 +3088,14 @@ case "$action" in
   output-fixed25-selector)
     kernel_id="$(kernel_id_from_metadata "$fixed25_selector_kernel_dir")"
     output_dir="${2:-$fixed25_selector_output_dir}"
+    require_remote_confirmed
+    require_kaggle_cli
+    mkdir -p "$output_dir"
+    kaggle_api kernels output "$kernel_id" -p "$output_dir"
+    ;;
+  output-so2-architecture-probe)
+    kernel_id="$(kernel_id_from_metadata "$so2_architecture_probe_kernel_dir")"
+    output_dir="${2:-$so2_architecture_probe_output_dir}"
     require_remote_confirmed
     require_kaggle_cli
     mkdir -p "$output_dir"
