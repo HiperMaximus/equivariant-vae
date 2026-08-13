@@ -1,7 +1,7 @@
 # Spec 0015: Fixed SO2 Selected-Runtime Readiness
 
-Status: implemented / locally verified / private Kaggle v1 running
-Implementation readiness: hardware artifact pending; full training remains unauthorized
+Status: complete / private Kaggle v1 passed
+Implementation readiness: fixed model ready at the single batch-1 coordinate; full training remains unauthorized
 Owner/workstream: fixed continuous-`SO(2)` selected-runtime integration
 Last updated: 2026-08-13
 
@@ -105,11 +105,18 @@ permission to broaden or tune the probe.
 git diff --check
 ```
 
-## Open Questions
+## Hardware Result
 
-Only hardware evidence remains: full-shape dual-T4 compile settlement, graph
-stability, actual update/DDP proof, and batch-1 VRAM headroom. The probe answers
-those questions once without changing the selected runtime.
+Private Kaggle v1 from clean commit `6cdccb0` passed the strict remote and local
+validators. On two Tesla T4s with Torch `2.13.0+cu130` / CUDA `13.0`, the exact
+selected compiled runtime completed batch 1 per rank with zero AMP skips,
+nonfinite losses/parameters, settled graph breaks, recompiles, buffer drift,
+DDP mean error, or parameter drift. The zero head and subsequent named
+decoder/posterior/encoder/stem/F0/F1 updates pass. All 68 actual gate-family
+rows pass with positive finite gradient/update evidence and no dead channels.
+Diagnostic settled step median is `132.285 ms`; peak allocated/reserved memory
+is `410.016/538 MiB`, leaving `96.392%` reserved headroom. This answers only
+the bounded readiness question and is not a runtime-selection or training claim.
 
 ## Local Verification Result
 
@@ -123,11 +130,10 @@ aggregation, strict proof/rank/module artifact validation, generated-launcher
 ignore policy, and adversarial mutation coverage. Both reviewers rechecked the
 final fixes with zero unresolved findings.
 
-After explicit user approval, private Kaggle kernel
-`maximusshtefan/eqvae-so2-runtime-readiness` version 1 was created from clean
-HEAD `6cdccb0`. Its immediate status was `KernelWorkerStatus.RUNNING`. Per the
-remote stop rule, further polling waits for the user's `continue`; no second
-kernel or training run was launched.
+The compact hash-bound evidence is
+`docs/data/spec0015_so2_runtime_readiness_v1.json`; raw downloaded artifacts
+remain ignored under `runs/kaggle/so2_runtime_readiness_v1`. No corrected rerun
+was needed and no training run was launched.
 
 ## Related Files
 

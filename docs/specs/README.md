@@ -39,7 +39,7 @@ Read first:
 | `0012-continuous-so2-vae-architecture.md` | Complete: radial/F2 decision, equal-copy F01 architecture, count/init, and full-model assembly are fixed. | None. | Keep every architecture choice locked. |
 | `0013-fixed-f01-architecture-probe.md` | Complete: padded-`bmm`/direct compiled mechanics pass correctness, runtime ratios, DDP/AMP/compile, and VRAM; raw CV remains diagnostic. | None. | Do not rerun or add mechanics/runtime arms. |
 | `0014-fixed-f01-full-vae.md` | Implemented and locally verified: exact 43-position topology, `1,180,035` parameters, eager gradients/optimizer, AMP, fullgraph, and equivariance evidence pass fresh reviews. | Selected-runtime registration/gate telemetry and dual-T4 readiness are later work; full training remains unauthorized. | Preserve this singular fixed model; integrate only the execution path needed for readiness. |
-| `0015-fixed-so2-selected-runtime-readiness.md` | Implemented and locally verified; private no-dataset dual-T4 Kaggle v1 is running. | On user `continue`, check status and verify the terminal JSON/68-row CSV; full training remains unauthorized. | Do not poll continuously, launch a second coordinate, or open a search. |
+| `0015-fixed-so2-selected-runtime-readiness.md` | Complete: local gate/reviews and private no-dataset dual-T4 Kaggle v1 pass at batch 1. | Stop; any real-data debug or full training requires separate explicit authorization. | Preserve the exact runtime/model evidence; do not turn readiness timing into a search or training claim. |
 
 Guard authorization phrases retained for local push-guard scripts:
 

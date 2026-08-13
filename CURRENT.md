@@ -8,11 +8,11 @@ Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, active Specs
 0011-0015, and Decision 0004 completely. The normal-VAE baseline is complete;
 the locked Spec 0012 architecture, accepted Spec 0013 mechanics, Spec 0014
 fixed 43-convolution SO(2) VAE, and Spec 0015 local selected-runtime integration
-are implemented and verified. Do not
+and dual-T4 readiness are complete. Do not
 reopen radial profiles, F2, multiplicities, topology, contraction/assembly arms,
-compilation-time tuning, or diagnostic timing CV. The next action is the already
-authorized one-shot private, no-dataset, batch-1-per-rank dual-T4 Spec 0015
-readiness run. This does not authorize real-data debug or full training. Baseline
+compilation-time tuning, or diagnostic timing CV. No next experiment is
+authorized: any real-data debug or full training requires separate explicit
+permission. Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
 boundary. Its output and checkpoint are verified locally; the FSQ-aligned AMP runtime
@@ -66,8 +66,8 @@ The user locked beta `0.01` on 2026-08-09; do not run an intermediate beta probe
 
 ## Current objective
 
-Spec 0015 is locally implemented and reviewed; its single guarded remote
-coordinate is running. Registry kind `so2_vae_fixed` accepts no architecture
+Spec 0015 is complete. Its single guarded remote coordinate passed. Registry
+kind `so2_vae_fixed` accepts no architecture
 options and fails closed on exact `SO2VAE` identity, latent width 16, 43 learned
 convolutions, 34 radial gates, and `1,180,035` parameters. The shared runner now
 selects that kind without changing normal-model behavior. The one-use readiness
@@ -87,18 +87,22 @@ gate/evidence/performance/scope correctness. Their plan pinning, executed gate
 semantics, gradient/update, cross-rank counter, validator, identity, generated
 launcher, and mutation-test findings were fixed; both reviewers rechecked with
 zero unresolved findings. Local kernel preflight and `git diff --check` pass.
-Hardware evidence is running as private Kaggle kernel
-`maximusshtefan/eqvae-so2-runtime-readiness`, version 1, from clean local HEAD
-`6cdccb0`. Kaggle accepted the guarded upload after the user explicitly
-approved sending the embedded private repository payload. The immediate status
-read returned `KernelWorkerStatus.RUNNING`. No second kernel or real training
-was launched. On the user's `continue`, run:
-
-```bash
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-so2-runtime-readiness
-# After KernelWorkerStatus.COMPLETE:
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-so2-runtime-readiness runs/kaggle/so2_runtime_readiness_v1
-```
+Private Kaggle kernel `maximusshtefan/eqvae-so2-runtime-readiness` version 1
+completed from clean source commit `6cdccb0`. The downloaded strict validator
+passes. Both Tesla T4 ranks used Torch `2.13.0+cu130` / CUDA `13.0`, batch 1,
+the exact selected runtime, and generated device-resident inputs with no data
+source. The result has zero AMP skips, nonfinite losses/parameters, settled
+graph breaks, recompiles, buffer divergence, DDP mean error, or parameter
+divergence. The zero head and all named decoder/posterior/encoder/stem/F0/F1
+updates pass. All 68 actual F0/F1 rows pass with positive finite gradient and
+update evidence and no dead channels. Diagnostic median settled step time is
+`132.285 ms`; peak allocated/reserved memory is `410.016/538 MiB`, leaving
+`96.392%` reserved-memory headroom. The compact hash-bound summary is
+`docs/data/spec0015_so2_runtime_readiness_v1.json`; raw output remains ignored
+under `runs/kaggle/so2_runtime_readiness_v1`. The pip CUDA-13 upgrade reported
+conflicts with unused preinstalled CUDA-12 RAPIDS packages, but the installed
+Torch/CUDA identity and complete probe both passed. No rerun or training was
+launched.
 
 Spec 0014 is complete locally. `src/eqvae/models/so2_vae.py` mirrors all 43
 normal-VAE convolution positions with the locked `9-low` stem, `7-low`
@@ -108,8 +112,9 @@ model is exactly `1,180,035` learned parameters with the locked
 `1,172,304/3,600/4,096/35` coefficient/norm/gate/bias partition. Eager
 two-step gradient-driven updates, optimizer grouping, CPU autocast, base and
 autocast fullgraph reuse, deployment shapes, contraction call counts, and
-cardinal/non-cardinal endpoint evidence pass. The active objective is not
-training: finish and verify only the running dual-T4 readiness coordinate.
+cardinal/non-cardinal endpoint evidence pass. The readiness workstream stops
+here. Any real-data debug or full training requires separate explicit
+authorization.
 
 Spec 0012's small non-training basis oracle is implemented and measured. The
 tracked manifest selects the fixed F0/F1 contingency (`F01`), not an F2 model.
@@ -417,13 +422,15 @@ readiness and the remaining multi-session blocker are recorded here.
 
 ## Verification state
 
-Spec 0015 local acceptance is complete: the final post-review quality gate is
+Spec 0015 acceptance is complete: the final post-review quality gate is
 780 passed, 1 expected GPU-only skip, with Ruff formatting/check and
 BasedPyright at zero errors. The dedicated embedded-kernel preflight verifies a
 private dual-T4 kernel with empty dataset, competition, kernel, and model source
 lists. Two clean-context adversarial reviews have zero unresolved findings.
-The only open acceptance item is the running hardware probe and verification of
-its exact JSON/68-row CSV evidence. No real data or training is authorized.
+Private Kaggle v1 completed and its exact JSON/68-row CSV pass the strict local
+validator. The fixed SO2 model is operationally ready at the single batch-1
+dual-T4 coordinate. This is not a training-performance claim. No real data or
+training is authorized.
 
 Spec 0014 focused verification passes 84 analytic-basis/primitive/kernel/model/
 optimizer tests; its 11 full-model tests cover exact topology/counts, complete

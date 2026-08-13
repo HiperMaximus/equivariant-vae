@@ -1,0 +1,85 @@
+{
+  "schema_version": "spec0015.so2_runtime_readiness_summary.v1",
+  "status": "pass",
+  "measured_at": "2026-08-13",
+  "source_commit": "6cdccb03ade2d81d96b5f527d3788f30ebbe60a2",
+  "source_tree_dirty": false,
+  "kaggle_kernel": "maximusshtefan/eqvae-so2-runtime-readiness",
+  "kaggle_kernel_version": 1,
+  "scope": {
+    "data": "generated_device_resident",
+    "dataset_sources": [],
+    "full_training_authorized": false
+  },
+  "model": {
+    "kind": "so2_vae_fixed",
+    "concrete_class": "SO2VAE",
+    "learned_parameter_count": 1180035,
+    "learned_convolution_count": 43,
+    "radial_gate_count": 34,
+    "latent_channels": 16
+  },
+  "hardware_runtime": {
+    "gpu_names": ["Tesla T4", "Tesla T4"],
+    "world_size": 2,
+    "per_device_batch_size": 1,
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "runtime_policy_id": "compile_step_python_reducer_fp16_channels_last",
+    "selected_runtime_sha256": "e9e998fd161f0955959c64aed7cd7ddbdfcb55a271b9ce05805903c97c93efb8",
+    "requested_equals_effective": true
+  },
+  "correctness": {
+    "pre_compile_buffer_max_abs_difference": 0.0,
+    "local_pre_reduction_gradients_differ": true,
+    "reduced_gradient_max_abs_error": 0.0,
+    "post_update_parameter_max_abs_difference": 0.0,
+    "first_zero_head_update": "pass",
+    "subsequent_decoder_posterior_encoder_stem_f0_f1_updates": "pass",
+    "finite_losses": true,
+    "finite_parameters": true,
+    "amp_step_skipped_count": 0,
+    "post_settle_graph_break_count": 0,
+    "post_settle_recompile_count": 0,
+    "status": "pass"
+  },
+  "gate_health": {
+    "row_count": 68,
+    "module_count": 34,
+    "family_counts": {"f0_scalar": 34, "f1_radial": 34},
+    "all_rows_pass": true,
+    "dead_channel_count_max": 0,
+    "gate_p01_range": [0.00871276855, 0.549316406],
+    "gate_p50_range": [0.475830078, 0.855957031],
+    "gate_p99_range": [0.911132812, 1.0],
+    "fraction_below_0_01_range": [0.0, 0.0108451843],
+    "fraction_above_0_99_range": [0.00000381469727, 0.0715675354],
+    "input_dtype": "float16",
+    "gate_math_dtype": "float32",
+    "gate_and_output_dtype": "float16",
+    "positive_finite_gradient_and_update_evidence": true
+  },
+  "diagnostics": {
+    "compile_startup_seconds_rank_max": 490.579110557,
+    "settled_step_ms_p50": 132.28519439697266,
+    "settled_step_ms_rank_samples": [
+      [132.29490661621094, 129.76792907714844, 133.8450927734375],
+      [132.27548217773438, 129.67893981933594, 133.9601593017578]
+    ],
+    "peak_allocated_mib_rank_max": 410.01611328125,
+    "peak_reserved_mib_rank_max": 538.0,
+    "reserved_vram_headroom_fraction_rank_min": 0.963920917736507,
+    "timing_is_not_a_runtime_selection_gate": true
+  },
+  "validation": {
+    "remote_launcher_validator": "pass",
+    "local_strict_artifact_validator": "pass",
+    "artifact_sha256": "9c0b2dab7d8cde19b6ff3fdea80f184c94ad495cc2843eba645cf4035a508e56",
+    "gate_csv_sha256": "918cb116e987de812cdfafb0f26ade805524be51f0ee91294d67572f3368b521",
+    "log_sha256": "d30cb337cd63cb6bfa05e424d14455f554f998b8af3d4aaaa680ab7700a57e05",
+    "embedded_payload_zip_sha256": "c7a69b1d7a9cf65aae9dc82044edcb92c3373112100851804e52b793d92906e4",
+    "raw_download": "runs/kaggle/so2_runtime_readiness_v1"
+  },
+  "acceptance_result": "fixed_so2_selected_runtime_ready_at_the_single_batch1_coordinate",
+  "next_step": "stop; any real-data debug or full training requires separate explicit authorization"
+}
