@@ -9,11 +9,14 @@ Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, active Specs
 the locked Spec 0012 architecture, accepted Spec 0013 mechanics, Spec 0014
 fixed 43-convolution SO(2) VAE, and Spec 0015 local selected-runtime integration
 and dual-T4 readiness are complete. Spec 0016's one-off matched real-data
-prelaunch and fresh-full packages are implemented and locally verified. Do not
+prelaunch and fresh-full packages are implemented and locally verified at GitHub
+commit `979ec5f`. Do not
 reopen radial profiles, F2, multiplicities, topology, contraction/assembly arms,
 compilation-time tuning, or diagnostic timing CV. The next possible action is
-one guarded real-data debug/resume/fixed-32 prelaunch at batch 25 per rank, but
-it still requires fresh explicit Kaggle permission. A full run remains blocked
+one guarded real-data debug/resume/fixed-32 prelaunch at batch 25 per rank. The
+Kaggle API/authentication check succeeded and the new private kernel slug is not
+yet created; launch awaits explicit confirmation to attach the existing Kaggle
+UBC dataset to that kernel. A full run remains blocked
 until that downloaded proof passes and the user accepts its measured projected
 cost. Baseline
 full-run session 1 is Kaggle kernel version 2 from source
