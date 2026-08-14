@@ -117,13 +117,16 @@ The wrapper and archive verifier received independent adversarial review with
 zero remaining findings. The final local preflight passes 16 continuation tests;
 the focused resume/archive mutation suite passes 18 tests; and
 `./scripts/python_quality.sh` passes Ruff, BasedPyright, and 797 tests with one
-expected GPU-only skip. Commit `475e215` is pushed to GitHub. The remote upload
-safety review rejected the attempted private dataset creation because the exact
-checkpoint egress was not explicit enough; session 2 is therefore not launched.
-The next action is to obtain explicit authorization to upload the exact file
-`step_009000.pt` (SHA-256
-`1f53fe16aecf6382bf450cd0ac2be5db9fe2bbe6405dfcaa2c196cb40bca8e7d`) to the exact private Kaggle slug
-`maximusshtefan/eqvae-so2-session1-step9000`, then create/verify it and launch.
+expected GPU-only skip. Commit `475e215` is pushed to GitHub. After exact user
+authorization, private Kaggle dataset
+`maximusshtefan/eqvae-so2-session1-step9000` (dataset ID `11656723`) was created
+with only `step_009000.pt`; Kaggle reports the exact `16,440,368`-byte size and
+`isPrivate=true`. The guarded kernel push passed locally but Kaggle rejected it
+before creating a run because the 30-hour weekly GPU quota is exhausted
+(`42.00h` used, `0.00h` remaining, `refreshAt=2026-08-15T00:00:00`). Remote
+kernel state remains session 1 at `CANCEL_ACKNOWLEDGED`. After quota refresh,
+rebuild/preflight the ignored launcher from clean HEAD and repeat only the
+guarded kernel push; do not recreate the checkpoint dataset or rerun session 1.
 
 Spec 0015 is complete. Its single guarded remote coordinate passed. Registry
 kind `so2_vae_fixed` accepts no architecture

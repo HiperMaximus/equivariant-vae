@@ -1,7 +1,7 @@
 # Spec 0016: SO2 Real-Data Prelaunch And Full Run
 
-Status: locked / session-1 checkpoint verified / session-2 package verified
-Implementation readiness: resume only from the downloaded update-9000 commit point; exact checkpoint egress authorization is pending
+Status: locked / session-1 checkpoint verified / private resume dataset published
+Implementation readiness: resume only from the downloaded update-9000 commit point; session-2 launch is blocked only by Kaggle GPU quota
 Owner/workstream: matched continuous-`SO(2)` training
 Last updated: 2026-08-14
 
@@ -185,9 +185,10 @@ proof hash, schema-v5 state, source/config/runtime identities, two-rank metric
 prefix, half-epoch validation/fixed-25 evidence, and 68 gate rows are verified.
 The exact checkpoint dataset and session-2 wrapper/metadata/guards pass local
 preflight and the full repository quality gate. No trainer or checkpoint-format
-change was required. Commit `475e215` is on GitHub. The private dataset upload
-was stopped by external-upload safety review pending explicit authorization for
-this exact checkpoint file and destination; no session-2 launch has occurred.
+change was required. Commit `475e215` is on GitHub. Private dataset ID `11656723`
+contains only the exact verified checkpoint and reports `isPrivate=true`. The
+guarded push was rejected before launch because Kaggle reports zero remaining
+GPU hours until `refreshAt=2026-08-15T00:00:00`; no session-2 run was created.
 
 ## Known Risks
 
