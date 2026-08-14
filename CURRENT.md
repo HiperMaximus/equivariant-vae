@@ -14,9 +14,10 @@ commit `979ec5f`. Do not
 reopen radial profiles, F2, multiplicities, topology, contraction/assembly arms,
 compilation-time tuning, or diagnostic timing CV. The next possible action is
 one guarded real-data debug/resume/fixed-32 prelaunch at batch 25 per rank. The
-Kaggle API/authentication check succeeded and the new private kernel slug is not
-yet created; launch awaits explicit confirmation to attach the existing Kaggle
-UBC dataset to that kernel. A full run remains blocked
+Kaggle API/authentication check succeeded and the user explicitly approved
+attaching the existing Kaggle UBC dataset. Two guarded launch attempts were
+stopped before execution when the external permission review timed out; no
+Kaggle response or created version was returned. A full run remains blocked
 until that downloaded proof passes and the user accepts its measured projected
 cost. Baseline
 full-run session 1 is Kaggle kernel version 2 from source
