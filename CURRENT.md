@@ -117,8 +117,13 @@ The wrapper and archive verifier received independent adversarial review with
 zero remaining findings. The final local preflight passes 16 continuation tests;
 the focused resume/archive mutation suite passes 18 tests; and
 `./scripts/python_quality.sh` passes Ruff, BasedPyright, and 797 tests with one
-expected GPU-only skip. Remote dataset publication and session-2 launch are the
-only remaining actions, and the user approved both.
+expected GPU-only skip. Commit `475e215` is pushed to GitHub. The remote upload
+safety review rejected the attempted private dataset creation because the exact
+checkpoint egress was not explicit enough; session 2 is therefore not launched.
+The next action is to obtain explicit authorization to upload the exact file
+`step_009000.pt` (SHA-256
+`1f53fe16aecf6382bf450cd0ac2be5db9fe2bbe6405dfcaa2c196cb40bca8e7d`) to the exact private Kaggle slug
+`maximusshtefan/eqvae-so2-session1-step9000`, then create/verify it and launch.
 
 Spec 0015 is complete. Its single guarded remote coordinate passed. Registry
 kind `so2_vae_fixed` accepts no architecture
