@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 
 ## Fresh-session start here
 
@@ -8,18 +8,18 @@ Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, active Specs
 0011-0016, and Decision 0004 completely. The normal-VAE baseline is complete;
 the locked Spec 0012 architecture, accepted Spec 0013 mechanics, Spec 0014
 fixed 43-convolution SO(2) VAE, and Spec 0015 local selected-runtime integration
-and dual-T4 readiness are complete. Spec 0016's one-off matched real-data
-prelaunch and fresh-full packages are implemented and locally verified at GitHub
-commit `979ec5f`. Do not
+and dual-T4 readiness are complete. Spec 0016's batch-25 prelaunch passed from
+clean commit `4aaf614`; full session 1 then committed update 9000 before Kaggle
+closed the worker. Its complete output is downloaded and verified under ignored
+`runs/kaggle/so2_selected_runtime_full_v1_session1`. Do not
 reopen radial profiles, F2, multiplicities, topology, contraction/assembly arms,
 compilation-time tuning, or diagnostic timing CV. The next possible action is
-one guarded real-data debug/resume/fixed-32 prelaunch at batch 25 per rank. The
-Kaggle API/authentication check succeeded and the user explicitly approved
-attaching the existing Kaggle UBC dataset. Two guarded launch attempts were
-stopped before execution when the external permission review timed out; no
-Kaggle response or created version was returned. A full run remains blocked
-until that downloaded proof passes and the user accepts its measured projected
-cost. Baseline
+the exact checkpoint-only session-2 continuation from
+`step_009000.pt`, SHA-256
+`1f53fe16aecf6382bf450cd0ac2be5db9fe2bbe6405dfcaa2c196cb40bca8e7d`,
+using the same shared resume path proven by the non-equivariant run. The user has
+approved the private checkpoint-dataset, GitHub, and Kaggle continuation writes.
+Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
 boundary. Its output and checkpoint are verified locally; the FSQ-aligned AMP runtime
@@ -73,7 +73,7 @@ The user locked beta `0.01` on 2026-08-09; do not run an intermediate beta probe
 
 ## Current objective
 
-Spec 0016 is locally implemented. It keeps the normal run's exact selected
+Spec 0016 is active. It keeps the normal run's exact selected
 runtime, seeds, optimizer, corruption/RNG policy, real UBC data, objective,
 beta `0.01`, LR schedules, debug/resume bounds, fixed-32 proof, and fixed-25
 protocol while replacing only the model with the fixed Spec 0014 `SO2VAE`.
@@ -83,14 +83,42 @@ two-rank real-loader performance window with data wait, step time, VRAM
 headroom, and post-settlement compile counters. Normal-model behavior remains
 covered by regression tests.
 
-Two private script packages are locally ready: `eqvae-so2-prelaunch` runs
-debug 4, resume 4→8, and an independent 128-update fixed-32 proof; the separate
-`eqvae-so2-selected-runtime-full` starts fresh for 10 epochs. The downloaded
+Private `eqvae-so2-prelaunch` version 1 passed debug 4, resume 4→8, and an
+independent 128-update fixed-32 proof. The downloaded
 prelaunch verdict is fail-closed and bound to a clean source commit plus hashes
 of the complete `src/eqvae`, Spec 0001/0016 configs, data selector input,
 launcher templates/metadata, lock, and project metadata. The full push guard
-also requires explicit measured-cost acceptance. No remote action has occurred
-for Spec 0016.
+also requires explicit measured-cost acceptance. The user accepted the measured
+cost and private `eqvae-so2-selected-runtime-full` version 1 ran from the same
+commit. Its archive contains exact committed boundaries 3000/6000/9000; the
+Kaggle `kernels files` endpoint incorrectly returned `[]`, while the UI and
+`kaggle kernels output` exposed the complete 582 MiB archive.
+
+Update 9000 is the accepted session-1 commit point. Its proof hash matches the
+checkpoint bytes; schema v5 contains the exact SO2 model, 421 optimizer-state
+entries across three groups, GradScaler, Python/NumPy/Torch CPU/two-rank CUDA RNG,
+named `train_data`/`train_corruption` generators, and DDP sampler progress. Config,
+effective-config, selected-runtime, row-ID, and policy-ID identities match the
+session-1 payload and current execution core. The committed CSV has both ranks for
+updates 1..9000, two synchronized isolated AMP skips with immediate recovery,
+zero nonfinite successful rows, validation/fixed-25 boundaries at 3000/6000/9000,
+and 68 passing gate rows. Partial summary `status=fail` is expected because the
+60000-update experiment is unfinished.
+
+Session-2 transport follows the successful normal-VAE pattern exactly. Ignored
+`runs/kaggle/so2_session1_resume_dataset` contains only dataset metadata and the
+verified checkpoint for private slug
+`maximusshtefan/eqvae-so2-session1-step9000`. The continuation wrapper pins the
+exact Kaggle path/hash, attaches only UBC plus this SO2 dataset, and passes
+`--resume`; the shared trainer/checkpoint/sampler/schedule implementation is
+unchanged. The continuation guard validates the original clean prelaunch/session-1
+execution core while allowing only the full wrapper/metadata transport change.
+The wrapper and archive verifier received independent adversarial review with
+zero remaining findings. The final local preflight passes 16 continuation tests;
+the focused resume/archive mutation suite passes 18 tests; and
+`./scripts/python_quality.sh` passes Ruff, BasedPyright, and 797 tests with one
+expected GPU-only skip. Remote dataset publication and session-2 launch are the
+only remaining actions, and the user approved both.
 
 Spec 0015 is complete. Its single guarded remote coordinate passed. Registry
 kind `so2_vae_fixed` accepts no architecture
@@ -594,16 +622,16 @@ control's learned representation is correctly not claimed to be equivariant.
     CV and one-time compilation duration are diagnostic, not architecture gates.
     Do not rerun or add another arm. Treat Spec 0014's full fixed VAE assembly,
     exact counts, focused verification, and corrected fresh reviews as complete.
-11. Treat Spec 0015 selected-runtime registration and its one batch-1 dual-T4
-    readiness run as complete. Treat Spec 0016's minimal parity configs, honest
-    68-row gate telemetry, settled timing window, identity-bound verdict, and
-    prelaunch/fresh-full packages as locally complete.
-12. With fresh explicit permission only, push the one
-    `eqvae-so2-prelaunch` batch-25 coordinate. Download and validate its
-    debug/resume/fixed-32/gate/performance proof. If it passes, report projected
-    epoch/session cost and ask the user to accept that cost before any full push.
-    A failure is a blocker, not implicit permission for a sweep.
+11. Treat Spec 0015 selected-runtime registration/readiness and Spec 0016
+    prelaunch plus full session 1 through update 9000 as complete. Do not rerun
+    either. The CLI file-list false negative is superseded by the downloaded
+    archive and exact checkpoint verification.
+12. Finish the one-off session-2 continuation review/gates, upload only the
+    hash-pinned private checkpoint dataset, then push GitHub and the guarded
+    Kaggle continuation under the user's existing explicit approval. After the
+    worker closes, download its whole output separately and resume only from its
+    latest fully completed 3000-step boundary.
 
-Baseline full training/final-output verification and local continuous-`SO(2)`
-prelaunch/full packaging are complete. Remote Spec 0016 prelaunch is the next
-permission-gated gate; full training is not yet authorized.
+Baseline full training/final-output verification and continuous-`SO(2)` prelaunch
+are complete. SO2 full training is committed through update 9000; exact
+checkpoint-only session-2 continuation is the active task.

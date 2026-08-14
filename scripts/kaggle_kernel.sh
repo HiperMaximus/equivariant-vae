@@ -62,6 +62,9 @@ so2_prelaunch_kernel_dir="kaggle/kernels/so2_prelaunch"
 so2_prelaunch_output_dir="runs/kaggle/so2_prelaunch"
 so2_full_kernel_dir="kaggle/kernels/so2_selected_runtime_full"
 so2_full_output_dir="runs/kaggle/so2_selected_runtime_full"
+so2_full_session1_output_dir="runs/kaggle/so2_selected_runtime_full_v1_session1"
+so2_full_resume_dataset_dir="runs/kaggle/so2_session1_resume_dataset"
+so2_full_resume_dataset_slug="maximusshtefan/eqvae-so2-session1-step9000"
 
 usage() {
   cat <<'EOF'
@@ -1557,13 +1560,18 @@ preflight_so2_runtime_readiness() {
 guard_so2_training_metadata() {
   local metadata="$1"
   local expected_id="$2"
-  python3 - "$metadata" "$expected_id" <<'PYSO2TRAINMETADATA'
+  local resume_dataset_slug="${3:-}"
+  python3 - "$metadata" "$expected_id" "$resume_dataset_slug" <<'PYSO2TRAINMETADATA'
 import json
 import sys
 from pathlib import Path
 
 data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 expected_id = sys.argv[2]
+resume_dataset_slug = sys.argv[3]
+dataset_sources = ["maximusshtefan/patches-pre-shuffled-ubc-ocean"]
+if resume_dataset_slug:
+    dataset_sources.append(resume_dataset_slug)
 expected = {
     "id": expected_id,
     "code_file": "run.py",
@@ -1573,7 +1581,7 @@ expected = {
     "enable_gpu": "true",
     "enable_internet": "true",
     "machine_shape": "NvidiaTeslaT4",
-    "dataset_sources": ["maximusshtefan/patches-pre-shuffled-ubc-ocean"],
+    "dataset_sources": dataset_sources,
     "competition_sources": [],
     "kernel_sources": [],
     "model_sources": [],
@@ -1597,11 +1605,23 @@ guard_so2_prelaunch_push_ready() {
 guard_so2_full_push_ready() {
   local kernel_dir="$1"
   local metadata="$2"
-  guard_so2_training_metadata "$metadata" "maximusshtefan/eqvae-so2-selected-runtime-full"
-  build_kernel_py \
-    --kernel-dir "$kernel_dir" \
-    --ready-marker "KAGGLE_SO2_SELECTED_RUNTIME_FULL_READY = True" \
+  local mode="${3:-push}"
+  guard_so2_training_metadata \
+    "$metadata" \
+    "maximusshtefan/eqvae-so2-selected-runtime-full" \
+    "$so2_full_resume_dataset_slug"
+  local verify_args=(
+    --kernel-dir "$kernel_dir"
+    --ready-marker "KAGGLE_SO2_SELECTED_RUNTIME_FULL_READY = True"
     --verify-only
+  )
+  if [[ "$mode" == "local_preflight" ]]; then
+    verify_args+=(--allow-dirty)
+  elif [[ "$mode" != "push" ]]; then
+    echo "error: unsupported SO2 full guard mode: $mode" >&2
+    exit 1
+  fi
+  build_kernel_py "${verify_args[@]}"
   if [[ "${KAGGLE_SO2_FULL_COST_CONFIRMED:-}" != "1" ]]; then
     echo "error: set KAGGLE_SO2_FULL_COST_CONFIRMED=1 after accepting measured prelaunch cost" >&2
     exit 1
@@ -1611,12 +1631,105 @@ guard_so2_full_push_ready() {
     echo "error: missing downloaded SO2 prelaunch verdict: $verdict" >&2
     exit 1
   fi
-  PYTHONPATH=src .venv/bin/python - "$verdict" <<'PYSO2FULLVERDICT'
+  PYTHONPATH=src .venv/bin/python - \
+    "$verdict" \
+    "$so2_full_session1_output_dir/embedded_payload" \
+    "$so2_full_resume_dataset_dir" <<'PYSO2FULLVERDICT'
+import hashlib
+import json
 import sys
 from pathlib import Path
-from eqvae.benchmarking.so2_prelaunch import validate_prelaunch_artifacts
+from eqvae.benchmarking.so2_prelaunch import (
+    execution_identity,
+    validate_prelaunch_artifacts,
+)
+from eqvae.checkpointing import read_training_checkpoint_metadata
+from eqvae.config import resolve_json_config
 
-blockers = validate_prelaunch_artifacts(Path(sys.argv[1]).parents[1], repo_root=Path.cwd())
+EXPECTED_COMMIT = "4aaf614f2cdbf1bc628e13858eb6c4e08300266b"
+EXPECTED_DATASET_SLUG = "maximusshtefan/eqvae-so2-session1-step9000"
+EXPECTED_CHECKPOINT_SHA256 = (
+    "1f53fe16aecf6382bf450cd0ac2be5db9fe2bbe6405dfcaa2c196cb40bca8e7d"
+)
+EXPECTED_CONTINUATION_WRAPPER_SHA256 = (
+    "8535449aa14b14635a67dff41ddf82ec2d4a16710c13ad2ee793754579ea9a34"
+)
+EXPECTED_STEP = 9000
+ALLOWED_CONTINUATION_CHANGES = {
+    "kaggle/kernels/so2_selected_runtime_full/kernel-metadata.json",
+    "kaggle/kernels/so2_selected_runtime_full/run_template.py",
+}
+
+verdict = Path(sys.argv[1])
+authority = Path(sys.argv[2])
+dataset_dir = Path(sys.argv[3])
+repo = Path.cwd()
+
+blockers = list(
+    validate_prelaunch_artifacts(
+        verdict.parents[1],
+        repo_root=authority,
+        expected_source_commit=EXPECTED_COMMIT,
+    ),
+)
+authority_identity = execution_identity(authority)
+current_identity = execution_identity(repo)
+continuation_wrapper = (
+    repo / "kaggle/kernels/so2_selected_runtime_full/run_template.py"
+)
+if hashlib.sha256(continuation_wrapper.read_bytes()).hexdigest() != (
+    EXPECTED_CONTINUATION_WRAPPER_SHA256
+):
+    blockers.append("so2_continuation_wrapper_sha256_mismatch")
+for name, expected in authority_identity.items():
+    if (
+        name not in ALLOWED_CONTINUATION_CHANGES
+        and current_identity.get(name) != expected
+    ):
+        blockers.append(f"so2_continuation_execution_core_changed:{name}")
+
+expected_files = {"dataset-metadata.json", "step_009000.pt"}
+observed_files = (
+    {path.name for path in dataset_dir.iterdir()}
+    if dataset_dir.is_dir()
+    else set()
+)
+if observed_files != expected_files:
+    blockers.append("so2_continuation_dataset_files_mismatch")
+checkpoint = dataset_dir / "step_009000.pt"
+if checkpoint.is_file():
+    observed_sha256 = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+    if observed_sha256 != EXPECTED_CHECKPOINT_SHA256:
+        blockers.append("so2_continuation_checkpoint_sha256_mismatch")
+    metadata = read_training_checkpoint_metadata(path=checkpoint)
+    if (
+        metadata.optimizer_step != EXPECTED_STEP
+        or metadata.successful_optimizer_update_count != EXPECTED_STEP
+    ):
+        blockers.append("so2_continuation_checkpoint_step_mismatch")
+    runtime = repo / "configs/spec0001/non_eq_vae_selected_runtime.json"
+    runtime_sha256 = hashlib.sha256(runtime.read_bytes()).hexdigest()
+    effective_sha256 = resolve_json_config(
+        repo / "configs/spec0016/so2_selected_runtime_full.json",
+    ).effective_config_hash
+    if metadata.runtime_config_sha256 != runtime_sha256:
+        blockers.append("so2_continuation_checkpoint_runtime_mismatch")
+    if metadata.effective_config_sha256 != effective_sha256:
+        blockers.append("so2_continuation_checkpoint_config_mismatch")
+else:
+    blockers.append("so2_continuation_checkpoint_missing")
+
+dataset_metadata = dataset_dir / "dataset-metadata.json"
+if dataset_metadata.is_file():
+    payload = json.loads(dataset_metadata.read_text(encoding="utf-8"))
+    if (
+        payload.get("id") != EXPECTED_DATASET_SLUG
+        or EXPECTED_CHECKPOINT_SHA256 not in payload.get("description", "")
+    ):
+        blockers.append("so2_continuation_dataset_metadata_mismatch")
+else:
+    blockers.append("so2_continuation_dataset_metadata_missing")
+
 if blockers:
     raise SystemExit("\n".join(f"error: {blocker}" for blocker in blockers))
 PYSO2FULLVERDICT
@@ -1633,9 +1746,10 @@ preflight_so2_prelaunch() {
 
 preflight_so2_full() {
   build_embedded_kernel "$so2_full_kernel_dir"
-  guard_so2_training_metadata \
+  KAGGLE_SO2_FULL_COST_CONFIRMED=1 guard_so2_full_push_ready \
+    "$so2_full_kernel_dir" \
     "$(metadata_path "$so2_full_kernel_dir")" \
-    "maximusshtefan/eqvae-so2-selected-runtime-full"
+    "local_preflight"
   PYTHONPATH=src CUDA_VISIBLE_DEVICES="" .venv/bin/python -m pytest -q \
     tests/test_so2_prelaunch.py tests/test_so2_full_run.py
 }

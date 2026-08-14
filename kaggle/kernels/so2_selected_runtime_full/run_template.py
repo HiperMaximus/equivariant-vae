@@ -1,6 +1,6 @@
 # Copyright 2026 HiperMaximus
-# ruff: noqa: DOC501, EM101, PLW0717, TRY003, TRY301
-"""Single-file fresh-start SO2 selected-runtime full training kernel."""
+# ruff: noqa: EM101, PLW0717, TRY003
+"""Single-file SO2 selected-runtime full continuation kernel."""
 
 from __future__ import annotations
 
@@ -17,6 +17,13 @@ from pathlib import Path
 
 KAGGLE_SO2_SELECTED_RUNTIME_FULL_READY = True
 EXPECTED_DATASET_SLUG = "maximusshtefan/patches-pre-shuffled-ubc-ocean"
+RESUME_DATASET_SLUG = "maximusshtefan/eqvae-so2-session1-step9000"
+RESUME_CHECKPOINT = Path(
+    "/kaggle/input/eqvae-so2-session1-step9000/step_009000.pt",
+)
+RESUME_CHECKPOINT_SHA256 = (
+    "1f53fe16aecf6382bf450cd0ac2be5db9fe2bbe6405dfcaa2c196cb40bca8e7d"
+)
 KERNEL_METADATA = {
     "id": "maximusshtefan/eqvae-so2-selected-runtime-full",
     "title": "eqvae so2 selected runtime full",
@@ -27,7 +34,7 @@ KERNEL_METADATA = {
     "enable_gpu": "true",
     "enable_internet": "true",
     "machine_shape": "NvidiaTeslaT4",
-    "dataset_sources": [EXPECTED_DATASET_SLUG],
+    "dataset_sources": [EXPECTED_DATASET_SLUG, RESUME_DATASET_SLUG],
     "competition_sources": [],
     "kernel_sources": [],
     "model_sources": [],
@@ -43,7 +50,7 @@ EMBEDDED_PAYLOAD_MANIFEST_SHA256 = "$embedded_payload_manifest_sha256"
 
 
 def main() -> int:
-    """Start the first SO2 full session from fresh parameters.
+    """Resume the SO2 full run from session 1's exact update-9000 commit.
 
     Returns:
         Process exit status.
@@ -51,16 +58,21 @@ def main() -> int:
     """
     output = Path(os.environ.get("EQVAE_SO2_FULL_OUTPUT_DIR", OUTPUT)).resolve()
     try:
-        if os.environ.get("EQVAE_SO2_FULL_RESUME"):
-            raise RuntimeError("the first SO2 full package forbids resume checkpoints")
         _ensure_latest_torch()
         payload = _extract(output / "embedded_payload")
         if os.environ.get("EQVAE_SO2_FULL_IMPORT_ONLY") == "1":
             _write_json(
                 output / "benchmark/so2_full_import.json",
-                {"status": "pass", "fresh_start": True},
+                {
+                    "status": "pass",
+                    "fresh_start": False,
+                    "resume_checkpoint": str(RESUME_CHECKPOINT),
+                    "resume_checkpoint_sha256": RESUME_CHECKPOINT_SHA256,
+                },
             )
             return 0
+        resume_checkpoint = _resume_checkpoint_path()
+        _validate_resume_checkpoint(resume_checkpoint)
         source = payload / "src"
         environment = os.environ.copy()
         environment["PYTHONPATH"] = os.pathsep.join(
@@ -88,6 +100,8 @@ def main() -> int:
             str(output),
             "--run-name",
             "so2_spec0016_selected_runtime_full",
+            "--resume",
+            str(resume_checkpoint),
         )
         completed = subprocess.run(  # noqa: S603
             command,
@@ -99,6 +113,28 @@ def main() -> int:
     except Exception:  # noqa: BLE001
         traceback.print_exc()
         return 1
+
+
+def _resume_checkpoint_path() -> Path:
+    override = os.environ.get("EQVAE_SO2_FULL_RESUME")
+    return Path(override).resolve() if override else RESUME_CHECKPOINT
+
+
+def _validate_resume_checkpoint(path: Path) -> None:
+    if not path.is_file():
+        message = f"SO2 resume checkpoint missing: {path}"
+        raise RuntimeError(message)
+    observed = _sha256(path)
+    if observed != RESUME_CHECKPOINT_SHA256:
+        message = (
+            "SO2 resume checkpoint SHA-256 mismatch: "
+            f"expected {RESUME_CHECKPOINT_SHA256}, observed {observed}"
+        )
+        raise RuntimeError(message)
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _ensure_latest_torch() -> None:
@@ -145,7 +181,7 @@ def _extract(destination: Path) -> Path:
         not isinstance(contract, dict)
         or contract.get("fresh_start_required") is not True
     ):
-        raise RuntimeError("SO2 full config does not require a fresh start")
+        raise RuntimeError("SO2 full experiment config does not pin a fresh lineage")
     return destination
 
 

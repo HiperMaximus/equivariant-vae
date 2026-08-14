@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import importlib.util
 import io
 import json
@@ -98,6 +99,9 @@ _RUNTIME_SELECTION_BASELINE_PAYLOAD_FILES = {
 _EMBEDDED_PAYLOAD_B64_PATTERN = re.compile(
     r'EMBEDDED_PAYLOAD_B64 = """\n(?P<payload>.*?)\n"""',
     flags=re.DOTALL,
+)
+_EMBEDDED_ZIP_SHA256_PATTERN = re.compile(
+    r'EMBEDDED_PAYLOAD_ZIP_SHA256 = "[0-9a-f]{64}"',
 )
 _MASKED_HOLDOUT_CSV_PAYLOAD_PATH = "docs/data/ubc_ocean_masked_holdout_ids.csv"
 _EXPECTED_SELECTED_RUNTIME_DEBUG_RUNNER_CALLS = 2
@@ -1807,6 +1811,60 @@ def test_embedded_kernel_verify_rejects_tampered_wrapper(tmp_path: Path) -> None
 
     assert completed.returncode != 0
     assert "wrapper does not match current run_template.py" in completed.stderr
+
+
+def test_embedded_kernel_verify_rejects_tampered_member_bytes(tmp_path: Path) -> None:
+    """A refrozen outer ZIP hash cannot conceal stale archived source bytes."""
+    repo_root = Path(__file__).resolve().parents[1]
+    source_kernel = repo_root / "kaggle" / "kernels" / "setup_smoke"
+    build_script = repo_root / "scripts" / "build_kaggle_embedded_kernel.py"
+    generated_kernel = tmp_path / "generated_setup_smoke"
+    generated_kernel.mkdir()
+    shutil.copy2(source_kernel / "kernel-metadata.json", generated_kernel)
+    base_command = (
+        sys.executable,
+        str(build_script),
+        "--repo-root",
+        str(repo_root),
+        "--kernel-dir",
+        str(generated_kernel),
+        "--template",
+        str(source_kernel / "run_template.py"),
+        "--ready-marker",
+        "KAGGLE_SETUP_SMOKE_READY = True",
+        "--allow-dirty",
+    )
+    subprocess.run(base_command, cwd=repo_root, check=True)  # noqa: S603
+    run_path = generated_kernel / "run.py"
+
+    def mutate(members: dict[str, bytes]) -> None:
+        members["src/eqvae/__init__.py"] += b"\n# tampered archived source\n"
+
+    tampered = _rewrite_embedded_payload(
+        run_path.read_text(encoding="utf-8"),
+        mutate,
+    )
+    payload_match = _EMBEDDED_PAYLOAD_B64_PATTERN.search(tampered)
+    assert payload_match is not None
+    zip_sha256 = hashlib.sha256(
+        base64.b64decode(payload_match.group("payload").encode("ascii")),
+    ).hexdigest()
+    tampered, replacements = _EMBEDDED_ZIP_SHA256_PATTERN.subn(
+        f'EMBEDDED_PAYLOAD_ZIP_SHA256 = "{zip_sha256}"',
+        tampered,
+    )
+    assert replacements == 1
+    run_path.write_text(tampered, encoding="utf-8")
+
+    completed = subprocess.run(  # noqa: S603
+        (*base_command, "--verify-only"),
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode != 0
+    assert "payload zip member bytes are stale" in completed.stderr
 
 
 def _build_upload_simulation(

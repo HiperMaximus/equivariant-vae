@@ -1,9 +1,9 @@
 # Spec 0016: SO2 Real-Data Prelaunch And Full Run
 
-Status: locked / local implementation verified
-Implementation readiness: remote prelaunch remains permission-gated; full execution remains evidence- and permission-gated
+Status: locked / session-1 checkpoint verified / session-2 package verified
+Implementation readiness: resume only from the downloaded update-9000 commit point; remote dataset publication and launch are approved and pending
 Owner/workstream: matched continuous-`SO(2)` training
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 
 ## Purpose
 
@@ -73,13 +73,34 @@ as the first attempt. This is one experiment path, not reusable product code.
    the selected runtime plan, complete `src/eqvae` payload, Spec 0016 configs,
    model producer, shared runner, both launcher templates/metadata, and full
    config. The full preflight/push guard recomputes and requires those exact
-   identities. Only regenerated embedded `run.py` bytes may differ between the
-   two packages; their execution-bearing templates and metadata may not.
-9. The separate full kernel starts fresh, targets update 60000, and writes the
+   identities for the first full package. A continuation may change only its
+   full checkpoint-transport wrapper, full metadata, and their consequent
+   manifest commit/template entries. The authoritative session-1 payload is the
+   downloaded `embedded_payload/payload_manifest.json` from clean commit
+   `4aaf614f2cdbf1bc628e13858eb6c4e08300266b`. Its `src/eqvae`, both config trees,
+   fixed-selector input, prelaunch wrapper/metadata, `pyproject.toml`, and
+   `uv.lock` entries must remain byte-identical.
+9. The separate full kernel started fresh, targets update 60000, and writes the
    normal-equivalent checkpoints, metrics, validation, and fixed-25 evidence.
-   A later session may be repackaged around one exact downloaded SO2 checkpoint;
-   no normal checkpoint/dataset may be attached or loaded.
-10. Compilation/startup cost and exact reproducibility remain non-goals. The
+   Session 1 committed update 9000 with SHA-256
+   `1f53fe16aecf6382bf450cd0ac2be5db9fe2bbe6405dfcaa2c196cb40bca8e7d`.
+   Session 2 copies only
+   `runs/kaggle/so2_selected_runtime_full_v1_session1/checkpoints/step_009000.pt`
+   into private dataset `maximusshtefan/eqvae-so2-session1-step9000` and pins
+   `/kaggle/input/eqvae-so2-session1-step9000/step_009000.pt`. The upload payload
+   contains only that file plus `dataset-metadata.json`. Each later session uses
+   the same exact downloaded-latest-checkpoint pattern, validates path/hash before
+   GPU work, and resumes through the shared checkpoint-only continuation path. No
+   normal checkpoint/dataset may be attached or loaded.
+10. Resume must restore the exact SO2 model, all optimizer groups/state, GradScaler,
+   Python/NumPy/Torch CPU/CUDA RNG, named `train_data` and `train_corruption`
+   generators, and DDP sampler progress. Session 2 requires
+   `optimizer_step == successful_optimizer_update_count == 9000`, skips the first
+   9000 batches by sampler indices without rereading their payloads, and rebases
+   post-resume stochastic streams by rank. LR and beta remain derived from absolute
+   successful-update count 9000, never replay warmup, and never advance on an AMP
+   skip.
+11. Compilation/startup cost and exact reproducibility remain non-goals. The
    paid run retains the selected speed-first runtime and successful-update AMP
    skip semantics.
 
@@ -95,6 +116,11 @@ as the first attempt. This is one experiment path, not reusable product code.
 - Full: fresh start, 10 epochs, beta `0.01`, normal-equivalent LR schedule,
   full validation, checkpoint/fixed-25 every half epoch.
 - Kernel metadata attaches only the real UBC dataset for the first session.
+  Session 2 requires the exact ordered `dataset_sources` allowlist
+  `['maximusshtefan/patches-pre-shuffled-ubc-ocean',
+  'maximusshtefan/eqvae-so2-session1-step9000']` and empty competition, kernel,
+  and model sources. Any extra dataset or baseline/normal checkpoint slug/path
+  fails closed.
 
 ## Outputs And Acceptance Artifacts
 
@@ -102,7 +128,8 @@ as the first attempt. This is one experiment path, not reusable product code.
 - `configs/spec0016/` SO2 base/debug/tiny/full configs.
 - One private `eqvae-so2-prelaunch` script-kernel package.
 - One private fresh `eqvae-so2-selected-runtime-full` package, not remotely run
-  by this local implementation slice.
+  by the initial local implementation slice, then one-off checkpoint-only
+  continuation packages as required.
 - Downloaded prelaunch output later contains debug/resume/tiny summaries,
   actual 68-row gate CSVs, metrics, checkpoint proof, and a compact overall
   verdict.
@@ -129,8 +156,11 @@ as the first attempt. This is one experiment path, not reusable product code.
    data-wait fraction, exact projected epoch time, peak allocated/reserved VRAM
    and headroom, and zero post-settlement graph breaks/recompiles. Full launch
    remains blocked until the user explicitly accepts that measured cost.
-8. The full guard rejects a prelaunch pass whose source/config/runtime hashes
-   differ from the current full execution inputs.
+8. The first-session full guard rejects a prelaunch pass whose
+   source/config/runtime hashes differ from the full execution inputs. A
+   continuation guard independently requires the byte-identical embedded
+   session-1 manifest entries named above plus its exact SO2 checkpoint source
+   path/dataset slug/mount path/hash and exact two-dataset allowlist.
 9. Full-run readiness means the downloaded prelaunch proof passes and the
    fresh full package passes local launch guards. It does not mean the full run
    has already been started or completed.
@@ -149,11 +179,13 @@ git diff --check
 
 ## Implementation Blockers
 
-None locally. Ruff, BasedPyright, 794 tests with one expected GPU-only skip,
-both generated-kernel preflights, and focused shared-runner regressions pass.
-Remote execution remains blocked on fresh explicit Kaggle authorization.
-Full-run push additionally remains blocked until the downloaded prelaunch
-artifact passes and the user accepts its measured projected cost.
+Session 1 is downloaded under ignored
+`runs/kaggle/so2_selected_runtime_full_v1_session1`. Its update-9000 checkpoint,
+proof hash, schema-v5 state, source/config/runtime identities, two-rank metric
+prefix, half-epoch validation/fixed-25 evidence, and 68 gate rows are verified.
+The exact checkpoint dataset and session-2 wrapper/metadata/guards pass local
+preflight and the full repository quality gate. No trainer or checkpoint-format
+change was required. Only the approved remote publication and launch remain.
 
 ## Known Risks
 
@@ -178,13 +210,20 @@ artifact passes and the user accepts its measured projected cost.
   OOM, or recompiling after settlement.
 - Change the model, runner, runtime plan, or any Spec 0016 config after a green
   prelaunch artifact and require the full guard to reject it.
+- Attach a normal checkpoint, a second checkpoint dataset, a renamed checkpoint,
+  or the correct SO2 filename with the wrong SHA-256.
+- Restore weights but omit optimizer/scaler/RNG/generator/sampler state; restart
+  LR/beta warmup; replay skipped patch payloads; or advance schedules on AMP skips.
 
-## Open Questions
+## Measured Remote State
 
-- Does exact parity batch 25 fit and pass the bounded real-data proof? The one
-  authorized prelaunch coordinate answers this; local inference does not.
-- What is the measured settled/projected epoch time at batch 25? Record it from
-  the prelaunch/full artifacts before estimating total session count.
+- The exact batch-25 prelaunch passed on two T4s. The slower-rank settled mean is
+  `2960.2401 ms/update`, projecting `4.93373 h/epoch`; peak reserved memory is
+  `9366 MiB` with zero settled graph breaks/recompiles.
+- Full session 1 published complete commit boundaries 3000, 6000, and 9000.
+  Kaggle's file-list endpoint returned an empty list after cancellation, but the
+  output archive and UI contain the complete files; the archive download is the
+  authoritative source for continuation.
 
 ## Related Files
 

@@ -750,12 +750,26 @@ def _validate_zip_members(
     repo_root: Path,
 ) -> None:
     kernel_dir = repo_root / _metadata_kernel_dir(manifest)
-    expected_names = {
-        archive_name for _path, archive_name in _payload_files(repo_root, kernel_dir)
+    expected_sources = {
+        archive_name: path
+        for path, archive_name in _payload_files(repo_root, kernel_dir)
     }
+    expected_names = set(expected_sources)
     expected_names.add("payload_manifest.json")
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
-        actual_names = set(archive.namelist())
+        member_names = archive.namelist()
+        actual_names = set(member_names)
+        if len(member_names) != len(actual_names):
+            message = "payload zip contains duplicate member names"
+            raise RuntimeError(message)
+        stale_members = [
+            name
+            for name, source in expected_sources.items()
+            if name in actual_names and archive.read(name) != source.read_bytes()
+        ]
+        manifest_bytes_match = "payload_manifest.json" in actual_names and archive.read(
+            "payload_manifest.json",
+        ) == _canonical_manifest_bytes(manifest)
     if actual_names != expected_names:
         missing = sorted(expected_names - actual_names)
         unexpected = sorted(actual_names - expected_names)
@@ -767,6 +781,12 @@ def _validate_zip_members(
         message = "payload zip members do not match expected file set"
         if details:
             message = f"{message}: {', '.join(details)}"
+        raise RuntimeError(message)
+    if stale_members:
+        message = f"payload zip member bytes are stale: {sorted(stale_members)!r}"
+        raise RuntimeError(message)
+    if not manifest_bytes_match:
+        message = "payload zip manifest bytes are not canonical"
         raise RuntimeError(message)
 
 

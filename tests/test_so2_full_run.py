@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import runpy
@@ -89,10 +90,21 @@ def test_so2_kernel_payload_builds_and_imports(
     if kernel_name == "so2_prelaunch":
         extracted = output_dir / "embedded_payload"
         assert execution_identity(extracted) == execution_identity(repository)
+    else:
+        assert payload == {
+            "status": "pass",
+            "fresh_start": False,
+            "resume_checkpoint": (
+                "/kaggle/input/eqvae-so2-session1-step9000/step_009000.pt"
+            ),
+            "resume_checkpoint_sha256": (
+                "1f53fe16aecf6382bf450cd0ac2be5db9fe2bbe6405dfcaa2c196cb40bca8e7d"
+            ),
+        }
 
 
-def test_so2_full_launcher_is_fresh_and_uses_only_real_data() -> None:
-    """The first full package cannot inherit the normal-VAE checkpoint lineage."""
+def test_so2_full_launcher_resumes_exact_so2_checkpoint_only() -> None:
+    """Session 2 must attach only real data and the exact SO2 commit point."""
     repository = Path(__file__).resolve().parents[1]
     kernel_dir = repository / "kaggle/kernels/so2_selected_runtime_full"
     metadata = cast(
@@ -104,13 +116,97 @@ def test_so2_full_launcher_is_fresh_and_uses_only_real_data() -> None:
     source = (kernel_dir / "run_template.py").read_text(encoding="utf-8")
     assert metadata["dataset_sources"] == [
         "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+        "maximusshtefan/eqvae-so2-session1-step9000",
     ]
     assert metadata["kernel_sources"] == []
     assert metadata["model_sources"] == []
-    assert '"--resume"' not in source
+    assert '"--resume"' in source
+    assert "/kaggle/input/eqvae-so2-session1-step9000/step_009000.pt" in source
+    assert "1f53fe16aecf6382bf450cd0ac2be5db9fe2bbe6405dfcaa2c196cb40bca8e7d" in source
     assert "eqvae-baseline-session" not in source
     assert "EQVAE_SO2_FULL_RESUME" in source
-    assert '"fresh_start": True' in source
+    assert '"fresh_start": False' in source
+
+
+def test_so2_full_resume_checkpoint_validation_fails_closed(tmp_path: Path) -> None:
+    """The continuation wrapper must reject missing or changed checkpoint bytes."""
+    repository = Path(__file__).resolve().parents[1]
+    namespace = runpy.run_path(
+        str(repository / "kaggle/kernels/so2_selected_runtime_full/run_template.py"),
+        run_name="spec0016_so2_resume_template_test",
+    )
+    validate = cast("Callable[[Path], None]", namespace["_validate_resume_checkpoint"])
+    checkpoint = tmp_path / "step_009000.pt"
+    checkpoint.write_bytes(b"exact checkpoint fixture")
+    validate.__globals__["RESUME_CHECKPOINT_SHA256"] = hashlib.sha256(
+        checkpoint.read_bytes(),
+    ).hexdigest()
+    validate(checkpoint)
+    checkpoint.write_bytes(b"changed checkpoint fixture")
+    with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
+        validate(checkpoint)
+    checkpoint.unlink()
+    with pytest.raises(RuntimeError, match="missing"):
+        validate(checkpoint)
+
+
+def test_so2_full_launcher_validates_before_exact_resume_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The paid subprocess cannot start before the selected checkpoint validates."""
+    repository = Path(__file__).resolve().parents[1]
+    namespace = runpy.run_path(
+        str(repository / "kaggle/kernels/so2_selected_runtime_full/run_template.py"),
+        run_name="spec0016_so2_resume_execution_test",
+    )
+    main = cast("Callable[[], int]", namespace["main"])
+    function_globals = main.__globals__
+    checkpoint = tmp_path / "step_009000.pt"
+    checkpoint.write_bytes(b"execution checkpoint fixture")
+    payload = tmp_path / "payload"
+    (payload / "src").mkdir(parents=True)
+    output = tmp_path / "output"
+    events: list[str] = []
+    original_validate = cast(
+        "Callable[[Path], None]",
+        namespace["_validate_resume_checkpoint"],
+    )
+    function_globals["RESUME_CHECKPOINT_SHA256"] = hashlib.sha256(
+        checkpoint.read_bytes(),
+    ).hexdigest()
+
+    def ensure_latest_torch() -> None:
+        return None
+
+    def extract(_destination: Path) -> Path:
+        return payload
+
+    function_globals["_ensure_latest_torch"] = ensure_latest_torch
+    function_globals["_extract"] = extract
+
+    def validate(path: Path) -> None:
+        original_validate(path)
+        events.append("validated")
+
+    def run(
+        command: tuple[str, ...],
+        **kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        assert events == ["validated"]
+        assert command[-2:] == ("--resume", str(checkpoint.resolve()))
+        assert "eqvae-baseline-session" not in " ".join(command)
+        assert kwargs["cwd"] == payload
+        events.append("launched")
+        return subprocess.CompletedProcess(command, 0)
+
+    function_globals["_validate_resume_checkpoint"] = validate
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setenv("EQVAE_SO2_FULL_OUTPUT_DIR", str(output))
+    monkeypatch.setenv("EQVAE_SO2_FULL_RESUME", str(checkpoint))
+    monkeypatch.delenv("EQVAE_SO2_FULL_IMPORT_ONLY", raising=False)
+    assert main() == 0
+    assert events == ["validated", "launched"]
 
 
 def test_so2_full_push_guard_requires_fresh_proof_and_cost_acceptance() -> None:
@@ -122,6 +218,7 @@ def test_so2_full_push_guard_requires_fresh_proof_and_cost_acceptance() -> None:
         "KAGGLE_SO2_FULL_COST_CONFIRMED",
         "so2_prelaunch_verdict.json",
         "validate_prelaunch_artifacts",
+        "EXPECTED_CONTINUATION_WRAPPER_SHA256",
         "preflight-so2-prelaunch",
         "preflight-so2-selected-runtime-full",
     ):
