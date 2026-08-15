@@ -1,7 +1,7 @@
 # Spec 0016: SO2 Real-Data Prelaunch And Full Run
 
-Status: locked / session-1 checkpoint verified / session 2 running
-Implementation readiness: resume only from the downloaded update-9000 commit point; Kaggle kernel version 2 is running from clean commit `325b5db`
+Status: locked / sessions 1-2 verified through update 18000
+Implementation readiness: next resume must use only the downloaded update-18000 checkpoint; exact session-3 upload/launch authorization is pending
 Owner/workstream: matched continuous-`SO(2)` training
 Last updated: 2026-08-14
 
@@ -189,7 +189,11 @@ change was required. Commit `475e215` is on GitHub. Private dataset ID `11656723
 contains only the exact verified checkpoint and reports `isPrivate=true`. The
 first guarded push was rejected before launch for zero remaining GPU hours. After
 quota refresh, the clean-HEAD preflight passed again and Kaggle kernel version 2
-was successfully submitted; immediate status was `KernelWorkerStatus.RUNNING`.
+ran to terminal `CANCEL_ACKNOWLEDGED`. Its separate downloaded output validates:
+resume began at 9000, complete boundaries are 12000/15000/18000, and cancellation
+interrupted boundary 21000 before commit. The accepted update-18000 checkpoint
+SHA-256 is
+`5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4`.
 
 ## Known Risks
 

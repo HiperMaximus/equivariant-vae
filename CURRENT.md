@@ -9,16 +9,15 @@ Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, active Specs
 the locked Spec 0012 architecture, accepted Spec 0013 mechanics, Spec 0014
 fixed 43-convolution SO(2) VAE, and Spec 0015 local selected-runtime integration
 and dual-T4 readiness are complete. Spec 0016's batch-25 prelaunch passed from
-clean commit `4aaf614`; full session 1 then committed update 9000 before Kaggle
-closed the worker. Its complete output is downloaded and verified under ignored
-`runs/kaggle/so2_selected_runtime_full_v1_session1`. Do not
+clean commit `4aaf614`; full sessions 1 and 2 then committed through update 18000.
+Their complete outputs are downloaded and verified under separate ignored
+session directories. Do not
 reopen radial profiles, F2, multiplicities, topology, contraction/assembly arms,
 compilation-time tuning, or diagnostic timing CV. The next possible action is
-the exact checkpoint-only session-2 continuation from
-`step_009000.pt`, SHA-256
-`1f53fe16aecf6382bf450cd0ac2be5db9fe2bbe6405dfcaa2c196cb40bca8e7d`,
+the exact checkpoint-only session-3 continuation from `step_018000.pt`, SHA-256
+`5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4`,
 using the same shared resume path proven by the non-equivariant run. The user has
-approved the private checkpoint-dataset, GitHub, and Kaggle continuation writes.
+not yet explicitly authorized this exact new checkpoint upload/destination.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
@@ -126,11 +125,22 @@ before creating a run because the 30-hour weekly GPU quota is exhausted
 (`42.00h` used, `0.00h` remaining, `refreshAt=2026-08-15T00:00:00`). The quota
 then refreshed to `30.00h` remaining. From clean source commit `325b5db`, the
 continuation preflight passed again and private Kaggle kernel version 2 was
-successfully pushed at 2026-08-14 19:11 COT; immediate status is
-`KernelWorkerStatus.RUNNING`. Stop polling. When prompted later, check status,
-download the whole session output after termination, and accept only its latest
-fully completed 3000-update boundary. Do not recreate the checkpoint dataset or
-rerun session 1.
+successfully pushed at 2026-08-14 19:11 COT. It ended
+`KernelWorkerStatus.CANCEL_ACKNOWLEDGED`; the complete 583 MiB output is downloaded
+separately under ignored `runs/kaggle/so2_selected_runtime_full_v2_session2`.
+Resume restored update 9000, epoch 1.5, LR `0.000951958`, and scaler `65536`, then
+committed boundaries 12000/15000/18000. The worker began boundary 21000 but
+cancelled before its validation/checkpoint completed, so 18000 is the only valid
+commit point. Its schema-v5 checkpoint hash matches all proof/manifest entries;
+model/optimizer/scaler/RNG/generator/DDP sampler state is complete. CSV coverage
+is exact for both ranks over successful updates 9001..18000, with three isolated
+synchronized AMP skips, zero nonfinite successful rows, 12 validation rows, 54
+fixed-25 equivariance rows, and 68 passing gate rows. Fixed-25 originals match
+session 1 byte-for-byte. Clean validation L1 improved from about `0.07148` at
+update 9000 to `0.06813` at 18000; deterministic-denoising L1 improved from
+about `0.07520` to `0.07107`. Kaggle quota is `18.00h` remaining. The next action
+requires explicit authorization to upload the exact update-18000 checkpoint to a
+new private dataset and push session 3; do not reuse the update-9000 dataset.
 
 Spec 0015 is complete. Its single guarded remote coordinate passed. Registry
 kind `so2_vae_fixed` accepts no architecture
