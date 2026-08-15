@@ -148,7 +148,14 @@ private slug, mount path, hash, step/config/runtime identities, session-2 clean
 payload authority, and unchanged execution core. Local preflight passes 16
 tests; the focused resume/archive suite passes 18 tests; the full quality gate
 passes Ruff, BasedPyright, and 797 tests with one expected GPU-only skip. Commit,
-private dataset publication/verification, and guarded launch remain.
+private dataset publication/verification, and guarded launch remain. Commit
+`c8ff951` is pushed to GitHub and its clean embedded payload passes preflight.
+The external-upload safety review rejected dataset creation because the user's
+authorization message did not itself name the exact sensitive checkpoint and
+destination. No session-3 dataset or kernel version was created. Obtain a user
+message explicitly naming `step_018000.pt`, SHA-256
+`5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4`, private
+slug `maximusshtefan/eqvae-so2-session2-step18000`, and session-3 launch.
 
 Spec 0015 is complete. Its single guarded remote coordinate passed. Registry
 kind `so2_vae_fixed` accepts no architecture

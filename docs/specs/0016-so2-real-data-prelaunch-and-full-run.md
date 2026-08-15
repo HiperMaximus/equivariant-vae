@@ -203,7 +203,11 @@ SHA-256 is
 The user explicitly authorized this exact checkpoint upload/private destination
 and session-3 launch. The one-off session-3 transport passes local preflight,
 focused archive/resume mutations, and the full repository quality gate. Commit,
-private dataset publication/verification, and guarded launch remain.
+private dataset publication/verification, and guarded launch remain. Commit
+`c8ff951` is on GitHub; the clean package preflight passes. External-upload
+safety review rejected dataset creation pending a user message that explicitly
+names the exact checkpoint hash, private destination slug, and session-3 launch.
+No remote session-3 dataset or kernel version exists yet.
 
 ## Known Risks
 
