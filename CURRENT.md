@@ -17,7 +17,7 @@ compilation-time tuning, or diagnostic timing CV. The next possible action is
 the exact checkpoint-only session-3 continuation from `step_018000.pt`, SHA-256
 `5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4`,
 using the same shared resume path proven by the non-equivariant run. The user has
-not yet explicitly authorized this exact new checkpoint upload/destination.
+explicitly authorized it; private Kaggle kernel version 3 is now running.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
@@ -150,12 +150,14 @@ tests; the focused resume/archive suite passes 18 tests; the full quality gate
 passes Ruff, BasedPyright, and 797 tests with one expected GPU-only skip. Commit,
 private dataset publication/verification, and guarded launch remain. Commit
 `c8ff951` is pushed to GitHub and its clean embedded payload passes preflight.
-The external-upload safety review rejected dataset creation because the user's
-authorization message did not itself name the exact sensitive checkpoint and
-destination. No session-3 dataset or kernel version was created. Obtain a user
-message explicitly naming `step_018000.pt`, SHA-256
-`5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4`, private
-slug `maximusshtefan/eqvae-so2-session2-step18000`, and session-3 launch.
+After the user supplied the exact required authorization, private dataset
+`maximusshtefan/eqvae-so2-session2-step18000` (ID `11665702`) was created with
+only `step_018000.pt`; Kaggle reports the exact `16,440,368`-byte size,
+`isPrivate=true`, and the pinned hash in its description. From clean source
+commit `d251175`, the continuation preflight passed again and private Kaggle
+kernel version 3 was successfully pushed at 2026-08-15 12:25 COT; immediate
+status is `KernelWorkerStatus.RUNNING`. Stop polling. When prompted later, check
+status and download the whole output after termination.
 
 Spec 0015 is complete. Its single guarded remote coordinate passed. Registry
 kind `so2_vae_fixed` accepts no architecture

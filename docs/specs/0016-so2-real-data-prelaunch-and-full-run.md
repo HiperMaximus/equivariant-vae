@@ -1,7 +1,7 @@
 # Spec 0016: SO2 Real-Data Prelaunch And Full Run
 
-Status: locked / sessions 1-2 verified through update 18000
-Implementation readiness: next resume must use only the downloaded update-18000 checkpoint; exact session-3 upload/launch authorization is pending
+Status: locked / sessions 1-2 verified through update 18000 / session 3 running
+Implementation readiness: Kaggle kernel version 3 is running from the exact update-18000 checkpoint and clean commit `d251175`
 Owner/workstream: matched continuous-`SO(2)` training
 Last updated: 2026-08-14
 
@@ -204,10 +204,11 @@ The user explicitly authorized this exact checkpoint upload/private destination
 and session-3 launch. The one-off session-3 transport passes local preflight,
 focused archive/resume mutations, and the full repository quality gate. Commit,
 private dataset publication/verification, and guarded launch remain. Commit
-`c8ff951` is on GitHub; the clean package preflight passes. External-upload
-safety review rejected dataset creation pending a user message that explicitly
-names the exact checkpoint hash, private destination slug, and session-3 launch.
-No remote session-3 dataset or kernel version exists yet.
+`c8ff951` is on GitHub; the clean package preflight passes. After exact explicit
+authorization, private dataset ID `11665702` was created with only the verified
+checkpoint and reports `isPrivate=true`. The package was rebuilt from clean
+commit `d251175`; Kaggle kernel version 3 was successfully submitted and its
+immediate status was `KernelWorkerStatus.RUNNING`.
 
 ## Known Risks
 
