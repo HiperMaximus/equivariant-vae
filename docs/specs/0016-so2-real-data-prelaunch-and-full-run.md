@@ -92,13 +92,19 @@ as the first attempt. This is one experiment path, not reusable product code.
    the same exact downloaded-latest-checkpoint pattern, validates path/hash before
    GPU work, and resumes through the shared checkpoint-only continuation path. No
    normal checkpoint/dataset may be attached or loaded.
+   Session 2 committed update 18000 with SHA-256
+   `5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4`.
+   Session 3 copies only
+   `runs/kaggle/so2_selected_runtime_full_v2_session2/checkpoints/step_018000.pt`
+   into private dataset `maximusshtefan/eqvae-so2-session2-step18000` and pins
+   `/kaggle/input/eqvae-so2-session2-step18000/step_018000.pt`.
 10. Resume must restore the exact SO2 model, all optimizer groups/state, GradScaler,
    Python/NumPy/Torch CPU/CUDA RNG, named `train_data` and `train_corruption`
-   generators, and DDP sampler progress. Session 2 requires
-   `optimizer_step == successful_optimizer_update_count == 9000`, skips the first
-   9000 batches by sampler indices without rereading their payloads, and rebases
+   generators, and DDP sampler progress. Session 3 requires
+   `optimizer_step == successful_optimizer_update_count == 18000`, skips the first
+   18000 batches by sampler indices without rereading their payloads, and rebases
    post-resume stochastic streams by rank. LR and beta remain derived from absolute
-   successful-update count 9000, never replay warmup, and never advance on an AMP
+   successful-update count 18000, never replay warmup, and never advance on an AMP
    skip.
 11. Compilation/startup cost and exact reproducibility remain non-goals. The
    paid run retains the selected speed-first runtime and successful-update AMP
@@ -116,9 +122,9 @@ as the first attempt. This is one experiment path, not reusable product code.
 - Full: fresh start, 10 epochs, beta `0.01`, normal-equivalent LR schedule,
   full validation, checkpoint/fixed-25 every half epoch.
 - Kernel metadata attaches only the real UBC dataset for the first session.
-  Session 2 requires the exact ordered `dataset_sources` allowlist
+  Session 3 requires the exact ordered `dataset_sources` allowlist
   `['maximusshtefan/patches-pre-shuffled-ubc-ocean',
-  'maximusshtefan/eqvae-so2-session1-step9000']` and empty competition, kernel,
+  'maximusshtefan/eqvae-so2-session2-step18000']` and empty competition, kernel,
   and model sources. Any extra dataset or baseline/normal checkpoint slug/path
   fails closed.
 
@@ -194,6 +200,10 @@ resume began at 9000, complete boundaries are 12000/15000/18000, and cancellatio
 interrupted boundary 21000 before commit. The accepted update-18000 checkpoint
 SHA-256 is
 `5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4`.
+The user explicitly authorized this exact checkpoint upload/private destination
+and session-3 launch. The one-off session-3 transport passes local preflight,
+focused archive/resume mutations, and the full repository quality gate. Commit,
+private dataset publication/verification, and guarded launch remain.
 
 ## Known Risks
 

@@ -63,8 +63,9 @@ so2_prelaunch_output_dir="runs/kaggle/so2_prelaunch"
 so2_full_kernel_dir="kaggle/kernels/so2_selected_runtime_full"
 so2_full_output_dir="runs/kaggle/so2_selected_runtime_full"
 so2_full_session1_output_dir="runs/kaggle/so2_selected_runtime_full_v1_session1"
-so2_full_resume_dataset_dir="runs/kaggle/so2_session1_resume_dataset"
-so2_full_resume_dataset_slug="maximusshtefan/eqvae-so2-session1-step9000"
+so2_full_resume_authority_dir="runs/kaggle/so2_selected_runtime_full_v2_session2"
+so2_full_resume_dataset_dir="runs/kaggle/so2_session2_resume_dataset"
+so2_full_resume_dataset_slug="maximusshtefan/eqvae-so2-session2-step18000"
 
 usage() {
   cat <<'EOF'
@@ -1634,6 +1635,7 @@ guard_so2_full_push_ready() {
   PYTHONPATH=src .venv/bin/python - \
     "$verdict" \
     "$so2_full_session1_output_dir/embedded_payload" \
+    "$so2_full_resume_authority_dir/embedded_payload" \
     "$so2_full_resume_dataset_dir" <<'PYSO2FULLVERDICT'
 import hashlib
 import json
@@ -1646,33 +1648,43 @@ from eqvae.benchmarking.so2_prelaunch import (
 from eqvae.checkpointing import read_training_checkpoint_metadata
 from eqvae.config import resolve_json_config
 
-EXPECTED_COMMIT = "4aaf614f2cdbf1bc628e13858eb6c4e08300266b"
-EXPECTED_DATASET_SLUG = "maximusshtefan/eqvae-so2-session1-step9000"
+EXPECTED_PRELAUNCH_COMMIT = "4aaf614f2cdbf1bc628e13858eb6c4e08300266b"
+EXPECTED_RESUME_COMMIT = "325b5dbdb35725e57dad3604f0166059a1cb30bc"
+EXPECTED_DATASET_SLUG = "maximusshtefan/eqvae-so2-session2-step18000"
 EXPECTED_CHECKPOINT_SHA256 = (
-    "1f53fe16aecf6382bf450cd0ac2be5db9fe2bbe6405dfcaa2c196cb40bca8e7d"
+    "5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4"
 )
 EXPECTED_CONTINUATION_WRAPPER_SHA256 = (
-    "8535449aa14b14635a67dff41ddf82ec2d4a16710c13ad2ee793754579ea9a34"
+    "c7908bc4be5611ee4ce8a79c69e55826b201af06fbc8938dcc9d62d4a07fe3c1"
 )
-EXPECTED_STEP = 9000
+EXPECTED_STEP = 18000
 ALLOWED_CONTINUATION_CHANGES = {
     "kaggle/kernels/so2_selected_runtime_full/kernel-metadata.json",
     "kaggle/kernels/so2_selected_runtime_full/run_template.py",
 }
 
 verdict = Path(sys.argv[1])
-authority = Path(sys.argv[2])
-dataset_dir = Path(sys.argv[3])
+prelaunch_authority = Path(sys.argv[2])
+resume_authority = Path(sys.argv[3])
+dataset_dir = Path(sys.argv[4])
 repo = Path.cwd()
 
 blockers = list(
     validate_prelaunch_artifacts(
         verdict.parents[1],
-        repo_root=authority,
-        expected_source_commit=EXPECTED_COMMIT,
+        repo_root=prelaunch_authority,
+        expected_source_commit=EXPECTED_PRELAUNCH_COMMIT,
     ),
 )
-authority_identity = execution_identity(authority)
+resume_manifest = json.loads(
+    (resume_authority / "payload_manifest.json").read_text(encoding="utf-8")
+)
+if (
+    resume_manifest.get("git_commit") != EXPECTED_RESUME_COMMIT
+    or resume_manifest.get("git_dirty") is not False
+):
+    blockers.append("so2_continuation_resume_authority_commit_mismatch")
+authority_identity = execution_identity(resume_authority)
 current_identity = execution_identity(repo)
 continuation_wrapper = (
     repo / "kaggle/kernels/so2_selected_runtime_full/run_template.py"
@@ -1688,7 +1700,7 @@ for name, expected in authority_identity.items():
     ):
         blockers.append(f"so2_continuation_execution_core_changed:{name}")
 
-expected_files = {"dataset-metadata.json", "step_009000.pt"}
+expected_files = {"dataset-metadata.json", "step_018000.pt"}
 observed_files = (
     {path.name for path in dataset_dir.iterdir()}
     if dataset_dir.is_dir()
@@ -1696,7 +1708,7 @@ observed_files = (
 )
 if observed_files != expected_files:
     blockers.append("so2_continuation_dataset_files_mismatch")
-checkpoint = dataset_dir / "step_009000.pt"
+checkpoint = dataset_dir / "step_018000.pt"
 if checkpoint.is_file():
     observed_sha256 = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
     if observed_sha256 != EXPECTED_CHECKPOINT_SHA256:

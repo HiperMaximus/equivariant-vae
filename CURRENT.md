@@ -140,7 +140,15 @@ session 1 byte-for-byte. Clean validation L1 improved from about `0.07148` at
 update 9000 to `0.06813` at 18000; deterministic-denoising L1 improved from
 about `0.07520` to `0.07107`. Kaggle quota is `18.00h` remaining. The next action
 requires explicit authorization to upload the exact update-18000 checkpoint to a
-new private dataset and push session 3; do not reuse the update-9000 dataset.
+new private dataset and push session 3; do not reuse the update-9000 dataset. The
+user supplied that exact authorization. Ignored
+`runs/kaggle/so2_session2_resume_dataset` contains only dataset metadata and the
+verified `step_018000.pt`. The session-3 wrapper/metadata/guard pin the exact
+private slug, mount path, hash, step/config/runtime identities, session-2 clean
+payload authority, and unchanged execution core. Local preflight passes 16
+tests; the focused resume/archive suite passes 18 tests; the full quality gate
+passes Ruff, BasedPyright, and 797 tests with one expected GPU-only skip. Commit,
+private dataset publication/verification, and guarded launch remain.
 
 Spec 0015 is complete. Its single guarded remote coordinate passed. Registry
 kind `so2_vae_fixed` accepts no architecture
@@ -648,12 +656,12 @@ control's learned representation is correctly not claimed to be equivariant.
     prelaunch plus full session 1 through update 9000 as complete. Do not rerun
     either. The CLI file-list false negative is superseded by the downloaded
     archive and exact checkpoint verification.
-12. Finish the one-off session-2 continuation review/gates, upload only the
-    hash-pinned private checkpoint dataset, then push GitHub and the guarded
-    Kaggle continuation under the user's existing explicit approval. After the
-    worker closes, download its whole output separately and resume only from its
-    latest fully completed 3000-step boundary.
+12. Finish the one-off session-3 continuation review/gates, upload only the
+    hash-pinned update-18000 private checkpoint dataset, then push GitHub and the
+    guarded Kaggle continuation under the user's exact explicit approval. After
+    the worker closes, download its whole output separately and resume only from
+    its latest fully completed 3000-step boundary.
 
 Baseline full training/final-output verification and continuous-`SO(2)` prelaunch
-are complete. SO2 full training is committed through update 9000; exact
-checkpoint-only session-2 continuation is the active task.
+are complete. SO2 full training is committed through update 18000; exact
+checkpoint-only session-3 continuation is the active task.
