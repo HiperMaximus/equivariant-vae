@@ -123,10 +123,14 @@ authorization, private Kaggle dataset
 with only `step_009000.pt`; Kaggle reports the exact `16,440,368`-byte size and
 `isPrivate=true`. The guarded kernel push passed locally but Kaggle rejected it
 before creating a run because the 30-hour weekly GPU quota is exhausted
-(`42.00h` used, `0.00h` remaining, `refreshAt=2026-08-15T00:00:00`). Remote
-kernel state remains session 1 at `CANCEL_ACKNOWLEDGED`. After quota refresh,
-rebuild/preflight the ignored launcher from clean HEAD and repeat only the
-guarded kernel push; do not recreate the checkpoint dataset or rerun session 1.
+(`42.00h` used, `0.00h` remaining, `refreshAt=2026-08-15T00:00:00`). The quota
+then refreshed to `30.00h` remaining. From clean source commit `325b5db`, the
+continuation preflight passed again and private Kaggle kernel version 2 was
+successfully pushed at 2026-08-14 19:11 COT; immediate status is
+`KernelWorkerStatus.RUNNING`. Stop polling. When prompted later, check status,
+download the whole session output after termination, and accept only its latest
+fully completed 3000-update boundary. Do not recreate the checkpoint dataset or
+rerun session 1.
 
 Spec 0015 is complete. Its single guarded remote coordinate passed. Registry
 kind `so2_vae_fixed` accepts no architecture
