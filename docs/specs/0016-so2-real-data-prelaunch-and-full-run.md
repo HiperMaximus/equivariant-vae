@@ -1,7 +1,7 @@
 # Spec 0016: SO2 Real-Data Prelaunch And Full Run
 
-Status: locked / sessions 1-3 verified through update 27000 / session 4 authorized and staged
-Implementation readiness: the exact checkpoint-only session-4 transport passes local preflight; private dataset publication/verification and guarded push remain
+Status: locked / sessions 1-3 verified through update 27000 / session 4 staged, exact data-egress approval pending
+Implementation readiness: clean commit `694017a` passes the checkpoint-only session-4 package guard; private dataset upload is safety-blocked pending payload-specific approval
 Owner/workstream: matched continuous-`SO(2)` training
 Last updated: 2026-08-16
 
@@ -219,9 +219,12 @@ The session-4 wrapper, metadata, guard, and checkpoint-only staging directory no
 pin private slug `maximusshtefan/eqvae-so2-session3-step27000`, filename
 `step_027000.pt`, its exact hash, update/config/runtime identities, session-3
 payload authority, and unchanged execution core. The 16 focused tests and local
-package preflight pass. After those exact details were reported, the user
-explicitly authorized continuing the run; private dataset publication,
-verification, and guarded launch remain.
+package preflight pass; clean commit `694017a` is on GitHub and embedded in the
+generated payload. A general continuation authorization was insufficient for
+the potentially private-UBC-derived checkpoint upload, which was blocked before
+egress. Exact approval must name the checkpoint filename/hash, private dataset
+slug, and session-4 launch; private publication, verification, and guarded launch
+then remain.
 
 ## Known Risks
 
