@@ -1,9 +1,9 @@
 # Spec 0016: SO2 Real-Data Prelaunch And Full Run
 
-Status: locked / sessions 1-2 verified through update 18000 / session 3 running
-Implementation readiness: Kaggle kernel version 3 is running from the exact update-18000 checkpoint and clean commit `d251175`
+Status: locked / sessions 1-3 verified through update 27000 / session 4 authorized and staged
+Implementation readiness: the exact checkpoint-only session-4 transport passes local preflight; private dataset publication/verification and guarded push remain
 Owner/workstream: matched continuous-`SO(2)` training
-Last updated: 2026-08-14
+Last updated: 2026-08-16
 
 ## Purpose
 
@@ -207,8 +207,21 @@ private dataset publication/verification, and guarded launch remain. Commit
 `c8ff951` is on GitHub; the clean package preflight passes. After exact explicit
 authorization, private dataset ID `11665702` was created with only the verified
 checkpoint and reports `isPrivate=true`. The package was rebuilt from clean
-commit `d251175`; Kaggle kernel version 3 was successfully submitted and its
-immediate status was `KernelWorkerStatus.RUNNING`.
+commit `d251175`; Kaggle kernel version 3 terminated
+`KernelWorkerStatus.CANCEL_ACKNOWLEDGED` after complete boundaries
+21000/24000/27000. Its separate output is downloaded under ignored
+`runs/kaggle/so2_selected_runtime_full_v3_session3`. All partial-manifest hashes,
+the 9000-successful-update/rank metric prefix, 12 validation rows, 54 fixed-25
+rows, 68 passing gate rows, and immutable originals are verified. The accepted
+update-27000 checkpoint SHA-256 is
+`7adfea7850ee7ab620f0363ca4a8fe9e41fd67160feeaeae1f07ff291a0bf6ba`.
+The session-4 wrapper, metadata, guard, and checkpoint-only staging directory now
+pin private slug `maximusshtefan/eqvae-so2-session3-step27000`, filename
+`step_027000.pt`, its exact hash, update/config/runtime identities, session-3
+payload authority, and unchanged execution core. The 16 focused tests and local
+package preflight pass. After those exact details were reported, the user
+explicitly authorized continuing the run; private dataset publication,
+verification, and guarded launch remain.
 
 ## Known Risks
 
@@ -247,6 +260,12 @@ immediate status was `KernelWorkerStatus.RUNNING`.
   Kaggle's file-list endpoint returned an empty list after cancellation, but the
   output archive and UI contain the complete files; the archive download is the
   authoritative source for continuation.
+- Full session 2 published complete boundaries 12000, 15000, and 18000.
+- Full session 3 published complete boundaries 21000, 24000, and 27000. At
+  update 27000, clean validation L1/SSIM are `0.06347796463`/`0.7006000355` and
+  deterministic-denoising L1 is `0.06682794668`. Its decoded rotation-consistency
+  error continued improving, while the normalized latent ratio remained near
+  `2.10`; do not conflate those two measurements.
 
 ## Related Files
 

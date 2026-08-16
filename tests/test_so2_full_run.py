@@ -95,16 +95,16 @@ def test_so2_kernel_payload_builds_and_imports(
             "status": "pass",
             "fresh_start": False,
             "resume_checkpoint": (
-                "/kaggle/input/eqvae-so2-session2-step18000/step_018000.pt"
+                "/kaggle/input/eqvae-so2-session3-step27000/step_027000.pt"
             ),
             "resume_checkpoint_sha256": (
-                "5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4"
+                "7adfea7850ee7ab620f0363ca4a8fe9e41fd67160feeaeae1f07ff291a0bf6ba"
             ),
         }
 
 
 def test_so2_full_launcher_resumes_exact_so2_checkpoint_only() -> None:
-    """Session 3 must attach only real data and the exact SO2 commit point."""
+    """Session 4 must attach only real data and the exact SO2 commit point."""
     repository = Path(__file__).resolve().parents[1]
     kernel_dir = repository / "kaggle/kernels/so2_selected_runtime_full"
     metadata = cast(
@@ -116,13 +116,13 @@ def test_so2_full_launcher_resumes_exact_so2_checkpoint_only() -> None:
     source = (kernel_dir / "run_template.py").read_text(encoding="utf-8")
     assert metadata["dataset_sources"] == [
         "maximusshtefan/patches-pre-shuffled-ubc-ocean",
-        "maximusshtefan/eqvae-so2-session2-step18000",
+        "maximusshtefan/eqvae-so2-session3-step27000",
     ]
     assert metadata["kernel_sources"] == []
     assert metadata["model_sources"] == []
     assert '"--resume"' in source
-    assert "/kaggle/input/eqvae-so2-session2-step18000/step_018000.pt" in source
-    assert "5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4" in source
+    assert "/kaggle/input/eqvae-so2-session3-step27000/step_027000.pt" in source
+    assert "7adfea7850ee7ab620f0363ca4a8fe9e41fd67160feeaeae1f07ff291a0bf6ba" in source
     assert "eqvae-baseline-session" not in source
     assert "EQVAE_SO2_FULL_RESUME" in source
     assert '"fresh_start": False' in source
@@ -136,7 +136,7 @@ def test_so2_full_resume_checkpoint_validation_fails_closed(tmp_path: Path) -> N
         run_name="spec0016_so2_resume_template_test",
     )
     validate = cast("Callable[[Path], None]", namespace["_validate_resume_checkpoint"])
-    checkpoint = tmp_path / "step_018000.pt"
+    checkpoint = tmp_path / "step_027000.pt"
     checkpoint.write_bytes(b"exact checkpoint fixture")
     validate.__globals__["RESUME_CHECKPOINT_SHA256"] = hashlib.sha256(
         checkpoint.read_bytes(),
@@ -162,7 +162,7 @@ def test_so2_full_launcher_validates_before_exact_resume_command(
     )
     main = cast("Callable[[], int]", namespace["main"])
     function_globals = main.__globals__
-    checkpoint = tmp_path / "step_018000.pt"
+    checkpoint = tmp_path / "step_027000.pt"
     checkpoint.write_bytes(b"execution checkpoint fixture")
     payload = tmp_path / "payload"
     (payload / "src").mkdir(parents=True)

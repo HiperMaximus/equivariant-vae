@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-08-14
+Last updated: 2026-08-16
 
 ## Fresh-session start here
 
@@ -11,13 +11,20 @@ fixed 43-convolution SO(2) VAE, and Spec 0015 local selected-runtime integration
 and dual-T4 readiness are complete. Spec 0016's batch-25 prelaunch passed from
 clean commit `4aaf614`; full sessions 1 and 2 then committed through update 18000.
 Their complete outputs are downloaded and verified under separate ignored
-session directories. Do not
+session directories. Session 3 terminated at a complete update-27000 boundary;
+its output is downloaded under
+`runs/kaggle/so2_selected_runtime_full_v3_session3`. The exact resumable
+checkpoint is `checkpoints/step_027000.pt`, SHA-256
+`7adfea7850ee7ab620f0363ca4a8fe9e41fd67160feeaeae1f07ff291a0bf6ba`.
+Do not
 reopen radial profiles, F2, multiplicities, topology, contraction/assembly arms,
 compilation-time tuning, or diagnostic timing CV. The next possible action is
-the exact checkpoint-only session-3 continuation from `step_018000.pt`, SHA-256
-`5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4`,
-using the same shared resume path proven by the non-equivariant run. The user has
-explicitly authorized it; private Kaggle kernel version 3 is now running.
+the exact checkpoint-only session-4 continuation from `step_027000.pt` using
+the same shared resume path proven by the non-equivariant run. The user explicitly
+authorized continuing the run after the exact checkpoint/hash and private-upload
+requirement were reported. The checkpoint-only dataset is staged locally as
+`runs/kaggle/so2_session3_resume_dataset`; publish/verify it privately, then run
+the clean-tree guarded session-4 push.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
@@ -155,9 +162,20 @@ After the user supplied the exact required authorization, private dataset
 only `step_018000.pt`; Kaggle reports the exact `16,440,368`-byte size,
 `isPrivate=true`, and the pinned hash in its description. From clean source
 commit `d251175`, the continuation preflight passed again and private Kaggle
-kernel version 3 was successfully pushed at 2026-08-15 12:25 COT; immediate
-status is `KernelWorkerStatus.RUNNING`. Stop polling. When prompted later, check
-status and download the whole output after termination.
+kernel version 3 was successfully pushed at 2026-08-15 12:25 COT. It terminated
+with `KernelWorkerStatus.CANCEL_ACKNOWLEDGED` after atomically flushing complete
+boundaries 21000/24000/27000. The downloaded output has 9000 successful updates
+per rank, five synchronized AMP skips per rank, zero nonfinite successful rows,
+12 validation rows, 54 fixed-25 rows, and 68 passing gate rows. All 13 hashes in
+the partial artifact manifest match; the immutable fixed-25 originals match
+sessions 1-2 byte-for-byte. Update 27000 clean validation is L1 `0.06347796463`,
+SSIM `0.7006000355`; deterministic-denoising L1 is `0.06682794668`. The exact
+checkpoint-only session-4 continuation targets private slug
+`maximusshtefan/eqvae-so2-session3-step27000`. The staged directory contains only
+metadata plus the exact checkpoint. The updated wrapper/metadata/guard pass the
+16 focused prelaunch/full tests and local package preflight; the user explicitly
+authorized continuation. Commit and push the reviewed transport, publish and
+verify the private dataset, then launch session 4.
 
 Spec 0015 is complete. Its single guarded remote coordinate passed. Registry
 kind `so2_vae_fixed` accepts no architecture
