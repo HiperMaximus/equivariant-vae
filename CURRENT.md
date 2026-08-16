@@ -20,12 +20,13 @@ Do not
 reopen radial profiles, F2, multiplicities, topology, contraction/assembly arms,
 compilation-time tuning, or diagnostic timing CV. The next possible action is
 the exact checkpoint-only session-4 continuation from `step_027000.pt` using
-the same shared resume path proven by the non-equivariant run. The user authorized
-continuing generally, but the private upload was safety-blocked because approval
-must explicitly name the potentially private-UBC-derived checkpoint, its hash,
-destination slug, and session-4 launch. The checkpoint-only dataset is staged
-locally as `runs/kaggle/so2_session3_resume_dataset`; after exact egress approval,
-publish/verify it privately, then run the clean-tree guarded session-4 push.
+the same shared resume path proven by the non-equivariant run. After exact egress
+authorization, private dataset
+`maximusshtefan/eqvae-so2-session3-step27000` (ID `11676466`) was created with
+only the verified checkpoint and reports `isPrivate=true`. Clean source commit
+`b05623b` is embedded in Kaggle kernel version 4, which is now `RUNNING`. Stop
+polling; when prompted later, check status and download the whole output after
+termination.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
@@ -174,14 +175,13 @@ SSIM `0.7006000355`; deterministic-denoising L1 is `0.06682794668`. The exact
 checkpoint-only session-4 continuation targets private slug
 `maximusshtefan/eqvae-so2-session3-step27000`. The staged directory contains only
 metadata plus the exact checkpoint. The updated wrapper/metadata/guard pass the
-16 focused prelaunch/full tests and local package preflight. Commit `694017a` is
-on GitHub and the generated payload records that clean commit. The attempted
-private dataset creation was blocked before upload because general continuation
-approval is insufficient for potentially private-data-derived egress. Obtain
-exact approval naming `step_027000.pt`, SHA-256
-`7adfea7850ee7ab620f0363ca4a8fe9e41fd67160feeaeae1f07ff291a0bf6ba`, private
-slug `maximusshtefan/eqvae-so2-session3-step27000`, and session-4 launch; then
-publish/verify the private dataset and run the guarded push.
+16 focused prelaunch/full tests and local package preflight. Transport commit
+`694017a` and the exact-approval handoff commit `b05623b` are on GitHub. After
+payload-specific authorization, private dataset ID `11676466` was created with
+only `step_027000.pt`; Kaggle reports the exact `16,440,368`-byte size,
+`isPrivate=true`, and the pinned hash in its description. The package was rebuilt
+from clean commit `b05623b`; guarded Kaggle kernel version 4 was successfully
+pushed and its immediate status is `KernelWorkerStatus.RUNNING`.
 
 Spec 0015 is complete. Its single guarded remote coordinate passed. Registry
 kind `so2_vae_fixed` accepts no architecture
