@@ -17,15 +17,16 @@ from pathlib import Path
 
 KAGGLE_SO2_SELECTED_RUNTIME_FULL_READY = True
 EXPECTED_DATASET_SLUG = "maximusshtefan/patches-pre-shuffled-ubc-ocean"
-RESUME_DATASET_SLUG = "maximusshtefan/eqvae-so2-session3-step27000"
+RESUME_DATASET_SLUG = "maximshtefan/eqvae-so2-session4-step36000"
 RESUME_CHECKPOINT = Path(
-    "/kaggle/input/eqvae-so2-session3-step27000/step_027000.pt",
+    "/kaggle/input/eqvae-so2-session4-step36000/step_036000.pt",
 )
 RESUME_CHECKPOINT_SHA256 = (
-    "7adfea7850ee7ab620f0363ca4a8fe9e41fd67160feeaeae1f07ff291a0bf6ba"
+    "4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb"
 )
+RESUME_CHECKPOINT_BYTES = 16_440_368
 KERNEL_METADATA = {
-    "id": "maximusshtefan/eqvae-so2-selected-runtime-full",
+    "id": "maximshtefan/eqvae-so2-selected-runtime-full",
     "title": "eqvae so2 selected runtime full",
     "code_file": "run.py",
     "language": "python",
@@ -50,7 +51,7 @@ EMBEDDED_PAYLOAD_MANIFEST_SHA256 = "$embedded_payload_manifest_sha256"
 
 
 def main() -> int:
-    """Resume the SO2 full run from session 3's exact update-27000 commit.
+    """Resume the SO2 full run from session 4's exact update-36000 commit.
 
     Returns:
         Process exit status.
@@ -123,6 +124,12 @@ def _resume_checkpoint_path() -> Path:
 def _validate_resume_checkpoint(path: Path) -> None:
     if not path.is_file():
         message = f"SO2 resume checkpoint missing: {path}"
+        raise RuntimeError(message)
+    if path.stat().st_size != RESUME_CHECKPOINT_BYTES:
+        message = (
+            "SO2 resume checkpoint byte count mismatch: "
+            f"expected {RESUME_CHECKPOINT_BYTES}, observed {path.stat().st_size}"
+        )
         raise RuntimeError(message)
     observed = _sha256(path)
     if observed != RESUME_CHECKPOINT_SHA256:

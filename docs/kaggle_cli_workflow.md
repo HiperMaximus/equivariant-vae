@@ -583,6 +583,11 @@ named and hashed by
 cutoff, and reject the session if the named checkpoint/hash is absent or the step is not
 a 3000-update boundary. A hard close may preserve preflushed CSV/artifact data above that
 cutoff; exclude those rows and fixed-25 boundary artifacts from final concatenation.
+The previous continuation wrapper remains evidence of what that closed session loaded,
+not authority for the next resume. After every download, resolve the next checkpoint from
+the downloaded proof first, then repin the wrapper, metadata, shell guard, staged dataset,
+and tests together. Never push an unchanged old wrapper merely because its last run
+produced a newer checkpoint.
 For any continuation, upload/attach only the latest committed checkpoint and write a new
 output directory. Earlier remote metrics/artifacts are not inputs to the next session.
 Keep raw sessions and concatenate committed absolute-step CSV prefixes only for local
@@ -709,6 +714,13 @@ KAGGLE_REMOTE_CONFIRMED=1 KAGGLE_PULL_CONFIRMED=1 ./scripts/kaggle_kernel.sh pul
 ## Credentials
 
 Kaggle credentials are local secrets. Do not store, print, or commit them.
+
+Credentials are personal. Never accept, install, or operate with another person's API
+key to continue a run or consume their quota. A collaborator must authenticate and
+execute under their own account/environment; handoffs contain source commits,
+checkpoint bytes/hashes, dataset slugs, and commands, never credentials. Independently
+verify that the operator can access every private dataset before changing launcher
+ownership.
 
 The official Kaggle API supports local CLI authentication and the standard local
 token file. Agents must ask before running network commands or remote writes.

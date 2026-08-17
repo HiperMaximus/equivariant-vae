@@ -95,16 +95,16 @@ def test_so2_kernel_payload_builds_and_imports(
             "status": "pass",
             "fresh_start": False,
             "resume_checkpoint": (
-                "/kaggle/input/eqvae-so2-session3-step27000/step_027000.pt"
+                "/kaggle/input/eqvae-so2-session4-step36000/step_036000.pt"
             ),
             "resume_checkpoint_sha256": (
-                "7adfea7850ee7ab620f0363ca4a8fe9e41fd67160feeaeae1f07ff291a0bf6ba"
+                "4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb"
             ),
         }
 
 
 def test_so2_full_launcher_resumes_exact_so2_checkpoint_only() -> None:
-    """Session 4 must attach only real data and the exact SO2 commit point."""
+    """Session 5 must attach only UBC and the verified SO2 continuation input."""
     repository = Path(__file__).resolve().parents[1]
     kernel_dir = repository / "kaggle/kernels/so2_selected_runtime_full"
     metadata = cast(
@@ -113,16 +113,18 @@ def test_so2_full_launcher_resumes_exact_so2_checkpoint_only() -> None:
             (kernel_dir / "kernel-metadata.json").read_text(encoding="utf-8"),
         ),
     )
+    assert metadata["id"] == "maximshtefan/eqvae-so2-selected-runtime-full"
     source = (kernel_dir / "run_template.py").read_text(encoding="utf-8")
     assert metadata["dataset_sources"] == [
         "maximusshtefan/patches-pre-shuffled-ubc-ocean",
-        "maximusshtefan/eqvae-so2-session3-step27000",
+        "maximshtefan/eqvae-so2-session4-step36000",
     ]
     assert metadata["kernel_sources"] == []
     assert metadata["model_sources"] == []
     assert '"--resume"' in source
-    assert "/kaggle/input/eqvae-so2-session3-step27000/step_027000.pt" in source
-    assert "7adfea7850ee7ab620f0363ca4a8fe9e41fd67160feeaeae1f07ff291a0bf6ba" in source
+    assert "/kaggle/input/eqvae-so2-session4-step36000/step_036000.pt" in source
+    assert "4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb" in source
+    assert "RESUME_CHECKPOINT_BYTES = 16_440_368" in source
     assert "eqvae-baseline-session" not in source
     assert "EQVAE_SO2_FULL_RESUME" in source
     assert '"fresh_start": False' in source
@@ -136,13 +138,14 @@ def test_so2_full_resume_checkpoint_validation_fails_closed(tmp_path: Path) -> N
         run_name="spec0016_so2_resume_template_test",
     )
     validate = cast("Callable[[Path], None]", namespace["_validate_resume_checkpoint"])
-    checkpoint = tmp_path / "step_027000.pt"
+    checkpoint = tmp_path / "step_036000.pt"
     checkpoint.write_bytes(b"exact checkpoint fixture")
     validate.__globals__["RESUME_CHECKPOINT_SHA256"] = hashlib.sha256(
         checkpoint.read_bytes(),
     ).hexdigest()
+    validate.__globals__["RESUME_CHECKPOINT_BYTES"] = checkpoint.stat().st_size
     validate(checkpoint)
-    checkpoint.write_bytes(b"changed checkpoint fixture")
+    checkpoint.write_bytes(b"alter checkpoint fixture")
     with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
         validate(checkpoint)
     checkpoint.unlink()
@@ -162,7 +165,7 @@ def test_so2_full_launcher_validates_before_exact_resume_command(
     )
     main = cast("Callable[[], int]", namespace["main"])
     function_globals = main.__globals__
-    checkpoint = tmp_path / "step_027000.pt"
+    checkpoint = tmp_path / "step_036000.pt"
     checkpoint.write_bytes(b"execution checkpoint fixture")
     payload = tmp_path / "payload"
     (payload / "src").mkdir(parents=True)
@@ -175,6 +178,7 @@ def test_so2_full_launcher_validates_before_exact_resume_command(
     function_globals["RESUME_CHECKPOINT_SHA256"] = hashlib.sha256(
         checkpoint.read_bytes(),
     ).hexdigest()
+    function_globals["RESUME_CHECKPOINT_BYTES"] = checkpoint.stat().st_size
 
     def ensure_latest_torch() -> None:
         return None
@@ -210,7 +214,7 @@ def test_so2_full_launcher_validates_before_exact_resume_command(
 
 
 def test_so2_full_push_guard_requires_fresh_proof_and_cost_acceptance() -> None:
-    """A full remote write stays blocked until the measured one-off gate passes."""
+    """A full write needs fresh proof, cost acceptance, and the session-1 core."""
     repository = Path(__file__).resolve().parents[1]
     script = (repository / "scripts/kaggle_kernel.sh").read_text(encoding="utf-8")
     for required in (
@@ -218,6 +222,9 @@ def test_so2_full_push_guard_requires_fresh_proof_and_cost_acceptance() -> None:
         "KAGGLE_SO2_FULL_COST_CONFIRMED",
         "so2_prelaunch_verdict.json",
         "validate_prelaunch_artifacts",
+        "prelaunch_identity",
+        "resume_identity",
+        "so2_continuation_resume_execution_core_changed",
         "EXPECTED_CONTINUATION_WRAPPER_SHA256",
         "preflight-so2-prelaunch",
         "preflight-so2-selected-runtime-full",

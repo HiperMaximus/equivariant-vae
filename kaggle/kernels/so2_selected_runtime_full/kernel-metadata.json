@@ -1,5 +1,5 @@
 {
-  "id": "maximusshtefan/eqvae-so2-selected-runtime-full",
+  "id": "maximshtefan/eqvae-so2-selected-runtime-full",
   "title": "eqvae so2 selected runtime full",
   "code_file": "run.py",
   "language": "python",
@@ -10,7 +10,7 @@
   "machine_shape": "NvidiaTeslaT4",
   "dataset_sources": [
     "maximusshtefan/patches-pre-shuffled-ubc-ocean",
-    "maximusshtefan/eqvae-so2-session3-step27000"
+    "maximshtefan/eqvae-so2-session4-step36000"
   ],
   "competition_sources": [],
   "kernel_sources": [],

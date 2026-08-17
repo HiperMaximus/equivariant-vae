@@ -1,9 +1,9 @@
 # Spec 0016: SO2 Real-Data Prelaunch And Full Run
 
-Status: locked / checkpoint lineage verified through update 36000 / session 4 gate-health caveat unresolved
-Implementation readiness: update-36000 is intact and resumable, but session 4 has 67/68 passing gate rows; continuing requires an explicit decision without weakening the locked evidence
+Status: locked / checkpoint lineage verified through update 36000 / continuation accepted with recorded gate-health caveat
+Implementation readiness: update-36000 is intact and resumable; session 5 awaits a legitimate Kaggle operator with public-UBC attachment verified, a newly pinned private checkpoint transport, exact authorization, and launch verification
 Owner/workstream: matched continuous-`SO(2)` training
-Last updated: 2026-08-16
+Last updated: 2026-08-17
 
 ## Purpose
 
@@ -98,14 +98,27 @@ as the first attempt. This is one experiment path, not reusable product code.
    `runs/kaggle/so2_selected_runtime_full_v2_session2/checkpoints/step_018000.pt`
    into private dataset `maximusshtefan/eqvae-so2-session2-step18000` and pins
    `/kaggle/input/eqvae-so2-session2-step18000/step_018000.pt`.
+   Session 4 resumed from the separately verified update-27000 transport and
+   committed update 36000. The only session-5 source is
+   `runs/kaggle/so2_selected_runtime_full_v4_session4/checkpoints/step_036000.pt`,
+   size `16,440,368` bytes, SHA-256
+   `4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb`.
+   The proof's top-level failure is the expected incomplete-60000 partial-run
+   verdict: `failure_kind=partial_interval_checkpoint_not_final_resume_proof`,
+   while `latest_checkpoint_step`, `latest_metric_prefix_step`, checkpoint path,
+   proof hash, manifest hash, and actual bytes all agree at update 36000.
+   The prior wrapper remains pinned to update 27000 and is not session-5
+   authority. Resolve the next legitimate operator/owner and verify public-UBC attachment,
+   then repin the entire transport and obtain new exact authorization before any
+   upload or push.
 10. Resume must restore the exact SO2 model, all optimizer groups/state, GradScaler,
    Python/NumPy/Torch CPU/CUDA RNG, named `train_data` and `train_corruption`
-   generators, and DDP sampler progress. Session 3 requires
-   `optimizer_step == successful_optimizer_update_count == 18000`, skips the first
-   18000 batches by sampler indices without rereading their payloads, and rebases
-   post-resume stochastic streams by rank. LR and beta remain derived from absolute
-   successful-update count 18000, never replay warmup, and never advance on an AMP
-   skip.
+   generators, and DDP sampler progress. Every continuation requires
+   `optimizer_step == successful_optimizer_update_count == resume_step`, skips the
+   first `resume_step` batches by sampler indices without rereading their payloads,
+   and rebases post-resume stochastic streams by rank. LR and beta remain derived
+   from the absolute successful-update count, never replay warmup, and never
+   advance on an AMP skip. Session 5 therefore pins `resume_step == 36000`.
 11. Compilation/startup cost and exact reproducibility remain non-goals. The
    paid run retains the selected speed-first runtime and successful-update AMP
    skip semantics.
@@ -234,7 +247,11 @@ saturated-open on the single probe image. Gradients, updates, precision evidence
 and successful training rows remain finite/positive. A separate frozen-25
 diagnostic finds saturation is sample-dependent rather than the same channel
 being open on all 25 patches. Do not weaken the locked gate rule or conceal the
-failure; a user decision is required before another continuation.
+failure. On 2026-08-17 the user accepted continuing from update 36000 with the
+67/68 caveat retained. This does not authorize a remote upload/push. The original
+account's GPU allowance is exhausted; another person's API key must not be shared
+into this session. A colleague may independently execute the hash-pinned handoff
+under their own authentication after verifying the public UBC source is attachable.
 
 ## Known Risks
 
@@ -283,8 +300,9 @@ failure; a user decision is required before another continuation.
   update 36000, clean validation L1/SSIM are `0.06240368277`/`0.7070748183`,
   deterministic-denoising L1 is `0.0655338087`, decoded rotation L2 is about
   `11.66`, and the normalized latent ratio remains about `2.11`. Its checkpoint
-  is technically resumable, but gate health is 67/68 due to the documented
-  saturated-open F1 row.
+  is technically resumable. Gate health is 67/68 due to the documented
+  saturated-open F1 row; the user accepted continuing without altering that
+  evidence.
 
 ## Related Files
 

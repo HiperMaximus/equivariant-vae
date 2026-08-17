@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-08-16
+Last updated: 2026-08-17
 
 ## Fresh-session start here
 
@@ -8,20 +8,37 @@ Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, active Specs
 0011-0016, and Decision 0004 completely. The normal-VAE baseline is complete;
 the locked Spec 0012 architecture, accepted Spec 0013 mechanics, Spec 0014
 fixed 43-convolution SO(2) VAE, and Spec 0015 local selected-runtime integration
-and dual-T4 readiness are complete. Spec 0016's batch-25 prelaunch passed from
-clean commit `4aaf614`; full sessions 1 and 2 then committed through update 18000.
-Their complete outputs are downloaded and verified under separate ignored
-session directories. Session 3 terminated at a complete update-27000 boundary;
-its output is downloaded under
-`runs/kaggle/so2_selected_runtime_full_v3_session3`. The exact resumable
-checkpoint is `checkpoints/step_027000.pt`, SHA-256
-`7adfea7850ee7ab620f0363ca4a8fe9e41fd67160feeaeae1f07ff291a0bf6ba`.
-Do not
+and dual-T4 readiness are complete. Spec 0016's batch-25 prelaunch and full
+sessions 1-4 are complete through the committed update-36000 boundary. Keep
+their downloaded outputs separate under ignored directories; never merge them
+into a resume input. The single authoritative next-resume checkpoint is:
+
+- local path:
+  `runs/kaggle/so2_selected_runtime_full_v4_session4/checkpoints/step_036000.pt`;
+- SHA-256:
+  `4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb`;
+- size: `16,440,368` bytes;
+- proof: session 4's `benchmark/checkpoint_resume_proof.json` and matching
+  `benchmark/artifact_manifest.json`.
+
+The checkpoint proof's top-level `status=fail` is expected because the target
+update 60000 is incomplete. Its
+`failure_kind=partial_interval_checkpoint_not_final_resume_proof`,
+`latest_checkpoint_step=36000`, `latest_metric_prefix_step=36000`,
+`resume_checkpoint=checkpoints/step_036000.pt`, and
+`resume_checkpoint_sha256` above are the positive continuation authority. The
+artifact manifest independently records the same checkpoint hash with no missing
+artifacts.
+
+Do not resume from `best_model.pt`, `step_030000.pt`, `step_033000.pt`, any
+earlier checkpoint dataset, or the currently generated launcher. The tracked
+session-4 wrapper/metadata/guard still pin the already-consumed update-27000
+transport and must not be pushed unchanged. Do not
 reopen radial profiles, F2, multiplicities, topology, contraction/assembly arms,
 compilation-time tuning, or diagnostic timing CV. The next possible action is
-the exact checkpoint-only session-4 continuation from `step_027000.pt` using
-the same shared resume path proven by the non-equivariant run. After exact egress
-authorization, private dataset
+an exact checkpoint-only session-5 continuation from `step_036000.pt` using the
+same shared resume path proven by the non-equivariant run. After exact egress
+authorization, the earlier private dataset
 `maximusshtefan/eqvae-so2-session3-step27000` (ID `11676466`) was created with
 only the verified checkpoint and reports `isPrivate=true`. Clean source commit
 `b05623b` is embedded in Kaggle kernel version 4. It terminated at the complete
@@ -32,9 +49,17 @@ channels in `encoder_blocks.6.main_gate:f1_radial` were saturated-open on the
 single probe image. The row still has finite positive gradients/updates and
 correct FP16/FP32 semantics. A frozen-25 diagnostic finds no channel saturated
 on all 25 patches, though 15 patches have at least one fully-open channel. Do not
-call session 4 scientifically passing without this caveat. The next action is a
-user decision whether to continue the intact update-36000 lineage while retaining
-the documented saturation failure.
+call session 4 scientifically passing without this caveat. On 2026-08-17 the
+user explicitly chose to continue the intact update-36000 lineage while
+retaining the documented saturation failure; do not weaken, relabel, or conceal
+the 67/68 evidence. This scientific decision is not remote-write authorization.
+The original Kaggle account's 30-hour GPU allowance is exhausted. Do not accept,
+store, or use another person's Kaggle API key in this agent session. If a
+colleague continues the run, hand off the hash-pinned package and have that
+colleague authenticate and execute from their own environment/account. Before
+any transport, the actual Kaggle operator must independently verify the public
+UBC dataset is attachable and receive a separately authorized private checkpoint
+dataset under an owner they control.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
@@ -200,8 +225,69 @@ originals remain byte-identical. Clean validation L1/SSIM at update 36000 are
 Gate health is 67/68: `encoder_blocks.6.main_gate:f1_radial` has three
 saturated-open channels on the one-image capture despite finite positive
 gradients/updates and passing precision evidence. Do not silently waive or
-rewrite this locked diagnostic; obtain a user decision before packaging session
-5 from the otherwise intact checkpoint.
+rewrite this locked diagnostic. The user accepted continuing with this caveat on
+2026-08-17.
+
+### Exact session-5 continuation handoff
+
+Do not infer the next checkpoint from the tracked launcher: it still records the
+completed session-4 input. Use only the update-36000 checkpoint/proof named at
+the top of this file. A fresh agent must perform these steps in order:
+
+| Session | Separate raw download | Last committed checkpoint | SHA-256 | Checkpoint dataset used by next session |
+| --- | --- | --- | --- | --- |
+| 1 | `runs/kaggle/so2_selected_runtime_full_v1_session1` | `step_009000.pt` | `1f53fe16aecf6382bf450cd0ac2be5db9fe2bbe6405dfcaa2c196cb40bca8e7d` | `maximusshtefan/eqvae-so2-session1-step9000` (ID `11656723`) |
+| 2 | `runs/kaggle/so2_selected_runtime_full_v2_session2` | `step_018000.pt` | `5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4` | `maximusshtefan/eqvae-so2-session2-step18000` (ID `11665702`) |
+| 3 | `runs/kaggle/so2_selected_runtime_full_v3_session3` | `step_027000.pt` | `7adfea7850ee7ab620f0363ca4a8fe9e41fd67160feeaeae1f07ff291a0bf6ba` | `maximusshtefan/eqvae-so2-session3-step27000` (ID `11676466`) |
+| 4 | `runs/kaggle/so2_selected_runtime_full_v4_session4` | `step_036000.pt` | `4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb` | Locally staged only for `maximshtefan/eqvae-so2-session4-step36000`; unpublished pending exact authorization |
+
+Every raw output and resume-staging directory is gitignored. The table records
+local state; verify the files and proofs themselves before transport. On
+2026-08-17, the user identified `maximshtefan` as the independently authenticated
+operator. The guarded fresh-OAuth read path listed all four expected public UBC
+source files. The local session-5 transport now pins that kernel/checkpoint
+owner, `step_036000.pt`, its exact hash and `16,440,368` bytes; it passes the
+focused suite and full-kernel preflight. No checkpoint dataset has been created
+and no kernel has been pushed or launched.
+
+1. Completed: recomputed the checkpoint SHA-256 and size and cross-checked
+   session 4's checkpoint proof and artifact manifest.
+2. Completed to the safe observable extent: the user identified
+   `maximshtefan`; its global fresh-OAuth path listed the public UBC source.
+   Never receive, print, install, or inspect credentials.
+3. Completed locally: chose the new private checkpoint destination
+   `maximshtefan/eqvae-so2-session4-step36000`. Obtain new payload-specific user
+   authorization that names that exact slug, `step_036000.pt`, the SHA-256 above,
+   and the session-5 launch. Prior session authorizations do not carry forward.
+4. Completed locally: staged ignored
+   `runs/kaggle/so2_session4_resume_dataset` containing exactly
+   `dataset-metadata.json` and the verified `step_036000.pt`; no metrics,
+   earlier checkpoints, normal-VAE files, or generated artifacts belong there.
+5. Completed locally: update every transport pin together:
+   `kaggle/kernels/so2_selected_runtime_full/run_template.py`, its
+   `kernel-metadata.json`, `scripts/kaggle_kernel.sh`, and
+   `tests/test_so2_full_run.py` (plus the builder's owner discriminator). Pin the new owner/kernel ID,
+   checkpoint-dataset slug, Kaggle mount path, filename, step `36000`, exact
+   hash/size, wrapper digest, two-dataset allowlist, and unchanged session-1
+   execution-core authority. Do not change the trainer, model, runtime plan,
+   schedule, or checkpoint schema.
+6. Completed locally: regenerated the ignored `run.py`, ran the focused continuation
+   tests and `./scripts/kaggle_kernel.sh preflight-so2-selected-runtime-full`, inspected
+   the ZIP/manifest, ran both repo/workspace preflights, and passed `git diff --check`.
+   Ruff format/check and BasedPyright pass. This tool runner reaps the monolithic quality
+   pytest process after about 13%; rerun `./scripts/python_quality.sh` from a persistent
+   terminal before a clean source commit. The embedded manifest remains `git_dirty=true`,
+   so a remote push is blocked.
+7. Only after the new exact authorization, the authenticated operator creates
+   and verifies the private two-file checkpoint dataset, then runs the guarded
+   kernel push. Session 5 still targets absolute update `60000`; never cap it at
+   `45000`. Kaggle may close it after roughly another 9000 updates.
+8. After terminal status, download into a new directory such as
+   `runs/kaggle/so2_selected_runtime_full_v5_session5`. The only next commit
+   point is the checkpoint named and hashed by its downloaded
+   `checkpoint_resume_proof.json`. Likely boundaries are 39000/42000/45000, but
+   never assume 45000 without the proof. Preserve raw session directories and
+   use only committed absolute-step prefixes for combined analysis.
 
 Spec 0015 is complete. Its single guarded remote coordinate passed. Registry
 kind `so2_vae_fixed` accepts no architecture
@@ -705,16 +791,19 @@ control's learned representation is correctly not claimed to be equivariant.
     CV and one-time compilation duration are diagnostic, not architecture gates.
     Do not rerun or add another arm. Treat Spec 0014's full fixed VAE assembly,
     exact counts, focused verification, and corrected fresh reviews as complete.
-11. Treat Spec 0015 selected-runtime registration/readiness and Spec 0016
-    prelaunch plus full session 1 through update 9000 as complete. Do not rerun
-    either. The CLI file-list false negative is superseded by the downloaded
-    archive and exact checkpoint verification.
-12. Finish the one-off session-3 continuation review/gates, upload only the
-    hash-pinned update-18000 private checkpoint dataset, then push GitHub and the
-    guarded Kaggle continuation under the user's exact explicit approval. After
-    the worker closes, download its whole output separately and resume only from
-    its latest fully completed 3000-step boundary.
+11. Treat Spec 0015 readiness, Spec 0016 prelaunch, and SO2 full sessions 1-4
+    through update 36000 as complete. Do not rerun them. Preserve each raw
+    output separately; the downloaded checkpoint proof and matching checkpoint
+    bytes, not Kaggle's unreliable file-list endpoint or an old wrapper, define
+    the continuation point.
+12. Continue only from the exact update-36000 checkpoint in the session-5
+    handoff above. The user accepted retaining the 67/68 gate caveat, but has
+    not authorized a new remote destination. First establish a legitimate
+    independently authenticated Kaggle operator with public-UBC attachment verified, then
+    repin and verify the checkpoint-only transport and obtain payload-specific
+    upload/launch authorization.
 
 Baseline full training/final-output verification and continuous-`SO(2)` prelaunch
-are complete. SO2 full training is committed through update 18000; exact
-checkpoint-only session-3 continuation is the active task.
+are complete. SO2 full training is committed through update 36000; the active
+task is the exact independently operated session-5 checkpoint transport from
+the hash-pinned `step_036000.pt`.
