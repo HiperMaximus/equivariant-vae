@@ -1,7 +1,7 @@
 # Spec 0016: SO2 Real-Data Prelaunch And Full Run
 
-Status: locked / checkpoint lineage verified through update 36000 / continuation accepted with recorded gate-health caveat
-Implementation readiness: update-36000 is intact and resumable; session 5 awaits a legitimate Kaggle operator with public-UBC attachment verified, a newly pinned private checkpoint transport, exact authorization, and launch verification
+Status: locked / checkpoint lineage verified through update 36000 / continuation accepted with recorded gate-health caveat / session 5 running
+Implementation readiness: session 5 version 1 runs from the exact update-36000 checkpoint; await terminal status, separate output download, and downloaded-proof verification
 Owner/workstream: matched continuous-`SO(2)` training
 Last updated: 2026-08-17
 

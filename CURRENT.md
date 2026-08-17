@@ -247,8 +247,16 @@ local state; verify the files and proofs themselves before transport. On
 operator. The guarded fresh-OAuth read path listed all four expected public UBC
 source files. The local session-5 transport now pins that kernel/checkpoint
 owner, `step_036000.pt`, its exact hash and `16,440,368` bytes; it passes the
-focused suite and full-kernel preflight. No checkpoint dataset has been created
-and no kernel has been pushed or launched.
+focused suite and full-kernel preflight.
+
+At 2026-08-17 17:46 COT, private dataset
+`maximshtefan/eqvae-so2-session4-step36000` became ready as version 1 and its
+only remote file was `step_036000.pt` at `16,440,368` bytes. Clean commit
+`2b41524ee26561c412fb6078e9138faa3fbb4fea` is pushed to GitHub; its clean
+embedded package passed preflight and full quality (`797 passed, 1 skipped`).
+Kaggle accepted `maximshtefan/eqvae-so2-selected-runtime-full` version 1 and
+its immediate status is `KernelWorkerStatus.RUNNING`. Do not poll in this turn;
+the next status read is no earlier than 2026-08-17 18:16 COT.
 
 1. Completed: recomputed the checkpoint SHA-256 and size and cross-checked
    session 4's checkpoint proof and artifact manifest.
@@ -273,15 +281,13 @@ and no kernel has been pushed or launched.
    schedule, or checkpoint schema.
 6. Completed locally: regenerated the ignored `run.py`, ran the focused continuation
    tests and `./scripts/kaggle_kernel.sh preflight-so2-selected-runtime-full`, inspected
-   the ZIP/manifest, ran both repo/workspace preflights, and passed `git diff --check`.
-   Ruff format/check and BasedPyright pass. This tool runner reaps the monolithic quality
-   pytest process after about 13%; rerun `./scripts/python_quality.sh` from a persistent
-   terminal before a clean source commit. The embedded manifest remains `git_dirty=true`,
-   so a remote push is blocked.
-7. Only after the new exact authorization, the authenticated operator creates
-   and verifies the private two-file checkpoint dataset, then runs the guarded
-   kernel push. Session 5 still targets absolute update `60000`; never cap it at
-   `45000`. Kaggle may close it after roughly another 9000 updates.
+   the ZIP/manifest, ran both repo/workspace preflights, passed `git diff --check`, and
+   passed `./scripts/python_quality.sh` in a persistent terminal (797 passed, 1 skipped).
+   Clean commit `2b41524` is pushed and its embedded manifest is clean.
+7. Completed remotely under the exact authorization: the authenticated operator created
+   and verified the private two-file checkpoint dataset, then pushed session-5 kernel
+   version 1. It targets absolute update `60000`; never cap it at `45000`. At its
+   immediate status read it was `RUNNING`; do not poll again before 18:16 COT.
 8. After terminal status, download into a new directory such as
    `runs/kaggle/so2_selected_runtime_full_v5_session5`. The only next commit
    point is the checkpoint named and hashed by its downloaded
