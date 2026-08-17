@@ -24,9 +24,17 @@ the same shared resume path proven by the non-equivariant run. After exact egres
 authorization, private dataset
 `maximusshtefan/eqvae-so2-session3-step27000` (ID `11676466`) was created with
 only the verified checkpoint and reports `isPrivate=true`. Clean source commit
-`b05623b` is embedded in Kaggle kernel version 4, which is now `RUNNING`. Stop
-polling; when prompted later, check status and download the whole output after
-termination.
+`b05623b` is embedded in Kaggle kernel version 4. It terminated at the complete
+update-36000 boundary; output is downloaded under
+`runs/kaggle/so2_selected_runtime_full_v4_session4`. Checkpoint and metric
+integrity pass, but the strict gate-health result is 67/68 because three of 48
+channels in `encoder_blocks.6.main_gate:f1_radial` were saturated-open on the
+single probe image. The row still has finite positive gradients/updates and
+correct FP16/FP32 semantics. A frozen-25 diagnostic finds no channel saturated
+on all 25 patches, though 15 patches have at least one fully-open channel. Do not
+call session 4 scientifically passing without this caveat. The next action is a
+user decision whether to continue the intact update-36000 lineage while retaining
+the documented saturation failure.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
@@ -180,8 +188,20 @@ metadata plus the exact checkpoint. The updated wrapper/metadata/guard pass the
 payload-specific authorization, private dataset ID `11676466` was created with
 only `step_027000.pt`; Kaggle reports the exact `16,440,368`-byte size,
 `isPrivate=true`, and the pinned hash in its description. The package was rebuilt
-from clean commit `b05623b`; guarded Kaggle kernel version 4 was successfully
-pushed and its immediate status is `KernelWorkerStatus.RUNNING`.
+from clean commit `b05623b`; guarded Kaggle kernel version 4 terminated
+`KernelWorkerStatus.CANCEL_ACKNOWLEDGED` after complete boundaries
+30000/33000/36000. All 13 partial-manifest hashes match; the schema-v5
+`step_036000.pt` hash is
+`4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb`.
+Each rank has exactly 9000 successful updates, four synchronized AMP skips, and
+zero nonfinite successful rows; validation/fixed-25 coverage is complete and
+originals remain byte-identical. Clean validation L1/SSIM at update 36000 are
+`0.06240368277`/`0.7070748183`; deterministic-denoising L1 is `0.0655338087`.
+Gate health is 67/68: `encoder_blocks.6.main_gate:f1_radial` has three
+saturated-open channels on the one-image capture despite finite positive
+gradients/updates and passing precision evidence. Do not silently waive or
+rewrite this locked diagnostic; obtain a user decision before packaging session
+5 from the otherwise intact checkpoint.
 
 Spec 0015 is complete. Its single guarded remote coordinate passed. Registry
 kind `so2_vae_fixed` accepts no architecture

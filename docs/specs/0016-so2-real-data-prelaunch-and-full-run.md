@@ -1,7 +1,7 @@
 # Spec 0016: SO2 Real-Data Prelaunch And Full Run
 
-Status: locked / sessions 1-3 verified through update 27000 / session 4 running
-Implementation readiness: private Kaggle kernel version 4 is running from the exact update-27000 checkpoint and clean commit `b05623b`
+Status: locked / checkpoint lineage verified through update 36000 / session 4 gate-health caveat unresolved
+Implementation readiness: update-36000 is intact and resumable, but session 4 has 67/68 passing gate rows; continuing requires an explicit decision without weakening the locked evidence
 Owner/workstream: matched continuous-`SO(2)` training
 Last updated: 2026-08-16
 
@@ -223,9 +223,18 @@ package preflight pass; transport commit `694017a` and exact-approval handoff
 commit `b05623b` are on GitHub. After payload-specific authorization, private
 dataset ID `11676466` was created with only the exact `16,440,368`-byte
 checkpoint and reports `isPrivate=true`; its remote description pins the hash.
-The package was rebuilt from clean commit `b05623b`, guarded Kaggle kernel version
-4 was submitted successfully, and its immediate status is
-`KernelWorkerStatus.RUNNING`.
+The package was rebuilt from clean commit `b05623b`; guarded Kaggle kernel version
+4 terminated after complete boundaries 30000/33000/36000. All partial-manifest
+hashes, checkpoint state, two-rank metric prefix, validation/fixed-25 rows, and
+immutable originals verify. The update-36000 checkpoint SHA-256 is
+`4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb`.
+The session is not a clean scientific pass: one
+`encoder_blocks.6.main_gate:f1_radial` row fails because three of 48 channels are
+saturated-open on the single probe image. Gradients, updates, precision evidence,
+and successful training rows remain finite/positive. A separate frozen-25
+diagnostic finds saturation is sample-dependent rather than the same channel
+being open on all 25 patches. Do not weaken the locked gate rule or conceal the
+failure; a user decision is required before another continuation.
 
 ## Known Risks
 
@@ -270,6 +279,12 @@ The package was rebuilt from clean commit `b05623b`, guarded Kaggle kernel versi
   deterministic-denoising L1 is `0.06682794668`. Its decoded rotation-consistency
   error continued improving, while the normalized latent ratio remained near
   `2.10`; do not conflate those two measurements.
+- Full session 4 published complete boundaries 30000, 33000, and 36000. At
+  update 36000, clean validation L1/SSIM are `0.06240368277`/`0.7070748183`,
+  deterministic-denoising L1 is `0.0655338087`, decoded rotation L2 is about
+  `11.66`, and the normalized latent ratio remains about `2.11`. Its checkpoint
+  is technically resumable, but gate health is 67/68 due to the documented
+  saturated-open F1 row.
 
 ## Related Files
 
