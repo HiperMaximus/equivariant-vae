@@ -55,14 +55,17 @@ summary writer uses that label for every non-all-pass result; the CSV is the
 actual evidence. Do not weaken, relabel, or conceal either session's result.
 
 On 2026-08-18, the user explicitly accepted continuing the 45k lineage under
-the session-5 66/68 caveat. This decision retains both caveats and is not a
-remote-write authorization. The local session-6 transport is ready at
-`runs/kaggle/so2_session5_resume_dataset`: it contains only metadata and the
-verified `step_045000.pt`, and its repinned wrapper/metadata/guard/tests pass
-the 16-test continuation preflight and the full `797 passed, 1 skipped` quality
-gate. Obtain fresh payload-specific approval naming private destination
-`maximshtefan/eqvae-so2-session5-step45000`, `step_045000.pt`, its hash, and
-the session-6 launch. Do not accept, store, or use anyone else's Kaggle API key.
+the session-5 66/68 caveat. This decision retains both caveats. With exact
+authorization, GitHub `main` was pushed at `a4f7a68`; private dataset
+`maximshtefan/eqvae-so2-session5-step45000` version 1 (ID `11701181`) was
+created and verified private with only `step_045000.pt` at `16,440,368` bytes;
+and Kaggle session-6 kernel version 3 was submitted through update 60000. Its
+local transport at `runs/kaggle/so2_session5_resume_dataset` contains only
+metadata and the verified checkpoint, and passes the 16-test continuation
+preflight plus the full `797 passed, 1 skipped` quality gate. Do not infer a
+commit boundary or poll/download in this turn; a later terminal archive's own
+proof and manifest alone may name the next authority. Do not accept, store, or
+use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
@@ -243,7 +246,7 @@ top of this file; no fresh agent may follow its update-36000 procedures.
 | 2 | `runs/kaggle/so2_selected_runtime_full_v2_session2` | `step_018000.pt` | `5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4` | `maximusshtefan/eqvae-so2-session2-step18000` (ID `11665702`) |
 | 3 | `runs/kaggle/so2_selected_runtime_full_v3_session3` | `step_027000.pt` | `7adfea7850ee7ab620f0363ca4a8fe9e41fd67160feeaeae1f07ff291a0bf6ba` | `maximusshtefan/eqvae-so2-session3-step27000` (ID `11676466`) |
 | 4 | `runs/kaggle/so2_selected_runtime_full_v4_session4` | `step_036000.pt` | `4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb` | Verified private dataset `maximshtefan/eqvae-so2-session4-step36000` version 1; session-5 kernel v1 failed before training because its input was not mounted |
-| 5 | `runs/kaggle/so2_selected_runtime_full_v5_session5_remote` | `step_045000.pt` | `703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93` | Locally staged `maximshtefan/eqvae-so2-session5-step45000`; upload/launch awaits fresh exact authorization |
+| 5 | `runs/kaggle/so2_selected_runtime_full_v5_session5_remote` | `step_045000.pt` | `703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93` | Private `maximshtefan/eqvae-so2-session5-step45000` version 1 (ID `11701181`); session-6 kernel v3 submitted |
 
 Every raw output and resume-staging directory is gitignored. The table records
 local state; verify the files and proofs themselves before transport. On
@@ -892,8 +895,9 @@ control's learned representation is correctly not claimed to be equivariant.
 12. Continue only from the exact update-45000 checkpoint in the session-6
     handoff above. The user accepted retaining session 4's 67/68 and session 5's
     66/68 gate caveats. The locally preflighted transport is pinned to
-    `maximshtefan/eqvae-so2-session5-step45000`, but its private dataset upload
-    and launch require fresh payload-specific remote authorization.
+    `maximshtefan/eqvae-so2-session5-step45000`; its private dataset is version
+    1 (ID `11701181`) and session-6 kernel v3 is submitted. Do not infer a
+    boundary until its later terminal output is downloaded and verified.
 
 Baseline full training/final-output verification and continuous-`SO(2)` prelaunch
 are complete. SO2 full training is committed through update 45000; the active
