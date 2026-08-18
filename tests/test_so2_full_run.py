@@ -95,7 +95,7 @@ def test_so2_kernel_payload_builds_and_imports(
             "status": "pass",
             "fresh_start": False,
             "resume_checkpoint": (
-                "/kaggle/input/eqvae-so2-session4-step36000/step_036000.pt"
+                "/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt"
             ),
             "resume_checkpoint_sha256": (
                 "4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb"
@@ -122,7 +122,10 @@ def test_so2_full_launcher_resumes_exact_so2_checkpoint_only() -> None:
     assert metadata["kernel_sources"] == []
     assert metadata["model_sources"] == []
     assert '"--resume"' in source
-    assert "/kaggle/input/eqvae-so2-session4-step36000/step_036000.pt" in source
+    assert (
+        "/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt"
+        in source
+    )
     assert "4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb" in source
     assert "RESUME_CHECKPOINT_BYTES = 16_440_368" in source
     assert "eqvae-baseline-session" not in source

@@ -19,7 +19,7 @@ KAGGLE_SO2_SELECTED_RUNTIME_FULL_READY = True
 EXPECTED_DATASET_SLUG = "maximusshtefan/patches-pre-shuffled-ubc-ocean"
 RESUME_DATASET_SLUG = "maximshtefan/eqvae-so2-session4-step36000"
 RESUME_CHECKPOINT = Path(
-    "/kaggle/input/eqvae-so2-session4-step36000/step_036000.pt",
+    "/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt",
 )
 RESUME_CHECKPOINT_SHA256 = (
     "4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb"

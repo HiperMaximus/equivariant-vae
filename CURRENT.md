@@ -239,7 +239,7 @@ the top of this file. A fresh agent must perform these steps in order:
 | 1 | `runs/kaggle/so2_selected_runtime_full_v1_session1` | `step_009000.pt` | `1f53fe16aecf6382bf450cd0ac2be5db9fe2bbe6405dfcaa2c196cb40bca8e7d` | `maximusshtefan/eqvae-so2-session1-step9000` (ID `11656723`) |
 | 2 | `runs/kaggle/so2_selected_runtime_full_v2_session2` | `step_018000.pt` | `5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4` | `maximusshtefan/eqvae-so2-session2-step18000` (ID `11665702`) |
 | 3 | `runs/kaggle/so2_selected_runtime_full_v3_session3` | `step_027000.pt` | `7adfea7850ee7ab620f0363ca4a8fe9e41fd67160feeaeae1f07ff291a0bf6ba` | `maximusshtefan/eqvae-so2-session3-step27000` (ID `11676466`) |
-| 4 | `runs/kaggle/so2_selected_runtime_full_v4_session4` | `step_036000.pt` | `4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb` | Locally staged only for `maximshtefan/eqvae-so2-session4-step36000`; unpublished pending exact authorization |
+| 4 | `runs/kaggle/so2_selected_runtime_full_v4_session4` | `step_036000.pt` | `4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb` | Verified private dataset `maximshtefan/eqvae-so2-session4-step36000` version 1; session-5 kernel v1 failed before training because its input was not mounted |
 
 Every raw output and resume-staging directory is gitignored. The table records
 local state; verify the files and proofs themselves before transport. On
@@ -254,9 +254,75 @@ At 2026-08-17 17:46 COT, private dataset
 only remote file was `step_036000.pt` at `16,440,368` bytes. Clean commit
 `2b41524ee26561c412fb6078e9138faa3fbb4fea` is pushed to GitHub; its clean
 embedded package passed preflight and full quality (`797 passed, 1 skipped`).
-Kaggle accepted `maximshtefan/eqvae-so2-selected-runtime-full` version 1 and
-its immediate status is `KernelWorkerStatus.RUNNING`. Do not poll in this turn;
-the next status read is no earlier than 2026-08-17 18:16 COT.
+Kaggle session-5 kernel version 1 reached terminal
+`KernelWorkerStatus.ERROR` at 2026-08-17 18:40 COT before training started.
+Its log reports that the ready checkpoint dataset was not mounted at
+`/kaggle/input/eqvae-so2-session4-step36000/step_036000.pt`; the same worker
+also could not resolve PyPI while attempting the required Torch upgrade. The
+remote dataset still lists the one verified checkpoint, so this is a Kaggle
+attachment/worker-network failure, not checkpoint corruption or new gate-health
+evidence. Preserve the session-4 lineage and 67/68 caveat. Do not retry, alter
+the trainer, or select another checkpoint without fresh exact authorization.
+
+The authorized no-GPU/no-internet input probe
+`maximshtefan/eqvae-so2-session5-input-probe` version 1 completed and its raw
+ignored artifact at `runs/kaggle/so2_session5_input_probe_v1` records
+`exists=false`, `bytes=null`, and `matches_expected=false` for that exact
+expected checkpoint path. It imported neither Torch nor training code. This
+independently confirms absence at the declared mount path. Its authorized
+version-2 listing records `/kaggle/input` as exactly `['datasets']`, identifying
+Kaggle's alternative input-root convention. Its version-3 listing records
+`/kaggle/input/datasets` as exactly `['maximshtefan']`; the dataset-slug leaf
+was identified by version 4 as `eqvae-so2-session4-step36000`. The exact
+checkpoint mount is therefore
+`/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt`.
+The training launcher still uses the legacy non-namespaced path. A future
+transport-only correction must change only that path and its exact guards; it
+requires fresh authorization before a new kernel push.
+
+The separate authorized fresh-worker probe
+`maximshtefan/eqvae-so2-torch-cuda-probe` version 1 requested T4 plus Internet
+without data, Torch import, or installation. Its ignored raw report at
+`runs/kaggle/so2_torch_cuda_probe_v1` records `nvidia-smi` absent and the PyPI
+`pip install --dry-run --upgrade torch torchvision torchaudio` timing out after
+180 seconds. Thus the probe worker was not CUDA-provisioned and did not have
+usable PyPI access; this is independent of, and blocks a retry after, the mount
+path correction.
+
+On 2026-08-17, the authorized no-data probe version 2 completed after an
+explicit Kaggle CLI `--accelerator NvidiaTeslaT4` request. Its ignored report at
+`runs/kaggle/so2_torch_cuda_probe_v2` again records `nvidia-smi` absent and the
+same 180-second PyPI dry-run timeout; its returned log has no allocation or
+quota explanation. Thus neither metadata nor the explicit CLI accelerator flag
+obtained a CUDA worker for this account/kernel, but the precise Kaggle-side
+reason is unproven. Do not correct or retry the full transport until the Kaggle
+UI exposes an enabled GPU choice and a new no-data probe returns CUDA and PyPI
+success.
+
+On 2026-08-17, version 3 of the same private, input-free probe explicitly
+requested `NvidiaTeslaT4`, disabled Internet, and imported the preinstalled
+Torch only. Its ignored report at `runs/kaggle/so2_torch_device_probe_v3` is
+unambiguous: `torch_version=2.10.0+cpu`, `torch_cuda_version=null`,
+`cuda_available=false`, and zero devices. The user added account verification
+after this worker started, so it cannot establish the post-verification state.
+After the Kaggle UI shows an enabled GPU choice, obtain fresh exact authorization
+for one new no-data device probe before any mount correction or full retry.
+
+The user granted that authorization after completing account verification.
+Version 4 passed: its ignored report at
+`runs/kaggle/so2_torch_device_probe_v4` records `torch 2.10.0+cu128`, CUDA
+`12.8`, `cuda_available=true`, and exactly two `Tesla T4` devices. CUDA
+provisioning is therefore healthy on the post-verification account; the only
+remaining worker-readiness evidence is a freshly authorized no-data PyPI
+Torch-upgrade dry-run. Do not yet correct/retry the full transport.
+
+The user authorized that exact post-verification PyPI check. Version 5 passed:
+its ignored report at `runs/kaggle/so2_torch_pypi_probe_v5` has return code zero
+for the bounded `pip install --dry-run --upgrade torch torchvision torchaudio`,
+resolving CUDA-enabled Torch `2.13.0` and its CUDA-13 dependencies. CUDA and
+Internet readiness are now proven. The next local-only action is the exact
+mount-path correction and its complete transport preflight; a full-kernel push
+still requires fresh payload-specific authorization.
 
 1. Completed: recomputed the checkpoint SHA-256 and size and cross-checked
    session 4's checkpoint proof and artifact manifest.
@@ -285,15 +351,22 @@ the next status read is no earlier than 2026-08-17 18:16 COT.
    passed `./scripts/python_quality.sh` in a persistent terminal (797 passed, 1 skipped).
    Clean commit `2b41524` is pushed and its embedded manifest is clean.
 7. Completed remotely under the exact authorization: the authenticated operator created
-   and verified the private two-file checkpoint dataset, then pushed session-5 kernel
-   version 1. It targets absolute update `60000`; never cap it at `45000`. At its
-   immediate status read it was `RUNNING`; do not poll again before 18:16 COT.
-8. After terminal status, download into a new directory such as
-   `runs/kaggle/so2_selected_runtime_full_v5_session5`. The only next commit
-   point is the checkpoint named and hashed by its downloaded
-   `checkpoint_resume_proof.json`. Likely boundaries are 39000/42000/45000, but
-   never assume 45000 without the proof. Preserve raw session directories and
-   use only committed absolute-step prefixes for combined analysis.
+   and verified the private checkpoint dataset, then pushed session-5 kernel version
+   1. It targets absolute update `60000`; never cap it at `45000`. Version 1 stopped
+   before trainer/DDP execution because Kaggle did not mount that ready checkpoint
+   dataset, and its worker also lacked PyPI DNS. No training output or metric prefix
+   was produced.
+8. With fresh exact authorization, first establish why Kaggle did not attach the
+   verified private dataset at its expected path. The minimal probes show that
+   the legacy root is absent and the worker instead exposes
+   `/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000`; the exact
+   checkpoint path is the same leaf plus `step_036000.pt`. After the
+   transport-only mount-path correction, first obtain fresh positive T4/CUDA and
+   PyPI-resolution evidence; do not retry while the fresh-worker probe reports
+   neither. Then preflight and obtain fresh exact authorization before a new
+   kernel push. Only a later completed session's separately downloaded
+   `checkpoint_resume_proof.json` may name a new commit point; 39000/42000/45000
+   are merely possible boundaries, never assumptions.
 
 Spec 0015 is complete. Its single guarded remote coordinate passed. Registry
 kind `so2_vae_fixed` accepts no architecture

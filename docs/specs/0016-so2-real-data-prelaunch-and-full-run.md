@@ -1,7 +1,7 @@
 # Spec 0016: SO2 Real-Data Prelaunch And Full Run
 
-Status: locked / checkpoint lineage verified through update 36000 / continuation accepted with recorded gate-health caveat / session 5 running
-Implementation readiness: session 5 version 1 runs from the exact update-36000 checkpoint; await terminal status, separate output download, and downloaded-proof verification
+Status: locked / checkpoint lineage verified through update 36000 / continuation accepted with recorded gate-health caveat / session-5 infrastructure failure recorded / post-verification CUDA and PyPI readiness proven / local mount-path correction pending
+Implementation readiness: session-5 version 1 used Kaggle's legacy input root; minimal probes proved the correct checkpoint mount is `/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt`. Earlier T4 requests returned CPU workers, but post-verification version 4 proves `torch 2.10.0+cu128`, CUDA `12.8`, and two Tesla T4 devices; version 5's no-data `pip --dry-run --upgrade torch torchvision torchaudio` returns zero and resolves CUDA-enabled Torch `2.13.0`. Correct and fully preflight only the mount path before seeking separate payload-specific retry authorization
 Owner/workstream: matched continuous-`SO(2)` training
 Last updated: 2026-08-17
 
