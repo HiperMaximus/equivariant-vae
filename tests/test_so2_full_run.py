@@ -95,16 +95,16 @@ def test_so2_kernel_payload_builds_and_imports(
             "status": "pass",
             "fresh_start": False,
             "resume_checkpoint": (
-                "/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt"
+                "/kaggle/input/datasets/maximshtefan/eqvae-so2-session5-step45000/step_045000.pt"
             ),
             "resume_checkpoint_sha256": (
-                "4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb"
+                "703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93"
             ),
         }
 
 
 def test_so2_full_launcher_resumes_exact_so2_checkpoint_only() -> None:
-    """Session 5 must attach only UBC and the verified SO2 continuation input."""
+    """Session 6 must attach only UBC and the verified SO2 continuation input."""
     repository = Path(__file__).resolve().parents[1]
     kernel_dir = repository / "kaggle/kernels/so2_selected_runtime_full"
     metadata = cast(
@@ -117,16 +117,16 @@ def test_so2_full_launcher_resumes_exact_so2_checkpoint_only() -> None:
     source = (kernel_dir / "run_template.py").read_text(encoding="utf-8")
     assert metadata["dataset_sources"] == [
         "maximusshtefan/patches-pre-shuffled-ubc-ocean",
-        "maximshtefan/eqvae-so2-session4-step36000",
+        "maximshtefan/eqvae-so2-session5-step45000",
     ]
     assert metadata["kernel_sources"] == []
     assert metadata["model_sources"] == []
     assert '"--resume"' in source
     assert (
-        "/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt"
+        "/kaggle/input/datasets/maximshtefan/eqvae-so2-session5-step45000/step_045000.pt"
         in source
     )
-    assert "4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb" in source
+    assert "703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93" in source
     assert "RESUME_CHECKPOINT_BYTES = 16_440_368" in source
     assert "eqvae-baseline-session" not in source
     assert "EQVAE_SO2_FULL_RESUME" in source
@@ -141,7 +141,7 @@ def test_so2_full_resume_checkpoint_validation_fails_closed(tmp_path: Path) -> N
         run_name="spec0016_so2_resume_template_test",
     )
     validate = cast("Callable[[Path], None]", namespace["_validate_resume_checkpoint"])
-    checkpoint = tmp_path / "step_036000.pt"
+    checkpoint = tmp_path / "step_045000.pt"
     checkpoint.write_bytes(b"exact checkpoint fixture")
     validate.__globals__["RESUME_CHECKPOINT_SHA256"] = hashlib.sha256(
         checkpoint.read_bytes(),
@@ -168,7 +168,7 @@ def test_so2_full_launcher_validates_before_exact_resume_command(
     )
     main = cast("Callable[[], int]", namespace["main"])
     function_globals = main.__globals__
-    checkpoint = tmp_path / "step_036000.pt"
+    checkpoint = tmp_path / "step_045000.pt"
     checkpoint.write_bytes(b"execution checkpoint fixture")
     payload = tmp_path / "payload"
     (payload / "src").mkdir(parents=True)
@@ -231,6 +231,18 @@ def test_so2_full_push_guard_requires_fresh_proof_and_cost_acceptance() -> None:
         "EXPECTED_CONTINUATION_WRAPPER_SHA256",
         "preflight-so2-prelaunch",
         "preflight-so2-selected-runtime-full",
+    ):
+        assert required in script
+    for required in (
+        'so2_full_resume_authority_dir="runs/kaggle/so2_selected_runtime_full_v5_session5_remote"',
+        'so2_full_resume_dataset_dir="runs/kaggle/so2_session5_resume_dataset"',
+        'so2_full_resume_dataset_slug="maximshtefan/eqvae-so2-session5-step45000"',
+        'EXPECTED_RESUME_COMMIT = "e1b9e9f9a28299f4604a768720345ae9cd7c2fb3"',
+        'EXPECTED_DATASET_SLUG = "maximshtefan/eqvae-so2-session5-step45000"',
+        '"703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93"',
+        '"201ff118b067e9a6af1843f004b4eeca11893f9ed79d2f0b07672d8fe2665dc9"',
+        "EXPECTED_STEP = 45000",
+        'expected_files = {"dataset-metadata.json", "step_045000.pt"}',
     ):
         assert required in script
 

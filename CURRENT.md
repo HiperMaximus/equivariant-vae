@@ -54,11 +54,15 @@ misleading `failure_kind=no_gate_rows` despite the 68-row CSV because the
 summary writer uses that label for every non-all-pass result; the CSV is the
 actual evidence. Do not weaken, relabel, or conceal either session's result.
 
-The user accepted continuing the session-4 lineage only under its 67/68 caveat;
-they have not yet accepted continuation under the session-5 66/68 result. Do
-not create a step-45000 dataset, repin a session-6 transport, or launch again
-until that scientific decision and a new payload-specific remote authorization
-are given. Do not accept, store, or use anyone else's Kaggle API key.
+On 2026-08-18, the user explicitly accepted continuing the 45k lineage under
+the session-5 66/68 caveat. This decision retains both caveats and is not a
+remote-write authorization. The local session-6 transport is ready at
+`runs/kaggle/so2_session5_resume_dataset`: it contains only metadata and the
+verified `step_045000.pt`, and its repinned wrapper/metadata/guard/tests pass
+the 16-test continuation preflight and the full `797 passed, 1 skipped` quality
+gate. Obtain fresh payload-specific approval naming private destination
+`maximshtefan/eqvae-so2-session5-step45000`, `step_045000.pt`, its hash, and
+the session-6 launch. Do not accept, store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
@@ -227,11 +231,11 @@ gradients/updates and passing precision evidence. Do not silently waive or
 rewrite this locked diagnostic. The user accepted continuing with this caveat on
 2026-08-17.
 
-### Exact session-5 continuation handoff
+### Historical session-5 launch record (do not follow as a handoff)
 
-Do not infer the next checkpoint from the tracked launcher: it still records the
-completed session-4 input. Use only the update-36000 checkpoint/proof named at
-the top of this file. A fresh agent must perform these steps in order:
+The following session-5 transport, probes, and launch record is retained only
+as evidence. It is superseded by the update-45000 session-6 authority at the
+top of this file; no fresh agent may follow its update-36000 procedures.
 
 | Session | Separate raw download | Last committed checkpoint | SHA-256 | Checkpoint dataset used by next session |
 | --- | --- | --- | --- | --- |
@@ -239,6 +243,7 @@ the top of this file. A fresh agent must perform these steps in order:
 | 2 | `runs/kaggle/so2_selected_runtime_full_v2_session2` | `step_018000.pt` | `5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4` | `maximusshtefan/eqvae-so2-session2-step18000` (ID `11665702`) |
 | 3 | `runs/kaggle/so2_selected_runtime_full_v3_session3` | `step_027000.pt` | `7adfea7850ee7ab620f0363ca4a8fe9e41fd67160feeaeae1f07ff291a0bf6ba` | `maximusshtefan/eqvae-so2-session3-step27000` (ID `11676466`) |
 | 4 | `runs/kaggle/so2_selected_runtime_full_v4_session4` | `step_036000.pt` | `4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb` | Verified private dataset `maximshtefan/eqvae-so2-session4-step36000` version 1; session-5 kernel v1 failed before training because its input was not mounted |
+| 5 | `runs/kaggle/so2_selected_runtime_full_v5_session5_remote` | `step_045000.pt` | `703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93` | Locally staged `maximshtefan/eqvae-so2-session5-step45000`; upload/launch awaits fresh exact authorization |
 
 Every raw output and resume-staging directory is gitignored. The table records
 local state; verify the files and proofs themselves before transport. On
@@ -879,19 +884,18 @@ control's learned representation is correctly not claimed to be equivariant.
     CV and one-time compilation duration are diagnostic, not architecture gates.
     Do not rerun or add another arm. Treat Spec 0014's full fixed VAE assembly,
     exact counts, focused verification, and corrected fresh reviews as complete.
-11. Treat Spec 0015 readiness, Spec 0016 prelaunch, and SO2 full sessions 1-4
-    through update 36000 as complete. Do not rerun them. Preserve each raw
+11. Treat Spec 0015 readiness, Spec 0016 prelaunch, and SO2 full sessions 1-5
+    through update 45000 as complete. Do not rerun them. Preserve each raw
     output separately; the downloaded checkpoint proof and matching checkpoint
     bytes, not Kaggle's unreliable file-list endpoint or an old wrapper, define
     the continuation point.
-12. Continue only from the exact update-36000 checkpoint in the session-5
-    handoff above. The user accepted retaining the 67/68 gate caveat, but has
-    not authorized a new remote destination. First establish a legitimate
-    independently authenticated Kaggle operator with public-UBC attachment verified, then
-    repin and verify the checkpoint-only transport and obtain payload-specific
-    upload/launch authorization.
+12. Continue only from the exact update-45000 checkpoint in the session-6
+    handoff above. The user accepted retaining session 4's 67/68 and session 5's
+    66/68 gate caveats. The locally preflighted transport is pinned to
+    `maximshtefan/eqvae-so2-session5-step45000`, but its private dataset upload
+    and launch require fresh payload-specific remote authorization.
 
 Baseline full training/final-output verification and continuous-`SO(2)` prelaunch
-are complete. SO2 full training is committed through update 36000; the active
-task is the exact independently operated session-5 checkpoint transport from
-the hash-pinned `step_036000.pt`.
+are complete. SO2 full training is committed through update 45000; the active
+task is the exact independently operated session-6 checkpoint transport from
+the hash-pinned `step_045000.pt`.

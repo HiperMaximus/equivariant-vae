@@ -1,7 +1,7 @@
 # Spec 0016: SO2 Real-Data Prelaunch And Full Run
 
-Status: locked / checkpoint lineage verified through update 45000 / session-4 67/68 caveat retained / session-5 terminal archive has a new 66/68 gate result pending user continuation decision
-Implementation readiness: session-5 version 1 used Kaggle's legacy input root; minimal probes proved the correct checkpoint mount is `/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt`. Earlier T4 requests returned CPU workers, but post-verification version 4 proves `torch 2.10.0+cu128`, CUDA `12.8`, and two Tesla T4 devices; version 5's no-data `pip --dry-run --upgrade torch torchvision torchaudio` returns zero and resolves CUDA-enabled Torch `2.13.0`. Commit `3d5bf766f323645d725f92a9dd5e27deaf438b7b` changes only that mount path and its wrapper hash; the clean generated package, 16 focused tests, and full `797 passed, 1 skipped` quality gate pass. After exact user authorization, Kaggle version 2 ran from clean GitHub commit `e1b9e9f9a28299f4604a768720345ae9cd7c2fb3` with only the public UBC and exact private step-36000 datasets. It reached terminal `CANCEL_ACKNOWLEDGED`; its freshly downloaded output proves the complete update-45000 boundary.
+Status: locked / checkpoint lineage verified through update 45000 / session-4 67/68 and session-5 66/68 caveats retained and accepted / session-6 transport locally preflighted, pending exact remote authorization
+Implementation readiness: session-5 version 1 used Kaggle's legacy input root; minimal probes proved the correct checkpoint mount is `/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt`. Earlier T4 requests returned CPU workers, but post-verification version 4 proves `torch 2.10.0+cu128`, CUDA `12.8`, and two Tesla T4 devices; version 5's no-data `pip --dry-run --upgrade torch torchvision torchaudio` returns zero and resolves CUDA-enabled Torch `2.13.0`. Commit `3d5bf766f323645d725f92a9dd5e27deaf438b7b` changes only that mount path and its wrapper hash; the clean generated package, 16 focused tests, and full `797 passed, 1 skipped` quality gate pass. After exact user authorization, Kaggle version 2 ran from clean GitHub commit `e1b9e9f9a28299f4604a768720345ae9cd7c2fb3` with only the public UBC and exact private step-36000 datasets. It reached terminal `CANCEL_ACKNOWLEDGED`; its freshly downloaded output proves the complete update-45000 boundary. The locally staged session-6 45k transport has the exact two-file dataset input, repinned wrapper/metadata/guard/tests, passing 16-test preflight, and final `797 passed, 1 skipped` quality gate.
 Owner/workstream: matched continuous-`SO(2)` training
 Last updated: 2026-08-18
 
@@ -116,9 +116,9 @@ as the first attempt. This is one experiment path, not reusable product code.
    Its own proof has the same expected incomplete-target
    `failure_kind=partial_interval_checkpoint_not_final_resume_proof`, and its
    path/hash/latest-checkpoint/latest-metric-prefix all agree at update 45000.
-   No future transport may be prepared until the user decides whether to
-   continue under the session-5 gate result and separately authorizes its exact
-   checkpoint dataset and launch.
+   On 2026-08-18, the user accepted continuation under the session-5 gate
+   result. Repin and preflight the next transport, then separately obtain exact
+   authorization for its checkpoint dataset and launch.
 10. Resume must restore the exact SO2 model, all optimizer groups/state, GradScaler,
    Python/NumPy/Torch CPU/CUDA RNG, named `train_data` and `train_corruption`
    generators, and DDP sampler progress. Every continuation requires
@@ -278,8 +278,8 @@ scientific pass: 66/68 gate rows pass. One channel is fully open in each
 gradient/update/precision evidence. The retained session-4 67/68 caveat is not
 superseded. The summary JSON's `failure_kind=no_gate_rows` is a misleading
 writer label for any non-all-pass result; the 68-row CSV is present and
-authoritative. Do not create or launch a step-45000 continuation without the
-user's explicit acceptance of this new gate result plus fresh payload-specific
+authoritative. On 2026-08-18, the user accepted this new gate result; do not
+create or launch a step-45000 continuation without fresh payload-specific
 authorization.
 
 ## Known Risks
@@ -335,8 +335,8 @@ authorization.
 - Full session 5 published complete boundaries 39000, 42000, and 45000 before
   cancellation. Its proof/manifest/hash-validated update-45000 checkpoint is
   technically resumable, but its gate health is 66/68 with the two documented
-  fully-open F1 rows. The user has not yet accepted continuation under this new
-  caveat.
+  fully-open F1 rows. The user accepted continuation under this caveat on
+  2026-08-18; the next remote upload/launch still requires separate approval.
 
 ## Related Files
 

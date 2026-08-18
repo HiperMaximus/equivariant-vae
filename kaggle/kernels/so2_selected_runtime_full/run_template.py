@@ -17,12 +17,12 @@ from pathlib import Path
 
 KAGGLE_SO2_SELECTED_RUNTIME_FULL_READY = True
 EXPECTED_DATASET_SLUG = "maximusshtefan/patches-pre-shuffled-ubc-ocean"
-RESUME_DATASET_SLUG = "maximshtefan/eqvae-so2-session4-step36000"
+RESUME_DATASET_SLUG = "maximshtefan/eqvae-so2-session5-step45000"
 RESUME_CHECKPOINT = Path(
-    "/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt",
+    "/kaggle/input/datasets/maximshtefan/eqvae-so2-session5-step45000/step_045000.pt",
 )
 RESUME_CHECKPOINT_SHA256 = (
-    "4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb"
+    "703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93"
 )
 RESUME_CHECKPOINT_BYTES = 16_440_368
 KERNEL_METADATA = {
@@ -51,7 +51,7 @@ EMBEDDED_PAYLOAD_MANIFEST_SHA256 = "$embedded_payload_manifest_sha256"
 
 
 def main() -> int:
-    """Resume the SO2 full run from session 4's exact update-36000 commit.
+    """Resume the SO2 full run from session 5's exact update-45000 commit.
 
     Returns:
         Process exit status.

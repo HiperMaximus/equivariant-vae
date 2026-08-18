@@ -63,9 +63,9 @@ so2_prelaunch_output_dir="runs/kaggle/so2_prelaunch"
 so2_full_kernel_dir="kaggle/kernels/so2_selected_runtime_full"
 so2_full_output_dir="runs/kaggle/so2_selected_runtime_full"
 so2_full_session1_output_dir="runs/kaggle/so2_selected_runtime_full_v1_session1"
-so2_full_resume_authority_dir="runs/kaggle/so2_selected_runtime_full_v4_session4"
-so2_full_resume_dataset_dir="runs/kaggle/so2_session4_resume_dataset"
-so2_full_resume_dataset_slug="maximshtefan/eqvae-so2-session4-step36000"
+so2_full_resume_authority_dir="runs/kaggle/so2_selected_runtime_full_v5_session5_remote"
+so2_full_resume_dataset_dir="runs/kaggle/so2_session5_resume_dataset"
+so2_full_resume_dataset_slug="maximshtefan/eqvae-so2-session5-step45000"
 
 usage() {
   cat <<'EOF'
@@ -1649,16 +1649,16 @@ from eqvae.checkpointing import read_training_checkpoint_metadata
 from eqvae.config import resolve_json_config
 
 EXPECTED_PRELAUNCH_COMMIT = "4aaf614f2cdbf1bc628e13858eb6c4e08300266b"
-EXPECTED_RESUME_COMMIT = "b05623b34cd345ac332d6da2fd2e686cc960efa9"
-EXPECTED_DATASET_SLUG = "maximshtefan/eqvae-so2-session4-step36000"
+EXPECTED_RESUME_COMMIT = "e1b9e9f9a28299f4604a768720345ae9cd7c2fb3"
+EXPECTED_DATASET_SLUG = "maximshtefan/eqvae-so2-session5-step45000"
 EXPECTED_CHECKPOINT_SHA256 = (
-    "4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb"
+    "703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93"
 )
 EXPECTED_CHECKPOINT_BYTES = 16_440_368
 EXPECTED_CONTINUATION_WRAPPER_SHA256 = (
-    "a01eb989866b1bb2e8017ef04a2fdb0de9fe6c4f6c4a934c80a567813fc0d4e4"
+    "201ff118b067e9a6af1843f004b4eeca11893f9ed79d2f0b07672d8fe2665dc9"
 )
-EXPECTED_STEP = 36000
+EXPECTED_STEP = 45000
 ALLOWED_CONTINUATION_CHANGES = {
     "kaggle/kernels/so2_selected_runtime_full/kernel-metadata.json",
     "kaggle/kernels/so2_selected_runtime_full/run_template.py",
@@ -1703,7 +1703,7 @@ for name, expected in prelaunch_identity.items():
     if current_identity.get(name) != expected:
         blockers.append(f"so2_continuation_execution_core_changed:{name}")
 
-expected_files = {"dataset-metadata.json", "step_036000.pt"}
+expected_files = {"dataset-metadata.json", "step_045000.pt"}
 observed_files = (
     {path.name for path in dataset_dir.iterdir()}
     if dataset_dir.is_dir()
@@ -1711,7 +1711,7 @@ observed_files = (
 )
 if observed_files != expected_files:
     blockers.append("so2_continuation_dataset_files_mismatch")
-checkpoint = dataset_dir / "step_036000.pt"
+checkpoint = dataset_dir / "step_045000.pt"
 if checkpoint.is_file():
     observed_sha256 = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
     if observed_sha256 != EXPECTED_CHECKPOINT_SHA256:
