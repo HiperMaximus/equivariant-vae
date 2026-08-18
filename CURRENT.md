@@ -320,9 +320,14 @@ The user authorized that exact post-verification PyPI check. Version 5 passed:
 its ignored report at `runs/kaggle/so2_torch_pypi_probe_v5` has return code zero
 for the bounded `pip install --dry-run --upgrade torch torchvision torchaudio`,
 resolving CUDA-enabled Torch `2.13.0` and its CUDA-13 dependencies. CUDA and
-Internet readiness are now proven. The next local-only action is the exact
-mount-path correction and its complete transport preflight; a full-kernel push
-still requires fresh payload-specific authorization.
+Internet readiness are now proven. The transport-only mount correction is local
+commit `3d5bf766f323645d725f92a9dd5e27deaf438b7b`: it changes only the checkpoint
+path to `/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt`
+and repins the wrapper SHA-256 to
+`a01eb989866b1bb2e8017ef04a2fdb0de9fe6c4f6c4a934c80a567813fc0d4e4`.
+The full continuation preflight passes with all 16 focused tests and a clean
+embedded manifest; the complete quality gate is `797 passed, 1 skipped`.
+A full-kernel push still requires fresh payload-specific authorization.
 
 1. Completed: recomputed the checkpoint SHA-256 and size and cross-checked
    session 4's checkpoint proof and artifact manifest.
