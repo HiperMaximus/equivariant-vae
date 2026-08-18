@@ -327,7 +327,12 @@ and repins the wrapper SHA-256 to
 `a01eb989866b1bb2e8017ef04a2fdb0de9fe6c4f6c4a934c80a567813fc0d4e4`.
 The full continuation preflight passes with all 16 focused tests and a clean
 embedded manifest; the complete quality gate is `797 passed, 1 skipped`.
-A full-kernel push still requires fresh payload-specific authorization.
+The user then authorized the exact retry. GitHub `main` contains clean commit
+`e1b9e9f9a28299f4604a768720345ae9cd7c2fb3`; Kaggle session-5 kernel version 2
+was submitted with only the public UBC and exact private step-36000 datasets.
+Its first read-only status at 2026-08-17 21:28 COT is
+`KernelWorkerStatus.RUNNING`. Do not poll in turn or infer a new checkpoint:
+download and validate only a later terminal session's own proof and manifest.
 
 1. Completed: recomputed the checkpoint SHA-256 and size and cross-checked
    session 4's checkpoint proof and artifact manifest.
