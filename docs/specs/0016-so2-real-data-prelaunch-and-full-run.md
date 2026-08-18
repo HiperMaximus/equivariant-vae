@@ -1,9 +1,9 @@
 # Spec 0016: SO2 Real-Data Prelaunch And Full Run
 
-Status: locked / checkpoint lineage verified through update 36000 / continuation accepted with recorded gate-health caveat / session-5 version 2 running from the corrected namespaced mount
-Implementation readiness: session-5 version 1 used Kaggle's legacy input root; minimal probes proved the correct checkpoint mount is `/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt`. Earlier T4 requests returned CPU workers, but post-verification version 4 proves `torch 2.10.0+cu128`, CUDA `12.8`, and two Tesla T4 devices; version 5's no-data `pip --dry-run --upgrade torch torchvision torchaudio` returns zero and resolves CUDA-enabled Torch `2.13.0`. Commit `3d5bf766f323645d725f92a9dd5e27deaf438b7b` changes only that mount path and its wrapper hash; the clean generated package, 16 focused tests, and full `797 passed, 1 skipped` quality gate pass. After exact user authorization, Kaggle version 2 was submitted from clean GitHub commit `e1b9e9f9a28299f4604a768720345ae9cd7c2fb3` with only the public UBC and exact private step-36000 datasets; its first status is `RUNNING`
+Status: locked / checkpoint lineage verified through update 45000 / session-4 67/68 caveat retained / session-5 terminal archive has a new 66/68 gate result pending user continuation decision
+Implementation readiness: session-5 version 1 used Kaggle's legacy input root; minimal probes proved the correct checkpoint mount is `/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt`. Earlier T4 requests returned CPU workers, but post-verification version 4 proves `torch 2.10.0+cu128`, CUDA `12.8`, and two Tesla T4 devices; version 5's no-data `pip --dry-run --upgrade torch torchvision torchaudio` returns zero and resolves CUDA-enabled Torch `2.13.0`. Commit `3d5bf766f323645d725f92a9dd5e27deaf438b7b` changes only that mount path and its wrapper hash; the clean generated package, 16 focused tests, and full `797 passed, 1 skipped` quality gate pass. After exact user authorization, Kaggle version 2 ran from clean GitHub commit `e1b9e9f9a28299f4604a768720345ae9cd7c2fb3` with only the public UBC and exact private step-36000 datasets. It reached terminal `CANCEL_ACKNOWLEDGED`; its freshly downloaded output proves the complete update-45000 boundary.
 Owner/workstream: matched continuous-`SO(2)` training
-Last updated: 2026-08-17
+Last updated: 2026-08-18
 
 ## Purpose
 
@@ -99,7 +99,7 @@ as the first attempt. This is one experiment path, not reusable product code.
    into private dataset `maximusshtefan/eqvae-so2-session2-step18000` and pins
    `/kaggle/input/eqvae-so2-session2-step18000/step_018000.pt`.
    Session 4 resumed from the separately verified update-27000 transport and
-   committed update 36000. The only session-5 source is
+   committed update 36000. The session-5 source was
    `runs/kaggle/so2_selected_runtime_full_v4_session4/checkpoints/step_036000.pt`,
    size `16,440,368` bytes, SHA-256
    `4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb`.
@@ -107,10 +107,18 @@ as the first attempt. This is one experiment path, not reusable product code.
    verdict: `failure_kind=partial_interval_checkpoint_not_final_resume_proof`,
    while `latest_checkpoint_step`, `latest_metric_prefix_step`, checkpoint path,
    proof hash, manifest hash, and actual bytes all agree at update 36000.
-   The prior wrapper remains pinned to update 27000 and is not session-5
-   authority. Resolve the next legitimate operator/owner and verify public-UBC attachment,
-   then repin the entire transport and obtain new exact authorization before any
-   upload or push.
+   The prior wrapper remained pinned to update 27000 and was not session-5
+   authority. Session 5 then committed 39000, 42000, and 45000. Its only
+   possible successor source is
+   `runs/kaggle/so2_selected_runtime_full_v5_session5_remote/checkpoints/step_045000.pt`,
+   size `16,440,368` bytes, SHA-256
+   `703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93`.
+   Its own proof has the same expected incomplete-target
+   `failure_kind=partial_interval_checkpoint_not_final_resume_proof`, and its
+   path/hash/latest-checkpoint/latest-metric-prefix all agree at update 45000.
+   No future transport may be prepared until the user decides whether to
+   continue under the session-5 gate result and separately authorizes its exact
+   checkpoint dataset and launch.
 10. Resume must restore the exact SO2 model, all optimizer groups/state, GradScaler,
    Python/NumPy/Torch CPU/CUDA RNG, named `train_data` and `train_corruption`
    generators, and DDP sampler progress. Every continuation requires
@@ -118,7 +126,9 @@ as the first attempt. This is one experiment path, not reusable product code.
    first `resume_step` batches by sampler indices without rereading their payloads,
    and rebases post-resume stochastic streams by rank. LR and beta remain derived
    from the absolute successful-update count, never replay warmup, and never
-   advance on an AMP skip. Session 5 therefore pins `resume_step == 36000`.
+   advance on an AMP skip. Session 5 pinned `resume_step == 36000`; a future
+   session would pin `resume_step == 45000` only after the required decision and
+   authorization.
 11. Compilation/startup cost and exact reproducibility remain non-goals. The
    paid run retains the selected speed-first runtime and successful-update AMP
    skip semantics.
@@ -253,6 +263,25 @@ account's GPU allowance is exhausted; another person's API key must not be share
 into this session. A colleague may independently execute the hash-pinned handoff
 under their own authentication after verifying the public UBC source is attachable.
 
+Session 5 version 2 resumed the verified update-36000 checkpoint from the
+correct namespaced Kaggle mount and terminally reached `CANCEL_ACKNOWLEDGED`.
+The fresh ignored archive
+`runs/kaggle/so2_selected_runtime_full_v5_session5_remote` is complete: all 13
+manifest hashes match, it has no missing artifacts, and its 45k checkpoint has
+the required model/optimizer/scaler/RNG/generator/sampler progress state. Both
+ranks cover successful updates 36001..45000 exactly; each has four synchronized
+AMP-recovery rows and no nonfinite successful update. It has 12 validation and
+54 fixed-25 rows at 39000/42000/45000. This does not constitute a clean
+scientific pass: 66/68 gate rows pass. One channel is fully open in each
+`decoder_blocks.2.output_gate:f1_radial` and
+`encoder_blocks.6.main_gate:f1_radial`, despite finite positive
+gradient/update/precision evidence. The retained session-4 67/68 caveat is not
+superseded. The summary JSON's `failure_kind=no_gate_rows` is a misleading
+writer label for any non-all-pass result; the 68-row CSV is present and
+authoritative. Do not create or launch a step-45000 continuation without the
+user's explicit acceptance of this new gate result plus fresh payload-specific
+authorization.
+
 ## Known Risks
 
 - The SO2 model has 4.383x the normal model's dense learned-convolution MACs;
@@ -303,6 +332,11 @@ under their own authentication after verifying the public UBC source is attachab
   is technically resumable. Gate health is 67/68 due to the documented
   saturated-open F1 row; the user accepted continuing without altering that
   evidence.
+- Full session 5 published complete boundaries 39000, 42000, and 45000 before
+  cancellation. Its proof/manifest/hash-validated update-45000 checkpoint is
+  technically resumable, but its gate health is 66/68 with the two documented
+  fully-open F1 rows. The user has not yet accepted continuation under this new
+  caveat.
 
 ## Related Files
 
