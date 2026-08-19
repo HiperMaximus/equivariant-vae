@@ -90,10 +90,15 @@ v1 later completed with both mounts and the exact 45k bytes/hash, ruling out
 the two-source attachment itself. The remaining pre-validation difference is
 the full Torch-upgrade preamble (payload extraction writes only under
 `/kaggle/working`); its exact no-training probe is submitted as
-`maximshtefan/eqvae-so2-session6-preamble-probe` v1 and remains `RUNNING`
-before code output. Read its terminal log before changing the launcher or
-submitting a third full run. No later proof or manifest exists, so no new
-authority exists. Do not accept, store, or use anyone else's Kaggle API key.
+`maximshtefan/eqvae-so2-session6-preamble-probe` v1 and completed: the
+checkpoint exists at its exact size before the upgrade and at its exact SHA-256
+immediately after the identical 127-second upgrade, with no wait. Therefore
+versions 3/4 are intermittent Kaggle full-worker attachment failures, not
+local path, source attachment, payload extraction, or Torch behavior. A future
+transport-only remedy may add a bounded read-only mount wait before validation;
+do not change or retry the launcher without fresh exact authorization. No later
+proof or manifest exists, so no new authority exists. Do not accept, store, or
+use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
