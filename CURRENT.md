@@ -86,10 +86,14 @@ any third full submission. The accepted v4 metadata lists both sources (Kaggle
 normalizes their order to private then public); its pulled server script has
 the correct private slug/path. An exact T4/Internet, no-Torch/no-training
 two-source probe is submitted as `maximshtefan/eqvae-so2-session6-two-source-probe`
-v1 and remains `RUNNING` before its first log line, so the next action is a
-read-only status/log check after input preparation settles. No later proof or
-manifest exists, so no new authority exists. Do not accept, store, or use
-anyone else's Kaggle API key.
+v1 later completed with both mounts and the exact 45k bytes/hash, ruling out
+the two-source attachment itself. The remaining pre-validation difference is
+the full Torch-upgrade preamble (payload extraction writes only under
+`/kaggle/working`); its exact no-training probe is submitted as
+`maximshtefan/eqvae-so2-session6-preamble-probe` v1 and remains `RUNNING`
+before code output. Read its terminal log before changing the launcher or
+submitting a third full run. No later proof or manifest exists, so no new
+authority exists. Do not accept, store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
