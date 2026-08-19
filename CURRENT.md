@@ -101,9 +101,10 @@ validates the pinned bytes/hash and launches unchanged training or fails before
 training. Its wrapper SHA-256 is
 `f9210ea3d8fc3b9739d74e0aef69821c4e5bd0af612edb5a6c62743fe91e262c`;
 the strict continuation preflight passes 17 tests and the full quality gate
-passes. It is ready for its authorized submission, but no later proof or
-manifest exists, so no new authority exists. Do not accept, store, or use
-anyone else's Kaggle API key.
+passes. It was submitted as Kaggle session-6 kernel version 5 through update
+60000. Submission is not evidence of checkpoint load, training, or a new
+authority; only its later downloaded proof/manifest may establish one. Do not
+accept, store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
