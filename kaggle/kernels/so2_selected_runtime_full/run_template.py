@@ -29,8 +29,8 @@ RESUME_CHECKPOINT_BYTES = 16_440_368
 RESUME_MOUNT_WAIT_SECONDS = 600
 RESUME_MOUNT_POLL_SECONDS = 10
 KERNEL_METADATA = {
-    "id": "maximshtefan/eqvae-so2-selected-runtime-full",
-    "title": "eqvae so2 selected runtime full",
+    "id": "maximshtefan/eqvae-so2-selected-runtime-full-session6",
+    "title": "eqvae so2 selected runtime full session6",
     "code_file": "run.py",
     "language": "python",
     "kernel_type": "script",

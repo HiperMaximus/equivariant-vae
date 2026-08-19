@@ -642,7 +642,7 @@ embedded_ready_marker() {
     maximusshtefan/eqvae-so2-prelaunch)
       printf '%s\n' "KAGGLE_SO2_PRELAUNCH_READY = True"
       ;;
-    maximshtefan/eqvae-so2-selected-runtime-full)
+    maximshtefan/eqvae-so2-selected-runtime-full-session6)
       printf '%s\n' "KAGGLE_SO2_SELECTED_RUNTIME_FULL_READY = True"
       ;;
     maximusshtefan/non-eq-vae-debug)
@@ -1609,7 +1609,7 @@ guard_so2_full_push_ready() {
   local mode="${3:-push}"
   guard_so2_training_metadata \
     "$metadata" \
-    "maximshtefan/eqvae-so2-selected-runtime-full" \
+    "maximshtefan/eqvae-so2-selected-runtime-full-session6" \
     "$so2_full_resume_dataset_slug"
   local verify_args=(
     --kernel-dir "$kernel_dir"
@@ -1656,7 +1656,7 @@ EXPECTED_CHECKPOINT_SHA256 = (
 )
 EXPECTED_CHECKPOINT_BYTES = 16_440_368
 EXPECTED_CONTINUATION_WRAPPER_SHA256 = (
-    "f9210ea3d8fc3b9739d74e0aef69821c4e5bd0af612edb5a6c62743fe91e262c"
+    "d66ba76f72d7fbbdc85dc991260c6ad55a4ef9f60fb683df31b8201d97e5af63"
 )
 EXPECTED_STEP = 45000
 ALLOWED_CONTINUATION_CHANGES = {

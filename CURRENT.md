@@ -93,18 +93,45 @@ the full Torch-upgrade preamble (payload extraction writes only under
 `maximshtefan/eqvae-so2-session6-preamble-probe` v1 and completed: the
 checkpoint exists at its exact size before the upgrade and at its exact SHA-256
 immediately after the identical 127-second upgrade, with no wait. Therefore
-versions 3/4 are intermittent Kaggle full-worker attachment failures, not
-local path, source attachment, payload extraction, or Torch behavior. A future
-authorized transport-only remedy adds a bounded ten-minute read-only mount wait
-before the same exact validation; it logs each 10-second check, then either
-validates the pinned bytes/hash and launches unchanged training or fails before
-training. Its wrapper SHA-256 is
+versions 3/4 are Kaggle full-worker attachment failures, not local path, source
+attachment, payload extraction, or Torch behavior. That preamble probe used the
+same literal path/hash but did not invoke the full wrapper's checkpoint helper
+functions, so do not call it an exact checkpoint-call control. A replacement is
+staged locally under `.agent_tmp/so2_session6_exact_checkpoint_probe`: its
+generated `run.py` is byte-identical to the full wrapper through line 8922 and
+changes only the final entry point. It runs the unchanged Torch upgrade,
+payload extraction, `_resume_checkpoint_path()`, mount wait, and byte/hash
+validator, then stops before distributed training. Its metadata differs from
+the full kernel only by fresh private ID/title, and its local run passes on the
+authoritative 45k checkpoint. After exact authorization it was submitted as
+private Kaggle kernel `maximshtefan/eqvae-so2-session6-exact-checkpoint-probe`
+version 1. It completed and its downloaded proof validates the exact Kaggle
+path, 16,440,368-byte size, and SHA-256
+`703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93`;
+the log contains no distributed-training launch. This proves the existing full
+kernel resource—not the checkpoint call path—is the failed coordinate. The authorized
+transport-only remedy added a bounded ten-minute read-only mount wait before
+the same exact validation. Its wrapper SHA-256 is
 `f9210ea3d8fc3b9739d74e0aef69821c4e5bd0af612edb5a6c62743fe91e262c`;
 the strict continuation preflight passes 17 tests and the full quality gate
-passes. It was submitted as Kaggle session-6 kernel version 5 through update
-60000. Submission is not evidence of checkpoint load, training, or a new
-authority; only its later downloaded proof/manifest may establish one. Do not
-accept, store, or use anyone else's Kaggle API key.
+passes. Kaggle session-6 kernel version 5 waited all 600 seconds and terminated
+`ERROR` with the input still absent; no checkpoint load or training occurred.
+Kaggle's accepted v5 metadata and the successful preamble probe metadata have
+identical T4, Internet, Docker-image, and two-source fields. Only their kernel
+resources differ: failed full `id_no=131085532`, successful new probe
+`id_no=131241843`. The later exact-call probe on another fresh resource also
+passes. The existing full-kernel resource is therefore the isolated
+provider-side failure coordinate. Any next retry must use a fresh private full
+kernel ID with the same transport. That retry is now staged locally as private
+kernel `maximshtefan/eqvae-so2-selected-runtime-full-session6`: only the
+ID/title and their builder/guard/test pins changed. The checkpoint path, bytes,
+SHA-256, dataset allowlist, wrapper flow, model, trainer, resume semantics,
+schedule, and update-60000 target remain unchanged. Its wrapper SHA-256 is
+`d66ba76f72d7fbbdc85dc991260c6ad55a4ef9f60fb683df31b8201d97e5af63`;
+the focused continuation preflight passes 17 tests and the Python quality gate
+passes with `798 passed, 1 skipped` and zero type errors. It has not been pushed
+or launched and requires fresh exact authorization. No new checkpoint authority
+exists. Do not accept, store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update

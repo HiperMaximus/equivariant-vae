@@ -19,6 +19,7 @@ from eqvae.benchmarking.so2_prelaunch import execution_identity
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import ModuleType
 
 _CASES = (
     (
@@ -113,7 +114,7 @@ def test_so2_full_launcher_resumes_exact_so2_checkpoint_only() -> None:
             (kernel_dir / "kernel-metadata.json").read_text(encoding="utf-8"),
         ),
     )
-    assert metadata["id"] == "maximshtefan/eqvae-so2-selected-runtime-full"
+    assert metadata["id"] == ("maximshtefan/eqvae-so2-selected-runtime-full-session6")
     source = (kernel_dir / "run_template.py").read_text(encoding="utf-8")
     assert metadata["dataset_sources"] == [
         "maximusshtefan/patches-pre-shuffled-ubc-ocean",
@@ -184,7 +185,7 @@ def test_so2_full_mount_wait_allows_delayed_read_only_attachment(
         sleeps.append(seconds)
         checkpoint.write_bytes(fixture)
 
-    time_module = function_globals["time"]
+    time_module = cast("ModuleType", function_globals["time"])
     monkeypatch.setattr(time_module, "monotonic", lambda: 0.0)
     monkeypatch.setattr(time_module, "sleep", sleep)
     wait_for_mount(checkpoint)
@@ -281,7 +282,7 @@ def test_so2_full_push_guard_requires_fresh_proof_and_cost_acceptance() -> None:
         'EXPECTED_RESUME_COMMIT = "e1b9e9f9a28299f4604a768720345ae9cd7c2fb3"',
         'EXPECTED_DATASET_SLUG = "maximshtefan/eqvae-so2-session5-step45000"',
         '"703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93"',
-        '"f9210ea3d8fc3b9739d74e0aef69821c4e5bd0af612edb5a6c62743fe91e262c"',
+        '"d66ba76f72d7fbbdc85dc991260c6ad55a4ef9f60fb683df31b8201d97e5af63"',
         "EXPECTED_STEP = 45000",
         'expected_files = {"dataset-metadata.json", "step_045000.pt"}',
     ):
