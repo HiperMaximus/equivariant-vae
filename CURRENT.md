@@ -129,9 +129,12 @@ SHA-256, dataset allowlist, wrapper flow, model, trainer, resume semantics,
 schedule, and update-60000 target remain unchanged. Its wrapper SHA-256 is
 `d66ba76f72d7fbbdc85dc991260c6ad55a4ef9f60fb683df31b8201d97e5af63`;
 the focused continuation preflight passes 17 tests and the Python quality gate
-passes with `798 passed, 1 skipped` and zero type errors. It has not been pushed
-or launched and requires fresh exact authorization. No new checkpoint authority
-exists. Do not accept, store, or use anyone else's Kaggle API key.
+passes with `798 passed, 1 skipped` and zero type errors. After exact
+authorization, Kaggle accepted it as private kernel version 1 from clean commit
+`396d897dc442b5e5f9f94e32f01679d35fa69858`. Submission alone creates no new
+checkpoint authority; wait for terminal state and verify downloaded proof and
+manifest before promoting any later boundary. Do not accept, store, or use
+anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
