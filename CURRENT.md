@@ -64,13 +64,18 @@ first read-only status is terminal `KernelWorkerStatus.ERROR`. Its authorized
 terminal log shows Torch 2.13/CUDA installation completed, then failed before
 loading or training because the exact correct path
 `/kaggle/input/datasets/maximshtefan/eqvae-so2-session5-step45000/step_045000.pt`
-was missing. This is a Kaggle attachment-provisioning failure, not a checkpoint,
-model, schedule, or gate-health result; no new checkpoint authority exists. Its
-local transport at `runs/kaggle/so2_session5_resume_dataset` contains only
-metadata and the verified checkpoint, and passes the 16-test continuation
-preflight plus the full `797 passed, 1 skipped` quality gate. Do not infer a
-commit boundary; only a later downloaded proof and manifest may name the next
-authority. Do not accept, store, or use anyone else's Kaggle API key.
+was missing. A subsequent private CPU-only/no-internet mount probe attached
+only that dataset and completed: the exact path exists with `16,440,368` bytes
+and SHA-256 `703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93`.
+This establishes delayed Kaggle attachment provisioning, not a bad upload,
+wrong mount convention, checkpoint, model, schedule, or gate-health result;
+version 3 still created no checkpoint authority. Its local transport at
+`runs/kaggle/so2_session5_resume_dataset` contains only metadata and the
+verified checkpoint, and passes the 16-test continuation preflight plus the
+full `797 passed, 1 skipped` quality gate. Retry the unchanged transport only
+with fresh exact authorization. Do not infer a commit boundary; only a later
+downloaded proof and manifest may name the next authority. Do not accept,
+store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
