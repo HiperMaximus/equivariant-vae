@@ -81,8 +81,13 @@ again absent before checkpoint load or training. The private one-source probe
 did mount and hash that exact file, so simple attachment-propagation delay is
 not a sufficient explanation. Checkpoint identity/path and the public UBC
 source remain valid; the next diagnostic must inspect Kaggle's accepted
-full-kernel metadata and reproduce the exact two-source attachment set in a
-no-GPU/no-Torch probe before any third full submission. No later proof or
+full-kernel metadata and reproduce the exact two-source attachment set before
+any third full submission. The accepted v4 metadata lists both sources (Kaggle
+normalizes their order to private then public); its pulled server script has
+the correct private slug/path. An exact T4/Internet, no-Torch/no-training
+two-source probe is submitted as `maximshtefan/eqvae-so2-session6-two-source-probe`
+v1 and remains `RUNNING` before its first log line, so the next action is a
+read-only status/log check after input preparation settles. No later proof or
 manifest exists, so no new authority exists. Do not accept, store, or use
 anyone else's Kaggle API key.
 Baseline
