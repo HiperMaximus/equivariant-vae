@@ -95,10 +95,15 @@ checkpoint exists at its exact size before the upgrade and at its exact SHA-256
 immediately after the identical 127-second upgrade, with no wait. Therefore
 versions 3/4 are intermittent Kaggle full-worker attachment failures, not
 local path, source attachment, payload extraction, or Torch behavior. A future
-transport-only remedy may add a bounded read-only mount wait before validation;
-do not change or retry the launcher without fresh exact authorization. No later
-proof or manifest exists, so no new authority exists. Do not accept, store, or
-use anyone else's Kaggle API key.
+authorized transport-only remedy adds a bounded ten-minute read-only mount wait
+before the same exact validation; it logs each 10-second check, then either
+validates the pinned bytes/hash and launches unchanged training or fails before
+training. Its wrapper SHA-256 is
+`f9210ea3d8fc3b9739d74e0aef69821c4e5bd0af612edb5a6c62743fe91e262c`;
+the strict continuation preflight passes 17 tests and the full quality gate
+passes. It is ready for its authorized submission, but no later proof or
+manifest exists, so no new authority exists. Do not accept, store, or use
+anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update

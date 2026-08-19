@@ -11,6 +11,7 @@ import json
 import os
 import subprocess  # noqa: S404
 import sys
+import time
 import traceback
 import zipfile
 from pathlib import Path
@@ -25,6 +26,8 @@ RESUME_CHECKPOINT_SHA256 = (
     "703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93"
 )
 RESUME_CHECKPOINT_BYTES = 16_440_368
+RESUME_MOUNT_WAIT_SECONDS = 600
+RESUME_MOUNT_POLL_SECONDS = 10
 KERNEL_METADATA = {
     "id": "maximshtefan/eqvae-so2-selected-runtime-full",
     "title": "eqvae so2 selected runtime full",
@@ -73,6 +76,7 @@ def main() -> int:
             )
             return 0
         resume_checkpoint = _resume_checkpoint_path()
+        _wait_for_resume_checkpoint(resume_checkpoint)
         _validate_resume_checkpoint(resume_checkpoint)
         source = payload / "src"
         environment = os.environ.copy()
@@ -119,6 +123,23 @@ def main() -> int:
 def _resume_checkpoint_path() -> Path:
     override = os.environ.get("EQVAE_SO2_FULL_RESUME")
     return Path(override).resolve() if override else RESUME_CHECKPOINT
+
+
+def _wait_for_resume_checkpoint(path: Path) -> None:
+    """Allow Kaggle's delayed read-only input mount to appear before validation."""
+    deadline = time.monotonic() + RESUME_MOUNT_WAIT_SECONDS
+    while not path.is_file():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            sys.stderr.write(f"SO2 resume checkpoint mount wait timed out: {path}\n")
+            return
+        wait_seconds = min(RESUME_MOUNT_POLL_SECONDS, remaining)
+        sys.stderr.write(
+            "SO2 resume checkpoint mount pending; "
+            f"waiting {wait_seconds:.0f}s: {path}\n",
+        )
+        time.sleep(wait_seconds)
+    sys.stderr.write(f"SO2 resume checkpoint mount ready: {path}\n")
 
 
 def _validate_resume_checkpoint(path: Path) -> None:

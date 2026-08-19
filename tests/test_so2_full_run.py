@@ -128,6 +128,8 @@ def test_so2_full_launcher_resumes_exact_so2_checkpoint_only() -> None:
     )
     assert "703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93" in source
     assert "RESUME_CHECKPOINT_BYTES = 16_440_368" in source
+    assert "RESUME_MOUNT_WAIT_SECONDS = 600" in source
+    assert "_wait_for_resume_checkpoint(resume_checkpoint)" in source
     assert "eqvae-baseline-session" not in source
     assert "EQVAE_SO2_FULL_RESUME" in source
     assert '"fresh_start": False' in source
@@ -154,6 +156,40 @@ def test_so2_full_resume_checkpoint_validation_fails_closed(tmp_path: Path) -> N
     checkpoint.unlink()
     with pytest.raises(RuntimeError, match="missing"):
         validate(checkpoint)
+
+
+def test_so2_full_mount_wait_allows_delayed_read_only_attachment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A delayed Kaggle mount must still receive normal exact validation."""
+    repository = Path(__file__).resolve().parents[1]
+    namespace = runpy.run_path(
+        str(repository / "kaggle/kernels/so2_selected_runtime_full/run_template.py"),
+        run_name="spec0016_so2_resume_mount_wait_test",
+    )
+    wait_for_mount = cast(
+        "Callable[[Path], None]",
+        namespace["_wait_for_resume_checkpoint"],
+    )
+    validate = cast("Callable[[Path], None]", namespace["_validate_resume_checkpoint"])
+    checkpoint = tmp_path / "step_045000.pt"
+    fixture = b"delayed checkpoint fixture"
+    function_globals = wait_for_mount.__globals__
+    function_globals["RESUME_CHECKPOINT_SHA256"] = hashlib.sha256(fixture).hexdigest()
+    function_globals["RESUME_CHECKPOINT_BYTES"] = len(fixture)
+    sleeps: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        checkpoint.write_bytes(fixture)
+
+    time_module = function_globals["time"]
+    monkeypatch.setattr(time_module, "monotonic", lambda: 0.0)
+    monkeypatch.setattr(time_module, "sleep", sleep)
+    wait_for_mount(checkpoint)
+    validate(checkpoint)
+    assert sleeps == [10]
 
 
 def test_so2_full_launcher_validates_before_exact_resume_command(
@@ -196,24 +232,29 @@ def test_so2_full_launcher_validates_before_exact_resume_command(
         original_validate(path)
         events.append("validated")
 
+    def wait_for_mount(path: Path) -> None:
+        assert path == checkpoint.resolve()
+        events.append("mount_ready")
+
     def run(
         command: tuple[str, ...],
         **kwargs: object,
     ) -> subprocess.CompletedProcess[str]:
-        assert events == ["validated"]
+        assert events == ["mount_ready", "validated"]
         assert command[-2:] == ("--resume", str(checkpoint.resolve()))
         assert "eqvae-baseline-session" not in " ".join(command)
         assert kwargs["cwd"] == payload
         events.append("launched")
         return subprocess.CompletedProcess(command, 0)
 
+    function_globals["_wait_for_resume_checkpoint"] = wait_for_mount
     function_globals["_validate_resume_checkpoint"] = validate
     monkeypatch.setattr(subprocess, "run", run)
     monkeypatch.setenv("EQVAE_SO2_FULL_OUTPUT_DIR", str(output))
     monkeypatch.setenv("EQVAE_SO2_FULL_RESUME", str(checkpoint))
     monkeypatch.delenv("EQVAE_SO2_FULL_IMPORT_ONLY", raising=False)
     assert main() == 0
-    assert events == ["validated", "launched"]
+    assert events == ["mount_ready", "validated", "launched"]
 
 
 def test_so2_full_push_guard_requires_fresh_proof_and_cost_acceptance() -> None:
@@ -240,7 +281,7 @@ def test_so2_full_push_guard_requires_fresh_proof_and_cost_acceptance() -> None:
         'EXPECTED_RESUME_COMMIT = "e1b9e9f9a28299f4604a768720345ae9cd7c2fb3"',
         'EXPECTED_DATASET_SLUG = "maximshtefan/eqvae-so2-session5-step45000"',
         '"703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93"',
-        '"201ff118b067e9a6af1843f004b4eeca11893f9ed79d2f0b07672d8fe2665dc9"',
+        '"f9210ea3d8fc3b9739d74e0aef69821c4e5bd0af612edb5a6c62743fe91e262c"',
         "EXPECTED_STEP = 45000",
         'expected_files = {"dataset-metadata.json", "step_045000.pt"}',
     ):
