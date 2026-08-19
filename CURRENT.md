@@ -73,9 +73,11 @@ version 3 still created no checkpoint authority. Its local transport at
 `runs/kaggle/so2_session5_resume_dataset` contains only metadata and the
 verified checkpoint, and passes the 16-test continuation preflight plus the
 full `797 passed, 1 skipped` quality gate. Retry the unchanged transport only
-with fresh exact authorization. Do not infer a commit boundary; only a later
-downloaded proof and manifest may name the next authority. Do not accept,
-store, or use anyone else's Kaggle API key.
+with fresh exact authorization. That authorization was granted and the
+unchanged transport was submitted as Kaggle session-6 kernel version 4 through
+update 60000. No status/output read or new boundary is implied by submission;
+only a later downloaded proof and manifest may name the next authority. Do not
+accept, store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
