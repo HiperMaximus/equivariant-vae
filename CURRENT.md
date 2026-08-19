@@ -75,9 +75,16 @@ verified checkpoint, and passes the 16-test continuation preflight plus the
 full `797 passed, 1 skipped` quality gate. Retry the unchanged transport only
 with fresh exact authorization. That authorization was granted and the
 unchanged transport was submitted as Kaggle session-6 kernel version 4 through
-update 60000. No status/output read or new boundary is implied by submission;
-only a later downloaded proof and manifest may name the next authority. Do not
-accept, store, or use anyone else's Kaggle API key.
+update 60000. Version 4 is terminal `KernelWorkerStatus.ERROR`: its log proves
+Torch 2.13/CUDA installation completed, then the exact 45k checkpoint path was
+again absent before checkpoint load or training. The private one-source probe
+did mount and hash that exact file, so simple attachment-propagation delay is
+not a sufficient explanation. Checkpoint identity/path and the public UBC
+source remain valid; the next diagnostic must inspect Kaggle's accepted
+full-kernel metadata and reproduce the exact two-source attachment set in a
+no-GPU/no-Torch probe before any third full submission. No later proof or
+manifest exists, so no new authority exists. Do not accept, store, or use
+anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
