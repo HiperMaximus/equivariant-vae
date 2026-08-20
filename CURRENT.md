@@ -170,9 +170,9 @@ that, the worker never materialized
 `/kaggle/input/datasets/maximshtefan/eqvae-so2-session6-step54000/step_054000.pt`
 during the full 600-second wait. This is the same provider-side private-input
 mount failure class seen on the old resource, not a checkpoint, source, slug,
-allowlist, GPU, or Internet-setting failure. Update 54000 remains the sole
-authority. Any probe, fresh-resource workaround, or retry requires new exact
-authorization. A minimal fresh-resource probe is staged at
+allowlist, GPU, or Internet-setting failure. At that point update 54000 remained
+the sole authority and any probe, fresh-resource workaround, or retry required
+new exact authorization. A minimal fresh-resource probe is staged at
 `kaggle/kernels/so2_session6_step54000_mount_probe/`: its minimal script uses
 the exact production checkpoint path and byte/hash identity, attaches both
 production datasets on a T4 with Internet disabled, and stops without Torch or
@@ -191,31 +191,33 @@ with both production source slugs; the probe did not inspect UBC files. It is
 not training or new checkpoint authority. The best-supported workaround is a
 fresh full resource, but Kaggle's internal cause remains unproven: resource/version
 state, the newly associated private asset, and provider nondeterminism remain
-confounded. A fresh session-7 full kernel is now staged locally as
-`maximshtefan/eqvae-so2-selected-runtime-full-session7`. It retains the exact
-54k checkpoint, two-source allowlist, T4/Internet settings, 600-second fallback,
-embedded execution core, trainer, runtime, schedule, and update-60000 target.
-Only its ID/title and transport pins change; exact wait/byte/hash validation now
-runs before the Torch upgrade so a missing input fails before the multi-gigabyte
-install. Wrapper SHA-256 is
-`03887128886879b8c2ac4e68b210233dcbcbc181344c224a3990bb34824a8dd0`;
-the focused 17-test continuation preflight and full `798 passed, 1 skipped`
-Python gate with zero type errors pass. Any remote identity check, GitHub push,
-or fresh full-kernel launch still requires new exact authorization. The
-separately authorized read-only identity gate now passes: the authenticated
-operator's own-kernel inventory sees the known private session-6 resources but
-returns no result for exact session-7 slug
-`maximshtefan/eqvae-so2-selected-runtime-full-session7`. Kaggle's direct status
-lookup returns the expected but ambiguous `kernels.get` denial, so the
-authenticated `--mine` inventory is the controlling evidence that no prior
-session-7 resource/version is visible. After separate exact authorization,
-Kaggle accepted private
-kernel `maximshtefan/eqvae-so2-selected-runtime-full-session7` version 1 and
-reports `KernelWorkerStatus.RUNNING`. This submission is not new checkpoint or
-scientific authority: update 54000 and the accepted session-6 66/68 gate-health
-caveat remain controlling until a terminal download verifies session-7 proof,
-manifest, checkpoint hashes, metrics, and gate evidence. GitHub push remains
-unauthorized.
+confounded. Fresh private kernel
+`maximshtefan/eqvae-so2-selected-runtime-full-session7` version 1 completed from
+the exact 54k checkpoint after validating its mount before the Torch upgrade.
+The complete download at
+`runs/kaggle/so2_selected_runtime_full_session7_fresh_v1_retry1` proves 6,000
+additional successful updates and exact final counters of 60000. The sole final
+checkpoint authority is the 16,440,368-byte
+`checkpoints/step_060000.pt`, SHA-256
+`041e0cd7483cb8642bb72eb1b63c3a36774bf9cadd0b659c9d1db6a813c8f4c7`.
+It is manifest-hashed and load-verified with model, optimizer, GradScaler,
+Python/NumPy/CPU/CUDA RNG, both named generators, sampler, and beta progress.
+All 16 artifact-manifest hashes match. Two synchronized AMP overflow attempts
+were skipped and immediately recovered; no successful update is nonfinite.
+
+This is a completed, technically valid, but non-clean experiment. Gate health
+remains exactly 66/68 with no count deterioration from update 54000: one of 32
+channels in `decoder_blocks.2.output_gate:f1_radial` and five of 48 in
+`encoder_blocks.6.main_gate:f1_radial` are saturated open on the captured
+validation image. Both rows retain finite positive gradient/update evidence and
+passing precision evidence. The locked top-level summary therefore remains
+`fail`; do not relabel it `full_run_eligible` or an all-gates pass. Its separate
+`half_epoch_validation_schedule_incomplete` blocker is a session-local verifier
+false negative: sessions 1-7 jointly contain all 20 boundaries from 3000 through
+60000, each with two ranks, two views, and full 600-batch/15,000-sample sweeps.
+The final clean/denoising L1 values are `0.0611158`/`0.0639382`, both slightly
+better than at 54k. Two independent read-only audits agree on this bounded
+interpretation. GitHub push remains unauthorized.
 Do not accept, store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source

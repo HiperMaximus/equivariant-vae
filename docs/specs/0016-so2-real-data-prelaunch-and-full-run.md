@@ -1,6 +1,6 @@
 # Spec 0016: SO2 Real-Data Prelaunch And Full Run
 
-Status: locked / checkpoint lineage verified through update 54000 / session-4 67/68, session-5 66/68, and session-6 66/68 caveats retained / session-6 deterioration explicitly accepted / fresh session-7 version 1 launched and running, with no new checkpoint authority yet
+Status: locked / training complete and checkpoint lineage verified through update 60000 / session-4 67/68 and sessions 5-7 66/68 caveats retained / technically valid but not a clean scientific pass
 Implementation readiness: session-5 version 1 used Kaggle's legacy input root; minimal probes proved the correct checkpoint mount is `/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt`. Earlier T4 requests returned CPU workers, but post-verification version 4 proves `torch 2.10.0+cu128`, CUDA `12.8`, and two Tesla T4 devices; version 5's no-data `pip --dry-run --upgrade torch torchvision torchaudio` returns zero and resolves CUDA-enabled Torch `2.13.0`. Commit `3d5bf766f323645d725f92a9dd5e27deaf438b7b` changes only that mount path and its wrapper hash; the clean generated package, 16 focused tests, and full `797 passed, 1 skipped` quality gate pass. After exact user authorization, Kaggle version 2 ran from clean GitHub commit `e1b9e9f9a28299f4604a768720345ae9cd7c2fb3` with only the public UBC and exact private step-36000 datasets. It reached terminal `CANCEL_ACKNOWLEDGED`; its freshly downloaded output proves the complete update-45000 boundary. The locally staged session-6 45k transport has the exact two-file dataset input, repinned wrapper/metadata/guard/tests, passing 16-test preflight, and final `797 passed, 1 skipped` quality gate. After exact authorization, GitHub `main` advanced to `a4f7a685d2a1deee6357fae1586f0c7973c20e5e`; private dataset `maximshtefan/eqvae-so2-session5-step45000` version 1 (ID `11701181`) verified `isPrivate=true` and only the 16,440,368-byte checkpoint; Kaggle kernel version 3 was submitted. Its terminal log proves Torch 2.13/CUDA installation completed, then it failed before checkpoint load at the correct namespaced 45k path because Kaggle omitted that input mount. A subsequent private CPU-only/no-internet probe attached only that dataset and verified the exact path, bytes, and SHA-256 `703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93`. With fresh exact authorization, unchanged version 4 was submitted through update 60000; its terminal log repeats the same missing-path failure after successful Torch/CUDA installation. The pulled v4 server script retains the correct private slug/path, and server metadata lists both source slugs while normalizing their order to private then public. The exact T4/Internet no-Torch/no-training two-source probe completed with both mounts and the exact 45k bytes/hash, ruling out the source pair itself. The exact preamble probe then found the file at exact size before the same Torch upgrade and at exact SHA-256 immediately after its 127-second completion, with zero wait; payload extraction can only write under `/kaggle/working`. These controls isolate intermittent Kaggle full-worker attachment behavior. Under fresh authorization, the transport now waits read-only for at most 600 seconds in 10-second logged increments before the unchanged byte-count/SHA-256 validation; timeout still fails before training. The wrapper SHA-256 `f9210ea3d8fc3b9739d74e0aef69821c4e5bd0af612edb5a6c62743fe91e262c`, 17-test continuation preflight, and full quality gate pass. Kaggle accepted it as session-6 kernel version 5 through update 60000; submission alone creates no training/output authority until its own later proof/manifest does.
 Owner/workstream: matched continuous-`SO(2)` training
 Last updated: 2026-08-20
@@ -73,8 +73,8 @@ mount/byte/hash validation before the Torch upgrade and changes only ID/title
 plus matching transport pins. Wrapper SHA-256 is
 `03887128886879b8c2ac4e68b210233dcbcbc181344c224a3990bb34824a8dd0`;
 the focused 17-test continuation preflight and full `798 passed, 1 skipped`
-quality gate with zero type errors pass. Update 54000 remains the sole checkpoint
-authority, and any remote check or launch requires new exact authorization.
+quality gate with zero type errors pass. Before the separately authorized
+session-7 run, update 54000 remained the sole checkpoint authority.
 
 ## Purpose
 
@@ -265,23 +265,28 @@ exact namespaced path, size, and SHA-256; it did not inspect UBC files or train.
 Kaggle's internal mechanism remains unknown, so a fresh full resource is a
 best-supported workaround rather than a guarantee.
 
-The fresh session-7 transport changes only ID/title, wrapper validation order,
-and corresponding builder/guard/test/digest pins. Focused preflight, full
-`798 passed, 1 skipped` quality, zero-error type checking, repo/workspace
-preflights, and two clean-context adversarial reviews pass. Immediately before
-an authorized push, rebuild ignored `run.py` from clean HEAD and require its
-embedded manifest to report `git_dirty=false`.
+Fresh private session-7 version 1 completed from the exact 54k input and its
+downloaded output proves exact counters at 60000. Final authority is only
+`checkpoints/step_060000.pt`, 16,440,368 bytes, SHA-256
+`041e0cd7483cb8642bb72eb1b63c3a36774bf9cadd0b659c9d1db6a813c8f4c7`.
+The checkpoint is manifest-hashed and load-verified with complete model,
+optimizer, scaler, RNG/generator, sampler, and beta state; all 16 manifest
+hashes match. The 54k resume proof passes and records 6,000 additional
+successful updates. Two synchronized AMP overflows were skipped and recovered
+on the next attempts, with zero nonfinite successful rows.
 
-The remote identity gate is complete: authenticated exact user and own-kernel
-inventories return no session-7 result, while the same own-kernel inventory
-sees the known private session-6 resources. Kaggle's direct status lookup is
-only supporting evidence because its `kernels.get` denial is ambiguous between
-absent and inaccessible private resources. After separate exact authorization,
-Kaggle accepted fresh private session-7 kernel version 1 from the existing
-private 54k dataset and reports `KernelWorkerStatus.RUNNING`. GitHub push remains
-independently unauthorized. Submission and live status create no checkpoint
-authority; update 54000 remains controlling until terminal output is downloaded
-and its proof, manifest, checkpoint hashes, metrics, and gate evidence pass.
+The locked final summary correctly remains `fail` because gate health is 66/68.
+The same two F1 rows and saturation counts as at 54k remain: one of 32 channels
+in the decoder output gate and five of 48 in encoder block 6 are saturated open
+on the captured image. Both rows retain finite positive gradients and parameter
+motion with passing precision evidence. Do not call this `full_run_eligible`, an
+all-gates pass, or a clean scientific run. The additional
+`half_epoch_validation_schedule_incomplete` blocker is a session-local verifier
+false negative: cross-session verification finds all 20 half-epoch boundaries,
+80 exact rank/view rows, full 600-batch/15,000-sample sweeps, and no gaps or
+duplicates. Final cross-rank clean/denoising L1 is
+`0.0611158`/`0.0639382`, slightly improved from 54k. Two independent audits
+confirm this interpretation. GitHub push remains independently unauthorized.
 
 ## Known Risks
 

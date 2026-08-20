@@ -203,15 +203,16 @@ Before pushing paper changes to Overleaf or GitHub, refresh the PDF with:
   The normal-VAE baseline completed 60000 update counters across three checkpoint-only
   sessions and is locally verified with the user-approved single physical-update legacy
   exception. Clean/denoising L1 reached `0.05925/0.06236`, fixed-25 images and rotation
-  artifacts are complete, and the final checkpoint is loadable. Specs 0012-0014
-  now lock, implement, and locally verify the fixed 43-convolution continuous-
-  `SO(2)` VAE at exactly `1,180,035` parameters. The next experiment gate is a
-  separately authorized readiness slice: register this singular model in the
-  selected runtime, add F0/F1 gate telemetry, and use one narrow direct dual-T4
-  check for compile settlement, VRAM, and execution compatibility. Preserve beta,
-  data, schedule, fixed examples, metrics, and downstream probes; do not reopen
-  architecture/mechanics, recreate a tuner, or start full training without
-  separate explicit authorization.
+  artifacts are complete, and the final checkpoint is loadable. Specs 0012-0016
+  lock and execute the fixed 43-convolution continuous-`SO(2)` VAE at exactly
+  `1,180,035` parameters. Its matched training completed all 60000 successful
+  updates; the final checkpoint is loadable and complete, with clean/denoising
+  L1 `0.0611158`/`0.0639382`. Preserve the documented non-clean 66/68 gate
+  result: the same decoder and encoder F1 rows as at 54k retain one-of-32 and
+  five-of-48 saturated-open channels on the captured image despite finite
+  positive gradients and updates. Do not relabel this as an all-gates pass or
+  rerun training to conceal the caveat. The next work is matched evaluation and
+  paper comparison, not architecture/runtime retuning without a new spec.
   This GOAL states the north star, not the frontier; read
   `CURRENT.md` and
   `docs/specs/0011-reusable-goal-derived-runtime-and-compiled-fastpath.md`.
