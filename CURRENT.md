@@ -159,9 +159,19 @@ The 17-test continuation preflight and full `798 passed, 1 skipped` quality gate
 with zero type errors pass. After exact authorization, private dataset version
 1 (ID `11716939`) was created and remotely verified `ready`, `isPrivate=true`,
 with only the 16,440,368-byte checkpoint and the hash-pinned description.
-Kaggle then accepted version 2 of the known-good private kernel through update
-60000. Submission creates no new checkpoint authority until terminal output,
-proof, and manifest are downloaded and verified.
+Kaggle accepted version 2 of the known-good private kernel through update 60000,
+but it ended `KernelWorkerStatus.ERROR` before checkpoint load or training. The
+remote metadata contains both exact dataset sources, the pulled remote script
+matches local SHA-256
+`95a07cd1bf7b26f982fff5d756edf28bdacf3948d72e6d808624525d4eb805af`, and the
+checkpoint dataset still reports `ready` with only the expected file. Despite
+that, the worker never materialized
+`/kaggle/input/datasets/maximshtefan/eqvae-so2-session6-step54000/step_054000.pt`
+during the full 600-second wait. This is the same provider-side private-input
+mount failure class seen on the old resource, not a checkpoint, source, slug,
+allowlist, GPU, or Internet-setting failure. Update 54000 remains the sole
+authority. Any probe, fresh-resource workaround, or retry requires new exact
+authorization.
 Do not accept, store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source

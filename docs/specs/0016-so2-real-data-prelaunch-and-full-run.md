@@ -48,9 +48,13 @@ Wrapper SHA-256
 17 focused tests, and the full `798 passed, 1 skipped` quality gate with zero
 type errors pass. After exact authorization, private dataset version 1 (ID
 `11716939`) verified `ready`, `isPrivate=true`, the sole 16,440,368-byte
-`step_054000.pt`, and the hash-pinned description. Kaggle then accepted private
-kernel version 2 through update 60000. Do not promote update 60000 until its
-terminal downloaded proof and manifest verify.
+`step_054000.pt`, and the hash-pinned description. Kaggle accepted private
+kernel version 2 through update 60000, but it ended `ERROR` before checkpoint
+load: remote metadata records both exact dataset sources and the exact local
+script hash, while the ready single-file checkpoint dataset never materialized
+in the worker during the 600-second wait. Treat this as the same provider-side
+private-input mount failure class, retain update 54000 as sole authority, and
+require new exact authorization for any probe, fresh resource, or retry.
 
 ## Purpose
 
