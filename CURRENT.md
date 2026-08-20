@@ -156,8 +156,12 @@ remains `maximshtefan/eqvae-so2-selected-runtime-full-session6`, now pinned to
 that dataset/path. Wrapper SHA-256 is
 `a66f8134b63169ec9cfe03d621f52141920d92feca9b80d2cca0271fae5c13fd`.
 The 17-test continuation preflight and full `798 passed, 1 skipped` quality gate
-with zero type errors pass. Dataset creation and kernel version 2 launch remain
-unauthorized until the user names both exact remote writes.
+with zero type errors pass. After exact authorization, private dataset version
+1 (ID `11716939`) was created and remotely verified `ready`, `isPrivate=true`,
+with only the 16,440,368-byte checkpoint and the hash-pinned description.
+Kaggle then accepted version 2 of the known-good private kernel through update
+60000. Submission creates no new checkpoint authority until terminal output,
+proof, and manifest are downloaded and verified.
 Do not accept, store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source

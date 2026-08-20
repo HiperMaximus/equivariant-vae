@@ -46,8 +46,11 @@ private kernel `maximshtefan/eqvae-so2-selected-runtime-full-session6`.
 Wrapper SHA-256
 `a66f8134b63169ec9cfe03d621f52141920d92feca9b80d2cca0271fae5c13fd`,
 17 focused tests, and the full `798 passed, 1 skipped` quality gate with zero
-type errors pass. No remote dataset creation or kernel version 2 launch is yet
-authorized.
+type errors pass. After exact authorization, private dataset version 1 (ID
+`11716939`) verified `ready`, `isPrivate=true`, the sole 16,440,368-byte
+`step_054000.pt`, and the hash-pinned description. Kaggle then accepted private
+kernel version 2 through update 60000. Do not promote update 60000 until its
+terminal downloaded proof and manifest verify.
 
 ## Purpose
 
