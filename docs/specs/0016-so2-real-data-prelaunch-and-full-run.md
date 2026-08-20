@@ -1,6 +1,6 @@
 # Spec 0016: SO2 Real-Data Prelaunch And Full Run
 
-Status: locked / checkpoint lineage verified through update 54000 / session-4 67/68, session-5 66/68, and session-6 66/68 caveats retained / session-6 deterioration explicitly accepted / fresh session-7 continuation locally verified and awaiting remote identity plus launch authorization
+Status: locked / checkpoint lineage verified through update 54000 / session-4 67/68, session-5 66/68, and session-6 66/68 caveats retained / session-6 deterioration explicitly accepted / fresh session-7 continuation locally verified, remote identity gate passed, and awaiting launch authorization
 Implementation readiness: session-5 version 1 used Kaggle's legacy input root; minimal probes proved the correct checkpoint mount is `/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt`. Earlier T4 requests returned CPU workers, but post-verification version 4 proves `torch 2.10.0+cu128`, CUDA `12.8`, and two Tesla T4 devices; version 5's no-data `pip --dry-run --upgrade torch torchvision torchaudio` returns zero and resolves CUDA-enabled Torch `2.13.0`. Commit `3d5bf766f323645d725f92a9dd5e27deaf438b7b` changes only that mount path and its wrapper hash; the clean generated package, 16 focused tests, and full `797 passed, 1 skipped` quality gate pass. After exact user authorization, Kaggle version 2 ran from clean GitHub commit `e1b9e9f9a28299f4604a768720345ae9cd7c2fb3` with only the public UBC and exact private step-36000 datasets. It reached terminal `CANCEL_ACKNOWLEDGED`; its freshly downloaded output proves the complete update-45000 boundary. The locally staged session-6 45k transport has the exact two-file dataset input, repinned wrapper/metadata/guard/tests, passing 16-test preflight, and final `797 passed, 1 skipped` quality gate. After exact authorization, GitHub `main` advanced to `a4f7a685d2a1deee6357fae1586f0c7973c20e5e`; private dataset `maximshtefan/eqvae-so2-session5-step45000` version 1 (ID `11701181`) verified `isPrivate=true` and only the 16,440,368-byte checkpoint; Kaggle kernel version 3 was submitted. Its terminal log proves Torch 2.13/CUDA installation completed, then it failed before checkpoint load at the correct namespaced 45k path because Kaggle omitted that input mount. A subsequent private CPU-only/no-internet probe attached only that dataset and verified the exact path, bytes, and SHA-256 `703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93`. With fresh exact authorization, unchanged version 4 was submitted through update 60000; its terminal log repeats the same missing-path failure after successful Torch/CUDA installation. The pulled v4 server script retains the correct private slug/path, and server metadata lists both source slugs while normalizing their order to private then public. The exact T4/Internet no-Torch/no-training two-source probe completed with both mounts and the exact 45k bytes/hash, ruling out the source pair itself. The exact preamble probe then found the file at exact size before the same Torch upgrade and at exact SHA-256 immediately after its 127-second completion, with zero wait; payload extraction can only write under `/kaggle/working`. These controls isolate intermittent Kaggle full-worker attachment behavior. Under fresh authorization, the transport now waits read-only for at most 600 seconds in 10-second logged increments before the unchanged byte-count/SHA-256 validation; timeout still fails before training. The wrapper SHA-256 `f9210ea3d8fc3b9739d74e0aef69821c4e5bd0af612edb5a6c62743fe91e262c`, 17-test continuation preflight, and full quality gate pass. Kaggle accepted it as session-6 kernel version 5 through update 60000; submission alone creates no training/output authority until its own later proof/manifest does.
 Owner/workstream: matched continuous-`SO(2)` training
 Last updated: 2026-08-20
@@ -172,9 +172,11 @@ as the first attempt. This is one experiment path, not reusable product code.
    `maximshtefan/eqvae-so2-session6-step54000`, T4 GPU, and Internet only for
    the required Torch upgrade. It waits up to 600 seconds and validates the
    exact checkpoint bytes/hash before that upgrade, then runs the unchanged DDP
-   trainer through absolute update 60000. A remote check must first establish
-   that the session-7 ID has no prior versions; identity checks and launch need
-   separate exact authorization.
+   trainer through absolute update 60000. The separately authorized read-only
+   identity check established that the authenticated operator can see the
+   known private session-6 resources while its exact own-kernel search returns
+   no session-7 resource/version. Launch still needs separate exact
+   authorization.
 
 ## Config Contract
 
@@ -270,11 +272,14 @@ preflights, and two clean-context adversarial reviews pass. Immediately before
 an authorized push, rebuild ignored `run.py` from clean HEAD and require its
 embedded manifest to report `git_dirty=false`.
 
-Remote work remains blocked until the user separately authorizes a read-only
-identity check proving the session-7 slug has no prior versions. A later exact
-launch authorization must name that fresh kernel, the existing private 54k
-dataset and checkpoint hash, and continuation through update 60000. GitHub push
-is independently unauthorized. Submission alone creates no checkpoint authority.
+The remote identity gate is complete: authenticated exact user and own-kernel
+inventories return no session-7 result, while the same own-kernel inventory
+sees the known private session-6 resources. Kaggle's direct status lookup is
+only supporting evidence because its `kernels.get` denial is ambiguous between
+absent and inaccessible private resources. A later exact launch authorization
+must name the fresh session-7 kernel, the existing private 54k dataset and
+checkpoint hash, and continuation through update 60000. GitHub push is
+independently unauthorized. Submission alone creates no checkpoint authority.
 
 ## Known Risks
 

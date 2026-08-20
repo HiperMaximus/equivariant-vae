@@ -201,7 +201,15 @@ install. Wrapper SHA-256 is
 `03887128886879b8c2ac4e68b210233dcbcbc181344c224a3990bb34824a8dd0`;
 the focused 17-test continuation preflight and full `798 passed, 1 skipped`
 Python gate with zero type errors pass. Any remote identity check, GitHub push,
-or fresh full-kernel launch still requires new exact authorization.
+or fresh full-kernel launch still requires new exact authorization. The
+separately authorized read-only identity gate now passes: the authenticated
+operator's own-kernel inventory sees the known private session-6 resources but
+returns no result for exact session-7 slug
+`maximshtefan/eqvae-so2-selected-runtime-full-session7`. Kaggle's direct status
+lookup returns the expected but ambiguous `kernels.get` denial, so the
+authenticated `--mine` inventory is the controlling evidence that no prior
+session-7 resource/version is visible. GitHub push and launch remain
+unauthorized.
 Do not accept, store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
