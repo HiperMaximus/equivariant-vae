@@ -1,9 +1,9 @@
 # Spec 0016: SO2 Real-Data Prelaunch And Full Run
 
-Status: locked / checkpoint lineage verified through update 54000 / session-4 67/68, session-5 66/68, and session-6 66/68 caveats retained / session-6 deterioration explicitly accepted / exact final continuation locally verified and awaiting remote-write authorization
+Status: locked / checkpoint lineage verified through update 54000 / session-4 67/68, session-5 66/68, and session-6 66/68 caveats retained / session-6 deterioration explicitly accepted / fresh session-7 continuation locally verified and awaiting remote identity plus launch authorization
 Implementation readiness: session-5 version 1 used Kaggle's legacy input root; minimal probes proved the correct checkpoint mount is `/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt`. Earlier T4 requests returned CPU workers, but post-verification version 4 proves `torch 2.10.0+cu128`, CUDA `12.8`, and two Tesla T4 devices; version 5's no-data `pip --dry-run --upgrade torch torchvision torchaudio` returns zero and resolves CUDA-enabled Torch `2.13.0`. Commit `3d5bf766f323645d725f92a9dd5e27deaf438b7b` changes only that mount path and its wrapper hash; the clean generated package, 16 focused tests, and full `797 passed, 1 skipped` quality gate pass. After exact user authorization, Kaggle version 2 ran from clean GitHub commit `e1b9e9f9a28299f4604a768720345ae9cd7c2fb3` with only the public UBC and exact private step-36000 datasets. It reached terminal `CANCEL_ACKNOWLEDGED`; its freshly downloaded output proves the complete update-45000 boundary. The locally staged session-6 45k transport has the exact two-file dataset input, repinned wrapper/metadata/guard/tests, passing 16-test preflight, and final `797 passed, 1 skipped` quality gate. After exact authorization, GitHub `main` advanced to `a4f7a685d2a1deee6357fae1586f0c7973c20e5e`; private dataset `maximshtefan/eqvae-so2-session5-step45000` version 1 (ID `11701181`) verified `isPrivate=true` and only the 16,440,368-byte checkpoint; Kaggle kernel version 3 was submitted. Its terminal log proves Torch 2.13/CUDA installation completed, then it failed before checkpoint load at the correct namespaced 45k path because Kaggle omitted that input mount. A subsequent private CPU-only/no-internet probe attached only that dataset and verified the exact path, bytes, and SHA-256 `703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93`. With fresh exact authorization, unchanged version 4 was submitted through update 60000; its terminal log repeats the same missing-path failure after successful Torch/CUDA installation. The pulled v4 server script retains the correct private slug/path, and server metadata lists both source slugs while normalizing their order to private then public. The exact T4/Internet no-Torch/no-training two-source probe completed with both mounts and the exact 45k bytes/hash, ruling out the source pair itself. The exact preamble probe then found the file at exact size before the same Torch upgrade and at exact SHA-256 immediately after its 127-second completion, with zero wait; payload extraction can only write under `/kaggle/working`. These controls isolate intermittent Kaggle full-worker attachment behavior. Under fresh authorization, the transport now waits read-only for at most 600 seconds in 10-second logged increments before the unchanged byte-count/SHA-256 validation; timeout still fails before training. The wrapper SHA-256 `f9210ea3d8fc3b9739d74e0aef69821c4e5bd0af612edb5a6c62743fe91e262c`, 17-test continuation preflight, and full quality gate pass. Kaggle accepted it as session-6 kernel version 5 through update 60000; submission alone creates no training/output authority until its own later proof/manifest does.
 Owner/workstream: matched continuous-`SO(2)` training
-Last updated: 2026-08-19
+Last updated: 2026-08-20
 
 Current terminal evidence: bounded-wait version 5 remained without the private
 mount for all 600 seconds and failed before checkpoint load or training.
@@ -62,10 +62,19 @@ the full `798 passed, 1 skipped` quality gate with zero type errors passes, and
 after exact authorization Kaggle accepted private probe version 1. Its bounded
 20-minute wait ended `TIMEOUT_STILL_PENDING`, then a later authorized check
 found the same version `COMPLETE`. Its terminal log and downloaded JSON prove
-the exact 16,440,368-byte file and expected SHA-256 mounted with both production
-datasets. Treat this only as fresh-resource mount evidence; update 54000 remains
-the sole checkpoint authority, and a fresh full-kernel launch requires new exact
-authorization.
+the exact 16,440,368-byte private file and expected SHA-256 mounted on a fresh
+resource configured with both production source slugs; it did not inspect UBC
+files. Treat this only as fresh-resource checkpoint-mount evidence. Kaggle's
+internal cause remains unproven, but a fresh resource is the best-supported
+workaround. The staged private session-7 full resource preserves the exact 54k
+checkpoint, source allowlist, T4/Internet settings, execution core, trainer,
+runtime, schedule, 600-second fallback, and update-60000 target. It moves exact
+mount/byte/hash validation before the Torch upgrade and changes only ID/title
+plus matching transport pins. Wrapper SHA-256 is
+`03887128886879b8c2ac4e68b210233dcbcbc181344c224a3990bb34824a8dd0`;
+the focused 17-test continuation preflight and full `798 passed, 1 skipped`
+quality gate with zero type errors pass. Update 54000 remains the sole checkpoint
+authority, and any remote check or launch requires new exact authorization.
 
 ## Purpose
 
@@ -142,58 +151,30 @@ as the first attempt. This is one experiment path, not reusable product code.
    `4aaf614f2cdbf1bc628e13858eb6c4e08300266b`. Its `src/eqvae`, both config trees,
    fixed-selector input, prelaunch wrapper/metadata, `pyproject.toml`, and
    `uv.lock` entries must remain byte-identical.
-9. The separate full kernel started fresh, targets update 60000, and writes the
-   normal-equivalent checkpoints, metrics, validation, and fixed-25 evidence.
-   Session 1 committed update 9000 with SHA-256
-   `1f53fe16aecf6382bf450cd0ac2be5db9fe2bbe6405dfcaa2c196cb40bca8e7d`.
-   Session 2 copies only
-   `runs/kaggle/so2_selected_runtime_full_v1_session1/checkpoints/step_009000.pt`
-   into private dataset `maximusshtefan/eqvae-so2-session1-step9000` and pins
-   `/kaggle/input/eqvae-so2-session1-step9000/step_009000.pt`. The upload payload
-   contains only that file plus `dataset-metadata.json`. Each later session uses
-   the same exact downloaded-latest-checkpoint pattern, validates path/hash before
-   GPU work, and resumes through the shared checkpoint-only continuation path. No
-   normal checkpoint/dataset may be attached or loaded.
-   Session 2 committed update 18000 with SHA-256
-   `5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4`.
-   Session 3 copies only
-   `runs/kaggle/so2_selected_runtime_full_v2_session2/checkpoints/step_018000.pt`
-   into private dataset `maximusshtefan/eqvae-so2-session2-step18000` and pins
-   `/kaggle/input/eqvae-so2-session2-step18000/step_018000.pt`.
-   Session 4 resumed from the separately verified update-27000 transport and
-   committed update 36000. The session-5 source was
-   `runs/kaggle/so2_selected_runtime_full_v4_session4/checkpoints/step_036000.pt`,
+9. Separate sessions 1-6 advanced the verified prefix through updates 9000,
+   18000, 27000, 36000, 45000, and 54000. The sole continuation source is
+   `runs/kaggle/so2_selected_runtime_full_session6_fresh_v1/checkpoints/step_054000.pt`,
    size `16,440,368` bytes, SHA-256
-   `4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb`.
-   The proof's top-level failure is the expected incomplete-60000 partial-run
-   verdict: `failure_kind=partial_interval_checkpoint_not_final_resume_proof`,
-   while `latest_checkpoint_step`, `latest_metric_prefix_step`, checkpoint path,
-   proof hash, manifest hash, and actual bytes all agree at update 36000.
-   The prior wrapper remained pinned to update 27000 and was not session-5
-   authority. Session 5 then committed 39000, 42000, and 45000. Its only
-   possible successor source is
-   `runs/kaggle/so2_selected_runtime_full_v5_session5_remote/checkpoints/step_045000.pt`,
-   size `16,440,368` bytes, SHA-256
-   `703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93`.
-   Its own proof has the same expected incomplete-target
-   `failure_kind=partial_interval_checkpoint_not_final_resume_proof`, and its
-   path/hash/latest-checkpoint/latest-metric-prefix all agree at update 45000.
-   On 2026-08-18, the user accepted continuation under the session-5 gate
-   result. Repin and preflight the next transport, then separately obtain exact
-   authorization for its checkpoint dataset and launch.
-10. Resume must restore the exact SO2 model, all optimizer groups/state, GradScaler,
-   Python/NumPy/Torch CPU/CUDA RNG, named `train_data` and `train_corruption`
-   generators, and DDP sampler progress. Every continuation requires
-   `optimizer_step == successful_optimizer_update_count == resume_step`, skips the
-   first `resume_step` batches by sampler indices without rereading their payloads,
-   and rebases post-resume stochastic streams by rank. LR and beta remain derived
-   from the absolute successful-update count, never replay warmup, and never
-   advance on an AMP skip. Session 5 pinned `resume_step == 36000`; a future
-   session would pin `resume_step == 45000` only after the required decision and
-   authorization.
-11. Compilation/startup cost and exact reproducibility remain non-goals. The
-   paid run retains the selected speed-first runtime and successful-update AMP
-   skip semantics.
+   `2ae4785571e2d1b4e690957e3cf74f749c7e273f1701ee274cc7b2b2e4a8742c`.
+   Its partial-target proof and all 13 manifest hashes verify checkpoint and
+   metric prefix 54000. Preserve session 4's 67/68 and sessions 5/6's 66/68
+   gate caveats, including session 6's one- and five-channel saturation counts.
+10. Resume must restore the exact SO2 model, all optimizer groups/state,
+   GradScaler, Python/NumPy/Torch CPU/CUDA RNG, named `train_data` and
+   `train_corruption` generators, and DDP sampler progress. Require
+   `optimizer_step == successful_optimizer_update_count == 54000`, skip prior
+   batches by sampler indices without rereading payloads, rebase post-resume
+   stochastic streams by rank, and derive LR/beta from the absolute successful
+   update count without replaying warmup or advancing on AMP skips.
+11. The final continuation uses fresh private kernel
+   `maximshtefan/eqvae-so2-selected-runtime-full-session7`, exact datasets
+   `maximusshtefan/patches-pre-shuffled-ubc-ocean` and
+   `maximshtefan/eqvae-so2-session6-step54000`, T4 GPU, and Internet only for
+   the required Torch upgrade. It waits up to 600 seconds and validates the
+   exact checkpoint bytes/hash before that upgrade, then runs the unchanged DDP
+   trainer through absolute update 60000. A remote check must first establish
+   that the session-7 ID has no prior versions; identity checks and launch need
+   separate exact authorization.
 
 ## Config Contract
 
@@ -206,10 +187,9 @@ as the first attempt. This is one experiment path, not reusable product code.
   and one final 20-update synchronized timing/memory/compile-stability window.
 - Full: fresh start, 10 epochs, beta `0.01`, normal-equivalent LR schedule,
   full validation, checkpoint/fixed-25 every half epoch.
-- Kernel metadata attaches only the real UBC dataset for the first session.
-  Session 3 requires the exact ordered `dataset_sources` allowlist
-  `['maximusshtefan/patches-pre-shuffled-ubc-ocean',
-  'maximusshtefan/eqvae-so2-session2-step18000']` and empty competition, kernel,
+- Session-7 kernel metadata requires the exact ordered `dataset_sources`
+  allowlist `['maximusshtefan/patches-pre-shuffled-ubc-ocean',
+  'maximshtefan/eqvae-so2-session6-step54000']` and empty competition, kernel,
   and model sources. Any extra dataset or baseline/normal checkpoint slug/path
   fails closed.
 
@@ -270,79 +250,31 @@ git diff --check
 
 ## Implementation Blockers
 
-Session 1 is downloaded under ignored
-`runs/kaggle/so2_selected_runtime_full_v1_session1`. Its update-9000 checkpoint,
-proof hash, schema-v5 state, source/config/runtime identities, two-rank metric
-prefix, half-epoch validation/fixed-25 evidence, and 68 gate rows are verified.
-The exact checkpoint dataset and session-2 wrapper/metadata/guards pass local
-preflight and the full repository quality gate. No trainer or checkpoint-format
-change was required. Commit `475e215` is on GitHub. Private dataset ID `11656723`
-contains only the exact verified checkpoint and reports `isPrivate=true`. The
-first guarded push was rejected before launch for zero remaining GPU hours. After
-quota refresh, the clean-HEAD preflight passed again and Kaggle kernel version 2
-ran to terminal `CANCEL_ACKNOWLEDGED`. Its separate downloaded output validates:
-resume began at 9000, complete boundaries are 12000/15000/18000, and cancellation
-interrupted boundary 21000 before commit. The accepted update-18000 checkpoint
-SHA-256 is
-`5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4`.
-The user explicitly authorized this exact checkpoint upload/private destination
-and session-3 launch. The one-off session-3 transport passes local preflight,
-focused archive/resume mutations, and the full repository quality gate. Commit,
-private dataset publication/verification, and guarded launch remain. Commit
-`c8ff951` is on GitHub; the clean package preflight passes. After exact explicit
-authorization, private dataset ID `11665702` was created with only the verified
-checkpoint and reports `isPrivate=true`. The package was rebuilt from clean
-commit `d251175`; Kaggle kernel version 3 terminated
-`KernelWorkerStatus.CANCEL_ACKNOWLEDGED` after complete boundaries
-21000/24000/27000. Its separate output is downloaded under ignored
-`runs/kaggle/so2_selected_runtime_full_v3_session3`. All partial-manifest hashes,
-the 9000-successful-update/rank metric prefix, 12 validation rows, 54 fixed-25
-rows, 68 passing gate rows, and immutable originals are verified. The accepted
-update-27000 checkpoint SHA-256 is
-`7adfea7850ee7ab620f0363ca4a8fe9e41fd67160feeaeae1f07ff291a0bf6ba`.
-The session-4 wrapper, metadata, guard, and checkpoint-only staging directory now
-pin private slug `maximusshtefan/eqvae-so2-session3-step27000`, filename
-`step_027000.pt`, its exact hash, update/config/runtime identities, session-3
-payload authority, and unchanged execution core. The 16 focused tests and local
-package preflight pass; transport commit `694017a` and exact-approval handoff
-commit `b05623b` are on GitHub. After payload-specific authorization, private
-dataset ID `11676466` was created with only the exact `16,440,368`-byte
-checkpoint and reports `isPrivate=true`; its remote description pins the hash.
-The package was rebuilt from clean commit `b05623b`; guarded Kaggle kernel version
-4 terminated after complete boundaries 30000/33000/36000. All partial-manifest
-hashes, checkpoint state, two-rank metric prefix, validation/fixed-25 rows, and
-immutable originals verify. The update-36000 checkpoint SHA-256 is
-`4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb`.
-The session is not a clean scientific pass: one
-`encoder_blocks.6.main_gate:f1_radial` row fails because three of 48 channels are
-saturated-open on the single probe image. Gradients, updates, precision evidence,
-and successful training rows remain finite/positive. A separate frozen-25
-diagnostic finds saturation is sample-dependent rather than the same channel
-being open on all 25 patches. Do not weaken the locked gate rule or conceal the
-failure. On 2026-08-17 the user accepted continuing from update 36000 with the
-67/68 caveat retained. This does not authorize a remote upload/push. The original
-account's GPU allowance is exhausted; another person's API key must not be shared
-into this session. A colleague may independently execute the hash-pinned handoff
-under their own authentication after verifying the public UBC source is attachable.
+Update 54000 is the sole authority. Its local checkpoint, partial-target proof,
+complete 13-entry artifact manifest, model/optimizer/scaler/RNG/generator/sampler
+state, two-rank successful metric prefix, validation/fixed-25 coverage, and
+accepted 66/68 gate caveat verify. Private dataset version 1 (ID `11716939`)
+contains only the exact checkpoint and reports `ready` and `isPrivate=true`.
 
-Session 5 version 2 resumed the verified update-36000 checkpoint from the
-correct namespaced Kaggle mount and terminally reached `CANCEL_ACKNOWLEDGED`.
-The fresh ignored archive
-`runs/kaggle/so2_selected_runtime_full_v5_session5_remote` is complete: all 13
-manifest hashes match, it has no missing artifacts, and its 45k checkpoint has
-the required model/optimizer/scaler/RNG/generator/sampler progress state. Both
-ranks cover successful updates 36001..45000 exactly; each has four synchronized
-AMP-recovery rows and no nonfinite successful update. It has 12 validation and
-54 fixed-25 rows at 39000/42000/45000. This does not constitute a clean
-scientific pass: 66/68 gate rows pass. One channel is fully open in each
-`decoder_blocks.2.output_gate:f1_radial` and
-`encoder_blocks.6.main_gate:f1_radial`, despite finite positive
-gradient/update/precision evidence. The retained session-4 67/68 caveat is not
-superseded. The summary JSON's `failure_kind=no_gate_rows` is a misleading
-writer label for any non-all-pass result; the 68-row CSV is present and
-authoritative. On 2026-08-18, the user accepted this new gate result; do not
-create or launch a step-45000 continuation without fresh payload-specific
-authorization.
+The existing full resource's version 2 failed before checkpoint load because
+that worker did not materialize the correctly declared private input. A fresh
+probe configured with both source slugs later verified the private checkpoint's
+exact namespaced path, size, and SHA-256; it did not inspect UBC files or train.
+Kaggle's internal mechanism remains unknown, so a fresh full resource is a
+best-supported workaround rather than a guarantee.
+
+The fresh session-7 transport changes only ID/title, wrapper validation order,
+and corresponding builder/guard/test/digest pins. Focused preflight, full
+`798 passed, 1 skipped` quality, zero-error type checking, repo/workspace
+preflights, and two clean-context adversarial reviews pass. Immediately before
+an authorized push, rebuild ignored `run.py` from clean HEAD and require its
+embedded manifest to report `git_dirty=false`.
+
+Remote work remains blocked until the user separately authorizes a read-only
+identity check proving the session-7 slug has no prior versions. A later exact
+launch authorization must name that fresh kernel, the existing private 54k
+dataset and checkpoint hash, and continuation through update 60000. GitHub push
+is independently unauthorized. Submission alone creates no checkpoint authority.
 
 ## Known Risks
 

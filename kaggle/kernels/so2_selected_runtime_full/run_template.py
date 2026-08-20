@@ -29,8 +29,8 @@ RESUME_CHECKPOINT_BYTES = 16_440_368
 RESUME_MOUNT_WAIT_SECONDS = 600
 RESUME_MOUNT_POLL_SECONDS = 10
 KERNEL_METADATA = {
-    "id": "maximshtefan/eqvae-so2-selected-runtime-full-session6",
-    "title": "eqvae so2 selected runtime full session6",
+    "id": "maximshtefan/eqvae-so2-selected-runtime-full-session7",
+    "title": "eqvae so2 selected runtime full session7",
     "code_file": "run.py",
     "language": "python",
     "kernel_type": "script",
@@ -62,9 +62,14 @@ def main() -> int:
     """
     output = Path(os.environ.get("EQVAE_SO2_FULL_OUTPUT_DIR", OUTPUT)).resolve()
     try:
+        import_only = os.environ.get("EQVAE_SO2_FULL_IMPORT_ONLY") == "1"
+        if not import_only:
+            resume_checkpoint = _resume_checkpoint_path()
+            _wait_for_resume_checkpoint(resume_checkpoint)
+            _validate_resume_checkpoint(resume_checkpoint)
         _ensure_latest_torch()
         payload = _extract(output / "embedded_payload")
-        if os.environ.get("EQVAE_SO2_FULL_IMPORT_ONLY") == "1":
+        if import_only:
             _write_json(
                 output / "benchmark/so2_full_import.json",
                 {
@@ -75,9 +80,6 @@ def main() -> int:
                 },
             )
             return 0
-        resume_checkpoint = _resume_checkpoint_path()
-        _wait_for_resume_checkpoint(resume_checkpoint)
-        _validate_resume_checkpoint(resume_checkpoint)
         source = payload / "src"
         environment = os.environ.copy()
         environment["PYTHONPATH"] = os.pathsep.join(

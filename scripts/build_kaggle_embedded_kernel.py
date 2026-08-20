@@ -33,7 +33,7 @@ SELECTED_RUNTIME_FULL_KERNEL_ID = "maximusshtefan/eqvae-selected-runtime-full"
 SO2_RUNTIME_READINESS_KERNEL_ID = "maximusshtefan/eqvae-so2-runtime-readiness"
 SO2_PRELAUNCH_KERNEL_ID = "maximusshtefan/eqvae-so2-prelaunch"
 SO2_SELECTED_RUNTIME_FULL_KERNEL_ID = (
-    "maximshtefan/eqvae-so2-selected-runtime-full-session6"
+    "maximshtefan/eqvae-so2-selected-runtime-full-session7"
 )
 SO2_TRAINING_LAUNCHER_FILES = (
     Path("kaggle/kernels/so2_prelaunch/kernel-metadata.json"),

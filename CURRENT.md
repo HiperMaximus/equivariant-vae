@@ -66,8 +66,9 @@ On 2026-08-18, the user explicitly accepted continuing the 45k lineage under
 the session-5 66/68 caveat. That decision retains the session-4/session-5
 caveats. On 2026-08-20, after reviewing the 9,000 successful updates, zero
 successful nonfinite updates, and finite positive gate gradient/update evidence,
-the user explicitly accepted session 6's five-channel deterioration. The final
-continuation still needs separate exact dataset-creation and launch authorization.
+the user explicitly accepted session 6's five-channel deterioration. The private
+54k checkpoint dataset already exists and verifies; only a fresh full-kernel
+launch still needs separate exact authorization.
 With exact
 authorization, GitHub `main` was pushed at `a4f7a68`; private dataset
 `maximshtefan/eqvae-so2-session5-step45000` version 1 (ID `11701181`) was
@@ -185,9 +186,22 @@ reports `status=pass`, exactly 16,440,368 bytes, and SHA-256
 The downloaded ignored result is
 `runs/kaggle/so2_session6_step54000_mount_probe_v1/step54000_mount_probe.json`
 (SHA-256 `801cd9929289328cadec60f5752293198c8fd54eac9c6c9e45dd6db19eacae8a`).
-This proves the exact checkpoint mounts on a fresh resource with both production
-datasets; it is not training or new checkpoint authority. Any fresh full-kernel
-launch still requires new exact authorization.
+This proves the exact private checkpoint mounts on a fresh resource configured
+with both production source slugs; the probe did not inspect UBC files. It is
+not training or new checkpoint authority. The best-supported workaround is a
+fresh full resource, but Kaggle's internal cause remains unproven: resource/version
+state, the newly associated private asset, and provider nondeterminism remain
+confounded. A fresh session-7 full kernel is now staged locally as
+`maximshtefan/eqvae-so2-selected-runtime-full-session7`. It retains the exact
+54k checkpoint, two-source allowlist, T4/Internet settings, 600-second fallback,
+embedded execution core, trainer, runtime, schedule, and update-60000 target.
+Only its ID/title and transport pins change; exact wait/byte/hash validation now
+runs before the Torch upgrade so a missing input fails before the multi-gigabyte
+install. Wrapper SHA-256 is
+`03887128886879b8c2ac4e68b210233dcbcbc181344c224a3990bb34824a8dd0`;
+the focused 17-test continuation preflight and full `798 passed, 1 skipped`
+Python gate with zero type errors pass. Any remote identity check, GitHub push,
+or fresh full-kernel launch still requires new exact authorization.
 Do not accept, store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
@@ -356,157 +370,6 @@ saturated-open channels on the one-image capture despite finite positive
 gradients/updates and passing precision evidence. Do not silently waive or
 rewrite this locked diagnostic. The user accepted continuing with this caveat on
 2026-08-17.
-
-### Historical session-5 launch record (do not follow as a handoff)
-
-The following session-5 transport, probes, and launch record is retained only
-as evidence. It is superseded by the update-45000 session-6 authority at the
-top of this file; no fresh agent may follow its update-36000 procedures.
-
-| Session | Separate raw download | Last committed checkpoint | SHA-256 | Checkpoint dataset used by next session |
-| --- | --- | --- | --- | --- |
-| 1 | `runs/kaggle/so2_selected_runtime_full_v1_session1` | `step_009000.pt` | `1f53fe16aecf6382bf450cd0ac2be5db9fe2bbe6405dfcaa2c196cb40bca8e7d` | `maximusshtefan/eqvae-so2-session1-step9000` (ID `11656723`) |
-| 2 | `runs/kaggle/so2_selected_runtime_full_v2_session2` | `step_018000.pt` | `5911ad37a1ed3f8a92055e45717be496d18545426e56667e1989a3da9a525ec4` | `maximusshtefan/eqvae-so2-session2-step18000` (ID `11665702`) |
-| 3 | `runs/kaggle/so2_selected_runtime_full_v3_session3` | `step_027000.pt` | `7adfea7850ee7ab620f0363ca4a8fe9e41fd67160feeaeae1f07ff291a0bf6ba` | `maximusshtefan/eqvae-so2-session3-step27000` (ID `11676466`) |
-| 4 | `runs/kaggle/so2_selected_runtime_full_v4_session4` | `step_036000.pt` | `4001c45c023d380f857c8b3e548a314c06a48f270d02529f6dabb875f4b209eb` | Verified private dataset `maximshtefan/eqvae-so2-session4-step36000` version 1; session-5 kernel v1 failed before training because its input was not mounted |
-| 5 | `runs/kaggle/so2_selected_runtime_full_v5_session5_remote` | `step_045000.pt` | `703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93` | Private `maximshtefan/eqvae-so2-session5-step45000` version 1 (ID `11701181`); session-6 kernel v3 submitted |
-
-Every raw output and resume-staging directory is gitignored. The table records
-local state; verify the files and proofs themselves before transport. On
-2026-08-17, the user identified `maximshtefan` as the independently authenticated
-operator. The guarded fresh-OAuth read path listed all four expected public UBC
-source files. The local session-5 transport now pins that kernel/checkpoint
-owner, `step_036000.pt`, its exact hash and `16,440,368` bytes; it passes the
-focused suite and full-kernel preflight.
-
-At 2026-08-17 17:46 COT, private dataset
-`maximshtefan/eqvae-so2-session4-step36000` became ready as version 1 and its
-only remote file was `step_036000.pt` at `16,440,368` bytes. Clean commit
-`2b41524ee26561c412fb6078e9138faa3fbb4fea` is pushed to GitHub; its clean
-embedded package passed preflight and full quality (`797 passed, 1 skipped`).
-Kaggle session-5 kernel version 1 reached terminal
-`KernelWorkerStatus.ERROR` at 2026-08-17 18:40 COT before training started.
-Its log reports that the ready checkpoint dataset was not mounted at
-`/kaggle/input/eqvae-so2-session4-step36000/step_036000.pt`; the same worker
-also could not resolve PyPI while attempting the required Torch upgrade. The
-remote dataset still lists the one verified checkpoint, so this is a Kaggle
-attachment/worker-network failure, not checkpoint corruption or new gate-health
-evidence. Preserve the session-4 lineage and 67/68 caveat. Do not retry, alter
-the trainer, or select another checkpoint without fresh exact authorization.
-
-The authorized no-GPU/no-internet input probe
-`maximshtefan/eqvae-so2-session5-input-probe` version 1 completed and its raw
-ignored artifact at `runs/kaggle/so2_session5_input_probe_v1` records
-`exists=false`, `bytes=null`, and `matches_expected=false` for that exact
-expected checkpoint path. It imported neither Torch nor training code. This
-independently confirms absence at the declared mount path. Its authorized
-version-2 listing records `/kaggle/input` as exactly `['datasets']`, identifying
-Kaggle's alternative input-root convention. Its version-3 listing records
-`/kaggle/input/datasets` as exactly `['maximshtefan']`; the dataset-slug leaf
-was identified by version 4 as `eqvae-so2-session4-step36000`. The exact
-checkpoint mount is therefore
-`/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt`.
-The training launcher still uses the legacy non-namespaced path. A future
-transport-only correction must change only that path and its exact guards; it
-requires fresh authorization before a new kernel push.
-
-The separate authorized fresh-worker probe
-`maximshtefan/eqvae-so2-torch-cuda-probe` version 1 requested T4 plus Internet
-without data, Torch import, or installation. Its ignored raw report at
-`runs/kaggle/so2_torch_cuda_probe_v1` records `nvidia-smi` absent and the PyPI
-`pip install --dry-run --upgrade torch torchvision torchaudio` timing out after
-180 seconds. Thus the probe worker was not CUDA-provisioned and did not have
-usable PyPI access; this is independent of, and blocks a retry after, the mount
-path correction.
-
-On 2026-08-17, the authorized no-data probe version 2 completed after an
-explicit Kaggle CLI `--accelerator NvidiaTeslaT4` request. Its ignored report at
-`runs/kaggle/so2_torch_cuda_probe_v2` again records `nvidia-smi` absent and the
-same 180-second PyPI dry-run timeout; its returned log has no allocation or
-quota explanation. Thus neither metadata nor the explicit CLI accelerator flag
-obtained a CUDA worker for this account/kernel, but the precise Kaggle-side
-reason is unproven. Do not correct or retry the full transport until the Kaggle
-UI exposes an enabled GPU choice and a new no-data probe returns CUDA and PyPI
-success.
-
-On 2026-08-17, version 3 of the same private, input-free probe explicitly
-requested `NvidiaTeslaT4`, disabled Internet, and imported the preinstalled
-Torch only. Its ignored report at `runs/kaggle/so2_torch_device_probe_v3` is
-unambiguous: `torch_version=2.10.0+cpu`, `torch_cuda_version=null`,
-`cuda_available=false`, and zero devices. The user added account verification
-after this worker started, so it cannot establish the post-verification state.
-After the Kaggle UI shows an enabled GPU choice, obtain fresh exact authorization
-for one new no-data device probe before any mount correction or full retry.
-
-The user granted that authorization after completing account verification.
-Version 4 passed: its ignored report at
-`runs/kaggle/so2_torch_device_probe_v4` records `torch 2.10.0+cu128`, CUDA
-`12.8`, `cuda_available=true`, and exactly two `Tesla T4` devices. CUDA
-provisioning is therefore healthy on the post-verification account; the only
-remaining worker-readiness evidence is a freshly authorized no-data PyPI
-Torch-upgrade dry-run. Do not yet correct/retry the full transport.
-
-The user authorized that exact post-verification PyPI check. Version 5 passed:
-its ignored report at `runs/kaggle/so2_torch_pypi_probe_v5` has return code zero
-for the bounded `pip install --dry-run --upgrade torch torchvision torchaudio`,
-resolving CUDA-enabled Torch `2.13.0` and its CUDA-13 dependencies. CUDA and
-Internet readiness are now proven. The transport-only mount correction is local
-commit `3d5bf766f323645d725f92a9dd5e27deaf438b7b`: it changes only the checkpoint
-path to `/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000/step_036000.pt`
-and repins the wrapper SHA-256 to
-`a01eb989866b1bb2e8017ef04a2fdb0de9fe6c4f6c4a934c80a567813fc0d4e4`.
-The full continuation preflight passes with all 16 focused tests and a clean
-embedded manifest; the complete quality gate is `797 passed, 1 skipped`.
-The user then authorized the exact retry. GitHub `main` contains clean commit
-`e1b9e9f9a28299f4604a768720345ae9cd7c2fb3`; Kaggle session-5 kernel version 2
-was submitted with only the public UBC and exact private step-36000 datasets.
-Its first read-only status at 2026-08-17 21:28 COT is
-`KernelWorkerStatus.RUNNING`. Do not poll in turn or infer a new checkpoint:
-download and validate only a later terminal session's own proof and manifest.
-
-1. Completed: recomputed the checkpoint SHA-256 and size and cross-checked
-   session 4's checkpoint proof and artifact manifest.
-2. Completed to the safe observable extent: the user identified
-   `maximshtefan`; its global fresh-OAuth path listed the public UBC source.
-   Never receive, print, install, or inspect credentials.
-3. Completed locally: chose the new private checkpoint destination
-   `maximshtefan/eqvae-so2-session4-step36000`. Obtain new payload-specific user
-   authorization that names that exact slug, `step_036000.pt`, the SHA-256 above,
-   and the session-5 launch. Prior session authorizations do not carry forward.
-4. Completed locally: staged ignored
-   `runs/kaggle/so2_session4_resume_dataset` containing exactly
-   `dataset-metadata.json` and the verified `step_036000.pt`; no metrics,
-   earlier checkpoints, normal-VAE files, or generated artifacts belong there.
-5. Completed locally: update every transport pin together:
-   `kaggle/kernels/so2_selected_runtime_full/run_template.py`, its
-   `kernel-metadata.json`, `scripts/kaggle_kernel.sh`, and
-   `tests/test_so2_full_run.py` (plus the builder's owner discriminator). Pin the new owner/kernel ID,
-   checkpoint-dataset slug, Kaggle mount path, filename, step `36000`, exact
-   hash/size, wrapper digest, two-dataset allowlist, and unchanged session-1
-   execution-core authority. Do not change the trainer, model, runtime plan,
-   schedule, or checkpoint schema.
-6. Completed locally: regenerated the ignored `run.py`, ran the focused continuation
-   tests and `./scripts/kaggle_kernel.sh preflight-so2-selected-runtime-full`, inspected
-   the ZIP/manifest, ran both repo/workspace preflights, passed `git diff --check`, and
-   passed `./scripts/python_quality.sh` in a persistent terminal (797 passed, 1 skipped).
-   Clean commit `2b41524` is pushed and its embedded manifest is clean.
-7. Completed remotely under the exact authorization: the authenticated operator created
-   and verified the private checkpoint dataset, then pushed session-5 kernel version
-   1. It targets absolute update `60000`; never cap it at `45000`. Version 1 stopped
-   before trainer/DDP execution because Kaggle did not mount that ready checkpoint
-   dataset, and its worker also lacked PyPI DNS. No training output or metric prefix
-   was produced.
-8. With fresh exact authorization, first establish why Kaggle did not attach the
-   verified private dataset at its expected path. The minimal probes show that
-   the legacy root is absent and the worker instead exposes
-   `/kaggle/input/datasets/maximshtefan/eqvae-so2-session4-step36000`; the exact
-   checkpoint path is the same leaf plus `step_036000.pt`. After the
-   transport-only mount-path correction, first obtain fresh positive T4/CUDA and
-   PyPI-resolution evidence; do not retry while the fresh-worker probe reports
-   neither. Then preflight and obtain fresh exact authorization before a new
-   kernel push. Only a later completed session's separately downloaded
-   `checkpoint_resume_proof.json` may name a new commit point; 39000/42000/45000
-   are merely possible boundaries, never assumptions.
 
 Spec 0015 is complete. Its single guarded remote coordinate passed. Registry
 kind `so2_vae_fixed` accepts no architecture
@@ -1010,20 +873,21 @@ control's learned representation is correctly not claimed to be equivariant.
     CV and one-time compilation duration are diagnostic, not architecture gates.
     Do not rerun or add another arm. Treat Spec 0014's full fixed VAE assembly,
     exact counts, focused verification, and corrected fresh reviews as complete.
-11. Treat Spec 0015 readiness, Spec 0016 prelaunch, and SO2 full sessions 1-5
-    through update 45000 as complete. Do not rerun them. Preserve each raw
+11. Treat Spec 0015 readiness, Spec 0016 prelaunch, and SO2 full sessions 1-6
+    through update 54000 as complete. Do not rerun them. Preserve each raw
     output separately; the downloaded checkpoint proof and matching checkpoint
     bytes, not Kaggle's unreliable file-list endpoint or an old wrapper, define
     the continuation point.
-12. Continue only from the exact update-45000 checkpoint in the session-6
-    handoff above. The user accepted retaining session 4's 67/68 and session 5's
-    66/68 gate caveats. The locally preflighted transport is pinned to
-    `maximshtefan/eqvae-so2-session5-step45000`; its private dataset is version
-    1 (ID `11701181`) and session-6 kernel v3 is terminal `ERROR` before
-    checkpoint load because Kaggle omitted the exact correct input mount. Do not
-    infer a boundary until a later output proof verifies one.
+12. Continue only from the exact update-54000 checkpoint named at the top of
+    this file. Preserve session 4's 67/68 and sessions 5/6's 66/68 caveats,
+    including session 6's one- and five-channel deterioration. The verified
+    private dataset is `maximshtefan/eqvae-so2-session6-step54000`; the existing
+    full resource's v2 failed before load, while a fresh-resource probe proved
+    the exact private checkpoint path/bytes/hash. Use only the locally staged
+    fresh session-7 full resource after all local gates and new exact remote
+    authorization. Do not infer update 60000 before downloaded proof verifies it.
 
 Baseline full training/final-output verification and continuous-`SO(2)` prelaunch
-are complete. SO2 full training is committed through update 45000; the active
-task is the exact independently operated session-6 checkpoint transport from
-the hash-pinned `step_045000.pt`.
+are complete. SO2 full training is committed through update 54000; the active
+task is the fresh session-7 transport from the hash-pinned `step_054000.pt`
+through update 60000.

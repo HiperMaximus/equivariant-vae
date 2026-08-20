@@ -114,7 +114,7 @@ def test_so2_full_launcher_resumes_exact_so2_checkpoint_only() -> None:
             (kernel_dir / "kernel-metadata.json").read_text(encoding="utf-8"),
         ),
     )
-    assert metadata["id"] == ("maximshtefan/eqvae-so2-selected-runtime-full-session6")
+    assert metadata["id"] == ("maximshtefan/eqvae-so2-selected-runtime-full-session7")
     source = (kernel_dir / "run_template.py").read_text(encoding="utf-8")
     assert metadata["dataset_sources"] == [
         "maximusshtefan/patches-pre-shuffled-ubc-ocean",
@@ -131,6 +131,11 @@ def test_so2_full_launcher_resumes_exact_so2_checkpoint_only() -> None:
     assert "RESUME_CHECKPOINT_BYTES = 16_440_368" in source
     assert "RESUME_MOUNT_WAIT_SECONDS = 600" in source
     assert "_wait_for_resume_checkpoint(resume_checkpoint)" in source
+    assert source.index(
+        "_wait_for_resume_checkpoint(resume_checkpoint)",
+    ) < source.index(
+        "_ensure_latest_torch()",
+    )
     assert "eqvae-baseline-session" not in source
     assert "EQVAE_SO2_FULL_RESUME" in source
     assert '"fresh_start": False' in source
@@ -282,7 +287,7 @@ def test_so2_full_push_guard_requires_fresh_proof_and_cost_acceptance() -> None:
         'EXPECTED_RESUME_COMMIT = "396d897dc442b5e5f9f94e32f01679d35fa69858"',
         'EXPECTED_DATASET_SLUG = "maximshtefan/eqvae-so2-session6-step54000"',
         '"2ae4785571e2d1b4e690957e3cf74f749c7e273f1701ee274cc7b2b2e4a8742c"',
-        '"a66f8134b63169ec9cfe03d621f52141920d92feca9b80d2cca0271fae5c13fd"',
+        '"03887128886879b8c2ac4e68b210233dcbcbc181344c224a3990bb34824a8dd0"',
         "EXPECTED_STEP = 54000",
         'expected_files = {"dataset-metadata.json", "step_054000.pt"}',
     ):
