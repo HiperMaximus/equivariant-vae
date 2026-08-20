@@ -176,8 +176,12 @@ authorization. A minimal fresh-resource probe is staged at
 the exact production checkpoint path and byte/hash identity, attaches both
 production datasets on a T4 with Internet disabled, and stops without Torch or
 training. The full Python gate passes with `798 passed, 1 skipped` and zero type
-errors. Launching private kernel
-`maximshtefan/eqvae-so2-session6-step54000-mount-probe` remains unauthorized.
+errors. After exact authorization, Kaggle accepted private probe version 1 at
+`maximshtefan/eqvae-so2-session6-step54000-mount-probe`. A single bounded
+20-minute wait ended `TIMEOUT_STILL_PENDING`; the final status remained
+`KernelWorkerStatus.RUNNING` and the one log snapshot was empty. Do not infer a
+mount pass or failure, resubmit, or launch training until a later explicitly
+authorized terminal-status check resolves this same version.
 Do not accept, store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source

@@ -59,7 +59,10 @@ staged minimal fresh-resource check at
 `kaggle/kernels/so2_session6_step54000_mount_probe/` validates the exact path,
 bytes, and hash with both production datasets, then stops without training;
 the full `798 passed, 1 skipped` quality gate with zero type errors passes, and
-its private launch remains unauthorized.
+after exact authorization Kaggle accepted private probe version 1. Its bounded
+20-minute wait ended `TIMEOUT_STILL_PENDING`; the final status remained
+`RUNNING` and its sole log snapshot was empty. Do not infer a mount result or
+resubmit; a later terminal-status read requires fresh explicit authorization.
 
 ## Purpose
 
