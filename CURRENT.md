@@ -178,10 +178,16 @@ production datasets on a T4 with Internet disabled, and stops without Torch or
 training. The full Python gate passes with `798 passed, 1 skipped` and zero type
 errors. After exact authorization, Kaggle accepted private probe version 1 at
 `maximshtefan/eqvae-so2-session6-step54000-mount-probe`. A single bounded
-20-minute wait ended `TIMEOUT_STILL_PENDING`; the final status remained
-`KernelWorkerStatus.RUNNING` and the one log snapshot was empty. Do not infer a
-mount pass or failure, resubmit, or launch training until a later explicitly
-authorized terminal-status check resolves this same version.
+20-minute wait ended `TIMEOUT_STILL_PENDING`; a later explicitly authorized
+check found the same version `KernelWorkerStatus.COMPLETE`. Its terminal log
+reports `status=pass`, exactly 16,440,368 bytes, and SHA-256
+`2ae4785571e2d1b4e690957e3cf74f749c7e273f1701ee274cc7b2b2e4a8742c`.
+The downloaded ignored result is
+`runs/kaggle/so2_session6_step54000_mount_probe_v1/step54000_mount_probe.json`
+(SHA-256 `801cd9929289328cadec60f5752293198c8fd54eac9c6c9e45dd6db19eacae8a`).
+This proves the exact checkpoint mounts on a fresh resource with both production
+datasets; it is not training or new checkpoint authority. Any fresh full-kernel
+launch still requires new exact authorization.
 Do not accept, store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
