@@ -217,7 +217,8 @@ false negative: sessions 1-7 jointly contain all 20 boundaries from 3000 through
 60000, each with two ranks, two views, and full 600-batch/15,000-sample sweeps.
 The final clean/denoising L1 values are `0.0611158`/`0.0639382`, both slightly
 better than at 54k. Two independent read-only audits agree on this bounded
-interpretation. GitHub push remains unauthorized.
+interpretation. After separate explicit authorization, GitHub `origin/main`
+received the complete session-6/7 history through the final checkpoint handoff.
 Do not accept, store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source

@@ -286,7 +286,9 @@ false negative: cross-session verification finds all 20 half-epoch boundaries,
 80 exact rank/view rows, full 600-batch/15,000-sample sweeps, and no gaps or
 duplicates. Final cross-rank clean/denoising L1 is
 `0.0611158`/`0.0639382`, slightly improved from 54k. Two independent audits
-confirm this interpretation. GitHub push remains independently unauthorized.
+confirm this interpretation. After separate explicit authorization, GitHub
+`origin/main` received the complete session-6/7 history through this final
+checkpoint handoff.
 
 ## Known Risks
 
