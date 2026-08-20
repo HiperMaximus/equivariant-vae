@@ -208,7 +208,13 @@ returns no result for exact session-7 slug
 `maximshtefan/eqvae-so2-selected-runtime-full-session7`. Kaggle's direct status
 lookup returns the expected but ambiguous `kernels.get` denial, so the
 authenticated `--mine` inventory is the controlling evidence that no prior
-session-7 resource/version is visible. GitHub push and launch remain
+session-7 resource/version is visible. After separate exact authorization,
+Kaggle accepted private
+kernel `maximshtefan/eqvae-so2-selected-runtime-full-session7` version 1 and
+reports `KernelWorkerStatus.RUNNING`. This submission is not new checkpoint or
+scientific authority: update 54000 and the accepted session-6 66/68 gate-health
+caveat remain controlling until a terminal download verifies session-7 proof,
+manifest, checkpoint hashes, metrics, and gate evidence. GitHub push remains
 unauthorized.
 Do not accept, store, or use anyone else's Kaggle API key.
 Baseline
