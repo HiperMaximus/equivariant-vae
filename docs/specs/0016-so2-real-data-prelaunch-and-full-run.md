@@ -54,7 +54,12 @@ load: remote metadata records both exact dataset sources and the exact local
 script hash, while the ready single-file checkpoint dataset never materialized
 in the worker during the 600-second wait. Treat this as the same provider-side
 private-input mount failure class, retain update 54000 as sole authority, and
-require new exact authorization for any probe, fresh resource, or retry.
+require new exact authorization for any probe, fresh resource, or retry. The
+staged minimal fresh-resource check at
+`kaggle/kernels/so2_session6_step54000_mount_probe/` validates the exact path,
+bytes, and hash with both production datasets, then stops without training;
+the full `798 passed, 1 skipped` quality gate with zero type errors passes, and
+its private launch remains unauthorized.
 
 ## Purpose
 

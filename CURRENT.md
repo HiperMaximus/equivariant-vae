@@ -171,7 +171,13 @@ during the full 600-second wait. This is the same provider-side private-input
 mount failure class seen on the old resource, not a checkpoint, source, slug,
 allowlist, GPU, or Internet-setting failure. Update 54000 remains the sole
 authority. Any probe, fresh-resource workaround, or retry requires new exact
-authorization.
+authorization. A minimal fresh-resource probe is staged at
+`kaggle/kernels/so2_session6_step54000_mount_probe/`: its minimal script uses
+the exact production checkpoint path and byte/hash identity, attaches both
+production datasets on a T4 with Internet disabled, and stops without Torch or
+training. The full Python gate passes with `798 passed, 1 skipped` and zero type
+errors. Launching private kernel
+`maximshtefan/eqvae-so2-session6-step54000-mount-probe` remains unauthorized.
 Do not accept, store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
