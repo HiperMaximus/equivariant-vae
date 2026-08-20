@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-08-18
+Last updated: 2026-08-20
 
 ## Fresh-session start here
 
@@ -9,38 +9,40 @@ Read `AGENTS.md`, `GOAL.md`, this file, `docs/specs/README.md`, active Specs
 the locked Spec 0012 architecture, accepted Spec 0013 mechanics, Spec 0014
 fixed 43-convolution SO(2) VAE, and Spec 0015 local selected-runtime integration
 and dual-T4 readiness are complete. Spec 0016's batch-25 prelaunch and full
-sessions 1-4 are complete through update 36000, and session 5 is verified
-through update 45000. Keep every downloaded session separate under ignored
+sessions 1-4 are complete through update 36000, session 5 is verified through
+update 45000, and the fresh-resource session 6 is verified through update
+54000. Keep every downloaded session separate under ignored
 directories; never merge outputs into a resume input. The single authoritative
 next-resume checkpoint is:
 
 - local path:
-  `runs/kaggle/so2_selected_runtime_full_v5_session5_remote/checkpoints/step_045000.pt`;
+  `runs/kaggle/so2_selected_runtime_full_session6_fresh_v1/checkpoints/step_054000.pt`;
 - SHA-256:
-  `703dc15aeca96235227780cbea0a35b918faa404ec42fda701324a1ae17abd93`;
+  `2ae4785571e2d1b4e690957e3cf74f749c7e273f1701ee274cc7b2b2e4a8742c`;
 - size: `16,440,368` bytes;
-- proof: session 5's `benchmark/checkpoint_resume_proof.json` and matching
+- proof: fresh-resource session 6's `benchmark/checkpoint_resume_proof.json` and matching
   `benchmark/artifact_manifest.json`.
 
 The checkpoint proof's top-level `status=fail` is expected because the target
 update 60000 is incomplete. Its
 `failure_kind=partial_interval_checkpoint_not_final_resume_proof`,
-`latest_checkpoint_step=45000`, `latest_metric_prefix_step=45000`,
-`resume_checkpoint=checkpoints/step_045000.pt`, and
+`latest_checkpoint_step=54000`, `latest_metric_prefix_step=54000`,
+`resume_checkpoint=checkpoints/step_054000.pt`, and
 `resume_checkpoint_sha256` above are the positive continuation authority. The
 artifact manifest has no missing artifacts; all 13 listed hashes match their
-downloaded bytes. Both ranks have exact successful metric prefixes
-36001..45000, with four synchronized AMP-recovery rows per rank and no
-nonfinite successful update. It includes 12 validation and 54 fixed-25 rows at
-39000/42000/45000. The checkpoint carries model, optimizer, AMP scaler,
+downloaded bytes. Both ranks cover successful updates 45001..54000, with four
+synchronized AMP-recovery attempts represented by eight rank rows and no
+nonfinite successful update. The checkpoint carries model, optimizer, AMP scaler,
 Python/NumPy/Torch CPU/CUDA RNG, named generator, scheduler/beta, and DDP
 sampler-progress state.
 
 Do not resume from `best_model.pt`, an earlier boundary, any earlier checkpoint
-dataset, or an old launcher. Session 5 version 2 used the corrected namespaced
-mount, resumed session 4's verified update-36000 state, and terminally reached
-`KernelWorkerStatus.CANCEL_ACKNOWLEDGED`; the fresh archive above, not Kaggle's
-unreliable file-list endpoint, is authoritative.
+dataset, or an old launcher. Fresh private kernel
+`maximshtefan/eqvae-so2-selected-runtime-full-session6` version 1 loaded the
+verified update-45000 state, trained through the complete update-54000 boundary,
+and terminally reached `KernelWorkerStatus.CANCEL_ACKNOWLEDGED`; the freshly
+downloaded archive above, not Kaggle's unreliable file-list endpoint, is
+authoritative.
 
 The session-4 67/68 caveat remains retained: three of 48 channels in
 `encoder_blocks.6.main_gate:f1_radial` were saturated-open on one probe image,
@@ -53,9 +55,18 @@ gradient/update/precision evidence. `gate_health_summary.json` reports the
 misleading `failure_kind=no_gate_rows` despite the 68-row CSV because the
 summary writer uses that label for every non-all-pass result; the CSV is the
 actual evidence. Do not weaken, relabel, or conceal either session's result.
+Session 6 remains 66/68 at update 54000. The failed rows are still
+`decoder_blocks.2.output_gate:f1_radial` and
+`encoder_blocks.6.main_gate:f1_radial`, but their saturated-open channel counts
+are now one and five respectively. Both retain finite positive gradient/update
+evidence and passing precision evidence. Preserve this deterioration exactly;
+do not summarize it only as “two gates.”
 
 On 2026-08-18, the user explicitly accepted continuing the 45k lineage under
-the session-5 66/68 caveat. This decision retains both caveats. With exact
+the session-5 66/68 caveat. That decision retains the session-4/session-5
+caveats but does not pre-accept session 6's five-channel deterioration; the
+final continuation needs fresh explicit acceptance and payload authorization.
+With exact
 authorization, GitHub `main` was pushed at `a4f7a68`; private dataset
 `maximshtefan/eqvae-so2-session5-step45000` version 1 (ID `11701181`) was
 created and verified private with only `step_045000.pt` at `16,440,368` bytes;
@@ -131,10 +142,10 @@ schedule, and update-60000 target remain unchanged. Its wrapper SHA-256 is
 the focused continuation preflight passes 17 tests and the Python quality gate
 passes with `798 passed, 1 skipped` and zero type errors. After exact
 authorization, Kaggle accepted it as private kernel version 1 from clean commit
-`396d897dc442b5e5f9f94e32f01679d35fa69858`. Submission alone creates no new
-checkpoint authority; wait for terminal state and verify downloaded proof and
-manifest before promoting any later boundary. Do not accept, store, or use
-anyone else's Kaggle API key.
+`396d897dc442b5e5f9f94e32f01679d35fa69858`. It ended
+`CANCEL_ACKNOWLEDGED`; the log proves exact 45k restore and training, and the
+downloaded proof/manifest promote only the complete 54k boundary named above.
+Do not accept, store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source
 commit `81b5017`; it ended `KernelWorkerStatus.ERROR` after completing the 15000-update
