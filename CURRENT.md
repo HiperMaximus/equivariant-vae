@@ -64,8 +64,10 @@ do not summarize it only as “two gates.”
 
 On 2026-08-18, the user explicitly accepted continuing the 45k lineage under
 the session-5 66/68 caveat. That decision retains the session-4/session-5
-caveats but does not pre-accept session 6's five-channel deterioration; the
-final continuation needs fresh explicit acceptance and payload authorization.
+caveats. On 2026-08-20, after reviewing the 9,000 successful updates, zero
+successful nonfinite updates, and finite positive gate gradient/update evidence,
+the user explicitly accepted session 6's five-channel deterioration. The final
+continuation still needs separate exact dataset-creation and launch authorization.
 With exact
 authorization, GitHub `main` was pushed at `a4f7a68`; private dataset
 `maximshtefan/eqvae-so2-session5-step45000` version 1 (ID `11701181`) was
@@ -145,6 +147,17 @@ authorization, Kaggle accepted it as private kernel version 1 from clean commit
 `396d897dc442b5e5f9f94e32f01679d35fa69858`. It ended
 `CANCEL_ACKNOWLEDGED`; the log proves exact 45k restore and training, and the
 downloaded proof/manifest promote only the complete 54k boundary named above.
+The final continuation is locally staged without remote writes. Its ignored
+dataset directory contains exactly `dataset-metadata.json` and
+`step_054000.pt` for private slug
+`maximshtefan/eqvae-so2-session6-step54000`; the checkpoint retains the exact
+16,440,368 bytes and SHA-256 named above. The known-good private kernel resource
+remains `maximshtefan/eqvae-so2-selected-runtime-full-session6`, now pinned to
+that dataset/path. Wrapper SHA-256 is
+`a66f8134b63169ec9cfe03d621f52141920d92feca9b80d2cca0271fae5c13fd`.
+The 17-test continuation preflight and full `798 passed, 1 skipped` quality gate
+with zero type errors pass. Dataset creation and kernel version 2 launch remain
+unauthorized until the user names both exact remote writes.
 Do not accept, store, or use anyone else's Kaggle API key.
 Baseline
 full-run session 1 is Kaggle kernel version 2 from source

@@ -10,7 +10,7 @@
   "machine_shape": "NvidiaTeslaT4",
   "dataset_sources": [
     "maximusshtefan/patches-pre-shuffled-ubc-ocean",
-    "maximshtefan/eqvae-so2-session5-step45000"
+    "maximshtefan/eqvae-so2-session6-step54000"
   ],
   "competition_sources": [],
   "kernel_sources": [],
