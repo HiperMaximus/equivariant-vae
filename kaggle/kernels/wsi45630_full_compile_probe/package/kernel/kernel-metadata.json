@@ -1,0 +1,21 @@
+{
+  "code_file": "run.py",
+  "competition_sources": [],
+  "dataset_sources": [
+    "maximusshtefan/eqvae-wsi45630-capacity-inputs"
+  ],
+  "enable_gpu": "true",
+  "enable_internet": "true",
+  "id": "maximusshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe",
+  "is_private": "true",
+  "kernel_sources": [
+    "maximusshtefan/eqvae-ubc-ocean-latent-run-04",
+    "maximusshtefan/eqvae-ubc-ocean-cancer-latent-top-up",
+    "maximusshtefan/eqvae-wsi45630-completion"
+  ],
+  "kernel_type": "script",
+  "language": "python",
+  "machine_shape": "NvidiaTeslaT4",
+  "model_sources": [],
+  "title": "eqvae WSI45630 full compiled fixed25 MIL probe"
+}

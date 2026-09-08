@@ -1,213 +1,116 @@
-# Repo Goal And Requirements Tracker
+# Goal And Evaluation Requirements
 
-Status: active tracker
-Last updated: 2026-08-13
+Status: complete for the professor report
+Last updated: 2026-09-08
 
-This document keeps the repo horizon visible. It consolidates the research goal,
-GitHub issue requirements, paper obligations, and evaluation artifacts so they
-do not disappear inside issue comments or notebooks.
+## Goal
 
-For the current handoff state and next concrete steps, read `CURRENT.md`.
-For settled decisions, read `docs/decisions/README.md`.
-For Kaggle dataset behavior, train/validation split verification, and the
-masked-WSI holdout candidate list, read `docs/behavior_inventory_kaggle.md`.
-For major requirement changes, use the adversarial review process in
-`docs/agentic_review_workflow.md`.
-For substantial implementation work, use the spec-driven workflow in
-`docs/spec_driven_development.md` and write/update specs in `docs/specs/`.
+Compare a normal denoising VAE with a matched repo-owned continuous-`SO(2)` VAE
+on reconstruction, rotation behavior and downstream histopathology utility.
+Both models share data, input/latent shapes, training budget, validation access
+and evaluation code.
 
-Issue screenshots are part of the evidence. Read
-`docs/issue_image_inventory.md` before changing evaluation requirements.
+The final advisor-facing synthesis is the 20-page, 15-figure pair
+`reports/professor/informe_final_experimento_eqvae.{docx,pdf}`. Exact results
+and hashes live in `CURRENT.md`.
 
-## Current Goal
+## Professor Requirements
 
-Build and evaluate a comparable pair of histopathology patch VAEs:
-
-1. The completed 60000-update non-equivariant denoising VAE control, whose operations
-   translate to the steerable model.
-2. The next gate: assemble the full continuous `SO(2)`-steerable denoising VAE
-   from the accepted repo-owned, compile-compatible Spec 0013 mechanics, using
-   `escnn` only as a reference. This is a new, separately authorized slice;
-   narrow dual-T4 checks may answer concrete environment-specific questions
-   during implementation, but full training remains separately authorized.
-
-The final claim should compare models that share:
-
-- data pipeline and split policy;
-- input size and normalization;
-- latent target;
-- downsampling/upsampling schedule;
-- training budget and validation access;
-- metric scripts and qualitative artifact protocol.
-
-## Issue-Derived Requirement Tracker
-
-| Source | Requirement | Acceptance artifact |
+| Source | Required evidence | Accepted location |
 | --- | --- | --- |
-| Issue #1, conferences | Keep SIPAIM 2026 as the active conference route and keep the paper links visible. | Issue comment includes SIPAIM/Overleaf/repo links; `paper/sipaim2026/README.md` has links. |
-| Issue #2, baseline | Treat the old baseline as historical; produce metrics for the new comparable VAE baseline before closing or claiming baseline completion. | Baseline run config, checkpoint, metrics CSV, plots, and paper table entries. |
-| Issue #3, metrics | Implement metric scripts for SSIM, MAE, MSE, and PSNR over test/eval images. | CSV or parquet with per-image metrics for each model. |
-| Issue #3, metrics | Report mean, standard deviation, and sample count `n`. | Summary table in `paper/sipaim2026/tables/` and/or paper text. |
-| Issue #3, metrics | Produce box-and-whisker plots for SSIM, MAE, MSE, and PSNR. | `paper/sipaim2026/figures/metrics_boxplots.*`, with `n` visible in caption or labels. |
-| Issue #3/#4, attached dashboard images | Produce an analogous training/evaluation dashboard for each major run. | `paper/sipaim2026/figures/training_dashboard.*` with objective, reconstruction components, SSIM, PSNR, equivariance diagnostic, and learning-rate schedule. |
-| Issue #3, metrics | Compare experiment 1 and experiment 2 using the same metric pipeline. | One shared evaluator, one comparison table, one comparison plot set. |
-| Dataset gate, Kaggle | Keep final paper claims off the tuning validation set unless the sealed masked-WSI test shard has been generated and locked. | Test-shard dataset slug/mount path plus provenance from `docs/data/ubc_ocean_masked_holdout_ids.csv`. |
-| Issue #4, VAE validation | Generate original and reconstructed artifacts for 25 fixed patches. | `paper/sipaim2026/figures/reconstructions_25.*` or linked folders/grids. |
-| Issue #4, VAE validation | Generate rotated-input qualitative artifacts. | `paper/sipaim2026/figures/rotated_reconstructions_25.*` with fixed angles. |
-| Issue #4, attached reconstruction image | Compare ground truth, rotated-input reconstruction, and transformed-latent reconstruction. | `paper/sipaim2026/figures/rotated_input_vs_latent_grid.*`, with error/difference maps if possible. |
-| Issue #4, VAE validation | Produce boxplots for the 25-image validation subset if requested by advisor. | `paper/sipaim2026/figures/metrics_boxplots_25.*`, distinct from full eval plots. |
-| Issue #4, VAE validation | Implement latent visualization "a la EQ-VAE". | `paper/sipaim2026/figures/latent_pca_eqvae_style.*`. |
-| Issue #5, SIPAIM writing | Maintain SIPAIM paper base in IEEE conference style. | `paper/sipaim2026/main.tex`, `sipaim2026.pdf`, Overleaf project. |
-| Issue #5, SIPAIM writing | Keep outline, related work, methodology, experiments, and result placeholders current. | Updated paper sections and tracked compiled PDF. |
-| Issue #6, equivariant validation | Use continuous `SO(2)` as the target symmetry with a repo-owned implementation; use `escnn` as a reference, not the runtime dependency. | Specs 0012/0013 record the selected F0/F1 layout, q<=2 support, fixed layer/downsample mechanics, and accepted compiled probe evidence. |
-| Issue #6, equivariant validation | Validate nonlinearities, normalization, upsampling, VAE sampling, and latent statistics for equivariance before full runs. | Unit/block tests plus a small feasibility report. |
+| Issue #2 | Comparable normal-VAE baseline results | Frozen normal checkpoint, Spec 0044 and final report |
+| Issue #3 | SSIM, MAE, MSE and PSNR; mean, SD, `n`; boxplots; training/evaluation dashboard | `runs/local/professor_metrics_v1` and report Figures 2–4 |
+| Issue #4 | Fixed 25 originals/reconstructions; rotated-input versus transformed-latent view; EQ-VAE-style latent PCA visualization | `runs/local/professor_metrics_v1`, `runs/local/frozen_vae_rotation_orbits` and report Figures 4–9 |
+| Issue #6 | Repeat evaluation for continuous `SO(2)`; test downstream WSI/tissue utility | Specs 0038–0048 and report Figures 8–14 |
+| Issue #6 follow-up | Verify the 0°–359° orbit across all 25 fixed patches at one-degree resolution | `runs/local/frozen_vae_rotation_orbits/07-all25-latent-orbits.{png,json}` and report Figures 8a/8b |
+| Issue #6 follow-up | Show train context with WSI validation curves | Report Figure 10; online train CE is labelled optimization telemetry |
+| Issue #6 follow-up | Consider WSI patch attribution | Deferred: accepted outputs lack patch-level gates; instrumented inference is required |
 
-## Required Evaluation Artifacts
+The final Spanish status comment is
+`https://github.com/HiperMaximus/equivariant-vae/issues/6#issuecomment-5578529496`.
+The issue remains open.
 
-The paper should eventually have these figures/tables or explicit replacements:
+## Evaluation Populations
 
-- `paper/sipaim2026/figures/metrics_boxplots.*`
-  - Boxplots for SSIM, MAE, MSE, PSNR.
-  - Include sample count `n`.
-- `paper/sipaim2026/figures/training_dashboard.*`
-  - Objective curves.
-  - Reconstruction component curves.
-  - SSIM and PSNR curves.
-  - Equivariance diagnostic.
-  - Learning-rate schedule.
-- `paper/sipaim2026/figures/reconstructions_25.*`
-  - Fixed 25-patch original/reconstruction grid.
-  - Same patch IDs for both models.
-- `paper/sipaim2026/figures/rotated_reconstructions_25.*`
-  - Fixed continuous angles and documented interpolation/padding policy.
-- `paper/sipaim2026/figures/rotated_input_vs_latent_grid.*`
-  - Ground truth, rotated-input reconstruction, and transformed-latent
-    reconstruction for the same patch/angle set.
-  - Include difference/error maps when possible.
-- `paper/sipaim2026/figures/latent_pca_eqvae_style.*`
-  - Top principal components of latent maps or latent representations.
-  - Include baseline and `SO(2)` model outputs.
-  - Include transformed latent maps and difference/error maps when available.
-- `paper/sipaim2026/tables/metrics_summary.tex`
-  - Mean, standard deviation, and `n` for each metric and model.
-- `paper/sipaim2026/tables/equivariance_summary.tex`
-  - Dataset-level equivariance errors for reconstructions and latent statistics.
+Never merge or relabel these populations:
 
-## Metric Requirements
+| Population | Unit and use |
+| --- | --- |
+| Fixed validation 25 | Qualitative reconstruction, rotation and latent diagnostics |
+| Full reconstruction test | 67,138 patches clustered in 23 sealed-test WSIs |
+| WSI diagnosis test | 23 complete WSI bags; support CC/EC/HGSC/LGSC/MC = 5/6/8/2/2 |
+| Tissue test | 31,572 patches from 23 WSIs at five nested label budgets |
+| Development train/validation | Optimization and checkpoint selection only |
 
-Reconstruction metrics:
+Fixed-25 evidence is not sealed-test evidence. Patch-level dispersion is not
+uncertainty for a WSI-level claim.
 
-- MSE;
-- MAE;
-- PSNR;
-- SSIM.
+## Metrics
 
-VAE metrics:
+Reconstruction:
 
-- KL term;
-- reconstruction term;
-- beta schedule value;
-- posterior statistics summaries for `mu` and valid `logvar`.
+- MAE, MSE, per-image PSNR and SSIM;
+- mean, population standard deviation and sample count `n`;
+- paired model differences with direction stated;
+- WSI-cluster bootstrap intervals for the full sealed reconstruction test.
 
-Equivariance metrics:
+VAE training:
 
-- reconstruction equivariance error under fixed sampled angles;
-- latent `mu` equivariance error;
-- valid `logvar` behavior for the chosen representation;
-- sampled-latent equivariance with controlled or paired epsilon;
-- raw image transform/inverse-transform roundtrip error as the interpolation
-  floor.
+- reconstruction and KL components;
+- beta schedule;
+- posterior `mu` and valid `logvar` summaries;
+- clean and deterministic-denoising validation views;
+- online train telemetry explicitly separated from fixed-checkpoint evaluation.
 
-All plots and tables must include sample count `n`.
+Rotation/equivariance:
 
-## Fixed 25-Patch Protocol
+- image transform/inverse-transform roundtrip floor;
+- reconstruction and posterior-`mu` rotation behavior;
+- valid `logvar` and controlled-epsilon sampling behavior;
+- transformed-latent decoding;
+- local-linearity, step-size CV and PCA-planarity proxies reported separately.
 
-Keep a deterministic set of 25 validation patches for qualitative artifacts.
-Store enough metadata to reproduce it:
+Downstream:
 
-- patch IDs or file paths;
-- WSI/patient/site identifiers when available;
-- selection seed;
-- preprocessing and corruption settings;
-- fixed angles for rotated-input artifacts.
+- WSI macro-F1, accuracy, balanced accuracy, per-class F1 and confusion matrix;
+- tissue macro-F1 and per-class F1 across label budgets;
+- paired bootstrap intervals with the correct sampling unit;
+- class and WSI support next to claims.
 
-The 25-patch set is for qualitative and advisor-facing validation. Paper-level
-metric claims should use the full validation/test set when feasible.
+## Required Visuals
 
-## EQ-VAE-Style Latent Visualization
+The accepted report contains:
 
-The advisor explicitly requested a visualization similar to the EQ-VAE paper's
-latent-space figures. For this repo, the required adaptation is:
+1. training/evaluation dashboard;
+2. fixed-25 reconstruction grid;
+3. reconstruction metric boxplots;
+4. rotated-input versus transformed-latent comparison;
+5. selected-patch 0°–359° orbit;
+6. all-25 one-degree orbit sheets;
+7. common-scale spatial latent PCA/coherence views;
+8. WSI development curves with online train-loss context;
+9. sealed WSI metrics, confusion matrices and per-class F1;
+10. tissue label-efficiency and per-class F1 plots.
 
-1. collect latent maps/statistics for fixed validation images;
-2. compute top principal components or another documented low-dimensional view;
-3. show the baseline and `SO(2)` model with the same visualization pipeline;
-4. include transformed inputs and transformed latent representations;
-5. include difference/error maps where the representation type makes that
-   meaningful;
-6. report whether smoother or more structured latent geometry appears without
-   compromising reconstruction.
+`docs/issue_image_inventory.md` records the inspected screenshots and final
+GitHub attachment URLs.
 
-Do not treat this as optional polish. It is an advisor-requested validation
-artifact.
+## Claim Gates
 
-## Issue Image Handling
+- Primary reconstruction: normal-minus-`SO(2)` MAE with WSI-cluster bootstrap.
+- WSI diagnosis: one seed and 23 WSIs; a higher point estimate is not proof of
+  superiority when the interval crosses zero.
+- Tissue: six-contrast simultaneous intervals; only the 500-label contrast
+  excludes zero.
+- Rotation: lower local-linearity ratio in 25/25 supports only local
+  one-degree smoothness. Step uniformity, PCA planarity and exact-quarter
+  residuals do not generally favor `SO(2)`.
+- PCA colors and individual examples are diagnostics, not performance metrics.
+- No universal winner is established.
+- No attention heatmap may be fabricated from logits or graph coordinates.
 
-Issue images must be inspected before translating issue comments into plans.
-The current inventory is in `docs/issue_image_inventory.md`.
+## Current Boundary
 
-- The dashboard screenshots in issues #3 and #4 define a required plot style for
-  training/evaluation reporting.
-- The qualitative reconstruction screenshot in issue #4 defines a required
-  rotated-input versus transformed-latent comparison.
-- The EQ-VAE screenshot in issue #4 defines the latent PCA/latent-map visual
-  style to reproduce.
-
-## Architecture Constraints That Affect Requirements
-
-- Replace quantized bottlenecks with a normal continuous VAE.
-- Use `mu`, `logvar`, and the reparameterization trick.
-- Avoid sub-pixel/channel-to-space upsampling. Use bilinear upsampling plus
-  convolution.
-- Select EQ kernel support with Spec 0012's finite numerical gate so q=3/q=4
-  paths are resolved wherever `F2` is present; do not infer support from a
-  generic small-kernel rule.
-- Use Gaussian radial shells times real angular harmonics as the first
-  repo-owned `SO(2)` kernel basis. Enforce zero center support for spatial
-  angular frequencies `m > 0`; keep Bessel/Fourier-Bessel bases only as a future
-  fallback/ablation.
-- Use learned scalar gate parameters `a,b` in both the Conv2d baseline and
-  `SO(2)` scalar/trivial fields to keep pointwise nonlinear expressivity
-  comparable. Use radial gates for nontrivial `SO(2)` fields with
-  `r = sqrt(||v||**2 + eps)` and an explicitly configured FP16-safe `eps`.
-- Before full training, log a gate-health benchmark for learned gate parameters:
-  saturation, `a,b` ranges, gradients/updates, and input/output RMS, so dead or
-  saturated gates are caught before they can invalidate a full run.
-- Before the first full Kaggle run, require runtime, dataloader-throughput,
-  paired numerical, selected-runtime debug, checkpoint/resume, and tiny-overfit
-  gates to pass on the selected configuration.
-- Do not use a final `tanh` in the VAE output head. Use a zero-initialized final
-  RGB convolution, train L1 on raw normalized output, and clamp only for
-  SSIM/PSNR/images/artifacts outside the model forward path.
-- Avoid arbitrary channel operations on `GeometricTensor` objects.
-- Do not introduce a baseline layer unless the corresponding steerable layer is
-  known or explicitly documented as a temporary non-comparable ablation.
-
-## Completion Gates Before Paper Claims
-
-Before claiming one model is better than the other:
-
-1. Both models must use the same dataset split and evaluation images.
-   Train/validation are locked to the verified pre-shuffled patch dataset; final
-   paper claims require a sealed test shard generated from
-   `docs/data/ubc_ocean_masked_holdout_ids.csv`.
-2. Both models must use the same corruption protocol for denoising validation.
-3. The metric script must be shared between models.
-4. Boxplots and tables must include sample count `n`.
-5. The fixed 25-patch qualitative artifacts must be regenerated for both models.
-6. The EQ-VAE-style latent visualization must be regenerated for both models.
-7. The training/evaluation dashboard must be regenerated for both models.
-8. Equivariance tests must be reported for the `SO(2)` model.
-9. Parameter count and compute differences must be reported.
-10. `paper/sipaim2026/sipaim2026.pdf` must be refreshed.
-11. Relevant GitHub issues must receive Spanish status updates.
+The evaluation and professor report are complete. Paper, thesis, Overleaf,
+public derived-data release, further issue mutation and WSI attribution require
+separate explicit scope.

@@ -5513,7 +5513,7 @@ def test_train_step_metric_buffer_materializes_rows_value_preserving_in_order() 
     column alignment, per-step ordering, and that the fp32 buffer reproduces each
     metric's fp32 value exactly. The oracle materializes at fp32 because that is the
     buffer's storage dtype: the fp32-origin columns round-trip bit-exact, while the
-    three fp64-reduced norms round to fp32 by design (fp-tolerant telemetry, rule 30).
+    three fp64-reduced norms round to fp32 by design (FP-tolerant telemetry policy).
     """
     context = _train_row_context()
     results = [_distinct_step_result(step=i, offset=10.0 * i) for i in (1, 2, 3)]

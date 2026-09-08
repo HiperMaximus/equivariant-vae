@@ -1,0 +1,16 @@
+{
+  "id": "maximusshtefan/eqvae-ubc-ocean-test-atlas",
+  "title": "eqvae UBC-OCEAN test atlas",
+  "code_file": "run.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [
+    "sohier/ubc-ovarian-cancer-competition-supplemental-masks"
+  ],
+  "competition_sources": ["UBC-OCEAN"],
+  "kernel_sources": [],
+  "model_sources": []
+}

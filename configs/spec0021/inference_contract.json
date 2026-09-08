@@ -1,0 +1,43 @@
+{
+  "schema_version": "spec0021.inference_contract.v1",
+  "latent_dtype": "float32",
+  "latent_shape": [
+    16,
+    32,
+    32
+  ],
+  "normal_checkpoint_sha256": "f733304e9178e468546113642bdf01e11348570b340c366cf148973083cb9075",
+  "pilot": {
+    "batch_sizes": [
+      8
+    ],
+    "d2h_modes": [
+      "synchronous"
+    ],
+    "executions": [
+      "eager"
+    ],
+    "measured_passes": 1,
+    "numeric_modes": [
+      "FP32"
+    ],
+    "row_count": 16,
+    "sentinel_indices": [
+      0,
+      8,
+      15
+    ],
+    "warmup_passes": 0,
+    "work_run": 2,
+    "wsi_id": 15188
+  },
+  "so2_checkpoint_sha256": "041e0cd7483cb8642bb72eb1b63c3a36774bf9cadd0b659c9d1db6a813c8f4c7",
+  "union_manifest_sha256": "f92558fa7aced13debc839c733e2c96d03c1a3df4b2a0b194b60558c69c04012",
+  "work_manifest_sha256": {
+    "01": "76cc5f9b86b75b9e46250c80e7b5c98d2f0451a12b38665ae45b055767b7a456",
+    "02": "11d21482c9d3e083bc5138973c6b09f6b659e7d753853c0290382320e78e6200",
+    "03": "9414f638abc24963e821de8bbedccaf294a14a7ea768a01687d5b105e634402b",
+    "04": "e7c5d8d08996e3bac440b5779547b2bbeb4443e7481dcb74998a87aa3054697f",
+    "05": "5485c44ababeaba9a4e2cc75a1a6b2927d89f10ed83a121dfcb81a68cfc23d6a"
+  }
+}

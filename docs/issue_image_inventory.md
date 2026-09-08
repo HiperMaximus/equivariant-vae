@@ -1,7 +1,7 @@
 # Issue Image Inventory
 
 Status: active reference
-Last updated: 2026-06-05
+Last updated: 2026-09-08
 
 GitHub issue images are requirements evidence. Do not ignore them when updating
 plans, evaluation scripts, paper figures, or issue comments.
@@ -10,15 +10,26 @@ plans, evaluation scripts, paper figures, or issue comments.
 
 | Issue | Image | Visual content | Requirement impact |
 | --- | --- | --- | --- |
-| #3 | `https://github.com/user-attachments/assets/ac6d07ff-81c1-455e-b986-786da5a58649` | Six-panel training/evaluation dashboard: composite objective, Charbonnier approximation, SSIM offset, PSNR, bottleneck spatial equivariance over 25 samples, learning-rate schedule. | Future runs need an analogous training dashboard, not only final summary metrics. |
+| #3 | `https://github.com/user-attachments/assets/ac6d07ff-81c1-455e-b986-786da5a58649` | Six-panel training/evaluation dashboard: composite objective, Charbonnier approximation, SSIM offset, PSNR, bottleneck spatial equivariance over 25 samples, learning-rate schedule. | The accepted report preserves an analogous dashboard rather than only final summary metrics. |
 | #4 | `https://github.com/user-attachments/assets/6ffcfa4e-bdeb-4b09-9697-9d97872a2482` | Same six-panel dashboard as issue #3. | Cross-confirms the dashboard requirement for validation reporting. |
 | #4 | `https://github.com/user-attachments/assets/9c6df0e6-6d73-4f80-9c05-34431b600f3e` | Qualitative grid with columns `Ground Truth`, `Rotated Input Reconstruction`, `Rotated Latent Reconstruction` and rows 0, 90, 180, 270 degrees. Rotated latent reconstructions visibly diverge for nonzero rotations. | Need fixed-angle reconstruction grids comparing image-space rotation and latent-space transformation, plus error/difference maps when possible. |
 | #4 | `https://github.com/user-attachments/assets/cf38dd80-0467-4f6b-bf24-4e4fccea1320` | EQ-VAE-style PCA-color latent visualization comparing baseline VAE latents and improved/equivariant latents. The target visual pattern is smoother, more structured latent maps without losing reconstruction content. | Need side-by-side latent PCA/latent-map visualizations for baseline and `SO(2)` model. |
+| #6 | `https://github.com/user-attachments/assets/193001bf-d76d-4e29-883c-2bb4b6609d1b` | Dense 0°--359° latent-orbit grid for all 25 fixed validation patches, paired normal/`SO(2)`, with population summaries for local linearity, step-size CV, and PCA planarity. | Preserve the all-25 one-degree population view and report its mixed proxies: smoother local SO(2) trajectory in 25/25, but no advantage in step uniformity and only 9/25 in PCA planarity. |
+| #6 | `https://github.com/user-attachments/assets/e9296611-e2e2-47ae-9c89-3a5e37b2553e` | Supervised-development chart with MIL validation macro-F1, online train versus validation cross-entropy, and tissue validation macro-F1 across label budgets. | Show train context next to validation while labeling online train loss as an optimization diagnostic, not fixed-checkpoint train performance or sealed-test evidence. |
 
-## Image-Derived Artifact Requirements
+## Current Professor Comment
 
-The current experiment/paper workflow must produce these artifacts or explicitly
-justify replacements:
+The authorized final Spanish status comment is
+`https://github.com/HiperMaximus/equivariant-vae/issues/6#issuecomment-5578529496`.
+It remains on the open issue and currently embeds 12 verified attachment URLs.
+The two issue-#6 rows above are the newest evidence images added with the final
+20-page, 15-figure report update. Further issue mutation requires a new explicit
+request.
+
+## Image-Derived Artifact Contract
+
+The accepted report implements these requirements; preserve the same semantics
+when transferring results elsewhere:
 
 1. Training/evaluation dashboard.
    - Include train/validation objective curves.
@@ -44,6 +55,14 @@ justify replacements:
    - Show transformed latent maps and difference/error maps where meaningful.
    - State whether the `SO(2)` model produces smoother or more structured
      latents without damaging reconstruction.
+5. Dense rotation-orbit population view.
+   - Show all 25 fixed validation patches for both models at one-degree steps.
+   - Keep local-linearity, traversal-uniformity, and PCA-planarity conclusions
+     separate; do not treat PCA appearance as a confirmatory metric.
+6. Supervised train/validation context.
+   - Pair checkpoint-selection validation curves with available train telemetry.
+   - Distinguish online train loss from evaluation of a fixed checkpoint and
+     keep both separate from sealed-test results.
 
 ## Documentation Hygiene
 

@@ -1,34 +1,20 @@
 # Decision 0001: Continuous SO(2) Scope
 
 Status: active
-Date: 2026-06-05
 
 ## Decision
 
-The active equivariant target is continuous `SO(2)` steerability for planar
-histopathology patches.
+The equivariant model targets planar continuous `SO(2)` steerability with a
+repo-owned, compile-compatible implementation. Hidden fields use the selected
+F0/F1 layout; `escnn` is an oracle/reference, not a runtime dependency.
 
-The intended implementation route is a repo-owned, compile-compatible
-continuous `SO(2)` implementation specialized to this project. `escnn` remains a
-reference implementation and notation source, not the planned runtime
-dependency. The first target should be equivalent to:
-
-```text
-rot2dOnR2(N=-1, maximum_frequency=2)
-```
-
-## Rationale
-
-The paper asks whether continuous rotation-equivariant structure helps a VAE
-learn better histopathology patch representations. A discrete symmetry target
-would answer a different question and would not match the current thesis/paper
-goal.
+Discrete rotation groups and `O(2)` reflections answer different questions and
+are outside the frozen comparison.
 
 ## Consequences
 
-- Baseline operations should be chosen because they can be mirrored in a
-  continuous steerable model.
-- Kernel sizes, field types, nonlinearities, normalization, upsampling, VAE
-  statistics, and evaluation must be checked against continuous rotations.
-- Optional reflection or other symmetry ablations must not distract from the
-  first continuous `SO(2)` comparison.
+- Arbitrary-angle rotations must be meaningful.
+- Field-aware nonlinearities, normalization, resampling and latent statistics
+  are required.
+- F2 is not part of the frozen architecture.
+- Any symmetry-scope change requires a new matched experiment.

@@ -35,6 +35,76 @@ SO2_PRELAUNCH_KERNEL_ID = "maximusshtefan/eqvae-so2-prelaunch"
 SO2_SELECTED_RUNTIME_FULL_KERNEL_ID = (
     "maximshtefan/eqvae-so2-selected-runtime-full-session7"
 )
+DUAL_LATENT_INFERENCE_KERNEL_PREFIX = "maximusshtefan/eqvae-ubc-ocean-latent-"
+VAE_TEST_RECONSTRUCTION_KERNEL_ID = "maximshtefan/eqvae-frozen-vae-test-reconstruction"
+ROTATION_POPULATION_KERNEL_ID = "maximshtefan/eqvae-fixed25-rotation-population"
+VAE_TEST_INPUT_CONTRACT_PATH = Path(
+    "runs/local/vae_test_evaluation_input/spec0045_vae_test_input.json",
+)
+VAE_TEST_REMOTE_PATHS = tuple(
+    Path(path)
+    for path in (
+        "src/eqvae/__init__.py",
+        "src/eqvae/data/latent_shards.py",
+        "src/eqvae/data/wsi_batches.py",
+        "src/eqvae/evaluation/vae_test.py",
+        "src/eqvae/evaluation/vae_test_runtime.py",
+        "src/eqvae/metrics/__init__.py",
+        "src/eqvae/metrics/reconstruction.py",
+        "src/eqvae/models/activations.py",
+        "src/eqvae/models/latent.py",
+        "src/eqvae/models/non_equivariant_vae.py",
+        "src/eqvae/models/registry.py",
+        "src/eqvae/models/resampling.py",
+        "src/eqvae/models/so2_architecture_probe.py",
+        "src/eqvae/models/so2_vae.py",
+    )
+)
+VAE_TEST_STUB_PATHS = {
+    "src/eqvae/data/__init__.py": Path(
+        "kaggle/kernels/vae_test_reconstruction/stubs/data_init.py",
+    ),
+    "src/eqvae/evaluation/__init__.py": Path(
+        "kaggle/kernels/vae_test_reconstruction/stubs/evaluation_init.py",
+    ),
+    "src/eqvae/models/__init__.py": Path(
+        "kaggle/kernels/vae_test_reconstruction/stubs/models_init.py",
+    ),
+}
+ROTATION_POPULATION_REMOTE_PATHS = tuple(
+    Path(path)
+    for path in (
+        "src/eqvae/__init__.py",
+        "src/eqvae/artifacts/__init__.py",
+        "src/eqvae/artifacts/rotation_orbits.py",
+        "src/eqvae/evaluation/vae_test.py",
+        "src/eqvae/metrics/__init__.py",
+        "src/eqvae/metrics/reconstruction.py",
+        "src/eqvae/models/activations.py",
+        "src/eqvae/models/latent.py",
+        "src/eqvae/models/non_equivariant_vae.py",
+        "src/eqvae/models/registry.py",
+        "src/eqvae/models/resampling.py",
+        "src/eqvae/models/so2_architecture_probe.py",
+        "src/eqvae/models/so2_vae.py",
+        "runs/kaggle/fixed25_selector/fixed_25_validation_patches.json",
+    )
+)
+ROTATION_POPULATION_STUB_PATHS = {
+    "src/eqvae/models/__init__.py": Path(
+        "kaggle/kernels/vae_test_reconstruction/stubs/models_init.py",
+    ),
+}
+SPEC0021_CONFIG_NAME = "spec0021_inference_config.json"
+SPEC0021_PILOT_AUTHORITY_PATH = Path(
+    "runs/kaggle/ubc_ocean_latent_pilot/dataset/spec0021_pilot_authority.json",
+)
+SPEC0021_PAYLOAD_PATHS = (
+    Path("configs/spec0021"),
+    Path("docs/specs/0019-task-consumption-manifests-and-kaggle-work-plan.md"),
+    Path("docs/specs/0020-fp32-latent-shard-format-and-io.md"),
+    Path("docs/specs/0021-dual-model-wsi-latent-inference.md"),
+)
 SO2_TRAINING_LAUNCHER_FILES = (
     Path("kaggle/kernels/so2_prelaunch/kernel-metadata.json"),
     Path("kaggle/kernels/so2_prelaunch/run_template.py"),
@@ -72,6 +142,18 @@ EMBEDDED_ZIP_HASH_PATTERN = re.compile(
 )
 EMBEDDED_MANIFEST_HASH_PATTERN = re.compile(
     r'EMBEDDED_PAYLOAD_MANIFEST_SHA256 = "(?P<sha>[0-9a-f]{64})"',
+)
+EMBEDDED_INFERENCE_CONFIG_B64_PATTERN = re.compile(
+    r'EMBEDDED_INFERENCE_CONFIG_B64 = "(?P<payload>[A-Za-z0-9+/=]+)"',
+)
+EMBEDDED_INFERENCE_CONFIG_HASH_PATTERN = re.compile(
+    r'EMBEDDED_INFERENCE_CONFIG_SHA256 = "(?P<sha>[0-9a-f]{64})"',
+)
+EMBEDDED_PILOT_AUTHORITY_B64_PATTERN = re.compile(
+    r'EMBEDDED_PILOT_AUTHORITY_B64 = "(?P<payload>[A-Za-z0-9+/=]*)"',
+)
+EMBEDDED_PILOT_AUTHORITY_HASH_PATTERN = re.compile(
+    r'EMBEDDED_PILOT_AUTHORITY_SHA256 = "(?P<sha>[0-9a-f]{64})"',
 )
 
 
@@ -134,6 +216,31 @@ def build_run_text(args: BuildArgs) -> str:
             manifest_bytes,
         ).hexdigest(),
     }
+    if _is_dual_latent_inference_kernel(args.kernel_dir):
+        config_bytes = (args.kernel_dir / SPEC0021_CONFIG_NAME).read_bytes()
+        config = cast("dict[str, object]", json.loads(config_bytes))
+        pilot_bytes = _spec0021_authority_bytes(
+            args.repo_root,
+            config,
+        )
+        substitutions.update(
+            {
+                "embedded_inference_config_b64": base64.b64encode(
+                    config_bytes,
+                ).decode("ascii"),
+                "embedded_inference_config_sha256": hashlib.sha256(
+                    config_bytes,
+                ).hexdigest(),
+                "embedded_pilot_authority_b64": base64.b64encode(
+                    pilot_bytes,
+                ).decode("ascii"),
+                "embedded_pilot_authority_sha256": hashlib.sha256(
+                    pilot_bytes,
+                ).hexdigest(),
+            },
+        )
+    if _is_vae_test_reconstruction_kernel(args.kernel_dir):
+        substitutions.update(_vae_test_substitutions(args.repo_root))
     template = Template(args.template_path.read_text(encoding="utf-8"))
     run_text = template.safe_substitute(substitutions)
     if (
@@ -267,6 +374,32 @@ def verify_run_file(args: BuildArgs) -> None:
     if actual_manifest_hash != expected_manifest_hash:
         message = "embedded payload manifest SHA-256 does not match generated constant"
         raise RuntimeError(message)
+    if _is_dual_latent_inference_kernel(args.kernel_dir):
+        config_bytes = base64.b64decode(
+            _required_match(EMBEDDED_INFERENCE_CONFIG_B64_PATTERN, run_text),
+            validate=True,
+        )
+        expected_config_hash = _required_match(
+            EMBEDDED_INFERENCE_CONFIG_HASH_PATTERN,
+            run_text,
+        )
+        if hashlib.sha256(config_bytes).hexdigest() != expected_config_hash:
+            message = "embedded inference config SHA-256 does not match constant"
+            raise RuntimeError(message)
+        if config_bytes != (args.kernel_dir / SPEC0021_CONFIG_NAME).read_bytes():
+            message = "embedded inference config differs from generated sibling"
+            raise RuntimeError(message)
+        pilot = base64.b64decode(
+            _required_match(EMBEDDED_PILOT_AUTHORITY_B64_PATTERN, run_text),
+            validate=True,
+        )
+        expected_pilot_hash = _required_match(
+            EMBEDDED_PILOT_AUTHORITY_HASH_PATTERN,
+            run_text,
+        )
+        if hashlib.sha256(pilot).hexdigest() != expected_pilot_hash:
+            message = "embedded pilot authority SHA-256 does not match constant"
+            raise RuntimeError(message)
 
     template_path = _template_path_for_verify(
         manifest=manifest,
@@ -317,6 +450,29 @@ def _render_template_with_embedded_payload(
             run_text,
         ),
     }
+    if EMBEDDED_INFERENCE_CONFIG_B64_PATTERN.search(run_text) is not None:
+        substitutions.update(
+            {
+                "embedded_inference_config_b64": _required_match(
+                    EMBEDDED_INFERENCE_CONFIG_B64_PATTERN,
+                    run_text,
+                ),
+                "embedded_inference_config_sha256": _required_match(
+                    EMBEDDED_INFERENCE_CONFIG_HASH_PATTERN,
+                    run_text,
+                ),
+                "embedded_pilot_authority_b64": _required_match(
+                    EMBEDDED_PILOT_AUTHORITY_B64_PATTERN,
+                    run_text,
+                ),
+                "embedded_pilot_authority_sha256": _required_match(
+                    EMBEDDED_PILOT_AUTHORITY_HASH_PATTERN,
+                    run_text,
+                ),
+            },
+        )
+    if _is_vae_test_reconstruction_kernel(template_path.parent):
+        substitutions.update(_vae_test_substitutions(repo_root))
     expected = Template(template_path.read_text(encoding="utf-8")).safe_substitute(
         substitutions,
     )
@@ -404,15 +560,32 @@ def _payload_manifest(
     template_path: Path,
     kernel_dir: Path,
 ) -> dict[str, object]:
-    entries = {
-        "src/eqvae": _digest_tree(repo_root / "src" / "eqvae"),
-        "configs/spec0001": _digest_tree(repo_root / "configs" / "spec0001"),
-        "docs/data/ubc_ocean_masked_holdout_ids.csv": _digest_file(
-            repo_root / "docs" / "data" / "ubc_ocean_masked_holdout_ids.csv",
-        ),
-        "pyproject.toml": _digest_file(repo_root / "pyproject.toml"),
-        "uv.lock": _digest_file(repo_root / "uv.lock"),
-    }
+    if _is_rotation_population_kernel(kernel_dir):
+        entries = {
+            path.as_posix(): _digest_file(repo_root / path)
+            for path in ROTATION_POPULATION_REMOTE_PATHS
+        } | {
+            archive_name: _digest_file(repo_root / source)
+            for archive_name, source in ROTATION_POPULATION_STUB_PATHS.items()
+        }
+    elif _is_vae_test_reconstruction_kernel(kernel_dir):
+        entries = {
+            path.as_posix(): _digest_file(repo_root / path)
+            for path in VAE_TEST_REMOTE_PATHS
+        } | {
+            archive_name: _digest_file(repo_root / source)
+            for archive_name, source in VAE_TEST_STUB_PATHS.items()
+        }
+    else:
+        entries = {
+            "src/eqvae": _digest_tree(repo_root / "src" / "eqvae"),
+            "configs/spec0001": _digest_tree(repo_root / "configs" / "spec0001"),
+            "docs/data/ubc_ocean_masked_holdout_ids.csv": _digest_file(
+                repo_root / "docs" / "data" / "ubc_ocean_masked_holdout_ids.csv",
+            ),
+            "pyproject.toml": _digest_file(repo_root / "pyproject.toml"),
+            "uv.lock": _digest_file(repo_root / "uv.lock"),
+        }
     if _is_runtime_selection_kernel(kernel_dir):
         entries.update(_runtime_selection_entry_hashes(repo_root))
     elif _ships_legacy_selected_runtime_baseline(kernel_dir):
@@ -431,6 +604,11 @@ def _payload_manifest(
                 for path in SO2_TRAINING_LAUNCHER_FILES
             },
         )
+    if _is_dual_latent_inference_kernel(kernel_dir):
+        entries.update(_spec0021_entry_hashes(repo_root))
+        entries[SPEC0021_CONFIG_NAME] = _digest_file(
+            kernel_dir / SPEC0021_CONFIG_NAME,
+        )
     return {
         "schema_version": PAYLOAD_SCHEMA_VERSION,
         "git_commit": _git_output(repo_root, "rev-parse", "HEAD"),
@@ -439,6 +617,7 @@ def _payload_manifest(
             "path": _manifest_path(repo_root=repo_root, path=template_path),
             "sha256": _digest_file(template_path),
         },
+        "kernel_dir": _manifest_path(repo_root=repo_root, path=kernel_dir),
         "entries": entries,
     }
 
@@ -460,10 +639,26 @@ def _payload_zip_bytes(
     return buffer.getvalue()
 
 
-def _payload_files(
+def _payload_files(  # noqa: C901
     repo_root: Path,
     kernel_dir: Path,
 ) -> tuple[tuple[Path, str], ...]:
+    if _is_rotation_population_kernel(kernel_dir):
+        return tuple(
+            (repo_root / relative, relative.as_posix())
+            for relative in ROTATION_POPULATION_REMOTE_PATHS
+        ) + tuple(
+            (repo_root / source, archive_name)
+            for archive_name, source in ROTATION_POPULATION_STUB_PATHS.items()
+        )
+    if _is_vae_test_reconstruction_kernel(kernel_dir):
+        return tuple(
+            (repo_root / relative, relative.as_posix())
+            for relative in VAE_TEST_REMOTE_PATHS
+        ) + tuple(
+            (repo_root / source, archive_name)
+            for archive_name, source in VAE_TEST_STUB_PATHS.items()
+        )
     roots = (
         (repo_root / "src" / "eqvae", Path("src/eqvae")),
         (repo_root / "configs" / "spec0001", Path("configs/spec0001")),
@@ -478,6 +673,8 @@ def _payload_files(
             *roots,
             (repo_root / "configs" / "spec0016", Path("configs/spec0016")),
         )
+    if _is_dual_latent_inference_kernel(kernel_dir):
+        roots = (*roots, (repo_root / "configs" / "spec0021", Path("configs/spec0021")))
     files: list[tuple[Path, str]] = []
     for source_root, archive_root in roots:
         for path in sorted(candidate for candidate in source_root.rglob("*")):
@@ -497,6 +694,11 @@ def _payload_files(
         files.extend(
             (repo_root / relative, relative.as_posix())
             for relative in SO2_TRAINING_LAUNCHER_FILES
+        )
+    if _is_dual_latent_inference_kernel(kernel_dir):
+        files.extend(
+            (repo_root / relative, relative.as_posix())
+            for relative in SPEC0021_PAYLOAD_PATHS[1:]
         )
     if _is_runtime_selection_kernel(kernel_dir):
         files.extend(_runtime_selection_payload_files(repo_root))
@@ -520,28 +722,69 @@ def _is_so2_training_kernel(kernel_dir: Path) -> bool:
     }
 
 
+def _is_dual_latent_inference_kernel(kernel_dir: Path) -> bool:
+    return _kernel_id(kernel_dir).startswith(DUAL_LATENT_INFERENCE_KERNEL_PREFIX)
+
+
+def _is_vae_test_reconstruction_kernel(kernel_dir: Path) -> bool:
+    return _kernel_id(kernel_dir) == VAE_TEST_RECONSTRUCTION_KERNEL_ID
+
+
+def _is_rotation_population_kernel(kernel_dir: Path) -> bool:
+    return _kernel_id(kernel_dir) == ROTATION_POPULATION_KERNEL_ID
+
+
+def _vae_test_substitutions(repo_root: Path) -> dict[str, str]:
+    contract_path = repo_root / VAE_TEST_INPUT_CONTRACT_PATH
+    contract = cast(
+        "dict[str, object]",
+        json.loads(contract_path.read_text(encoding="utf-8")),
+    )
+    reference = contract.get("dataset_reference")
+    if (
+        contract.get("schema_version") != "spec0045.vae_test_input.v1"
+        or not isinstance(reference, str)
+        or not reference
+    ):
+        message = "Spec 0045 input contract is missing or malformed"
+        raise RuntimeError(message)
+    return {
+        "input_contract_sha256": _digest_file(contract_path),
+        "input_dataset_reference": reference,
+    }
+
+
+def _spec0021_entry_hashes(repo_root: Path) -> dict[str, str]:
+    return {
+        relative.as_posix(): (
+            _digest_tree(repo_root / relative)
+            if (repo_root / relative).is_dir()
+            else _digest_file(repo_root / relative)
+        )
+        for relative in SPEC0021_PAYLOAD_PATHS
+    }
+
+
+def _spec0021_authority_bytes(
+    repo_root: Path,
+    config: dict[str, object],
+) -> bytes:
+    if config.get("mode") in {"pilot", "finalizer"}:
+        return b""
+    expected_pilot = config.get("pilot_authority_sha256")
+    pilot = (repo_root / SPEC0021_PILOT_AUTHORITY_PATH).read_bytes()
+    if hashlib.sha256(pilot).hexdigest() != expected_pilot:
+        message = "Production config pilot-authority SHA-256 mismatch"
+        raise RuntimeError(message)
+    return pilot
+
+
 def _is_selected_runtime_debug_kernel(kernel_dir: Path) -> bool:
     return _kernel_id(kernel_dir) == SELECTED_RUNTIME_DEBUG_KERNEL_ID
 
 
 def _is_selected_runtime_full_kernel(kernel_dir: Path) -> bool:
     return _kernel_id(kernel_dir) == SELECTED_RUNTIME_FULL_KERNEL_ID
-
-
-def _is_selected_runtime_lr_range_kernel(kernel_dir: Path) -> bool:
-    return _kernel_id(kernel_dir) == SELECTED_RUNTIME_LR_RANGE_KERNEL_ID
-
-
-def _is_selected_runtime_kernel(kernel_dir: Path) -> bool:
-    return (
-        _is_selected_runtime_debug_kernel(
-            kernel_dir,
-        )
-        or _is_selected_runtime_full_kernel(
-            kernel_dir,
-        )
-        or _is_selected_runtime_lr_range_kernel(kernel_dir)
-    )
 
 
 def _ships_legacy_selected_runtime_baseline(kernel_dir: Path) -> bool:
@@ -685,16 +928,33 @@ def _validate_manifest_against_source(  # noqa: C901, PLR0912
     if template_error is not None:
         errors.append(template_error)
 
-    expected_entries = {
-        "src/eqvae": _digest_tree(repo_root / "src" / "eqvae"),
-        "configs/spec0001": _digest_tree(repo_root / "configs" / "spec0001"),
-        "docs/data/ubc_ocean_masked_holdout_ids.csv": _digest_file(
-            repo_root / "docs" / "data" / "ubc_ocean_masked_holdout_ids.csv",
-        ),
-        "pyproject.toml": _digest_file(repo_root / "pyproject.toml"),
-        "uv.lock": _digest_file(repo_root / "uv.lock"),
-    }
     kernel_dir = repo_root / _metadata_kernel_dir(manifest)
+    if _is_rotation_population_kernel(kernel_dir):
+        expected_entries = {
+            path.as_posix(): _digest_file(repo_root / path)
+            for path in ROTATION_POPULATION_REMOTE_PATHS
+        } | {
+            archive_name: _digest_file(repo_root / source)
+            for archive_name, source in ROTATION_POPULATION_STUB_PATHS.items()
+        }
+    elif _is_vae_test_reconstruction_kernel(kernel_dir):
+        expected_entries = {
+            path.as_posix(): _digest_file(repo_root / path)
+            for path in VAE_TEST_REMOTE_PATHS
+        } | {
+            archive_name: _digest_file(repo_root / source)
+            for archive_name, source in VAE_TEST_STUB_PATHS.items()
+        }
+    else:
+        expected_entries = {
+            "src/eqvae": _digest_tree(repo_root / "src" / "eqvae"),
+            "configs/spec0001": _digest_tree(repo_root / "configs" / "spec0001"),
+            "docs/data/ubc_ocean_masked_holdout_ids.csv": _digest_file(
+                repo_root / "docs" / "data" / "ubc_ocean_masked_holdout_ids.csv",
+            ),
+            "pyproject.toml": _digest_file(repo_root / "pyproject.toml"),
+            "uv.lock": _digest_file(repo_root / "uv.lock"),
+        }
     if _is_runtime_selection_kernel(kernel_dir):
         expected_entries.update(_runtime_selection_entry_hashes(repo_root))
     elif _ships_legacy_selected_runtime_baseline(kernel_dir):
@@ -712,6 +972,11 @@ def _validate_manifest_against_source(  # noqa: C901, PLR0912
                 str(path): _digest_file(repo_root / path)
                 for path in SO2_TRAINING_LAUNCHER_FILES
             },
+        )
+    if _is_dual_latent_inference_kernel(kernel_dir):
+        expected_entries.update(_spec0021_entry_hashes(repo_root))
+        expected_entries[SPEC0021_CONFIG_NAME] = _digest_file(
+            kernel_dir / SPEC0021_CONFIG_NAME,
         )
     raw_entries = manifest.get("entries")
     if not isinstance(raw_entries, dict):
@@ -793,6 +1058,9 @@ def _validate_zip_members(
 
 
 def _metadata_kernel_dir(manifest: dict[str, object]) -> Path:
+    explicit = manifest.get("kernel_dir")
+    if isinstance(explicit, str) and explicit:
+        return Path(explicit)
     raw_template = manifest.get("template")
     if not isinstance(raw_template, dict):
         return DEFAULT_KERNEL_DIR

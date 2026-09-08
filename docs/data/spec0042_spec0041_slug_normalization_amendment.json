@@ -1,0 +1,13 @@
+{
+  "accepted_kernel_reference": "maximshtefan/eqvae-label-blind-mil-test-evaluation/1",
+  "amended_scorer_sha256": "c78230081c3e8279343c6f2b45203dc72433c5e8c0cca6b4b10d99110e2cf640",
+  "authorization": "User explicitly authorized the narrow administrative scorer amendment on 2026-09-05 before any output retrieval.",
+  "input_contract_sha256": "1b9d11d41e6cdb5bbfcc774b4a7a101819092327d883e4b1031f7d65c634f8e7",
+  "launch_receipt_sha256": "b1d7f1fd90900a0839c1b191afef5b825f8fcb464c16a4234c3e4864fa7fa243",
+  "original_scorer_sha256": "89654cc6a6c6b0c174f3d073037e84406283bb2121c52568a1cbcb5a6e1d3194",
+  "outputs_retrieved_before_amendment": false,
+  "requested_kernel_id": "maximshtefan/eqvae-local-global-mil-test-evaluation",
+  "schema_version": "spec0042.spec0041_slug_normalization_amendment.v1",
+  "scientific_changes": [],
+  "scope": "administrative_slug_normalization_only"
+}

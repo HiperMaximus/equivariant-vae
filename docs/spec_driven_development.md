@@ -12,7 +12,7 @@ The pattern is:
 spec -> adversarial review when stakes are high -> implementation -> verification -> spec/docs refresh
 ```
 
-The goal is not bureaucracy. The goal is to make future agents agree on what
+The goal is not bureaucracy. The goal is to make agents agree on what
 "done" means before code or claims start drifting.
 
 ## When A Spec Is Required
@@ -40,9 +40,10 @@ docs/specs/
 
 Use `docs/specs/template.md` for new specs.
 
-Active specs should be linked from `CURRENT.md` or the relevant plan. Completed
-or superseded specs should be updated in place with their final status, not left
-as misleading drafts.
+Active specs should be linked from `CURRENT.md` or the relevant contract.
+Completed specs keep their final contract and evidence. Delete rejected or
+obsolete specs unless a live guard, verifier or exclusion decision consumes
+them.
 
 `docs/specs/README.md` is the status index. A `draft` or `draft active` spec is
 not permission to implement unless it is explicitly marked
@@ -91,13 +92,16 @@ Paper specs must additionally define:
    on the spec before implementation.
 5. Implement only what the spec covers.
 6. Verify against the spec's acceptance criteria.
-7. For Python changes, run `./scripts/python_quality.sh` after implementation.
+7. For production Python changes, run `./scripts/python_quality.sh` after
+   implementation. For an isolated disposable Kaggle probe that does not
+   select or alter production behavior, use the focused lint, type, package,
+   model, kernel-validation and shell-syntax gate defined by its active spec.
 8. Update the spec, `CURRENT.md`, and any affected plan/readme files.
 9. Delete or replace stale information. Do not leave contradictory historical
    notes.
 
-## Memory Rule
+## State Rule
 
-Spec-driven development is part of the repo workflow. Future agents should not
-start substantial implementation from chat context alone; they should first
-write or update the relevant spec in `docs/specs/`.
+Do not start substantial implementation from chat context alone. Write or
+update the relevant spec in `docs/specs/` first, and keep only its current
+contract and accepted evidence.

@@ -4,10 +4,8 @@ This file is a thin adapter for Claude. The canonical repository instructions
 live in `AGENTS.md`, `CURRENT.md`, `GOAL.md`, and the docs listed below.
 
 Read the canonical landing sequence before architecture, evaluation, paper,
-workflow, or Overleaf work. `AGENTS.md` is the BINDING hard-rules contract (rules
-1–31) — read it in full, do not skim: agents keep relapsing into already-corrected
-traps (especially rule 15 lean-and-live, rule 29 verify-the-premise, rule 30
-speed-first, rule 22 detached gate).
+workflow, or Overleaf work. `AGENTS.md` is the binding rules contract; do not
+duplicate its contents here.
 
 1. `AGENTS.md`
 2. `CURRENT.md`
@@ -21,7 +19,7 @@ speed-first, rule 22 detached gate).
 10. `docs/agentic_review_workflow.md`
 11. `docs/spec_driven_development.md`
 12. `docs/specs/README.md`
-13. active specs linked from `docs/specs/README.md`
+13. relevant specs linked from `docs/specs/README.md`
 14. `docs/decisions/README.md`
 
 For Python changes, run `./scripts/python_quality.sh` before finalizing. The

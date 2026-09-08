@@ -17,7 +17,7 @@ mkdir -p "$TMPDIR"
 # actionable message rather than falling back and dying deep inside a build.
 build_python="${PYTHON:-.venv/bin/python}"
 
-build_kernel_py() {
+require_build_python() {
   # Probe EXACTLY what the build imports, not something weaker. Two traps here:
   #   -x only proves a file is executable, and a stale venv (built before the project had
   #     a [build-system], so eqvae was never installed) passes that trivially.
@@ -33,6 +33,10 @@ build_kernel_py() {
     echo "hint:  uv sync --locked --python 3.12 --group dev" >&2
     exit 1
   fi
+}
+
+build_kernel_py() {
+  require_build_python
   "$build_python" scripts/build_kaggle_embedded_kernel.py "$@"
 }
 
@@ -53,6 +57,8 @@ selected_runtime_full_kernel_dir="kaggle/kernels/selected_runtime_full"
 selected_runtime_full_output_dir="runs/kaggle/selected_runtime_full"
 fixed25_selector_kernel_dir="kaggle/kernels/fixed25_selector"
 fixed25_selector_output_dir="runs/kaggle/fixed25_selector"
+fixed25_rotation_population_kernel_dir="kaggle/kernels/fixed25_rotation_population"
+fixed25_rotation_population_kernel_id="maximshtefan/eqvae-fixed25-rotation-population"
 selected_runtime_compile_probe_kernel_dir="kaggle/kernels/selected_runtime_compile_probe"
 so2_architecture_probe_kernel_dir="kaggle/kernels/so2_architecture_probe"
 so2_architecture_probe_output_dir="runs/kaggle/so2_architecture_probe_v3"
@@ -66,6 +72,113 @@ so2_full_session1_output_dir="runs/kaggle/so2_selected_runtime_full_v1_session1"
 so2_full_resume_authority_dir="runs/kaggle/so2_selected_runtime_full_session6_fresh_v1"
 so2_full_resume_dataset_dir="runs/kaggle/so2_session6_resume_dataset"
 so2_full_resume_dataset_slug="maximshtefan/eqvae-so2-session6-step54000"
+ubc_ocean_test_atlas_kernel_dir="kaggle/kernels/ubc_ocean_test_atlas"
+ubc_ocean_test_generator="kaggle/generate_ubc_ocean_test.py"
+latent_inference_kernel_root="${EQVAE_LATENT_KERNEL_ROOT:-runs/local/ubc_ocean_latent_kernels}"
+latent_inference_template="kaggle/kernels/ubc_ocean_latent_inference/run_template.py"
+latent_finalizer_template="kaggle/kernels/ubc_ocean_latent_finalizer/run_template.py"
+latent_input_bundle_dir="${EQVAE_LATENT_INPUT_BUNDLE_DIR:-runs/local/ubc_ocean_latent_input_bundle}"
+latent_input_authority_dir="${EQVAE_LATENT_INPUT_AUTHORITY_DIR:-runs/local/ubc_ocean_latent_authority}"
+latent_input_receipt="$latent_input_authority_dir/input_dataset_receipt.json"
+latent_input_dataset_slug="maximusshtefan/eqvae-ubc-ocean-latent-inputs"
+latent_resume_root="${EQVAE_LATENT_RESUME_ROOT:-runs/local/ubc_ocean_latent_resume}"
+latent_ready_marker="KAGGLE_UBC_OCEAN_LATENT_INFERENCE_READY = True"
+cancer_topup_plan_root="${EQVAE_CANCER_TOPUP_PLAN_ROOT:-runs/local/ubc_ocean_cancer_topup}"
+cancer_topup_kernel_dir="${EQVAE_CANCER_TOPUP_KERNEL_DIR:-runs/local/ubc_ocean_cancer_topup_kernel}"
+cancer_topup_receipt="${EQVAE_CANCER_TOPUP_RECEIPT:-$cancer_topup_plan_root/input_dataset_receipt.json}"
+cancer_topup_ready_marker="KAGGLE_UBC_OCEAN_CANCER_TOPUP_READY = True"
+mil_capacity_probe_kernel_dir="${EQVAE_MIL_CAPACITY_PROBE_KERNEL_DIR:-runs/local/ubc_ocean_mil_capacity_probe}"
+mil_capacity_probe_ready_marker="KAGGLE_UBC_OCEAN_MIL_CAPACITY_PROBE_READY = True"
+supervised_calibration_root="${EQVAE_SUPERVISED_CALIBRATION_ROOT:-runs/local/ubc_ocean_supervised_calibration}"
+supervised_calibration_ready_marker="KAGGLE_UBC_OCEAN_SUPERVISED_CALIBRATION_READY = True"
+supervised_calibration_input_root="${EQVAE_SUPERVISED_CALIBRATION_INPUT_ROOT:-runs/local/ubc_ocean_supervised_calibration_inputs}"
+supervised_calibration_authority_root="${EQVAE_SUPERVISED_CALIBRATION_AUTHORITY_ROOT:-runs/local/ubc_ocean_supervised_calibration_authority}"
+supervised_calibration_sweep_receipt="$supervised_calibration_authority_root/sweep_v2_input_dataset_receipt.json"
+supervised_calibration_sweep_dataset_slug="maximusshtefan/eqvae-ubc-ocean-supcal-sweep-v2-inputs"
+supervised_calibration_confirmation_receipt="$supervised_calibration_authority_root/confirmation_input_dataset_receipt.json"
+supervised_calibration_confirmation_dataset_slug="maximusshtefan/eqvae-ubc-ocean-supcal-confirmation-inputs"
+supervised_calibration_horizon_receipt="$supervised_calibration_authority_root/mil_horizon_input_dataset_receipt.json"
+supervised_calibration_horizon_dataset_slug="maximusshtefan/eqvae-ubc-ocean-mil-horizon-inputs"
+supervised_calibration_width128_receipt="$supervised_calibration_authority_root/mil_width128_input_dataset_receipt.json"
+supervised_calibration_width128_dataset_slug="maximusshtefan/eqvae-ubc-ocean-mil-width128-inputs"
+supervised_calibration_class_specific_receipt="$supervised_calibration_authority_root/mil_class_attn_input_dataset_receipt.json"
+supervised_calibration_class_specific_dataset_slug="maximusshtefan/eqvae-ubc-ocean-mil-class-attn-inputs"
+supervised_calibration_class_scale_receipt="$supervised_calibration_authority_root/mil_class_scale_input_dataset_receipt.json"
+supervised_calibration_class_scale_dataset_slug="maximusshtefan/eqvae-ubc-ocean-mil-class-scale-inputs"
+local_attention_probe_kernel_dir="kaggle/kernels/wsi45630_local_attention_probe"
+local_attention_probe_kernel_id="maximusshtefan/eqvae-wsi45630-local-attention-probe"
+local_attention_repair_probe_kernel_id="maximusshtefan/eqvae-wsi45630-local-attention-repair-probe"
+local_attention_probe_output_dir="${EQVAE_LOCAL_ATTENTION_PROBE_OUTPUT_DIR:-runs/kaggle/wsi45630_local_attention_probe_v1}"
+local_attention_probe_push_receipt="runs/local/wsi45630_local_attention_probe/push_receipt.json"
+local_attention_probe_input_receipt="runs/local/wsi45630_capacity/input_receipt.json"
+local_attention_repair_probe_output_dir="${EQVAE_LOCAL_ATTENTION_REPAIR_PROBE_OUTPUT_DIR:-runs/kaggle/wsi45630_local_attention_repair_probe_v2}"
+local_attention_repair_probe_push_receipt="runs/local/wsi45630_local_attention_repair_probe/push_receipt.json"
+local_global_capacity_kernel_dir="kaggle/kernels/wsi45630_local_global_capacity/package/kernel"
+local_global_capacity_kernel_id="maximusshtefan/eqvae-wsi45630-local-global-mil-capacity"
+local_global_capacity_initial_claim="runs/local/wsi45630_local_global_capacity/push_claim.json"
+local_global_capacity_rejected_sources_claim="runs/local/wsi45630_local_global_capacity/retry_push_claim.json"
+local_global_capacity_claim="runs/local/wsi45630_local_global_capacity/shared_access_retry_push_claim.json"
+flex_attention_probe_kernel_dir="kaggle/kernels/wsi45630_flex_attention_probe"
+flex_attention_probe_kernel_id="maximusshtefan/eqvae-wsi45630-flex-attention-probe"
+inductor_attention_probe_kernel_dir="kaggle/kernels/wsi45630_inductor_attention_probe"
+inductor_attention_probe_kernel_id="maximusshtefan/eqvae-wsi45630-inductor-attention-probe"
+full_compile_probe_kernel_dir="kaggle/kernels/wsi45630_full_compile_probe/package/kernel"
+full_compile_probe_kernel_id="maximusshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe"
+largest_class_weighted_amp_kernel_dir="runs/local/largest_class_weighted_amp_probe/kernel"
+largest_class_weighted_amp_kernel_id="maximusshtefan/eqvae-largest-class-weighted-amp-probe"
+mil_training_root="runs/local/ubc_ocean_mil_training_v3"
+mil_training_kernel_dir="$mil_training_root/kernel"
+mil_training_kernel_id="maximusshtefan/eqvae-local-global-mil-training"
+mil_training_kernel_code_file="run.py"
+mil_training_dataset_slug="eqvae-local-global-mil-training-inputs-v3"
+mil_training_authority_root="${EQVAE_MIL_TRAINING_AUTHORITY_ROOT:-runs/local/ubc_ocean_mil_training_authority}"
+mil_training_input_receipt="${EQVAE_MIL_TRAINING_INPUT_RECEIPT:-$mil_training_authority_root/input_dataset_v3_receipt.json}"
+mil_training_resume_root="${EQVAE_MIL_TRAINING_RESUME_ROOT:-runs/local/ubc_ocean_mil_training_resume}"
+mil_test_root="${EQVAE_MIL_TEST_ROOT:-runs/local/ubc_ocean_mil_test_evaluation}"
+mil_test_kernel_dir="$mil_test_root/kernel"
+mil_test_kernel_slug="eqvae-local-global-mil-test-evaluation"
+mil_test_dataset_slug="eqvae-local-global-mil-test-inputs-v1"
+mil_test_input_receipt="$mil_test_root/input_dataset_receipt.json"
+mil_test_launch_claim="$mil_test_root/launch_claim.json"
+mil_test_accepted_reference="maximshtefan/eqvae-label-blind-mil-test-evaluation/1"
+mil_test_launch_receipt_sha256="b1d7f1fd90900a0839c1b191afef5b825f8fcb464c16a4234c3e4864fa7fa243"
+tissue_test_root="${EQVAE_TISSUE_TEST_ROOT:-runs/local/tissue_test_evaluation}"
+tissue_test_kernel_dir="$tissue_test_root/kernel"
+tissue_test_kernel_slug="eqvae-label-blind-tissue-test-evaluation"
+tissue_test_dataset_slug="eqvae-tissue-test-inputs-v1"
+tissue_test_input_receipt="$tissue_test_root/input_dataset_receipt.json"
+tissue_test_launch_claim="$tissue_test_root/launch_claim.json"
+vae_test_input_root="${EQVAE_VAE_TEST_INPUT_ROOT:-runs/local/vae_test_evaluation_input}"
+vae_test_authority_root="${EQVAE_VAE_TEST_AUTHORITY_ROOT:-runs/local/vae_test_evaluation_authority}"
+vae_test_kernel_dir="kaggle/kernels/vae_test_reconstruction"
+vae_test_kernel_slug="eqvae-frozen-vae-test-reconstruction"
+vae_test_dataset_slug="eqvae-vae-test-reconstruction-inputs-v1"
+vae_test_input_receipt="$vae_test_authority_root/input_dataset_receipt.json"
+vae_test_launch_claim="$vae_test_authority_root/launch_claim.json"
+vae_test_accepted_reference="maximshtefan/eqvae-frozen-vae-full-test-reconstruction/1"
+vae_test_launch_receipt_sha256="bd7360a9ec6831b107b7b2235cfae37060553db6434f064d949e0129788c6f3f"
+tissue_fastpath_probe_root="${EQVAE_TISSUE_FASTPATH_PROBE_ROOT:-runs/local/tissue_fastpath_calibration_probe}"
+tissue_fastpath_probe_kernel_dir="$tissue_fastpath_probe_root/kernel"
+tissue_fastpath_probe_kernel_id="maximusshtefan/eqvae-tissue-fastpath-probe"
+tissue_fastpath_probe_dataset_slug="eqvae-tissue-fastpath-probe-inputs"
+tissue_fastpath_probe_authority_root="${EQVAE_TISSUE_FASTPATH_PROBE_AUTHORITY_ROOT:-runs/local/tissue_fastpath_calibration_probe_authority}"
+tissue_fastpath_probe_input_receipt="$tissue_fastpath_probe_authority_root/input_dataset_receipt.json"
+tissue_fastpath_probe_launch_claim="$tissue_fastpath_probe_authority_root/launch_claim.json"
+tissue_training_root="${EQVAE_TISSUE_TRAINING_ROOT:-runs/local/tissue_label_efficiency_training}"
+tissue_training_kernel_dir="$tissue_training_root/kernel"
+tissue_training_kernel_id="maximusshtefan/eqvae-tissue-label-efficiency-training"
+tissue_training_dataset_slug="eqvae-tissue-label-efficiency-training-inputs"
+tissue_training_authority_root="${EQVAE_TISSUE_TRAINING_AUTHORITY_ROOT:-runs/local/tissue_label_efficiency_training_authority}"
+tissue_training_input_receipt="$tissue_training_authority_root/input_dataset_receipt.json"
+tissue_training_launch_claim="$tissue_training_authority_root/launch_claim.json"
+tissue_training_retry_root="${EQVAE_TISSUE_TRAINING_RETRY_V2_ROOT:-runs/local/tissue_label_efficiency_training_retry_v2}"
+tissue_training_retry_kernel_dir="$tissue_training_retry_root/kernel"
+tissue_training_retry_authority_root="${EQVAE_TISSUE_TRAINING_RETRY_V2_AUTHORITY_ROOT:-runs/local/tissue_label_efficiency_training_retry_v2_authority}"
+tissue_training_retry_launch_claim="$tissue_training_retry_authority_root/launch_claim.json"
+tissue_training_retry_v3_root="${EQVAE_TISSUE_TRAINING_RETRY_V3_ROOT:-runs/local/tissue_label_efficiency_training_retry_v3}"
+tissue_training_retry_v3_kernel_dir="$tissue_training_retry_v3_root/kernel"
+tissue_training_retry_v3_authority_root="${EQVAE_TISSUE_TRAINING_RETRY_V3_AUTHORITY_ROOT:-runs/local/tissue_label_efficiency_training_retry_v3_authority}"
+tissue_training_retry_v3_launch_claim="$tissue_training_retry_v3_authority_root/launch_claim.json"
 
 usage() {
   cat <<'EOF'
@@ -84,8 +197,106 @@ Usage:
   ./scripts/kaggle_kernel.sh preflight-so2-runtime-readiness
   ./scripts/kaggle_kernel.sh preflight-so2-prelaunch
   ./scripts/kaggle_kernel.sh preflight-so2-selected-runtime-full
+  ./scripts/kaggle_kernel.sh output-local-attention-probe
+  ./scripts/kaggle_kernel.sh build-latent-inference pilot|production-all|finalizer
+  ./scripts/kaggle_kernel.sh build-latent-inference resume XX
+  ./scripts/kaggle_kernel.sh preflight-latent-inference pilot|production-all|run-XX|finalizer
+  ./scripts/kaggle_kernel.sh build-latent-resume XX artifacts-dir
+  ./scripts/kaggle_kernel.sh publish-latent-resume XX
+  ./scripts/kaggle_kernel.sh verify-latent-resume XX
+  ./scripts/kaggle_kernel.sh publish-latent-inputs
+  ./scripts/kaggle_kernel.sh verify-latent-inputs
+  ./scripts/kaggle_kernel.sh build-cancer-topup
+  ./scripts/kaggle_kernel.sh preflight-cancer-topup
+  ./scripts/kaggle_kernel.sh build-wsi45630-completion
+  ./scripts/kaggle_kernel.sh build-full-foreground-completion
+  ./scripts/kaggle_kernel.sh preflight-full-foreground-completion
+  ./scripts/kaggle_kernel.sh publish-full-foreground-inputs
+  ./scripts/kaggle_kernel.sh verify-full-foreground-inputs
+  ./scripts/kaggle_kernel.sh output-full-foreground XX
+  ./scripts/kaggle_kernel.sh publish-wsi45630-completion-inputs
+  ./scripts/kaggle_kernel.sh verify-wsi45630-completion-inputs
+  ./scripts/kaggle_kernel.sh publish-full-wsi-capacity-inputs
+  ./scripts/kaggle_kernel.sh verify-full-wsi-capacity-inputs
+  ./scripts/kaggle_kernel.sh preflight-mil-capacity-probe
+  ./scripts/kaggle_kernel.sh build-tissue-training [actor]
+  ./scripts/kaggle_kernel.sh validate-tissue-training [actor]
+  ./scripts/kaggle_kernel.sh preflight-tissue-training [actor]
+  ./scripts/kaggle_kernel.sh build-tissue-training-retry-v2 actor frozen-input-bundle
+  ./scripts/kaggle_kernel.sh preflight-tissue-training-retry-v2 [actor]
+  ./scripts/kaggle_kernel.sh build-tissue-training-retry-v3 actor frozen-input-bundle
+  ./scripts/kaggle_kernel.sh preflight-tissue-training-retry-v3 [actor]
+  ./scripts/kaggle_kernel.sh publish-tissue-training-inputs
+  ./scripts/kaggle_kernel.sh verify-tissue-training-inputs
+  ./scripts/kaggle_kernel.sh output-tissue-training launch-receipt.json output_dir
+  ./scripts/kaggle_kernel.sh build-supervised-calibration-input sweep
+  ./scripts/kaggle_kernel.sh build-supervised-calibration-input confirmation selection-audit.json
+  ./scripts/kaggle_kernel.sh build-supervised-calibration-input horizon
+  ./scripts/kaggle_kernel.sh build-supervised-calibration-input width128
+  ./scripts/kaggle_kernel.sh build-supervised-calibration-input class_specific
+  ./scripts/kaggle_kernel.sh build-supervised-calibration-input class_specific_scale_fix
+  ./scripts/kaggle_kernel.sh publish-supervised-calibration-input sweep
+  ./scripts/kaggle_kernel.sh publish-supervised-calibration-input confirmation selection-audit.json
+  ./scripts/kaggle_kernel.sh publish-supervised-calibration-input horizon
+  ./scripts/kaggle_kernel.sh publish-supervised-calibration-input width128
+  ./scripts/kaggle_kernel.sh publish-supervised-calibration-input class_specific
+  ./scripts/kaggle_kernel.sh publish-supervised-calibration-input class_specific_scale_fix
+  ./scripts/kaggle_kernel.sh verify-supervised-calibration-input sweep
+  ./scripts/kaggle_kernel.sh verify-supervised-calibration-input confirmation selection-audit.json
+  ./scripts/kaggle_kernel.sh verify-supervised-calibration-input horizon
+  ./scripts/kaggle_kernel.sh verify-supervised-calibration-input width128
+  ./scripts/kaggle_kernel.sh verify-supervised-calibration-input class_specific
+  ./scripts/kaggle_kernel.sh verify-supervised-calibration-input class_specific_scale_fix
+  ./scripts/kaggle_kernel.sh build-supervised-calibration sweep
+  ./scripts/kaggle_kernel.sh build-supervised-calibration confirmation selection-audit.json sweep-audit.json sweep-config.json
+  ./scripts/kaggle_kernel.sh build-supervised-calibration horizon
+  ./scripts/kaggle_kernel.sh build-supervised-calibration width128
+  ./scripts/kaggle_kernel.sh build-supervised-calibration class_specific
+  ./scripts/kaggle_kernel.sh build-supervised-calibration class_specific_scale_fix
+  ./scripts/kaggle_kernel.sh preflight-supervised-calibration sweep
+  ./scripts/kaggle_kernel.sh preflight-supervised-calibration confirmation selection-audit.json sweep-audit.json sweep-config.json
+  ./scripts/kaggle_kernel.sh preflight-supervised-calibration horizon
+  ./scripts/kaggle_kernel.sh preflight-supervised-calibration width128
+  ./scripts/kaggle_kernel.sh preflight-supervised-calibration class_specific
+  ./scripts/kaggle_kernel.sh preflight-supervised-calibration class_specific_scale_fix
+  ./scripts/kaggle_kernel.sh build-mil-training [actor]
+  ./scripts/kaggle_kernel.sh validate-mil-training [actor]
+  ./scripts/kaggle_kernel.sh preflight-mil-training [actor]
+  ./scripts/kaggle_kernel.sh publish-mil-training-inputs
+  ./scripts/kaggle_kernel.sh verify-mil-training-inputs
+  ./scripts/kaggle_kernel.sh output-mil-training launch-receipt.json output_dir
+  ./scripts/kaggle_kernel.sh build-mil-test [actor]
+  ./scripts/kaggle_kernel.sh validate-mil-test [actor]
+  ./scripts/kaggle_kernel.sh publish-mil-test-inputs
+  ./scripts/kaggle_kernel.sh status-mil-test-inputs
+  ./scripts/kaggle_kernel.sh verify-mil-test-inputs
+  ./scripts/kaggle_kernel.sh output-mil-test launch-receipt.json output_dir
+  ./scripts/kaggle_kernel.sh score-mil-test remote_output launch-receipt.json scored_output
+  ./scripts/kaggle_kernel.sh build-tissue-test [actor]
+  ./scripts/kaggle_kernel.sh validate-tissue-test [actor]
+  ./scripts/kaggle_kernel.sh publish-tissue-test-inputs
+  ./scripts/kaggle_kernel.sh status-tissue-test-inputs
+  ./scripts/kaggle_kernel.sh verify-tissue-test-inputs
+  ./scripts/kaggle_kernel.sh push-tissue-test
+  ./scripts/kaggle_kernel.sh output-tissue-test launch-receipt.json output_dir
+  ./scripts/kaggle_kernel.sh score-tissue-test remote_output launch-receipt.json scored_output
+  ./scripts/kaggle_kernel.sh validate-vae-test [actor]
+  ./scripts/kaggle_kernel.sh publish-vae-test-inputs
+  ./scripts/kaggle_kernel.sh status-vae-test-inputs
+  ./scripts/kaggle_kernel.sh verify-vae-test-inputs
+  ./scripts/kaggle_kernel.sh push-vae-test
+  ./scripts/kaggle_kernel.sh output-vae-test launch-receipt.json output_dir
+  ./scripts/kaggle_kernel.sh score-vae-test remote_output launch-receipt.json scored_output
+  ./scripts/kaggle_kernel.sh resume-score-vae-test
+  ./scripts/kaggle_kernel.sh publish-cancer-topup-inputs
+  ./scripts/kaggle_kernel.sh verify-cancer-topup-inputs
+  ./scripts/kaggle_kernel.sh identity
   ./scripts/kaggle_kernel.sh api-check [kernel_dir]
-  ./scripts/kaggle_kernel.sh push [kernel_dir] [--wait [--wait-interval N] [--wait-max N] [--wait-queued N]] [extra kaggle args...]
+  ./scripts/kaggle_kernel.sh push [kernel_dir] [--wait [--wait-interval N] [--wait-max N] [--wait-queued N]]
+  ./scripts/kaggle_kernel.sh status-launch launch-receipt.json
+  ./scripts/kaggle_kernel.sh output-launch launch-receipt.json output_dir
+  ./scripts/kaggle_kernel.sh pull-launch launch-receipt.json kernel_dir
+  ./scripts/kaggle_kernel.sh dataset-download owner/dataset/version output_dir
   ./scripts/kaggle_kernel.sh status [kernel_id]
   ./scripts/kaggle_kernel.sh status-setup
   ./scripts/kaggle_kernel.sh status-real-data-runtime-pretest
@@ -118,11 +329,17 @@ Usage:
   ./scripts/kaggle_kernel.sh pull [kernel_id] [kernel_dir]
 
 Remote writes require KAGGLE_PUSH_CONFIRMED=1.
+Spec 0036 kernel pushes additionally require KAGGLE_MIL_TRAINING_CONFIRMED=1.
+Input publication additionally requires KAGGLE_DATASET_WRITE_CONFIRMED=1.
 Remote writes with Kaggle source attachments also require
 KAGGLE_FULL_DATASET_CONFIRMED=1.
 Remote reads/downloads require KAGGLE_REMOTE_CONFIRMED=1.
 Remote pulls require both KAGGLE_REMOTE_CONFIRMED=1 and
 KAGGLE_PULL_CONFIRMED=1.
+
+Generic pushes stage an account-portable copy owned by the authenticated Kaggle
+user. Source dataset/kernel/model locators keep their original owners. The
+accepted canonical owner/slug/version is saved under runs/local/kaggle_launches.
 EOF
 }
 
@@ -211,6 +428,213 @@ EOF
   fi
 
   echo "ok: raw Kaggle auth path selected for authenticated Kaggle calls"
+}
+
+kaggle_authenticated_username() {
+  require_kaggle_cli
+  if [[ "${KAGGLE_DISABLE_FRESH_OAUTH:-}" == "1" \
+    && -n "${KAGGLE_USERNAME:-}" ]]; then
+    if [[ ! "$KAGGLE_USERNAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+      echo "error: KAGGLE_USERNAME is malformed" >&2
+      exit 1
+    fi
+    printf '%s\n' "$KAGGLE_USERNAME"
+    return
+  fi
+  local kaggle_python
+  if ! kaggle_python="$(kaggle_tool_python)"; then
+    echo "error: cannot resolve the Kaggle CLI Python interpreter" >&2
+    exit 1
+  fi
+  if [[ "${KAGGLE_DISABLE_FRESH_OAUTH:-}" != "1" \
+    && -f "${HOME}/.kaggle/credentials.json" ]]; then
+    "$kaggle_python" scripts/kaggle_oauth_exec.py --print-oauth-username
+    return
+  fi
+  "$kaggle_python" scripts/kaggle_oauth_exec.py --print-legacy-username
+}
+
+make_account_portable_kernel_snapshot() {
+  local kernel_dir="$1"
+  local actor="$2"
+  local stage_root
+  local upload_dir
+  stage_root="$(mktemp -d "$TMPDIR/account_portable_kernel.XXXXXX")"
+  upload_dir="$stage_root/kernel"
+  require_build_python
+  "$build_python" -m eqvae.kaggle_resources snapshot \
+    --source-dir "$kernel_dir" \
+    --destination-dir "$upload_dir" \
+    --actor "$actor" >/dev/null
+  printf '%s\n' "$upload_dir"
+}
+
+record_account_portable_launch() {
+  local kernel_dir="$1"
+  local upload_dir="$2"
+  local accepted_reference="$3"
+  local receipt_root="${EQVAE_KAGGLE_LAUNCH_RECEIPT_ROOT:-runs/local/kaggle_launches}"
+  local args=(
+    -m eqvae.kaggle_resources receipt
+    --source-dir "$kernel_dir"
+    --upload-dir "$upload_dir"
+    --receipt-root "$receipt_root"
+    --accepted-reference "$accepted_reference"
+  )
+  require_build_python
+  "$build_python" "${args[@]}"
+}
+
+claim_local_global_capacity_push() {
+  local kernel_dir="$1"
+  local upload_dir="$2"
+  local actor="$3"
+  require_build_python
+  "$build_python" - "$kernel_dir" "$upload_dir" "$actor" \
+    "$local_global_capacity_claim" <<'PYLOCALGLOBALCAPACITYCLAIM'
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+source_dir, upload_dir, actor, destination = (
+    Path(sys.argv[1]),
+    Path(sys.argv[2]),
+    sys.argv[3],
+    Path(sys.argv[4]),
+)
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+source_metadata = json.loads(
+    (source_dir / "kernel-metadata.json").read_text(encoding="utf-8"),
+)
+upload_metadata = json.loads(
+    (upload_dir / "kernel-metadata.json").read_text(encoding="utf-8"),
+)
+if upload_metadata.get("id") != f"{actor}/eqvae-wsi45630-local-global-mil-capacity":
+    raise SystemExit("portable Spec 0030 owner/slug differs")
+for field in (
+    "dataset_sources",
+    "kernel_sources",
+    "model_sources",
+    "competition_sources",
+):
+    if upload_metadata.get(field) != source_metadata.get(field):
+        raise SystemExit("portable Spec 0030 source locator changed")
+entries = list(source_dir.iterdir())
+if {path.name for path in entries} != {"kernel-metadata.json", "run.py"} or any(
+    path.is_symlink() or not path.is_file() for path in entries
+):
+    raise SystemExit("Spec 0030 package allow-list differs at claim")
+upload_entries = list(upload_dir.iterdir())
+if {path.name for path in upload_entries} != {"kernel-metadata.json", "run.py"} or any(
+    path.is_symlink() or not path.is_file() for path in upload_entries
+):
+    raise SystemExit("Spec 0030 upload snapshot allow-list differs at claim")
+files = {
+    path.name: {"bytes": path.stat().st_size, "sha256": sha256(path)}
+    for path in sorted(entries)
+}
+destination.parent.mkdir(parents=True, exist_ok=True)
+with destination.open("x", encoding="utf-8") as handle:
+    json.dump(
+        {
+            "schema_version": "spec0030.capacity_shared_access_retry_claim.v1",
+            "authorization": "spec0030_local_global_capacity_shared_access_retry_authorized",
+            "authority_consumed": True,
+            "actor": actor,
+            "requested_kernel_id": upload_metadata["id"],
+            "source_locators": {
+                field: upload_metadata.get(field, [])
+                for field in (
+                    "dataset_sources",
+                    "kernel_sources",
+                    "model_sources",
+                    "competition_sources",
+                )
+            },
+            "source_files": files,
+            "upload_metadata_sha256": sha256(upload_dir / "kernel-metadata.json"),
+        },
+        handle,
+        indent=2,
+        sort_keys=True,
+    )
+    handle.write("\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+directory = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYLOCALGLOBALCAPACITYCLAIM
+}
+
+confirmed_kernel_reference() {
+  local response="$1"
+  require_build_python
+  printf '%s\n' "$response" \
+    | "$build_python" -m eqvae.kaggle_resources confirmation
+}
+
+kernel_reference_from_launch_receipt() {
+  local receipt="$1"
+  require_build_python
+  "$build_python" - "$receipt" <<'PYKAGGLELAUNCHREF'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+reference = payload.get("kernel_reference")
+kernel_id = payload.get("kernel_id")
+actor = payload.get("actor")
+version = payload.get("accepted_version")
+if (
+    payload.get("schema_version") != "eqvae.kaggle_kernel_launch.v1"
+    or not isinstance(reference, str)
+    or not isinstance(kernel_id, str)
+    or not isinstance(actor, str)
+    or isinstance(version, bool)
+    or not isinstance(version, int)
+    or version < 1
+    or reference != f"{kernel_id}/{version}"
+    or kernel_id.count("/") != 1
+    or kernel_id.split("/", 1)[0] != actor
+):
+    raise SystemExit("invalid account-portable Kaggle launch receipt")
+print(reference)
+PYKAGGLELAUNCHREF
+}
+
+validated_versioned_reference() {
+  local reference="$1"
+  require_build_python
+  "$build_python" -m eqvae.kaggle_resources validate-versioned-reference \
+    --reference "$reference"
+}
+
+record_kaggle_download() {
+  local resource_kind="$1"
+  local resource_reference="$2"
+  local download_dir="$3"
+  local receipt_name="$4"
+  require_build_python
+  "$build_python" -m eqvae.kaggle_resources download-receipt \
+    --resource-kind "$resource_kind" \
+    --resource-reference "$resource_reference" \
+    --download-dir "$download_dir" \
+    --receipt-name "$receipt_name"
 }
 
 require_remote_confirmed() {
@@ -305,7 +729,7 @@ wait_kernel_until_settled() {
 require_kaggle_sources_confirmed() {
   local metadata="$1"
   local source_summary
-  source_summary="$(python3 - "$metadata" <<'PY'
+source_summary="$(python3 - "$metadata" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -471,6 +895,31 @@ validate_kernel_dir() {
       --allow-dirty
     echo "ok: fixed25-selector embedded payload matches current worktree"
   fi
+
+  if [[ "$kernel_dir" == "$ubc_ocean_test_atlas_kernel_dir" ]]; then
+    if ! cmp -s "$ubc_ocean_test_generator" "$kernel_dir/$code_file"; then
+      echo "error: atlas run.py does not match $ubc_ocean_test_generator; rebuild it" >&2
+      exit 1
+    fi
+    echo "ok: UBC-OCEAN atlas run.py matches the readable generator"
+  fi
+}
+
+build_ubc_ocean_test_atlas_kernel() {
+  local kernel_dir="${1:-$ubc_ocean_test_atlas_kernel_dir}"
+  local metadata
+  metadata="$(metadata_path "$kernel_dir")"
+  if [[ ! -f "$metadata" ]]; then
+    echo "missing: $metadata" >&2
+    exit 1
+  fi
+  if [[ ! -f "$ubc_ocean_test_generator" ]]; then
+    echo "missing: $ubc_ocean_test_generator" >&2
+    exit 1
+  fi
+  cp "$ubc_ocean_test_generator" "$kernel_dir/run.py"
+  echo "ok: copied $ubc_ocean_test_generator to $kernel_dir/run.py"
+  validate_kernel_dir "$kernel_dir"
 }
 
 build_kernel_payload() {
@@ -630,6 +1079,9 @@ embedded_ready_marker() {
     maximusshtefan/eqvae-fixed25-selector)
       printf '%s\n' "KAGGLE_FIXED25_SELECTOR_READY = True"
       ;;
+    maximshtefan/eqvae-fixed25-rotation-population)
+      printf '%s\n' "KAGGLE_FIXED25_ROTATION_POPULATION_READY = True"
+      ;;
     maximusshtefan/eqvae-selected-runtime-compile-probe)
       printf '%s\n' "KAGGLE_SELECTED_RUNTIME_COMPILE_PROBE_READY = True"
       ;;
@@ -665,8 +1117,1065 @@ guard_push_ready() {
   local kernel_dir="${1:-$default_kernel_dir}"
   local metadata
   local code_file
+  local kernel_id
   metadata="$(metadata_path "$kernel_dir")"
   code_file="$(json_field "$metadata" code_file)"
+  kernel_id="$(json_field "$metadata" id)"
+
+  if [[ "$kernel_dir" == "$fixed25_rotation_population_kernel_dir" \
+    || "$kernel_id" == "$fixed25_rotation_population_kernel_id" ]]; then
+    if [[ "${KAGGLE_FIXED25_ROTATION_POPULATION_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "$fixed25_rotation_population_kernel_dir" \
+      || "$kernel_id" != "$fixed25_rotation_population_kernel_id" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: exact Spec 0038 dense-360 confirmation/path required" >&2
+      exit 1
+    fi
+    if ! grep -q 'spec0038_fixed25_dense360_population_authorized' \
+      docs/specs/0038-frozen-vae-rotation-orbit-visualization.md \
+      || ! grep -q 'spec0038_fixed25_dense360_population_authorized' \
+      docs/specs/README.md; then
+      echo "error: Spec 0038 dense-360 remote authorization is not canonical" >&2
+      exit 1
+    fi
+    if [[ -f \
+      "runs/local/kaggle_launches/maximshtefan/eqvae-fixed25-rotation-population/v0001.json" \
+      || -f \
+      "runs/local/kaggle_launches/maximshtefan/eqvae-fixed25-dense-rotation-population/v0001.json" ]]; then
+      echo "error: Spec 0038 dense-360 launch authority was already consumed" >&2
+      exit 1
+    fi
+    python3 - "$metadata" "$kernel_dir/$code_file" <<'PYSPEC0038DENSE360'
+import json
+import sys
+from pathlib import Path
+
+metadata_path, source_path = map(Path, sys.argv[1:])
+metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+expected = {
+    "id": "maximshtefan/eqvae-fixed25-rotation-population",
+    "title": "EQVAE fixed25 dense rotation population",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "false",
+    "machine_shape": "NvidiaTeslaT4",
+    "dataset_sources": [
+        "maximshtefan/eqvae-vae-test-reconstruction-inputs-v1",
+        "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+    ],
+    "competition_sources": [],
+    "kernel_sources": [],
+    "model_sources": [],
+}
+if metadata != expected:
+    raise SystemExit("Spec 0038 dense-360 metadata differs")
+source = source_path.read_text(encoding="utf-8")
+if source_path.stat().st_size >= 1_000_000:
+    raise SystemExit("Spec 0038 dense-360 source exceeds Kaggle's limit")
+if "KAGGLE_FIXED25_ROTATION_POPULATION_READY = True" not in source:
+    raise SystemExit("Spec 0038 dense-360 ready marker is absent")
+if "range(360)" not in source or "a CUDA GPU is required" not in source:
+    raise SystemExit("Spec 0038 dense-360 angle or CUDA contract differs")
+if "optimizer" in source.lower():
+    raise SystemExit("Spec 0038 dense-360 must remain inference-only")
+compile(source, str(source_path), "exec")
+PYSPEC0038DENSE360
+    return
+  fi
+
+  if [[ "$kernel_dir" == "$vae_test_kernel_dir" \
+    || "$kernel_id" == "maximshtefan/$vae_test_kernel_slug" ]]; then
+    if [[ "${KAGGLE_VAE_TEST_ROUTE_ACTIVE:-}" != "1" \
+      || "${KAGGLE_VAE_TEST_EVALUATION_CONFIRMED:-}" != "1" \
+      || "${EQVAE_KAGGLE_LAUNCH_RECEIPT_ROOT:-runs/local/kaggle_launches}" \
+        != "runs/local/kaggle_launches" \
+      || "$kernel_dir" != "$vae_test_kernel_dir" \
+      || "$kernel_id" != "maximshtefan/$vae_test_kernel_slug" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: use the exact one-shot push-vae-test route for Spec 0045" >&2
+      exit 1
+    fi
+    local vae_test_actor
+    vae_test_actor="$(kaggle_authenticated_username)"
+    [[ "$kernel_id" == "$vae_test_actor/$vae_test_kernel_slug" ]] || {
+      echo "error: Spec 0045 authenticated actor/kernel identity differs" >&2
+      exit 1
+    }
+    require_build_python
+    "$build_python" scripts/build_vae_test_evaluation.py \
+      validate-claimed-launch --actor "$vae_test_actor" >/dev/null
+    return
+  fi
+
+  if [[ "$kernel_dir" == "$tissue_test_kernel_dir" \
+    || "$kernel_id" == "maximshtefan/$tissue_test_kernel_slug" ]]; then
+    if [[ "${KAGGLE_TISSUE_TEST_ROUTE_ACTIVE:-}" != "1" \
+      || "${KAGGLE_TISSUE_TEST_EVALUATION_CONFIRMED:-}" != "1" \
+      || "${EQVAE_KAGGLE_LAUNCH_RECEIPT_ROOT:-runs/local/kaggle_launches}" \
+        != "runs/local/kaggle_launches" \
+      || "$kernel_dir" != "$tissue_test_kernel_dir" \
+      || "$kernel_id" != "maximshtefan/$tissue_test_kernel_slug" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: use the exact one-shot push-tissue-test route for Spec 0043" >&2
+      exit 1
+    fi
+    local tissue_test_actor
+    tissue_test_actor="$(kaggle_authenticated_username)"
+    [[ "$kernel_id" == "$tissue_test_actor/$tissue_test_kernel_slug" ]] || {
+      echo "error: Spec 0043 authenticated actor/kernel identity differs" >&2
+      exit 1
+    }
+    require_build_python
+    "$build_python" scripts/build_tissue_test_evaluation.py \
+      validate-claimed-launch --actor "$tissue_test_actor" >/dev/null
+    return
+  fi
+
+  # Spec 0031 has no remote authority yet. Keep both immutable identities out
+  # of the generic uploader until a separately reviewed one-shot route exists.
+  if [[ "$kernel_dir" == "$flex_attention_probe_kernel_dir" \
+    || "$kernel_id" == "$flex_attention_probe_kernel_id" ]]; then
+    echo "error: Spec 0031 FlexAttention remote launch is not authorized" >&2
+    exit 1
+  fi
+
+  if [[ "$kernel_dir" == "$inductor_attention_probe_kernel_dir" \
+    || "$kernel_id" == "$inductor_attention_probe_kernel_id" ]]; then
+    if [[ "${KAGGLE_INDUCTOR_ATTENTION_PROBE_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "$inductor_attention_probe_kernel_dir" \
+      || "$kernel_id" != "$inductor_attention_probe_kernel_id" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: exact Spec 0033 Inductor-attention probe confirmation/path required" >&2
+      exit 1
+    fi
+    if ! grep -q 'spec0033_inductor_attention_probe_authorized' \
+      docs/specs/0033-exact-local-attention-backend-bakeoff.md \
+      || ! grep -q 'spec0033_inductor_attention_probe_authorized' \
+      docs/specs/README.md; then
+      echo "error: Spec 0033 remote authorization is not canonical" >&2
+      exit 1
+    fi
+    python3 - "$metadata" "$kernel_dir/$code_file" <<'PYINDUCTORATTENTION'
+import json
+import sys
+from pathlib import Path
+
+metadata = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+source = Path(sys.argv[2])
+assert metadata == {
+    "id": "maximusshtefan/eqvae-wsi45630-inductor-attention-probe",
+    "title": "eqvae WSI45630 Inductor attention probe",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "true",
+    "machine_shape": "NvidiaTeslaT4",
+    "dataset_sources": ["maximusshtefan/eqvae-wsi45630-capacity-inputs"],
+    "competition_sources": [],
+    "kernel_sources": [],
+    "model_sources": [],
+}
+code = source.read_text(encoding="utf-8")
+assert source.stat().st_size < 1_000_000
+assert "SPEC0033_INDUCTOR_ATTENTION_PROBE_READY = True" in code
+assert "INPUT_CONTRACT_SHA256" in code and "POINTER_SHA256" in code
+assert "optimizer" not in code.lower()
+compile(code, str(source), "exec")
+PYINDUCTORATTENTION
+    return
+  fi
+
+  if [[ "$kernel_dir" == "$full_compile_probe_kernel_dir" \
+    || "$kernel_id" == "$full_compile_probe_kernel_id" ]]; then
+    if [[ "${KAGGLE_FULL_COMPILE_PROBE_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "$full_compile_probe_kernel_dir" \
+      || "$kernel_id" != "$full_compile_probe_kernel_id" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: exact Spec 0034 full-compile probe confirmation/path required" >&2
+      exit 1
+    fi
+    if [[ ! -f \
+      "runs/local/kaggle_launches/maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/v0001.json" ]]; then
+      echo "error: Spec 0034 version-1 launch receipt is required" >&2
+      exit 1
+    fi
+    if [[ ! -f \
+      "runs/local/kaggle_launches/maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/v0002.json" ]]; then
+      echo "error: Spec 0034 version-2 launch receipt is required" >&2
+      exit 1
+    fi
+    if [[ ! -f \
+      "runs/local/kaggle_launches/maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/v0003.json" ]]; then
+      echo "error: Spec 0034 version-3 launch receipt is required" >&2
+      exit 1
+    fi
+    if [[ ! -f \
+      "runs/local/kaggle_launches/maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/v0004.json" ]]; then
+      echo "error: Spec 0034 version-4 launch receipt is required" >&2
+      exit 1
+    fi
+    if [[ ! -f \
+      "runs/local/kaggle_launches/maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/v0005.json" ]]; then
+      echo "error: Spec 0034 version-5 launch receipt is required" >&2
+      exit 1
+    fi
+    if [[ ! -f \
+      "runs/local/kaggle_launches/maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/v0006.json" ]]; then
+      echo "error: Spec 0034 version-6 launch receipt is required" >&2
+      exit 1
+    fi
+    if [[ -f \
+      "runs/local/kaggle_launches/maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/v0007.json" ]]; then
+      echo "error: Spec 0034 version-7 retry authority was already consumed" >&2
+      exit 1
+    fi
+    if ! grep -q 'spec0034_pinned_torch_retry_v7_authorized' \
+      docs/specs/0034-full-compiled-fixed25-mil-probe.md \
+      || ! grep -q 'spec0034_pinned_torch_retry_v7_authorized' \
+      docs/specs/README.md; then
+      echo "error: Spec 0034 remote authorization is not canonical" >&2
+      exit 1
+    fi
+    require_build_python
+    "$build_python" scripts/build_wsi45630_full_compile_probe.py validate >/dev/null
+    return
+  fi
+
+  if [[ "$kernel_dir" == "$tissue_training_retry_v3_kernel_dir" ]]; then
+    if [[ "${KAGGLE_TISSUE_TRAINING_CONFIRMED:-}" != "1" \
+      || "${KAGGLE_TISSUE_TRAINING_RETRY_V3_CONFIRMED:-}" != "1" \
+      || "${KAGGLE_FULL_DATASET_CONFIRMED:-}" != "1" \
+      || "$kernel_id" != "$tissue_training_kernel_id" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: exact Spec 0039 retry-v3 confirmation/path required" >&2
+      exit 1
+    fi
+    local actor expected_reference
+    actor="$(kaggle_authenticated_username)"
+    expected_reference="$actor/$tissue_training_dataset_slug"
+    validate_tissue_training_retry_v3 "$actor"
+    "$build_python" - \
+      "$tissue_training_input_receipt" \
+      "$tissue_training_retry_v3_root/bundle/tissue_training_input.json" \
+      "runs/local/kaggle_launches/$actor/eqvae-tissue-label-efficiency-training/v0002.json" \
+      "runs/kaggle/tissue_label_efficiency_training_v0002/kaggle_output_receipt.json" \
+      "$expected_reference" <<'PYSPEC0039RETRYV3PUSH'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+input_receipt_path, contract_path, prior_launch_path, output_receipt_path, reference = (
+    map(Path, sys.argv[1:])
+)
+reference = str(reference)
+if not all(
+    path.is_file()
+    for path in (input_receipt_path, prior_launch_path, output_receipt_path)
+):
+    raise SystemExit("Spec 0039 retry-v3 requires verified v1 input and v2 output receipts")
+input_receipt = json.loads(input_receipt_path.read_text(encoding="utf-8"))
+contract = json.loads(contract_path.read_text(encoding="utf-8"))
+prior_launch = json.loads(prior_launch_path.read_text(encoding="utf-8"))
+output_receipt = json.loads(output_receipt_path.read_text(encoding="utf-8"))
+kernel_id = reference.replace("-inputs", "")
+overall_name = "tissue_label_efficiency_training/spec0039_tissue_training.json"
+if (
+    input_receipt.get("schema_version") != "spec0039.input_dataset_receipt.v1"
+    or input_receipt.get("dataset_reference") != reference
+    or input_receipt.get("dataset_version") != 1
+    or input_receipt.get("visibility") != "private"
+    or input_receipt.get("status") != "verified"
+    or input_receipt.get("input_contract_sha256")
+    != hashlib.sha256(contract_path.read_bytes()).hexdigest()
+    or contract.get("dataset_reference") != reference
+    or prior_launch.get("schema_version") != "eqvae.kaggle_kernel_launch.v1"
+    or prior_launch.get("accepted_version") != 2
+    or prior_launch.get("kernel_reference") != f"{kernel_id}/2"
+    or prior_launch.get("source_locators", {}).get("dataset_sources") != [reference]
+    or output_receipt.get("schema_version") != "eqvae.kaggle_download.v1"
+    or output_receipt.get("resource_kind") != "kernel"
+    or output_receipt.get("resource_reference") != f"{kernel_id}/2"
+    or overall_name not in output_receipt.get("files", {})
+):
+    raise SystemExit("Spec 0039 retry-v3 v1-input or v2-result binding differs")
+PYSPEC0039RETRYV3PUSH
+    if [[ -e "$tissue_training_retry_v3_launch_claim" ]]; then
+      echo "error: Spec 0039 retry-v3 launch authority is consumed" >&2
+      exit 1
+    fi
+    mkdir -p "$tissue_training_retry_v3_authority_root"
+    "$build_python" - \
+      "$tissue_training_retry_v3_launch_claim" \
+      "$tissue_training_retry_v3_root/bundle/tissue_training_input.json" \
+      "$actor" <<'PYSPEC0039RETRYV3CLAIM'
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+claim_path, contract_path, actor = map(Path, sys.argv[1:])
+contract = json.loads(contract_path.read_text(encoding="utf-8"))
+claim = {
+    "schema_version": "spec0039.kernel_launch_retry_v3_claim.v1",
+    "status": "claimed_before_remote_push",
+    "actor": str(actor),
+    "input_dataset_reference": contract["dataset_reference"],
+    "input_contract_sha256": hashlib.sha256(contract_path.read_bytes()).hexdigest(),
+    "prior_kernel_reference": f"{actor}/eqvae-tissue-label-efficiency-training/2",
+    "minimum_completed_epochs": 10,
+}
+try:
+    with claim_path.open("x", encoding="utf-8") as handle:
+        json.dump(claim, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+except FileExistsError as error:
+    raise SystemExit("Spec 0039 retry-v3 launch claim already exists") from error
+directory = os.open(claim_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYSPEC0039RETRYV3CLAIM
+    if ! grep -q '^SPEC0039_TISSUE_TRAINING_READY = True$' \
+      "$kernel_dir/$code_file" \
+      || ! grep -q '^DEFAULT_MINIMUM_COMPLETED_EPOCHS = 10$' \
+      "$kernel_dir/$code_file"; then
+      echo "error: Spec 0039 retry-v3 minimum-epoch launcher differs" >&2
+      exit 1
+    fi
+    return
+  fi
+
+  if [[ "$kernel_dir" == "$tissue_training_retry_kernel_dir" ]]; then
+    if [[ "${KAGGLE_TISSUE_TRAINING_CONFIRMED:-}" != "1" \
+      || "${KAGGLE_TISSUE_TRAINING_RETRY_V2_CONFIRMED:-}" != "1" \
+      || "${KAGGLE_FULL_DATASET_CONFIRMED:-}" != "1" \
+      || "$kernel_id" != "$tissue_training_kernel_id" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: exact Spec 0039 retry-v2 confirmation/path required" >&2
+      exit 1
+    fi
+    local actor expected_reference
+    actor="$(kaggle_authenticated_username)"
+    expected_reference="$actor/$tissue_training_dataset_slug"
+    validate_tissue_training_retry "$actor"
+    "$build_python" - \
+      "$tissue_training_input_receipt" \
+      "$tissue_training_retry_root/bundle/tissue_training_input.json" \
+      "runs/local/kaggle_launches/$actor/eqvae-tissue-label-efficiency-training/v0001.json" \
+      "$expected_reference" <<'PYSPEC0039RETRYPUSH'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+receipt_path, contract_path, failed_receipt_path, reference = map(Path, sys.argv[1:])
+reference = str(reference)
+if not receipt_path.is_file() or not failed_receipt_path.is_file():
+    raise SystemExit("Spec 0039 retry requires verified v1 input and failed-v1 receipts")
+receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+contract = json.loads(contract_path.read_text(encoding="utf-8"))
+failed = json.loads(failed_receipt_path.read_text(encoding="utf-8"))
+kernel_id = reference.replace("-inputs", "")
+if (
+    receipt.get("schema_version") != "spec0039.input_dataset_receipt.v1"
+    or receipt.get("dataset_reference") != reference
+    or receipt.get("dataset_version") != 1
+    or receipt.get("visibility") != "private"
+    or receipt.get("status") != "verified"
+    or receipt.get("input_contract_sha256")
+    != hashlib.sha256(contract_path.read_bytes()).hexdigest()
+    or contract.get("dataset_reference") != reference
+    or failed.get("schema_version") != "eqvae.kaggle_kernel_launch.v1"
+    or failed.get("accepted_version") != 1
+    or failed.get("kernel_reference") != f"{kernel_id}/1"
+    or failed.get("source_locators", {}).get("dataset_sources") != [reference]
+):
+    raise SystemExit("Spec 0039 retry-v2 frozen input or failed-v1 binding differs")
+PYSPEC0039RETRYPUSH
+    if [[ -e "$tissue_training_retry_launch_claim" ]]; then
+      echo "error: Spec 0039 retry-v2 launch authority is consumed" >&2
+      exit 1
+    fi
+    mkdir -p "$tissue_training_retry_authority_root"
+    "$build_python" - \
+      "$tissue_training_retry_launch_claim" \
+      "$tissue_training_retry_root/bundle/tissue_training_input.json" \
+      "$actor" <<'PYSPEC0039RETRYCLAIM'
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+claim_path, contract_path, actor = map(Path, sys.argv[1:])
+contract = json.loads(contract_path.read_text(encoding="utf-8"))
+claim = {
+    "schema_version": "spec0039.kernel_launch_retry_v2_claim.v1",
+    "status": "claimed_before_remote_push",
+    "actor": str(actor),
+    "input_dataset_reference": contract["dataset_reference"],
+    "input_contract_sha256": hashlib.sha256(contract_path.read_bytes()).hexdigest(),
+    "failed_kernel_reference": f"{actor}/eqvae-tissue-label-efficiency-training/1",
+}
+try:
+    with claim_path.open("x", encoding="utf-8") as handle:
+        json.dump(claim, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+except FileExistsError as error:
+    raise SystemExit("Spec 0039 retry-v2 launch claim already exists") from error
+directory = os.open(claim_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYSPEC0039RETRYCLAIM
+    if ! grep -q '^SPEC0039_TISSUE_TRAINING_READY = True$' \
+      "$kernel_dir/$code_file"; then
+      echo "error: Spec 0039 retry-v2 readiness marker differs" >&2
+      exit 1
+    fi
+    return
+  fi
+
+  if [[ "$kernel_dir" == "$tissue_training_kernel_dir" \
+    || "$kernel_id" == "$tissue_training_kernel_id" ]]; then
+    if [[ "${KAGGLE_TISSUE_TRAINING_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "$tissue_training_kernel_dir" \
+      || "$kernel_id" != "$tissue_training_kernel_id" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: exact Spec 0039 tissue-training confirmation/path required" >&2
+      exit 1
+    fi
+    if [[ "${KAGGLE_FULL_DATASET_CONFIRMED:-}" != "1" ]]; then
+      echo "error: set KAGGLE_FULL_DATASET_CONFIRMED=1 before Spec 0039's one launch" >&2
+      exit 1
+    fi
+    local actor expected_reference
+    actor="$(kaggle_authenticated_username)"
+    expected_reference="$actor/$tissue_training_dataset_slug"
+    validate_tissue_training "$actor" sealed
+    "$build_python" - \
+      "$tissue_training_input_receipt" \
+      "$tissue_training_root/bundle/tissue_training_input.json" \
+      "$expected_reference" <<'PYSPEC0039PUSH'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+receipt_path, contract_path, reference = map(Path, sys.argv[1:])
+reference = str(reference)
+if not receipt_path.is_file():
+    raise SystemExit("Spec 0039 push requires its verified input receipt")
+receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+contract = json.loads(contract_path.read_text(encoding="utf-8"))
+if (
+    receipt.get("schema_version") != "spec0039.input_dataset_receipt.v1"
+    or receipt.get("dataset_reference") != reference
+    or receipt.get("dataset_version") != 1
+    or receipt.get("visibility") != "private"
+    or receipt.get("status") != "verified"
+    or receipt.get("input_contract_sha256")
+    != hashlib.sha256(contract_path.read_bytes()).hexdigest()
+    or contract.get("dataset_reference") != reference
+):
+    raise SystemExit("Spec 0039 verified input receipt binding differs")
+PYSPEC0039PUSH
+    if [[ -e "$tissue_training_launch_claim" ]]; then
+      echo "error: Spec 0039's one private kernel-launch authority is consumed" >&2
+      exit 1
+    fi
+    mkdir -p "$tissue_training_authority_root"
+    "$build_python" - \
+      "$tissue_training_launch_claim" \
+      "$tissue_training_root/bundle/tissue_training_input.json" \
+      "$actor" <<'PYSPEC0039CLAIM'
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+claim_path, contract_path, actor = map(Path, sys.argv[1:])
+contract = json.loads(contract_path.read_text(encoding="utf-8"))
+claim = {
+    "schema_version": "spec0039.kernel_launch_claim.v1",
+    "status": "claimed_before_remote_push",
+    "actor": str(actor),
+    "input_dataset_reference": contract["dataset_reference"],
+    "input_contract_sha256": hashlib.sha256(contract_path.read_bytes()).hexdigest(),
+}
+try:
+    with claim_path.open("x", encoding="utf-8") as handle:
+        json.dump(claim, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+except FileExistsError as error:
+    raise SystemExit("Spec 0039 launch claim already exists") from error
+directory = os.open(claim_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYSPEC0039CLAIM
+    if ! grep -q '^SPEC0039_TISSUE_TRAINING_READY = True$' \
+      "$kernel_dir/$code_file"; then
+      echo "error: Spec 0039 tissue-training readiness marker differs" >&2
+      exit 1
+    fi
+    return
+  fi
+
+  if [[ "$kernel_dir" == "$tissue_fastpath_probe_kernel_dir" \
+    || "$kernel_id" == "$tissue_fastpath_probe_kernel_id" ]]; then
+    if [[ "${KAGGLE_TISSUE_FASTPATH_PROBE_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "$tissue_fastpath_probe_kernel_dir" \
+      || "$kernel_id" != "$tissue_fastpath_probe_kernel_id" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: exact Spec 0037 tissue probe confirmation/path required" >&2
+      exit 1
+    fi
+    if [[ "${KAGGLE_FULL_DATASET_CONFIRMED:-}" != "1" ]]; then
+      echo "error: set KAGGLE_FULL_DATASET_CONFIRMED=1 before claiming Spec 0037's one launch" >&2
+      exit 1
+    fi
+    local actor expected_reference
+    actor="$(kaggle_authenticated_username)"
+    expected_reference="$actor/$tissue_fastpath_probe_dataset_slug"
+    validate_tissue_fastpath_probe "$actor" sealed
+    "$build_python" - \
+      "$tissue_fastpath_probe_input_receipt" \
+      "$tissue_fastpath_probe_root/bundle/tissue_fastpath_probe_input.json" \
+      "$expected_reference" <<'PYSPEC0037PUSH'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+receipt_path, contract_path, reference = map(Path, sys.argv[1:])
+reference = str(reference)
+if not receipt_path.is_file():
+    raise SystemExit("Spec 0037 push requires its verified input receipt")
+receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+contract = json.loads(contract_path.read_text(encoding="utf-8"))
+if (
+    receipt.get("schema_version") != "spec0037.input_dataset_receipt.v1"
+    or receipt.get("dataset_reference") != reference
+    or receipt.get("dataset_version") != 1
+    or receipt.get("visibility") != "private"
+    or receipt.get("status") != "verified"
+    or receipt.get("input_contract_sha256")
+    != hashlib.sha256(contract_path.read_bytes()).hexdigest()
+    or contract.get("dataset_reference") != reference
+):
+    raise SystemExit("Spec 0037 verified input receipt binding differs")
+PYSPEC0037PUSH
+    if [[ -e "$tissue_fastpath_probe_launch_claim" ]]; then
+      echo "error: Spec 0037's one private kernel-launch authority is consumed" >&2
+      exit 1
+    fi
+    mkdir -p "$tissue_fastpath_probe_authority_root"
+    "$build_python" - \
+      "$tissue_fastpath_probe_launch_claim" \
+      "$tissue_fastpath_probe_root/bundle/tissue_fastpath_probe_input.json" \
+      "$actor" <<'PYSPEC0037CLAIM'
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+claim_path, contract_path, actor = map(Path, sys.argv[1:])
+contract = json.loads(contract_path.read_text(encoding="utf-8"))
+claim = {
+    "schema_version": "spec0037.kernel_launch_claim.v1",
+    "status": "claimed_before_remote_push",
+    "actor": str(actor),
+    "input_dataset_reference": contract["dataset_reference"],
+    "input_contract_sha256": hashlib.sha256(contract_path.read_bytes()).hexdigest(),
+}
+try:
+    with claim_path.open("x", encoding="utf-8") as handle:
+        json.dump(claim, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+except FileExistsError as error:
+    raise SystemExit("Spec 0037 launch claim already exists") from error
+directory = os.open(claim_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYSPEC0037CLAIM
+    if ! grep -q '^SPEC0037_TISSUE_FASTPATH_PROBE_READY = True$' \
+      "$kernel_dir/$code_file"; then
+      echo "error: Spec 0037 tissue-probe readiness marker differs" >&2
+      exit 1
+    fi
+    return
+  fi
+
+  if [[ "$kernel_dir" == "$mil_test_kernel_dir" \
+    || "$kernel_id" == */"$mil_test_kernel_slug" ]]; then
+    if [[ "${KAGGLE_MIL_TEST_EVALUATION_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "$mil_test_kernel_dir" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: exact Spec 0041 MIL test confirmation/path required" >&2
+      exit 1
+    fi
+    local actor expected_kernel_id
+    actor="$(kaggle_authenticated_username)"
+    expected_kernel_id="$actor/$mil_test_kernel_slug"
+    if [[ "$kernel_id" != "$expected_kernel_id" ]]; then
+      echo "error: Spec 0041 kernel actor differs" >&2
+      exit 1
+    fi
+    validate_mil_test "$actor" >/dev/null
+    "$build_python" - "$mil_test_input_receipt" \
+      "$mil_test_root/bundle/mil_test_inference_input.json" \
+      "$actor/$mil_test_dataset_slug" <<'PYSPEC0041PUSH'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+receipt_path, contract_path, reference = map(Path, sys.argv[1:])
+if not receipt_path.is_file():
+    raise SystemExit("Spec 0041 push requires its verified input receipt")
+receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+if (
+    receipt.get("schema_version") != "spec0041.input_dataset_receipt.v1"
+    or receipt.get("dataset_reference") != str(reference)
+    or receipt.get("dataset_version") != 1
+    or receipt.get("visibility") != "private"
+    or receipt.get("status") != "verified"
+    or receipt.get("input_contract_sha256")
+    != hashlib.sha256(contract_path.read_bytes()).hexdigest()
+):
+    raise SystemExit("Spec 0041 verified input receipt differs")
+PYSPEC0041PUSH
+    "$build_python" - "$mil_test_launch_claim" \
+      "$mil_test_root/bundle/mil_test_inference_input.json" \
+      "$mil_test_kernel_dir/run.py" \
+      "$mil_test_kernel_dir/kernel-metadata.json" <<'PYSPEC0041CLAIM'
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+claim, contract, kernel, metadata = map(Path, sys.argv[1:])
+value = {
+    "schema_version": "spec0041.exclusive_launch_claim.v1",
+    "authorization": "one_private_label_blind_test_inference_launch",
+    "input_contract_sha256": hashlib.sha256(contract.read_bytes()).hexdigest(),
+    "kernel_sha256": hashlib.sha256(kernel.read_bytes()).hexdigest(),
+    "metadata_sha256": hashlib.sha256(metadata.read_bytes()).hexdigest(),
+}
+claim.parent.mkdir(parents=True, exist_ok=True)
+descriptor = os.open(claim, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+    json.dump(value, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+PYSPEC0041CLAIM
+    return
+  fi
+
+  if [[ "$kernel_dir" == "$mil_training_kernel_dir" \
+    || "$kernel_id" == "$mil_training_kernel_id" ]]; then
+    if [[ "${KAGGLE_MIL_TRAINING_CONFIRMED:-}" != "1" \
+      || "$kernel_id" != "$mil_training_kernel_id" \
+      || "$code_file" != "$mil_training_kernel_code_file" ]]; then
+      echo "error: exact Spec 0036 MIL training confirmation/path required" >&2
+      exit 1
+    fi
+    local actor expected_input_reference expected_input_contract expected_input_sha256
+    actor="$(kaggle_authenticated_username)"
+    if [[ "$kernel_dir" == "$mil_training_kernel_dir" ]]; then
+      validate_mil_training "$actor"
+      expected_input_reference="$actor/$mil_training_dataset_slug"
+      expected_input_contract="$mil_training_root/bundle/mil_training_input.json"
+      expected_input_sha256=""
+    else
+      local resume_root resume_receipt
+      resume_root="$(dirname "$(dirname "$kernel_dir/run.py")")"
+      if [[ "$kernel_dir" != "$resume_root/kernel" ]]; then
+        echo "error: Spec 0036 resume push path is not a package kernel" >&2
+        exit 1
+      fi
+      validate_mil_training_resume "$actor" "$resume_root"
+      expected_input_reference="$(
+        json_field "$resume_root/bundle/mil_training_resume.json" \
+          input_dataset_reference
+      )"
+      expected_input_sha256="$(
+        json_field "$resume_root/bundle/mil_training_resume.json" \
+          input_contract_sha256
+      )"
+      expected_input_contract="$mil_training_root/bundle/mil_training_input.json"
+      resume_receipt="$resume_root/resume_dataset_receipt.json"
+      "$build_python" - \
+        "$resume_receipt" \
+        "$resume_root/bundle/mil_training_resume.json" <<'PYSPEC0036RESUMEPUSH'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+receipt_path = Path(sys.argv[1])
+contract_path = Path(sys.argv[2])
+if not receipt_path.is_file():
+    raise SystemExit("Spec 0036 resume push requires its verified dataset receipt")
+receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+contract = json.loads(contract_path.read_text(encoding="utf-8"))
+contract_sha256 = hashlib.sha256(contract_path.read_bytes()).hexdigest()
+bundle = contract_path.parent
+files = []
+for path in sorted(bundle.rglob("*")):
+    if path.is_symlink():
+        raise SystemExit("Spec 0036 resume bundle may not contain symlinks")
+    if path.is_file() and path.name != "dataset-metadata.json":
+        files.append(
+            {
+                "logical_name": path.relative_to(bundle).as_posix(),
+                "bytes": path.stat().st_size,
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+        )
+if (
+    receipt.get("schema_version") != "spec0036.resume_dataset_receipt.v1"
+    or receipt.get("dataset_reference") != contract.get("dataset_reference")
+    or receipt.get("dataset_version") != 1
+    or receipt.get("visibility") != "private"
+    or receipt.get("status") != "verified"
+    or receipt.get("resume_contract_sha256") != contract_sha256
+    or receipt.get("remote_files") != files
+):
+    raise SystemExit("Spec 0036 verified resume receipt binding differs")
+PYSPEC0036RESUMEPUSH
+    fi
+    "$build_python" - \
+      "$mil_training_input_receipt" \
+      "$expected_input_contract" \
+      "$expected_input_reference" \
+      "$expected_input_sha256" <<'PYSPEC0036PUSH'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+receipt_path = Path(sys.argv[1])
+contract_path = Path(sys.argv[2])
+dataset_reference = sys.argv[3]
+expected_sha256 = sys.argv[4]
+if not receipt_path.is_file():
+    raise SystemExit("Spec 0036 push requires its verified input receipt")
+receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+contract_sha256 = (
+    expected_sha256
+    if expected_sha256
+    else hashlib.sha256(contract_path.read_bytes()).hexdigest()
+)
+if (
+    receipt.get("schema_version") != "spec0036.input_dataset_receipt.v1"
+    or receipt.get("dataset_reference") != dataset_reference
+    or receipt.get("dataset_version") != 1
+    or receipt.get("visibility") != "private"
+    or receipt.get("status") != "verified"
+    or receipt.get("input_contract_sha256") != contract_sha256
+):
+    raise SystemExit("Spec 0036 verified input receipt binding differs")
+PYSPEC0036PUSH
+    if ! grep -q '^SPEC0036_LOCAL_GLOBAL_MIL_TRAINING_READY = True$' \
+      "$kernel_dir/$code_file"; then
+      echo "error: Spec 0036 MIL training readiness marker differs" >&2
+      exit 1
+    fi
+    return
+  fi
+
+  if [[ "$kernel_dir" == "$largest_class_weighted_amp_kernel_dir" \
+    || "$kernel_id" == "$largest_class_weighted_amp_kernel_id" ]]; then
+    if [[ "${KAGGLE_LARGEST_CLASS_WEIGHTED_AMP_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "$largest_class_weighted_amp_kernel_dir" \
+      || "$kernel_id" != "$largest_class_weighted_amp_kernel_id" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: exact Spec 0035 weighted-AMP probe confirmation/path required" >&2
+      exit 1
+    fi
+    require_build_python
+    PYTHONPATH=src "$build_python" scripts/build_largest_class_weighted_amp_probe.py \
+      validate --actor maximshtefan >/dev/null
+    if ! grep -q '^MAX_OVERFLOW_BACKOFFS = 3$' "$kernel_dir/$code_file"; then
+      echo "error: Spec 0035 requires exactly three overflow attempts" >&2
+      exit 1
+    fi
+    return
+  fi
+
+  if grep -q 'KAGGLE_FULL_FOREGROUND_COMPLETION_READY = True' "$kernel_dir/$code_file"; then
+    if [[ "${KAGGLE_FULL_FOREGROUND_CONFIRMED:-}" != "1" \
+      || ! "$kernel_dir" =~ ^runs/local/full_foreground_completion/kernels/run_0[1-8]$ ]]; then
+      echo "error: exact full-foreground extraction confirmation/path required" >&2
+      exit 1
+    fi
+    full_foreground_package validate --require-receipt
+    return
+  fi
+
+  if grep -q 'KAGGLE_WSI45630_CAPACITY_READY = True' "$kernel_dir/$code_file"; then
+    if [[ "${KAGGLE_WSI45630_CAPACITY_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "runs/local/wsi45630_capacity/kernel" ]]; then
+      echo "error: exact full-WSI capacity confirmation/path required" >&2
+      exit 1
+    fi
+    check_full_wsi_capacity receipt
+    return
+  fi
+
+  if [[ "$kernel_dir" == "$local_global_capacity_kernel_dir" \
+    || "$kernel_id" == "$local_global_capacity_kernel_id" ]]; then
+    if [[ "${KAGGLE_LOCAL_GLOBAL_CAPACITY_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "$local_global_capacity_kernel_dir" \
+      || "$kernel_id" != "$local_global_capacity_kernel_id" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: exact Spec 0030 local-global capacity confirmation/path required" >&2
+      exit 1
+    fi
+    if [[ ! -f "$local_global_capacity_initial_claim" \
+      || "$(sha256sum "$local_global_capacity_initial_claim" | cut -d' ' -f1)" \
+      != "e1b71c22f50dd3d5b171cb3dd8f9d118f902b115a8f52ca89e891175110f32cc" ]]; then
+      echo "error: Spec 0030 requires the exact initial failed-attempt claim" >&2
+      exit 1
+    fi
+    if [[ ! -f "$local_global_capacity_rejected_sources_claim" \
+      || "$(sha256sum "$local_global_capacity_rejected_sources_claim" | cut -d' ' -f1)" \
+      != "8ac6ec81696b3aef5c84407baeb987157310763e75560a2c80be90f1b333e8a6" ]]; then
+      echo "error: Spec 0030 requires the exact rejected-sources claim" >&2
+      exit 1
+    fi
+    if [[ -e "$local_global_capacity_claim" ]]; then
+      echo "error: Spec 0030 one-run authority was already consumed" >&2
+      exit 1
+    fi
+    if ! grep -q 'spec0030_local_global_capacity_shared_access_retry_authorized' \
+      docs/specs/0030-local-global-mil-capacity-probe.md \
+      || ! grep -q 'spec0030_local_global_capacity_shared_access_retry_authorized' \
+      docs/specs/README.md; then
+      echo "error: Spec 0030 remote authorization is not canonical" >&2
+      exit 1
+    fi
+    require_build_python
+    "$build_python" scripts/build_wsi45630_local_global_capacity.py \
+      validate >/dev/null
+    return
+  fi
+
+  # This kernel ID and its canonical directory are permanently special. Dispatch
+  # on those immutable identities before inspecting mutable source bytes so a
+  # removed marker can never fall through to the generic uploader.
+  if [[ "$kernel_dir" == "$local_attention_probe_kernel_dir" \
+    || "$kernel_id" == "$local_attention_probe_kernel_id" ]]; then
+    if [[ "${KAGGLE_LOCAL_ATTENTION_REPAIR_PROBE_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "$local_attention_probe_kernel_dir" \
+      || "$kernel_id" != "$local_attention_probe_kernel_id" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: exact Spec 0028 local-attention repair confirmation/path required" >&2
+      exit 1
+    fi
+    if [[ -e "$local_attention_repair_probe_push_receipt" ]]; then
+      echo "error: Spec 0028 one-run authority was already consumed" >&2
+      exit 1
+    fi
+    if ! grep -q 'spec0028_local_softmax_repair_probe_authorized' \
+      docs/specs/0028-wsi45630-local-softmax-repair-probe.md \
+      || ! grep -q 'spec0028_local_softmax_repair_probe_authorized' \
+      docs/specs/README.md; then
+      echo "error: Spec 0028 remote authorization is not canonical" >&2
+      exit 1
+    fi
+    python3 - "$metadata" "$kernel_dir/$code_file" \
+      "$local_attention_probe_input_receipt" \
+      "$local_attention_probe_push_receipt" \
+      "runs/kaggle/wsi45630_local_attention_probe_v1/spec0027_local_attention_probe.json" <<'PYLOCALATTENTIONREPAIR'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+metadata_path, source, input_receipt_path, v1_receipt_path, v1_artifact_path = (
+    Path(value) for value in sys.argv[1:]
+)
+expected_source_sha256 = "8217f9538dd57009f93d0343418a8d3e18d160176d9e3ef0471147ae69c55e12"
+expected_metadata_sha256 = "69e3d9abd665a3f438809ef2832fc505431abd46f73f9e00050b6eb40615e8a6"
+metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+assert metadata == {
+    "id": "maximusshtefan/eqvae-wsi45630-local-attention-probe",
+    "title": "eqvae WSI45630 local attention repair probe",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "true",
+    "machine_shape": "NvidiaTeslaT4",
+    "dataset_sources": ["maximusshtefan/eqvae-wsi45630-capacity-inputs"],
+    "competition_sources": [],
+    "kernel_sources": [],
+    "model_sources": [],
+}
+code = source.read_text(encoding="utf-8")
+assert hashlib.sha256(source.read_bytes()).hexdigest() == expected_source_sha256
+assert hashlib.sha256(metadata_path.read_bytes()).hexdigest() == expected_metadata_sha256
+assert source.stat().st_size < 1_000_000
+assert "KAGGLE_LOCAL_ATTENTION_REPAIR_PROBE_READY = True" in code
+assert "MAX_CORRECTNESS_RELATIVE_L2 = 2e-3" in code
+assert "MIN_CORRECTNESS_COSINE = 0.999" in code
+compile(code, str(source), "exec")
+input_receipt = json.loads(input_receipt_path.read_text(encoding="utf-8"))
+assert input_receipt.get("status") == "verified"
+assert input_receipt.get("visibility") == "private"
+assert input_receipt.get("dataset_version") == 1
+assert input_receipt.get("dataset_reference") == metadata["dataset_sources"][0]
+assert input_receipt.get("files", {}).get("probe/pointers.csv", {}).get("sha256") == (
+    "08e461846bf16efebac707c82962762f49837916986b29aee0dcd6ca1fc31c6c"
+)
+v1_receipt = json.loads(v1_receipt_path.read_text(encoding="utf-8"))
+assert v1_receipt.get("accepted_version") == 1
+assert v1_receipt.get("authority_consumed") is True
+assert v1_receipt.get("source_sha256") == (
+    "99bf923da39820591b3d5ec388c86fc76a050c931e5b7a0c902982e5dac29f5c"
+)
+assert hashlib.sha256(v1_receipt_path.read_bytes()).hexdigest() == (
+    "a5c531f63e22b09ef4614e167a68dd851d776dd426e010aeb3f18e000aaa6296"
+)
+assert hashlib.sha256(v1_artifact_path.read_bytes()).hexdigest() == (
+    "299dcbfbf03b2301d03cd7fedd109c7833039c5a4a307f00fd56c55d593e7753"
+)
+PYLOCALATTENTIONREPAIR
+    return
+  fi
+
+  if grep -q 'KAGGLE_LOCAL_ATTENTION_PROBE_READY = True' "$kernel_dir/$code_file"; then
+    if [[ "${KAGGLE_LOCAL_ATTENTION_PROBE_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "kaggle/kernels/wsi45630_local_attention_probe" ]]; then
+      echo "error: exact Spec 0027 local-attention probe confirmation/path required" >&2
+      exit 1
+    fi
+    if [[ -e "$local_attention_probe_push_receipt" ]]; then
+      echo "error: Spec 0027 one-run authority was already consumed" >&2
+      exit 1
+    fi
+    if ! grep -q 'spec0027_local_softmax_probe_authorized' \
+      docs/specs/0027-wsi45630-local-softmax-kernel-probe.md \
+      || ! grep -q 'spec0027_local_softmax_probe_authorized' docs/specs/README.md; then
+      echo "error: Spec 0027 remote authorization is not canonical" >&2
+      exit 1
+    fi
+    python3 - "$metadata" "$kernel_dir/$code_file" \
+      "$local_attention_probe_input_receipt" <<'PYLOCALATTENTION'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+metadata = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+source = Path(sys.argv[2])
+receipt_path = Path(sys.argv[3])
+expected_source_sha256 = "99bf923da39820591b3d5ec388c86fc76a050c931e5b7a0c902982e5dac29f5c"
+expected_metadata_sha256 = "9350828a9d59fb7ea0307310c875734e4f8528aa973ed2f6af5f31a4eb1db867"
+required = {
+    "id": "maximusshtefan/eqvae-wsi45630-local-attention-probe",
+    "title": "eqvae WSI45630 local attention probe",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "true",
+    "machine_shape": "NvidiaTeslaT4",
+}
+for key, expected in required.items():
+    assert str(metadata.get(key, "")).lower() == expected.lower(), (key, metadata.get(key))
+assert metadata["dataset_sources"] == [
+    "maximusshtefan/eqvae-wsi45630-capacity-inputs",
+]
+for key in ("competition_sources", "kernel_sources", "model_sources"):
+    assert metadata[key] == [], key
+assert source.stat().st_size < 1_000_000
+assert hashlib.sha256(source.read_bytes()).hexdigest() == expected_source_sha256
+assert hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest() == (
+    expected_metadata_sha256
+)
+code = source.read_text(encoding="utf-8")
+assert "KAGGLE_LOCAL_ATTENTION_PROBE_READY = True" in code
+assert "INPUT_CONTRACT_SHA256" in code and "POINTER_SHA256" in code
+compile(code, str(source), "exec")
+spec = Path("docs/specs/0027-wsi45630-local-softmax-kernel-probe.md").read_text(
+    encoding="utf-8",
+)
+assert expected_source_sha256 in spec
+assert expected_metadata_sha256 in spec
+receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+assert receipt.get("status") == "verified"
+assert receipt.get("visibility") == "private"
+assert receipt.get("dataset_version") == 1
+assert receipt.get("dataset_reference") == metadata["dataset_sources"][0]
+assert receipt.get("files", {}).get("probe/pointers.csv", {}).get("sha256") == (
+    "08e461846bf16efebac707c82962762f49837916986b29aee0dcd6ca1fc31c6c"
+)
+PYLOCALATTENTION
+    return
+  fi
+
+  if grep -q 'KAGGLE_WSI45630_COMPLETION_READY = True' "$kernel_dir/$code_file"; then
+    if [[ "${KAGGLE_WSI45630_COMPLETION_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "runs/local/wsi45630_completion/kernel" ]]; then
+      echo "error: exact WSI45630-only extraction confirmation/path required" >&2
+      exit 1
+    fi
+    check_wsi45630_package receipt
+    return
+  fi
+
+  if [[ "$kernel_dir" == "kaggle/kernels/ubc_ocean_mil_transformer_capacity" ]]; then
+    # One-off Spec 0023 synthetic fit probe: never attach latent datasets.
+    python3 - "$metadata" "$kernel_dir/$code_file" <<'PYTRANSFORMERCAPACITY'
+import json
+import sys
+from pathlib import Path
+
+metadata = json.loads(Path(sys.argv[1]).read_text())
+source = Path(sys.argv[2])
+assert metadata["id"] == "maximusshtefan/eqvae-mil-transformer-synthetic-capacity"
+assert all(metadata[key] == [] for key in (
+    "dataset_sources", "competition_sources", "kernel_sources", "model_sources"
+))
+assert all(str(metadata[key]).lower() == "true" for key in (
+    "is_private", "enable_gpu", "enable_internet"
+))
+assert metadata["machine_shape"] == "NvidiaTeslaT4"
+assert source.stat().st_size < 1_000_000
+compile(source.read_text(), str(source), "exec")
+PYTRANSFORMERCAPACITY
+    return
+  fi
 
   if grep -q "NOT_IMPLEMENTATION_READY" "$kernel_dir/$code_file"; then
     cat >&2 <<'EOF'
@@ -743,6 +2252,31 @@ EOF
     return
   fi
 
+  if grep -q "KAGGLE_UBC_OCEAN_TEST_ATLAS_READY = True" "$kernel_dir/$code_file"; then
+    guard_ubc_ocean_test_atlas_push_ready "$kernel_dir" "$metadata"
+    return
+  fi
+
+  if grep -q "$latent_ready_marker" "$kernel_dir/$code_file"; then
+    guard_latent_inference_push_ready "$kernel_dir"
+    return
+  fi
+
+  if grep -q "$cancer_topup_ready_marker" "$kernel_dir/$code_file"; then
+    guard_cancer_topup_push_ready "$kernel_dir"
+    return
+  fi
+
+  if grep -q "$mil_capacity_probe_ready_marker" "$kernel_dir/$code_file"; then
+    guard_mil_capacity_probe_push_ready "$kernel_dir"
+    return
+  fi
+
+  if grep -q "$supervised_calibration_ready_marker" "$kernel_dir/$code_file"; then
+    guard_supervised_calibration_push_ready "$kernel_dir"
+    return
+  fi
+
   if [[ ! -f "docs/behavior_inventory_kaggle.md" ]]; then
     echo "error: missing docs/behavior_inventory_kaggle.md" >&2
     exit 1
@@ -764,6 +2298,211 @@ EOF
       exit 1
     fi
   fi
+}
+
+record_local_attention_probe_push() {
+  local kernel_dir="$1"
+  local accepted_version="$2"
+  local receipt="$local_attention_probe_push_receipt"
+  mkdir -p "$(dirname "$receipt")"
+  python3 - "$receipt" "$kernel_dir/kernel-metadata.json" "$kernel_dir/run.py" \
+    "$accepted_version" <<'PYLOCALATTENTIONRECEIPT'
+import datetime
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+receipt = Path(sys.argv[1])
+metadata = Path(sys.argv[2])
+source = Path(sys.argv[3])
+payload = {
+    "schema_version": "spec0027.push_receipt.v1",
+    "authority_consumed": True,
+    "kernel_id": "maximusshtefan/eqvae-wsi45630-local-attention-probe",
+    "accepted_version": int(sys.argv[4]),
+    "metadata_sha256": hashlib.sha256(metadata.read_bytes()).hexdigest(),
+    "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+    "recorded_utc": datetime.datetime.now(datetime.UTC).isoformat(),
+}
+with receipt.open("x", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+PYLOCALATTENTIONRECEIPT
+}
+
+make_local_attention_repair_probe_snapshot() {
+  local kernel_dir="$1"
+  local snapshot
+  snapshot="$(mktemp -d "$TMPDIR/spec0028_upload.XXXXXX")" || return 1
+  cp "$kernel_dir/run.py" "$snapshot/run.py" || return 1
+  cp "$kernel_dir/kernel-metadata.json" "$snapshot/kernel-metadata.json" \
+    || return 1
+  if ! python3 - "$snapshot/run.py" "$snapshot/kernel-metadata.json" <<'PYLOCALATTENTIONREPAIRSNAPSHOT'
+import hashlib
+import sys
+from pathlib import Path
+
+source, metadata = (Path(value) for value in sys.argv[1:])
+assert hashlib.sha256(source.read_bytes()).hexdigest() == (
+    "8217f9538dd57009f93d0343418a8d3e18d160176d9e3ef0471147ae69c55e12"
+)
+assert hashlib.sha256(metadata.read_bytes()).hexdigest() == (
+    "69e3d9abd665a3f438809ef2832fc505431abd46f73f9e00050b6eb40615e8a6"
+)
+PYLOCALATTENTIONREPAIRSNAPSHOT
+  then
+    return 1
+  fi
+  printf '%s\n' "$snapshot"
+}
+
+claim_local_attention_repair_probe_push() {
+  local kernel_dir="$1"
+  local receipt="$local_attention_repair_probe_push_receipt"
+  mkdir -p "$(dirname "$receipt")"
+  python3 - "$receipt" "$kernel_dir/kernel-metadata.json" "$kernel_dir/run.py" \
+    <<'PYLOCALATTENTIONREPAIRCLAIM'
+import datetime
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+receipt = Path(sys.argv[1])
+metadata = Path(sys.argv[2])
+source = Path(sys.argv[3])
+source_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+metadata_sha256 = hashlib.sha256(metadata.read_bytes()).hexdigest()
+assert source_sha256 == (
+    "8217f9538dd57009f93d0343418a8d3e18d160176d9e3ef0471147ae69c55e12"
+)
+assert metadata_sha256 == (
+    "69e3d9abd665a3f438809ef2832fc505431abd46f73f9e00050b6eb40615e8a6"
+)
+payload = {
+    "schema_version": "spec0028.push_attempt.v1",
+    "authority_consumed": True,
+    "kernel_id": "maximusshtefan/eqvae-wsi45630-local-attention-probe",
+    "status": "attempt_claimed",
+    "accepted_version": None,
+    "metadata_sha256": metadata_sha256,
+    "source_sha256": source_sha256,
+    "attempt_started_utc": datetime.datetime.now(datetime.UTC).isoformat(),
+}
+with receipt.open("x", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+PYLOCALATTENTIONREPAIRCLAIM
+}
+
+finalize_local_attention_repair_probe_push() {
+  local kernel_dir="$1"
+  local accepted_version="$2"
+  local receipt="$local_attention_repair_probe_push_receipt"
+  python3 - "$receipt" "$kernel_dir/kernel-metadata.json" "$kernel_dir/run.py" \
+    "$accepted_version" <<'PYLOCALATTENTIONREPAIRRECEIPT'
+import datetime
+import hashlib
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+receipt = Path(sys.argv[1])
+metadata = Path(sys.argv[2])
+source = Path(sys.argv[3])
+accepted_version = int(sys.argv[4])
+claim = json.loads(receipt.read_text(encoding="utf-8"))
+source_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+metadata_sha256 = hashlib.sha256(metadata.read_bytes()).hexdigest()
+assert claim.get("schema_version") == "spec0028.push_attempt.v1"
+assert claim.get("authority_consumed") is True
+assert claim.get("status") == "attempt_claimed"
+assert claim.get("accepted_version") is None
+assert claim.get("source_sha256") == source_sha256
+assert claim.get("metadata_sha256") == metadata_sha256
+payload = {
+    "schema_version": (
+        "spec0028.push_receipt.v1"
+        if accepted_version == 2
+        else "spec0028.push_attempt.v1"
+    ),
+    "authority_consumed": True,
+    "kernel_id": "maximusshtefan/eqvae-wsi45630-local-attention-probe",
+    "status": "accepted" if accepted_version == 2 else "unexpected_version",
+    "accepted_version": accepted_version,
+    "metadata_sha256": metadata_sha256,
+    "source_sha256": source_sha256,
+    "attempt_started_utc": claim["attempt_started_utc"],
+    "recorded_utc": datetime.datetime.now(datetime.UTC).isoformat(),
+}
+with tempfile.NamedTemporaryFile(
+    "w",
+    encoding="utf-8",
+    dir=receipt.parent,
+    prefix=f".{receipt.name}.",
+    delete=False,
+) as handle:
+    temporary = Path(handle.name)
+    json.dump(payload, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+os.replace(temporary, receipt)
+if accepted_version != 2:
+    raise SystemExit("Spec 0028 expected Kaggle kernel version 2")
+PYLOCALATTENTIONREPAIRRECEIPT
+}
+
+guard_ubc_ocean_test_atlas_push_ready() {
+  local kernel_dir="$1"
+  local metadata="$2"
+
+  if ! cmp -s "$ubc_ocean_test_generator" "$kernel_dir/run.py"; then
+    echo "error: atlas run.py is stale; rebuild it before push" >&2
+    exit 1
+  fi
+
+  python3 - "$metadata" <<'PYATLASMETA'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+errors: list[str] = []
+required = {
+    "id": "maximusshtefan/eqvae-ubc-ocean-test-atlas",
+    "title": "eqvae UBC-OCEAN test atlas",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "false",
+    "enable_internet": "true",
+}
+for key, expected in required.items():
+    actual = str(data.get(key, ""))
+    comparable = actual.lower() if expected in {"true", "false"} else actual
+    if comparable != expected:
+        errors.append(f"{key} must be {expected!r}")
+if data.get("competition_sources") != ["UBC-OCEAN"]:
+    errors.append("competition_sources must contain only UBC-OCEAN")
+mask_source = "sohier/ubc-ovarian-cancer-competition-supplemental-masks"
+checkpoint_source = "maximusshtefan/eqvae-ubc-ocean-test-atlas-checkpoint"
+allowed_dataset_sources = ([mask_source], [mask_source, checkpoint_source])
+if data.get("dataset_sources") not in allowed_dataset_sources:
+    errors.append(
+        "dataset_sources must contain the official masks and, only for resume, "
+        "the exact private atlas-checkpoint dataset"
+    )
+for source_field in ("kernel_sources", "model_sources"):
+    if data.get(source_field) != []:
+        errors.append(f"{source_field} must be empty")
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PYATLASMETA
 }
 
 guard_real_smoke_push_ready() {
@@ -2924,25 +4663,92 @@ api_check() {
   local kernel_dir="${1:-$default_kernel_dir}"
   require_remote_confirmed
   require_kaggle_cli
+  local actor
   local kernel_id
-  kernel_id="$(kernel_id_from_metadata "$kernel_dir")"
+  local kernel_exists
+  local original_kernel_id
+  local kernel_listing
+  local source_rows
+  actor="$(kaggle_authenticated_username)"
+  original_kernel_id="$(kernel_id_from_metadata "$kernel_dir")"
+  kernel_id="${actor}/${original_kernel_id#*/}"
 
   echo "Kaggle API read-only preflight"
   echo "=============================="
   kaggle --version
   kaggle_auth_path_message
+  echo "ok: authenticated Kaggle actor is $actor"
 
-  kaggle_api kernels list --mine --search "${kernel_id#*/}" --csv >/dev/null
-  echo "ok: kernels list can see $kernel_id"
+  kernel_listing="$(
+    kaggle_api kernels list --mine --search "${kernel_id#*/}" --csv
+  )"
+  echo "ok: kernels list works for search ${kernel_id#*/}"
 
-  kaggle_api kernels status "$kernel_id" >/dev/null
-  echo "ok: kernels status works for $kernel_id"
+  kernel_exists="$(
+    KAGGLE_KERNEL_LISTING="$kernel_listing" python3 - "$kernel_id" <<'PYKERNELLIST'
+import csv
+import io
+import os
+import sys
 
-  kaggle_api kernels logs "$kernel_id" >/dev/null
-  echo "ok: kernels logs works for $kernel_id"
+kernel_id = sys.argv[1]
+rows = csv.reader(io.StringIO(os.environ["KAGGLE_KERNEL_LISTING"]))
+print("1" if any(kernel_id in row for row in rows) else "0")
+PYKERNELLIST
+  )"
+  if [[ "$kernel_exists" == "1" ]]; then
+    kaggle_api kernels status "$kernel_id" >/dev/null
+    echo "ok: kernels status works for existing $kernel_id"
+    kaggle_api kernels logs "$kernel_id" >/dev/null
+    echo "ok: kernels logs works for existing $kernel_id"
+  else
+    echo "ok: $kernel_id has no existing version; first launch may proceed"
+  fi
 
-  kaggle_api datasets files maximusshtefan/patches-pre-shuffled-ubc-ocean -v >/dev/null
-  echo "ok: dataset file listing works for patches-pre-shuffled-ubc-ocean"
+  source_rows="$(
+    python3 - "$kernel_dir/kernel-metadata.json" <<'PYKAGGLESOURCES'
+import json
+import sys
+from pathlib import Path
+
+metadata = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+for field in (
+    "dataset_sources",
+    "competition_sources",
+    "kernel_sources",
+    "model_sources",
+):
+    sources = metadata.get(field)
+    if not isinstance(sources, list):
+        raise SystemExit(f"{field} must be a list")
+    for source in sources:
+        if not isinstance(source, str) or not source or "\t" in source or "\n" in source:
+            raise SystemExit(f"{field} contains an invalid source locator")
+        print(f"{field}\t{source}")
+PYKAGGLESOURCES
+  )"
+  while [[ -n "$source_rows" ]] \
+    && IFS=$'\t' read -r source_kind source_reference; do
+    case "$source_kind" in
+    dataset_sources)
+      kaggle_api datasets files "$source_reference" -v >/dev/null
+      ;;
+    competition_sources)
+      kaggle_api competitions files "$source_reference" -v >/dev/null
+      ;;
+    kernel_sources)
+      kaggle_api kernels files "$source_reference" -v >/dev/null
+      ;;
+    model_sources)
+      kaggle_api models instances versions files "$source_reference" -v >/dev/null
+      ;;
+    *)
+      echo "error: unsupported Kaggle source kind: $source_kind" >&2
+      exit 1
+      ;;
+    esac
+    echo "ok: $source_kind is readable at $source_reference"
+  done <<<"$source_rows"
 
   if kaggle_api quota -v >/dev/null 2>&1; then
     echo "ok: accelerator quota endpoint works"
@@ -2950,8 +4756,10 @@ api_check() {
     echo "warn: accelerator quota endpoint failed; verify quota in Kaggle UI before remote benchmark push" >&2
   fi
 
-  if kaggle_api kernels files "$kernel_id" -v >/dev/null 2>&1; then
-    echo "ok: kernels files endpoint works"
+  if [[ "$kernel_exists" != "1" ]]; then
+    echo "ok: kernels files skipped before first launch"
+  elif kaggle_api kernels files "$kernel_id" -v >/dev/null 2>&1; then
+    echo "ok: kernels files endpoint works for existing $kernel_id"
   else
     echo "warn: kernels files endpoint failed; status/logs still work, but source-file introspection is unavailable" >&2
   fi
@@ -3201,11 +5009,3112 @@ PY
   rm -rf "$output_dir"
 }
 
+build_latent_inference() {
+  local mode="${1:-}"
+  local run_number="${2:-}"
+  if [[ "$mode" != "pilot" && "$mode" != "production-all" && "$mode" != "resume" && "$mode" != "finalizer" ]]; then
+    echo "error: build-latent-inference requires pilot, production-all, finalizer, or resume XX" >&2
+    exit 1
+  fi
+  if [[ "$mode" == "resume" ]]; then
+    run_number="$(normalize_latent_run_number "$run_number")"
+  fi
+  require_build_python
+  local build_args=(
+    -m eqvae.cli.build_ubc_latent_kernel "$mode"
+    --repo-root "$PWD"
+    --output-root "$latent_inference_kernel_root"
+    --input-contract "$latent_input_bundle_dir/spec0021_input_contract.json"
+    --input-receipt "$latent_input_receipt"
+  )
+  if [[ "$mode" == "resume" ]]; then
+    build_args+=(
+      --run-number "$((10#$run_number))"
+      --resume-receipt \
+        "$latent_input_authority_dir/resume_run_${run_number}_dataset_receipt.json"
+    )
+  fi
+  "$build_python" "${build_args[@]}"
+  if [[ "$mode" == "resume" ]]; then
+    preflight_latent_inference "run-$run_number"
+  else
+    preflight_latent_inference "$mode"
+  fi
+}
+
+normalize_latent_run_number() {
+  local value="${1:-}"
+  if [[ ! "$value" =~ ^(0[1-5]|[1-5])$ ]]; then
+    echo "error: latent run number must be 01, 02, 03, 04, or 05" >&2
+    exit 1
+  fi
+  printf '%02d\n' "$((10#$value))"
+}
+
+validate_latent_kernel_dir() {
+  local kernel_dir="$1"
+  local receipt_policy="${2:-allow-null}"
+  python3 - \
+    "$kernel_dir" \
+    "$receipt_policy" \
+    "$latent_input_dataset_slug" \
+    "$latent_input_bundle_dir/spec0021_input_contract.json" \
+    "docs/specs/0021-dual-model-wsi-latent-inference.md" \
+    "$latent_input_authority_dir" <<'PYLATENT'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+kernel_dir = Path(sys.argv[1])
+receipt_policy = sys.argv[2]
+dataset_slug = sys.argv[3]
+input_contract_path = Path(sys.argv[4])
+spec_path = Path(sys.argv[5])
+authority_dir = Path(sys.argv[6])
+expected_files = {
+    "kernel-metadata.json",
+    "run.py",
+    "spec0021_inference_config.json",
+}
+observed_files = {
+    path.relative_to(kernel_dir).as_posix()
+    for path in kernel_dir.rglob("*")
+    if path.is_file()
+}
+errors: list[str] = []
+if observed_files != expected_files:
+    errors.append(
+        f"upload directory files differ: {sorted(observed_files)!r}"
+    )
+
+
+def read_object(path: Path) -> dict[str, object]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise TypeError(f"{path} must contain a JSON object")
+    return value
+
+
+metadata = read_object(kernel_dir / "kernel-metadata.json")
+config_path = kernel_dir / "spec0021_inference_config.json"
+config = read_object(config_path)
+canonical_config = json.dumps(
+    config,
+    sort_keys=True,
+    separators=(",", ":"),
+) + "\n"
+if config_path.read_text(encoding="utf-8") != canonical_config:
+    errors.append("inference config is not canonical compact JSON")
+
+config_fields = {
+    "schema_version",
+    "mode",
+    "run_number",
+    "spec_sha256",
+    "input_dataset_receipt",
+    "input_contract_sha256",
+    "work_manifest_sha256",
+    "normal_checkpoint_sha256",
+    "so2_checkpoint_sha256",
+    "pilot_authority_sha256",
+    "selected_recipe",
+    "expected_binary_output_bytes",
+    "saved_output_limit_bytes",
+    "resume_dataset_receipt",
+}
+if set(config) != config_fields:
+    errors.append("inference config fields differ from the locked schema")
+if config.get("schema_version") != "spec0021.inference_config.v2":
+    errors.append("inference config schema is not Spec 0021")
+
+
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+if config.get("spec_sha256") != sha256(spec_path):
+    errors.append("inference config Spec 0021 hash is stale")
+if config.get("input_contract_sha256") != sha256(input_contract_path):
+    errors.append("inference config input-contract hash is stale")
+expected_checkpoints = {
+    "normal_checkpoint_sha256": (
+        "f733304e9178e468546113642bdf01e11348570b340c366cf148973083cb9075"
+    ),
+    "so2_checkpoint_sha256": (
+        "041e0cd7483cb8642bb72eb1b63c3a36774bf9cadd0b659c9d1db6a813c8f4c7"
+    ),
+}
+for key, expected in expected_checkpoints.items():
+    if config.get(key) != expected:
+        errors.append(f"{key} is not the frozen checkpoint hash")
+
+receipt = config.get("input_dataset_receipt")
+dataset_sources: list[str] = []
+if receipt is None:
+    if receipt_policy != "allow-null":
+        errors.append("push requires a pinned input dataset receipt")
+elif not isinstance(receipt, dict):
+    errors.append("input dataset receipt must be an object")
+else:
+    if receipt.get("schema_version") != "spec0021.input_dataset_receipt.v1":
+        errors.append("input dataset receipt schema mismatch")
+    reference = receipt.get("dataset_reference")
+    if reference != dataset_slug:
+        errors.append("input dataset receipt reference is not the fixed dataset")
+    else:
+        dataset_sources.append(reference)
+    input_receipt_path = authority_dir / "input_dataset_receipt.json"
+    if not input_receipt_path.is_file() or receipt != read_object(input_receipt_path):
+        errors.append("embedded input receipt differs from local authority")
+
+mode = config.get("mode")
+run_number = config.get("run_number")
+work_hashes = {
+    1: "76cc5f9b86b75b9e46250c80e7b5c98d2f0451a12b38665ae45b055767b7a456",
+    2: "11d21482c9d3e083bc5138973c6b09f6b659e7d753853c0290382320e78e6200",
+    3: "9414f638abc24963e821de8bbedccaf294a14a7ea768a01687d5b105e634402b",
+    4: "e7c5d8d08996e3bac440b5779547b2bbeb4443e7481dcb74998a87aa3054697f",
+    5: "5485c44ababeaba9a4e2cc75a1a6b2927d89f10ed83a121dfcb81a68cfc23d6a",
+}
+if mode == "pilot":
+    expected_id = "maximusshtefan/eqvae-ubc-ocean-latent-pilot"
+    if run_number is not None or config.get("work_manifest_sha256") is not None:
+        errors.append("pilot config must not bind a production run")
+    for key in (
+        "pilot_authority_sha256",
+        "selected_recipe",
+        "expected_binary_output_bytes",
+        "saved_output_limit_bytes",
+        "resume_dataset_receipt",
+    ):
+        if config.get(key) is not None:
+            errors.append(f"pilot config field {key} must be null")
+elif mode == "production" and isinstance(run_number, int) and run_number in work_hashes:
+    expected_id = f"maximusshtefan/eqvae-ubc-ocean-latent-run-{run_number:02d}"
+    if config.get("work_manifest_sha256") != work_hashes[run_number]:
+        errors.append("production work-manifest hash is stale")
+    resume_receipt = config.get("resume_dataset_receipt")
+    if receipt_policy == "fresh" and resume_receipt is not None:
+        errors.append("fresh production config must not attach resume data")
+    elif receipt_policy == "resume":
+        expected_resume_reference = (
+            f"maximusshtefan/eqvae-ubc-ocean-latent-run-{run_number:02d}-resume"
+        )
+        if not isinstance(resume_receipt, dict):
+            errors.append("resume production requires its pinned dataset receipt")
+        else:
+            if resume_receipt.get("schema_version") != (
+                "spec0021.resume_dataset_receipt.v1"
+            ):
+                errors.append("resume dataset receipt schema mismatch")
+            if resume_receipt.get("dataset_reference") != expected_resume_reference:
+                errors.append("resume dataset receipt reference/run mismatch")
+            if resume_receipt.get("run_number") != run_number:
+                errors.append("resume dataset receipt run mismatch")
+            if resume_receipt.get("input_bundle_sha256") != sha256(input_contract_path):
+                errors.append("resume dataset receipt input contract mismatch")
+            if resume_receipt.get("work_manifest_sha256") != work_hashes[run_number]:
+                errors.append("resume dataset receipt work manifest mismatch")
+            resume_receipt_path = (
+                authority_dir
+                / f"resume_run_{run_number:02d}_dataset_receipt.json"
+            )
+            if (
+                not resume_receipt_path.is_file()
+                or resume_receipt != read_object(resume_receipt_path)
+            ):
+                errors.append("embedded resume receipt differs from local authority")
+            dataset_sources.append(expected_resume_reference)
+    elif receipt_policy not in {"fresh", "resume"}:
+        errors.append("production preflight must declare fresh or resume policy")
+    for key in (
+        "pilot_authority_sha256",
+        "selected_recipe",
+    ):
+        if config.get(key) is None:
+            errors.append(f"production config field {key} must be bound")
+    fixed_recipe = {
+        "batch_size": 8,
+        "d2h": "synchronous",
+        "numeric": "FP32",
+        "execution": "eager",
+    }
+    if config.get("selected_recipe") != fixed_recipe:
+        errors.append("production selected recipe is not the fixed smoke recipe")
+    row_counts = {1: 121199, 2: 119898, 3: 118901, 4: 118513, 5: 120887}
+    expected_binary_bytes = 2 * (64 + row_counts[run_number] * 65536)
+    if config.get("expected_binary_output_bytes") != expected_binary_bytes:
+        errors.append("production binary output size is not the frozen derivation")
+    if config.get("saved_output_limit_bytes") != 20_000_000_000:
+        errors.append("production saved-output cap is not Kaggle's 20 GB cap")
+    if expected_binary_bytes + 10_000_000 > 20_000_000_000:
+        errors.append("production output plus metadata reserve exceeds Kaggle cap")
+else:
+    expected_id = ""
+    errors.append("inference config mode/run combination is invalid")
+
+required_metadata = {
+    "id": expected_id,
+    "title": (
+        "eqvae UBC-OCEAN latent pilot"
+        if mode == "pilot"
+        else f"eqvae UBC-OCEAN latent run-{run_number:02d}"
+        if isinstance(run_number, int)
+        else ""
+    ),
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "true",
+    "machine_shape": "NvidiaTeslaT4",
+    "dataset_sources": dataset_sources,
+    "competition_sources": ["UBC-OCEAN"],
+    "kernel_sources": [],
+    "model_sources": [],
+}
+if metadata != required_metadata:
+    errors.append("kernel metadata or source order differs from the locked contract")
+if "KAGGLE_UBC_OCEAN_LATENT_INFERENCE_READY = True" not in (
+    kernel_dir / "run.py"
+).read_text(encoding="utf-8"):
+    errors.append("generated wrapper is missing the latent inference marker")
+
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PYLATENT
+  build_kernel_py \
+    --kernel-dir "$kernel_dir" \
+    --template "$latent_inference_template" \
+    --ready-marker "$latent_ready_marker" \
+    --verify-only \
+    --allow-dirty
+}
+
+validate_latent_finalizer_dir() {
+  local kernel_dir="$1"
+  python3 - \
+    "$kernel_dir" \
+    "$latent_input_bundle_dir/spec0021_input_contract.json" \
+    "$latent_input_receipt" \
+    "docs/specs/0021-dual-model-wsi-latent-inference.md" <<'PYLATENTFINALIZER'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+kernel_dir = Path(sys.argv[1])
+input_contract = Path(sys.argv[2])
+input_receipt_path = Path(sys.argv[3])
+spec_path = Path(sys.argv[4])
+config_path = kernel_dir / "spec0021_inference_config.json"
+
+
+def read_object(path: Path) -> dict[str, object]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise TypeError(f"{path} must contain a JSON object")
+    return value
+
+
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+expected_files = {
+    "kernel-metadata.json",
+    "run.py",
+    "spec0021_inference_config.json",
+}
+observed_files = {
+    path.relative_to(kernel_dir).as_posix()
+    for path in kernel_dir.rglob("*")
+    if path.is_file()
+}
+errors: list[str] = []
+if observed_files != expected_files:
+    errors.append("finalizer upload directory files differ")
+config = read_object(config_path)
+canonical = json.dumps(config, sort_keys=True, separators=(",", ":")) + "\n"
+if config_path.read_text(encoding="utf-8") != canonical:
+    errors.append("finalizer config is not canonical compact JSON")
+expected_config_fields = {
+    "schema_version",
+    "mode",
+    "spec_sha256",
+    "input_contract_sha256",
+    "input_dataset_receipt",
+    "kernel_sources",
+    "production_configs",
+}
+if set(config) != expected_config_fields:
+    errors.append("finalizer config fields differ from the locked schema")
+if config.get("schema_version") != "spec0021.finalizer_config.v1":
+    errors.append("finalizer config schema mismatch")
+if config.get("mode") != "finalizer":
+    errors.append("finalizer config mode mismatch")
+if config.get("spec_sha256") != sha256(spec_path):
+    errors.append("finalizer Spec 0021 hash is stale")
+if config.get("input_contract_sha256") != sha256(input_contract):
+    errors.append("finalizer input-contract hash is stale")
+receipt = read_object(input_receipt_path)
+if config.get("input_dataset_receipt") != receipt:
+    errors.append("finalizer embedded input receipt differs from local authority")
+receipt_version = receipt.get("dataset_version")
+if (
+    receipt.get("schema_version") != "spec0021.input_dataset_receipt.v1"
+    or receipt.get("dataset_reference")
+    != "maximusshtefan/eqvae-ubc-ocean-latent-inputs"
+    or isinstance(receipt_version, bool)
+    or not isinstance(receipt_version, int)
+    or receipt_version < 1
+):
+    errors.append("finalizer input receipt identity differs")
+kernel_sources = [
+    f"maximusshtefan/eqvae-ubc-ocean-latent-run-{run:02d}"
+    for run in range(1, 6)
+]
+production_fields = {
+    "schema_version",
+    "mode",
+    "run_number",
+    "spec_sha256",
+    "input_dataset_receipt",
+    "input_contract_sha256",
+    "work_manifest_sha256",
+    "normal_checkpoint_sha256",
+    "so2_checkpoint_sha256",
+    "pilot_authority_sha256",
+    "selected_recipe",
+    "expected_binary_output_bytes",
+    "saved_output_limit_bytes",
+    "resume_dataset_receipt",
+}
+work_hashes = {
+    1: "76cc5f9b86b75b9e46250c80e7b5c98d2f0451a12b38665ae45b055767b7a456",
+    2: "11d21482c9d3e083bc5138973c6b09f6b659e7d753853c0290382320e78e6200",
+    3: "9414f638abc24963e821de8bbedccaf294a14a7ea768a01687d5b105e634402b",
+    4: "e7c5d8d08996e3bac440b5779547b2bbeb4443e7481dcb74998a87aa3054697f",
+    5: "5485c44ababeaba9a4e2cc75a1a6b2927d89f10ed83a121dfcb81a68cfc23d6a",
+}
+normal_checkpoint = "f733304e9178e468546113642bdf01e11348570b340c366cf148973083cb9075"
+so2_checkpoint = "041e0cd7483cb8642bb72eb1b63c3a36774bf9cadd0b659c9d1db6a813c8f4c7"
+row_counts = {1: 121199, 2: 119898, 3: 118901, 4: 118513, 5: 120887}
+if config.get("kernel_sources") != kernel_sources:
+    errors.append("finalizer kernel-source order differs")
+raw_configs = config.get("production_configs")
+expected_config_names = {f"run_{run:02d}" for run in range(1, 6)}
+if not isinstance(raw_configs, dict) or set(raw_configs) != expected_config_names:
+    errors.append("finalizer must bind exactly five production configs")
+else:
+    shared_bindings = None
+    for run in range(1, 6):
+        run_name = f"run_{run:02d}"
+        record = raw_configs[run_name]
+        if not isinstance(record, dict) or set(record) != {"config", "sha256"}:
+            errors.append(f"finalizer {run_name} config record differs")
+            continue
+        production = record["config"]
+        if not isinstance(production, dict):
+            errors.append(f"finalizer {run_name} config must be an object")
+            continue
+        encoded = (
+            json.dumps(production, sort_keys=True, separators=(",", ":")) + "\n"
+        ).encode()
+        if hashlib.sha256(encoded).hexdigest() != record["sha256"]:
+            errors.append(f"finalizer {run_name} config SHA-256 differs")
+        expected = {
+            "schema_version": "spec0021.inference_config.v2",
+            "mode": "production",
+            "run_number": run,
+            "spec_sha256": sha256(spec_path),
+            "input_contract_sha256": sha256(input_contract),
+            "input_dataset_receipt": receipt,
+            "work_manifest_sha256": work_hashes[run],
+            "normal_checkpoint_sha256": normal_checkpoint,
+            "so2_checkpoint_sha256": so2_checkpoint,
+        }
+        if set(production) != production_fields or any(
+            production.get(name) != value for name, value in expected.items()
+        ):
+            errors.append(f"finalizer {run_name} production binding differs")
+        resume = production.get("resume_dataset_receipt")
+        if resume is not None:
+            expected_resume_reference = (
+                f"maximusshtefan/eqvae-ubc-ocean-latent-run-{run:02d}-resume"
+            )
+            if not isinstance(resume, dict):
+                errors.append(f"finalizer {run_name} resume receipt is invalid")
+            else:
+                expected_resume = {
+                    "schema_version": "spec0021.resume_dataset_receipt.v1",
+                    "dataset_reference": expected_resume_reference,
+                    "run_number": run,
+                    "input_bundle_sha256": sha256(input_contract),
+                    "work_manifest_sha256": work_hashes[run],
+                }
+                if any(
+                    resume.get(name) != value
+                    for name, value in expected_resume.items()
+                ):
+                    errors.append(
+                        f"finalizer {run_name} resume receipt binding differs"
+                    )
+                version = resume.get("dataset_version")
+                if (
+                    isinstance(version, bool)
+                    or not isinstance(version, int)
+                    or version < 1
+                ):
+                    errors.append(
+                        f"finalizer {run_name} resume receipt version is invalid"
+                    )
+                for name in (
+                    "provenance_sha256",
+                    "run_config_sha256",
+                    "remote_listing_sha256",
+                ):
+                    value = resume.get(name)
+                    if (
+                        not isinstance(value, str)
+                        or len(value) != 64
+                        or any(char not in "0123456789abcdef" for char in value)
+                    ):
+                        errors.append(
+                            f"finalizer {run_name} resume receipt {name} is invalid"
+                        )
+                remote_files = resume.get("remote_files")
+                if not isinstance(remote_files, list) or not remote_files:
+                    errors.append(
+                        f"finalizer {run_name} resume receipt files are invalid"
+                    )
+        for name in ("pilot_authority_sha256",):
+            value = production.get(name)
+            if (
+                not isinstance(value, str)
+                or len(value) != 64
+                or any(char not in "0123456789abcdef" for char in value)
+            ):
+                errors.append(f"finalizer {run_name} {name} is invalid")
+        recipe = production.get("selected_recipe")
+        fixed_recipe = {
+            "batch_size": 8,
+            "d2h": "synchronous",
+            "numeric": "FP32",
+            "execution": "eager",
+        }
+        if recipe != fixed_recipe:
+            errors.append(f"finalizer {run_name} selected recipe is invalid")
+        expected_binary_bytes = 2 * (64 + row_counts[run] * 65536)
+        if production.get("expected_binary_output_bytes") != expected_binary_bytes:
+            errors.append(f"finalizer {run_name} binary output size is invalid")
+        if production.get("saved_output_limit_bytes") != 20_000_000_000:
+            errors.append(f"finalizer {run_name} saved-output cap is invalid")
+        if expected_binary_bytes + 10_000_000 > 20_000_000_000:
+            errors.append(f"finalizer {run_name} output exceeds Kaggle cap")
+        observed_shared = {
+            name: production.get(name)
+            for name in (
+                "input_dataset_receipt",
+                "normal_checkpoint_sha256",
+                "so2_checkpoint_sha256",
+                "pilot_authority_sha256",
+                "selected_recipe",
+                "saved_output_limit_bytes",
+            )
+        }
+        if shared_bindings is None:
+            shared_bindings = observed_shared
+        elif observed_shared != shared_bindings:
+            errors.append("finalizer production shared bindings differ")
+metadata = read_object(kernel_dir / "kernel-metadata.json")
+expected_metadata = {
+    "id": "maximusshtefan/eqvae-ubc-ocean-latent-finalizer",
+    "title": "eqvae UBC-OCEAN latent finalizer",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "false",
+    "enable_internet": "true",
+    "dataset_sources": ["maximusshtefan/eqvae-ubc-ocean-latent-inputs"],
+    "competition_sources": [],
+    "kernel_sources": kernel_sources,
+    "model_sources": [],
+}
+if metadata != expected_metadata:
+    errors.append("finalizer metadata differs from the locked CPU/source contract")
+if "KAGGLE_UBC_OCEAN_LATENT_INFERENCE_READY = True" not in (
+    kernel_dir / "run.py"
+).read_text(encoding="utf-8"):
+    errors.append("finalizer wrapper is missing the latent ready marker")
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    raise SystemExit(1)
+PYLATENTFINALIZER
+  build_kernel_py \
+    --kernel-dir "$kernel_dir" \
+    --template "$latent_finalizer_template" \
+    --ready-marker "$latent_ready_marker" \
+    --verify-only \
+    --allow-dirty
+}
+
+preflight_latent_inference() {
+  local mode="${1:-}"
+  case "$mode" in
+  pilot)
+    validate_latent_kernel_dir "$latent_inference_kernel_root/pilot" allow-null
+    ;;
+  production-all)
+    local run_number
+    for run_number in 01 02 03 04 05; do
+      validate_latent_kernel_dir \
+        "$latent_inference_kernel_root/run_$run_number" fresh
+    done
+    ;;
+  run-0[1-5])
+    local run_number="${mode#run-}"
+    validate_latent_kernel_dir \
+      "$latent_inference_kernel_root/run_$run_number" resume
+    ;;
+  finalizer)
+    validate_latent_finalizer_dir "$latent_inference_kernel_root/finalizer"
+    ;;
+  *)
+    echo "error: preflight-latent-inference requires pilot, production-all, finalizer, or run-XX" >&2
+    exit 1
+    ;;
+  esac
+  echo "ok: Spec 0021 latent inference $mode preflight"
+}
+
+build_cancer_topup() {
+  require_build_python
+  "$build_python" -m eqvae.cli.build_ubc_cancer_topup_kernel build \
+    --repo-root "$PWD" \
+    --plan-root "$cancer_topup_plan_root" \
+    --receipt "$cancer_topup_receipt" \
+    --output-root "$cancer_topup_kernel_dir"
+  preflight_cancer_topup
+}
+
+preflight_cancer_topup() {
+  require_build_python
+  "$build_python" -m eqvae.cli.build_ubc_cancer_topup_kernel validate \
+    --repo-root "$PWD" \
+    --plan-root "$cancer_topup_plan_root" \
+    --receipt "$cancer_topup_receipt" \
+    --output-root "$cancer_topup_kernel_dir"
+  "$build_python" -m pytest -q tests/test_spec0022_cancer_topup.py
+  echo "ok: Spec 0022 one-off cancer top-up preflight"
+}
+
+guard_cancer_topup_push_ready() {
+  local kernel_dir="$1"
+  if [[ "$kernel_dir" != "$cancer_topup_kernel_dir" ]]; then
+    echo "error: Spec 0022 push must use $cancer_topup_kernel_dir" >&2
+    exit 1
+  fi
+  if [[ "${KAGGLE_CANCER_TOPUP_CONFIRMED:-}" != "1" ]]; then
+    echo "error: set KAGGLE_CANCER_TOPUP_CONFIRMED=1 after explicit one-off authorization" >&2
+    exit 1
+  fi
+  preflight_cancer_topup
+}
+
+preflight_mil_capacity_probe() {
+  require_build_python
+  "$build_python" -m eqvae.cli.build_ubc_mil_capacity_probe validate \
+    --repo-root "$PWD" \
+    --manifest-root runs/local/ubc_ocean_supervised_manifests \
+    --output-root "$mil_capacity_probe_kernel_dir"
+  "$build_python" -m pytest -q tests/test_spec0023_mil_capacity_probe.py
+  echo "ok: Spec 0023 one-off largest-WSI capacity preflight"
+}
+
+guard_mil_capacity_probe_push_ready() {
+  local kernel_dir="$1"
+  if [[ "$kernel_dir" != "$mil_capacity_probe_kernel_dir" ]]; then
+    echo "error: Spec 0023 capacity push must use $mil_capacity_probe_kernel_dir" >&2
+    exit 1
+  fi
+  if [[ "${KAGGLE_MIL_CAPACITY_PROBE_CONFIRMED:-}" != "1" ]]; then
+    echo "error: set KAGGLE_MIL_CAPACITY_PROBE_CONFIRMED=1 after explicit authorization" >&2
+    exit 1
+  fi
+  preflight_mil_capacity_probe
+}
+
+build_tissue_fastpath_probe() {
+  local actor="${1:-}"
+  if [[ -z "$actor" ]]; then
+    actor="$(kaggle_authenticated_username)"
+  fi
+  require_build_python
+  PYTHONPATH=src "$build_python" scripts/build_tissue_fastpath_probe.py \
+    build --actor "$actor"
+}
+
+validate_tissue_fastpath_probe() {
+  local actor="${1:-}"
+  local sealed_source_snapshot="${2:-}"
+  require_build_python
+  local args=(scripts/build_tissue_fastpath_probe.py validate)
+  [[ -n "$actor" ]] && args+=(--actor "$actor")
+  [[ "$sealed_source_snapshot" == "sealed" ]] && args+=(--sealed-source-snapshot)
+  PYTHONPATH=src "$build_python" "${args[@]}" >/dev/null
+}
+
+preflight_tissue_fastpath_probe() {
+  local actor="${1:-}"
+  validate_tissue_fastpath_probe "$actor" sealed
+  validate_kernel_dir "$tissue_fastpath_probe_kernel_dir"
+  "$build_python" -m pytest -q tests/test_spec0037_tissue_fastpath_probe.py
+  echo "ok: Spec 0037 tissue fast-path probe preflight"
+}
+
+publish_tissue_fastpath_probe_inputs() (
+  if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_DATASET_WRITE_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_TISSUE_FASTPATH_PROBE_CONFIRMED:-}" != "1" ]]; then
+    echo "error: explicit Spec 0037 Kaggle/dataset confirmations are required" >&2
+    exit 1
+  fi
+  if [[ -e "$tissue_fastpath_probe_input_receipt" ]]; then
+    echo "error: immutable Spec 0037 input receipt already exists" >&2
+    exit 1
+  fi
+  local actor create_output
+  actor="$(kaggle_authenticated_username)"
+  validate_tissue_fastpath_probe "$actor"
+  require_kaggle_cli
+  if ! create_output="$(
+    kaggle_api datasets create -p "$tissue_fastpath_probe_root/upload" 2>&1
+  )"; then
+    printf '%s\n' "$create_output" >&2
+    exit 1
+  fi
+  printf '%s\n' "$create_output"
+  if [[ "$create_output" == *"Dataset creation error"* ]]; then
+    echo "error: Kaggle reported Spec 0037 dataset creation failure" >&2
+    exit 1
+  fi
+)
+
+verify_tissue_fastpath_probe_inputs() (
+  require_remote_confirmed
+  local actor dataset_reference stage_parent download_dir metadata_dir status_path
+  local dataset_version
+  actor="$(kaggle_authenticated_username)"
+  dataset_reference="$actor/$tissue_fastpath_probe_dataset_slug"
+  validate_tissue_fastpath_probe "$actor" sealed
+  if [[ -e "$tissue_fastpath_probe_input_receipt" ]]; then
+    echo "error: immutable Spec 0037 input receipt already exists" >&2
+    exit 1
+  fi
+  require_kaggle_cli
+  stage_parent="$(mktemp -d "$TMPDIR/spec0037_input_verify.XXXXXX")"
+  trap 'rm -rf -- "$stage_parent"' EXIT
+  download_dir="$stage_parent/download"
+  metadata_dir="$stage_parent/metadata"
+  status_path="$stage_parent/status.json"
+  mkdir -p "$download_dir" "$metadata_dir" "$tissue_fastpath_probe_authority_root"
+  kaggle_api datasets status "$dataset_reference" \
+    --format 'json(status,current_version_number)' >"$status_path"
+  dataset_version="$("$build_python" - "$status_path" <<'PYSPEC0037VERSION'
+import json
+import sys
+from pathlib import Path
+
+status = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if status.get("status") != "ready" or status.get("current_version_number") != 1:
+    raise SystemExit("remote Spec 0037 input must be ready immutable version 1")
+print(1)
+PYSPEC0037VERSION
+)"
+  kaggle_api datasets metadata "$dataset_reference" -p "$metadata_dir"
+  kaggle_api datasets download "$dataset_reference/$dataset_version" \
+    -p "$download_dir" --unzip -o -q
+  "$build_python" - \
+    "$tissue_fastpath_probe_root" "$download_dir" \
+    "$metadata_dir/dataset-metadata.json" "$dataset_reference" \
+    "$tissue_fastpath_probe_input_receipt" <<'PYSPEC0037RECEIPT'
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+root, downloaded_root, metadata_path, reference, receipt_path = map(Path, sys.argv[1:])
+reference = str(reference)
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+bundle = root / "bundle"
+expected = {
+    path.relative_to(bundle).as_posix(): path
+    for path in bundle.rglob("*")
+    if path.is_file() and path.name != "dataset-metadata.json"
+}
+downloaded = {
+    path.relative_to(downloaded_root).as_posix(): path
+    for path in downloaded_root.rglob("*")
+    if path.is_file() and path.name != "dataset-metadata.json"
+}
+if set(downloaded) != set(expected):
+    raise SystemExit("downloaded Spec 0037 input allow-list differs")
+remote_files = []
+for name, local in sorted(expected.items()):
+    remote = downloaded[name]
+    if local.stat().st_size != remote.stat().st_size or sha256(local) != sha256(remote):
+        raise SystemExit(f"downloaded Spec 0037 input differs: {name}")
+    remote_files.append({"logical_name": name, "bytes": local.stat().st_size, "sha256": sha256(local)})
+metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+info = metadata.get("info", {})
+owner, slug = reference.split("/", maxsplit=1)
+if not isinstance(info, dict) or info.get("ownerUser") != owner or info.get("datasetSlug") != slug or info.get("isPrivate") is not True:
+    raise SystemExit("remote Spec 0037 input identity/privacy differs")
+contract = bundle / "tissue_fastpath_probe_input.json"
+record = {
+    "schema_version": "spec0037.input_dataset_receipt.v1",
+    "dataset_reference": reference,
+    "dataset_version": 1,
+    "visibility": "private",
+    "status": "verified",
+    "input_contract_sha256": sha256(contract),
+    "remote_files": remote_files,
+}
+receipt_path.parent.mkdir(parents=True, exist_ok=True)
+temporary = receipt_path.with_suffix(".json.tmp")
+temporary.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+temporary.replace(receipt_path)
+directory = os.open(receipt_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYSPEC0037RECEIPT
+  echo "ok: wrote verified immutable Spec 0037 input receipt $tissue_fastpath_probe_input_receipt"
+)
+
+build_tissue_training() {
+  local actor="${1:-}"
+  if [[ -z "$actor" ]]; then
+    actor="$(kaggle_authenticated_username)"
+  fi
+  require_build_python
+  PYTHONPATH=src "$build_python" scripts/build_tissue_training.py build --actor "$actor"
+}
+
+validate_tissue_training() {
+  local actor="${1:-}"
+  local sealed_source_snapshot="${2:-}"
+  require_build_python
+  local args=(scripts/build_tissue_training.py validate)
+  [[ -n "$actor" ]] && args+=(--actor "$actor")
+  [[ "$sealed_source_snapshot" == "sealed" ]] && args+=(--sealed-source-snapshot)
+  PYTHONPATH=src "$build_python" "${args[@]}" >/dev/null
+}
+
+preflight_tissue_training() {
+  local actor="${1:-}"
+  validate_tissue_training "$actor" sealed
+  validate_kernel_dir "$tissue_training_kernel_dir"
+  "$build_python" -m pytest -q tests/test_spec0039_tissue_training.py
+  echo "ok: Spec 0039 tissue label-efficiency training preflight"
+}
+
+build_tissue_training_retry() {
+  local actor="${1:?authenticated Kaggle actor required}"
+  local input_bundle="${2:?frozen input bundle required}"
+  require_build_python
+  PYTHONPATH=src "$build_python" scripts/build_tissue_training.py build-retry \
+    --actor "$actor" --input-bundle "$input_bundle" \
+    --output-root "$tissue_training_retry_root"
+}
+
+validate_tissue_training_retry() {
+  local actor="${1:?authenticated Kaggle actor required}"
+  require_build_python
+  PYTHONPATH=src "$build_python" scripts/build_tissue_training.py validate-retry \
+    --actor "$actor" --output-root "$tissue_training_retry_root" >/dev/null
+}
+
+preflight_tissue_training_retry() {
+  local actor="${1:-}"
+  if [[ -z "$actor" ]]; then
+    actor="$(kaggle_authenticated_username)"
+  fi
+  validate_tissue_training_retry "$actor"
+  validate_kernel_dir "$tissue_training_retry_kernel_dir"
+  "$build_python" -m pytest -q tests/test_spec0039_tissue_training.py
+  echo "ok: Spec 0039 tissue label-efficiency training retry-v2 preflight"
+}
+
+build_tissue_training_retry_v3() {
+  local actor="${1:?authenticated Kaggle actor required}"
+  local input_bundle="${2:?frozen input bundle required}"
+  require_build_python
+  PYTHONPATH=src "$build_python" scripts/build_tissue_training.py build-retry \
+    --actor "$actor" --input-bundle "$input_bundle" \
+    --output-root "$tissue_training_retry_v3_root"
+}
+
+validate_tissue_training_retry_v3() {
+  local actor="${1:?authenticated Kaggle actor required}"
+  require_build_python
+  PYTHONPATH=src "$build_python" scripts/build_tissue_training.py validate-retry \
+    --actor "$actor" --output-root "$tissue_training_retry_v3_root" >/dev/null
+}
+
+preflight_tissue_training_retry_v3() {
+  local actor="${1:-}"
+  if [[ -z "$actor" ]]; then
+    actor="$(kaggle_authenticated_username)"
+  fi
+  validate_tissue_training_retry_v3 "$actor"
+  validate_kernel_dir "$tissue_training_retry_v3_kernel_dir"
+  "$build_python" -m pytest -q tests/test_spec0039_tissue_training.py
+  echo "ok: Spec 0039 tissue label-efficiency training retry-v3 preflight"
+}
+
+publish_tissue_training_inputs() (
+  if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_DATASET_WRITE_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_TISSUE_TRAINING_CONFIRMED:-}" != "1" ]]; then
+    echo "error: explicit Spec 0039 Kaggle/dataset confirmations are required" >&2
+    exit 1
+  fi
+  if [[ -e "$tissue_training_input_receipt" ]]; then
+    echo "error: immutable Spec 0039 input receipt already exists" >&2
+    exit 1
+  fi
+  local actor create_output
+  actor="$(kaggle_authenticated_username)"
+  validate_tissue_training "$actor"
+  require_kaggle_cli
+  if ! create_output="$(
+    kaggle_api datasets create -p "$tissue_training_root/upload" 2>&1
+  )"; then
+    printf '%s\n' "$create_output" >&2
+    exit 1
+  fi
+  printf '%s\n' "$create_output"
+  if [[ "$create_output" == *"Dataset creation error"* ]]; then
+    echo "error: Kaggle reported Spec 0039 dataset creation failure" >&2
+    exit 1
+  fi
+)
+
+verify_tissue_training_inputs() (
+  require_remote_confirmed
+  local actor dataset_reference stage_parent download_dir metadata_dir status_path
+  local dataset_version
+  actor="$(kaggle_authenticated_username)"
+  dataset_reference="$actor/$tissue_training_dataset_slug"
+  validate_tissue_training "$actor" sealed
+  if [[ -e "$tissue_training_input_receipt" ]]; then
+    echo "error: immutable Spec 0039 input receipt already exists" >&2
+    exit 1
+  fi
+  require_kaggle_cli
+  stage_parent="$(mktemp -d "$TMPDIR/spec0039_input_verify.XXXXXX")"
+  trap 'rm -rf -- "$stage_parent"' EXIT
+  download_dir="$stage_parent/download"
+  metadata_dir="$stage_parent/metadata"
+  status_path="$stage_parent/status.json"
+  mkdir -p "$download_dir" "$metadata_dir" "$tissue_training_authority_root"
+  kaggle_api datasets status "$dataset_reference" \
+    --format 'json(status,current_version_number)' >"$status_path"
+  dataset_version="$("$build_python" - "$status_path" <<'PYSPEC0039VERSION'
+import json
+import sys
+from pathlib import Path
+
+status = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if status.get("status") != "ready" or status.get("current_version_number") != 1:
+    raise SystemExit("remote Spec 0039 input must be ready immutable version 1")
+print(1)
+PYSPEC0039VERSION
+)"
+  kaggle_api datasets metadata "$dataset_reference" -p "$metadata_dir"
+  kaggle_api datasets download "$dataset_reference/$dataset_version" \
+    -p "$download_dir" --unzip -o -q
+  "$build_python" - \
+    "$tissue_training_root" "$download_dir" \
+    "$metadata_dir/dataset-metadata.json" "$dataset_reference" \
+    "$tissue_training_input_receipt" <<'PYSPEC0039RECEIPT'
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+root, downloaded_root, metadata_path, reference, receipt_path = map(Path, sys.argv[1:])
+reference = str(reference)
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+bundle = root / "bundle"
+expected = {
+    path.relative_to(bundle).as_posix(): path
+    for path in bundle.rglob("*")
+    if path.is_file() and path.name != "dataset-metadata.json"
+}
+downloaded = {
+    path.relative_to(downloaded_root).as_posix(): path
+    for path in downloaded_root.rglob("*")
+    if path.is_file() and path.name != "dataset-metadata.json"
+}
+if set(downloaded) != set(expected):
+    raise SystemExit("downloaded Spec 0039 input allow-list differs")
+remote_files = []
+for name, local in sorted(expected.items()):
+    remote = downloaded[name]
+    if local.stat().st_size != remote.stat().st_size or sha256(local) != sha256(remote):
+        raise SystemExit(f"downloaded Spec 0039 input differs: {name}")
+    remote_files.append({"logical_name": name, "bytes": local.stat().st_size, "sha256": sha256(local)})
+metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+info = metadata.get("info", {})
+owner, slug = reference.split("/", maxsplit=1)
+if not isinstance(info, dict) or info.get("ownerUser") != owner or info.get("datasetSlug") != slug or info.get("isPrivate") is not True:
+    raise SystemExit("remote Spec 0039 input identity/privacy differs")
+contract = bundle / "tissue_training_input.json"
+record = {
+    "schema_version": "spec0039.input_dataset_receipt.v1",
+    "dataset_reference": reference,
+    "dataset_version": 1,
+    "visibility": "private",
+    "status": "verified",
+    "input_contract_sha256": sha256(contract),
+    "remote_files": remote_files,
+}
+receipt_path.parent.mkdir(parents=True, exist_ok=True)
+temporary = receipt_path.with_suffix(".json.tmp")
+temporary.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+temporary.replace(receipt_path)
+directory = os.open(receipt_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYSPEC0039RECEIPT
+  echo "ok: wrote verified immutable Spec 0039 input receipt $tissue_training_input_receipt"
+)
+
+output_tissue_training() {
+  local receipt="${1:?launch receipt required}"
+  local output_dir="${2:?output directory required}"
+  local kernel_reference
+  kernel_reference="$(kernel_reference_from_launch_receipt "$receipt")"
+  if [[ ! "$kernel_reference" =~ ^[^/]+/eqvae-tissue-label-efficiency-training/[0-9]+$ ]]; then
+    echo "error: launch receipt is not for Spec 0039 tissue training" >&2
+    exit 1
+  fi
+  require_remote_confirmed
+  require_kaggle_cli
+  if [[ -e "$output_dir" ]]; then
+    echo "error: output-tissue-training requires a new output directory" >&2
+    exit 1
+  fi
+  mkdir -p "$output_dir"
+  kaggle_api kernels output "$kernel_reference" -p "$output_dir"
+  record_kaggle_download \
+    kernel "$kernel_reference" "$output_dir" kaggle_output_receipt.json
+}
+
+build_mil_test() {
+  local actor="${1:-}"
+  [[ -n "$actor" ]] || actor="$(kaggle_authenticated_username)"
+  require_build_python
+  "$build_python" scripts/build_ubc_mil_test_evaluation.py build --actor "$actor"
+}
+
+validate_mil_test() {
+  local actor="${1:-}"
+  require_build_python
+  local args=(scripts/build_ubc_mil_test_evaluation.py validate)
+  [[ -z "$actor" ]] || args+=(--actor "$actor")
+  "$build_python" "${args[@]}"
+}
+
+publish_mil_test_inputs() (
+  if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_DATASET_WRITE_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_MIL_TEST_EVALUATION_CONFIRMED:-}" != "1" ]]; then
+    echo "error: Spec 0041 dataset publication confirmations are required" >&2
+    exit 1
+  fi
+  [[ ! -e "$mil_test_input_receipt" ]] || {
+    echo "error: immutable Spec 0041 input receipt already exists" >&2
+    exit 1
+  }
+  local actor create_output
+  actor="$(kaggle_authenticated_username)"
+  validate_mil_test "$actor" >/dev/null
+  require_kaggle_cli
+  if ! create_output="$(
+    kaggle_api datasets create -p "$mil_test_root/upload" 2>&1
+  )"; then
+    printf '%s\n' "$create_output" >&2
+    exit 1
+  fi
+  printf '%s\n' "$create_output"
+  [[ "$create_output" != *"Dataset creation error"* ]] || exit 1
+)
+
+status_mil_test_inputs() {
+  require_remote_confirmed
+  local actor
+  actor="$(kaggle_authenticated_username)"
+  kaggle_api datasets status "$actor/$mil_test_dataset_slug" \
+    --format 'json(status,current_version_number)'
+}
+
+verify_mil_test_inputs() (
+  require_remote_confirmed
+  local actor reference stage download metadata status version
+  actor="$(kaggle_authenticated_username)"
+  reference="$actor/$mil_test_dataset_slug"
+  validate_mil_test "$actor" >/dev/null
+  [[ ! -e "$mil_test_input_receipt" ]] || {
+    echo "error: immutable Spec 0041 input receipt already exists" >&2
+    exit 1
+  }
+  stage="$(mktemp -d "$TMPDIR/spec0041_verify.XXXXXX")"
+  trap 'rm -rf -- "$stage"' EXIT
+  download="$stage/download"
+  metadata="$stage/metadata"
+  status="$stage/status.json"
+  mkdir -p "$download" "$metadata"
+  kaggle_api datasets status "$reference" \
+    --format 'json(status,current_version_number)' >"$status"
+  version="$(python3 - "$status" <<'PYSPEC0041VERSION'
+import json
+import sys
+from pathlib import Path
+
+value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if value.get("status") != "ready" or value.get("current_version_number") != 1:
+    raise SystemExit("Spec 0041 dataset must be ready immutable version 1")
+print(1)
+PYSPEC0041VERSION
+)"
+  kaggle_api datasets metadata "$reference" -p "$metadata"
+  kaggle_api datasets download "$reference/$version" -p "$download" --unzip -o -q
+  "$build_python" - "$mil_test_root/bundle" "$download" \
+    "$metadata/dataset-metadata.json" "$reference" "$mil_test_input_receipt" <<'PYSPEC0041RECEIPT'
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+local, remote, metadata_path, reference, receipt = (
+    Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4], Path(sys.argv[5])
+)
+
+def record(root):
+    return {
+        path.relative_to(root).as_posix(): {
+            "bytes": path.stat().st_size,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for path in root.rglob("*")
+        if path.is_file() and path.name != "dataset-metadata.json"
+    }
+
+local_files = record(local)
+remote_files = record(remote)
+if local_files != remote_files:
+    raise SystemExit("downloaded Spec 0041 dataset bytes differ")
+metadata = json.loads(metadata_path.read_text(encoding="utf-8")).get("info", {})
+owner, slug = reference.split("/", 1)
+if metadata.get("ownerUser") != owner or metadata.get("datasetSlug") != slug or metadata.get("isPrivate") is not True:
+    raise SystemExit("remote Spec 0041 identity/privacy differs")
+contract = local / "mil_test_inference_input.json"
+value = {
+    "schema_version": "spec0041.input_dataset_receipt.v1",
+    "dataset_reference": reference,
+    "dataset_version": 1,
+    "visibility": "private",
+    "status": "verified",
+    "input_contract_sha256": hashlib.sha256(contract.read_bytes()).hexdigest(),
+    "remote_files": remote_files,
+}
+receipt.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+directory = os.open(receipt.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYSPEC0041RECEIPT
+  echo "ok: wrote verified immutable Spec 0041 input receipt $mil_test_input_receipt"
+)
+
+output_mil_test() {
+  local receipt="${1:?launch receipt required}"
+  local output_dir="${2:?output directory required}"
+  local reference
+  reference="$(kernel_reference_from_launch_receipt "$receipt")"
+  local receipt_sha256
+  receipt_sha256="$(sha256sum "$receipt" | awk '{print $1}')"
+  [[ "$reference" == "$mil_test_accepted_reference" \
+    && "$receipt_sha256" == "$mil_test_launch_receipt_sha256" ]] || {
+    echo "error: launch receipt is not the exact amended Spec 0041 launch" >&2
+    exit 1
+  }
+  require_remote_confirmed
+  [[ ! -e "$output_dir" ]] || {
+    echo "error: output-mil-test requires a new output directory" >&2
+    exit 1
+  }
+  mkdir -p "$output_dir"
+  kaggle_api kernels output "$reference" -p "$output_dir"
+  record_kaggle_download kernel "$reference" "$output_dir" kaggle_output_receipt.json
+}
+
+score_mil_test() {
+  require_build_python
+  "$build_python" scripts/build_ubc_mil_test_evaluation.py score \
+    --remote-output-root "${1:?remote output required}" \
+    --launch-receipt "${2:?launch receipt required}" \
+    --output-root "${3:?scored output required}"
+}
+
+build_tissue_test() {
+  local actor="${1:-}"
+  [[ -n "$actor" ]] || actor="$(kaggle_authenticated_username)"
+  require_build_python
+  "$build_python" scripts/build_tissue_test_evaluation.py build --actor "$actor"
+}
+
+validate_tissue_test() {
+  local actor="${1:-}"
+  require_build_python
+  local args=(scripts/build_tissue_test_evaluation.py validate)
+  [[ -z "$actor" ]] || args+=(--actor "$actor")
+  "$build_python" "${args[@]}"
+}
+
+publish_tissue_test_inputs() (
+  if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_DATASET_WRITE_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_TISSUE_TEST_EVALUATION_CONFIRMED:-}" != "1" ]]; then
+    echo "error: Spec 0043 dataset publication confirmations are required" >&2
+    exit 1
+  fi
+  [[ ! -e "$tissue_test_input_receipt" ]] || {
+    echo "error: immutable Spec 0043 input receipt already exists" >&2
+    exit 1
+  }
+  local actor create_output
+  actor="$(kaggle_authenticated_username)"
+  validate_tissue_test "$actor" >/dev/null
+  require_kaggle_cli
+  if ! create_output="$(
+    kaggle_api datasets create -p "$tissue_test_root/upload" 2>&1
+  )"; then
+    printf '%s\n' "$create_output" >&2
+    exit 1
+  fi
+  printf '%s\n' "$create_output"
+  [[ "$create_output" != *"Dataset creation error"* ]] || exit 1
+)
+
+status_tissue_test_inputs() {
+  require_remote_confirmed
+  local actor
+  actor="$(kaggle_authenticated_username)"
+  kaggle_api datasets status "$actor/$tissue_test_dataset_slug" \
+    --format 'json(status,current_version_number)'
+}
+
+verify_tissue_test_inputs() (
+  require_remote_confirmed
+  local actor reference stage download metadata status version
+  actor="$(kaggle_authenticated_username)"
+  reference="$actor/$tissue_test_dataset_slug"
+  validate_tissue_test "$actor" >/dev/null
+  [[ ! -e "$tissue_test_input_receipt" ]] || {
+    echo "error: immutable Spec 0043 input receipt already exists" >&2
+    exit 1
+  }
+  stage="$(mktemp -d "$TMPDIR/spec0043_verify.XXXXXX")"
+  trap 'rm -rf -- "$stage"' EXIT
+  download="$stage/download"
+  metadata="$stage/metadata"
+  status="$stage/status.json"
+  mkdir -p "$download" "$metadata"
+  kaggle_api datasets status "$reference" \
+    --format 'json(status,current_version_number)' >"$status"
+  version="$(python3 - "$status" <<'PYSPEC0043VERSION'
+import json
+import sys
+from pathlib import Path
+
+value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if value.get("status") != "ready" or value.get("current_version_number") != 1:
+    raise SystemExit("Spec 0043 dataset must be ready immutable version 1")
+print(1)
+PYSPEC0043VERSION
+)"
+  kaggle_api datasets metadata "$reference" -p "$metadata"
+  kaggle_api datasets download "$reference/$version" -p "$download" --unzip -o -q
+  "$build_python" - "$tissue_test_root/bundle" "$download" \
+    "$metadata/dataset-metadata.json" "$reference" "$tissue_test_input_receipt" <<'PYSPEC0043RECEIPT'
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+local, remote, metadata_path, reference, receipt = (
+    Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4], Path(sys.argv[5])
+)
+
+def record(root):
+    return {
+        path.relative_to(root).as_posix(): {
+            "bytes": path.stat().st_size,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for path in root.rglob("*")
+        if path.is_file() and path.name != "dataset-metadata.json"
+    }
+
+local_files = record(local)
+remote_files = record(remote)
+if local_files != remote_files:
+    raise SystemExit("downloaded Spec 0043 dataset bytes differ")
+metadata = json.loads(metadata_path.read_text(encoding="utf-8")).get("info", {})
+owner, slug = reference.split("/", 1)
+if (
+    metadata.get("ownerUser") != owner
+    or metadata.get("datasetSlug") != slug
+    or metadata.get("isPrivate") is not True
+):
+    raise SystemExit("remote Spec 0043 identity/privacy differs")
+contract = local / "tissue_test_inference_input.json"
+value = {
+    "schema_version": "spec0043.input_dataset_receipt.v1",
+    "dataset_reference": reference,
+    "dataset_version": 1,
+    "visibility": "private",
+    "status": "verified",
+    "input_contract_sha256": hashlib.sha256(contract.read_bytes()).hexdigest(),
+    "remote_files": remote_files,
+}
+receipt.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+directory = os.open(receipt.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYSPEC0043RECEIPT
+  echo "ok: wrote verified immutable Spec 0043 input receipt $tissue_test_input_receipt"
+)
+
+push_tissue_test() {
+  if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_TISSUE_TEST_EVALUATION_CONFIRMED:-}" != "1" ]]; then
+    echo "error: Spec 0043 kernel launch confirmations are required" >&2
+    exit 1
+  fi
+  [[ -f "$tissue_test_input_receipt" ]] || {
+    echo "error: Spec 0043 verified input receipt is required" >&2
+    exit 1
+  }
+  [[ ! -e "$tissue_test_launch_claim" ]] || {
+    echo "error: Spec 0043 one-use launch claim already exists" >&2
+    exit 1
+  }
+  local actor
+  actor="$(kaggle_authenticated_username)"
+  require_build_python
+  "$build_python" scripts/build_tissue_test_evaluation.py claim-launch --actor "$actor"
+  KAGGLE_TISSUE_TEST_ROUTE_ACTIVE=1 "$0" push "$tissue_test_kernel_dir"
+}
+
+output_tissue_test() {
+  local receipt="${1:?launch receipt required}"
+  local output_dir="${2:?output directory required}"
+  local reference
+  reference="$(kernel_reference_from_launch_receipt "$receipt")"
+  if [[ ! "$reference" =~ ^[^/]+/$tissue_test_kernel_slug/[0-9]+$ ]]; then
+    echo "error: launch receipt is not for Spec 0043 tissue test" >&2
+    exit 1
+  fi
+  require_remote_confirmed
+  require_kaggle_cli
+  [[ ! -e "$output_dir" ]] || {
+    echo "error: output-tissue-test requires a new output directory" >&2
+    exit 1
+  }
+  mkdir -p "$output_dir"
+  kaggle_api kernels output "$reference" -p "$output_dir"
+  record_kaggle_download kernel "$reference" "$output_dir" kaggle_output_receipt.json
+}
+
+score_tissue_test() {
+  require_build_python
+  "$build_python" scripts/build_tissue_test_evaluation.py score \
+    --remote-output-root "${1:?remote output required}" \
+    --launch-receipt "${2:?launch receipt required}" \
+    --output-root "${3:?scored output required}"
+}
+
+validate_vae_test() {
+  local actor="${1:-}"
+  [[ -n "$actor" ]] || actor="$(kaggle_authenticated_username)"
+  require_build_python
+  "$build_python" scripts/build_vae_test_evaluation.py \
+    validate-input --actor "$actor"
+  build_kernel_py \
+    --kernel-dir "$vae_test_kernel_dir" \
+    --ready-marker "SPEC0045_VAE_TEST_RECONSTRUCTION_READY = True" \
+    --allow-dirty --verify-only
+}
+
+publish_vae_test_inputs() (
+  if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_DATASET_WRITE_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_VAE_TEST_EVALUATION_CONFIRMED:-}" != "1" ]]; then
+    echo "error: Spec 0045 dataset publication confirmations are required" >&2
+    exit 1
+  fi
+  [[ ! -e "$vae_test_input_receipt" ]] || {
+    echo "error: immutable Spec 0045 input receipt already exists" >&2
+    exit 1
+  }
+  local actor create_output
+  actor="$(kaggle_authenticated_username)"
+  validate_vae_test "$actor" >/dev/null
+  require_kaggle_cli
+  if ! create_output="$(
+    kaggle_api datasets create -p "$vae_test_input_root" 2>&1
+  )"; then
+    printf '%s\n' "$create_output" >&2
+    exit 1
+  fi
+  printf '%s\n' "$create_output"
+  [[ "$create_output" != *"Dataset creation error"* ]] || exit 1
+)
+
+status_vae_test_inputs() {
+  require_remote_confirmed
+  local actor
+  actor="$(kaggle_authenticated_username)"
+  kaggle_api datasets status "$actor/$vae_test_dataset_slug" \
+    --format 'json(status,current_version_number)'
+}
+
+verify_vae_test_inputs() (
+  require_remote_confirmed
+  local actor reference stage download metadata status
+  actor="$(kaggle_authenticated_username)"
+  reference="$actor/$vae_test_dataset_slug"
+  validate_vae_test "$actor" >/dev/null
+  [[ ! -e "$vae_test_input_receipt" ]] || {
+    echo "error: immutable Spec 0045 input receipt already exists" >&2
+    exit 1
+  }
+  stage="$(mktemp -d "$TMPDIR/spec0045_verify.XXXXXX")"
+  trap 'rm -rf -- "$stage"' EXIT
+  download="$stage/download"
+  metadata="$stage/metadata"
+  status="$stage/status.json"
+  mkdir -p "$download" "$metadata" "$vae_test_authority_root"
+  kaggle_api datasets status "$reference" \
+    --format 'json(status,current_version_number)' >"$status"
+  "$build_python" - "$status" <<'PYSPEC0045VERSION'
+import json
+import sys
+from pathlib import Path
+
+value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if value.get("status") != "ready" or value.get("current_version_number") != 1:
+    raise SystemExit("Spec 0045 dataset must be ready immutable version 1")
+PYSPEC0045VERSION
+  kaggle_api datasets metadata "$reference" -p "$metadata"
+  kaggle_api datasets download "$reference/1" -p "$download" --unzip -o -q
+  "$build_python" - "$vae_test_input_root" "$download" \
+    "$metadata/dataset-metadata.json" "$reference" "$vae_test_input_receipt" \
+    <<'PYSPEC0045RECEIPT'
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+local, remote, metadata_path, reference, receipt = (
+    Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4], Path(sys.argv[5])
+)
+
+def record(root):
+    return {
+        path.relative_to(root).as_posix(): {
+            "bytes": path.stat().st_size,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for path in root.rglob("*")
+        if path.is_file() and path.name != "dataset-metadata.json"
+    }
+
+local_files = record(local)
+remote_files = record(remote)
+if local_files != remote_files:
+    raise SystemExit("downloaded Spec 0045 dataset bytes differ")
+metadata = json.loads(metadata_path.read_text(encoding="utf-8")).get("info", {})
+owner, slug = reference.split("/", 1)
+if (
+    metadata.get("ownerUser") != owner
+    or metadata.get("datasetSlug") != slug
+    or metadata.get("isPrivate") is not True
+):
+    raise SystemExit("remote Spec 0045 identity/privacy differs")
+contract = local / "spec0045_vae_test_input.json"
+value = {
+    "schema_version": "spec0045.input_dataset_receipt.v1",
+    "dataset_reference": reference,
+    "dataset_version": 1,
+    "visibility": "private",
+    "status": "verified",
+    "input_contract_sha256": hashlib.sha256(contract.read_bytes()).hexdigest(),
+    "remote_files": remote_files,
+}
+with receipt.open("x", encoding="utf-8") as handle:
+    json.dump(value, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+PYSPEC0045RECEIPT
+  echo "ok: wrote verified immutable Spec 0045 input receipt $vae_test_input_receipt"
+)
+
+push_vae_test() {
+  if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_VAE_TEST_EVALUATION_CONFIRMED:-}" != "1" ]]; then
+    echo "error: Spec 0045 kernel launch confirmations are required" >&2
+    exit 1
+  fi
+  [[ -f "$vae_test_input_receipt" ]] || {
+    echo "error: Spec 0045 verified input receipt is required" >&2
+    exit 1
+  }
+  [[ ! -e "$vae_test_launch_claim" ]] || {
+    echo "error: Spec 0045 one-use launch claim already exists" >&2
+    exit 1
+  }
+  local actor
+  actor="$(kaggle_authenticated_username)"
+  require_build_python
+  "$build_python" scripts/build_vae_test_evaluation.py \
+    claim-launch --actor "$actor"
+  KAGGLE_VAE_TEST_ROUTE_ACTIVE=1 "$0" push "$vae_test_kernel_dir"
+}
+
+output_vae_test() {
+  local receipt="${1:?launch receipt required}"
+  local output_dir="${2:?output directory required}"
+  local reference receipt_sha256
+  reference="$(kernel_reference_from_launch_receipt "$receipt")"
+  receipt_sha256="$(sha256sum "$receipt" | awk '{print $1}')"
+  if [[ "$reference" != "$vae_test_accepted_reference" \
+    || "$receipt_sha256" != "$vae_test_launch_receipt_sha256" ]]; then
+    echo "error: launch receipt is not the one-shot Spec 0045 VAE test" >&2
+    exit 1
+  fi
+  require_remote_confirmed
+  require_kaggle_cli
+  [[ ! -e "$output_dir" ]] || {
+    echo "error: output-vae-test requires a new output directory" >&2
+    exit 1
+  }
+  mkdir -p "$output_dir"
+  kaggle_api kernels output "$reference" -p "$output_dir"
+  record_kaggle_download kernel "$reference" "$output_dir" kaggle_output_receipt.json
+}
+
+score_vae_test() {
+  require_build_python
+  "$build_python" scripts/build_vae_test_evaluation.py score \
+    --remote-output-root "${1:?remote output required}" \
+    --launch-receipt "${2:?launch receipt required}" \
+    --input-receipt "$vae_test_input_receipt" \
+    --output-root "${3:?scored output required}"
+}
+
+resume_score_vae_test() {
+  require_build_python
+  "$build_python" scripts/build_vae_test_evaluation.py resume-score \
+    --remote-output-root runs/kaggle/vae_test_reconstruction_v1 \
+    --launch-receipt runs/local/kaggle_launches/maximshtefan/eqvae-frozen-vae-full-test-reconstruction/v0001.json \
+    --input-receipt "$vae_test_input_receipt" \
+    --output-root runs/local/vae_test_reconstruction_scored_v1
+}
+
+build_mil_training() {
+  local actor="${1:-}"
+  if [[ -z "$actor" ]]; then
+    actor="$(kaggle_authenticated_username)"
+  fi
+  require_build_python
+  "$build_python" scripts/build_ubc_mil_training.py build --actor "$actor"
+}
+
+validate_mil_training() {
+  local actor="${1:-}"
+  require_build_python
+  local args=(scripts/build_ubc_mil_training.py validate)
+  if [[ -n "$actor" ]]; then
+    args+=(--actor "$actor")
+  fi
+  "$build_python" "${args[@]}" >/dev/null
+}
+
+build_mil_training_resume() {
+  local actor="${1:-}"
+  local output_root="${2:-}"
+  local launch_receipt="${3:-}"
+  if [[ -z "$actor" || -z "$output_root" || -z "$launch_receipt" ]]; then
+    echo "error: build-mil-training-resume requires actor, prior-output-root, and prior-launch-receipt" >&2
+    return 2
+  fi
+  require_build_python
+  "$build_python" scripts/build_ubc_mil_training.py build-resume \
+    --actor "$actor" --output-root "$output_root" \
+    --launch-receipt "$launch_receipt"
+}
+
+validate_mil_training_resume() {
+  local actor="${1:-}"
+  local resume_root="${2:-}"
+  if [[ -z "$resume_root" ]]; then
+    echo "error: validate-mil-training-resume requires actor and resume-root" >&2
+    return 2
+  fi
+  require_build_python
+  local args=(scripts/build_ubc_mil_training.py validate-resume \
+    --output-root "$resume_root")
+  [[ -n "$actor" ]] && args+=(--actor "$actor")
+  "$build_python" "${args[@]}"
+}
+
+publish_mil_training_resume() (
+  local resume_root="${1:?resume package root required}"
+  if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_DATASET_WRITE_CONFIRMED:-}" != "1" ]]; then
+    echo "error: Kaggle push and dataset-write confirmations are required" >&2
+    exit 1
+  fi
+  local actor create_output
+  actor="$(kaggle_authenticated_username)"
+  validate_mil_training_resume "$actor" "$resume_root" >/dev/null
+  if [[ -e "$resume_root/resume_dataset_receipt.json" ]]; then
+    echo "error: immutable Spec 0036 resume receipt already exists" >&2
+    exit 1
+  fi
+  require_kaggle_cli
+  if ! create_output="$(
+    kaggle_api datasets create -p "$resume_root/upload" 2>&1
+  )"; then
+    printf '%s\n' "$create_output" >&2
+    exit 1
+  fi
+  printf '%s\n' "$create_output"
+  if [[ "$create_output" == *"Dataset creation error"* ]]; then
+    echo "error: Kaggle reported Spec 0036 resume dataset creation failure" >&2
+    exit 1
+  fi
+)
+
+verify_mil_training_resume() (
+  local resume_root="${1:?resume package root required}"
+  require_remote_confirmed
+  local actor dataset_reference stage_parent download_dir metadata_dir
+  local status_path dataset_version receipt_path
+  actor="$(kaggle_authenticated_username)"
+  validate_mil_training_resume "$actor" "$resume_root" >/dev/null
+  dataset_reference="$(
+    json_field "$resume_root/bundle/mil_training_resume.json" dataset_reference
+  )"
+  receipt_path="$resume_root/resume_dataset_receipt.json"
+  if [[ -e "$receipt_path" ]]; then
+    echo "error: immutable Spec 0036 resume receipt already exists" >&2
+    exit 1
+  fi
+  require_kaggle_cli
+  stage_parent="$(mktemp -d "$TMPDIR/spec0036_resume_verify.XXXXXX")"
+  trap 'rm -rf -- "$stage_parent"' EXIT
+  download_dir="$stage_parent/download"
+  metadata_dir="$stage_parent/metadata"
+  status_path="$stage_parent/status.json"
+  mkdir -p "$download_dir" "$metadata_dir"
+  kaggle_api datasets status "$dataset_reference" \
+    --format 'json(status,current_version_number)' >"$status_path"
+  dataset_version="$(python3 - "$status_path" <<'PYSPEC0036RESUMEVERSION'
+import json
+import sys
+from pathlib import Path
+
+status = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if status.get("status") != "ready" or status.get("current_version_number") != 1:
+    raise SystemExit("remote Spec 0036 resume dataset must be ready immutable version 1")
+print(1)
+PYSPEC0036RESUMEVERSION
+)"
+  kaggle_api datasets metadata "$dataset_reference" -p "$metadata_dir"
+  kaggle_api datasets download "$dataset_reference/$dataset_version" \
+    -p "$download_dir" --unzip -o -q
+  "$build_python" - \
+    "$resume_root" "$download_dir" \
+    "$metadata_dir/dataset-metadata.json" "$dataset_reference" \
+    "$dataset_version" "$receipt_path" <<'PYSPEC0036RESUMERECEIPT'
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+root, downloaded_root, metadata_path, reference, version_text, receipt_path = (
+    Path(sys.argv[1]),
+    Path(sys.argv[2]),
+    Path(sys.argv[3]),
+    sys.argv[4],
+    sys.argv[5],
+    Path(sys.argv[6]),
+)
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+bundle = root / "bundle"
+downloaded = {
+    path.relative_to(downloaded_root).as_posix(): path
+    for path in downloaded_root.rglob("*")
+    if path.is_file() and path.name != "dataset-metadata.json"
+}
+expected = {
+    path.relative_to(bundle).as_posix(): path
+    for path in bundle.rglob("*")
+    if path.is_file() and path.name != "dataset-metadata.json"
+}
+if set(downloaded) != set(expected):
+    raise SystemExit("downloaded Spec 0036 resume allow-list differs")
+remote_files = []
+for name, local_path in sorted(expected.items()):
+    remote_path = downloaded[name]
+    if (
+        local_path.stat().st_size != remote_path.stat().st_size
+        or sha256(local_path) != sha256(remote_path)
+    ):
+        raise SystemExit(f"downloaded Spec 0036 resume differs: {name}")
+    remote_files.append(
+        {"logical_name": name, "bytes": local_path.stat().st_size, "sha256": sha256(local_path)}
+    )
+metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+info = metadata.get("info", {})
+owner, slug = reference.split("/", maxsplit=1)
+if (
+    not isinstance(info, dict)
+    or info.get("ownerUser") != owner
+    or info.get("datasetSlug") != slug
+    or info.get("isPrivate") is not True
+):
+    raise SystemExit("remote Spec 0036 resume identity/privacy differs")
+contract_path = bundle / "mil_training_resume.json"
+record = {
+    "schema_version": "spec0036.resume_dataset_receipt.v1",
+    "dataset_reference": reference,
+    "dataset_version": int(version_text),
+    "visibility": "private",
+    "status": "verified",
+    "resume_contract_sha256": sha256(contract_path),
+    "remote_files": remote_files,
+}
+temporary = receipt_path.with_suffix(".json.tmp")
+temporary.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+temporary.replace(receipt_path)
+directory = os.open(receipt_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYSPEC0036RESUMERECEIPT
+  echo "ok: wrote verified immutable Spec 0036 resume receipt $receipt_path"
+)
+
+preflight_mil_training() {
+  local actor="${1:-}"
+  validate_mil_training "$actor"
+  validate_kernel_dir "$mil_training_kernel_dir"
+  "$build_python" -m pytest -q \
+    tests/test_spec0036_mil_training.py \
+    tests/test_spec0036_mil_package.py
+  echo "ok: Spec 0036 local-global MIL training preflight"
+}
+
+publish_mil_training_inputs() (
+  if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_DATASET_WRITE_CONFIRMED:-}" != "1" ]]; then
+    echo "error: Kaggle push and dataset-write confirmations are required" >&2
+    exit 1
+  fi
+  if [[ -e "$mil_training_input_receipt" ]]; then
+    echo "error: immutable Spec 0036 input receipt already exists" >&2
+    exit 1
+  fi
+  local actor create_output
+  actor="$(kaggle_authenticated_username)"
+  validate_mil_training "$actor"
+  require_kaggle_cli
+  if ! create_output="$(
+    kaggle_api datasets create -p "$mil_training_root/upload" 2>&1
+  )"; then
+    printf '%s\n' "$create_output" >&2
+    exit 1
+  fi
+  printf '%s\n' "$create_output"
+  if [[ "$create_output" == *"Dataset creation error"* ]]; then
+    echo "error: Kaggle reported Spec 0036 dataset creation failure" >&2
+    exit 1
+  fi
+)
+
+verify_mil_training_inputs() (
+  require_remote_confirmed
+  local actor dataset_reference stage_parent download_dir metadata_dir
+  local status_path dataset_version
+  actor="$(kaggle_authenticated_username)"
+  dataset_reference="$actor/$mil_training_dataset_slug"
+  validate_mil_training "$actor"
+  require_kaggle_cli
+  if [[ -e "$mil_training_input_receipt" ]]; then
+    echo "error: immutable Spec 0036 input receipt already exists" >&2
+    exit 1
+  fi
+  stage_parent="$(mktemp -d "$TMPDIR/spec0036_input_verify.XXXXXX")"
+  trap 'rm -rf -- "$stage_parent"' EXIT
+  download_dir="$stage_parent/download"
+  metadata_dir="$stage_parent/metadata"
+  status_path="$stage_parent/status.json"
+  mkdir -p "$download_dir" "$metadata_dir"
+  kaggle_api datasets status "$dataset_reference" \
+    --format 'json(status,current_version_number)' >"$status_path"
+  dataset_version="$(python3 - "$status_path" <<'PYSPEC0036VERSION'
+import json
+import sys
+from pathlib import Path
+
+status = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if status.get("status") != "ready":
+    raise SystemExit("remote Spec 0036 input dataset is not ready")
+version = status.get("current_version_number")
+if isinstance(version, bool) or version != 1:
+    raise SystemExit("remote Spec 0036 input dataset must be immutable version 1")
+print(version)
+PYSPEC0036VERSION
+)"
+  kaggle_api datasets metadata "$dataset_reference" -p "$metadata_dir"
+  kaggle_api datasets download "$dataset_reference/$dataset_version" \
+    -p "$download_dir" --unzip -o -q
+  "$build_python" - \
+    "$mil_training_root" "$download_dir" \
+    "$metadata_dir/dataset-metadata.json" "$dataset_reference" \
+    "$dataset_version" "$mil_training_input_receipt" <<'PYSPEC0036RECEIPT'
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+root, downloaded_root, metadata_path, dataset_reference, version_text, receipt = (
+    Path(sys.argv[1]),
+    Path(sys.argv[2]),
+    Path(sys.argv[3]),
+    sys.argv[4],
+    sys.argv[5],
+    Path(sys.argv[6]),
+)
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+downloaded = {
+    path.relative_to(downloaded_root).as_posix(): path
+    for path in downloaded_root.rglob("*")
+    if path.is_file() and path.name != "dataset-metadata.json"
+}
+bundle = root / "bundle"
+expected_members = {
+    path.relative_to(bundle).as_posix(): path
+    for path in bundle.rglob("*")
+    if path.is_file() and path.name != "dataset-metadata.json"
+}
+if set(downloaded) != set(expected_members):
+    raise SystemExit("downloaded Spec 0036 input allow-list differs")
+remote_files = []
+for name, local_path in sorted(expected_members.items()):
+    remote_path = downloaded[name]
+    if (
+        local_path.stat().st_size != remote_path.stat().st_size
+        or sha256(local_path) != sha256(remote_path)
+    ):
+        raise SystemExit(f"downloaded Spec 0036 input differs: {name}")
+    remote_files.append(
+        {
+            "logical_name": name,
+            "bytes": local_path.stat().st_size,
+            "sha256": sha256(local_path),
+        }
+    )
+metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+info = metadata.get("info", {})
+owner, slug = dataset_reference.split("/", maxsplit=1)
+if (
+    not isinstance(info, dict)
+    or info.get("ownerUser") != owner
+    or info.get("datasetSlug") != slug
+    or info.get("isPrivate") is not True
+):
+    raise SystemExit("remote Spec 0036 input identity/privacy differs")
+contract = bundle / "mil_training_input.json"
+record = {
+    "schema_version": "spec0036.input_dataset_receipt.v1",
+    "dataset_reference": dataset_reference,
+    "dataset_version": int(version_text),
+    "visibility": "private",
+    "status": "verified",
+    "input_contract_sha256": sha256(contract),
+    "remote_files": remote_files,
+}
+receipt.parent.mkdir(parents=True, exist_ok=True)
+temporary = receipt.with_suffix(".json.tmp")
+temporary.write_text(
+    json.dumps(record, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+temporary.replace(receipt)
+directory = os.open(receipt.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYSPEC0036RECEIPT
+  echo "ok: wrote verified immutable Spec 0036 input receipt $mil_training_input_receipt"
+)
+
+output_mil_training() {
+  local receipt="${1:?launch receipt required}"
+  local output_dir="${2:?output directory required}"
+  local kernel_reference
+  kernel_reference="$(kernel_reference_from_launch_receipt "$receipt")"
+  if [[ ! "$kernel_reference" =~ ^[^/]+/eqvae-local-global-mil-training/[0-9]+$ ]]; then
+    echo "error: launch receipt is not for Spec 0036 MIL training" >&2
+    exit 1
+  fi
+  require_remote_confirmed
+  require_kaggle_cli
+  if [[ -e "$output_dir" ]]; then
+    echo "error: output-mil-training requires a new output directory" >&2
+    exit 1
+  fi
+  mkdir -p "$output_dir"
+  kaggle_api kernels output "$kernel_reference" -p "$output_dir"
+  record_kaggle_download \
+    kernel "$kernel_reference" "$output_dir" kaggle_output_receipt.json
+}
+
+build_supervised_calibration_input() {
+  local mode="$1"
+  local selection_audit="${2:-}"
+  if [[ "$mode" != "sweep" && "$mode" != "confirmation" && "$mode" != "horizon" && "$mode" != "width128" && "$mode" != "class_specific" && "$mode" != "class_specific_scale_fix" ]]; then
+    echo "error: unknown calibration input mode" >&2
+    exit 1
+  fi
+  if [[ "$mode" == "confirmation" && -z "$selection_audit" ]]; then
+    echo "error: confirmation input requires its selection audit" >&2
+    exit 1
+  fi
+  require_build_python
+  local output_root="$supervised_calibration_input_root/$mode"
+  local args=(
+    -m eqvae.cli.build_ubc_supervised_calibration_inputs
+    "$mode" build
+    --repo-root "$PWD"
+    --manifest-root runs/local/ubc_ocean_supervised_manifests
+    --output-root "$output_root"
+  )
+  if [[ -n "$selection_audit" ]]; then
+    args+=(--selection-audit "$selection_audit")
+  fi
+  "$build_python" "${args[@]}"
+  echo "ok: built Spec 0023 $mode input bundle $output_root"
+}
+
+validate_supervised_calibration_input() {
+  local mode="$1"
+  local selection_audit="${2:-}"
+  if [[ "$mode" != "sweep" && "$mode" != "confirmation" && "$mode" != "horizon" && "$mode" != "width128" && "$mode" != "class_specific" && "$mode" != "class_specific_scale_fix" ]]; then
+    echo "error: unknown calibration input mode" >&2
+    exit 1
+  fi
+  if [[ "$mode" == "confirmation" && -z "$selection_audit" ]]; then
+    echo "error: confirmation input requires its selection audit" >&2
+    exit 1
+  fi
+  require_build_python
+  local args=(
+    -m eqvae.cli.build_ubc_supervised_calibration_inputs
+    "$mode" validate
+    --repo-root "$PWD"
+    --manifest-root runs/local/ubc_ocean_supervised_manifests
+    --output-root "$supervised_calibration_input_root/$mode"
+  )
+  if [[ -n "$selection_audit" ]]; then
+    args+=(--selection-audit "$selection_audit")
+  fi
+  "$build_python" "${args[@]}"
+}
+
+publish_supervised_calibration_input() (
+  local mode="$1"
+  local selection_audit="${2:-}"
+  local receipt
+  if [[ "$mode" == "sweep" ]]; then
+    receipt="$supervised_calibration_sweep_receipt"
+  elif [[ "$mode" == "confirmation" ]]; then
+    receipt="$supervised_calibration_confirmation_receipt"
+  elif [[ "$mode" == "horizon" ]]; then
+    receipt="$supervised_calibration_horizon_receipt"
+  elif [[ "$mode" == "width128" ]]; then
+    receipt="$supervised_calibration_width128_receipt"
+  elif [[ "$mode" == "class_specific" ]]; then
+    receipt="$supervised_calibration_class_specific_receipt"
+  elif [[ "$mode" == "class_specific_scale_fix" ]]; then
+    receipt="$supervised_calibration_class_scale_receipt"
+  else
+    echo "error: unknown calibration input mode" >&2
+    exit 1
+  fi
+  if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_DATASET_WRITE_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_SUPERVISED_CALIBRATION_CONFIRMED:-}" != "1" ]]; then
+    echo "error: exact Kaggle dataset/calibration write confirmations are required" >&2
+    exit 1
+  fi
+  if [[ -e "$receipt" ]]; then
+    echo "error: immutable $mode input receipt already exists" >&2
+    exit 1
+  fi
+  validate_supervised_calibration_input "$mode" "$selection_audit"
+  require_kaggle_cli
+  local stage_parent upload_dir create_output
+  stage_parent="$(mktemp -d "$TMPDIR/spec0023_${mode}_input_upload.XXXXXX")"
+  trap 'rm -rf -- "$stage_parent"' EXIT
+  upload_dir="$stage_parent/envelope"
+  local args=(
+    -m eqvae.cli.build_ubc_supervised_calibration_inputs
+    "$mode" stage-upload
+    --repo-root "$PWD"
+    --manifest-root runs/local/ubc_ocean_supervised_manifests
+    --output-root "$supervised_calibration_input_root/$mode"
+    --destination "$upload_dir"
+  )
+  if [[ -n "$selection_audit" ]]; then
+    args+=(--selection-audit "$selection_audit")
+  fi
+  "$build_python" "${args[@]}"
+  if ! create_output="$(kaggle_api datasets create -p "$upload_dir" 2>&1)"; then
+    printf '%s\n' "$create_output" >&2
+    exit 1
+  fi
+  printf '%s\n' "$create_output"
+  if [[ "$create_output" == *"Dataset creation error"* ]]; then
+    echo "error: Kaggle reported dataset creation failure" >&2
+    exit 1
+  fi
+)
+
+verify_supervised_calibration_input() (
+  local mode="$1"
+  local selection_audit="${2:-}"
+  local receipt dataset_slug
+  if [[ "$mode" == "sweep" ]]; then
+    receipt="$supervised_calibration_sweep_receipt"
+    dataset_slug="$supervised_calibration_sweep_dataset_slug"
+  elif [[ "$mode" == "confirmation" ]]; then
+    receipt="$supervised_calibration_confirmation_receipt"
+    dataset_slug="$supervised_calibration_confirmation_dataset_slug"
+  elif [[ "$mode" == "horizon" ]]; then
+    receipt="$supervised_calibration_horizon_receipt"
+    dataset_slug="$supervised_calibration_horizon_dataset_slug"
+  elif [[ "$mode" == "width128" ]]; then
+    receipt="$supervised_calibration_width128_receipt"
+    dataset_slug="$supervised_calibration_width128_dataset_slug"
+  elif [[ "$mode" == "class_specific" ]]; then
+    receipt="$supervised_calibration_class_specific_receipt"
+    dataset_slug="$supervised_calibration_class_specific_dataset_slug"
+  elif [[ "$mode" == "class_specific_scale_fix" ]]; then
+    receipt="$supervised_calibration_class_scale_receipt"
+    dataset_slug="$supervised_calibration_class_scale_dataset_slug"
+  else
+    echo "error: unknown calibration input mode" >&2
+    exit 1
+  fi
+  require_remote_confirmed
+  validate_supervised_calibration_input "$mode" "$selection_audit"
+  require_kaggle_cli
+  if [[ -e "$receipt" ]]; then
+    echo "error: immutable $mode input receipt already exists" >&2
+    exit 1
+  fi
+  local stage_parent download_dir metadata_dir status_path dataset_version
+  stage_parent="$(mktemp -d "$TMPDIR/spec0023_${mode}_input_verify.XXXXXX")"
+  trap 'rm -rf -- "$stage_parent"' EXIT
+  download_dir="$stage_parent/download"
+  metadata_dir="$stage_parent/metadata"
+  status_path="$stage_parent/status.json"
+  mkdir -p "$download_dir" "$metadata_dir"
+  kaggle_api datasets status "$dataset_slug" \
+    --format 'json(status,current_version_number)' >"$status_path"
+  dataset_version="$(python3 - "$status_path" <<'PYVERSION'
+import json
+import sys
+from pathlib import Path
+
+status = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if status.get("status") != "ready":
+    raise ValueError("remote calibration input dataset is not ready")
+version = status.get("current_version_number")
+if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+    raise ValueError("remote calibration input dataset version is invalid")
+print(version)
+PYVERSION
+)"
+  kaggle_api datasets metadata "$dataset_slug" \
+    -p "$metadata_dir"
+  kaggle_api datasets download \
+    "$dataset_slug/$dataset_version" \
+    -p "$download_dir" --unzip -o -q
+  "$build_python" - \
+    "$supervised_calibration_input_root/$mode" \
+    "$download_dir" \
+    "$metadata_dir/dataset-metadata.json" \
+    "$dataset_version" \
+    "$receipt" \
+    "$mode" <<'PYRECEIPT'
+import sys
+from pathlib import Path
+
+from eqvae.cli.build_ubc_supervised_calibration_inputs import seal_remote_receipt
+
+seal_remote_receipt(
+    bundle_root=Path(sys.argv[1]),
+    downloaded_root=Path(sys.argv[2]),
+    remote_metadata_path=Path(sys.argv[3]),
+    dataset_version=int(sys.argv[4]),
+    output_path=Path(sys.argv[5]),
+    package_mode=sys.argv[6],
+)
+PYRECEIPT
+  echo "ok: wrote verified $mode input receipt $receipt"
+)
+
+build_supervised_calibration() {
+  local mode="$1"
+  local selection_audit="${2:-}"
+  local sweep_audit="${3:-}"
+  local sweep_config="${4:-}"
+  local output_root="$supervised_calibration_root/$mode"
+  require_build_python
+  local args=(
+    -m eqvae.cli.build_ubc_supervised_calibration "$mode" build
+    --repo-root "$PWD"
+    --manifest-root runs/local/ubc_ocean_supervised_manifests
+    --output-root "$output_root"
+  )
+  if [[ -n "$selection_audit" ]]; then
+    args+=(--selection-audit "$selection_audit")
+  fi
+  if [[ -n "$sweep_audit" ]]; then
+    args+=(--sweep-audit "$sweep_audit")
+  fi
+  if [[ -n "$sweep_config" ]]; then
+    args+=(--sweep-config "$sweep_config")
+  fi
+  "$build_python" "${args[@]}"
+  preflight_supervised_calibration \
+    "$mode" "$selection_audit" "$sweep_audit" "$sweep_config"
+}
+
+preflight_supervised_calibration() {
+  local mode="$1"
+  local selection_audit="${2:-}"
+  local sweep_audit="${3:-}"
+  local sweep_config="${4:-}"
+  local output_root="$supervised_calibration_root/$mode"
+  require_build_python
+  local args=(
+    -m eqvae.cli.build_ubc_supervised_calibration "$mode" validate
+    --repo-root "$PWD"
+    --manifest-root runs/local/ubc_ocean_supervised_manifests
+    --output-root "$output_root"
+  )
+  if [[ -n "$selection_audit" ]]; then
+    args+=(--selection-audit "$selection_audit")
+  fi
+  if [[ -n "$sweep_audit" ]]; then
+    args+=(--sweep-audit "$sweep_audit")
+  fi
+  if [[ -n "$sweep_config" ]]; then
+    args+=(--sweep-config "$sweep_config")
+  fi
+  "$build_python" "${args[@]}"
+  if [[ "$mode" == "width128" ]]; then
+    "$build_python" -m pytest -q \
+      tests/test_spec0023_supervised_models.py::test_width128_changes_only_the_gated_scorer_width \
+      tests/test_spec0023_supervised_calibration.py::test_width128_is_one_fresh_five_epoch_architecture_change \
+      tests/test_spec0023_supervised_calibration.py::test_kaggle_kernel_id_and_title_fit_remote_limits
+  elif [[ "$mode" == "class_specific" ]]; then
+    "$build_python" -m pytest -q \
+      tests/test_spec0023_supervised_models.py::test_class_specific_attention_starts_as_width128_then_can_specialize \
+      tests/test_spec0023_supervised_calibration.py::test_class_specific_is_one_fresh_five_epoch_architecture_change \
+      tests/test_spec0023_supervised_calibration.py::test_kaggle_kernel_id_and_title_fit_remote_limits
+  elif [[ "$mode" == "class_specific_scale_fix" ]]; then
+    "$build_python" -m pytest -q \
+      tests/test_spec0023_supervised_models.py::test_class_specific_attention_starts_as_width128_then_can_specialize \
+      tests/test_spec0023_supervised_calibration.py::test_class_specific_scale_fix_is_one_paired_amp_correction \
+      tests/test_spec0023_supervised_calibration.py::test_kaggle_kernel_id_and_title_fit_remote_limits
+  else
+    "$build_python" -m pytest -q tests/test_spec0023_supervised_calibration.py
+  fi
+  echo "ok: Spec 0023 compact supervised calibration $mode preflight"
+}
+
+guard_supervised_calibration_push_ready() {
+  local kernel_dir="$1"
+  if [[ "$kernel_dir" != "$supervised_calibration_root/sweep" \
+    && "$kernel_dir" != "$supervised_calibration_root/confirmation" \
+    && "$kernel_dir" != "$supervised_calibration_root/horizon" \
+    && "$kernel_dir" != "$supervised_calibration_root/width128" \
+    && "$kernel_dir" != "$supervised_calibration_root/class_specific" \
+    && "$kernel_dir" != "$supervised_calibration_root/class_specific_scale_fix" ]]; then
+    echo "error: invalid Spec 0023 calibration push directory" >&2
+    exit 1
+  fi
+  if [[ "${KAGGLE_SUPERVISED_CALIBRATION_CONFIRMED:-}" != "1" ]]; then
+    echo "error: set KAGGLE_SUPERVISED_CALIBRATION_CONFIRMED=1 after explicit authorization" >&2
+    exit 1
+  fi
+  local mode="${kernel_dir##*/}"
+  preflight_supervised_calibration \
+    "$mode" \
+    "${KAGGLE_SUPERVISED_SELECTION_AUDIT:-}" \
+    "${KAGGLE_SUPERVISED_SWEEP_AUDIT:-}" \
+    "${KAGGLE_SUPERVISED_SWEEP_CONFIG:-}"
+}
+
+publish_cancer_topup_inputs() (
+  require_build_python
+  if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_DATASET_WRITE_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_CANCER_TOPUP_CONFIRMED:-}" != "1" ]]; then
+    echo "error: exact Kaggle dataset/top-up write confirmations are required" >&2
+    exit 1
+  fi
+  if [[ -e "$cancer_topup_receipt" ]]; then
+    echo "error: immutable Spec 0022 input receipt already exists" >&2
+    exit 1
+  fi
+  "$build_python" -m eqvae.cli.build_ubc_cancer_topup --validate-only
+  require_kaggle_cli
+  local create_output status_output
+  if status_output="$(kaggle_api datasets status \
+    "maximusshtefan/eqvae-ubc-ocean-cancer-topup-inputs" \
+    --format 'json(status,current_version_number)' 2>&1)"; then
+    if ! create_output="$(kaggle_api datasets version \
+      -p "$cancer_topup_plan_root/inference_bundle" \
+      -m "Spec 0022 flat checkpoint input bundle" 2>&1)"; then
+      printf '%s\n' "$create_output" >&2
+      exit 1
+    fi
+  elif [[ "$status_output" == *"404"* \
+    || "$status_output" == *"Not Found"* \
+    || "$status_output" == *"not found"* ]]; then
+    if ! create_output="$(kaggle_api datasets create \
+      -p "$cancer_topup_plan_root/inference_bundle" 2>&1)"; then
+      printf '%s\n' "$create_output" >&2
+      exit 1
+    fi
+  else
+    printf '%s\n' "$status_output" >&2
+    echo "error: refusing to create after an ambiguous Kaggle status failure" >&2
+    exit 1
+  fi
+  printf '%s\n' "$create_output"
+  if [[ "$create_output" == *"Dataset creation error"* ]]; then
+    echo "error: Kaggle reported Spec 0022 input creation failure" >&2
+    exit 1
+  fi
+)
+
+verify_cancer_topup_inputs() (
+  require_build_python
+  require_remote_confirmed
+  "$build_python" -m eqvae.cli.build_ubc_cancer_topup --validate-only
+  require_kaggle_cli
+  local verify_root download_dir metadata_dir status_path listing_path version
+  verify_root="$(mktemp -d "$TMPDIR/spec0022_input_verify.XXXXXX")"
+  trap 'rm -rf -- "$verify_root"' EXIT
+  download_dir="$verify_root/download"
+  metadata_dir="$verify_root/metadata"
+  status_path="$verify_root/status.json"
+  listing_path="$verify_root/files.csv"
+  mkdir -p "$download_dir" "$metadata_dir"
+  kaggle_api datasets status "maximusshtefan/eqvae-ubc-ocean-cancer-topup-inputs" \
+    --format 'json(status,current_version_number)' >"$status_path"
+  version="$(python3 - "$status_path" <<'PYSPEC0022VERSION'
+import json
+import sys
+from pathlib import Path
+
+value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+version = value.get("current_version_number")
+if value.get("status") != "ready" or isinstance(version, bool) or not isinstance(version, int) or version < 1:
+    raise ValueError("remote Spec 0022 input dataset is not ready")
+print(version)
+PYSPEC0022VERSION
+)"
+  local reference="maximusshtefan/eqvae-ubc-ocean-cancer-topup-inputs/$version"
+  kaggle_api datasets files "$reference" --csv >"$listing_path"
+  kaggle_api datasets metadata \
+    "maximusshtefan/eqvae-ubc-ocean-cancer-topup-inputs" -p "$metadata_dir"
+  kaggle_api datasets download "$reference" -p "$download_dir" --unzip -o -q
+  python3 - \
+    "$cancer_topup_plan_root/inference_bundle" \
+    "$download_dir" \
+    "$metadata_dir/dataset-metadata.json" \
+    "$status_path" \
+    "$listing_path" \
+    "$version" \
+    "$cancer_topup_receipt" <<'PYSPEC0022RECEIPT'
+import csv
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+local_root = Path(sys.argv[1])
+download_root = Path(sys.argv[2])
+metadata_path = Path(sys.argv[3])
+status_path = Path(sys.argv[4])
+listing_path = Path(sys.argv[5])
+version = int(sys.argv[6])
+receipt_path = Path(sys.argv[7])
+if receipt_path.exists():
+    raise FileExistsError(f"refusing to overwrite {receipt_path}")
+local = {
+    path.relative_to(local_root).as_posix(): path
+    for path in local_root.rglob("*")
+    if path.is_file() and path.name != "dataset-metadata.json"
+}
+downloaded = {
+    path.relative_to(download_root).as_posix(): path
+    for path in download_root.rglob("*")
+    if path.is_file()
+}
+if set(downloaded) != set(local):
+    raise ValueError("downloaded Spec 0022 input allow-list differs")
+files = {}
+for name, path in sorted(local.items()):
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    remote = downloaded[name]
+    if remote.stat().st_size != path.stat().st_size or hashlib.sha256(remote.read_bytes()).hexdigest() != digest:
+        raise ValueError(f"downloaded Spec 0022 input differs: {name}")
+    files[name] = {"bytes": path.stat().st_size, "sha256": digest}
+with listing_path.open(encoding="utf-8", newline="") as handle:
+    reader = csv.DictReader(handle)
+    fields = {name.casefold(): name for name in (reader.fieldnames or ())}
+    if "name" not in fields or "size" not in fields:
+        raise ValueError("remote Spec 0022 listing lacks name/size")
+    listed = {str(row[fields["name"]]): int(str(row[fields["size"]])) for row in reader}
+if listed != {name: path.stat().st_size for name, path in local.items()}:
+    raise ValueError("remote Spec 0022 file listing differs")
+metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+info = metadata.get("info")
+if not isinstance(info, dict) or info.get("ownerUser") != "maximusshtefan" or info.get("datasetSlug") != "eqvae-ubc-ocean-cancer-topup-inputs" or info.get("isPrivate") is not True:
+    raise ValueError("remote Spec 0022 identity/privacy differs")
+contract = local_root / "spec0022_topup_inference_contract.json"
+payload = {
+    "schema_version": "spec0022.input_dataset_receipt.v1",
+    "status": "verified",
+    "visibility": "private",
+    "dataset_reference": "maximusshtefan/eqvae-ubc-ocean-cancer-topup-inputs",
+    "dataset_version": version,
+    "input_contract_sha256": hashlib.sha256(contract.read_bytes()).hexdigest(),
+    "files": files,
+    "remote_listing_sha256": hashlib.sha256(listing_path.read_bytes()).hexdigest(),
+    "remote_status_sha256": hashlib.sha256(status_path.read_bytes()).hexdigest(),
+}
+encoded = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
+receipt_path.parent.mkdir(parents=True, exist_ok=True)
+temporary = receipt_path.with_suffix(".json.tmp")
+with temporary.open("xb") as handle:
+    handle.write(encoded)
+    handle.flush()
+    os.fsync(handle.fileno())
+os.replace(temporary, receipt_path)
+directory = os.open(receipt_path.parent, os.O_RDONLY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYSPEC0022RECEIPT
+  echo "ok: wrote verified immutable Spec 0022 input receipt $cancer_topup_receipt"
+)
+
+guard_latent_inference_push_ready() {
+  local kernel_dir="$1"
+  if python3 - "$kernel_dir/spec0021_inference_config.json" <<'PYFINALIZERMODE'
+import json
+import sys
+from pathlib import Path
+
+config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+raise SystemExit(
+    0 if config.get("schema_version") == "spec0021.finalizer_config.v1" else 1
+)
+PYFINALIZERMODE
+  then
+    validate_latent_finalizer_dir "$kernel_dir"
+    return
+  fi
+  local receipt_policy="fresh"
+  if python3 - "$kernel_dir/spec0021_inference_config.json" <<'PYRESUMEMODE'
+import json
+import sys
+from pathlib import Path
+
+config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+raise SystemExit(0 if config.get("resume_dataset_receipt") is not None else 1)
+PYRESUMEMODE
+  then
+    receipt_policy="resume"
+  fi
+  validate_latent_kernel_dir "$kernel_dir" "$receipt_policy"
+}
+
+validate_latent_input_bundle() {
+  require_build_python
+  "$build_python" - "$latent_input_bundle_dir" "$latent_input_dataset_slug" <<'PYBUNDLE'
+import sys
+from pathlib import Path
+
+from eqvae.inference.input_bundle import validate_fresh_input_bundle
+
+validate_fresh_input_bundle(
+    Path(sys.argv[1]),
+    expected_dataset_slug=sys.argv[2],
+)
+PYBUNDLE
+}
+
+stage_latent_input_upload() {
+  local destination="$1"
+  require_build_python
+  "$build_python" - \
+    "$latent_input_bundle_dir" \
+    "$destination" \
+    "$latent_input_dataset_slug" <<'PYSTAGEUPLOAD'
+import sys
+from pathlib import Path
+
+from eqvae.inference.input_bundle import stage_fresh_upload_archive
+
+stage_fresh_upload_archive(
+    Path(sys.argv[1]),
+    Path(sys.argv[2]),
+    expected_dataset_slug=sys.argv[3],
+)
+PYSTAGEUPLOAD
+}
+
+publish_latent_inputs() (
+  if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" ]]; then
+    echo "error: set KAGGLE_PUSH_CONFIRMED=1 after explicit user permission" >&2
+    exit 1
+  fi
+  if [[ "${KAGGLE_DATASET_WRITE_CONFIRMED:-}" != "1" ]]; then
+    echo "error: set KAGGLE_DATASET_WRITE_CONFIRMED=1 for this exact input publication" >&2
+    exit 1
+  fi
+  if [[ -e "$latent_input_receipt" ]]; then
+    echo "error: input dataset receipt already exists; immutable inputs are not republished" >&2
+    exit 1
+  fi
+  validate_latent_input_bundle
+  require_kaggle_cli
+  local stage_parent upload_dir create_output
+  stage_parent="$(mktemp -d "$TMPDIR/spec0021_input_upload.XXXXXX")"
+  trap 'rm -rf -- "$stage_parent"' EXIT
+  upload_dir="$stage_parent/envelope"
+  stage_latent_input_upload "$upload_dir"
+  # Kaggle datasets are private by default; current CLI uses -u only for public.
+  if ! create_output="$(kaggle_api datasets create -p "$upload_dir" 2>&1)"; then
+    printf '%s\n' "$create_output" >&2
+    exit 1
+  fi
+  printf '%s\n' "$create_output"
+  if [[ "$create_output" == *"Dataset creation error"* ]]; then
+    echo "error: Kaggle CLI reported dataset creation failure with a zero exit status" >&2
+    exit 1
+  fi
+)
+
+verify_latent_inputs() (
+  require_remote_confirmed
+  validate_latent_input_bundle
+  require_kaggle_cli
+  local stage_parent download_dir metadata_dir status_path dataset_version
+  local versioned_reference
+  stage_parent="$(mktemp -d "$TMPDIR/spec0021_input_verify.XXXXXX")"
+  trap 'rm -rf -- "$stage_parent"' EXIT
+  download_dir="$stage_parent/download"
+  metadata_dir="$stage_parent/metadata"
+  status_path="$stage_parent/status.json"
+  mkdir -p "$download_dir"
+  mkdir -p "$metadata_dir"
+  kaggle_api datasets status "$latent_input_dataset_slug" \
+    --format 'json(status,current_version_number)' >"$status_path"
+  dataset_version="$(python3 - "$status_path" <<'PYINPUTVERSION'
+import json
+import sys
+from pathlib import Path
+
+status = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if status.get("status") != "ready":
+    raise ValueError("remote input dataset is not ready")
+version = status.get("current_version_number")
+if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+    raise ValueError("remote input dataset version is invalid")
+print(version)
+PYINPUTVERSION
+)"
+  versioned_reference="$latent_input_dataset_slug/$dataset_version"
+  local listing_path="$TMPDIR/spec0021_input_remote_files.csv"
+  kaggle_api datasets files "$versioned_reference" --csv >"$listing_path"
+  kaggle_api datasets metadata "$latent_input_dataset_slug" -p "$metadata_dir"
+  kaggle_api datasets download "$versioned_reference" \
+    -p "$download_dir" --unzip -o -q
+  mkdir -p "$latent_input_authority_dir"
+  python3 - \
+    "$latent_input_bundle_dir" \
+    "$download_dir" \
+    "$metadata_dir/dataset-metadata.json" \
+    "$latent_input_dataset_slug" \
+    "$dataset_version" \
+    "$status_path" \
+    "$listing_path" \
+    "$latent_input_receipt" <<'PYRECEIPT'
+import csv
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+bundle = Path(sys.argv[1])
+downloaded = Path(sys.argv[2])
+remote_metadata_path = Path(sys.argv[3])
+dataset_slug = sys.argv[4]
+dataset_version = int(sys.argv[5])
+status_path = Path(sys.argv[6])
+listing_path = Path(sys.argv[7])
+receipt_path = Path(sys.argv[8])
+if receipt_path.exists():
+    raise FileExistsError(f"refusing to overwrite {receipt_path}")
+with listing_path.open(encoding="utf-8", newline="") as handle:
+    reader = csv.DictReader(handle)
+    if reader.fieldnames is None:
+        raise ValueError("remote dataset listing has no header")
+    field_map = {name.casefold(): name for name in reader.fieldnames}
+    name_field = field_map.get("name")
+    size_field = field_map.get("size")
+    if name_field is None or size_field is None:
+        raise ValueError("remote dataset listing must contain name and size")
+    remote = {
+        str(row[name_field]): int(str(row[size_field]))
+        for row in reader
+    }
+local = {
+    path.relative_to(bundle).as_posix(): path.stat().st_size
+    for path in bundle.rglob("*")
+    if path.is_file()
+}
+if remote != local:
+    raise ValueError("remote input dataset listing differs from local bundle")
+downloaded_files = {
+    path.relative_to(downloaded).as_posix(): path
+    for path in downloaded.rglob("*")
+    if path.is_file()
+}
+if set(downloaded_files) != set(local):
+    raise ValueError("downloaded input dataset allow-list differs")
+file_sha256 = {}
+for logical_name in sorted(local):
+    local_path = bundle / logical_name
+    downloaded_path = downloaded_files[logical_name]
+    local_sha256 = hashlib.sha256(local_path.read_bytes()).hexdigest()
+    if (
+        downloaded_path.stat().st_size != local[logical_name]
+        or hashlib.sha256(downloaded_path.read_bytes()).hexdigest() != local_sha256
+    ):
+        raise ValueError(f"downloaded input file differs: {logical_name}")
+    file_sha256[logical_name] = local_sha256
+remote_metadata = json.loads(remote_metadata_path.read_text(encoding="utf-8"))
+info = remote_metadata.get("info")
+owner, slug = dataset_slug.split("/", maxsplit=1)
+if (
+    not isinstance(info, dict)
+    or info.get("ownerUser") != owner
+    or info.get("datasetSlug") != slug
+    or info.get("isPrivate") is not True
+):
+    raise ValueError("remote input dataset identity or privacy differs")
+contract = bundle / "spec0021_input_contract.json"
+payload = {
+    "schema_version": "spec0021.input_dataset_receipt.v1",
+    "dataset_reference": dataset_slug,
+    "dataset_version": dataset_version,
+    "input_contract_sha256": hashlib.sha256(contract.read_bytes()).hexdigest(),
+    "remote_files": [
+        {"logical_name": name, "sha256": file_sha256[name], "size": size}
+        for name, size in sorted(remote.items())
+    ],
+    "remote_listing_sha256": hashlib.sha256(listing_path.read_bytes()).hexdigest(),
+    "remote_status_sha256": hashlib.sha256(status_path.read_bytes()).hexdigest(),
+}
+encoded = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
+temporary = receipt_path.with_suffix(".json.tmp")
+with temporary.open("xb") as handle:
+    handle.write(encoded)
+    handle.flush()
+    os.fsync(handle.fileno())
+os.replace(temporary, receipt_path)
+directory = os.open(receipt_path.parent, os.O_RDONLY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYRECEIPT
+  echo "ok: wrote verified immutable input receipt $latent_input_receipt"
+)
+
+latest_latent_resume_stage() {
+  local run_number="$1"
+  python3 - "$latent_resume_root" "$run_number" <<'PYLATESTRESUME'
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]) / f"run_{sys.argv[2]}"
+versions = [
+    (int(match.group(1)), path)
+    for path in root.glob("version_*")
+    if path.is_dir()
+    and (match := re.fullmatch(r"version_([0-9]{4})", path.name)) is not None
+]
+if not versions:
+    raise FileNotFoundError(f"no staged resume bundle under {root}")
+print(max(versions)[1])
+PYLATESTRESUME
+}
+
+validate_latent_resume_stage() {
+  local run_number="$1"
+  local stage_dir="$2"
+  require_build_python
+  "$build_python" - \
+    "$stage_dir" \
+    "$latent_input_bundle_dir/manifests/work_shards/run_${run_number}_of_05.csv" <<'PYVALIDATERESUME'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+from eqvae.inference.input_bundle import (
+    RESUME_PROVENANCE_FILENAME,
+    ResumeBundleAuthority,
+    validate_resume_bundle,
+)
+
+root = Path(sys.argv[1])
+manifest = Path(sys.argv[2])
+contract_path = root / RESUME_PROVENANCE_FILENAME
+payload = json.loads(contract_path.read_text(encoding="utf-8"))
+dataset = payload["dataset"]
+authority = ResumeBundleAuthority(
+    provenance_sha256=hashlib.sha256(contract_path.read_bytes()).hexdigest(),
+    dataset_slug=dataset["slug"],
+    dataset_version=dataset["version"],
+    run_number=payload["run_number"],
+    input_bundle_sha256=payload["input_bundle_sha256"],
+    run_config_sha256=payload["run_config_sha256"],
+    work_manifest_sha256=payload["work_manifest_sha256"],
+)
+validate_resume_bundle(root, authority=authority, work_manifest_path=manifest)
+PYVALIDATERESUME
+}
+
+build_latent_resume() {
+  local run_number
+  run_number="$(normalize_latent_run_number "${1:-}")"
+  local artifacts_dir="${2:-}"
+  if [[ -z "$artifacts_dir" ]]; then
+    echo "error: build-latent-resume requires XX and artifacts-dir" >&2
+    exit 1
+  fi
+  local run_config="$latent_inference_kernel_root/run_${run_number}/spec0021_inference_config.json"
+  if [[ ! -f "$run_config" ]]; then
+    echo "error: missing run config $run_config" >&2
+    exit 1
+  fi
+  require_build_python
+  "$build_python" -m eqvae.cli.stage_ubc_latent_resume \
+    "$((10#$run_number))" "$artifacts_dir" \
+    --input-contract "$latent_input_bundle_dir/spec0021_input_contract.json" \
+    --run-config "$run_config" \
+    --prior-receipt \
+      "$latent_input_authority_dir/resume_run_${run_number}_dataset_receipt.json" \
+    --output-root "$latent_resume_root"
+  local stage_dir
+  stage_dir="$(latest_latent_resume_stage "$run_number")"
+  validate_latent_resume_stage "$run_number" "$stage_dir"
+  echo "ok: staged Spec 0021 run-$run_number resume bundle at $stage_dir"
+}
+
+publish_latent_resume() {
+  if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" ]]; then
+    echo "error: set KAGGLE_PUSH_CONFIRMED=1 after explicit user permission" >&2
+    exit 1
+  fi
+  if [[ "${KAGGLE_DATASET_WRITE_CONFIRMED:-}" != "1" ]]; then
+    echo "error: set KAGGLE_DATASET_WRITE_CONFIRMED=1 for this exact resume publication" >&2
+    exit 1
+  fi
+  local run_number
+  run_number="$(normalize_latent_run_number "${1:-}")"
+  local stage_dir
+  stage_dir="$(latest_latent_resume_stage "$run_number")"
+  validate_latent_resume_stage "$run_number" "$stage_dir"
+  local dataset_version
+  dataset_version="$(python3 - "$stage_dir/spec0021_resume_contract.json" <<'PYRESUMEVERSION'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(payload["dataset"]["version"])
+PYRESUMEVERSION
+)"
+  python3 - \
+    "$stage_dir/spec0021_resume_contract.json" \
+    "$latent_input_authority_dir/resume_run_${run_number}_dataset_receipt.json" <<'PYPUBLISHRESUME'
+import json
+import sys
+from pathlib import Path
+
+contract = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+version = contract["dataset"]["version"]
+receipt_path = Path(sys.argv[2])
+if receipt_path.is_file():
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if receipt.get("dataset_version") != version - 1:
+        raise ValueError("staged resume version is not after the verified receipt")
+elif version != 1:
+    raise ValueError("resume dataset version above 1 requires a prior receipt")
+PYPUBLISHRESUME
+  require_kaggle_cli
+  if [[ "$dataset_version" == "1" ]]; then
+    # Kaggle datasets are private by default; current CLI uses -u only for public.
+    kaggle_api datasets create -p "$stage_dir"
+  else
+    kaggle_api datasets version -p "$stage_dir" \
+      -m "Spec 0021 run-$run_number immutable resume version $dataset_version"
+  fi
+}
+
+verify_latent_resume() {
+  require_remote_confirmed
+  local run_number
+  run_number="$(normalize_latent_run_number "${1:-}")"
+  local stage_dir
+  stage_dir="$(latest_latent_resume_stage "$run_number")"
+  validate_latent_resume_stage "$run_number" "$stage_dir"
+  require_kaggle_cli
+  local dataset_slug="maximusshtefan/eqvae-ubc-ocean-latent-run-${run_number}-resume"
+  local listing_path="$TMPDIR/spec0021_resume_run_${run_number}_remote_files.csv"
+  local receipt_path="$latent_input_authority_dir/resume_run_${run_number}_dataset_receipt.json"
+  kaggle_api datasets files "$dataset_slug" --csv >"$listing_path"
+  mkdir -p "$latent_input_authority_dir"
+  python3 - "$stage_dir" "$dataset_slug" "$listing_path" "$receipt_path" <<'PYRESUMERECEIPT'
+import csv
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+bundle = Path(sys.argv[1])
+dataset_slug = sys.argv[2]
+listing_path = Path(sys.argv[3])
+receipt_path = Path(sys.argv[4])
+contract_path = bundle / "spec0021_resume_contract.json"
+contract = json.loads(contract_path.read_text(encoding="utf-8"))
+dataset = contract["dataset"]
+if dataset != {"slug": dataset_slug, "version": dataset["version"]}:
+    raise ValueError("staged resume dataset identity mismatch")
+version = dataset["version"]
+if receipt_path.is_file():
+    prior = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if prior.get("dataset_reference") != dataset_slug:
+        raise ValueError("prior resume receipt dataset mismatch")
+    if prior.get("dataset_version") != version - 1:
+        raise ValueError("resume dataset version is not the next immutable version")
+elif version != 1:
+    raise ValueError("first verified resume receipt must be dataset version 1")
+with listing_path.open(encoding="utf-8", newline="") as handle:
+    reader = csv.DictReader(handle)
+    if reader.fieldnames is None:
+        raise ValueError("remote resume listing has no header")
+    fields = {name.casefold(): name for name in reader.fieldnames}
+    if "name" not in fields or "size" not in fields:
+        raise ValueError("remote resume listing must contain name and size")
+    remote = {
+        str(row[fields["name"]]): int(str(row[fields["size"]]))
+        for row in reader
+    }
+local = {
+    path.relative_to(bundle).as_posix(): path.stat().st_size
+    for path in bundle.rglob("*")
+    if path.is_file()
+}
+if remote != local:
+    raise ValueError("remote resume dataset listing differs from staged bundle")
+payload = {
+    "schema_version": "spec0021.resume_dataset_receipt.v1",
+    "dataset_reference": dataset_slug,
+    "dataset_version": version,
+    "run_number": contract["run_number"],
+    "provenance_sha256": hashlib.sha256(contract_path.read_bytes()).hexdigest(),
+    "input_bundle_sha256": contract["input_bundle_sha256"],
+    "run_config_sha256": contract["run_config_sha256"],
+    "work_manifest_sha256": contract["work_manifest_sha256"],
+    "remote_files": [
+        {"logical_name": name, "size": size}
+        for name, size in sorted(remote.items())
+    ],
+    "remote_listing_sha256": hashlib.sha256(listing_path.read_bytes()).hexdigest(),
+}
+encoded = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
+temporary = receipt_path.with_suffix(".json.tmp")
+with temporary.open("xb") as handle:
+    handle.write(encoded)
+    handle.flush()
+    os.fsync(handle.fileno())
+os.replace(temporary, receipt_path)
+directory = os.open(receipt_path.parent, os.O_RDONLY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYRESUMERECEIPT
+  echo "ok: wrote verified resume receipt $receipt_path"
+}
+
+full_foreground_package() {
+  require_build_python
+  "$build_python" -m eqvae.cli.build_ubc_full_foreground_completion "$@"
+}
+
+publish_full_foreground_inputs() {
+  if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_DATASET_WRITE_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_FULL_FOREGROUND_CONFIRMED:-}" != "1" ]]; then
+    echo "error: exact full-foreground input publication permission is required" >&2
+    exit 1
+  fi
+  full_foreground_package validate
+  if [[ -e runs/local/full_foreground_completion/input_receipt.json ]]; then
+    echo "error: immutable full-foreground input receipt already exists" >&2
+    exit 1
+  fi
+  require_kaggle_cli
+  kaggle_api datasets create -p runs/local/full_foreground_completion/upload
+}
+
+verify_full_foreground_inputs() {
+  require_remote_confirmed
+  full_foreground_package validate
+  require_kaggle_cli
+  local root="runs/local/full_foreground_completion/remote_v1"
+  local slug="maximusshtefan/eqvae-full-foreground-inputs"
+  mkdir -p "$root/download" "$root/metadata"
+  kaggle_api datasets status "$slug" --format 'json(status,current_version_number)' > "$root/status.json"
+  kaggle_api datasets metadata "$slug" -p "$root/metadata"
+  kaggle_api datasets download "$slug/1" -p "$root/download" --unzip -q
+  full_foreground_package verify-download
+}
+
+output_full_foreground() {
+  local number="${1:-}"
+  if [[ ! "$number" =~ ^0[1-8]$ ]]; then
+    echo "error: full-foreground output requires run 01 through 08" >&2
+    exit 1
+  fi
+  require_remote_confirmed
+  require_kaggle_cli
+  local root="runs/kaggle/full_foreground_completion/run_$number"
+  mkdir -p "$root"
+  kaggle_api kernels output "maximusshtefan/eqvae-full-foreground-$number" \
+    -p "$root" --file-pattern '.*\.(json|log)$'
+}
+
+check_wsi45630_package() {
+  require_build_python
+  "$build_python" - "${1:-check}" <<'PYWSIPACKAGE'
+import hashlib
+import json
+import sys
+from pathlib import Path
+from string import Template
+
+from eqvae.cli.build_ubc_wsi45630_completion import validate
+
+root = Path("runs/local/wsi45630_completion")
+validate(repo_root=Path.cwd(), output_root=root)
+contract = root / "bundle/wsi45630_input.json"
+digest = hashlib.sha256(contract.read_bytes()).hexdigest()
+template = Path("kaggle/kernels/wsi45630_completion/run_template.py").read_text()
+code = Template(template).substitute(input_contract_sha256=digest).encode()
+assert len(code) < 1_000_000
+compile(code, "run.py", "exec")
+metadata = {
+    "id": "maximusshtefan/eqvae-wsi45630-completion",
+    "title": "eqvae wsi45630 completion",
+    "code_file": "run.py", "language": "python", "kernel_type": "script",
+    "is_private": "true", "enable_gpu": "true", "enable_internet": "true",
+    "machine_shape": "NvidiaTeslaT4",
+    "dataset_sources": ["maximusshtefan/eqvae-wsi45630-completion-inputs"],
+    "competition_sources": ["UBC-OCEAN"], "kernel_sources": [], "model_sources": [],
+}
+kernel = root / "kernel"
+if sys.argv[1] == "render":
+    kernel.mkdir()
+    (kernel / "run.py").write_bytes(code)
+    (kernel / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+assert (kernel / "run.py").read_bytes() == code
+assert json.loads((kernel / "kernel-metadata.json").read_text()) == metadata
+if sys.argv[1] == "receipt":
+    receipt = json.loads((root / "input_receipt.json").read_text())
+    assert receipt["dataset_reference"] == metadata["dataset_sources"][0]
+    assert receipt["dataset_version"] == 1 and receipt["visibility"] == "private"
+    assert receipt["status"] == "verified" and receipt["input_contract_sha256"] == digest
+    assert receipt["files"] == json.loads(contract.read_text())["files"]
+print(f"ok: WSI45630 package, source={len(code)} bytes, mode={sys.argv[1]}")
+PYWSIPACKAGE
+}
+
+build_wsi45630_package() {
+  require_build_python
+  "$build_python" -m eqvae.cli.build_ubc_wsi45630_completion \
+    --repo-root "$PWD" --output-root runs/local/wsi45630_completion
+  check_wsi45630_package render
+}
+
+publish_wsi45630_inputs() {
+  if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_DATASET_WRITE_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_WSI45630_COMPLETION_CONFIRMED:-}" != "1" ]]; then
+    echo "error: exact WSI45630 dataset publication permission is required" >&2
+    exit 1
+  fi
+  check_wsi45630_package
+  if [[ -e runs/local/wsi45630_completion/input_receipt.json ]]; then
+    echo "error: immutable WSI45630 input receipt already exists" >&2
+    exit 1
+  fi
+  require_kaggle_cli
+  kaggle_api datasets create -p runs/local/wsi45630_completion/upload
+}
+
+verify_wsi45630_inputs() {
+  require_remote_confirmed
+  check_wsi45630_package
+  require_kaggle_cli
+  local root="runs/local/wsi45630_completion"
+  local slug="maximusshtefan/eqvae-wsi45630-completion-inputs"
+  mkdir -p "$root/remote_v1/download" "$root/remote_v1/metadata"
+  kaggle_api datasets status "$slug" --format 'json(status,current_version_number)' > "$root/remote_v1/status.json"
+  kaggle_api datasets metadata "$slug" -p "$root/remote_v1/metadata"
+  kaggle_api datasets download "$slug/1" -p "$root/remote_v1/download" --unzip -q
+  "$build_python" - <<'PYWSIRECEIPT'
+import hashlib
+import json
+from pathlib import Path
+
+root = Path("runs/local/wsi45630_completion")
+status = json.loads((root / "remote_v1/status.json").read_text())
+info = json.loads((root / "remote_v1/metadata/dataset-metadata.json").read_text())["info"]
+assert status == {"status": "ready", "current_version_number": 1}
+assert info["ownerUser"] == "maximusshtefan"
+assert info["datasetSlug"] == "eqvae-wsi45630-completion-inputs" and info["isPrivate"] is True
+bundle = root / "bundle"
+contract = json.loads((bundle / "wsi45630_input.json").read_text())
+names = {*contract["files"], "wsi45630_input.json"}
+download = root / "remote_v1/download"
+assert {p.relative_to(download).as_posix() for p in download.rglob("*") if p.is_file()} == names
+for name in names:
+    local, remote = bundle / name, download / name
+    assert local.stat().st_size == remote.stat().st_size
+    assert hashlib.sha256(local.read_bytes()).digest() == hashlib.sha256(remote.read_bytes()).digest()
+receipt = {
+    "status": "verified", "visibility": "private", "dataset_version": 1,
+    "dataset_reference": contract["dataset_reference"], "files": contract["files"],
+    "input_contract_sha256": hashlib.sha256((bundle / "wsi45630_input.json").read_bytes()).hexdigest(),
+}
+with (root / "input_receipt.json").open("x") as handle:
+    json.dump(receipt, handle, indent=2)
+    handle.write("\n")
+print("ok: WSI45630 private input version 1 is byte-verified")
+PYWSIRECEIPT
+}
+
+check_full_wsi_capacity() {
+  require_build_python
+  "$build_python" - "${1:-check}" <<'PYFULLWSICHECK'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, "scripts")
+from build_wsi45630_capacity import validate
+
+contract = validate()
+root = Path("runs/local/wsi45630_capacity")
+digest = hashlib.sha256((root / "bundle/wsi45630_capacity_input.json").read_bytes()).hexdigest()
+if sys.argv[1] == "receipt":
+    receipt = json.loads((root / "input_receipt.json").read_text())
+    assert receipt["status"] == "verified" and receipt["visibility"] == "private"
+    assert receipt["dataset_version"] == 1
+    assert receipt["dataset_reference"] == contract["dataset_reference"]
+    assert receipt["input_contract_sha256"] == digest
+    assert receipt["files"] == contract["files"]
+print("ok: full-WSI capacity package " + sys.argv[1])
+PYFULLWSICHECK
+}
+
+publish_full_wsi_capacity_inputs() {
+  if [[ "${KAGGLE_PUSH_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_DATASET_WRITE_CONFIRMED:-}" != "1" \
+    || "${KAGGLE_WSI45630_CAPACITY_CONFIRMED:-}" != "1" ]]; then
+    echo "error: full-WSI capacity dataset publication permission required" >&2
+    exit 1
+  fi
+  check_full_wsi_capacity
+  if [[ -e runs/local/wsi45630_capacity/input_receipt.json ]]; then
+    echo "error: immutable full-WSI capacity input receipt already exists" >&2
+    exit 1
+  fi
+  require_kaggle_cli
+  kaggle_api datasets create -p runs/local/wsi45630_capacity/upload
+}
+
+verify_full_wsi_capacity_inputs() {
+  require_remote_confirmed
+  check_full_wsi_capacity
+  require_kaggle_cli
+  local root="runs/local/wsi45630_capacity"
+  local slug="maximusshtefan/eqvae-wsi45630-capacity-inputs"
+  mkdir -p "$root/remote_v1/download" "$root/remote_v1/metadata"
+  kaggle_api datasets status "$slug" --format 'json(status,current_version_number)' > "$root/remote_v1/status.json"
+  kaggle_api datasets metadata "$slug" -p "$root/remote_v1/metadata"
+  kaggle_api datasets download "$slug/1" -p "$root/remote_v1/download" --unzip -q
+  "$build_python" - <<'PYFULLWSIRECEIPT'
+import hashlib
+import json
+from pathlib import Path
+
+root = Path("runs/local/wsi45630_capacity")
+status = json.loads((root / "remote_v1/status.json").read_text())
+info = json.loads((root / "remote_v1/metadata/dataset-metadata.json").read_text())["info"]
+assert status == {"status": "ready", "current_version_number": 1}
+assert info["ownerUser"] == "maximusshtefan" and info["isPrivate"] is True
+assert info["datasetSlug"] == "eqvae-wsi45630-capacity-inputs"
+bundle = root / "bundle"
+contract = json.loads((bundle / "wsi45630_capacity_input.json").read_text())
+names = {*contract["files"], "wsi45630_capacity_input.json"}
+download = root / "remote_v1/download"
+assert {p.relative_to(download).as_posix() for p in download.rglob("*") if p.is_file()} == names
+for name in names:
+    local, remote = bundle / name, download / name
+    assert local.stat().st_size == remote.stat().st_size
+    assert hashlib.sha256(local.read_bytes()).digest() == hashlib.sha256(remote.read_bytes()).digest()
+receipt = {
+    "status": "verified", "visibility": "private", "dataset_version": 1,
+    "dataset_reference": contract["dataset_reference"], "files": contract["files"],
+    "input_contract_sha256": hashlib.sha256((bundle / "wsi45630_capacity_input.json").read_bytes()).hexdigest(),
+}
+with (root / "input_receipt.json").open("x") as handle:
+    json.dump(receipt, handle, indent=2)
+    handle.write("\n")
+print("ok: private full-WSI capacity input version 1 is byte-verified")
+PYFULLWSIRECEIPT
+}
+
 action="${1:-}"
 case "$action" in
   build)
     kernel_dir="${2:-$default_kernel_dir}"
-    if [[ -f "$kernel_dir/run_template.py" ]]; then
+    if [[ "$kernel_dir" == "$ubc_ocean_test_atlas_kernel_dir" ]]; then
+      build_ubc_ocean_test_atlas_kernel "$kernel_dir"
+    elif [[ -f "$kernel_dir/run_template.py" ]]; then
       build_embedded_kernel "$kernel_dir"
     elif is_setup_kernel_dir "$kernel_dir"; then
       build_embedded_setup_kernel "$kernel_dir"
@@ -3256,6 +8165,210 @@ case "$action" in
     ;;
   preflight-so2-selected-runtime-full)
     preflight_so2_full
+    ;;
+  build-latent-inference)
+    build_latent_inference "${2:-}" "${3:-}"
+    ;;
+  preflight-latent-inference)
+    preflight_latent_inference "${2:-}"
+    ;;
+  build-cancer-topup)
+    build_cancer_topup
+    ;;
+  preflight-cancer-topup)
+    preflight_cancer_topup
+    ;;
+  preflight-mil-capacity-probe)
+    preflight_mil_capacity_probe
+    ;;
+  build-tissue-training)
+    build_tissue_training "${2:-}"
+    ;;
+  validate-tissue-training)
+    validate_tissue_training "${2:-}"
+    ;;
+  preflight-tissue-training)
+    preflight_tissue_training "${2:-}"
+    ;;
+  build-tissue-training-retry-v2)
+    build_tissue_training_retry "${2:?actor required}" "${3:?frozen input bundle required}"
+    ;;
+  preflight-tissue-training-retry-v2)
+    preflight_tissue_training_retry "${2:-}"
+    ;;
+  build-tissue-training-retry-v3)
+    build_tissue_training_retry_v3 "${2:?actor required}" "${3:?frozen input bundle required}"
+    ;;
+  preflight-tissue-training-retry-v3)
+    preflight_tissue_training_retry_v3 "${2:-}"
+    ;;
+  publish-tissue-training-inputs)
+    publish_tissue_training_inputs
+    ;;
+  verify-tissue-training-inputs)
+    verify_tissue_training_inputs
+    ;;
+  output-tissue-training)
+    output_tissue_training "${2:-}" "${3:-}"
+    ;;
+  build-tissue-fastpath-probe)
+    build_tissue_fastpath_probe "${2:-}"
+    ;;
+  validate-tissue-fastpath-probe)
+    validate_tissue_fastpath_probe "${2:-}"
+    ;;
+  preflight-tissue-fastpath-probe)
+    preflight_tissue_fastpath_probe "${2:-}"
+    ;;
+  publish-tissue-fastpath-probe-inputs)
+    publish_tissue_fastpath_probe_inputs
+    ;;
+  verify-tissue-fastpath-probe-inputs)
+    verify_tissue_fastpath_probe_inputs
+    ;;
+  build-mil-training)
+    build_mil_training "${2:-}"
+    ;;
+  build-mil-test)
+    build_mil_test "${2:-}"
+    ;;
+  build-tissue-test)
+    build_tissue_test "${2:-}"
+    ;;
+  validate-tissue-test)
+    validate_tissue_test "${2:-}"
+    ;;
+  publish-tissue-test-inputs)
+    publish_tissue_test_inputs
+    ;;
+  status-tissue-test-inputs)
+    status_tissue_test_inputs
+    ;;
+  verify-tissue-test-inputs)
+    verify_tissue_test_inputs
+    ;;
+  push-tissue-test)
+    push_tissue_test
+    ;;
+  validate-vae-test)
+    validate_vae_test "${2:-}"
+    ;;
+  publish-vae-test-inputs)
+    publish_vae_test_inputs
+    ;;
+  status-vae-test-inputs)
+    status_vae_test_inputs
+    ;;
+  verify-vae-test-inputs)
+    verify_vae_test_inputs
+    ;;
+  push-vae-test)
+    push_vae_test
+    ;;
+  validate-mil-test)
+    validate_mil_test "${2:-}"
+    ;;
+  publish-mil-test-inputs)
+    publish_mil_test_inputs
+    ;;
+  verify-mil-test-inputs)
+    verify_mil_test_inputs
+    ;;
+  status-mil-test-inputs)
+    status_mil_test_inputs
+    ;;
+  validate-mil-training)
+    validate_mil_training "${2:-}"
+    ;;
+  build-mil-training-resume)
+    build_mil_training_resume "${2:-}" "${3:-}" "${4:-}"
+    ;;
+  validate-mil-training-resume)
+    validate_mil_training_resume "${2:-}" "${3:-}"
+    ;;
+  publish-mil-training-resume)
+    publish_mil_training_resume "${2:-}"
+    ;;
+  verify-mil-training-resume)
+    verify_mil_training_resume "${2:-}"
+    ;;
+  preflight-mil-training)
+    preflight_mil_training "${2:-}"
+    ;;
+  publish-mil-training-inputs)
+    publish_mil_training_inputs
+    ;;
+  verify-mil-training-inputs)
+    verify_mil_training_inputs
+    ;;
+  build-supervised-calibration-input)
+    build_supervised_calibration_input "${2:-}" "${3:-}"
+    ;;
+  publish-supervised-calibration-input)
+    publish_supervised_calibration_input "${2:-}" "${3:-}"
+    ;;
+  verify-supervised-calibration-input)
+    verify_supervised_calibration_input "${2:-}" "${3:-}"
+    ;;
+  build-supervised-calibration)
+    build_supervised_calibration "${2:-}" "${3:-}" "${4:-}" "${5:-}"
+    ;;
+  preflight-supervised-calibration)
+    preflight_supervised_calibration "${2:-}" "${3:-}" "${4:-}" "${5:-}"
+    ;;
+  build-wsi45630-completion)
+    build_wsi45630_package
+    ;;
+  build-full-foreground-completion)
+    full_foreground_package build
+    ;;
+  preflight-full-foreground-completion)
+    full_foreground_package validate
+    ;;
+  publish-full-foreground-inputs)
+    publish_full_foreground_inputs
+    ;;
+  verify-full-foreground-inputs)
+    verify_full_foreground_inputs
+    ;;
+  output-full-foreground)
+    output_full_foreground "${2:-}"
+    ;;
+  publish-wsi45630-completion-inputs)
+    publish_wsi45630_inputs
+    ;;
+  verify-wsi45630-completion-inputs)
+    verify_wsi45630_inputs
+    ;;
+  publish-full-wsi-capacity-inputs)
+    publish_full_wsi_capacity_inputs
+    ;;
+  verify-full-wsi-capacity-inputs)
+    verify_full_wsi_capacity_inputs
+    ;;
+  publish-cancer-topup-inputs)
+    publish_cancer_topup_inputs
+    ;;
+  verify-cancer-topup-inputs)
+    verify_cancer_topup_inputs
+    ;;
+  publish-latent-inputs)
+    publish_latent_inputs
+    ;;
+  verify-latent-inputs)
+    verify_latent_inputs
+    ;;
+  build-latent-resume)
+    build_latent_resume "${2:-}" "${3:-}"
+    ;;
+  publish-latent-resume)
+    publish_latent_resume "${2:-}"
+    ;;
+  verify-latent-resume)
+    verify_latent_resume "${2:-}"
+    ;;
+  identity)
+    kaggle_authenticated_username
     ;;
   push)
     # Only treat the first token as kernel_dir when it is a real path, not an option
@@ -3323,11 +8436,104 @@ case "$action" in
     validate_kernel_dir "$kernel_dir"
     guard_push_ready "$kernel_dir"
     require_kaggle_sources_confirmed "$(metadata_path "$kernel_dir")"
+    local_attention_probe_push=0
+    local_attention_repair_probe_push=0
+    local_global_capacity_push=0
+    push_kernel_id="$(kernel_id_from_metadata "$kernel_dir")"
+    if [[ "$kernel_dir" == "$local_global_capacity_kernel_dir" \
+      || "$push_kernel_id" == "$local_global_capacity_kernel_id" ]]; then
+      local_global_capacity_push=1
+      if [[ "$push_wait" == "1" || "${#push_passthrough[@]}" -ne 0 ]]; then
+        echo "error: Spec 0030 push forbids wait and all CLI overrides" >&2
+        exit 1
+      fi
+    elif [[ "$kernel_dir" == "$local_attention_probe_kernel_dir" \
+      || "$push_kernel_id" == "$local_attention_probe_kernel_id" ]]; then
+      local_attention_probe_push=1
+      local_attention_repair_probe_push=1
+      if [[ "$push_wait" == "1" || "${#push_passthrough[@]}" -ne 0 ]]; then
+        echo "error: Spec 0028 push forbids wait and all CLI overrides" >&2
+        exit 1
+      fi
+    elif grep -q 'KAGGLE_LOCAL_ATTENTION_PROBE_READY = True' \
+      "$kernel_dir/$(json_field "$(metadata_path "$kernel_dir")" code_file)"; then
+      local_attention_probe_push=1
+      if [[ "$push_wait" == "1" || "${#push_passthrough[@]}" -ne 0 ]]; then
+        echo "error: Spec 0027 push forbids wait and all CLI overrides" >&2
+        exit 1
+      fi
+    fi
     require_kaggle_cli
-    kaggle_api kernels push -p "$kernel_dir" \
-      "${push_passthrough[@]+"${push_passthrough[@]}"}"
+    if [[ "$local_attention_probe_push" == "1" ]]; then
+      upload_kernel_dir="$kernel_dir"
+      if [[ "$local_attention_repair_probe_push" == "1" ]]; then
+        if ! upload_kernel_dir="$(
+          make_local_attention_repair_probe_snapshot "$kernel_dir"
+        )"; then
+          echo "error: failed to create exact Spec 0028 upload snapshot" >&2
+          exit 1
+        fi
+        claim_local_attention_repair_probe_push "$upload_kernel_dir"
+      fi
+      if ! push_response="$(kaggle_api kernels push -p "$upload_kernel_dir" 2>&1)"; then
+        printf '%s\n' "$push_response" >&2
+        exit 1
+      fi
+      printf '%s\n' "$push_response"
+      if [[ "$push_response" =~ [Kk]ernel[[:space:]]version[[:space:]]([0-9]+)[[:space:]]successfully[[:space:]]pushed ]]; then
+        accepted_version="${BASH_REMATCH[1]}"
+      elif [[ "$push_response" =~ [Ss]uccessfully[[:space:]]pushed[[:space:]]version[[:space:]]([0-9]+) ]]; then
+        accepted_version="${BASH_REMATCH[1]}"
+      else
+        echo "error: Kaggle did not confirm an accepted local-attention probe version" >&2
+        exit 1
+      fi
+      if [[ "$local_attention_repair_probe_push" == "1" ]]; then
+        finalize_local_attention_repair_probe_push \
+          "$upload_kernel_dir" "$accepted_version"
+      else
+        record_local_attention_probe_push "$kernel_dir" "$accepted_version"
+      fi
+    else
+      if [[ "${#push_passthrough[@]}" -ne 0 ]]; then
+        echo "error: account-portable push forbids Kaggle CLI overrides" >&2
+        echo "       encode runtime settings in guarded kernel metadata" >&2
+        exit 1
+      fi
+      actor="$(kaggle_authenticated_username)"
+      if [[ "$local_global_capacity_push" == "1" \
+        && "$actor" != "maximshtefan" ]]; then
+        echo "error: Spec 0030 corrective retry requires actor maximshtefan" >&2
+        exit 1
+      fi
+      upload_kernel_dir="$(
+        make_account_portable_kernel_snapshot "$kernel_dir" "$actor"
+      )"
+      push_kernel_id="$(kernel_id_from_metadata "$upload_kernel_dir")"
+      if [[ "$local_global_capacity_push" == "1" ]]; then
+        claim_local_global_capacity_push "$kernel_dir" "$upload_kernel_dir" "$actor"
+      fi
+      if ! push_response="$(
+        kaggle_api kernels push -p "$upload_kernel_dir" 2>&1
+      )"; then
+        printf '%s\n' "$push_response" >&2
+        exit 1
+      fi
+      printf '%s\n' "$push_response"
+      if ! canonical_kernel_reference="$(
+        confirmed_kernel_reference "$push_response"
+      )"; then
+        echo "error: Kaggle did not explicitly confirm a canonical kernel URL and version" >&2
+        exit 1
+      fi
+      push_kernel_id="$canonical_kernel_reference"
+      launch_receipt="$(
+        record_account_portable_launch \
+          "$kernel_dir" "$upload_kernel_dir" "$canonical_kernel_reference"
+      )"
+      echo "ok: canonical Kaggle launch saved at $launch_receipt"
+    fi
     if [[ "$push_wait" == "1" ]]; then
-      push_kernel_id="$(kernel_id_from_metadata "$kernel_dir")"
       echo "push: waiting for ${push_kernel_id} to settle..."
       wait_kernel_until_settled \
         "$push_kernel_id" "$push_wait_interval" "$push_wait_max" \
@@ -3336,6 +8542,12 @@ case "$action" in
     ;;
   status)
     kernel_id="${2:-$(kernel_id_from_metadata "$default_kernel_dir")}"
+    require_remote_confirmed
+    require_kaggle_cli
+    kaggle_api kernels status "$kernel_id"
+    ;;
+  status-launch)
+    kernel_id="$(kernel_reference_from_launch_receipt "${2:?launch receipt required}")"
     require_remote_confirmed
     require_kaggle_cli
     kaggle_api kernels status "$kernel_id"
@@ -3444,6 +8656,196 @@ case "$action" in
     mkdir -p "$output_dir"
     kaggle_api kernels output "$kernel_id" -p "$output_dir"
     ;;
+  output-launch)
+    kernel_id="$(kernel_reference_from_launch_receipt "${2:?launch receipt required}")"
+    output_dir="${3:?output directory required}"
+    require_remote_confirmed
+    require_kaggle_cli
+    if [[ -e "$output_dir" ]]; then
+      echo "error: output-launch requires a new output directory: $output_dir" >&2
+      exit 1
+    fi
+    mkdir -p "$output_dir"
+    kaggle_api kernels output "$kernel_id" -p "$output_dir"
+    record_kaggle_download \
+      kernel "$kernel_id" "$output_dir" kaggle_output_receipt.json
+    ;;
+  output-mil-training)
+    output_mil_training "${2:-}" "${3:-}"
+    ;;
+  output-mil-test)
+    output_mil_test "${2:-}" "${3:-}"
+    ;;
+  score-mil-test)
+    score_mil_test "${2:-}" "${3:-}" "${4:-}"
+    ;;
+  output-tissue-test)
+    output_tissue_test "${2:-}" "${3:-}"
+    ;;
+  score-tissue-test)
+    score_tissue_test "${2:-}" "${3:-}" "${4:-}"
+    ;;
+  output-vae-test)
+    output_vae_test "${2:-}" "${3:-}"
+    ;;
+  score-vae-test)
+    score_vae_test "${2:-}" "${3:-}" "${4:-}"
+    ;;
+  resume-score-vae-test)
+    [[ "$#" -eq 1 ]] || {
+      echo "error: resume-score-vae-test accepts no path overrides" >&2
+      exit 1
+    }
+    resume_score_vae_test
+    ;;
+  dataset-download)
+    dataset_reference="$(
+      validated_versioned_reference "${2:?owner/dataset/version required}"
+    )"
+    output_dir="${3:?output directory required}"
+    require_remote_confirmed
+    require_kaggle_cli
+    if [[ -e "$output_dir" ]]; then
+      echo "error: dataset-download requires a new output directory: $output_dir" >&2
+      exit 1
+    fi
+    mkdir -p "$output_dir"
+    kaggle_api datasets download "$dataset_reference" -p "$output_dir" --unzip
+    record_kaggle_download \
+      dataset "$dataset_reference" "$output_dir" kaggle_dataset_receipt.json
+    ;;
+  output-local-attention-probe)
+    require_remote_confirmed
+    require_kaggle_cli
+    if [[ ! -f "$local_attention_probe_push_receipt" ]]; then
+      echo "error: Spec 0027 output requires the consumed push receipt" >&2
+      exit 1
+    fi
+    if [[ -e "$local_attention_probe_output_dir" ]]; then
+      echo "error: refusing to mix or overwrite Spec 0027 evidence" >&2
+      exit 1
+    fi
+    accepted_version="$(python3 - "$local_attention_probe_push_receipt" <<'PYLOCALATTENTIONVERSION'
+import json
+import sys
+from pathlib import Path
+
+receipt = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+version = receipt.get("accepted_version")
+if (
+    receipt.get("schema_version") != "spec0027.push_receipt.v1"
+    or receipt.get("authority_consumed") is not True
+    or receipt.get("kernel_id")
+    != "maximusshtefan/eqvae-wsi45630-local-attention-probe"
+    or isinstance(version, bool)
+    or not isinstance(version, int)
+    or version < 1
+):
+    raise SystemExit("invalid Spec 0027 push receipt")
+print(version)
+PYLOCALATTENTIONVERSION
+)"
+    versioned_kernel_id="$local_attention_probe_kernel_id/$accepted_version"
+    stage_dir="$(mktemp -d "$TMPDIR/spec0027_retrieval.XXXXXX")"
+    kaggle_api kernels output "$versioned_kernel_id" -p "$stage_dir" \
+      --file-pattern '^spec0027_local_attention_probe[.]json$'
+    kaggle_api kernels logs "$versioned_kernel_id" >"$stage_dir/kaggle.log"
+    if [[ ! -f "$stage_dir/spec0027_local_attention_probe.json" \
+      || ! -s "$stage_dir/kaggle.log" ]]; then
+      echo "error: exact Spec 0027 JSON and nonempty Kaggle log are required" >&2
+      exit 1
+    fi
+    python3 - \
+      "$stage_dir/spec0027_local_attention_probe.json" \
+      "$stage_dir/kaggle.log" \
+      "$stage_dir/retrieval_receipt.json" "$accepted_version" <<'PYLOCALATTENTIONOUTPUT'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+artifact, log, receipt = (Path(value) for value in sys.argv[1:4])
+if not artifact.is_file() or not log.is_file():
+    raise SystemExit("Spec 0027 JSON and Kaggle log are both required")
+payload = json.loads(artifact.read_text(encoding="utf-8"))
+if payload.get("spec") != "0027":
+    raise SystemExit("retrieved artifact is not Spec 0027 evidence")
+record = {
+    "schema_version": "spec0027.retrieval_receipt.v1",
+    "kernel_id": "maximusshtefan/eqvae-wsi45630-local-attention-probe",
+    "accepted_version": int(sys.argv[4]),
+    "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+    "log_sha256": hashlib.sha256(log.read_bytes()).hexdigest(),
+}
+receipt.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PYLOCALATTENTIONOUTPUT
+    mkdir -p "$(dirname "$local_attention_probe_output_dir")"
+    mv "$stage_dir" "$local_attention_probe_output_dir"
+    ;;
+  output-local-attention-repair-probe)
+    require_remote_confirmed
+    require_kaggle_cli
+    if [[ ! -f "$local_attention_repair_probe_push_receipt" ]]; then
+      echo "error: Spec 0028 output requires the consumed push receipt" >&2
+      exit 1
+    fi
+    if [[ -e "$local_attention_repair_probe_output_dir" ]]; then
+      echo "error: refusing to mix or overwrite Spec 0028 evidence" >&2
+      exit 1
+    fi
+    accepted_version="$(python3 - "$local_attention_repair_probe_push_receipt" <<'PYLOCALATTENTIONREPAIRVERSION'
+import json
+import sys
+from pathlib import Path
+
+receipt = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if (
+    receipt.get("schema_version") != "spec0028.push_receipt.v1"
+    or receipt.get("authority_consumed") is not True
+    or receipt.get("kernel_id")
+    != "maximusshtefan/eqvae-wsi45630-local-attention-probe"
+    or receipt.get("accepted_version") != 2
+):
+    raise SystemExit("invalid Spec 0028 push receipt")
+print(2)
+PYLOCALATTENTIONREPAIRVERSION
+)"
+    versioned_kernel_id="$local_attention_repair_probe_kernel_id/$accepted_version"
+    mkdir -p "$(dirname "$local_attention_repair_probe_output_dir")"
+    stage_dir="$(mktemp -d "${local_attention_repair_probe_output_dir}.staging.XXXXXX")"
+    kaggle_api kernels output "$versioned_kernel_id" -p "$stage_dir" \
+      --file-pattern '^spec0028_local_attention_repair_probe[.]json$'
+    kaggle_api kernels logs "$versioned_kernel_id" >"$stage_dir/kaggle.log"
+    if [[ ! -f "$stage_dir/spec0028_local_attention_repair_probe.json" \
+      || ! -s "$stage_dir/kaggle.log" ]]; then
+      echo "error: exact Spec 0028 JSON and nonempty Kaggle log are required" >&2
+      exit 1
+    fi
+    python3 - \
+      "$stage_dir/spec0028_local_attention_repair_probe.json" \
+      "$stage_dir/kaggle.log" \
+      "$stage_dir/retrieval_receipt.json" <<'PYLOCALATTENTIONREPAIROUTPUT'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+artifact, log, receipt = (Path(value) for value in sys.argv[1:])
+payload = json.loads(artifact.read_text(encoding="utf-8"))
+if payload.get("spec") != "0028":
+    raise SystemExit("retrieved artifact is not Spec 0028 evidence")
+record = {
+    "schema_version": "spec0028.retrieval_receipt.v1",
+    "requested_kernel_id": "maximusshtefan/eqvae-wsi45630-local-attention-probe",
+    "kernel_id": "maximusshtefan/eqvae-wsi45630-local-attention-repair-probe",
+    "accepted_version": 2,
+    "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+    "log_sha256": hashlib.sha256(log.read_bytes()).hexdigest(),
+}
+receipt.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PYLOCALATTENTIONREPAIROUTPUT
+    mv "$stage_dir" "$local_attention_repair_probe_output_dir"
+    ;;
   output-real-data-runtime-pretest)
     kernel_id="$(kernel_id_from_metadata "$real_data_runtime_pretest_kernel_dir")"
     output_dir="${2:-$real_data_runtime_pretest_output_dir}"
@@ -3543,6 +8945,23 @@ case "$action" in
     guard_clean_kernel_dir "$kernel_dir"
     require_kaggle_cli
     kaggle_api kernels pull "$kernel_id" -p "$kernel_dir"
+    ;;
+  pull-launch)
+    kernel_id="$(kernel_reference_from_launch_receipt "${2:?launch receipt required}")"
+    kernel_dir="${3:?kernel directory required}"
+    require_remote_confirmed
+    if [[ "${KAGGLE_PULL_CONFIRMED:-}" != "1" ]]; then
+      echo "error: set KAGGLE_PULL_CONFIRMED=1 after explicit user permission" >&2
+      exit 1
+    fi
+    if [[ -e "$kernel_dir" ]]; then
+      echo "error: pull-launch requires a new kernel directory: $kernel_dir" >&2
+      exit 1
+    fi
+    require_kaggle_cli
+    kaggle_api kernels pull "$kernel_id" -p "$kernel_dir"
+    record_kaggle_download \
+      kernel "$kernel_id" "$kernel_dir" kaggle_kernel_pull_receipt.json
     ;;
   *)
     usage

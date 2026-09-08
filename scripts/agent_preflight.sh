@@ -361,7 +361,7 @@ printf '%s\n' \
   "10. docs/agentic_review_workflow.md" \
   "11. docs/spec_driven_development.md" \
   "12. docs/specs/README.md" \
-  "13. active specs linked from docs/specs/README.md" \
+  "13. relevant specs linked from docs/specs/README.md" \
   "14. docs/decisions/README.md"
 
 if [[ "$missing" -ne 0 || "$tracked_problem" -ne 0 ]]; then

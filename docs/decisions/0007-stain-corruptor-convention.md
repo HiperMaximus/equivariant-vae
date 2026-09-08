@@ -1,51 +1,25 @@
-# 0007: Stain Corruptor Convention
+# Decision 0007: Stain Corruptor Convention
 
-Status: accepted
-Date: 2026-06-13
+Status: active
 
 ## Decision
 
-Spec 0001 uses a scikit-image-compatible HED stain-coordinate convention as the
-reference oracle, pinned for local tests and fixture documentation to
-scikit-image 0.26.0, but runtime corruption is implemented in repo-owned
-PyTorch code so it can run in the compiled training path.
+Training corruption uses repo-owned PyTorch HED/RGB transforms compatible with
+the pinned scikit-image oracle. The public API accepts and returns NCHW RGB
+tensors normalized to `[-1,1]`.
 
-The public corruptor API takes and returns NCHW RGB tensors normalized to
-`[-1, 1]`. Internally, the corruptor converts to RGB `[0, 1]`, applies
-scikit-compatible HED/RGB math, applies stain-coordinate jitter and image-space
-Gaussian noise, converts back to `[-1, 1]`, and clamps the final corrupted input
-to `[-1, 1]`.
+The corruptor converts to RGB `[0,1]`, applies conservative H/E jitter, a small
+residual-axis jitter and image-space Gaussian noise, then converts back and
+clamps the corrupted input to `[-1,1]`. The clean normalized patch remains the
+reconstruction target.
 
-The first profile uses conservative H/E jitter and tiny third-axis residual
-jitter. The residual-axis jitter is an anti-corruption-signature device, not a
-claim about biological DAB variation in the H&E dataset. Wider historical FSQ
-H/E ranges are a named benchmark profile, not the first-run default.
-
-Corruption RNG on the train fast path uses the fastest RNG (native Philox `torch.rand`),
-NOT per-sample deterministic / blake2b seeding: reproducible, identical, or rank-invariant
-corruption is NOT required (speed-first, AGENTS rule 30). Numerical cross-checks
-(compiled-vs-eager, single-GPU-vs-DDP) compare CLOSE-ENOUGH within a tolerance, not
-bit-exact, so corruption need not match across replicas or runs. Clean validation and
-clean test views do not call the corruptor or consume corruption RNG.
-
-## Rationale
-
-The historical FSQ corruptor followed the right broad idea: implement the stain
-transform directly in Torch rather than calling an image library in the hot path.
-However, it mixed an ambiguous channel-first matrix convention, a historical
-linear-RGB optical-density path, and global RNG calls. Those details are too
-fragile for benchmark evidence.
-
-Using scikit-image as an oracle gives a documented convention for tests, while
-the PyTorch implementation keeps training compile-friendly. Excluding rank and
-physical file order from the semantic seed keeps corruption comparable when the
-same patch moves between single-GPU, DDP, branchless, indexed, or resumed runs.
+Runtime corruption uses native fast RNG. Bit-identical per-sample corruption is
+not required; numerical comparisons use documented tolerances. Validation is
+clean or deterministically constructed according to its named view.
 
 ## Consequences
 
-The local corruption slice must prove HED/RGB oracle agreement, per-channel
-semantics, deterministic stateless RNG, clean-validation RNG non-consumption,
-range/clamp telemetry, and visual QA through a non-promotable
-`benchmark/stain_corruptor_qa.json` artifact before corruption is integrated
-into real training. The first implementation completed this synthetic local QA;
-fixed real 25-patch visual QA and training integration remain separate gates.
+- Matrix orientation and normalization are pinned by oracle tests.
+- Corruption telemetry must prove a nonzero input-target delta.
+- Residual-axis jitter is an implementation device, not a biological DAB claim
+  for H&E slides.

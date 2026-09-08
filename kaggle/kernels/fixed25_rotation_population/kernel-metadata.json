@@ -1,0 +1,18 @@
+{
+  "code_file": "run.py",
+  "competition_sources": [],
+  "dataset_sources": [
+    "maximshtefan/eqvae-vae-test-reconstruction-inputs-v1",
+    "maximusshtefan/patches-pre-shuffled-ubc-ocean"
+  ],
+  "enable_gpu": "true",
+  "enable_internet": "false",
+  "id": "maximshtefan/eqvae-fixed25-rotation-population",
+  "is_private": "true",
+  "kernel_sources": [],
+  "kernel_type": "script",
+  "language": "python",
+  "machine_shape": "NvidiaTeslaT4",
+  "model_sources": [],
+  "title": "EQVAE fixed25 dense rotation population"
+}

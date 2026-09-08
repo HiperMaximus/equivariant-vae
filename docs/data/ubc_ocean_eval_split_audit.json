@@ -1,0 +1,387 @@
+{
+  "acceptance": {
+    "atlas_order_preserved": true,
+    "cancer_coordinates_are_complete_otsu_subset": true,
+    "canonical_cohort_hash_valid": true,
+    "canonical_split_hash_valid": true,
+    "canonical_split_valid": true,
+    "diagnosis_quotas_valid": true,
+    "holdout_necrosis_diagnosis_coverage_valid": true,
+    "holdout_necrosis_per_wsi_minimum_valid": true,
+    "holdout_tissue_patch_floors_valid": true,
+    "mask_only_excluded_from_cancer": true,
+    "mc_necrosis_allocation_valid": true,
+    "no_model_outputs_read": true,
+    "shared_wsi_split": true,
+    "tissue_coverage_and_purity_valid": true,
+    "tissue_positive_wsi_constraints_valid": true,
+    "updated_image_quotas_valid": true
+  },
+  "inputs": {
+    "atlas": {
+      "kaggle_kernel": "maximusshtefan/eqvae-ubc-ocean-test-atlas",
+      "kaggle_kernel_version": 3,
+      "path": "runs/kaggle/ubc_ocean_test_atlas_v3/dataset/ubc_ocean_test_atlas.csv",
+      "sha256": "9258a98f9512e1a1e04e09ea8dbca28463009fd3276345daed5b2d8119692557"
+    },
+    "cohort": {
+      "path": "docs/data/ubc_ocean_masked_holdout_ids.csv",
+      "sha256": "9fa03421694f77d3964097da2388beca45b31ce3e50da0b170c13781b86dea81"
+    },
+    "generator": {
+      "path": "src/eqvae/cli/generate_ubc_eval_manifests.py",
+      "sha256": "a5c2416abf230f8aec61e3d29cc7ff1b763eb864815491c719430927af88f986"
+    },
+    "split": {
+      "path": "docs/data/ubc_ocean_eval_wsi_split.csv",
+      "sha256": "216f69f64ed7a3e5636173d6cfe83297632113bc68310e4f6285d7ffc22cd43c"
+    }
+  },
+  "locked_constraints": {
+    "cancer_selection_sources": [
+      "mask+otsu",
+      "otsu"
+    ],
+    "diagnosis_wsi_quotas": {
+      "test": {
+        "CC": 5,
+        "EC": 6,
+        "HGSC": 8,
+        "LGSC": 2,
+        "MC": 2
+      },
+      "train": {
+        "CC": 23,
+        "EC": 24,
+        "HGSC": 40,
+        "LGSC": 11,
+        "MC": 8
+      },
+      "validation": {
+        "CC": 5,
+        "EC": 6,
+        "HGSC": 8,
+        "LGSC": 2,
+        "MC": 2
+      }
+    },
+    "expected_real_row_counts": {
+      "atlas": 1822340,
+      "cancer_ae": 1750221,
+      "tissue": 666807
+    },
+    "mc_necrosis_wsi_allocation": {
+      "test": 1,
+      "train": 1
+    },
+    "minimum_holdout_necrosis_patches_per_positive_wsi": 100,
+    "minimum_holdout_stroma_positive_wsis": 20,
+    "minimum_holdout_tissue_patches": {
+      "necrosis": 1000,
+      "stroma": 5000,
+      "tumor": 50000
+    },
+    "minimum_train_necrosis_patches": 5000,
+    "necrosis_positive_wsi_counts": {
+      "test": 5,
+      "train": 17,
+      "validation": 5
+    },
+    "required_holdout_necrosis_diagnoses": [
+      "CC",
+      "EC",
+      "HGSC"
+    ],
+    "updated_wsi_counts": {
+      "test": 3,
+      "train": 12,
+      "validation": 3
+    }
+  },
+  "outputs": {
+    "cancer_ae_manifest": {
+      "path": "runs/local/ubc_ocean_eval_manifests/cancer_ae_patch_manifest.csv",
+      "sha256": "710c3f8166f577f5ae60bec94a544dabed9619342a46b82374a2e739162d648c"
+    },
+    "tissue_manifest": {
+      "path": "runs/local/ubc_ocean_eval_manifests/tissue_patch_manifest.csv",
+      "sha256": "7e2f61c492167129911e73515c4d82ef9291fd89b920dc191be922a44f30ac92"
+    }
+  },
+  "primary_vae_population": "sealed test WSIs only",
+  "row_counts": {
+    "atlas": 1822340,
+    "cancer_ae": 1750221,
+    "tissue": 666807
+  },
+  "schema_version": "spec0018.ubc_eval_manifests.v1",
+  "selection_disclosure": "WSI assignment is mask-stratified; cancer/AE coordinates and exported features are the complete Otsu-derived set and contain no mask metadata.",
+  "splits": {
+    "test": {
+      "cancer_ae_patch_count": 261168,
+      "diagnosis_tissue_patch_counts": {
+        "CC": {
+          "necrosis": 138,
+          "stroma": 1311,
+          "tumor": 14265
+        },
+        "EC": {
+          "necrosis": 548,
+          "stroma": 1894,
+          "tumor": 19082
+        },
+        "HGSC": {
+          "necrosis": 333,
+          "stroma": 4242,
+          "tumor": 27100
+        },
+        "LGSC": {
+          "necrosis": 0,
+          "stroma": 627,
+          "tumor": 10251
+        },
+        "MC": {
+          "necrosis": 257,
+          "stroma": 778,
+          "tumor": 19222
+        }
+      },
+      "diagnosis_tissue_positive_wsi_counts": {
+        "CC": {
+          "necrosis": 1,
+          "stroma": 4,
+          "tumor": 5
+        },
+        "EC": {
+          "necrosis": 2,
+          "stroma": 6,
+          "tumor": 6
+        },
+        "HGSC": {
+          "necrosis": 1,
+          "stroma": 7,
+          "tumor": 8
+        },
+        "LGSC": {
+          "necrosis": 0,
+          "stroma": 2,
+          "tumor": 2
+        },
+        "MC": {
+          "necrosis": 1,
+          "stroma": 2,
+          "tumor": 2
+        }
+      },
+      "diagnosis_wsi_counts": {
+        "CC": 5,
+        "EC": 6,
+        "HGSC": 8,
+        "LGSC": 2,
+        "MC": 2
+      },
+      "necrosis_patch_counts_by_positive_wsi": {
+        "10246": 273,
+        "19255": 333,
+        "22221": 275,
+        "38019": 257,
+        "40888": 138
+      },
+      "tissue_patch_counts": {
+        "necrosis": 1276,
+        "stroma": 8852,
+        "tumor": 89920
+      },
+      "tissue_positive_wsi_counts": {
+        "necrosis": 5,
+        "stroma": 21,
+        "tumor": 23
+      },
+      "updated_wsi_count": 3,
+      "wsi_count": 23
+    },
+    "train": {
+      "cancer_ae_patch_count": 1224875,
+      "diagnosis_tissue_patch_counts": {
+        "CC": {
+          "necrosis": 276,
+          "stroma": 5714,
+          "tumor": 66268
+        },
+        "EC": {
+          "necrosis": 1581,
+          "stroma": 13210,
+          "tumor": 86148
+        },
+        "HGSC": {
+          "necrosis": 3960,
+          "stroma": 15304,
+          "tumor": 142871
+        },
+        "LGSC": {
+          "necrosis": 0,
+          "stroma": 4229,
+          "tumor": 54342
+        },
+        "MC": {
+          "necrosis": 137,
+          "stroma": 2808,
+          "tumor": 69964
+        }
+      },
+      "diagnosis_tissue_positive_wsi_counts": {
+        "CC": {
+          "necrosis": 3,
+          "stroma": 20,
+          "tumor": 23
+        },
+        "EC": {
+          "necrosis": 3,
+          "stroma": 24,
+          "tumor": 24
+        },
+        "HGSC": {
+          "necrosis": 10,
+          "stroma": 37,
+          "tumor": 40
+        },
+        "LGSC": {
+          "necrosis": 0,
+          "stroma": 10,
+          "tumor": 11
+        },
+        "MC": {
+          "necrosis": 1,
+          "stroma": 7,
+          "tumor": 8
+        }
+      },
+      "diagnosis_wsi_counts": {
+        "CC": 23,
+        "EC": 24,
+        "HGSC": 40,
+        "LGSC": 11,
+        "MC": 8
+      },
+      "necrosis_patch_counts_by_positive_wsi": {
+        "14424": 211,
+        "15188": 979,
+        "16986": 17,
+        "1925": 231,
+        "1952": 59,
+        "21432": 317,
+        "22489": 11,
+        "24759": 98,
+        "35239": 838,
+        "36678": 137,
+        "37655": 452,
+        "38048": 58,
+        "43390": 345,
+        "45185": 1283,
+        "45630": 391,
+        "56947": 206,
+        "9697": 321
+      },
+      "tissue_patch_counts": {
+        "necrosis": 5954,
+        "stroma": 41265,
+        "tumor": 419593
+      },
+      "tissue_positive_wsi_counts": {
+        "necrosis": 17,
+        "stroma": 98,
+        "tumor": 106
+      },
+      "updated_wsi_count": 12,
+      "wsi_count": 106
+    },
+    "validation": {
+      "cancer_ae_patch_count": 264178,
+      "diagnosis_tissue_patch_counts": {
+        "CC": {
+          "necrosis": 633,
+          "stroma": 544,
+          "tumor": 7707
+        },
+        "EC": {
+          "necrosis": 192,
+          "stroma": 2958,
+          "tumor": 15158
+        },
+        "HGSC": {
+          "necrosis": 450,
+          "stroma": 2743,
+          "tumor": 44145
+        },
+        "LGSC": {
+          "necrosis": 0,
+          "stroma": 1885,
+          "tumor": 15729
+        },
+        "MC": {
+          "necrosis": 0,
+          "stroma": 712,
+          "tumor": 7091
+        }
+      },
+      "diagnosis_tissue_positive_wsi_counts": {
+        "CC": {
+          "necrosis": 1,
+          "stroma": 4,
+          "tumor": 5
+        },
+        "EC": {
+          "necrosis": 1,
+          "stroma": 6,
+          "tumor": 6
+        },
+        "HGSC": {
+          "necrosis": 3,
+          "stroma": 7,
+          "tumor": 8
+        },
+        "LGSC": {
+          "necrosis": 0,
+          "stroma": 2,
+          "tumor": 2
+        },
+        "MC": {
+          "necrosis": 0,
+          "stroma": 2,
+          "tumor": 2
+        }
+      },
+      "diagnosis_wsi_counts": {
+        "CC": 5,
+        "EC": 6,
+        "HGSC": 8,
+        "LGSC": 2,
+        "MC": 2
+      },
+      "necrosis_patch_counts_by_positive_wsi": {
+        "22155": 633,
+        "39255": 136,
+        "39728": 112,
+        "59760": 192,
+        "63941": 202
+      },
+      "tissue_patch_counts": {
+        "necrosis": 1275,
+        "stroma": 8842,
+        "tumor": 89830
+      },
+      "tissue_positive_wsi_counts": {
+        "necrosis": 5,
+        "stroma": 21,
+        "tumor": 23
+      },
+      "updated_wsi_count": 3,
+      "wsi_count": 23
+    }
+  },
+  "status": "pass",
+  "thresholds": {
+    "minimum_annotated_fraction": 0.1,
+    "minimum_tissue_purity": 0.95
+  }
+}

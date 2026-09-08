@@ -1,9 +1,9 @@
 # Spec 0014: Fixed F01 Full VAE Assembly
 
 Status: implemented / locally verified
-Implementation readiness: complete; selected-runtime readiness is next and full training remains unauthorized
+Implementation readiness: complete; consumed by the completed Spec 0016 full run
 Owner/workstream: matched continuous-`SO(2)` VAE assembly
-Last updated: 2026-08-13
+Last updated: 2026-08-23
 
 ## Purpose
 

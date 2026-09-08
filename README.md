@@ -1,216 +1,124 @@
-# Equivariant VAE Paper Repository
+# Equivariant VAE Research Repository
 
-This repository supports the SIPAIM 2026 paper and the experiments behind it.
-The active research direction is a comparison between a normal denoising VAE and
-a continuous `SO(2)`-steerable denoising VAE for histopathology patch
-representations.
+This repository contains the completed matched comparison of a normal
+denoising VAE and a repo-owned continuous-`SO(2)` steerable VAE for UBC-OCEAN
+histopathology patches, plus downstream WSI/tissue evaluation and the working
+paper.
 
-## Current Source Of Truth
+The professor-facing result is:
 
-Read the canonical landing sequence before changing architecture, evaluation,
-paper text, workflow, or Overleaf sync:
+- `reports/professor/informe_final_experimento_eqvae.docx`;
+- `reports/professor/informe_final_experimento_eqvae.pdf`;
+- 20 pages and 15 figures;
+- final Spanish update on
+  [GitHub issue #6](https://github.com/HiperMaximus/equivariant-vae/issues/6#issuecomment-5578529496).
 
-- [AGENTS.md](AGENTS.md)
-- [CURRENT.md](CURRENT.md)
-- [GOAL.md](GOAL.md)
-- [docs/repo_goal_and_requirements.md](docs/repo_goal_and_requirements.md)
-- [docs/issue_image_inventory.md](docs/issue_image_inventory.md)
-- [docs/equivariant_vae_transition_plan.md](docs/equivariant_vae_transition_plan.md)
-- [docs/kaggle_cli_workflow.md](docs/kaggle_cli_workflow.md)
-- [docs/behavior_inventory_kaggle.md](docs/behavior_inventory_kaggle.md)
-- [docs/overleaf_sync_workflow.md](docs/overleaf_sync_workflow.md)
-- [docs/agentic_review_workflow.md](docs/agentic_review_workflow.md)
-- [docs/spec_driven_development.md](docs/spec_driven_development.md)
-- [docs/specs/README.md](docs/specs/README.md)
-- [docs/decisions/README.md](docs/decisions/README.md)
+The issue remains open. Exact results, hashes, limitations and authorization
+boundaries are in [CURRENT.md](CURRENT.md).
 
-Keep these files current. If old notes become misleading, replace or delete
-them instead of leaving contradictory historical artifacts in place.
+## Read First
 
-## Active Paper
+1. [AGENTS.md](AGENTS.md)
+2. [CURRENT.md](CURRENT.md)
+3. [GOAL.md](GOAL.md)
+4. [Requirements](docs/repo_goal_and_requirements.md)
+5. [Issue image inventory](docs/issue_image_inventory.md)
+6. [Architecture contract](docs/equivariant_vae_transition_plan.md)
+7. [Kaggle workflow](docs/kaggle_cli_workflow.md)
+8. [Data and behavior contract](docs/behavior_inventory_kaggle.md)
+9. [Specs index](docs/specs/README.md)
+10. [Decisions index](docs/decisions/README.md)
 
-Paper source:
-
-```text
-paper/sipaim2026
-```
-
-Tracked advisor-facing PDF:
-
-```text
-paper/sipaim2026/sipaim2026.pdf
-```
-
-Overleaf project:
-
-```text
-https://www.overleaf.com/project/69c614433cbc9e46cf226d24
-```
-
-Compile and refresh the tracked PDF:
-
-```bash
-./scripts/sipaim_overleaf_sync.sh compile
-```
-
-Follow the full safe Overleaf workflow in
-[docs/overleaf_sync_workflow.md](docs/overleaf_sync_workflow.md). The short
-version is: check/setup, ask for permission before pull/push, compile, commit,
-then subtree-push with explicit confirmation.
-
-```bash
-./scripts/sipaim_overleaf_sync.sh check
-./scripts/sipaim_overleaf_sync.sh setup
-OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh pull
-
-# edit paper/sipaim2026
-./scripts/sipaim_overleaf_sync.sh compile
-git add paper/sipaim2026
-git commit -m "Update SIPAIM paper"
-
-OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh push
-```
-
-Do not push the whole repo to Overleaf.
-
-## Agent Preflight
-
-Before substantial Codex or Claude work, run:
+Run the repository preflight before substantial work:
 
 ```bash
 ./scripts/agent_preflight.sh
 ```
 
-Claude should read [CLAUDE.md](CLAUDE.md), but that file is only an adapter to
-the canonical repo instructions.
+## Current Scientific State
 
-The same local checks are available as VS Code tasks when opening this repo.
+- Both VAEs completed 60,000 updates and are frozen.
+- Both produce FP32 posterior-`mu` embeddings of shape `[16,32,32]`.
+- The shared 152-WSI cohort uses a frozen 106/23/23 WSI split.
+- Full foreground embeddings cover 1,750,221 patches for each model.
+- MIL diagnosis, tissue label efficiency and reconstruction sealed tests are
+  complete; their one-shot authorities are consumed.
+- The all-25 rotation diagnostic evaluates every integer angle from 0° to
+  359°.
+- No Kaggle job is active.
 
-For substantial workflow, architecture, evaluation, or paper-claim changes, use
-the adversarial clean-context subagent process in
-[docs/agentic_review_workflow.md](docs/agentic_review_workflow.md).
+The conclusion is mixed: normal is slightly better descriptively on
+reconstruction; `SO(2)` has favorable downstream point estimates without a
+general primary-test advantage; and `SO(2)` is locally smoother at one-degree
+resolution without more uniform traversal or stronger PCA planarity.
 
-For substantial implementation work, use spec-driven development:
-[docs/spec_driven_development.md](docs/spec_driven_development.md). Track active
-spec status in [docs/specs/README.md](docs/specs/README.md). A draft spec is not
-implementation-ready until the spec index and the spec itself say so.
+## Repository Layout
 
-For Python changes, run the strict quality gate:
+```text
+src/eqvae/          model, data, training, inference and evaluation code
+configs/            frozen experiment contracts
+tests/              local verification
+kaggle/kernels/     CLI-managed Kaggle script kernels
+docs/specs/         detailed implementation and experiment contracts
+docs/decisions/     settled design decisions
+runs/               ignored local/remote evidence and receipts
+reports/professor/  final advisor-facing report
+paper/sipaim2026/   working manuscript subtree
+```
+
+## Python Workflow
+
+Dependency truth is `pyproject.toml` plus `uv.lock`; do not add a root
+`requirements.txt`. Use the existing Python 3.12 `.venv`:
 
 ```bash
 ./scripts/python_quality.sh
 ```
 
-The quality script itself uses the existing repo-local `.venv`; it does not sync
-or download packages. If `.venv` is missing or stale, ask before running:
+The quality script does not install dependencies. Ask before running:
 
 ```bash
 uv sync --locked --python 3.12 --group dev
 ```
 
-It targets Python 3.12 with uv, CPU-only local PyTorch on Linux, Ruff `ALL`, and
-strict BasedPyright. See
-[docs/specs/0002-strict-python-quality-gate.md](docs/specs/0002-strict-python-quality-gate.md).
+Local verification uses CPU PyTorch. CUDA, Inductor and dual-T4 behavior belong
+on Kaggle.
 
-Python dependency truth lives in:
+## Kaggle
 
-- `pyproject.toml` for direct dependencies and tool configuration;
-- `uv.lock` for the resolved local environment.
-
-A root `requirements.txt` is intentionally not used. If a pip requirements file
-is needed later for Kaggle, generate it as a context-specific export and keep the
-generation rule documented in a spec.
-
-## Kaggle Execution
-
-Kaggle is a GPU execution surface, not a Git remote. Historical notebooks in
-`kaggle/train_runs`, `kaggle/dataset_generation`, and
-`kaggle/generate_dataset_Classification_With_Masks` are evidence for the
-behavior inventory, not the new source of truth.
-
-The current verified train/validation source is
-`maximusshtefan/patches-pre-shuffled-ubc-ocean`. The exact masked-WSI candidate
-pool for the future sealed test shard is tracked in
-`docs/data/ubc_ocean_masked_holdout_ids.csv`.
-
-The first CLI-managed script-kernel scaffold is:
-
-```text
-kaggle/kernels/non_eq_vae_debug
-```
-
-It is intentionally not push-ready yet. Use:
+Use the guarded CLI workflow:
 
 ```bash
-./scripts/kaggle_kernel.sh validate
-./scripts/kaggle_kernel.sh check
+./scripts/kaggle_kernel.sh help
+./scripts/kaggle_kernel.sh build <kernel-dir>
+./scripts/kaggle_kernel.sh validate <kernel-dir>
+./scripts/kaggle_kernel.sh check <kernel-dir>
 ```
 
-Remote Kaggle writes require explicit permission and
-`KAGGLE_PUSH_CONFIRMED=1`. See
-[docs/kaggle_cli_workflow.md](docs/kaggle_cli_workflow.md) and
-[docs/specs/0003-kaggle-cli-execution-workflow.md](docs/specs/0003-kaggle-cli-execution-workflow.md).
+Remote reads and writes require explicit user authorization and the exact
+confirmation variables enforced by the script. Preserve every resource using
+its canonical owner-qualified locator and version. See
+[docs/kaggle_cli_workflow.md](docs/kaggle_cli_workflow.md).
 
-Our code reaches Kaggle as a self-contained generated `run.py` that embeds the
-`src/eqvae` tree, with internet off and no attached sources — a deliberate hermeticity
-invariant. When the repo becomes public, delivery will switch to `pip install` from a
-pinned commit; see
-[docs/decisions/0011-kaggle-code-delivery.md](docs/decisions/0011-kaggle-code-delivery.md).
+## Paper And Overleaf
 
-## Current Experiment Horizon
+SIPAIM 2026 was not submitted. The working manuscript is
+`paper/sipaim2026`; its tracked advisor-facing PDF is
+`paper/sipaim2026/sipaim2026.pdf`.
 
-The normal-VAE control completed 60000 update counters and local artifact verification
-on 2026-08-11. Its fixed-25 reconstructions and rotation/latent evidence are under the
-ignored session-3 run named in `CURRENT.md`. The next experiment gate is the matched
-continuous-`SO(2)` model; beta `0.01`, data, schedule, fixed examples, metrics, and
-downstream probes remain locked for the comparison.
+Compile through:
 
-The comparison should be fair by construction:
-
-- same histopathology patch pipeline;
-- same train/validation/test split policy;
-- same latent target;
-- same macro architecture schedule;
-- same optimizer budget and validation access;
-- same metric scripts;
-- same qualitative artifact protocol.
-
-The non-equivariant baseline must avoid operations that do not translate cleanly
-to the continuous `SO(2)` steerable model.
-
-## Required Evaluation Artifacts
-
-Do not lose these advisor/issue requirements:
-
-- SSIM, MAE, MSE, PSNR with mean, standard deviation, and sample count `n`;
-- boxplots for reconstruction metrics;
-- training/evaluation dashboards analogous to the GitHub issue screenshots;
-- fixed 25-patch original/reconstruction visualizations;
-- rotated-input qualitative artifacts with fixed continuous angles;
-- EQ-VAE-style latent visualization with top principal components, latent maps,
-  transformed latent maps, and difference/error maps;
-- equivariance tests for nonlinearities, normalization, upsampling, VAE
-  sampling, and latent statistics.
-
-The detailed tracker is:
-
-```text
-docs/repo_goal_and_requirements.md
+```bash
+./scripts/sipaim_overleaf_sync.sh compile
 ```
 
-The issue screenshot inventory is:
+Never push the whole repository to Overleaf. Remote reads, pulls and pushes
+require explicit authorization and must use
+`scripts/sipaim_overleaf_sync.sh`. The thesis repository is separate and must
+not be edited without an explicit request.
 
-```text
-docs/issue_image_inventory.md
-```
+## Current Boundary
 
-## Related Repository
-
-The thesis repository is separate:
-
-```text
-/home/n00b1337/Documents/Max/Tesis/Tesis
-https://github.com/HiperMaximus/Tesis.git
-```
-
-Update the thesis only after paper results and claims stabilize.
+Presentation of the final report is ready. Paper, thesis, Overleaf, commits,
+pushes, public derived-data release, further issue updates and instrumented WSI
+attribution are separate tasks.

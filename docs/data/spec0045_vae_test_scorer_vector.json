@@ -1,0 +1,16 @@
+{
+  "direction": "normal_minus_so2",
+  "expected_result_sha256": "d72d88d7d173f297e7434957037c60704a923ceb4941294fddfcbdd050df89b2",
+  "fixture": {
+    "patch_count_pattern": [
+      1,
+      2,
+      3,
+      2
+    ]
+  },
+  "quantile_method": "linear",
+  "replicates": 10000,
+  "schema_version": "spec0045.vae_test_scorer_vector.v1",
+  "seed": 4501
+}

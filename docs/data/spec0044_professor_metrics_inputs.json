@@ -1,0 +1,272 @@
+{
+  "schema_version": 1,
+  "purpose": "Immutable local input contract for Spec 0044 professor-requested metrics and plots.",
+  "successful_update_counter": {
+    "first": 1,
+    "last": 60000,
+    "validation_boundaries": [
+      3000,
+      6000,
+      9000,
+      12000,
+      15000,
+      18000,
+      21000,
+      24000,
+      27000,
+      30000,
+      33000,
+      36000,
+      39000,
+      42000,
+      45000,
+      48000,
+      51000,
+      54000,
+      57000,
+      60000
+    ]
+  },
+  "session_count_by_model": {
+    "normal": 3,
+    "so2": 7
+  },
+  "accepted_committed_physical_skip": [
+    {
+      "model": "normal",
+      "rank": 0,
+      "counter": 14007,
+      "grad_norm": "inf",
+      "param_update_norm": 0.0,
+      "nonfinite_count": 1
+    },
+    {
+      "model": "normal",
+      "rank": 1,
+      "counter": 14007,
+      "grad_norm": "inf",
+      "param_update_norm": 0.0,
+      "nonfinite_count": 1
+    }
+  ],
+  "fixed25": {
+    "selector_sha256": "ace244ecdd67aaa1ebc7d08065f1e4bfa3c0d54806d4f3b50fb38a3ae000447f",
+    "originals_sha256": "8d46560d2294b9d1ae46e9f96f2b7d55eccbcbf2757e87e6eec02aeadc54c582",
+    "rotated_grid_selector_rank": 12,
+    "rotated_grid_sample_id": "validation:00028360:59031:2:44544:9984",
+    "pca_reference_path": "runs/local/frozen_vae_rotation_orbits/05-paper-style-latent-pca.png",
+    "normal_final_reconstruction_sha256": "33a2fc604c05c2df79fece8ef7517185826c6b9edb58c0f9bbb938bfd1e46167",
+    "so2_final_reconstruction_sha256": "833692eb6ee17fdcc34bac237dbc559a108f8dfd7c0f1788debd58fb36046a3c"
+  },
+  "consumed_artifacts_sha256": {
+    "runs/kaggle/selected_runtime_full_v2/artifacts/fixed25/boundary_003000/reconstruction_progress.pt": "cf97933e74ebba7f71b3afbde48505d9f4661c96d91b1a1b93e22a897592f96b",
+    "runs/kaggle/selected_runtime_full_v2/artifacts/fixed25/boundary_006000/reconstruction_progress.pt": "fe59c2dead32ff9059d60b66c11e928a6a35d0a875e65f1dc741176c07f55303",
+    "runs/kaggle/selected_runtime_full_v2/artifacts/fixed25/boundary_009000/reconstruction_progress.pt": "df90f63e6e9968f1dbe48fd762df5c5da81e03dec0a8eeb095c710faf75d9d12",
+    "runs/kaggle/selected_runtime_full_v2/artifacts/fixed25/boundary_012000/reconstruction_progress.pt": "ccdddceea7146fbfa56aa62d969ff8159c4fdc1d4dbdb52147ed2994d4d2b32a",
+    "runs/kaggle/selected_runtime_full_v2/artifacts/fixed25/boundary_015000/reconstruction_progress.pt": "ded732880b7eb18721e11648eaff28d01e7b8376d8f34cdc65e849ff8022850b",
+    "runs/kaggle/selected_runtime_full_v3_session2/artifacts/fixed25/boundary_018000/reconstruction_progress.pt": "23b4dba1ef05ce33dbcb14a492f2410a8bda151618b15dc286bee2bbf322c72e",
+    "runs/kaggle/selected_runtime_full_v3_session2/artifacts/fixed25/boundary_021000/reconstruction_progress.pt": "c83be10c7227ddf10df0ea3a2c0d8fbba6fc645c14f83d9725e5fb80fb73ac12",
+    "runs/kaggle/selected_runtime_full_v3_session2/artifacts/fixed25/boundary_024000/reconstruction_progress.pt": "e04ef1409bc9ccf1446e9fe6852c9a1e7c0873d892cf731998d6d23ad2d93d00",
+    "runs/kaggle/selected_runtime_full_v3_session2/artifacts/fixed25/boundary_027000/reconstruction_progress.pt": "74c2126a8da9c45c89610c3d1e179ecbc88a0ba2705dbbd9f850af1d6d5f49fa",
+    "runs/kaggle/selected_runtime_full_v3_session2/artifacts/fixed25/boundary_030000/reconstruction_progress.pt": "c7f0bc0fada34746806b51dc7d075b97cdfe24404492c0a7849be881ade694af",
+    "runs/kaggle/selected_runtime_full_v3_session2/artifacts/fixed25/boundary_033000/reconstruction_progress.pt": "2b9f14febab28ea1bbd74fe1839bb0962f44423be3272a62d3ed3d70c0637b43",
+    "runs/kaggle/selected_runtime_full_v3_session2/artifacts/fixed25/boundary_036000/reconstruction_progress.pt": "48729e6db00ea411050ca635a2c547fdac59f1a77dcad0bd893597b30eff63da",
+    "runs/kaggle/selected_runtime_full_v3_session2/artifacts/fixed25/boundary_039000/reconstruction_progress.pt": "e0b8362b6b2f7257e935cae79f58a18781129c6613047c5178db4776df4f7f8d",
+    "runs/kaggle/selected_runtime_full_v3_session2/artifacts/fixed25/boundary_042000/reconstruction_progress.pt": "4625b5fc9e95a13d865c4ba309702b94e244cec9b540b1f8022e97a32a774c59",
+    "runs/kaggle/selected_runtime_full_v3_session2/artifacts/fixed25/boundary_045000/reconstruction_progress.pt": "9d1daa275d0ac3959296be7cdc1b8eb7158043edb71c05920808f785dc38f041",
+    "runs/kaggle/selected_runtime_full_v4_session3/artifacts/fixed25/boundary_048000/reconstruction_progress.pt": "73e9b31a199ace7cb74e70a130585a6ff66b85a24673615c1dbefa174c1b82d5",
+    "runs/kaggle/selected_runtime_full_v4_session3/artifacts/fixed25/boundary_051000/reconstruction_progress.pt": "dca38547cb9b23606ce34f69ef6ca9c0c24cc1c132247f814b4affbcc2ac4e80",
+    "runs/kaggle/selected_runtime_full_v4_session3/artifacts/fixed25/boundary_054000/reconstruction_progress.pt": "196c1fd0f842e437b4764cb168fe8aedcba52c28fd136adb01347e9a7e7db0db",
+    "runs/kaggle/selected_runtime_full_v4_session3/artifacts/fixed25/boundary_057000/reconstruction_progress.pt": "3c47c929ff100bfc4d53ef554cd1c06435acff9a9beb7fa820fa269ae125ee7b",
+    "runs/kaggle/selected_runtime_full_v4_session3/artifacts/fixed25/boundary_060000/reconstruction_progress.pt": "33a2fc604c05c2df79fece8ef7517185826c6b9edb58c0f9bbb938bfd1e46167",
+    "runs/kaggle/selected_runtime_full_v4_session3/artifacts/fixed25/boundary_060000/rotated_angle_90.pt": "7eed80b2eab80f62578af34158ae6c1abafcbb3a45cd19b5cf712b571df392f9",
+    "runs/kaggle/selected_runtime_full_v4_session3/artifacts/fixed25/boundary_060000/rotated_angle_180.pt": "6d5cc1331d137c5a498ef5085281818c773258913116f55c6bf4cc66cef2cafb",
+    "runs/kaggle/selected_runtime_full_v4_session3/artifacts/fixed25/boundary_060000/rotated_angle_270.pt": "8ae71b0ed9e8d85269fb8d6af2cd5fb2fa04385674441071dfecbe511b6c5a23",
+    "runs/kaggle/so2_selected_runtime_full_v1_session1/artifacts/fixed25/boundary_003000/reconstruction_progress.pt": "6fd358e43d1728d3c2833f8100fd825cc7b77b4553198818f53157170d5d477b",
+    "runs/kaggle/so2_selected_runtime_full_v1_session1/artifacts/fixed25/boundary_006000/reconstruction_progress.pt": "a6489cf224ce49f41c8ab51d0b978e78b399622624aef8df8f9d9b43dbaf90a3",
+    "runs/kaggle/so2_selected_runtime_full_v1_session1/artifacts/fixed25/boundary_009000/reconstruction_progress.pt": "f60618402c28f953b276dc49df9ac8819912d392a972dfa94b248728ca728955",
+    "runs/kaggle/so2_selected_runtime_full_v2_session2/artifacts/fixed25/boundary_012000/reconstruction_progress.pt": "26fd0cc3109defba9491d0edbe2af383c8b6bce34f1c7f93fc98446c52df77ca",
+    "runs/kaggle/so2_selected_runtime_full_v2_session2/artifacts/fixed25/boundary_015000/reconstruction_progress.pt": "0adcfcbe3f33b2f9a8b590be51348a4141ce563d5cd002dfea4a355365df8bfe",
+    "runs/kaggle/so2_selected_runtime_full_v2_session2/artifacts/fixed25/boundary_018000/reconstruction_progress.pt": "0d33f89ab065fc0b9ab9406e98064e1036897536f72e463fda747987432fd9b9",
+    "runs/kaggle/so2_selected_runtime_full_v3_session3/artifacts/fixed25/boundary_021000/reconstruction_progress.pt": "99c3ac7bb31a47f5f277530fe806499bcc69c601221aa53ad888e26d2866506e",
+    "runs/kaggle/so2_selected_runtime_full_v3_session3/artifacts/fixed25/boundary_024000/reconstruction_progress.pt": "54c122b86e42f3d989e42e7406a956c982b2b75282b83d2f498e728504407aa2",
+    "runs/kaggle/so2_selected_runtime_full_v3_session3/artifacts/fixed25/boundary_027000/reconstruction_progress.pt": "5dc5d137c527dc68d9bb1b800b0b66809136d7982f718515d1359d02c290301d",
+    "runs/kaggle/so2_selected_runtime_full_v4_session4/artifacts/fixed25/boundary_030000/reconstruction_progress.pt": "659263bb4097a53c2b47fde0977eeed224ede1cff1555f64d0334edb68be6bcf",
+    "runs/kaggle/so2_selected_runtime_full_v4_session4/artifacts/fixed25/boundary_033000/reconstruction_progress.pt": "4f0f2c9708d466a9008cfdd4fed05f8a4746a82f16d706fc4f71f773f7616ea9",
+    "runs/kaggle/so2_selected_runtime_full_v4_session4/artifacts/fixed25/boundary_036000/reconstruction_progress.pt": "9106b625cd2d4da0f861bc2c67429eb8e1d0d5ccaea561cbd9eb182533249d3e",
+    "runs/kaggle/so2_selected_runtime_full_v5_session5/artifacts/fixed25/boundary_039000/reconstruction_progress.pt": "67030f177a916f64ca61f9483cc9a9547362b622903ead4faff6fcf05928ede3",
+    "runs/kaggle/so2_selected_runtime_full_v5_session5/artifacts/fixed25/boundary_042000/reconstruction_progress.pt": "ac5ea0add8e5750297a897b33a377cd367fa43c8d80d8831ec5ae1e00b531f96",
+    "runs/kaggle/so2_selected_runtime_full_v5_session5/artifacts/fixed25/boundary_045000/reconstruction_progress.pt": "bad3413fccfc33ddd5110da92212cb8b25f018920e6d14a99eaca26f3cd2a26a",
+    "runs/kaggle/so2_selected_runtime_full_session6_fresh_v1/artifacts/fixed25/boundary_048000/reconstruction_progress.pt": "3f6d054284f5bf5a84bd511453ce8f1561cd4bc62cc5bbc12588b86525062c0a",
+    "runs/kaggle/so2_selected_runtime_full_session6_fresh_v1/artifacts/fixed25/boundary_051000/reconstruction_progress.pt": "d7df4c684442cc6bc4ac5cf73052149d0115471ea40d15055ebb5c2644667f60",
+    "runs/kaggle/so2_selected_runtime_full_session6_fresh_v1/artifacts/fixed25/boundary_054000/reconstruction_progress.pt": "a0250c1a1d2397990c9828ea89677a474b5ded75b17474befcf94abb48e8f2f3",
+    "runs/kaggle/so2_selected_runtime_full_session7_fresh_v1_retry1/artifacts/fixed25/boundary_057000/reconstruction_progress.pt": "1113e86dc02adef07d3ed246c6e4ca3854173eb6e1c0737d759c376e245970eb",
+    "runs/kaggle/so2_selected_runtime_full_session7_fresh_v1_retry1/artifacts/fixed25/boundary_060000/reconstruction_progress.pt": "833692eb6ee17fdcc34bac237dbc559a108f8dfd7c0f1788debd58fb36046a3c",
+    "runs/kaggle/so2_selected_runtime_full_session7_fresh_v1_retry1/artifacts/fixed25/boundary_060000/rotated_angle_90.pt": "1ba9df4b34c3c9d7cf3a1287d3532b5cde7d0eef2a1b32d1ce5506b47133bb98",
+    "runs/kaggle/so2_selected_runtime_full_session7_fresh_v1_retry1/artifacts/fixed25/boundary_060000/rotated_angle_180.pt": "8bcc3c12a0918fc8da494bcb13d1822c0fc0ec96510f202d3f3dbb1a30b836af",
+    "runs/kaggle/so2_selected_runtime_full_session7_fresh_v1_retry1/artifacts/fixed25/boundary_060000/rotated_angle_270.pt": "ebf3f54d51ff41b3755d46c2cb0da4061b09b39a5474511b2ef2f0b3d2c4d374",
+    "runs/local/frozen_vae_rotation_orbits/05-paper-style-latent-pca.png": "b0cfae0659b2eae8ae352c6122ba3e5b9ba57397d3662d731c4640edb78e2dfc"
+  },
+  "sessions": [
+    {
+      "model": "normal",
+      "path": "runs/kaggle/selected_runtime_full_v2",
+      "counter_first": 1,
+      "counter_last": 15000,
+      "committed_rank_rows": 30000,
+      "amp_skipped_attempt_rows": 0,
+      "hashes": {
+        "metrics/train_steps.csv": "2cda985e23faf9ff7f0cb303b56fa69a0d3d43082bd9a044146c49beb79f6228",
+        "metrics/validation_metrics.csv": "db55da823f902c3aad66392a4d36a46210cfd88d6739ace76505e1d74ac6e8f1",
+        "metrics/equivariance_25.csv": "005e5fe6255d72128b0833cce1cecb5b47c4bf946f523ace8096f24ec0acac1d",
+        "artifacts/fixed25/manifest.json": "5dfa1bd9349677aaf00af4036460e11ffe21d785facc027298165c117d2340af",
+        "benchmark/artifact_manifest.json": "5590cc59a39b5710bea19b24eb781adb69a3823a640e4dddc78f6604eaf8bf84",
+        "benchmark/selected_runtime_full_summary.json": "3a5b31f5fcbbc363e846e9fd8fdd6f97f2784a5ba612a13db8c882b7ca3b78b7"
+      }
+    },
+    {
+      "model": "normal",
+      "path": "runs/kaggle/selected_runtime_full_v3_session2",
+      "counter_first": 15001,
+      "counter_last": 45000,
+      "committed_rank_rows": 60000,
+      "amp_skipped_attempt_rows": 26,
+      "hashes": {
+        "metrics/train_steps.csv": "5dfedee0523098e17ac9b5912f2c33bba1296c7b3c0516294f6addc8f636cf57",
+        "metrics/validation_metrics.csv": "9574e2eb79e493a8dd4010859babc0f7b8b959f3c771560d7fdfadd43d415fcc",
+        "metrics/equivariance_25.csv": "139513b05313cf0935ab9cede20e51a8ee1aed6c99332fad57f9d722a38cfb90",
+        "artifacts/fixed25/manifest.json": "c2666897734ef9673dcc0353ff9ccd14c7b9c7f52b7920700ea73efb7795557d",
+        "benchmark/artifact_manifest.json": "129ff6294cffdffdf917f816bf7819f0cb0718ef4275d578c7c09ea03ca8be05",
+        "benchmark/selected_runtime_full_summary.json": "63957cb07983efab7eb281f8b2148015dc5c004d1b9981a23d84d8d1200ac56f"
+      }
+    },
+    {
+      "model": "normal",
+      "path": "runs/kaggle/selected_runtime_full_v4_session3",
+      "counter_first": 45001,
+      "counter_last": 60000,
+      "committed_rank_rows": 30000,
+      "amp_skipped_attempt_rows": 12,
+      "hashes": {
+        "metrics/train_steps.csv": "e6fd161e9f219aeef05b693f6544888b68a7e743be21f9fe29045a1bca4d935a",
+        "metrics/validation_metrics.csv": "1040cd3102c29f137aadb345dbde5890109745ff2b3da640c8e1ee89cf832749",
+        "metrics/equivariance_25.csv": "f356bc88e89d949c77a7e9144f9e45b4e6b1e4090f07d4932ccb9f5dc1fa2f99",
+        "artifacts/fixed25/manifest.json": "d7efb60238e47b470d1da68b7d1122f86389a4e735e5f430510357bff9b0b3c0",
+        "benchmark/artifact_manifest.json": "5a0ddb5c00fc97e89de890846692615744597c29ea939bd234d43c21c493357d",
+        "benchmark/selected_runtime_full_summary.json": "391351ff3c5c6c9769315c2e3d6fbd65d09d013372a32c4cf32bd6307a3c2584"
+      }
+    },
+    {
+      "model": "so2",
+      "path": "runs/kaggle/so2_selected_runtime_full_v1_session1",
+      "counter_first": 1,
+      "counter_last": 9000,
+      "committed_rank_rows": 18000,
+      "amp_skipped_attempt_rows": 4,
+      "hashes": {
+        "metrics/train_steps.csv": "34c92cb028a6cb71c18df815be3739685bfee066c7d0d583d2079dde45a43587",
+        "metrics/validation_metrics.csv": "8c269a50650324daf04c6156409916d7b44c57adf76cbc30bb878a1e72cecde5",
+        "metrics/equivariance_25.csv": "fb0b5174842a5e68c9605d6cc8dd7466564f4bd89bf7a6e4fc9c50b1ffdc9a2c",
+        "artifacts/fixed25/manifest.json": "17f89893abfbe183ff4184e9811dd3cce18013a2be32244462ed6825945740a1",
+        "benchmark/artifact_manifest.json": "b2d0627ba7406b2402e331d599467b08a054218b476af5531a4dd56f17af0b41",
+        "benchmark/selected_runtime_full_summary.json": "6838d4ea2602e1f71da092e320fbd6da3c3aed0436f03f1dfd25579628be7ab8"
+      }
+    },
+    {
+      "model": "so2",
+      "path": "runs/kaggle/so2_selected_runtime_full_v2_session2",
+      "counter_first": 9001,
+      "counter_last": 18000,
+      "committed_rank_rows": 18000,
+      "amp_skipped_attempt_rows": 6,
+      "hashes": {
+        "metrics/train_steps.csv": "39d8cbd6a2b1e90469692a9dee5bde2b76b1688f637d028ea0458a0b3c6a06f2",
+        "metrics/validation_metrics.csv": "49214c9b1413262ce34a6fd6d33ff9acf22d3ab27e9bb27846e585b5f2a6e447",
+        "metrics/equivariance_25.csv": "01f211078bccbfa99f7f60de7a6633c25ad10c649940975f3bc4140db8c65b5c",
+        "artifacts/fixed25/manifest.json": "7b53ec48295d7bae31a77135661bf3ea0bf0b16d0eb792befb1c27a6c3507a0e",
+        "benchmark/artifact_manifest.json": "47ebbe986b3e55efc1ef7944fab8988a5f25be2ef687e5ea770095be8b470cec",
+        "benchmark/selected_runtime_full_summary.json": "ddcedf7c1101ff68b40fbd927fd5bee7db317bc7a2a00dded8e8df07addf13cf"
+      }
+    },
+    {
+      "model": "so2",
+      "path": "runs/kaggle/so2_selected_runtime_full_v3_session3",
+      "counter_first": 18001,
+      "counter_last": 27000,
+      "committed_rank_rows": 18000,
+      "amp_skipped_attempt_rows": 10,
+      "hashes": {
+        "metrics/train_steps.csv": "6e3740c922103756f60ded160c182aeebfb976a34c19df9f35e9fd640345cb2d",
+        "metrics/validation_metrics.csv": "ed34dd43842c4fc67065833510d6c887cd6f482fecf8c8a9c67b5550e7fb6311",
+        "metrics/equivariance_25.csv": "92ed1217502d1a651a139c5d363f572c4c62be47108d3e4aeb10e4ae443bc806",
+        "artifacts/fixed25/manifest.json": "6c3cfc16bff7f4fa051d2627cecd4ee1275581f1c948a0dce77015c5176fc65f",
+        "benchmark/artifact_manifest.json": "24d7b9ffa31b6c2481d0ccb39f2c59a78c0fb0a3afbd94b023396509b5d7624a",
+        "benchmark/selected_runtime_full_summary.json": "96bdd146406885aeea1c9a1f1b5ff2a8e4abcaa864ebd17cab136e69e05cacae"
+      }
+    },
+    {
+      "model": "so2",
+      "path": "runs/kaggle/so2_selected_runtime_full_v4_session4",
+      "counter_first": 27001,
+      "counter_last": 36000,
+      "committed_rank_rows": 18000,
+      "amp_skipped_attempt_rows": 8,
+      "hashes": {
+        "metrics/train_steps.csv": "57b26a9f639bb8b9c4a097ffb014ec1c4efd6f9a52e79322ccbc7ab3b3a91b61",
+        "metrics/validation_metrics.csv": "4387e9d6e63e24083f961003326210a7838cfe522bd54b0e0065ce023cee4666",
+        "metrics/equivariance_25.csv": "28ce09f96bd08a78be25b7af83552204c8e553c7eec2a63640b3a30067d10251",
+        "artifacts/fixed25/manifest.json": "cbedeffa61a66ced57454ad40071381659985b60fc98871f5e27efc7236f09df",
+        "benchmark/artifact_manifest.json": "924d0264f33a63aaeaa85927440e8bff61830e5dc933670a9d7500bd04393148",
+        "benchmark/selected_runtime_full_summary.json": "85e88b0c990c97ac9cf4a6fd9d51c4909b2f22fff4ea89c90e8a7da3eef51991"
+      }
+    },
+    {
+      "model": "so2",
+      "path": "runs/kaggle/so2_selected_runtime_full_v5_session5",
+      "counter_first": 36001,
+      "counter_last": 45000,
+      "committed_rank_rows": 18000,
+      "amp_skipped_attempt_rows": 8,
+      "hashes": {
+        "metrics/train_steps.csv": "1c214e8506bcf2b2b7a9cb305b57543b6d63d7f15113ba4cfce04b5509728fbc",
+        "metrics/validation_metrics.csv": "1a8f0462cb532c65fa940dcca5713b0391cf95217526211e4ebe0f09e0d65909",
+        "metrics/equivariance_25.csv": "323867d03c21948947b49cdfa57220f5576529b9abb0a71efda7d7e016c97c75",
+        "artifacts/fixed25/manifest.json": "c4438730445008eaea6ad6454f1cc7bc40e7b832bdbd961d278a2eec818fc1db",
+        "benchmark/artifact_manifest.json": "faf28ec5a2baf8792ff7f81969536c94ed98b77dcbeade45d960f1a07c20aa04",
+        "benchmark/selected_runtime_full_summary.json": "c69124045e3abc638e856487554d3286bc7fcb95eb195b0e0249c3394cfab15c"
+      }
+    },
+    {
+      "model": "so2",
+      "path": "runs/kaggle/so2_selected_runtime_full_session6_fresh_v1",
+      "counter_first": 45001,
+      "counter_last": 54000,
+      "committed_rank_rows": 18000,
+      "amp_skipped_attempt_rows": 8,
+      "hashes": {
+        "metrics/train_steps.csv": "4bd2332dcc42b516f6dfe8eb51168b85d3fbe074a34a15ca6156cb6b6c94a538",
+        "metrics/validation_metrics.csv": "6e147bdf5c8a2d3887709a0257aa294b8f2bba766cb8c6d0622346d61ddcaa0f",
+        "metrics/equivariance_25.csv": "cb6e87bb0a6113f69615e289294545c2ad3de03d006ab4395d16575b0345c557",
+        "artifacts/fixed25/manifest.json": "1f8a7fefe383c2b0a6d5b65de2e17ba7aafd7129094ca5e98f0c5d2055a04899",
+        "benchmark/artifact_manifest.json": "87760223f45a5c5cba6fba80b0170008da9a65ef58ff8058fc3e9f722db8a89d",
+        "benchmark/selected_runtime_full_summary.json": "72775a6dc5e09de7c4abaacee530aa307160eaffa1725358758cda0eb927d97a"
+      }
+    },
+    {
+      "model": "so2",
+      "path": "runs/kaggle/so2_selected_runtime_full_session7_fresh_v1_retry1",
+      "counter_first": 54001,
+      "counter_last": 60000,
+      "committed_rank_rows": 12000,
+      "amp_skipped_attempt_rows": 4,
+      "hashes": {
+        "metrics/train_steps.csv": "7270873489a9b68f7315c878abc526e5acb1c32e9b2711d8da8a98f5cd71f7bd",
+        "metrics/validation_metrics.csv": "5bc9a0ddcbd1308b406c7a6ce313957a62892d5c394cd44c4f3055d8c0a9d3c7",
+        "metrics/equivariance_25.csv": "016513152cdfa0f6a39bdeb33e9b112351e6f3c235cf009b821678e136d54933",
+        "artifacts/fixed25/manifest.json": "679236a613db1802e3c7336cf60d27c807b200193e36df3114d50c502915565c",
+        "benchmark/artifact_manifest.json": "70a9c49ec1e7f33462c45224a4e4b7c097141833474b5ad54cd373ea9b68974a",
+        "benchmark/selected_runtime_full_summary.json": "e350e5c92794605e90437aa8450523a8b519bd5e2df25ec130bb52955974d2d1"
+      }
+    }
+  ]
+}

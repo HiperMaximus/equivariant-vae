@@ -1,0 +1,38 @@
+{
+  "schema_version": "spec0043.tissue_test_scorer_vector.v1",
+  "replicates": 10000,
+  "seed": 3901,
+  "budgets": [250, 500, 1000, 2500, 5671],
+  "direction": "normal_minus_so2",
+  "quantile_method": "linear",
+  "fixture": {
+    "wsi_truths": [
+      [0],
+      [0],
+      [0, 1],
+      [0, 1],
+      [0, 1],
+      [0, 1],
+      [0, 1],
+      [0, 1],
+      [0, 1],
+      [0, 1],
+      [0, 1],
+      [0, 1],
+      [0, 1],
+      [0, 1],
+      [0, 1],
+      [0, 1],
+      [0, 1],
+      [0, 1],
+      [0, 1, 2],
+      [0, 1, 2],
+      [0, 1, 2],
+      [0, 1, 2],
+      [0, 1, 2]
+    ],
+    "normal_error_moduli": [3, 4, 5, 7, 11],
+    "so2_error_moduli": [4, 3, 6, 8, 10]
+  },
+  "expected_result_sha256": "f034f662fe427a97a114c7378bcf4d0109d1577a360b4382e6aec231b703d95c"
+}

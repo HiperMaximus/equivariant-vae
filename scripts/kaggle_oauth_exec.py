@@ -10,8 +10,10 @@ stdout token leaks.
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
+import re
 import shutil
 import stat
 import subprocess  # noqa: S404
@@ -19,6 +21,50 @@ import sys
 import tempfile
 
 from kagglesdk import KaggleClient, KaggleCredentials, KaggleEnv
+
+_USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+def _validated_username(value: object) -> str:
+    if not isinstance(value, str) or not _USERNAME_PATTERN.fullmatch(value):
+        message = "authenticated Kaggle username is missing or malformed"
+        raise RuntimeError(message)
+    return value
+
+
+def _oauth_username() -> str:
+    with KaggleClient(env=KaggleEnv.PROD) as client:
+        creds = KaggleCredentials.load(client=client)
+        if creds is None:
+            message = (
+                "missing ~/.kaggle/credentials.json OAuth credentials; "
+                "run `kaggle auth login`"
+            )
+            raise RuntimeError(message)
+        return _validated_username(creds.get_username())
+
+
+def _legacy_username() -> str:
+    environment_username = os.environ.get("KAGGLE_USERNAME")
+    if environment_username:
+        return _validated_username(environment_username)
+
+    config_dir = pathlib.Path(
+        os.environ.get("KAGGLE_CONFIG_DIR", pathlib.Path.home() / ".kaggle"),
+    )
+    config_path = config_dir / "kaggle.json"
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        message = (
+            "unable to read a Kaggle username from KAGGLE_USERNAME or "
+            f"{config_path}; authenticate the Kaggle CLI"
+        )
+        raise RuntimeError(message) from error
+    if not isinstance(payload, dict):
+        message = f"Kaggle credential file must contain an object: {config_path}"
+        raise TypeError(message)
+    return _validated_username(payload.get("username"))
 
 
 def _fresh_oauth_token() -> str:
@@ -55,6 +101,13 @@ def main(argv: list[str]) -> int:
         _write_error("usage: kaggle_oauth_exec.py <kaggle args...>")
         return 2
 
+    if argv == ["--print-oauth-username"]:
+        sys.stdout.write(f"{_oauth_username()}\n")
+        return 0
+    if argv == ["--print-legacy-username"]:
+        sys.stdout.write(f"{_legacy_username()}\n")
+        return 0
+
     token = _fresh_oauth_token()
     kaggle_bin = shutil.which("kaggle")
     if kaggle_bin is None:
@@ -82,6 +135,6 @@ def main(argv: list[str]) -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main(sys.argv[1:]))
-    except RuntimeError as error:
+    except (RuntimeError, TypeError) as error:
         _write_error(f"error: {error}")
         raise SystemExit(2) from None

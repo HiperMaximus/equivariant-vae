@@ -1,9 +1,9 @@
 # Spec 0015: Fixed SO2 Selected-Runtime Readiness
 
 Status: complete / private Kaggle v1 passed
-Implementation readiness: fixed model ready at the single batch-1 coordinate; full training remains unauthorized
+Implementation readiness: complete; consumed by the completed Spec 0016 full run
 Owner/workstream: fixed continuous-`SO(2)` selected-runtime integration
-Last updated: 2026-08-13
+Last updated: 2026-08-23
 
 ## Purpose
 

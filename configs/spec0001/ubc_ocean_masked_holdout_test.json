@@ -1,14 +1,60 @@
 {
-  "schema_version": "spec0001.masked_holdout.v0",
-  "status": "not_generated",
+  "schema_version": "spec0001.masked_holdout.v1",
+  "status": "manifests_generated_latent_format_implemented_inference_not_launch_ready",
   "candidate_ids": "docs/data/ubc_ocean_masked_holdout_ids.csv",
-  "target_dataset_slug": "maximusshtefan/ubc-ocean-masked-holdout-patches",
-  "target_files": [
-    "dataset/ubc_ocean_test.bin",
-    "dataset/ubc_ocean_test.csv",
-    "dataset/ubc_ocean_test_manifest.csv",
-    "dataset/ubc_ocean_test_provenance.json"
+  "atlas_sha256": "9258a98f9512e1a1e04e09ea8dbca28463009fd3276345daed5b2d8119692557",
+  "canonical_split": "docs/data/ubc_ocean_eval_wsi_split.csv",
+  "canonical_split_sha256": "216f69f64ed7a3e5636173d6cfe83297632113bc68310e4f6285d7ffc22cd43c",
+  "split_audit": "docs/data/ubc_ocean_eval_split_audit.json",
+  "local_manifest_directory": "runs/local/ubc_ocean_eval_manifests",
+  "cancer_ae_manifest_sha256": "710c3f8166f577f5ae60bec94a544dabed9619342a46b82374a2e739162d648c",
+  "tissue_manifest_sha256": "7e2f61c492167129911e73515c4d82ef9291fd89b920dc191be922a44f30ac92",
+  "local_consumption_directory": "runs/local/ubc_ocean_eval_consumption",
+  "consumption_audit": "docs/data/ubc_ocean_eval_consumption_audit.json",
+  "work_assignment": "docs/data/ubc_ocean_eval_work_assignment.csv",
+  "work_assignment_sha256": "a5377662911d147a14e1a17714c01b0ed5c6c1f2231429342f1373a1001edeff",
+  "union_manifest_sha256": "f92558fa7aced13debc839c733e2c96d03c1a3df4b2a0b194b60558c69c04012",
+  "union_patch_count": 599398,
+  "projected_raw_bytes": 117846441984,
+  "work_shard_count": 5,
+  "physical_read_order": "wsi_id,y,x",
+  "shuffle_during_wsi_read": false,
+  "planned_embedding_models": [
+    "normal_vae",
+    "so2_vae"
   ],
+  "embedding_checkpoint_sha256": {
+    "normal_vae": "f733304e9178e468546113642bdf01e11348570b340c366cf148973083cb9075",
+    "so2_vae": "041e0cd7483cb8642bb72eb1b63c3a36774bf9cadd0b659c9d1db6a813c8f4c7"
+  },
+  "embedding_work_manifest_sha256": {
+    "run_01_of_05.csv": "76cc5f9b86b75b9e46250c80e7b5c98d2f0451a12b38665ae45b055767b7a456",
+    "run_02_of_05.csv": "11d21482c9d3e083bc5138973c6b09f6b659e7d753853c0290382320e78e6200",
+    "run_03_of_05.csv": "9414f638abc24963e821de8bbedccaf294a14a7ea768a01687d5b105e634402b",
+    "run_04_of_05.csv": "e7c5d8d08996e3bac440b5779547b2bbeb4443e7481dcb74998a87aa3054697f",
+    "run_05_of_05.csv": "5485c44ababeaba9a4e2cc75a1a6b2927d89f10ed83a121dfcb81a68cfc23d6a"
+  },
+  "planned_embedding_tensor": "deterministic posterior mu",
+  "planned_embedding_shape_per_patch": [
+    16,
+    32,
+    32
+  ],
+  "planned_embedding_dtype": "float32",
+  "embedding_format_status": "implemented_not_generated",
+  "embedding_format_spec": "docs/specs/0020-fp32-latent-shard-format-and-io.md",
+  "projected_two_model_embedding_bytes": 78564294656,
+  "logical_classifier_views": [
+    "normal_vae_wsi_cancer",
+    "normal_vae_patch_tissue",
+    "so2_vae_wsi_cancer",
+    "so2_vae_patch_tissue"
+  ],
+  "atlas_policy": "all mask-intersecting full-grid patches plus all HSV-saturation-Otsu patches above 0.6 projected foreground",
+  "extraction_policy": "all Otsu-qualified patches plus mask-only patches with annotated_fraction at least 0.10",
+  "mask_policy": "RGB red=tumor, green=stroma, blue=necrosis; unannotated is unknown because masks are non-exhaustive",
+  "raw_patch_output_forbidden": true,
+  "launch_ready": false,
   "paper_claims_allowed": false,
-  "notes": "The sealed masked-WSI test shard is a later data-generation task."
+  "notes": "Specs 0017-0019 generated the verified atlas, frozen WSI split, task manifests, 599398-row read union, and five whole-WSI work assignments. Every physical-read manifest remains ordered by wsi_id,y,x and is not shuffled. Raw patch binaries are forbidden because the union projects to about 109.75 GiB. Spec 0020 implements the two model-specific FP32 mu stores and four logical classifier views without generating real artifacts. Separate locked specs are still required for the Kaggle inference worker/pilot and for metrics, aggregation, classifiers, and sealed-test use."
 }

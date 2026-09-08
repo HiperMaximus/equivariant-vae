@@ -654,6 +654,75 @@ def test_synthetic_timing_push_guard_accepts_generated_no_dataset_kernel(
 
     assert completed.returncode == 0, completed.stderr
     assert "fake kaggle kernels push" in completed.stdout
+    receipt_path = (
+        fake_bin.parent
+        / "launch-receipts/professor-account/eqvae-synthetic-timing/v0001.json"
+    )
+    receipt = _load_json(receipt_path)
+    source_locators = cast("dict[str, list[str]]", receipt["source_locators"])
+    assert receipt["actor"] == "professor-account"
+    assert receipt["original_kernel_id"] == "maximusshtefan/eqvae-synthetic-timing"
+    assert receipt["kernel_reference"] == ("professor-account/eqvae-synthetic-timing/1")
+    assert source_locators["dataset_sources"] == []
+
+
+def test_portable_push_rejects_exit_zero_without_explicit_acceptance(
+    tmp_path: Path,
+) -> None:
+    """A CLI exit-zero error cannot create a launch receipt."""
+    repo_root = Path(__file__).resolve().parents[1]
+    kernel_dir = _generated_kernel_dir(tmp_path=tmp_path, repo_root=repo_root)
+    fake_bin = _fake_bin(tmp_path=tmp_path, repo_root=repo_root)
+    (fake_bin / "kaggle").write_text(
+        "#!/bin/sh\nprintf '%s\\n' 'Kernel push error: denied'\nexit 0\n",
+        encoding="utf-8",
+    )
+    (fake_bin / "kaggle").chmod(0o755)
+
+    completed = subprocess.run(  # noqa: S603
+        (
+            _required_executable("bash"),
+            str(repo_root / "scripts" / "kaggle_kernel.sh"),
+            "push",
+            str(kernel_dir),
+        ),
+        cwd=repo_root,
+        env=_guard_environment(fake_bin=fake_bin),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "did not explicitly confirm" in completed.stderr
+    assert not (fake_bin.parent / "launch-receipts").exists()
+
+
+def test_portable_push_rejects_cli_path_override(tmp_path: Path) -> None:
+    """CLI overrides cannot redirect upload away from the guarded snapshot."""
+    repo_root = Path(__file__).resolve().parents[1]
+    kernel_dir = _generated_kernel_dir(tmp_path=tmp_path, repo_root=repo_root)
+    fake_bin = _fake_bin(tmp_path=tmp_path, repo_root=repo_root)
+
+    completed = subprocess.run(  # noqa: S603
+        (
+            _required_executable("bash"),
+            str(repo_root / "scripts" / "kaggle_kernel.sh"),
+            "push",
+            str(kernel_dir),
+            "--path",
+            str(tmp_path / "unvalidated"),
+        ),
+        cwd=repo_root,
+        env=_guard_environment(fake_bin=fake_bin),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "forbids Kaggle CLI overrides" in completed.stderr
+    assert "Kernel version 1 successfully pushed" not in completed.stdout
 
 
 def _generated_kernel_dir(*, tmp_path: Path, repo_root: Path) -> Path:
@@ -705,7 +774,12 @@ def _fake_bin(*, tmp_path: Path, repo_root: Path) -> Path:
         encoding="utf-8",
     )
     (fake_bin / "kaggle").write_text(
-        "#!/usr/bin/env bash\nset -euo pipefail\nprintf 'fake kaggle %s\\n' \"$*\"\n",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf 'fake kaggle %s\\n' \"$*\"\n"
+        "printf '%s\\n' 'Kernel version 1 successfully pushed.  Please check "
+        "progress at https://www.kaggle.com/code/professor-account/"
+        "eqvae-synthetic-timing'\n",
         encoding="utf-8",
     )
     (fake_bin / "git").chmod(0o755)
@@ -729,6 +803,10 @@ def _guard_environment(
     environment = os.environ.copy()
     environment["PATH"] = f"{fake_bin}{os.pathsep}{environment['PATH']}"
     environment["KAGGLE_DISABLE_FRESH_OAUTH"] = "1"
+    environment["KAGGLE_USERNAME"] = "professor-account"
+    environment["EQVAE_KAGGLE_LAUNCH_RECEIPT_ROOT"] = str(
+        fake_bin.parent / "launch-receipts",
+    )
     if push_confirmed:
         environment["KAGGLE_PUSH_CONFIRMED"] = "1"
     environment.pop("KAGGLE_FULL_DATASET_CONFIRMED", None)

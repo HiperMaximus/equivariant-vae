@@ -1,0 +1,25 @@
+{
+  "code_file": "run.py",
+  "competition_sources": [
+    "UBC-OCEAN"
+  ],
+  "dataset_sources": [
+    "maximshtefan/eqvae-vae-test-reconstruction-inputs-v1"
+  ],
+  "enable_gpu": "true",
+  "enable_internet": "true",
+  "id": "maximshtefan/eqvae-frozen-vae-test-reconstruction",
+  "is_private": "true",
+  "kernel_sources": [
+    "maximusshtefan/eqvae-ubc-ocean-latent-run-01",
+    "maximusshtefan/eqvae-ubc-ocean-latent-run-02",
+    "maximusshtefan/eqvae-ubc-ocean-latent-run-03",
+    "maximusshtefan/eqvae-ubc-ocean-latent-run-04",
+    "maximusshtefan/eqvae-ubc-ocean-latent-run-05"
+  ],
+  "kernel_type": "script",
+  "language": "python",
+  "machine_shape": "NvidiaTeslaT4",
+  "model_sources": [],
+  "title": "eqvae frozen VAE full-test reconstruction"
+}

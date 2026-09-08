@@ -1,0 +1,448 @@
+{
+  "acceptance": {
+    "audit_published_last": true,
+    "exact_caps_and_counts": true,
+    "independent_task_selection": true,
+    "raw_patch_output_forbidden": true,
+    "whole_wsi_shards": true,
+    "wsi_id_y_x_order": true
+  },
+  "counts": {
+    "cancer_by_split": {
+      "test": 67138,
+      "train": 314755,
+      "validation": 68045
+    },
+    "cancer_by_split_diagnosis": {
+      "test": {
+        "CC": 15000,
+        "EC": 16138,
+        "HGSC": 24000,
+        "LGSC": 6000,
+        "MC": 6000
+      },
+      "train": {
+        "CC": 68836,
+        "EC": 70812,
+        "HGSC": 120000,
+        "LGSC": 31841,
+        "MC": 23266
+      },
+      "validation": {
+        "CC": 14045,
+        "EC": 18000,
+        "HGSC": 24000,
+        "LGSC": 6000,
+        "MC": 6000
+      }
+    },
+    "overlap": 58666,
+    "tissue_by_split": {
+      "test": 31572,
+      "train": 145215,
+      "validation": 31339
+    },
+    "tissue_by_split_diagnosis_tissue": {
+      "test": {
+        "CC": {
+          "necrosis": 138,
+          "stroma": 1311,
+          "tumor": 4721
+        },
+        "EC": {
+          "necrosis": 548,
+          "stroma": 1894,
+          "tumor": 5730
+        },
+        "HGSC": {
+          "necrosis": 333,
+          "stroma": 3890,
+          "tumor": 7345
+        },
+        "LGSC": {
+          "stroma": 627,
+          "tumor": 2000
+        },
+        "MC": {
+          "necrosis": 257,
+          "stroma": 778,
+          "tumor": 2000
+        }
+      },
+      "train": {
+        "CC": {
+          "necrosis": 276,
+          "stroma": 4831,
+          "tumor": 22577
+        },
+        "EC": {
+          "necrosis": 1581,
+          "stroma": 11265,
+          "tumor": 23333
+        },
+        "HGSC": {
+          "necrosis": 3677,
+          "stroma": 14862,
+          "tumor": 37494
+        },
+        "LGSC": {
+          "stroma": 3863,
+          "tumor": 10960
+        },
+        "MC": {
+          "necrosis": 137,
+          "stroma": 2535,
+          "tumor": 7824
+        }
+      },
+      "validation": {
+        "CC": {
+          "necrosis": 633,
+          "stroma": 544,
+          "tumor": 4520
+        },
+        "EC": {
+          "necrosis": 192,
+          "stroma": 2249,
+          "tumor": 6000
+        },
+        "HGSC": {
+          "necrosis": 450,
+          "stroma": 2743,
+          "tumor": 7735
+        },
+        "LGSC": {
+          "stroma": 1561,
+          "tumor": 2000
+        },
+        "MC": {
+          "stroma": 712,
+          "tumor": 2000
+        }
+      }
+    },
+    "union_by_split": {
+      "test": 90402,
+      "train": 418685,
+      "validation": 90311
+    },
+    "union_total": 599398
+  },
+  "coverage": {
+    "cancer": {
+      "capped_group_count": 146,
+      "macro_mean": 0.986048521387179,
+      "minimum": 0.9333333333333333,
+      "minimum_denominator": 75,
+      "minimum_numerator": 70,
+      "worst_group": "train:37190"
+    },
+    "tissue": {
+      "capped_group_count": 143,
+      "macro_mean": 0.9781013992306213,
+      "minimum": 0.9180327868852459,
+      "minimum_denominator": 61,
+      "minimum_numerator": 56,
+      "worst_group": "train:45185:tumor"
+    }
+  },
+  "generator": {
+    "path": "src/eqvae/cli/generate_ubc_consumption_manifests.py",
+    "sha256": "b6c609432a273c295e4b07c5240b3bf6a623cac3ca636d05c190f6c99f63583b"
+  },
+  "inputs": {
+    "cancer": "710c3f8166f577f5ae60bec94a544dabed9619342a46b82374a2e739162d648c",
+    "split": "216f69f64ed7a3e5636173d6cfe83297632113bc68310e4f6285d7ffc22cd43c",
+    "tissue": "7e2f61c492167129911e73515c4d82ef9291fd89b920dc191be922a44f30ac92"
+  },
+  "launch_blockers": [
+    "publish immutable private Kaggle inputs",
+    "complete the guarded dual-T4 inference kernel and resource audit",
+    "pass worst-case WSI runtime/output pilot",
+    "generate and globally validate both five-shard latent stores"
+  ],
+  "launch_ready": false,
+  "outputs": {
+    "docs/data/ubc_ocean_eval_work_assignment.csv": "a5377662911d147a14e1a17714c01b0ed5c6c1f2231429342f1373a1001edeff",
+    "runs/local/ubc_ocean_eval_consumption/cancer_test.csv": "1d0e4059f469d350ff3960cc10208221548f6afdfc1788e40e6d5da7829806cc",
+    "runs/local/ubc_ocean_eval_consumption/cancer_train.csv": "03e8e0d7aefb8d30d049c8521c44ebc88ca3709ea26a65765b772df2b3af65fb",
+    "runs/local/ubc_ocean_eval_consumption/cancer_validation.csv": "3d96c739320ab1facbdf2bb93b18fc8d2c951a7f30a3d61f5ce3587e4c402ce5",
+    "runs/local/ubc_ocean_eval_consumption/tissue_test.csv": "5f02c70025e4e1f4b8839460b23bd5575f1dd57ac4a0225e662669cb9b8b310c",
+    "runs/local/ubc_ocean_eval_consumption/tissue_train.csv": "fe81ea26956a2d0c15625992c8604a23194325ce4668595b71102110bfcbcca9",
+    "runs/local/ubc_ocean_eval_consumption/tissue_validation.csv": "092671a60ea271e28db83b5783e07259588d3df826863f273d2967b8031321f2",
+    "runs/local/ubc_ocean_eval_consumption/union_patch_manifest.csv": "f92558fa7aced13debc839c733e2c96d03c1a3df4b2a0b194b60558c69c04012",
+    "runs/local/ubc_ocean_eval_consumption/work_shards/run_01_of_05.csv": "76cc5f9b86b75b9e46250c80e7b5c98d2f0451a12b38665ae45b055767b7a456",
+    "runs/local/ubc_ocean_eval_consumption/work_shards/run_02_of_05.csv": "11d21482c9d3e083bc5138973c6b09f6b659e7d753853c0290382320e78e6200",
+    "runs/local/ubc_ocean_eval_consumption/work_shards/run_03_of_05.csv": "9414f638abc24963e821de8bbedccaf294a14a7ea768a01687d5b105e634402b",
+    "runs/local/ubc_ocean_eval_consumption/work_shards/run_04_of_05.csv": "e7c5d8d08996e3bac440b5779547b2bbeb4443e7481dcb74998a87aa3054697f",
+    "runs/local/ubc_ocean_eval_consumption/work_shards/run_05_of_05.csv": "5485c44ababeaba9a4e2cc75a1a6b2927d89f10ed83a121dfcb81a68cfc23d6a"
+  },
+  "projected_raw_bytes": 117846441984,
+  "schema_version": "spec0019.ubc_consumption.v1",
+  "selector": {
+    "cancer_cap_per_wsi": 3000,
+    "formula": "((2*j + 1) * N) // (2*C)",
+    "order": "wsi_id,y,x",
+    "tissue_cap_per_wsi_class": 1000
+  },
+  "status": "pass",
+  "work_shards": [
+    {
+      "cancer_patch_count": 93000,
+      "first_wsi_id": 66,
+      "last_wsi_id": 11263,
+      "max_x": 105472,
+      "max_y": 48384,
+      "min_x": 0,
+      "min_y": 0,
+      "projected_raw_bytes": 23828692992,
+      "run_number": 1,
+      "split_patch_counts": {
+        "test": 28370,
+        "train": 77075,
+        "validation": 15754
+      },
+      "tissue_patch_count": 38931,
+      "union_patch_count": 121199,
+      "wsi_count": 31,
+      "wsi_ids": [
+        66,
+        1020,
+        1101,
+        1252,
+        1925,
+        1952,
+        2227,
+        2666,
+        4211,
+        4797,
+        4963,
+        5251,
+        5851,
+        5852,
+        5992,
+        6281,
+        6558,
+        6898,
+        6951,
+        7329,
+        8279,
+        8531,
+        9183,
+        9658,
+        9697,
+        10143,
+        10246,
+        10252,
+        10800,
+        10896,
+        11263
+      ]
+    },
+    {
+      "cancer_patch_count": 90653,
+      "first_wsi_id": 11431,
+      "last_wsi_id": 21445,
+      "max_x": 80128,
+      "max_y": 45824,
+      "min_x": 0,
+      "min_y": 0,
+      "projected_raw_bytes": 23572905984,
+      "run_number": 2,
+      "split_patch_counts": {
+        "test": 19823,
+        "train": 85144,
+        "validation": 14931
+      },
+      "tissue_patch_count": 42823,
+      "union_patch_count": 119898,
+      "wsi_count": 31,
+      "wsi_ids": [
+        11431,
+        11557,
+        12442,
+        12522,
+        13987,
+        14401,
+        14424,
+        14542,
+        15139,
+        15188,
+        15209,
+        15470,
+        15486,
+        15671,
+        16064,
+        16325,
+        16876,
+        16986,
+        17174,
+        17291,
+        17738,
+        17854,
+        18138,
+        18568,
+        18607,
+        19030,
+        19255,
+        19569,
+        20316,
+        21432,
+        21445
+      ]
+    },
+    {
+      "cancer_patch_count": 91881,
+      "first_wsi_id": 21910,
+      "last_wsi_id": 36499,
+      "max_x": 72704,
+      "max_y": 44800,
+      "min_x": 0,
+      "min_y": 0,
+      "projected_raw_bytes": 23376887808,
+      "run_number": 3,
+      "split_patch_counts": {
+        "test": 11725,
+        "train": 85417,
+        "validation": 21759
+      },
+      "tissue_patch_count": 40732,
+      "union_patch_count": 118901,
+      "wsi_count": 31,
+      "wsi_ids": [
+        21910,
+        21929,
+        22155,
+        22221,
+        22425,
+        22489,
+        22740,
+        24617,
+        24759,
+        26219,
+        26533,
+        26950,
+        27245,
+        27315,
+        27950,
+        28393,
+        28562,
+        28821,
+        29200,
+        30738,
+        31033,
+        31383,
+        32432,
+        33708,
+        33976,
+        34247,
+        34277,
+        35239,
+        35754,
+        36063,
+        36499
+      ]
+    },
+    {
+      "cancer_patch_count": 86266,
+      "first_wsi_id": 36678,
+      "last_wsi_id": 48506,
+      "max_x": 98816,
+      "max_y": 49408,
+      "min_x": 0,
+      "min_y": 0,
+      "projected_raw_bytes": 23300603904,
+      "run_number": 4,
+      "split_patch_counts": {
+        "test": 20800,
+        "train": 81758,
+        "validation": 15955
+      },
+      "tissue_patch_count": 41354,
+      "union_patch_count": 118513,
+      "wsi_count": 29,
+      "wsi_ids": [
+        36678,
+        37190,
+        37307,
+        37655,
+        38019,
+        38048,
+        38849,
+        38901,
+        39146,
+        39172,
+        39255,
+        39258,
+        39425,
+        39466,
+        39728,
+        40888,
+        42549,
+        43390,
+        43815,
+        44232,
+        45185,
+        45630,
+        46139,
+        46688,
+        46815,
+        47105,
+        47960,
+        48502,
+        48506
+      ]
+    },
+    {
+      "cancer_patch_count": 88138,
+      "first_wsi_id": 49281,
+      "last_wsi_id": 65533,
+      "max_x": 82688,
+      "max_y": 47616,
+      "min_x": 0,
+      "min_y": 0,
+      "projected_raw_bytes": 23767351296,
+      "run_number": 5,
+      "split_patch_counts": {
+        "test": 9684,
+        "train": 89291,
+        "validation": 21912
+      },
+      "tissue_patch_count": 44286,
+      "union_patch_count": 120887,
+      "wsi_count": 30,
+      "wsi_ids": [
+        49281,
+        49872,
+        50048,
+        50304,
+        50878,
+        51346,
+        51893,
+        52420,
+        53688,
+        54949,
+        55287,
+        56221,
+        56861,
+        56875,
+        56947,
+        57162,
+        58895,
+        58947,
+        59515,
+        59760,
+        61320,
+        61424,
+        61493,
+        61823,
+        63121,
+        63165,
+        63941,
+        65022,
+        65094,
+        65533
+      ]
+    }
+  ]
+}

@@ -1152,7 +1152,12 @@ def _fake_bin(*, tmp_path: Path, repo_root: Path) -> Path:
         encoding="utf-8",
     )
     (fake_bin / "kaggle").write_text(
-        "#!/usr/bin/env bash\nset -euo pipefail\nprintf 'fake kaggle %s\\n' \"$*\"\n",
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf 'fake kaggle %s\\n' \"$*\"\n"
+        "printf '%s\\n' 'Kernel version 1 successfully pushed.  Please check "
+        "progress at https://www.kaggle.com/code/professor-account/"
+        "eqvae-real-data-runtime-pretest'\n",
         encoding="utf-8",
     )
     (fake_bin / "git").chmod(0o755)
@@ -1179,6 +1184,10 @@ def _guard_environment(
     environment = os.environ.copy()
     environment["PATH"] = f"{fake_bin}{os.pathsep}{environment['PATH']}"
     environment["KAGGLE_DISABLE_FRESH_OAUTH"] = "1"
+    environment["KAGGLE_USERNAME"] = "professor-account"
+    environment["EQVAE_KAGGLE_LAUNCH_RECEIPT_ROOT"] = str(
+        fake_bin.parent / "launch-receipts",
+    )
     if push_confirmed:
         environment["KAGGLE_PUSH_CONFIRMED"] = "1"
     else:

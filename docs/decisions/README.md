@@ -1,7 +1,6 @@
 # Decision Notes
 
-These notes record settled project decisions so future agents do not reopen
-old branches of the plan by accident.
+These notes record decisions that still govern the repository.
 
 Read order:
 
@@ -12,11 +11,11 @@ Read order:
 5. `0005-gated-activation-policy.md`
 6. `0006-no-final-tanh-output.md`
 7. `0007-stain-corruptor-convention.md`
-8. `0008-kaggle-synthetic-timing-pretest.md`
-9. `0009-fixed25-embedding-equivariance-eval-proxy.md`
-10. `0010-verify-the-premise-before-changing-a-pin.md`
-11. `0011-kaggle-code-delivery.md`
-12. `0012-kaggle-runtime-torch-upgrade.md`
+8. `0009-fixed25-embedding-equivariance-eval-proxy.md`
+9. `0010-verify-the-premise-before-changing-a-pin.md`
+10. `0011-kaggle-code-delivery.md`
+11. `0012-kaggle-runtime-torch-upgrade.md`
 
-Keep notes short. If a decision changes, update or supersede the relevant note
-and then update `CURRENT.md`, `GOAL.md`, and any affected plan docs.
+Keep notes short. If a decision no longer governs the repository, delete it;
+Git retains its history. Update `CURRENT.md`, `GOAL.md` and affected contracts
+when a live decision changes.
