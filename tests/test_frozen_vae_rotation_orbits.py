@@ -1,17 +1,24 @@
-# pyright: reportAny=false
+# pyright: reportAny=false, reportArgumentType=false, reportAttributeAccessIssue=false, reportIndexIssue=false, reportOperatorIssue=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false
 # Copyright 2026 HiperMaximus
-# ruff: noqa: COM812, PLR2004, TC003
+# ruff: noqa: COM812, PLR2004
 """Focused contracts for the local-only Spec 0038 visualizer."""
 
 from __future__ import annotations
 
 import hashlib
+import importlib
+import math
+import sys
+import types
+import warnings
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pytest
 import torch
 from PIL import Image
+from torch.nn import functional
 
 from eqvae.artifacts.rotation_orbits import (
     OrbitSweep,
@@ -36,6 +43,8 @@ from eqvae.artifacts.rotation_orbits import (
     render_paper_style_spatial_pca_png,
     render_pointwise_rgb_probe_png,
     render_spatial_latent_pca_png,
+    rotate_f1_field,
+    rotation_fixture_measurements,
     seeded_scalar_pair_projection,
     select_f1_copies,
     spatial_latent_pca_diagnostic,
@@ -44,7 +53,14 @@ from eqvae.artifacts.rotation_orbits import (
     vector_phase_diagnostic,
     write_offline_html,
 )
-from eqvae.cli.render_frozen_vae_rotation_orbits import verify_pinned_sha256
+from eqvae.cli.render_frozen_vae_rotation_orbits import (
+    guard_rotation_output_dir,
+    verify_pinned_sha256,
+)
+from eqvae.models.so2_basis import representation_matrix
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def _sweep(*, f1: bool) -> OrbitSweep:
@@ -113,11 +129,332 @@ def _affine_probe_inputs() -> tuple[np.ndarray, np.ndarray]:
     return values, targets
 
 
-def test_continuous_rotation_preserves_identity_and_exact_quarter_turn() -> None:
-    """The visualizer shares the exact quarter-turn branch with fixed25."""
+def _analytic_gaussian(size: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    coordinates = torch.arange(size, dtype=torch.float32)
+    normalized = (2.0 * coordinates + 1.0 - size) / size
+    rows, columns = torch.meshgrid(normalized, normalized, indexing="ij")
+    values = torch.exp(
+        -((columns - 0.3125).square() + (rows + 0.1875).square()) / (2.0 * 0.2**2)
+    )
+    return values[None, None], rows, columns
+
+
+def _centroid(
+    values: torch.Tensor,
+    *,
+    rows: torch.Tensor,
+    columns: torch.Tensor,
+) -> tuple[float, float]:
+    plane = values[0, 0]
+    mass = plane.sum()
+    return float((plane * columns).sum() / mass), float((plane * rows).sum() / mass)
+
+
+def _l_arrow(size: int) -> tuple[torch.Tensor, tuple[int, int]]:
+    values = torch.zeros(1, 1, size, size)
+    row = round(0.3125 * (size - 1))
+    column = round(0.6875 * (size - 1))
+    vertical = max(1, round(0.1875 * size))
+    horizontal = max(1, round(0.125 * size))
+    values[0, 0, row : row + vertical, column] = 1.0
+    values[0, 0, row, column - horizontal + 1 : column + 1] = 0.5
+    values[0, 0, row, column] = 1.0
+    return values, (row, column)
+
+
+def _boundary_wedge(size: int = 32) -> torch.Tensor:
+    coordinates = (2.0 * torch.arange(size, dtype=torch.float32) + 1.0 - size) / size
+    rows, columns = torch.meshgrid(coordinates, coordinates, indexing="ij")
+    values = ((columns > 0.75) & (rows > -0.35) & (rows < 0.20)) * (
+        1.0 - (rows + 0.075).abs() / 0.275
+    )
+    return values.clamp_min(0.0)[None, None]
+
+
+def _mutant_spatial_rotate(
+    values: torch.Tensor,
+    degrees: float,
+    mutant: str,
+) -> torch.Tensor:
+    angle = float(degrees) if mutant == "degrees_as_radians" else math.radians(degrees)
+    cosine, sine = math.cos(angle), math.sin(angle)
+    if mutant == "opposite_spatial_sign":
+        matrix = ((cosine, sine, 0.0), (-sine, cosine, 0.0))
+    elif mutant == "reversed_matrix_order":
+        # Treat the coordinate vector as (row, column), then unpack it as
+        # (x, y): a distinct matrix-order/layout error, not another sign flip.
+        matrix = ((-sine, cosine, 0.0), (cosine, sine, 0.0))
+    else:
+        matrix = ((cosine, -sine, 0.0), (sine, cosine, 0.0))
+    transform = values.new_tensor(matrix).unsqueeze(0)
+    grid_align = mutant == "align_corners_grid_sample_mismatch"
+    grid = functional.affine_grid(
+        transform, list(values.shape), align_corners=grid_align
+    )
+    padding = "border" if mutant == "border_or_reflection_padding" else "zeros"
+    return functional.grid_sample(
+        values,
+        grid,
+        mode="bilinear",
+        padding_mode=padding,
+        align_corners=False,
+    )
+
+
+def test_continuous_rotation_uses_one_cardinal_path_with_positive_handedness() -> None:
+    """Uniform interpolation converges exactly to positive quarter turns."""
     values = torch.arange(3 * 8 * 8, dtype=torch.float32).reshape(1, 3, 8, 8)
     assert torch.equal(continuous_rotate(values, 0), values)
-    assert torch.equal(continuous_rotate(values, 90), torch.rot90(values, 1, (-2, -1)))
+    for degrees in (90, 180, 270):
+        observed = continuous_rotate(values, degrees)
+        expected = torch.rot90(values, degrees // 90, (-2, -1))
+        assert torch.allclose(observed, expected, rtol=0.0, atol=2e-6)
+
+
+@pytest.mark.parametrize("size", [32, 256])
+def test_continuous_rotation_matches_hand_computed_noncardinal_centroids(
+    size: int,
+) -> None:
+    """An analytic asymmetric fixture catches the original affine sign defect."""
+    values, rows, columns = _analytic_gaussian(size)
+    source_x, source_y = 0.3125, -0.1875
+    source_phase = math.atan2(-source_y, source_x)
+    for degrees in (17, 31, 73):
+        observed = continuous_rotate(values, degrees)
+        actual_x, actual_y = _centroid(observed, rows=rows, columns=columns)
+        radians = math.radians(degrees)
+        expected_x = math.cos(radians) * source_x + math.sin(radians) * source_y
+        expected_y = -math.sin(radians) * source_x + math.cos(radians) * source_y
+        assert math.hypot(actual_x - expected_x, actual_y - expected_y) < 0.02
+        observed_phase = math.atan2(-actual_y, actual_x)
+        phase_error = math.atan2(
+            math.sin(observed_phase - source_phase - radians),
+            math.cos(observed_phase - source_phase - radians),
+        )
+        assert abs(math.degrees(phase_error)) < 0.5
+
+
+@pytest.mark.parametrize("size", [32, 256])
+def test_continuous_rotation_cardinal_limits_inverse_and_composition(
+    size: int,
+) -> None:
+    """Interpolation errors obey the locked quantitative fixture contract."""
+    values, _rows, _columns = _analytic_gaussian(size)
+    for cardinal in (90, 180, 270):
+        center = continuous_rotate(values, cardinal)
+        expected = torch.rot90(values, cardinal // 90, (-2, -1))
+        assert float((center - expected).abs().max()) <= 2e-6
+        for side in (-0.001, 0.001):
+            rms = (
+                (continuous_rotate(values, cardinal + side) - center)
+                .square()
+                .mean()
+                .sqrt()
+            )
+            assert float(rms) < 5e-4
+    scale = values.square().mean().sqrt()
+    for degrees in (17, 31, 73):
+        inverse = continuous_rotate(continuous_rotate(values, degrees), -degrees)
+        assert float((inverse - values).square().mean().sqrt() / scale) < 0.03
+    for alpha, beta in ((17, -17), (31, 73), (-73, 31)):
+        composed = continuous_rotate(continuous_rotate(values, beta), alpha)
+        expected = continuous_rotate(values, alpha + beta)
+        expected_scale = expected.square().mean().sqrt()
+        error = (composed - expected).square().mean().sqrt() / expected_scale
+        assert float(error) < 0.03
+
+
+@pytest.mark.parametrize("size", [32, 256])
+def test_locked_rotation_fixture_measurements_pass_full_and_disk_bounds(
+    size: int,
+) -> None:
+    """The machine-readable fixture records both spatial comparison domains."""
+    measurements = rotation_fixture_measurements(size)
+    assert max(measurements["centroid_error_normalized"].values()) < 0.02
+    assert max(measurements["orientation_error_degrees"].values()) < 0.5
+    for sides in measurements["cardinal_sided_rms"].values():
+        for variants in sides.values():
+            assert set(variants) == {"full", "disk"}
+            assert max(variants.values()) < 5e-4
+    for variants in measurements["inverse_normalized_rms"].values():
+        assert max(variants.values()) < 0.03
+    for variants in measurements["composition_normalized_rms"].values():
+        assert max(variants.values()) < 0.03
+    assert measurements["l_arrow_positive_quarter_max_absolute_error"] <= 2e-6
+    assert measurements["boundary_wedge_border_mutant_normalized_rms"] > 1e-4
+    if size == 32:
+        f1 = measurements["f1_fixture"]
+        assert f1["noncardinal_centroid_error_normalized"] < 0.02
+        assert f1["noncardinal_phase_error_degrees"] < 0.5
+        assert f1["positive_quarter_component_x_max"] <= 2e-6
+        assert f1["positive_quarter_component_y_max"] >= 0.90
+
+
+def test_packed_f1_action_rotates_pixel_and_component_independently() -> None:
+    """The D-layout fixture rejects spatial-only and opposite fiber actions."""
+    values = torch.zeros(1, 48, 2, 32, 32)
+    values[0, 7, 0, 8, 23] = 1.0
+    observed = rotate_f1_field(values, 90)
+    assert observed[0, 7, 0, 8, 8] == pytest.approx(0.0, abs=2e-6)
+    assert observed[0, 7, 1, 8, 8] == pytest.approx(1.0, abs=2e-6)
+    assert observed[0, 7, 0].abs().max() < 2e-6
+
+
+@pytest.mark.parametrize("size", [32, 256])
+def test_l_arrow_has_the_hand_indexed_positive_quarter_turn(size: int) -> None:
+    """An asymmetric one-pixel-width arrow fixes the exact cardinal direction."""
+    values, (row, column) = _l_arrow(size)
+    observed = continuous_rotate(values, 90)
+    target_row, target_column = size - 1 - column, row
+    assert observed[0, 0, target_row, target_column] == pytest.approx(1.0, abs=2e-6)
+    assert torch.allclose(observed, torch.rot90(values, 1, (-2, -1)), atol=2e-6)
+
+
+def test_noncardinal_f1_fixture_checks_spatial_and_internal_action() -> None:
+    """A noncardinal vector field must move and rotate its components positively."""
+    scalar, rows, columns = _analytic_gaussian(32)
+    values = torch.zeros(1, 48, 2, 32, 32)
+    values[0, 7, 0] = scalar[0, 0]
+    observed = rotate_f1_field(values, 31)
+    magnitude = observed[0, 7].square().sum(dim=0).sqrt()[None, None]
+    actual_x, actual_y = _centroid(magnitude, rows=rows, columns=columns)
+    radians = math.radians(31)
+    expected_x = math.cos(radians) * 0.3125 + math.sin(radians) * -0.1875
+    expected_y = -math.sin(radians) * 0.3125 + math.cos(radians) * -0.1875
+    assert math.hypot(actual_x - expected_x, actual_y - expected_y) < 0.02
+    pooled = observed[0, 7].sum(dim=(1, 2))
+    phase = math.atan2(float(pooled[1]), float(pooled[0]))
+    assert phase == pytest.approx(radians, abs=1e-5)
+
+
+def _load_pinned_escnn_for_rotation_oracle() -> Any:  # noqa: ANN401
+    """Load the ignored pinned escnn checkout without permitting cache writes.
+
+    Returns:
+        Imported pinned escnn module.
+
+    """
+
+    class NoCacheMemory:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def cache[**P, R](  # noqa: PLR6301
+            self,
+            function: Callable[P, R] | None = None,
+            **_kwargs: object,
+        ) -> Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]:
+            if function is None:
+                return lambda wrapped: wrapped
+            return function
+
+    joblib = types.ModuleType("joblib")
+    joblib.Memory = NoCacheMemory  # type: ignore[attr-defined]
+    sys.modules["joblib"] = joblib
+    module_names = (
+        "lie_learn",
+        "lie_learn.representations",
+        "lie_learn.representations.SO3",
+        "lie_learn.representations.SO3.wigner_d",
+    )
+    for module_name in module_names:
+        sys.modules[module_name] = types.ModuleType(module_name)
+
+    def reject_so3(*_args: object, **_kwargs: object) -> None:
+        message = "rotation-oracle test entered an SO(3) path"
+        raise RuntimeError(message)
+
+    sys.modules[module_names[-1]].wigner_D_matrix = reject_so3  # type: ignore[attr-defined]
+    escnn_root = Path(__file__).resolve().parents[1] / "reference/escnn"
+    sys.path.insert(0, str(escnn_root))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return importlib.import_module("escnn")
+
+
+def test_f1_internal_matrix_matches_repository_and_pinned_escnn_oracles() -> None:
+    """Cross-check the already hand-fixed positive F1 convention independently."""
+    radians = math.radians(31)
+    repository_matrix = torch.from_numpy(representation_matrix(1, radians))
+    expected = torch.tensor(
+        (
+            (math.cos(radians), -math.sin(radians)),
+            (math.sin(radians), math.cos(radians)),
+        ),
+        dtype=torch.float64,
+    )
+    torch.testing.assert_close(repository_matrix, expected, rtol=0.0, atol=1e-12)
+
+    escnn = _load_pinned_escnn_for_rotation_oracle()
+    group_space = escnn.gspaces.rot2dOnR2(N=-1, maximum_frequency=1)
+    group = group_space.fibergroup
+    field_type = escnn.nn.FieldType(group_space, [group.irrep(1)])
+    element = group.element(radians, "radians")
+    basis_vectors = torch.eye(2, dtype=torch.float64).reshape(2, 2, 1, 1)
+    transformed = field_type.transform_fibers(basis_vectors, element)
+    escnn_matrix = transformed[:, :, 0, 0].transpose(0, 1)
+    torch.testing.assert_close(escnn_matrix, expected, rtol=0.0, atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    "mutant",
+    [
+        "opposite_spatial_sign",
+        "f1_component_swap",
+        "opposite_f1_internal_sign",
+        "degrees_as_radians",
+        "reversed_matrix_order",
+        "align_corners_grid_sample_mismatch",
+        "border_or_reflection_padding",
+    ],
+)
+def test_every_required_rotation_mutant_is_rejected(mutant: str) -> None:
+    """Every preregistered sign/layout/interpolation mutant changes the fixture."""
+    if mutant in {"f1_component_swap", "opposite_f1_internal_sign"}:
+        scalar, _rows, _columns = _analytic_gaussian(32)
+        values = torch.zeros(1, 48, 2, 32, 32)
+        values[0, 7, 0] = scalar[0, 0]
+        expected = rotate_f1_field(values, 31)
+        if mutant == "f1_component_swap":
+            observed = expected[:, :, [1, 0]]
+        else:
+            spatial = continuous_rotate(values.reshape(1, 96, 32, 32), 31).reshape_as(
+                values
+            )
+            radians = math.radians(-31)
+            matrix = values.new_tensor((
+                (math.cos(radians), -math.sin(radians)),
+                (math.sin(radians), math.cos(radians)),
+            ))
+            observed = torch.einsum("ab,ncbhw->ncahw", matrix, spatial)
+    else:
+        values = (
+            _boundary_wedge()
+            if mutant == "border_or_reflection_padding"
+            else _analytic_gaussian(32)[0]
+        )
+        expected = continuous_rotate(values, 31)
+        observed = _mutant_spatial_rotate(values, 31, mutant)
+    normalized_error = (
+        observed - expected
+    ).square().mean().sqrt() / expected.square().mean().sqrt().clamp_min(1e-8)
+    assert float(normalized_error) > 1e-4
+
+
+def test_legacy_rotation_writer_refuses_preserved_or_existing_paths(
+    tmp_path: Path,
+) -> None:
+    """Corrected helpers cannot overwrite the superseded Spec 0038 package."""
+    repository_root = Path(__file__).resolve().parents[1]
+    with pytest.raises(ValueError, match="preserved provenance"):
+        guard_rotation_output_dir(
+            repository_root / "runs/local/frozen_vae_rotation_orbits"
+        )
+    existing = tmp_path / "existing"
+    existing.mkdir()
+    with pytest.raises(FileExistsError, match="already exists"):
+        guard_rotation_output_dir(existing)
+    guard_rotation_output_dir(tmp_path / "new-package")
 
 
 def test_disk_masked_residual_is_zero_for_identical_fields() -> None:

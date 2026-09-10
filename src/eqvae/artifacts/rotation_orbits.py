@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportArgumentType=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportPrivateUsage=false, reportReturnType=false, reportUnnecessaryCast=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false
 # Copyright 2026 HiperMaximus
-# ruff: noqa: COM812, DOC201, DOC501, E501, EM101, EM102, PLR0913, PLR0914, PLR0917, PLR2004, PYI041, RUF001, RUF005, SLF001, TRY003
+# ruff: noqa: COM812, DOC201, DOC501, E501, EM101, EM102, PLR0913, PLR0914, PLR0915, PLR0917, PLR2004, PYI041, RUF001, RUF005, SLF001, TRY003
 """Local-only continuous-rotation visualization helpers (Spec 0038).
 
 These functions intentionally keep their exploratory, interpolation-based
@@ -127,24 +127,41 @@ class PointwiseRgbProbe:
 
 
 def continuous_rotate(values: Tensor, degrees: int | float) -> Tensor:
-    """Rotate a batch with the repository's continuous-angle convention.
+    """Rotate a batch continuously in the positive ``torch.rot90`` direction.
 
-    Exact quarter turns stay exact. Other angles use the existing SO(2) test
-    convention: inverse sampling, bilinear interpolation, zero padding, and
-    ``align_corners=False``.
+    ``grid_sample`` maps output coordinates to input coordinates. The explicit
+    pixel-center grid uses the inverse-sampling form that converges to positive
+    ``torch.rot90`` without cardinal floating-point drift. Every angle uses the
+    same bilinear path; exact quarter turns remain a separate control.
     """
-    rounded = round(float(degrees))
-    if (
-        math.isclose(float(degrees), float(rounded), abs_tol=1e-12)
-        and rounded % 90 == 0
-    ):
-        return torch.rot90(values, rounded // 90, dims=(-2, -1))
     angle = math.radians(float(degrees))
-    cosine = math.cos(angle)
-    sine = math.sin(angle)
-    transform = values.new_tensor(((cosine, sine, 0.0), (-sine, cosine, 0.0)))
-    transform = transform.unsqueeze(0).expand(values.shape[0], -1, -1)
-    grid = functional.affine_grid(transform, list(values.shape), align_corners=False)
+    quarter = round(float(degrees) / 90.0)
+    if math.isclose(float(degrees), 90.0 * quarter, abs_tol=1e-12):
+        cardinal = quarter % 4
+        cosine, sine = ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0))[cardinal]
+    else:
+        cosine = math.cos(angle)
+        sine = math.sin(angle)
+    height, width = values.shape[-2:]
+    row_coordinates = (
+        2.0 * torch.arange(height, device=values.device, dtype=values.dtype)
+        + 1.0
+        - height
+    ) / height
+    column_coordinates = (
+        2.0 * torch.arange(width, device=values.device, dtype=values.dtype)
+        + 1.0
+        - width
+    ) / width
+    output_y, output_x = torch.meshgrid(
+        row_coordinates,
+        column_coordinates,
+        indexing="ij",
+    )
+    input_x = cosine * output_x - sine * output_y
+    input_y = sine * output_x + cosine * output_y
+    grid = torch.stack((input_x, input_y), dim=-1).unsqueeze(0)
+    grid = grid.expand(values.shape[0], -1, -1, -1)
     return functional.grid_sample(
         values,
         grid,
@@ -165,6 +182,193 @@ def centered_disk_mask(
     centered = coordinates - (spatial_size - 1.0) / 2.0
     rows, columns = torch.meshgrid(centered, centered, indexing="ij")
     return rows.square() + columns.square() <= radius**2
+
+
+def rotate_f1_field(values: Tensor, degrees: int | float) -> Tensor:
+    """Apply the verified spatial-plus-internal positive action to F1 fields."""
+    if values.ndim != 5 or values.shape[2] != 2:
+        message = f"expected BxCopiesx2xHxW F1 fields, got {values.shape}"
+        raise ValueError(message)
+    batch, copies, _components, height, width = values.shape
+    spatial = continuous_rotate(
+        values.reshape(batch, copies * 2, height, width),
+        degrees,
+    ).reshape_as(values)
+    angle = math.radians(float(degrees))
+    cosine = math.cos(angle)
+    sine = math.sin(angle)
+    rotation = values.new_tensor(((cosine, -sine), (sine, cosine)))
+    return torch.einsum("ab,ncbhw->ncahw", rotation, spatial)
+
+
+def rotation_fixture_measurements(
+    spatial_size: int,
+    *,
+    device: torch.device | None = None,
+) -> dict[str, object]:
+    """Measure the locked analytic rotation fixture on one device and grid."""
+    if spatial_size not in {32, 256}:
+        raise ValueError("the locked fixture uses only 32 or 256 pixels")
+    coordinates = torch.arange(spatial_size, device=device, dtype=torch.float32)
+    normalized = (2.0 * coordinates + 1.0 - spatial_size) / spatial_size
+    rows, columns = torch.meshgrid(normalized, normalized, indexing="ij")
+    values = torch.exp(
+        -((columns - 0.3125).square() + (rows + 0.1875).square()) / (2.0 * 0.2**2)
+    )[None, None]
+    radius = 14.0 if spatial_size == 32 else 112.0
+    mask = centered_disk_mask(spatial_size, radius=radius, device=device)
+
+    def normalized_rms(observed: Tensor, expected: Tensor, *, disk: bool) -> float:
+        if disk:
+            observed = observed[:, :, mask]
+            expected = expected[:, :, mask]
+        return float(
+            (observed - expected).square().mean().sqrt()
+            / expected.square().mean().sqrt().clamp_min(_EPS)
+        )
+
+    centroid_errors: dict[str, float] = {}
+    orientation_errors: dict[str, float] = {}
+    source_phase = math.atan2(0.1875, 0.3125)
+    for degrees in (17, 31, 73):
+        rotated = continuous_rotate(values, degrees)
+        plane = rotated[0, 0]
+        mass = plane.sum()
+        actual_x = float((plane * columns).sum() / mass)
+        actual_y = float((plane * rows).sum() / mass)
+        radians = math.radians(degrees)
+        expected_x = math.cos(radians) * 0.3125 + math.sin(radians) * -0.1875
+        expected_y = -math.sin(radians) * 0.3125 + math.cos(radians) * -0.1875
+        centroid_errors[str(degrees)] = math.hypot(
+            actual_x - expected_x,
+            actual_y - expected_y,
+        )
+        actual_phase = math.atan2(-actual_y, actual_x)
+        phase_error = math.atan2(
+            math.sin(actual_phase - source_phase - radians),
+            math.cos(actual_phase - source_phase - radians),
+        )
+        orientation_errors[str(degrees)] = abs(math.degrees(phase_error))
+    cardinal_absolute: dict[str, float] = {}
+    cardinal_sided_rms: dict[str, dict[str, dict[str, float]]] = {}
+    for degrees in (90, 180, 270):
+        center = continuous_rotate(values, degrees)
+        exact = torch.rot90(values, degrees // 90, (-2, -1))
+        cardinal_absolute[str(degrees)] = float((center - exact).abs().max())
+        cardinal_sided_rms[str(degrees)] = {}
+        for side in (-0.001, 0.001):
+            nearby = continuous_rotate(values, degrees + side)
+            cardinal_sided_rms[str(degrees)][str(side)] = {
+                "full": float((nearby - center).square().mean().sqrt()),
+                "disk": float(
+                    (nearby[:, :, mask] - center[:, :, mask]).square().mean().sqrt()
+                ),
+            }
+    inverse: dict[str, dict[str, float]] = {}
+    for degrees in (17, 31, 73):
+        restored = continuous_rotate(continuous_rotate(values, degrees), -degrees)
+        inverse[str(degrees)] = {
+            "full": normalized_rms(restored, values, disk=False),
+            "disk": normalized_rms(restored, values, disk=True),
+        }
+    composition: dict[str, dict[str, float]] = {}
+    for alpha, beta in ((17, -17), (31, 73), (-73, 31)):
+        observed = continuous_rotate(continuous_rotate(values, beta), alpha)
+        expected = continuous_rotate(values, alpha + beta)
+        composition[f"{alpha},{beta}"] = {
+            "full": normalized_rms(observed, expected, disk=False),
+            "disk": normalized_rms(observed, expected, disk=True),
+        }
+    arrow = torch.zeros_like(values)
+    arrow_row = round(0.3125 * (spatial_size - 1))
+    arrow_column = round(0.6875 * (spatial_size - 1))
+    vertical = max(1, round(0.1875 * spatial_size))
+    horizontal = max(1, round(0.125 * spatial_size))
+    arrow[0, 0, arrow_row : arrow_row + vertical, arrow_column] = 1.0
+    arrow[0, 0, arrow_row, arrow_column - horizontal + 1 : arrow_column + 1] = 0.5
+    arrow[0, 0, arrow_row, arrow_column] = 1.0
+    arrow_rotated = continuous_rotate(arrow, 90)
+    arrow_target = torch.rot90(arrow, 1, (-2, -1))
+
+    wedge = ((columns > 0.75) & (rows > -0.35) & (rows < 0.20)) * (
+        1.0 - (rows + 0.075).abs() / 0.275
+    )
+    wedge = wedge.clamp_min(0.0)[None, None]
+    radians = math.radians(31.0)
+    transform = wedge.new_tensor((
+        (math.cos(radians), -math.sin(radians), 0.0),
+        (math.sin(radians), math.cos(radians), 0.0),
+    )).unsqueeze(0)
+    wedge_grid = functional.affine_grid(
+        transform,
+        list(wedge.shape),
+        align_corners=False,
+    )
+    wedge_zero = continuous_rotate(wedge, 31)
+    wedge_border = functional.grid_sample(
+        wedge,
+        wedge_grid,
+        mode="bilinear",
+        padding_mode="border",
+        align_corners=False,
+    )
+
+    f1_fixture = None
+    if spatial_size == 32:
+        f1 = torch.zeros(
+            1,
+            48,
+            2,
+            spatial_size,
+            spatial_size,
+            device=device,
+            dtype=torch.float32,
+        )
+        f1[0, 7, 0] = values[0, 0]
+        f1_rotated = rotate_f1_field(f1, 31)
+        f1_magnitude = f1_rotated[0, 7].square().sum(dim=0).sqrt()
+        f1_mass = f1_magnitude.sum()
+        f1_x = float((f1_magnitude * columns).sum() / f1_mass)
+        f1_y = float((f1_magnitude * rows).sum() / f1_mass)
+        expected_x = math.cos(radians) * 0.3125 + math.sin(radians) * -0.1875
+        expected_y = -math.sin(radians) * 0.3125 + math.cos(radians) * -0.1875
+        pooled = f1_rotated[0, 7].sum(dim=(1, 2))
+        f1_phase_error = math.atan2(
+            math.sin(math.atan2(float(pooled[1]), float(pooled[0])) - radians),
+            math.cos(math.atan2(float(pooled[1]), float(pooled[0])) - radians),
+        )
+        f1_fiber = rotate_f1_field(f1, 90)
+        target_row = spatial_size - 1 - round((0.3125 + 1.0) * spatial_size / 2.0 - 0.5)
+        f1_fixture = {
+            "noncardinal_centroid_error_normalized": math.hypot(
+                f1_x - expected_x,
+                f1_y - expected_y,
+            ),
+            "noncardinal_phase_error_degrees": abs(math.degrees(f1_phase_error)),
+            "positive_quarter_component_x_max": float(f1_fiber[0, 7, 0].abs().max()),
+            "positive_quarter_component_y_max": float(f1_fiber[0, 7, 1].abs().max()),
+            "hand_target_row_reference": target_row,
+        }
+    return {
+        "spatial_size": spatial_size,
+        "device": str(values.device),
+        "dtype": str(values.dtype),
+        "centroid_error_normalized": centroid_errors,
+        "orientation_error_degrees": orientation_errors,
+        "cardinal_absolute_error": cardinal_absolute,
+        "cardinal_sided_rms": cardinal_sided_rms,
+        "inverse_normalized_rms": inverse,
+        "composition_normalized_rms": composition,
+        "l_arrow_positive_quarter_max_absolute_error": float(
+            (arrow_rotated - arrow_target).abs().max()
+        ),
+        "boundary_wedge_border_mutant_normalized_rms": normalized_rms(
+            wedge_border,
+            wedge_zero,
+            disk=False,
+        ),
+        "f1_fixture": f1_fixture,
+    }
 
 
 def masked_relative_rms(
@@ -2620,6 +2824,8 @@ __all__ = [
     "render_paper_style_spatial_pca_png",
     "render_pointwise_rgb_probe_png",
     "render_spatial_latent_pca_png",
+    "rotate_f1_field",
+    "rotation_fixture_measurements",
     "seeded_scalar_pair_projection",
     "select_f1_copies",
     "spatial_latent_pca_diagnostic",

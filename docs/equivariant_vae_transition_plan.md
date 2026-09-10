@@ -93,9 +93,12 @@ Separate these quantities:
 - orbit smoothness, step uniformity and PCA planarity, which are distinct
   descriptive proxies.
 
-The all-25, 360-angle result supports lower local-linearity ratio for `SO(2)` in
-25/25 fixed-validation pairs. It does not support better traversal uniformity,
-PCA planarity, exact equivariance or universal superiority.
+The prior all-25, 360-angle local-linearity and traversal results are
+superseded: the dense sweep mixed opposite rotation conventions at cardinal
+angles. The separate exact-quarter control remains valid and does not favor
+`SO(2)`. The corrected Spec 0050 sweep removes the seams but does not pass the
+fixed regularity or harmonic gates, demonstrate clean internal-F1 behavior, or
+find a transferable reduced action or local content--pose factorization.
 
 ## Fairness And Claim Gates
 

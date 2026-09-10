@@ -18,5 +18,9 @@ step-size variation and PCA planarity as distinct descriptive proxies.
 - PCA appearance is not a performance metric.
 - Lower local-linearity ratio does not imply better traversal uniformity,
   planarity, reconstruction or downstream performance.
-- The accepted all-25 result supports only greater one-degree local smoothness
-  for `SO(2)`.
+- The former all-25 dense result is superseded because its trajectory mixed
+  opposite rotation conventions at cardinal angles. Do not reuse any dense
+  smoothness, step-uniformity, PCA-orbit or pooled-F1 claim. Spec 0050 removed
+  the seams but did not pass the fixed regularity/harmonic gates or demonstrate
+  a clean internal-F1 transformation, shared reduced action or factorization.
+  Exact-quarter controls remain valid and do not favor `SO(2)`.

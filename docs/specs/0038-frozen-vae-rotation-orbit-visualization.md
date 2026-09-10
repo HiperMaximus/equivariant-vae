@@ -1,6 +1,6 @@
 # Spec 0038: Frozen VAE Rotation-Orbit Visualization
 
-Status: implemented / locally and remotely verified; repository-wide gate externally blocked
+Status: implemented / dense trajectory superseded by Spec 0050
 Owner/workstream: advisor-facing post-hoc visualization
 Last updated: 2026-09-08
 
@@ -235,6 +235,12 @@ subscript/superscript HTML. There is no external MathJax or network dependency.
 
 ## Implementation Record
 
+The dense `0..359` trajectory below is preserved only as historical provenance.
+Spec 0050 proved that it spliced opposite rotation conventions at 90 and 270
+degrees, so its smoothness, step-CV, PCA-shape, and continuous-angle pooled-F1
+claims are invalid for scientific use. Its bytes and hashes remain immutable;
+the separate exact-`torch.rot90` quarter-turn controls were not affected.
+
 - The dense all-25 extension adds reusable population collection, raw-space
   summaries, and rendering to the existing artifact module and CLI, with a
   compact guarded Kaggle kernel at
@@ -243,13 +249,13 @@ subscript/superscript HTML. There is no external MathJax or network dependency.
   `maximshtefan/eqvae-fixed25-dense-rotation-population/1`; Kaggle normalized
   the requested slug and the launch receipt preserves both identities at
   `runs/local/kaggle_launches/maximshtefan/eqvae-fixed25-dense-rotation-population/v0001.json`.
-- The accepted 1-degree output contains exactly 360 angles and 25 rows/model.
+- The superseded 1-degree output contains exactly 360 angles and 25 rows/model.
   SO(2) has the lower local-linearity ratio in 25/25 pairs, with median
   `0.983993` versus normal `1.033922`; it has the lower step-size CV in 0/25,
   with median `0.204670` versus `0.189132`; and higher two-PC explained
   variance in 9/25, with median `0.038098` versus `0.039123`. This supports a
-  restricted claim of greater one-degree local smoothness, not uniformly
-  better traversal, planarity, exact equivariance, or downstream performance.
+  formerly supported a restricted claim of greater one-degree local smoothness;
+  that claim is withdrawn by Spec 0050.
   GPU measurement time was `321.53 s` on a Tesla T4 with PyTorch
   `2.10.0+cu128`. Final PNG/JSON SHA-256 values are
   `bc29ee7e1f4e42177e4cb6d37da0571014d476736e31f153bc88e0f8cef853ac`

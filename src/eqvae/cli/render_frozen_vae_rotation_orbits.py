@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportArgumentType=false, reportUnnecessaryCast=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false
 # Copyright 2026 HiperMaximus
-# ruff: noqa: COM812, DOC201, DOC501, E501, EM101, PLR0913, PLR0914, PLR2004, SLF001, TRY003
+# ruff: noqa: COM812, DOC201, DOC501, E501, EM101, PLR0913, PLR0914, PLR2004, PLR0915, SLF001, TRY003
 """Render the local-only frozen-VAE rotation visualizations (Spec 0038)."""
 
 from __future__ import annotations
@@ -61,6 +61,7 @@ ArrayF32 = NDArray[np.float32]
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_OUTPUT_DIR = _REPOSITORY_ROOT / "runs/local/frozen_vae_rotation_orbits"
+_LEGACY_PROVENANCE_DIR = _DEFAULT_OUTPUT_DIR.resolve()
 _ORIGINALS_PATH = _REPOSITORY_ROOT / "docs/data/fixed25/originals.pt"
 _NORMAL_RUN = _REPOSITORY_ROOT / "runs/kaggle/selected_runtime_full_v4_session3"
 _SO2_RUN = (
@@ -96,6 +97,7 @@ class RenderArgs:
 def main(argv: Sequence[str] | None = None) -> int:
     """Generate a dense-orbit PNG package without changing model state."""
     args = _parse_args(argv)
+    guard_rotation_output_dir(args.output_dir)
     originals_uint8 = _load_and_verify_originals()
     originals = originals_uint8.to(torch.float32).div(255.0).mul(2.0).sub(1.0)
     if not 0 <= args.dense_index < originals.shape[0]:
@@ -305,6 +307,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         },
     )
     return 0
+
+
+def guard_rotation_output_dir(output_dir: Path) -> None:
+    """Refuse to overwrite the superseded Spec 0038 provenance package."""
+    resolved = output_dir.resolve()
+    if resolved == _LEGACY_PROVENANCE_DIR:
+        raise ValueError(
+            "the Spec 0038 rotation package is preserved provenance and cannot be rewritten"
+        )
+    if resolved.exists():
+        message = f"rotation output path already exists: {resolved}"
+        raise FileExistsError(message)
 
 
 def _render_dense_population(

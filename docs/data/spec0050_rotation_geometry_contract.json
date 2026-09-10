@@ -1,0 +1,191 @@
+{
+  "schema": "spec0050.rotation_geometry_contract.v1",
+  "spec_path": "docs/specs/0050-corrected-rotation-geometry-validation.md",
+  "scope": {
+    "population": "fixed_validation_25",
+    "post_hoc": true,
+    "validation_only": true,
+    "sealed_test_access": false,
+    "training_allowed": false,
+    "checkpoint_mutation_allowed": false
+  },
+  "inputs": {
+    "normal_checkpoint_sha256": "f733304e9178e468546113642bdf01e11348570b340c366cf148973083cb9075",
+    "so2_checkpoint_sha256": "041e0cd7483cb8642bb72eb1b63c3a36774bf9cadd0b659c9d1db6a813c8f4c7",
+    "weight_bundle_contract_sha256": "b5a32ebffd0d88a88d6f21b64ba5c9a23016f05d7a2db0546e442f12a0acecc1",
+    "normal_state_file_sha256": "30064fa414f21deeb7ec5f312467ad4e8a3a93f6e7199e7be77f6ed3b28887c7",
+    "normal_state_dict_sha256": "feb36bc81dabe49352b0e04c8ddfa11f800195a3809edcd005ebd86342a39803",
+    "so2_state_file_sha256": "06802ceb6ba4fb0f46d2b88f751a33a355600db84b412806b563a6d757cb3c12",
+    "so2_state_dict_sha256": "62887fc4c9549349fcceed450f16bae381fe1c4f83883652fee425203c197573",
+    "fixed25_tensor_path": "docs/data/fixed25/originals.pt",
+    "fixed25_tensor_sha256": "8d46560d2294b9d1ae46e9f96f2b7d55eccbcbf2757e87e6eec02aeadc54c582",
+    "selector_path": "runs/kaggle/fixed25_selector/fixed_25_validation_patches.json",
+    "selector_sha256": "ace244ecdd67aaa1ebc7d08065f1e4bfa3c0d54806d4f3b50fb38a3ae000447f",
+    "selector_seed": 20260610,
+    "patch_sha256": [
+      "a698e5979da13b5a09ba63f9133c9f49730125e37568896648afbc793aaddc5b",
+      "e3dacd37cdfe36c354999b0807722623d2f86abd55308dae353db128a6d003fb",
+      "ee6989199e2f73c144708dded1dabd92580b5f65a64c304eff19eab219f9d35e",
+      "e7e1b1763fd0c5a21cff49e871ad9614fbb8bf357b43080a3a2ee64ec1b824ed",
+      "bd445344eb537bf5d690839b79325f4db7982dc7b345028c41b1ed31a731b81f",
+      "7fb27104e5186ff5ab0c55f7da424e91bc2c7bc88c45a6b0d92b3d2d62d3fa8a",
+      "9da7684cd83f1d3d7ecaf24b539e6459fa991b87bf93e82be9c32d7d35bd0a60",
+      "0224b32fa24572a0980704667a66eac98ed9b46033c34158492bd579ccb0903f",
+      "3d34e485ba9f18a1a4ff0d75f40bacd193ac53eb8b3e8fe1fdfeaf5a53fd0c1f",
+      "a48814ed81ea5c3beb40198634ac6d1d31eb1dc68c46e8753c42b8752391471e",
+      "91c65519d869c0258527dd722e0b1d3c66cd7616e2707f303d42180981264877",
+      "058d15be1efa08087f6e19496ed4b251fd5a0c23930d5523cdf440708786cea9",
+      "0ad9aa8f0d3d58b5ec0ef89c542e9dfe782554e0fbff1dc0a7794c24603a008e",
+      "5af368f6e8edd6d30ed7b76f356c8b9f872d41d975c172c04c95d660927bf21c",
+      "b75edacf75631f3d87d70f7afae7f92dac4d1ea8f4ae2e87294528779d76b8de",
+      "3a5737aeb5b8532426cd34ef1a53a81cf62e2239f9ece61e80412eb208868d1e",
+      "8e6d28ea448893d7e331cb60dc91b3c8e6d0e8ea9a0e3c57fe5057c1ea543afc",
+      "20af9bec6404f5312288e248d8b20c0630385b5f28f4f3507e952cfaf4dadd4b",
+      "819ac22ff6c329617144562c53f09d3af4b3971e59e42778a3d3be980d3ec58d",
+      "c6d5e99fa507050592f1443dfc2690dc63380a8b712ceb2a4dbbea4e96cabcc0",
+      "5af17dc434fd49be15e80415392589ac439eef3b67cded62770212fdc0be532c",
+      "fb70e90a9b1fda42d335ef72b612a8ed828d6a77b280dae36ccbb88566806cb5",
+      "3de63f8f6ca9b92fa4748ee6ea6672d5a41ea573262a4263de87af2e101af086",
+      "849ee4f96417c904e3890fd823c913f87102973854fed1ac46af3bb996d73542",
+      "c52cc8d0ed529fb46d241fc5f0b25c9d26662eee9b2b7f673d2dd5eccfca69a3"
+    ]
+  },
+  "tensor_contract": {
+    "input_shape": [3, 256, 256],
+    "input_dtype": "float32",
+    "input_normalization": "uint8/255*2-1",
+    "posterior": "raw_mu",
+    "posterior_shape": [16, 32, 32],
+    "latent_mask_radius": 14.0,
+    "latent_mask_cells": 616,
+    "input_mask_radius": 112.0,
+    "angles_degrees": {"start": 0, "stop_inclusive": 359, "step": 1},
+    "display_360": "exact_copy_of_0_no_inference",
+    "metric_epsilon": 1e-8
+  },
+  "rotation_operator": {
+    "positive_reference": "torch.rot90(values,+k,dims=(-2,-1))",
+    "grid_semantics": "output_to_input",
+    "grid_constructor": "explicit_normalized_pixel_centers",
+    "matrix": [["cos", "-sin", 0], ["sin", "cos", 0]],
+    "mode": "bilinear",
+    "padding_mode": "zeros",
+    "align_corners": false,
+    "uniform_cardinal_path": true,
+    "snap_cardinal_trigonometry": true,
+    "exact_quarter_control_separate": true
+  },
+  "rotation_fixtures": {
+    "sizes": [32, 256],
+    "dtype": "float32",
+    "normalized_pixel_centers": "x_j=(2*j+1-W)/W; y_k=(2*k+1-H)/H",
+    "interior_gaussian": {
+      "center_xy": [0.3125, -0.1875],
+      "sigma": 0.2,
+      "formula": "exp(-((x-0.3125)^2+(y+0.1875)^2)/(2*0.2^2))"
+    },
+    "l_arrow": {
+      "vertex_fraction_rc": [0.3125, 0.6875],
+      "vertical_length_fraction": 0.1875,
+      "horizontal_length_fraction": 0.125,
+      "width_pixels": 1,
+      "vertical_amplitude": 1.0,
+      "horizontal_amplitude": 0.5
+    },
+    "boundary_wedge": {
+      "formula": "1[(x>0.75)&(-0.35<y<0.20)]*(1-abs(y+0.075)/0.275)",
+      "purpose": "distinguish zero padding from border/reflection padding"
+    },
+    "noncardinal_angles_degrees": [17, 31, 73],
+    "cardinal_sided_offset_degrees": 0.001,
+    "max_orientation_error_degrees": 0.5,
+    "max_centroid_error_normalized": 0.02,
+    "max_cardinal_absolute_error": 2e-6,
+    "max_cardinal_sided_rms": 5e-4,
+    "max_fixture_inverse_normalized_rms": 0.03,
+    "max_fixture_composition_normalized_rms": 0.03,
+    "composition_angle_pairs_degrees": [[17, -17], [31, 73], [-73, 31]],
+    "required_mutants": [
+      "opposite_spatial_sign",
+      "f1_component_swap",
+      "opposite_f1_internal_sign",
+      "degrees_as_radians",
+      "reversed_matrix_order",
+      "align_corners_grid_sample_mismatch",
+      "border_or_reflection_padding"
+    ]
+  },
+  "f1_layout": {
+    "packed_shape": [144, 32, 32],
+    "f0_copies": 48,
+    "f1_copies": 48,
+    "f1_offset": 48,
+    "copy_component_channels": "copy j -> 48+2*j,49+2*j",
+    "internal_matrix": [["cos", "-sin"], ["sin", "cos"]],
+    "action": "rho1(theta) h(0,R_-theta p)",
+    "valid_amplitude_threshold": 1e-6,
+    "valid_angle_fraction": 0.9
+  },
+  "split": {
+    "derivation": "sort SHA256('spec0050.shared-action.split.v1:'+patch_sha256)",
+    "fit_ranks": [23, 22, 1, 8, 4, 24, 9, 20, 11, 10, 0, 14, 5, 16, 7, 17, 12],
+    "heldout_ranks": [18, 2, 21, 19, 3, 13, 15, 6],
+    "fit_angle_modulus": 5,
+    "fit_angles": "theta%5==0",
+    "heldout_angles": "theta%5!=0"
+  },
+  "seeds": {
+    "paired_bootstrap": 3573134496,
+    "randomized_svd": 4158411771,
+    "shuffled_angle": 284733341
+  },
+  "shared_basis": {
+    "maximum_dimension": 6,
+    "dimensions": [1, 2, 3, 4, 5, 6],
+    "oversampling": 6,
+    "power_iterations": 2,
+    "generator_constraint": "A.T=-A",
+    "primary_mode": "fit_only_global_center_one_view_rollout",
+    "secondary_modes": ["coarse_orbit_centered", "preceding_5_degree_anchor"]
+  },
+  "primary_margins": {
+    "regularity_relative_advantage": 0.1,
+    "regularity_favorable_patches": 18,
+    "harmonic_relative_advantage": 0.1,
+    "harmonic_favorable_patches": 18,
+    "f1_clean_copies": 24,
+    "shared_action_relative_advantage": 0.1,
+    "shared_action_favorable_heldout_patches": 6,
+    "shared_action_min_median_r2": 0.0,
+    "generator_max_lopo_frequency_change": 0.2,
+    "known_action_verified_max_residual": 0.25,
+    "known_action_verified_patches": 20,
+    "known_action_poor_min_residual": 0.5,
+    "factorization_min_identity_w": 1e-6,
+    "factorization_min_identity_b": 1e-6,
+    "factorization_max_w_ratio": 0.25,
+    "factorization_b_ratio_range": [0.8, 1.2],
+    "factorization_min_retrieval": 0.9,
+    "factorization_min_pre_angle_alignment": 0.5,
+    "factorization_angle_alignment_reduction": 0.5,
+    "stabilizer_spearman_magnitude": 0.5
+  },
+  "examples": {"ranks": [0, 12], "selection": "result_independent"},
+  "remote": {
+    "guard_phrase": "spec0050_corrected_rotation_geometry_authorized",
+    "privacy": "private",
+    "accelerator": "NvidiaTeslaT4",
+    "internet": false,
+    "launch_count": 1,
+    "retry_without_amendment": false,
+    "dataset_sources": [
+      "maximshtefan/eqvae-vae-test-reconstruction-inputs-v1",
+      "maximusshtefan/patches-pre-shuffled-ubc-ocean"
+    ]
+  },
+  "outputs": {
+    "directory": "runs/local/corrected_rotation_geometry_v1",
+    "legacy_directory_forbidden": "runs/local/frozen_vae_rotation_orbits",
+    "summary": "rotation_geometry_summary.json"
+  }
+}

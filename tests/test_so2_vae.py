@@ -105,7 +105,7 @@ def _rotate_scalar(values: torch.Tensor, degrees: int) -> torch.Tensor:
     cosine = math.cos(angle)
     sine = math.sin(angle)
     transform = values.new_tensor(
-        ((cosine, sine, 0.0), (-sine, cosine, 0.0)),
+        ((cosine, -sine, 0.0), (sine, cosine, 0.0)),
     ).unsqueeze(0)
     transform = transform.expand(values.shape[0], -1, -1)
     grid = functional.affine_grid(transform, list(values.shape), align_corners=False)

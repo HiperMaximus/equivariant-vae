@@ -1,0 +1,164 @@
+{
+  "derivation": {
+    "angle_probe": "fit one linear [cos(theta), sin(theta)] probe with intercept on the 17 fit patches at theta % 5 == 0; score each of the 8 held-out patches independently at theta % 5 != 0",
+    "canonical_equals_raw_reason": "the fit-only selected dimension is d=1, whose only skew-symmetric generator is A=[0], so exp(-theta A)=I",
+    "input_arrays": "shared_scores_{branch}[..., :1] from selected_arrays.npz",
+    "precision_note": "selected_arrays stores shared scores in float32; the reconstructed equal-weight means differ from the remote float64-source means by less than 9e-11"
+  },
+  "heldout_angles": {
+    "count_per_patch": 288,
+    "definition": "integer theta in [0,359] with theta % 5 != 0"
+  },
+  "heldout_ranks": [
+    18,
+    2,
+    21,
+    19,
+    3,
+    13,
+    15,
+    6
+  ],
+  "label": "local post-review derivation from immutable remote outputs; no new inference",
+  "normal_vae": {
+    "canonical_per_patch": "identical_to_raw_per_patch",
+    "equal_weight_patch_mean": {
+      "mean_absolute_circular_error_radians": 1.6394364303062283,
+      "mean_cosine_alignment": -0.05283396406266447
+    },
+    "per_patch": [
+      {
+        "mean_absolute_circular_error_radians": 2.2319096411794126,
+        "mean_cosine_alignment": -0.5169910448166886,
+        "rank": 18
+      },
+      {
+        "mean_absolute_circular_error_radians": 2.0662680481843303,
+        "mean_cosine_alignment": -0.3834754275391316,
+        "rank": 2
+      },
+      {
+        "mean_absolute_circular_error_radians": 1.7575763885503985,
+        "mean_cosine_alignment": -0.1578062924861711,
+        "rank": 21
+      },
+      {
+        "mean_absolute_circular_error_radians": 1.1558234111140209,
+        "mean_cosine_alignment": 0.33730948289350976,
+        "rank": 19
+      },
+      {
+        "mean_absolute_circular_error_radians": 1.6137271373679507,
+        "mean_cosine_alignment": -0.02404960528116541,
+        "rank": 3
+      },
+      {
+        "mean_absolute_circular_error_radians": 1.457313943404299,
+        "mean_cosine_alignment": 0.08032213439224252,
+        "rank": 13
+      },
+      {
+        "mean_absolute_circular_error_radians": 1.4369950855556175,
+        "mean_cosine_alignment": 0.08513096497988276,
+        "rank": 15
+      },
+      {
+        "mean_absolute_circular_error_radians": 1.3958777870937968,
+        "mean_cosine_alignment": 0.15688807535620594,
+        "rank": 6
+      }
+    ],
+    "probe_weights": [
+      [
+        -0.024768950699484298,
+        -0.047313117936304945
+      ],
+      [
+        -7.212955665545461e-11,
+        -1.3778029478961812e-10
+      ]
+    ],
+    "remote_pooled_mean": {
+      "mean_absolute_circular_error_radians": 1.6394364302751998,
+      "mean_cosine_alignment": -0.05283396403407068
+    }
+  },
+  "review_conclusion": {
+    "factorization_status": "unresolved",
+    "reason": "the shared-action prerequisite fails and both held-out mean cosine alignments are far below the preregistered 0.50 pose-predictability gate",
+    "sampling_unit": "held-out patch",
+    "sampling_unit_count": 8
+  },
+  "schema": "spec0050.rotation_geometry_review_addendum.v1",
+  "selected_dimension": 1,
+  "so2_vae": {
+    "canonical_per_patch": "identical_to_raw_per_patch",
+    "equal_weight_patch_mean": {
+      "mean_absolute_circular_error_radians": 1.5665208425522885,
+      "mean_cosine_alignment": 0.0031819243052010615
+    },
+    "per_patch": [
+      {
+        "mean_absolute_circular_error_radians": 1.5717741239646692,
+        "mean_cosine_alignment": 0.0013975049970097648,
+        "rank": 18
+      },
+      {
+        "mean_absolute_circular_error_radians": 1.5626028412148414,
+        "mean_cosine_alignment": 0.004451153385935682,
+        "rank": 2
+      },
+      {
+        "mean_absolute_circular_error_radians": 1.5518239066177157,
+        "mean_cosine_alignment": 0.015572198116424926,
+        "rank": 21
+      },
+      {
+        "mean_absolute_circular_error_radians": 1.5626110110223979,
+        "mean_cosine_alignment": 0.005676462595342417,
+        "rank": 19
+      },
+      {
+        "mean_absolute_circular_error_radians": 1.6111897449774777,
+        "mean_cosine_alignment": -0.03313403876518533,
+        "rank": 3
+      },
+      {
+        "mean_absolute_circular_error_radians": 1.5268641718481177,
+        "mean_cosine_alignment": 0.03173931111145188,
+        "rank": 13
+      },
+      {
+        "mean_absolute_circular_error_radians": 1.5610190269436852,
+        "mean_cosine_alignment": 0.008132251315171665,
+        "rank": 15
+      },
+      {
+        "mean_absolute_circular_error_radians": 1.5842819138294044,
+        "mean_cosine_alignment": -0.008379448314542515,
+        "rank": 6
+      }
+    ],
+    "probe_weights": [
+      [
+        0.00026533040864317635,
+        -0.002341017376590618
+      ],
+      [
+        5.108540485708257e-13,
+        -4.5074491319206745e-12
+      ]
+    ],
+    "remote_pooled_mean": {
+      "mean_absolute_circular_error_radians": 1.5665208424667787,
+      "mean_cosine_alignment": 0.003181924386550592
+    }
+  },
+  "sources": {
+    "kaggle_reference": "maximshtefan/eqvae-corrected-rotation-geometry/1",
+    "remote_summary_path": "runs/local/corrected_rotation_geometry_v1/corrected_rotation_geometry_v1/rotation_geometry_summary.json",
+    "remote_summary_sha256": "aab68ca5b7cbe989ea1cd79740a64d83784441f85ffde09a6ee6ebebe7faf43c",
+    "selected_arrays_path": "runs/local/corrected_rotation_geometry_v1/corrected_rotation_geometry_v1/selected_arrays.npz",
+    "selected_arrays_sha256": "c693d3ad26beab9da6c439654239851e760b41f730469e0d3ff39c7b37723ed1"
+  }
+}
