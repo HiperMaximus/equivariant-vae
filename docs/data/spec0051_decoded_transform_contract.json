@@ -1,0 +1,112 @@
+{
+  "schema": "spec0051.decoded_transform_contract.v1",
+  "spec_path": "docs/specs/0051-decoded-latent-transform-consistency.md",
+  "scope": {
+    "population": "fixed_validation_25",
+    "post_hoc": true,
+    "validation_only": true,
+    "sealed_test_access": false,
+    "training_allowed": false,
+    "checkpoint_mutation_allowed": false
+  },
+  "inputs": {
+    "normal_checkpoint_sha256": "f733304e9178e468546113642bdf01e11348570b340c366cf148973083cb9075",
+    "so2_checkpoint_sha256": "041e0cd7483cb8642bb72eb1b63c3a36774bf9cadd0b659c9d1db6a813c8f4c7",
+    "weight_bundle_contract_sha256": "b5a32ebffd0d88a88d6f21b64ba5c9a23016f05d7a2db0546e442f12a0acecc1",
+    "normal_state_file_sha256": "30064fa414f21deeb7ec5f312467ad4e8a3a93f6e7199e7be77f6ed3b28887c7",
+    "normal_state_dict_sha256": "feb36bc81dabe49352b0e04c8ddfa11f800195a3809edcd005ebd86342a39803",
+    "so2_state_file_sha256": "06802ceb6ba4fb0f46d2b88f751a33a355600db84b412806b563a6d757cb3c12",
+    "so2_state_dict_sha256": "62887fc4c9549349fcceed450f16bae381fe1c4f83883652fee425203c197573",
+    "selector_path": "runs/kaggle/fixed25_selector/fixed_25_validation_patches.json",
+    "selector_sha256": "ace244ecdd67aaa1ebc7d08065f1e4bfa3c0d54806d4f3b50fb38a3ae000447f",
+    "selector_seed": 20260610
+  },
+  "tensor_contract": {
+    "input_shape": [3, 256, 256],
+    "input_dtype": "float32",
+    "input_normalization": "uint8/255*2-1",
+    "posterior": "raw_mu",
+    "posterior_shape": [16, 32, 32],
+    "latent_action": "same scalar spatial transform independently on all 16 F0 channels",
+    "latent_mask_radius": 14.0,
+    "input_mask_radius": 112.0,
+    "gradient_mask_radius": 110.0,
+    "center_crop_size": 224,
+    "metric_epsilon": 1e-8,
+    "action_nondegenerate_rms": 0.02,
+    "canonicalization_nondegenerate_rms": 0.02,
+    "exact_d4_joint_nondegenerate_rms": 0.02
+  },
+  "dense_rotations": {
+    "angles_degrees": [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 135, 140, 145, 150, 155, 160, 165, 170, 175, 180, 185, 190, 195, 200, 205, 210, 215, 220, 225, 230, 235, 240, 245, 250, 255, 260, 265, 270, 275, 280, 285, 290, 295, 300, 305, 310, 315, 320, 325, 330, 335, 340, 345, 350, 355],
+    "operator": "spec0050_corrected_uniform_bilinear_zero_padding",
+    "positive_reference": "torch.rot90(values,+k,dims=(-2,-1))",
+    "uniform_cardinal_path": true,
+    "wrong_sign_controls": true,
+    "subsampling_degrees": [10, 20],
+    "cardinal_exclusion_half_width_degrees": 5
+  },
+  "exact_d4": {
+    "generators": {"r": "torch.rot90(x,1,(-2,-1))", "s": "torch.flip(x,(-1,))"},
+    "elements": ["identity", "rot90", "rot180", "rot270", "flip_h", "flip_diag", "flip_v", "flip_anti_diag"],
+    "metric_elements": ["rot90", "rot180", "rot270", "flip_h", "flip_diag", "flip_v", "flip_anti_diag"],
+    "identity": "x",
+    "rot90": "torch.rot90(x,1,(-2,-1))",
+    "rot180": "torch.rot90(x,2,(-2,-1))",
+    "rot270": "torch.rot90(x,3,(-2,-1))",
+    "flip_h": "torch.flip(x,(-1,))",
+    "flip_v": "torch.flip(x,(-2,))",
+    "flip_diag": "x.transpose(-2,-1)",
+    "flip_anti_diag": "torch.flip(x.transpose(-2,-1),(-2,-1))",
+    "required_identity": "flip_v(flip_h(x)) == rot180(x)",
+    "reflection_interpretation": "exploratory O2/D4 control, not guaranteed by SO2 architecture"
+  },
+  "metrics": {
+    "primary_action_ratio": "aggregate_disk_rms(D(rho_T mu(x))-T D(mu(x))) / (aggregate_disk_rms(D(mu(x))-T D(mu(x)))+1e-8)",
+    "primary_canonical_ratio": "aggregate_disk_rms(D(rho_T^-1 mu(Tx))-D(mu(x))) / (aggregate_disk_rms(D(mu(Tx))-D(mu(x)))+1e-8)",
+    "input_commutation_ratio": "aggregate_disk_rms(D(mu(Tx))-T D(mu(x))) / (aggregate_disk_rms(D(mu(x))-T D(mu(x)))+1e-8)",
+    "secondary": ["disk_mae", "full_rms", "full_mae", "center_crop_ssim", "preclamp_out_of_range_fraction", "preclamp_unconditional_mean_excess", "eroded_disk_gradient_discrepancy", "raw_latent_inverse_action_ratio"],
+    "patch_first": true,
+    "bootstrap_draws": 10000,
+    "bootstrap_seed": 1827149135,
+    "clusters": "16 selector wsi_id values; reduce paired patch differences to one median per WSI before resampling WSIs",
+    "interval": "paired_wsi_cluster_percentile_interval_of_median_so2_minus_normal",
+    "angles_are_independent_units": false
+  },
+  "decision_margins": {
+    "ratio_strong": 0.5,
+    "ratio_patch_success": 0.75,
+    "minimum_success_patches": 18,
+    "minimum_relative_so2_advantage": 0.2,
+    "minimum_nondegenerate_patches": 18,
+    "minimum_nondegenerate_success_fraction": 0.75,
+    "maximum_exact_quarter_ratio_median": 0.75,
+    "minimum_positive_ssim_gain_fraction": 0.75,
+    "decoded_residual_suppression_min_raw_latent_ratio": 0.75,
+    "maximum_excess_out_of_range_fraction": 0.01,
+    "maximum_excess_mean_overshoot": 0.002,
+    "maximum_gradient_error_ratio": 1.0
+  },
+  "examples": {
+    "ranks": [0, 12],
+    "angles_degrees": [0, 45, 90, 135, 180, 225, 270, 315],
+    "selection": "result_independent"
+  },
+  "remote": {
+    "guard_phrase": "spec0051_decoded_latent_transform_authorized",
+    "kernel_id": "maximshtefan/eqvae-decoded-latent-transform",
+    "privacy": "private",
+    "accelerator": "NvidiaTeslaT4",
+    "deterministic_algorithms": true,
+    "tf32": false,
+    "internet": false,
+    "launch_count": 1,
+    "retry_without_amendment": false,
+    "dataset_sources": ["maximshtefan/eqvae-vae-test-reconstruction-inputs-v1", "maximusshtefan/patches-pre-shuffled-ubc-ocean"]
+  },
+  "outputs": {
+    "remote_directory": "decoded_latent_transform_v1",
+    "local_directory": "runs/local/decoded_latent_transform_v1",
+    "summary": "decoded_latent_transform_summary.json"
+  }
+}

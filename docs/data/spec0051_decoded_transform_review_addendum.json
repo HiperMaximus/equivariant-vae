@@ -1,0 +1,160 @@
+{
+  "schema": "spec0051.decoded_transform_review_addendum.v1",
+  "reviewed_at": "2026-09-09",
+  "source": {
+    "kernel_reference": "maximshtefan/eqvae-decoded-latent-transform-audit/1",
+    "launch_receipt": "runs/local/kaggle_launches/maximshtefan/eqvae-decoded-latent-transform-audit/v0001.json",
+    "download_receipt": "runs/local/decoded_latent_transform_v1/kaggle_output_receipt.json",
+    "summary": "runs/local/decoded_latent_transform_v1/decoded_latent_transform_v1/decoded_latent_transform_summary.json",
+    "summary_sha256": "616e3a6c9caa6b8e72a0b21f41a5121d7a5baa420f8023b35775fedaf252a754",
+    "manifest_sha256": "a1168b419080305138f7aedca4c1ed345c3d5947e78299b0e5ea1430a75d3c50",
+    "spec_sha256": "7a472a2de56813544506b4a9eb58e2f1f152fcee8f7d60e65ed2c2793b349679",
+    "contract_sha256": "905ef933a51c26bb3f01fcef4bb4985fa98e00f1dbecd814da3df488bd7c1018",
+    "uploaded_run_sha256": "28f1c57cb0e0748b591cdd3e1143060f905e443899fb1e3b51ad2aa90ca1003a"
+  },
+  "acceptance": {
+    "receipt_bound_download": true,
+    "manifest_hashes_match": true,
+    "strict_json_and_finite_values": true,
+    "metric_arrays": 64,
+    "metric_array_shape": [25, 72],
+    "selected_images": 224,
+    "selected_image_shape": [3, 256, 256],
+    "fixed_patches": 25,
+    "wsi_clusters": 16,
+    "exact_d4_elements": 8,
+    "exact_d4_metric_elements": 7,
+    "all_exact_d4_algebra_checks": true,
+    "all_exact_d4_metric_rows_jointly_valid_per_model": 25,
+    "runtime": {
+      "device": "Tesla T4",
+      "fp32": true,
+      "deterministic_algorithms": true,
+      "tf32": false,
+      "seconds": 629.6714604230001
+    }
+  },
+  "decisions": {
+    "H1_decoded_rotational_action": "not_supported",
+    "H2_decoded_rotational_canonicalization": "not_supported",
+    "H3_decoded_residual_suppression": "not_supported",
+    "H4_reflection_robustness": {
+      "flip_h": "not_supported_either_model",
+      "flip_v": "not_supported_either_model",
+      "flip_diag": "so2_checkpoint_only_not_architecture_proof",
+      "flip_anti_diag": "not_supported_either_model"
+    }
+  },
+  "dense_rotation": {
+    "interpretation": "consistent descriptive SO2 advantage for the prescribed spatial latent action and inverse canonicalization, but both locked primary hypotheses fail the median <=0.50 rule",
+    "action_ratio_median": {
+      "normal": 0.7126101675584835,
+      "so2": 0.5495647048459752,
+      "relative_so2_reduction": 0.22880036,
+      "so2_favorable_patches": 25,
+      "so2_favorable_wsi_clusters": 16,
+      "wsi_cluster_median_difference_so2_minus_normal": -0.14971816462190923,
+      "descriptive_interval": [-0.16314245519746562, -0.12362102421296517]
+    },
+    "canonical_ratio_median": {
+      "normal": 0.6608243166838814,
+      "so2": 0.5132381806875594,
+      "relative_so2_reduction": 0.22333642,
+      "so2_favorable_patches": 25,
+      "so2_favorable_wsi_clusters": 16,
+      "wsi_cluster_median_difference_so2_minus_normal": -0.15596632703833954,
+      "descriptive_interval": [-0.17650712232282717, -0.1277148097649649]
+    },
+    "absolute_disk_rms_median": {
+      "action_normal": 0.17702454602939763,
+      "action_so2": 0.1371455999349506,
+      "canonical_normal": 0.16992921398062713,
+      "canonical_so2": 0.13814088844873287
+    },
+    "end_to_end_input_commutation_ratio_median": {
+      "normal": 0.17367324537539378,
+      "so2": 0.20967766373090144,
+      "so2_favorable_patches": 0,
+      "wsi_cluster_median_difference_so2_minus_normal": 0.052443582972343875,
+      "descriptive_interval": [0.03426883387953045, 0.0764040344847283]
+    },
+    "so2_robustness": {
+      "step_10_action_canonical": [0.540684953464868, 0.5014070128008932],
+      "step_20_action_canonical": [0.5484982556734517, 0.5055226724864424],
+      "exclude_cardinal_neighborhoods_action_canonical": [0.5675760386972186, 0.5239318919255967]
+    }
+  },
+  "exact_quarter_rotations": {
+    "interpretation": "the SO2 decoder numerically commutes with the exact C4 lattice action; inverse canonicalization is strong at decoded output despite no improvement in raw mu",
+    "aggregate_action_ratio_median": {
+      "normal": 0.7094527561437537,
+      "so2": 0.0000021849270987967017
+    },
+    "aggregate_canonical_ratio_median": {
+      "normal": 0.7106375984701042,
+      "so2": 0.08885407753921012
+    },
+    "so2_by_rotation": {
+      "rot90": {
+        "action_ratio": 0.0000022010883045311493,
+        "canonical_ratio": 0.08304878766029647,
+        "input_commutation_ratio": 0.08310096151100953,
+        "raw_latent_ratio": 1.046441399229772
+      },
+      "rot180": {
+        "action_ratio": 0.0000021550330335311693,
+        "canonical_ratio": 0.0961823980601233,
+        "input_commutation_ratio": 0.09608171470265427,
+        "raw_latent_ratio": 1.0043782344450074
+      },
+      "rot270": {
+        "action_ratio": 0.0000021996301415637903,
+        "canonical_ratio": 0.08744636178585216,
+        "input_commutation_ratio": 0.08720946751991226,
+        "raw_latent_ratio": 1.0551073546562326
+      }
+    }
+  },
+  "reflections": {
+    "interpretation": "no complete D4 or O2 robustness claim; only the main-diagonal reflection passes the locked rule for the SO2 checkpoint",
+    "so2_input_action_canonical_medians": {
+      "flip_h": [0.09305580210659209, 0.54118130692942, 0.5288348411706904],
+      "flip_v": [0.1052517760753537, 0.5113698998519017, 0.5077700884814639],
+      "flip_diag": [0.07704663033616753, 0.49922509220406547, 0.49513514128059666],
+      "flip_anti_diag": [0.11083046205424228, 0.500477351139172, 0.5008596885656793]
+    }
+  },
+  "geometric_interpretation": {
+    "demonstrated": "shared parameter-free full-spatial decoder action for exact quarter rotations on this fixed validation set",
+    "descriptive_only": "lower decoded action and inverse-canonicalization error for SO2 across all fixed patches under interpolated rotations",
+    "not_demonstrated": [
+      "a learned shared low-dimensional action in raw final mu",
+      "uniform continuous-angle SO2 commutation on the sampled grid",
+      "encoder equivariance",
+      "complete D4 or O2 equivariance",
+      "a decoder null space",
+      "local content-pose factorization",
+      "a local or global bundle trivialization",
+      "population or training-seed generalization"
+    ]
+  },
+  "visual_use_constraints": [
+    "Cardinal dips must be identified as exact lattice controls, not evidence of uniform continuous-angle behavior.",
+    "Qualitative targets are transformed model reconstructions, not original patches or reconstruction-quality references.",
+    "Do not highlight only cardinal rows; non-cardinal blur must remain visible.",
+    "If the exact-D4 figure enters a report, add the 0.50 decision line and state that only flip_diag passes for SO2.",
+    "Do not infer H3, factorization or a decoder null space from the latent-versus-decoded scatter."
+  ],
+  "independent_reviews": {
+    "mathematics": "accepted_no_P0_P1_P2",
+    "statistics": "accepted_no_P0_P1; scope wording required",
+    "visual": "accepted_with_required_narrative_and_figure_use_constraints"
+  },
+  "publication_state": {
+    "professor_report_updated": false,
+    "github_issue_updated": false,
+    "paper_updated": false,
+    "thesis_updated": false,
+    "overleaf_updated": false
+  }
+}

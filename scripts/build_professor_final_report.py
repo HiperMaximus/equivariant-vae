@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-# ruff: noqa: ANN401, CPY001, D103, DOC201, E501, I001, PIE808, PLR0914, PLR0915, SLF001, T201
+# ruff: noqa: ANN401, C901, CPY001, D103, DOC201, E501, I001, PIE808, PLR0912, PLR0914, PLR0915, PLR0916, PLR2004, SLF001, T201
 """Build the advisor-facing final experiment report from accepted local artifacts."""
 
 from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import re
@@ -34,6 +35,33 @@ SO2_LABEL = "VAE equivariante SO(2)"
 HEATMAP_LIGHT_TEXT_THRESHOLD = 0.55
 FIXED25_COUNT = 25
 FIRST_ORBIT_SHEET_COUNT = 15
+ROTATION_GEOMETRY_SUMMARY_SHA256 = (
+    "aab68ca5b7cbe989ea1cd79740a64d83784441f85ffde09a6ee6ebebe7faf43c"
+)
+ROTATION_GEOMETRY_ADDENDUM_SHA256 = (
+    "ec74b37f509205bca12294321844a3cfb48dbd2f1763c8ff94290fe064e86f94"
+)
+ROTATION_GEOMETRY_SPEC_SHA256 = (
+    "fbc58459d214ee32f1148f6b58507820586be1993749811294f14eddbf467b61"
+)
+ROTATION_GEOMETRY_CONTRACT_SHA256 = (
+    "1dc6975979b120d85680526a3177e30caf93ca2eba7889a4452f2e78ca399756"
+)
+DECODED_TRANSFORM_SUMMARY_SHA256 = (
+    "616e3a6c9caa6b8e72a0b21f41a5121d7a5baa420f8023b35775fedaf252a754"
+)
+DECODED_TRANSFORM_MANIFEST_SHA256 = (
+    "a1168b419080305138f7aedca4c1ed345c3d5947e78299b0e5ea1430a75d3c50"
+)
+DECODED_TRANSFORM_ADDENDUM_SHA256 = (
+    "b0fa0cc2eebe1207fcc2da7a00c30b9b85c40f4353e332131423f76f6c380e34"
+)
+DECODED_TRANSFORM_SPEC_SHA256 = (
+    "7a472a2de56813544506b4a9eb58e2f1f152fcee8f7d60e65ed2c2793b349679"
+)
+DECODED_TRANSFORM_CONTRACT_SHA256 = (
+    "905ef933a51c26bb3f01fcef4bb4985fa98e00f1dbecd814da3df488bd7c1018"
+)
 
 
 SPANISH_REPLACEMENTS = {
@@ -213,123 +241,396 @@ def read_csv(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
-def validate_orbit_population(  # noqa: C901, PLR0912
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def validate_rotation_geometry(
     document: dict[str, Any],
-) -> tuple[dict[str, float], dict[str, float], dict[str, int]]:
-    """Reject stale or internally inconsistent dense-orbit summaries.
+    addendum: dict[str, Any],
+) -> dict[str, Any]:
+    """Reject stale, incomplete, or overinterpreted Spec 0050 evidence.
 
     Raises:
         TypeError: A required mapping has the wrong type.
-        ValueError: An identity, value, median, or paired count is inconsistent.
+        ValueError: An identity, decision, median, or sampling unit is inconsistent.
 
     """
-    if document.get("schema") != "spec0038.fixed25_dense_orbit_population.v1":
-        message = "La evidencia poblacional de rotación usa un esquema inesperado"
+    if document.get("schema") != "spec0050.corrected_rotation_geometry.v1":
+        message = "La evidencia geométrica corregida usa un esquema inesperado"
         raise ValueError(message)
-    if document.get("angles_degrees") != list(range(360)):
-        message = "La evidencia poblacional de rotación no contiene 0°--359°"
+    if document.get("spec_sha256") != ROTATION_GEOMETRY_SPEC_SHA256:
+        message = "La evidencia geométrica no coincide con el spec de lanzamiento"
+        raise ValueError(message)
+    if document.get("contract_sha256") != ROTATION_GEOMETRY_CONTRACT_SHA256:
+        message = "La evidencia geométrica no coincide con el contrato bloqueado"
+        raise ValueError(message)
+    contract = document.get("contract")
+    if not isinstance(contract, dict):
+        message = "Falta el contrato embebido de Spec 0050"
+        raise TypeError(message)
+    scope = contract.get("scope")
+    if (
+        not isinstance(scope, dict)
+        or scope.get("population") != "fixed_validation_25"
+        or scope.get("validation_only") is not True
+        or scope.get("sealed_test_access") is not False
+        or scope.get("training_allowed") is not False
+    ):
+        message = "El alcance del artefacto geométrico no es validación fija aislada"
+        raise ValueError(message)
+    tensor_contract = contract.get("tensor_contract")
+    if not isinstance(tensor_contract, dict) or tensor_contract.get(
+        "angles_degrees",
+    ) != {"start": 0, "step": 1, "stop_inclusive": 359}:
+        message = "El barrido corregido no contiene exactamente 0°--359°"
         raise ValueError(message)
 
-    metric_names = (
+    comparisons = document.get("comparisons")
+    branches = document.get("branches")
+    decisions = document.get("decisions")
+    if not all(
+        isinstance(section, dict) for section in (comparisons, branches, decisions)
+    ):
+        message = "Faltan secciones geométricas obligatorias"
+        raise TypeError(message)
+    for metric_name in (
         "local_linearity_ratio",
         "step_size_cv",
-        "pca_explained_variance",
-    )
-    values_by_branch: dict[str, dict[str, list[float]]] = {}
-    medians_by_branch: dict[str, dict[str, float]] = {}
-    for branch in ("normal", "so2"):
-        section = document.get(branch)
-        if not isinstance(section, dict):
-            message = f"Falta la rama {branch} en la evidencia poblacional"
+        "path_length",
+        "curvature_median",
+        "curvature_q90",
+    ):
+        metric = comparisons.get(metric_name)
+        if not isinstance(metric, dict):
+            message = f"Falta la métrica corregida {metric_name}"
             raise TypeError(message)
-        values_by_branch[branch] = {}
-        for metric_name in metric_names:
-            values = section.get(metric_name)
+        for branch in ("normal", "so2"):
+            values = metric.get(branch)
+            stored = metric.get(f"{branch}_median")
             if not isinstance(values, list) or len(values) != FIXED25_COUNT:
-                message = f"{branch}.{metric_name} no contiene 25 valores"
+                message = f"{metric_name}.{branch} no contiene 25 valores"
                 raise ValueError(message)
-            if any(
-                isinstance(value, bool)
-                or not isinstance(value, (int, float))
-                or not math.isfinite(float(value))
-                for value in values
+            numeric = [float(value) for value in values]
+            if any(not math.isfinite(value) for value in numeric):
+                message = f"{metric_name}.{branch} contiene valores no finitos"
+                raise ValueError(message)
+            if not isinstance(stored, (int, float)) or not math.isclose(
+                float(stored),
+                float(median(numeric)),
+                rel_tol=0.0,
+                abs_tol=1e-12,
             ):
-                message = f"{branch}.{metric_name} contiene valores no finitos"
+                message = f"Mediana inconsistente para {metric_name}.{branch}"
                 raise ValueError(message)
-            values_by_branch[branch][metric_name] = [float(value) for value in values]
 
-        stored_medians = section.get("median")
-        if not isinstance(stored_medians, dict):
-            message = f"Faltan medianas para la rama {branch}"
-            raise TypeError(message)
-        medians_by_branch[branch] = {}
-        for metric_name in metric_names:
-            stored = stored_medians.get(metric_name)
-            if (
-                isinstance(stored, bool)
-                or not isinstance(stored, (int, float))
-                or not math.isfinite(float(stored))
-            ):
-                message = f"Mediana inválida para {branch}.{metric_name}"
-                raise ValueError(message)
-            recomputed = float(median(values_by_branch[branch][metric_name]))
-            if not math.isclose(float(stored), recomputed, rel_tol=0.0, abs_tol=1e-12):
-                message = f"Mediana inconsistente para {branch}.{metric_name}"
-                raise ValueError(message)
-            medians_by_branch[branch][metric_name] = recomputed
-
-    normal_values = values_by_branch["normal"]
-    so2_values = values_by_branch["so2"]
-    expected_counts = {
-        "so2_lower_local_linearity_ratio": sum(
-            so2 < normal
-            for normal, so2 in zip(
-                normal_values["local_linearity_ratio"],
-                so2_values["local_linearity_ratio"],
-                strict=True,
-            )
-        ),
-        "so2_lower_step_size_cv": sum(
-            so2 < normal
-            for normal, so2 in zip(
-                normal_values["step_size_cv"],
-                so2_values["step_size_cv"],
-                strict=True,
-            )
-        ),
-        "so2_higher_pca_explained_variance": sum(
-            so2 > normal
-            for normal, so2 in zip(
-                normal_values["pca_explained_variance"],
-                so2_values["pca_explained_variance"],
-                strict=True,
-            )
-        ),
-    }
-    if document.get("paired_favorable_counts") != expected_counts:
-        message = "Los conteos pareados de las órbitas no coinciden con sus 25 valores"
-        raise ValueError(message)
-
-    source = document.get("source")
-    patch_hashes = source.get("patch_sha256") if isinstance(source, dict) else None
+    split = contract.get("split")
+    patch_hashes = contract.get("inputs", {}).get("patch_sha256")
     if (
-        not isinstance(patch_hashes, list)
+        not isinstance(split, dict)
+        or len(split.get("fit_ranks", [])) != 17
+        or len(split.get("heldout_ranks", [])) != 8
+        or not isinstance(patch_hashes, list)
         or len(patch_hashes) != FIXED25_COUNT
         or len(set(patch_hashes)) != FIXED25_COUNT
-        or any(
-            not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None
-            for value in patch_hashes
-        )
     ):
-        message = "La identidad de los 25 parches no es válida o no es única"
+        message = "La identidad o la partición determinista fixed-25 es inválida"
         raise ValueError(message)
-    for key in ("normal_checkpoint_sha256", "so2_checkpoint_sha256"):
-        value = source.get(key) if isinstance(source, dict) else None
-        if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
-            message = f"Hash de checkpoint inválido: {key}"
+    if document.get("selected_dimension", {}).get("dimension") != 1:
+        message = "El artefacto aceptado ya no contiene la dimensión nula revisada"
+        raise ValueError(message)
+    if (
+        comparisons.get("h1_passes") is not False
+        or comparisons.get("h2_passes") is not False
+        or decisions.get("f1_h3_passes") is not False
+        or decisions.get("shared_action", {}).get("so2_specific_advantage") is not False
+        or decisions.get("learned_factorization", {}).get("so2_vae", {}).get("status")
+        != "unresolved"
+    ):
+        message = "Las decisiones geométricas no coinciden con la revisión aceptada"
+        raise ValueError(message)
+
+    if addendum.get("schema") != "spec0050.rotation_geometry_review_addendum.v1":
+        message = "El addendum de revisión usa un esquema inesperado"
+        raise ValueError(message)
+    if addendum.get("selected_dimension") != 1 or addendum.get(
+        "heldout_ranks",
+    ) != split.get("heldout_ranks"):
+        message = "El addendum no corresponde al split o dimensión aceptados"
+        raise ValueError(message)
+    for branch in ("normal_vae", "so2_vae"):
+        rows = addendum.get(branch, {}).get("per_patch")
+        if not isinstance(rows, list) or len(rows) != 8:
+            message = f"El addendum {branch} no conserva ocho unidades de muestreo"
+            raise ValueError(message)
+        if [row.get("rank") for row in rows] != split.get("heldout_ranks"):
+            message = f"Los rangos retenidos del addendum {branch} no coinciden"
             raise ValueError(message)
 
-    return medians_by_branch["normal"], medians_by_branch["so2"], expected_counts
+    return document
+
+
+def validate_decoded_transform(
+    document: dict[str, Any],
+    addendum: dict[str, Any],
+) -> dict[str, Any]:
+    """Reject stale or overinterpreted Spec 0051 evidence.
+
+    Raises:
+        TypeError: A required section has the wrong type.
+        ValueError: An identity, count, metric, or decision is inconsistent.
+
+    """
+    if document.get("schema") != "spec0051.decoded_latent_transform.v1":
+        message = "La evidencia de decodificación usa un esquema inesperado"
+        raise ValueError(message)
+    if document.get("spec_sha256") != DECODED_TRANSFORM_SPEC_SHA256:
+        message = "La evidencia de decodificación no coincide con Spec 0051"
+        raise ValueError(message)
+    if document.get("contract_sha256") != DECODED_TRANSFORM_CONTRACT_SHA256:
+        message = "La evidencia de decodificación no coincide con su contrato"
+        raise ValueError(message)
+    contract = document.get("contract")
+    if not isinstance(contract, dict):
+        message = "Falta el contrato embebido de Spec 0051"
+        raise TypeError(message)
+    scope = contract.get("scope")
+    if (
+        not isinstance(scope, dict)
+        or scope.get("population") != "fixed_validation_25"
+        or scope.get("validation_only") is not True
+        or scope.get("sealed_test_access") is not False
+        or scope.get("training_allowed") is not False
+    ):
+        message = "El alcance de Spec 0051 no es validación fija aislada"
+        raise ValueError(message)
+    dense = contract.get("dense_rotations")
+    if not isinstance(dense, dict) or dense.get("angles_degrees") != list(
+        range(0, 360, 5),
+    ):
+        message = "El barrido decodificado no contiene exactamente 0,5,...,355"
+        raise ValueError(message)
+    margins = contract.get("decision_margins")
+    expected_margins = {
+        "ratio_strong": 0.5,
+        "ratio_patch_success": 0.75,
+        "minimum_relative_so2_advantage": 0.2,
+    }
+    if not isinstance(margins, dict) or any(
+        not isinstance(margins.get(name), (int, float))
+        or not math.isclose(
+            float(margins[name]),
+            expected,
+            rel_tol=0.0,
+            abs_tol=0.0,
+        )
+        for name, expected in expected_margins.items()
+    ):
+        message = "Los umbrales absolutos o comparativos de Spec 0051 cambiaron"
+        raise ValueError(message)
+
+    comparisons = document.get("comparisons")
+    branches = document.get("branches")
+    decisions = document.get("decisions")
+    if not all(
+        isinstance(section, dict) for section in (comparisons, branches, decisions)
+    ):
+        message = "Faltan secciones obligatorias de Spec 0051"
+        raise TypeError(message)
+    for metric_name in ("action_ratio", "canonical_ratio", "input_commutation_ratio"):
+        metric = comparisons.get(metric_name)
+        if not isinstance(metric, dict):
+            message = f"Falta la métrica decodificada {metric_name}"
+            raise TypeError(message)
+        for branch in ("normal", "so2"):
+            values = metric.get(branch)
+            stored = metric.get(f"{branch}_median")
+            if not isinstance(values, list) or len(values) != FIXED25_COUNT:
+                message = f"{metric_name}.{branch} no contiene 25 valores"
+                raise ValueError(message)
+            numeric = [float(value) for value in values]
+            if any(not math.isfinite(value) for value in numeric):
+                message = f"{metric_name}.{branch} contiene valores no finitos"
+                raise ValueError(message)
+            if not isinstance(stored, (int, float)) or not math.isclose(
+                float(stored),
+                float(median(numeric)),
+                rel_tol=0.0,
+                abs_tol=1e-12,
+            ):
+                message = f"Mediana inconsistente para {metric_name}.{branch}"
+                raise ValueError(message)
+        paired = metric.get("paired")
+        expected_favorable = 0 if metric_name == "input_commutation_ratio" else 25
+        if (
+            not isinstance(paired, dict)
+            or paired.get("n_patches") != FIXED25_COUNT
+            or paired.get("n_clusters") != 16
+            or paired.get("so2_favorable_patch_count") != expected_favorable
+        ):
+            message = f"Comparación pareada inconsistente para {metric_name}"
+            raise ValueError(message)
+
+    normal_population = branches.get("normal_vae", {}).get("population", {})
+    so2_population = branches.get("so2_vae", {}).get("population", {})
+    expected_quarter = {
+        "normal_action": 0.7094527561437537,
+        "so2_action": 0.0000021849270987967017,
+        "normal_canonical": 0.7106375984701042,
+        "so2_canonical": 0.08885407753921012,
+    }
+    observed_quarter = {
+        "normal_action": normal_population.get("exact_quarter_action_ratio_median"),
+        "so2_action": so2_population.get("exact_quarter_action_ratio_median"),
+        "normal_canonical": normal_population.get(
+            "exact_quarter_canonical_ratio_median",
+        ),
+        "so2_canonical": so2_population.get("exact_quarter_canonical_ratio_median"),
+    }
+    for name, expected in expected_quarter.items():
+        observed = observed_quarter[name]
+        if not isinstance(observed, (int, float)) or not math.isclose(
+            float(observed),
+            expected,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
+            message = f"Control exacto C4 inconsistente: {name}"
+            raise ValueError(message)
+
+    if (
+        decisions.get("H1_decoded_rotational_action", {}).get("supported") is not False
+        or decisions.get("H2_decoded_rotational_canonicalization", {}).get(
+            "supported",
+        )
+        is not False
+        or decisions.get("H3_decoded_residual_suppression", {}).get("supported")
+        is not False
+        or decisions
+        .get("H4_reflection_robustness", {})
+        .get("flip_diag", {})
+        .get("interpretation")
+        != "so2_checkpoint_only_not_architecture_proof"
+    ):
+        message = "Las decisiones de Spec 0051 no coinciden con la revisión"
+        raise ValueError(message)
+
+    if addendum.get("schema") != "spec0051.decoded_transform_review_addendum.v1":
+        message = "El addendum de Spec 0051 usa un esquema inesperado"
+        raise ValueError(message)
+    source = addendum.get("source")
+    acceptance = addendum.get("acceptance")
+    publication = addendum.get("publication_state")
+    if not all(
+        isinstance(section, dict) for section in (source, acceptance, publication)
+    ):
+        message = "El addendum de Spec 0051 está incompleto"
+        raise TypeError(message)
+    if (
+        source.get("summary_sha256") != DECODED_TRANSFORM_SUMMARY_SHA256
+        or source.get("manifest_sha256") != DECODED_TRANSFORM_MANIFEST_SHA256
+        or source.get("spec_sha256") != DECODED_TRANSFORM_SPEC_SHA256
+        or source.get("contract_sha256") != DECODED_TRANSFORM_CONTRACT_SHA256
+        or acceptance.get("fixed_patches") != FIXED25_COUNT
+        or acceptance.get("wsi_clusters") != 16
+        or acceptance.get("all_exact_d4_algebra_checks") is not True
+    ):
+        message = "El addendum de Spec 0051 no corresponde al resultado aceptado"
+        raise ValueError(message)
+    if publication.get("paper_updated") is not False or publication.get(
+        "sealed_test_updated",
+        False,
+    ):
+        message = "El estado de publicación de Spec 0051 es incompatible"
+        raise ValueError(message)
+
+    dense_review = addendum.get("dense_rotation")
+    if not isinstance(dense_review, dict):
+        message = "El addendum no contiene el resumen denso de Spec 0051"
+        raise TypeError(message)
+    review_metrics = {
+        "action_ratio_median": "action_ratio",
+        "canonical_ratio_median": "canonical_ratio",
+    }
+    for review_name, metric_name in review_metrics.items():
+        review_metric = dense_review.get(review_name)
+        metric = comparisons[metric_name]
+        paired = metric["paired"]
+        if not isinstance(review_metric, dict):
+            message = f"Falta el resumen revisado {review_name}"
+            raise TypeError(message)
+        expected_values = {
+            "normal": float(metric["normal_median"]),
+            "so2": float(metric["so2_median"]),
+            "relative_so2_reduction": 1.0
+            - float(metric["so2_median"]) / float(metric["normal_median"]),
+            "wsi_cluster_median_difference_so2_minus_normal": float(
+                paired["cluster_median_difference_so2_minus_normal"],
+            ),
+        }
+        for name, expected in expected_values.items():
+            observed = review_metric.get(name)
+            if not isinstance(observed, (int, float)) or not math.isclose(
+                float(observed),
+                expected,
+                rel_tol=0.0,
+                abs_tol=1e-8,
+            ):
+                message = f"Resumen revisado inconsistente: {review_name}.{name}"
+                raise ValueError(message)
+        if (
+            review_metric.get("so2_favorable_patches")
+            != paired["so2_favorable_patch_count"]
+            or review_metric.get("so2_favorable_wsi_clusters")
+            != paired["so2_favorable_cluster_count"]
+            or review_metric.get("descriptive_interval")
+            != [paired["interval_low"], paired["interval_high"]]
+        ):
+            message = f"Conteos o intervalo inconsistentes: {review_name}"
+            raise ValueError(message)
+
+    input_review = dense_review.get("end_to_end_input_commutation_ratio_median")
+    input_metric = comparisons["input_commutation_ratio"]
+    input_paired = input_metric["paired"]
+    if not isinstance(input_review, dict):
+        message = "Falta el resumen revisado de conmutación entrada--salida"
+        raise TypeError(message)
+    input_expected = {
+        "normal": input_metric["normal_median"],
+        "so2": input_metric["so2_median"],
+        "so2_favorable_patches": input_paired["so2_favorable_patch_count"],
+        "wsi_cluster_median_difference_so2_minus_normal": input_paired[
+            "cluster_median_difference_so2_minus_normal"
+        ],
+        "descriptive_interval": [
+            input_paired["interval_low"],
+            input_paired["interval_high"],
+        ],
+    }
+    if any(
+        input_review.get(name) != expected for name, expected in input_expected.items()
+    ):
+        message = "El resumen revisado de entrada--salida es inconsistente"
+        raise ValueError(message)
+
+    quarter_review = addendum.get("exact_quarter_rotations")
+    if not isinstance(quarter_review, dict):
+        message = "Falta el resumen revisado de rotaciones C4 exactas"
+        raise TypeError(message)
+    if quarter_review.get("aggregate_action_ratio_median") != {
+        "normal": observed_quarter["normal_action"],
+        "so2": observed_quarter["so2_action"],
+    } or quarter_review.get("aggregate_canonical_ratio_median") != {
+        "normal": observed_quarter["normal_canonical"],
+        "so2": observed_quarter["so2_canonical"],
+    }:
+        message = "El addendum C4 no coincide con el resumen aceptado"
+        raise ValueError(message)
+    return document
 
 
 def font(size: int, *, bold: bool = False) -> ImageFont.FreeTypeFont:
@@ -347,6 +648,26 @@ def font(size: int, *, bold: bool = False) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
+def es_decimal(value: float, digits: int) -> str:
+    """Format one decimal value for Spanish prose."""
+    return f"{value:.{digits}f}".replace(".", ",")
+
+
+def draw_dashed_horizontal(
+    draw: ImageDraw.ImageDraw,
+    left: int,
+    right: int,
+    y: int,
+    *,
+    fill: str,
+) -> None:
+    """Draw one horizontal dashed reference line."""
+    cursor = left
+    while cursor < right:
+        draw.line((cursor, y, min(cursor + 16, right), y), fill=fill, width=3)
+        cursor += 26
+
+
 def draw_orbit_population_report_sheets(
     source: Path,
     first_output: Path,
@@ -360,7 +681,7 @@ def draw_orbit_population_report_sheets(
     """
     with Image.open(source) as opened:
         source_image = opened.convert("RGB")
-    if source_image.size != (3000, 2400):
+    if source_image.size != (4320, 2340):
         message = f"Tamaño inesperado para el mosaico 25x360: {source_image.size}"
         raise ValueError(message)
 
@@ -380,11 +701,12 @@ def draw_orbit_population_report_sheets(
         label_font = font(30, bold=True)
         for position, patch_index in enumerate(indices):
             source_row, source_column = divmod(patch_index, 5)
-            source_left = 65 + source_column * 585
-            source_top = 170 + source_row * 330
+            source_left = source_column * 864
+            source_top = 60 + source_row * 456
             tile = source_image.crop(
-                (source_left, source_top, source_left + 520, source_top + 285),
+                (source_left, source_top, source_left + 864, source_top + 456),
             )
+            tile = tile.resize((520, 274), Image.Resampling.LANCZOS)
             tile_draw = ImageDraw.Draw(tile)
             tile_draw.rectangle((0, 0, 520, 40), fill="white")
             tile_draw.text(
@@ -415,6 +737,252 @@ def draw_orbit_population_report_sheets(
 
     render(range(0, 15), first_output, "Parte A · parches 00--14 · muestreo cada 1°")
     render(range(15, 25), second_output, "Parte B · parches 15--24 · muestreo cada 1°")
+
+
+def draw_population_controls_report_figure(source: Path, output: Path) -> None:
+    """Replace source-population shorthand in a report-only derived figure.
+
+    Raises:
+        ValueError: If the immutable source artifact has an unexpected size.
+
+    """
+    with Image.open(source) as opened:
+        image = opened.convert("RGB")
+    if image.size != (3420, 900):
+        message = f"Tamaño inesperado para los controles rotacionales: {image.size}"
+        raise ValueError(message)
+    draw = ImageDraw.Draw(image)
+    title = "Métricas corregidas de los 25 parches fijos"
+    title_font = font(42)
+    bounds = draw.textbbox((0, 0), title, font=title_font)
+    title_width = bounds[2] - bounds[0]
+    left = (image.width - title_width) // 2
+    draw.rectangle((left - 25, 0, left + title_width + 25, 48), fill="white")
+    draw.text((left, 0), title, fill="black", font=title_font)
+    image.save(output)
+
+
+def draw_decoded_transform_population_figure(
+    document: dict[str, Any],
+    output: Path,
+) -> None:
+    """Draw untruncated paired dense-ratio comparisons from Spec 0051."""
+    image = Image.new("RGB", (1800, 880), "white")
+    draw = ImageDraw.Draw(image)
+    title_font = font(38, bold=True)
+    subtitle_font = font(24)
+    axis_font = font(22)
+    small_font = font(19)
+    draw.text(
+        (70, 28),
+        "Consistencia decodificada en los 25 parches fijos",
+        fill=f"#{INK}",
+        font=title_font,
+    )
+    draw.text(
+        (70, 80),
+        "Comparación pareada normal vs. SO(2) · rotaciones 0°, 5°, ..., 355°",
+        fill=f"#{MUTED}",
+        font=subtitle_font,
+    )
+    panels = [
+        ("action_ratio", "Acción espacial del embedding"),
+        ("canonical_ratio", "Desrotación del embedding"),
+    ]
+    for panel_index, (metric_name, panel_title) in enumerate(panels):
+        panel_left = 90 + panel_index * 850
+        panel_right = panel_left + 760
+        plot_top, plot_bottom = 175, 690
+        x_normal, x_so2 = panel_left + 245, panel_left + 555
+        draw.text(
+            (panel_left + 25, 128),
+            panel_title,
+            fill=f"#{INK}",
+            font=font(27, bold=True),
+        )
+        for tick in (0.0, 0.25, 0.5, 0.75, 1.0):
+            y = plot_bottom - int(tick * (plot_bottom - plot_top))
+            if math.isclose(tick, 0.5):
+                draw_dashed_horizontal(
+                    draw,
+                    panel_left + 95,
+                    panel_right - 25,
+                    y,
+                    fill="#596675",
+                )
+            else:
+                draw.line(
+                    (panel_left + 95, y, panel_right - 25, y),
+                    fill="#E3E8EE",
+                    width=2,
+                )
+            draw.text(
+                (panel_left + 28, y - 12),
+                f"{tick:.2f}".replace(".", ","),
+                fill=f"#{MUTED}",
+                font=small_font,
+            )
+        metric = document["comparisons"][metric_name]
+        normal_values = [float(value) for value in metric["normal"]]
+        so2_values = [float(value) for value in metric["so2"]]
+        for normal_value, so2_value in zip(normal_values, so2_values, strict=True):
+            y_normal = plot_bottom - int(normal_value * (plot_bottom - plot_top))
+            y_so2 = plot_bottom - int(so2_value * (plot_bottom - plot_top))
+            draw.line(
+                (x_normal, y_normal, x_so2, y_so2),
+                fill="#AAB5C1",
+                width=2,
+            )
+            draw.ellipse(
+                (x_normal - 5, y_normal - 5, x_normal + 5, y_normal + 5),
+                fill=f"#{BLUE}",
+            )
+            draw.ellipse(
+                (x_so2 - 5, y_so2 - 5, x_so2 + 5, y_so2 + 5),
+                fill=f"#{ORANGE}",
+            )
+        for x_value, branch in (
+            (x_normal, "normal"),
+            (x_so2, "so2"),
+        ):
+            value = float(metric[f"{branch}_median"])
+            y = plot_bottom - int(value * (plot_bottom - plot_top))
+            draw.line((x_value - 34, y, x_value + 34, y), fill="#111827", width=7)
+            label = f"mediana {value:.3f}".replace(".", ",")
+            bounds = draw.textbbox((0, 0), label, font=small_font)
+            draw.text(
+                (x_value - (bounds[2] - bounds[0]) / 2, y - 34),
+                label,
+                fill="#111827",
+                font=small_font,
+            )
+        draw.text(
+            (x_normal - 88, plot_bottom + 24),
+            "Normal",
+            fill=f"#{BLUE}",
+            font=axis_font,
+        )
+        draw.text(
+            (x_so2 - 50, plot_bottom + 24),
+            "SO(2)",
+            fill=f"#{ORANGE}",
+            font=axis_font,
+        )
+        draw.text(
+            (panel_left + 235, 755),
+            f"SO(2) menor en {metric['paired']['so2_favorable_patch_count']}/{metric['paired']['n_patches']}",
+            fill=f"#{INK}",
+            font=font(22, bold=True),
+        )
+    draw.text(
+        (70, 830),
+        "Razón 1,00 = no actuar · línea gris discontinua: criterio absoluto 0,50 = conservar como máximo la mitad del error.",
+        fill=f"#{MUTED}",
+        font=small_font,
+    )
+    image.save(output, dpi=(180, 180))
+
+
+def draw_decoded_transform_exact_figure(
+    document: dict[str, Any],
+    output: Path,
+) -> None:
+    """Draw exact C4 and reflection medians with the absolute reference."""
+    image = Image.new("RGB", (1800, 920), "white")
+    draw = ImageDraw.Draw(image)
+    draw.text(
+        (65, 25),
+        "Transformaciones exactas en la cuadrícula",
+        fill=f"#{INK}",
+        font=font(38, bold=True),
+    )
+    draw.text(
+        (65, 77),
+        "Medianas sobre 25 parches · C4 y cuatro reflexiones",
+        fill=f"#{MUTED}",
+        font=font(24),
+    )
+    transforms = [
+        ("rot90", "R90"),
+        ("rot180", "R180"),
+        ("rot270", "R270"),
+        ("flip_h", "Fh"),
+        ("flip_v", "Fv"),
+        ("flip_diag", "Fd"),
+        ("flip_anti_diag", "Fa"),
+    ]
+    panels = [
+        ("action_ratio_median_valid", "Acción latente"),
+        ("canonical_ratio_median_valid", "Canonicalización"),
+        ("input_commutation_ratio_median_valid", "Entrada a salida"),
+    ]
+    for panel_index, (metric_name, title) in enumerate(panels):
+        panel_left = 45 + panel_index * 585
+        plot_left, plot_right = panel_left + 68, panel_left + 560
+        plot_top, plot_bottom = 185, 710
+        draw.text(
+            (panel_left + 105, 130),
+            title,
+            fill=f"#{INK}",
+            font=font(25, bold=True),
+        )
+        for tick in (0.0, 0.25, 0.5, 0.75):
+            y = plot_bottom - int(tick / 0.8 * (plot_bottom - plot_top))
+            if math.isclose(tick, 0.5):
+                draw_dashed_horizontal(
+                    draw,
+                    plot_left,
+                    plot_right,
+                    y,
+                    fill="#596675",
+                )
+            else:
+                draw.line(
+                    (plot_left, y, plot_right, y),
+                    fill="#E3E8EE",
+                    width=2,
+                )
+            draw.text(
+                (panel_left + 4, y - 11),
+                f"{tick:.2f}".replace(".", ","),
+                fill=f"#{MUTED}",
+                font=font(17),
+            )
+        group_width = (plot_right - plot_left) / len(transforms)
+        for transform_index, (transform, short_label) in enumerate(transforms):
+            center = plot_left + int((transform_index + 0.5) * group_width)
+            for branch, x_offset, color in (
+                ("normal_vae", -16, BLUE),
+                ("so2_vae", 7, ORANGE),
+            ):
+                value = float(
+                    document["branches"][branch]["exact_d4"][transform][metric_name],
+                )
+                bar_top = plot_bottom - int(
+                    min(value, 0.8) / 0.8 * (plot_bottom - plot_top),
+                )
+                draw.rectangle(
+                    (center + x_offset, bar_top, center + x_offset + 18, plot_bottom),
+                    fill=f"#{color}",
+                )
+            bounds = draw.textbbox((0, 0), short_label, font=font(17))
+            draw.text(
+                (center - (bounds[2] - bounds[0]) / 2, plot_bottom + 18),
+                short_label,
+                fill=f"#{INK}",
+                font=font(17),
+            )
+    draw.rectangle((545, 810, 585, 834), fill=f"#{BLUE}")
+    draw.text((598, 806), "VAE normal", fill=f"#{INK}", font=font(21))
+    draw.rectangle((895, 810, 935, 834), fill=f"#{ORANGE}")
+    draw.text((948, 806), "VAE SO(2)", fill=f"#{INK}", font=font(21))
+    draw.text(
+        (340, 865),
+        "Fh/Fv: reflexión horizontal/vertical · Fd/Fa: diagonal principal/antidiagonal · línea gris discontinua: criterio absoluto 0,50",
+        fill=f"#{MUTED}",
+        font=font(19),
+    )
+    image.save(output, dpi=(180, 180))
 
 
 def draw_mil_chart(normal: dict[str, Any], so2: dict[str, Any], output: Path) -> None:
@@ -560,7 +1128,7 @@ def draw_tissue_chart(table: dict[str, Any], output: Path) -> None:
     image.save(output, dpi=(180, 180))
 
 
-def draw_wsi_class_chart(  # noqa: C901
+def draw_wsi_class_chart(
     normal: dict[str, Any],
     so2: dict[str, Any],
     output: Path,
@@ -774,7 +1342,7 @@ def draw_tissue_class_chart(table: dict[str, Any], output: Path) -> None:
     image.save(output, dpi=(180, 180))
 
 
-def draw_supervised_development_chart(  # noqa: C901
+def draw_supervised_development_chart(
     mil_train: dict[str, list[dict[str, str]]],
     mil_validation: dict[str, list[dict[str, str]]],
     mil_summaries: dict[str, dict[str, Any]],
@@ -1392,7 +1960,7 @@ def add_cover(doc: Document) -> None:
         run.font.size = Pt(12)
         run.font.color.rgb = RGBColor.from_string(INK)
     p.paragraph_format.space_after = Pt(70)
-    p = doc.add_paragraph("8 de septiembre de 2026")
+    p = doc.add_paragraph("9 de septiembre de 2026")
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     for run in p.runs:
         run.font.size = Pt(10)
@@ -1475,34 +2043,123 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
 
     professor_figures = repo / "runs/local/professor_metrics_v1/figures"
     recon_figures = repo / "runs/local/vae_test_reconstruction_scored_v1/figures"
-    orbit_figures = repo / "runs/local/frozen_vae_rotation_orbits"
-    orbit_population_json = orbit_figures / "07-all25-latent-orbits.json"
+    legacy_orbit_figures = repo / "runs/local/frozen_vae_rotation_orbits"
+    rotation_root = (
+        repo
+        / "runs/local/corrected_rotation_geometry_v1/corrected_rotation_geometry_v1"
+    )
+    rotation_figures = rotation_root / "figures"
+    rotation_summary_path = rotation_root / "rotation_geometry_summary.json"
+    rotation_addendum_path = (
+        repo / "docs/data/spec0050_rotation_geometry_review_addendum.json"
+    )
+    decoded_root = (
+        repo / "runs/local/decoded_latent_transform_v1/decoded_latent_transform_v1"
+    )
+    decoded_summary_path = decoded_root / "decoded_latent_transform_summary.json"
+    decoded_manifest_path = decoded_root / "manifest.json"
+    decoded_addendum_path = (
+        repo / "docs/data/spec0051_decoded_transform_review_addendum.json"
+    )
     required = [
         professor_figures / "training_dashboard.png",
         professor_figures / "metrics_boxplots_fixed25.png",
         professor_figures / "reconstructions_fixed25.png",
         professor_figures / "rotated_input_vs_latent.png",
-        orbit_figures / "01-latent-orbits.png",
-        orbit_figures / "07-all25-latent-orbits.png",
-        orbit_population_json,
-        orbit_figures / "05-paper-style-latent-pca.png",
+        rotation_figures / "01-corrected-all25-orbits.png",
+        rotation_figures / "02-population-input-controls.png",
+        rotation_figures / "03-local-pca-ranks-00-12.png",
+        rotation_figures / "03b-local-pca-pc1-pc6.png",
+        rotation_figures / "04-pc1-pc6-harmonics.png",
+        rotation_figures / "05-all48-f1-summary.png",
+        rotation_figures / "06-shared-generator-vs-dimension.png",
+        rotation_figures / "07-canonicalization-factorization.png",
+        rotation_summary_path,
+        rotation_root / "selected_arrays.npz",
+        rotation_root / "manifest.json",
+        rotation_addendum_path,
+        decoded_summary_path,
+        decoded_manifest_path,
+        decoded_addendum_path,
+        legacy_orbit_figures / "05-paper-style-latent-pca.png",
         recon_figures / "patch_metric_boxplots.png",
         recon_figures / "paired_wsi_mae.png",
     ]
     missing = [str(path) for path in required if not path.exists()]
     if missing:
         raise FileNotFoundError("Faltan figuras aceptadas:\n" + "\n".join(missing))
-    orbit_population = read_json(orbit_population_json)
-    normal_orbit_median, so2_orbit_median, orbit_favorable = validate_orbit_population(
-        orbit_population,
+    if sha256_file(rotation_summary_path) != ROTATION_GEOMETRY_SUMMARY_SHA256:
+        message = "El resumen de geometría rotacional cambió después de la revisión"
+        raise ValueError(message)
+    if sha256_file(rotation_addendum_path) != ROTATION_GEOMETRY_ADDENDUM_SHA256:
+        message = "El addendum de revisión geométrica cambió después de la revisión"
+        raise ValueError(message)
+    rotation_geometry = validate_rotation_geometry(
+        read_json(rotation_summary_path),
+        read_json(rotation_addendum_path),
     )
+    for relative_path, expected_hash in rotation_geometry["output_hashes"].items():
+        artifact_path = rotation_root / relative_path
+        if sha256_file(artifact_path) != expected_hash:
+            message = f"Hash geométrico inesperado: {relative_path}"
+            raise ValueError(message)
+    if sha256_file(decoded_summary_path) != DECODED_TRANSFORM_SUMMARY_SHA256:
+        message = "El resumen de Spec 0051 cambió después de la revisión"
+        raise ValueError(message)
+    if sha256_file(decoded_manifest_path) != DECODED_TRANSFORM_MANIFEST_SHA256:
+        message = "El manifiesto de Spec 0051 cambió después de la revisión"
+        raise ValueError(message)
+    if sha256_file(decoded_addendum_path) != DECODED_TRANSFORM_ADDENDUM_SHA256:
+        message = "El addendum de Spec 0051 cambió después de la revisión"
+        raise ValueError(message)
+    decoded_addendum = read_json(decoded_addendum_path)
+    decoded_transform = validate_decoded_transform(
+        read_json(decoded_summary_path),
+        decoded_addendum,
+    )
+    for relative_path, expected_hash in decoded_transform["output_hashes"].items():
+        artifact_path = decoded_root / relative_path
+        if sha256_file(artifact_path) != expected_hash:
+            message = f"Hash de Spec 0051 inesperado: {relative_path}"
+            raise ValueError(message)
+    corrected_llr = rotation_geometry["comparisons"]["local_linearity_ratio"]
+    corrected_cv = rotation_geometry["comparisons"]["step_size_cv"]
+    corrected_subsampling = rotation_geometry["comparisons"]["subsampling"]
+    decoded_dense_review = decoded_addendum["dense_rotation"]
+    decoded_action_review = decoded_dense_review["action_ratio_median"]
+    decoded_canonical_review = decoded_dense_review["canonical_ratio_median"]
+    decoded_input_review = decoded_dense_review[
+        "end_to_end_input_commutation_ratio_median"
+    ]
+    decoded_quarter_review = decoded_addendum["exact_quarter_rotations"]
+    decoded_action_interval = decoded_action_review["descriptive_interval"]
+    decoded_canonical_interval = decoded_canonical_review["descriptive_interval"]
+    decoded_action_quarter = decoded_quarter_review["aggregate_action_ratio_median"]
+    decoded_canonical_quarter = decoded_quarter_review[
+        "aggregate_canonical_ratio_median"
+    ]
+    decoded_robustness = decoded_dense_review["so2_robustness"]
+    corrected_harmonics = rotation_geometry["comparisons"]["harmonics"]
+    rotation_decisions = rotation_geometry["decisions"]
     orbit_population_sheet_a = work_dir / "orbit_population_patches_00_14.png"
     orbit_population_sheet_b = work_dir / "orbit_population_patches_15_24.png"
     draw_orbit_population_report_sheets(
-        orbit_figures / "07-all25-latent-orbits.png",
+        rotation_figures / "01-corrected-all25-orbits.png",
         orbit_population_sheet_a,
         orbit_population_sheet_b,
     )
+    population_controls_figure = work_dir / "population_input_controls_fixed25.png"
+    draw_population_controls_report_figure(
+        rotation_figures / "02-population-input-controls.png",
+        population_controls_figure,
+    )
+    decoded_population_figure = work_dir / "decoded_transform_population.png"
+    decoded_exact_figure = work_dir / "decoded_transform_exact.png"
+    draw_decoded_transform_population_figure(
+        decoded_transform,
+        decoded_population_figure,
+    )
+    draw_decoded_transform_exact_figure(decoded_transform, decoded_exact_figure)
 
     doc = Document()
     configure_document(doc)
@@ -1532,7 +2189,11 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
     )
     add_bullet(
         doc,
-        f"Rotaciones: el parche fijo de rango 12 muestra una orbita PCA de SO(2) visualmente mas regular. En el nuevo barrido a 1 grado sobre los 25 parches se observo una menor razon de linealidad local para SO(2) en {orbit_favorable['so2_lower_local_linearity_ratio']}/25 casos (medianas {normal_orbit_median['local_linearity_ratio']:.3f} normal y {so2_orbit_median['local_linearity_ratio']:.3f} SO(2)). No es una ventaja universal: la velocidad de recorrido fue menos uniforme para SO(2) en 25/25 y otros proxies no lo favorecen consistentemente.",
+        "Geometria rotacional post-hoc: se reprodujo y corrigio un cambio de signo que unia orientaciones opuestas en 90 y 270 grados. El aparente patron previo queda retirado. A 1 grado, SO(2) tuvo menor razon de linealidad local normalizada por la entrada en 25/25 parches (medianas 0,601 frente a 0,649), pero el efecto fue 7,38% y no sobrevivio la robustez preespecificada: a 5 grados solo ocurrio en 8/25. No se demostro una accion reducida compartida ni una factorizacion local contenido--pose.",
+    )
+    add_bullet(
+        doc,
+        f"Acción en el decodificador: al transformar espacialmente el embedding final antes de decodificar, SO(2) redujo el error frente al VAE normal en {decoded_action_review['so2_favorable_patches']}/{FIXED25_COUNT} parches para el barrido de 5 grados. En rotaciones exactas de 90, 180 y 270 grados, su razón de acción fue {es_decimal(float(decoded_action_quarter['so2']), 6)} frente a {es_decimal(float(decoded_action_quarter['normal']), 3)} normal. Esto verifica empíricamente una acción C4 compartida y sin parámetros ajustados en el decodificador de este checkpoint; no prueba equivarianza continua del encoder ni factorización contenido--pose.",
     )
 
     add_heading(doc, "Lectura para la presentacion", 2)
@@ -1550,11 +2211,11 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
             ],
             [
                 "¿La equivarianza es visible?",
-                "Si: la orbita densa de un ejemplo es mas regular con SO(2); los proxies comparables no confirman una ventaja global.",
+                "Sí en el decodificador para rotaciones exactas C4: transformar el embedding rota la reconstrucción de SO(2) casi exactamente. No se verificó una acción continua compartida en mu ni campos F1 limpios.",
             ],
             [
                 "¿Falta experimentar?",
-                "No para responder los issues. La fase pendiente es integrar y presentar la evidencia.",
+                "Los issues quedan respondidos. La geometria nueva es validacion fija exploratoria y no justifica afirmar un producto global o disentanglement.",
             ],
         ],
         widths=[2.1, 4.75],
@@ -1714,7 +2375,7 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
     add_heading(doc, "5. Reconstrucciones cualitativas fijas", 1)
     add_body(
         doc,
-        "Las reconstrucciones permiten verificar que ambos modelos preservan estructura y color generales. La inspeccion visual complementa, pero no reemplaza, las metricas poblacionales.",
+        "Las reconstrucciones permiten verificar que ambos modelos preservan estructura y color generales. La inspeccion visual complementa, pero no reemplaza, las metricas cuantitativas.",
     )
     add_figure(
         doc,
@@ -1806,10 +2467,15 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
     )
 
     doc.add_page_break()
-    add_heading(doc, "8. Rotaciones y equivarianza", 1)
+    add_heading(doc, "8. Geometría de la acción rotacional en el espacio latente", 1)
     add_body(
         doc,
-        "El profesor solicito comparar rotaciones de 90, 180 y 270 grados por dos rutas: reconstruir la entrada ya rotada y transformar espacialmente el latente antes de decodificar. La figura siguiente usa el parche predeterminado de rango 12 y muestra ambas rutas para los dos modelos.",
+        "Este análisis es un trabajo post-hoc, exploratorio y exclusivo de los 25 parches fijos de validación. No accedió al test sellado, no reentrenó los VAE y no cambió checkpoints. Su pregunta principal no fue si cada parche dibuja un ciclo —resultado casi trivial para un codificador continuo— sino si una misma acción rotacional reducida transfiere entre parches y permite separar aproximadamente contenido y pose.",
+    )
+    add_heading(doc, "Control exacto a cuartos de vuelta", 2)
+    add_body(
+        doc,
+        "La comparación solicitada originalmente a 90, 180 y 270 grados usa exclusivamente torch.rot90 y permanece válida. La figura conserva el parche predeterminado de rango 12 y compara reconstruir la entrada rotada con transformar espacialmente el latente antes de decodificar.",
     )
     add_figure(
         doc,
@@ -1825,48 +2491,191 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
     )
     add_body(
         doc,
-        "En el proxy enmascarado de residuo latente para los 25 parches, menor es mejor. Las medianas normal fueron 1,327/1,303/1,327 a 90/180/270 grados, frente a 1,473/1,418/1,487 para SO(2). Este resultado no favorece a SO(2) en la salida posterior final. Por eso la evidencia de equivarianza se considera mixta.",
+        "En el proxy enmascarado de residuo latente para los 25 parches, menor es mejor. Las medianas aceptadas fueron 1,327492/1,303358/1,326518 para el modelo normal y 1,472552/1,417673/1,486783 para SO(2). Este control exacto no favorece a SO(2) en la salida posterior final.",
+    )
+    add_heading(doc, "Acción decodificada y comparación pareada", 2)
+    add_body(
+        doc,
+        "El experimento complementario de Spec 0051 evaluó dos rutas sobre los mismos 25 parches. La razón de acción compara D(rho_T mu(x)) con T D(mu(x)); la razón de canonicalización compara D(rho_T^-1 mu(Tx)) con D(mu(x)). Cada denominador es el error de dejar el embedding sin la transformación correspondiente. Por tanto, 1,00 representa la línea base de no actuar y 0,50 exige conservar como máximo la mitad de ese error. Este 0,50 es un criterio funcional absoluto fijado antes de ver la salida; no decide qué VAE es mejor. La comparación entre modelos es pareada sobre los mismos parches y se resume también por sus 16 WSI de origen.",
     )
     add_body(
         doc,
-        "El barrido denso de 0 a 359 grados y los campos internos F1 explican el mecanismo arquitectonico, pero son diagnosticos exploratorios y no cambian la conclusion de rendimiento.",
+        f"En el barrido 0, 5, ..., 355 grados, SO(2) tuvo menor error que el modelo normal en {decoded_action_review['so2_favorable_patches']}/{FIXED25_COUNT} parches y {decoded_action_review['so2_favorable_wsi_clusters']}/16 medianas por WSI. La razón de acción mediana fue {es_decimal(float(decoded_action_review['so2']), 3)} SO(2) frente a {es_decimal(float(decoded_action_review['normal']), 3)} normal, una reducción relativa de {es_decimal(100.0 * float(decoded_action_review['relative_so2_reduction']), 2)}%; la diferencia pareada SO(2) menos normal por bootstrap descriptivo de WSI fue {es_decimal(float(decoded_action_review['wsi_cluster_median_difference_so2_minus_normal']), 3)} [{es_decimal(float(decoded_action_interval[0]), 3)}; {es_decimal(float(decoded_action_interval[1]), 3)}]. Para canonicalización, las medianas fueron {es_decimal(float(decoded_canonical_review['so2']), 3)} frente a {es_decimal(float(decoded_canonical_review['normal']), 3)}, reducción de {es_decimal(100.0 * float(decoded_canonical_review['relative_so2_reduction']), 2)}%, con diferencia {es_decimal(float(decoded_canonical_review['wsi_cluster_median_difference_so2_minus_normal']), 3)} [{es_decimal(float(decoded_canonical_interval[0]), 3)}; {es_decimal(float(decoded_canonical_interval[1]), 3)}]. El conjunto constituye una ventaja comparativa consistente de SO(2) en la consistencia de rutas decodificadas. H1 y H2 completos permanecen no respaldados porque sus reglas conjuntivas exigían además una mediana SO(2) <=0,50; ambos valores quedaron ligeramente por encima. Ese criterio absoluto no anula la comparación pareada.",
     )
     add_figure(
         doc,
-        orbit_figures / "01-latent-orbits.png",
-        6.45,
-        "Figura 7. Orbita latente del parche predeterminado de rango 12 durante un barrido de 0 a 359 grados. Cada modelo usa una PCA propia ajustada una sola vez sobre todos los angulos; los dos componentes explican 3,75% de la varianza normal y 4,21% de SO(2). La trayectoria de SO(2) forma un ciclo visualmente mas regular, pero bases, signos y escalas difieren entre modelos. Los paneles inferiores mantienen visible el residuo directo y el resumen exacto de los 25 parches.",
-        "Comparacion de orbitas PCA durante una rotacion completa: el ejemplo SO2 forma un ciclo mas regular, acompañado por graficas de residuo latente.",
+        decoded_population_figure,
+        6.55,
+        f"Figura 6a. Razones pareadas de acción espacial y canonicalización decodificadas para los 25 parches fijos de validación, con rotaciones 0, 5, ..., 355 grados. Cada línea une el mismo parche. SO(2) es menor en {decoded_action_review['so2_favorable_patches']}/{FIXED25_COUNT} pares en ambas métricas. El eje parte de cero y la línea gris discontinua marca el criterio funcional absoluto 0,50; los intervalos resumen primero por WSI y remuestrean las 16 WSI, sin inferencia poblacional.",
+        "Dos gráficos pareados muestran menor razón de error para SO2 en los 25 parches; una línea horizontal identifica el criterio absoluto 0,50.",
     )
     add_body(
         doc,
-        "Lectura de suavidad y predictibilidad. En este ejemplo preseleccionado, el recorrido SO(2) es mas cercano a una trayectoria cerrada, continua y periodica, mientras que el recorrido normal presenta mas pliegues. Esto sugiere una respuesta rotacional de menor complejidad en las dos componentes dominantes del parche mostrado. No establece por si solo equivarianza global: las PCA son separadas y, en el residuo directo comparable de los 25 parches, el modelo normal obtuvo valores menores.",
-        bold_prefix="Lectura de suavidad y predictibilidad.",
+        f"El resultado exacto es mucho más fuerte. Agregando 90, 180 y 270 grados, la razón de acción fue {es_decimal(float(decoded_action_quarter['so2']), 8)} SO(2) frente a {es_decimal(float(decoded_action_quarter['normal']), 6)} normal, con error absoluto numéricamente cercano a cero y señal de pose no nula. La canonicalización decodificada fue {es_decimal(float(decoded_canonical_quarter['so2']), 6)} frente a {es_decimal(float(decoded_canonical_quarter['normal']), 6)}. Así, el decodificador SO(2) realiza numéricamente la misma acción espacial C4 para todos los parches fijos, sin ajustar parámetros por parche. Esto reconcilia la observación visual con el residuo desfavorable de mu: el posterior crudo no coincide mejor bajo ese proxy, pero las dos rutas convergen después de decodificar. El experimento no identifica un espacio nulo del decodificador.",
     )
-    add_heading(doc, "Comprobación poblacional a resolución de 1 grado", 2)
     add_body(
         doc,
-        "Para comprobar que la forma del parche 12 no fuera un caso afortunado, se repitió el ciclo completo para los 25 parches fijos: 360 inferencias por parche y modelo, de 0 a 359 grados. Cada panel ajusta una sola PCA por parche y modelo, con escala isótropa. Las métricas inferiores se calculan en el posterior medio crudo enmascarado, no sobre la apariencia de la PCA.",
+        f"Los ángulos no cardinales siguen siendo aproximados: al excluir vecindades de 5 grados alrededor de los cardinales, las razones SO(2) suben a {es_decimal(float(decoded_robustness['exclude_cardinal_neighborhoods_action_canonical'][0]), 3)} para acción y {es_decimal(float(decoded_robustness['exclude_cardinal_neighborhoods_action_canonical'][1]), 3)} para canonicalización. Además, la ruta completa D(mu(Tx)) frente a T D(mu(x)) favoreció al VAE normal en {FIXED25_COUNT - int(decoded_input_review['so2_favorable_patches'])}/{FIXED25_COUNT} parches, con medianas {es_decimal(float(decoded_input_review['normal']), 3)} normal y {es_decimal(float(decoded_input_review['so2']), 3)} SO(2). Por ello, el hallazgo no equivale a una superioridad general del encoder o del autoencoder.",
+    )
+    add_body(
+        doc,
+        "En los cuatro flips exactos, SO(2) tuvo razones descriptivamente menores, pero sólo la reflexión respecto a la diagonal principal cumplió simultáneamente los criterios de entrada, acción y canonicalización. Las reflexiones horizontal, vertical y antidiagonal no pasaron. No se demostró equivarianza completa D4 ni O(2).",
+    )
+    add_figure(
+        doc,
+        decoded_exact_figure,
+        6.55,
+        "Figura 6b. Medianas de acción latente, canonicalización y conmutación de entrada a salida para las siete transformaciones no identidad del grupo D4 exacto. Las rotaciones R90/R180/R270 muestran la acción C4 casi exacta del decodificador SO(2). Entre los flips, sólo Fd cumple la regla completa para ese checkpoint. La línea gris discontinua marca el criterio absoluto 0,50; n=25 parches fijos de validación.",
+        "Tres gráficos de barras comparan los modelos en rotaciones exactas y cuatro reflexiones, con una referencia horizontal en 0,50.",
+    )
+    add_body(
+        doc,
+        "En estas métricas, los objetivos son transformaciones de la reconstrucción producida por cada modelo, no imágenes originales independientes. El análisis evalúa consistencia entre rutas de transformación y decodificación; no reemplaza las métricas selladas de fidelidad de reconstrucción.",
+    )
+    add_heading(doc, "Defecto de convención, reparación y alcance", 2)
+    add_body(
+        doc,
+        "El barrido denso anterior mezclaba dos convenciones: los múltiplos de 90 grados usaban la orientación positiva de torch.rot90, mientras que la matriz afín no cardinal convergía a la orientación opuesta. Al unir puntos consecutivos aparecían los segmentos rectos observados cerca de 90 y 270 grados. Esa evidencia, incluidas las Figuras 7, 8a y 8b anteriores y la afirmación universal 25/25, queda explícitamente supersedida.",
+    )
+    add_body(
+        doc,
+        "La reparación usa una sola interpolación bilineal continua en todo el ciclo 0--359 y reserva torch.rot90 como control independiente. Fixtures asimétricos de impulso, flecha y borde dieron error cardinal exactamente cero en CPU y GPU; el RMS máximo a ambos lados de un cardinal fue 0,00000520, el error máximo de orientación 0,0193 grados y los errores de inversión/composición quedaron por debajo de 0,024, atribuibles a interpolación. En el parche 12, los pasos RMS de entrada 87--88, 88--89, 89--90, 90--91 y 91--92 fueron 0,1011/0,1025/0,1118/0,1129/0,1035: desapareció el salto previo de aproximadamente 0,24.",
+    )
+
+    add_heading(doc, "Órbitas por parche y ausencia de acción reducida", 2)
+    add_figure(
+        doc,
+        rotation_figures / "03-local-pca-ranks-00-12.png",
+        6.5,
+        "Figura 7. Geometría PCA local corregida de los rangos 0 y 12, elegidos antes de ver la salida. Cada parche y modelo usa coordenadas propias; signos, ejes y escalas no se comparan entre paneles. En los 25 parches fijos, las seis primeras PC capturan medianas de solo 11,09% normal y 10,86% SO(2), de modo que estas proyecciones son descriptivas.",
+        "Trayectorias tridimensionales y varianza explicada de las órbitas corregidas para los rangos preseleccionados 0 y 12.",
+    )
+    add_body(
+        doc,
+        "La PCA de una órbita completa estima un subespacio lineal que contiene variación rotacional; no identifica por sí sola el vector tangente ni una acción común. Los tangentes de órbita necesitaron medianas de 120/114 dimensiones para explicar 90% de su variación (normal/SO(2)), y los subespacios locales entre parches fueron casi ortogonales. No apareció un plano tangente crudo compartido de baja dimensión.",
+    )
+    add_body(
+        doc,
+        "Los mosaicos siguientes muestran los 25 ciclos ya corregidos. No se seleccionaron ejemplos por apariencia: se fijaron los rangos 0 y 12. Cada panel ajusta una PCA local con ejes isótropos; las métricas se calcularon sobre mu crudo dentro del disco latente de radio 14, no sobre la proyección.",
     )
     add_figure(
         doc,
         orbit_population_sheet_a,
         6.75,
-        "Figura 8a. Órbitas de rotación de los parches fijos 00--14 a intervalos de 1 grado. Cada par usa una PCA propia y escala isótropa; la geometría puede compararse dentro de cada panel, no como coordenadas absolutas entre modelos.",
-        "Primera de dos cuadriculas legibles con orbitas PCA normal y SO2 para los parches fijos 00 a 14, cada una formada por 360 rotaciones.",
+        "Figura 8a. Órbitas corregidas de los parches fijos 00--14 a intervalos de 1 grado. Los segmentos largos espurios de la versión anterior ya no aparecen. Cada par usa una PCA propia y escala isótropa.",
+        "Primera cuadrícula de órbitas PCA corregidas para los parches fijos 00 a 14.",
     )
     doc.add_page_break()
     add_figure(
         doc,
         orbit_population_sheet_b,
         6.75,
-        f"Figura 8b. Órbitas de rotación de los parches fijos 15--24 a intervalos de 1 grado. En los 25 pares, SO(2) obtuvo menor razón de linealidad local en {orbit_favorable['so2_lower_local_linearity_ratio']}/25 (medianas {so2_orbit_median['local_linearity_ratio']:.3f} frente a {normal_orbit_median['local_linearity_ratio']:.3f} normal). Esta razón divide el RMS cíclico de la segunda diferencia de mu entre el RMS cíclico de la primera diferencia a 1 grado; menor implica mayor suavidad local. El CV del paso —desviación estándar dividida por la media de los pasos RMS cíclicos de mu a 1 grado— favoreció a SO(2) en {orbit_favorable['so2_lower_step_size_cv']}/25 (medianas {so2_orbit_median['step_size_cv']:.3f} y {normal_orbit_median['step_size_cv']:.3f}); las dos primeras PC explicaron más varianza para SO(2) en {orbit_favorable['so2_higher_pca_explained_variance']}/25. Es evidencia descriptiva de esta validación fija, no una prueba de equivarianza global ni un resultado de test sellado.",
-        "Segunda cuadricula legible con orbitas PCA normal y SO2 para los parches fijos 15 a 24, seguida por la interpretacion cuantitativa de los 25 pares.",
+        "Figura 8b. Órbitas corregidas de los parches fijos 15--24 a intervalos de 1 grado. La forma puede compararse dentro de cada panel, no como un sistema de coordenadas común entre parches o modelos.",
+        "Segunda cuadrícula de órbitas PCA corregidas para los parches fijos 15 a 24.",
+    )
+
+    add_heading(doc, "Regularidad y controles de la trayectoria de entrada", 2)
+    add_body(
+        doc,
+        f"A 1 grado, la razón de linealidad local normalizada por la entrada fue menor para SO(2) en {corrected_llr['so2_lower_count']}/25: medianas {corrected_llr['so2_median']:.3f} frente a {corrected_llr['normal_median']:.3f} normal, una reducción relativa de 7,38%. El intervalo bootstrap descriptivo de la mediana pareada SO(2) menos normal fue [{corrected_llr['paired_bootstrap_so2_minus_normal']['percentile_95'][0]:.3f}; {corrected_llr['paired_bootstrap_so2_minus_normal']['percentile_95'][1]:.3f}]. Sin embargo, el umbral preregistrado exigía al menos 10% y robustez de escala: a 5 grados SO(2) fue menor sólo en {corrected_subsampling['5']['local_linearity_ratio']['so2_lower_count']}/25 y las medianas se invirtieron ligeramente ({corrected_subsampling['5']['local_linearity_ratio']['so2_median']:.3f} frente a {corrected_subsampling['5']['local_linearity_ratio']['normal_median']:.3f}). H1 no pasó.",
     )
     add_body(
         doc,
-        "Interpretación. La menor razón de linealidad local de SO(2) apareció en los 25 parches bajo la métrica predefinida; por tanto, el patrón no fue exclusivo del parche 12 dentro de esta muestra fija. Sin embargo, una curva puede ser localmente suave y recorrerla a velocidad poco uniforme; además, la planitud PCA y el residuo de rotación exacta responden preguntas distintas. La conclusión queda restringida a mayor suavidad local del recorrido a resolución de 1 grado.",
-        bold_prefix="Interpretacion.",
+        f"El CV crudo del paso a 1 grado favoreció al modelo normal: medianas {corrected_cv['normal_raw_median']:.4f} normal y {corrected_cv['so2_raw_median']:.4f} SO(2), con SO(2) menor en sólo {corrected_cv['so2_lower_raw_count']}/25. Tras normalizar por el recorrido de entrada, la comparación cambió a {corrected_cv['normal_median']:.4f}/{corrected_cv['so2_median']:.4f} y 18/25. La dependencia de resolución, normalización e interpolación impide afirmar una ventaja general de regularidad.",
+    )
+    add_figure(
+        doc,
+        population_controls_figure,
+        6.55,
+        "Figura 8c. Métricas de los 25 parches fijos y controles de la trayectoria de entrada para 1, 2 y 5 grados, con y sin vecindades cardinales. La mejora descriptiva a 1 grado no superó el criterio preregistrado ni fue robusta a 5 grados.",
+        "Comparación descriptiva de los 25 parches fijos: linealidad local, curvatura y uniformidad del paso con controles de la ruta de entrada.",
+    )
+
+    add_heading(doc, "Organización armónica y campos internos F1", 2)
+    add_body(
+        doc,
+        f"La fracción mediana de la energía orbital cruda total capturada por m=1,...,6 dentro de PC1--PC6 fue {median(corrected_harmonics['normal_low_fraction']):.3f} normal y {median(corrected_harmonics['so2_low_fraction']):.3f} SO(2); SO(2) fue mayor en sólo {corrected_harmonics['so2_higher_count']}/25. El número efectivo de frecuencias fue {median(corrected_harmonics['normal_effective_count']):.3f}/{median(corrected_harmonics['so2_effective_count']):.3f}; la reducción de SO(2), aunque presente en 18/25, fue 3,7%, por debajo del 10% fijado. H2 no pasó y las seis PC sólo capturan cerca de 11% de la variación total.",
+    )
+    add_figure(
+        doc,
+        rotation_figures / "04-pc1-pc6-harmonics.png",
+        6.45,
+        "Figura 8d. Energía armónica de PC1--PC6 para los ejemplos preseleccionados. Las escalas de color son internas a cada panel; múltiples frecuencias pueden surgir legítimamente al rotar textura espacial. No apareció una concentración SO(2) específica robusta.",
+        "Mapas de calor de potencia armónica entre frecuencias cero y seis para las seis primeras coordenadas PCA.",
+    )
+    add_body(
+        doc,
+        "Antes de mu_head, la arquitectura contiene 48 copias F0 y 48 copias F1; la salida posterior mu contiene 16 campos espaciales F0 y ninguna copia F1 explícita. Se midieron las 48 F1 mediante vectores complejos promediados y, para evitar cancelación espacial, mediante el campo completo compensando rotación interna y de coordenadas. Ninguna de las 48 cumplió simultáneamente pureza m=1, pendiente de fase, amplitud y residuo; el residuo completo mediano por parche fue 1,906 y el RMSE de fase mediano 1,671 radianes. H3 no pasó. Esto no invalida la construcción del tipo de campo, pero impide afirmar que el checkpoint entrenado verificó esa ley empíricamente.",
+    )
+    add_figure(
+        doc,
+        rotation_figures / "05-all48-f1-summary.png",
+        6.45,
+        "Figura 8e. Diagnóstico de las 48 copias internas F1. Resultado: 0/48 copias limpias bajo los umbrales fijados; el residuo de campo completo confirma que la fase inestable no se explica únicamente por cancelación del promedio espacial.",
+        "Resumen por copia F1 de pureza armónica, error de fase, estabilidad de amplitud y residuo de equivarianza del campo completo.",
+    )
+
+    add_heading(doc, "Acción compartida y factorización", 2)
+    add_body(
+        doc,
+        "La partición derivada de hashes fijó 17 parches para ajuste y 8 para evaluación; se ajustó con ángulos múltiplos de 5 grados y se evaluaron los demás. Entre d=1,...,6, la regla fijada seleccionó d=1, que es necesariamente una acción ortogonal continua nula. En held-out, el NRMSE/R2 fue 1,420/-1,017 normal y 1,450/-1,103 SO(2); ningún parche (0/8 en ambos modelos) mejoró frente a identidad. Incluso d=6 capturó sólo 0,15%/0,24% de la varianza held-out. Por tanto, H4 no pasó y no se demostró una acción reducida compartida. La ley de grupo casi exacta de exp(theta A) es una propiedad numérica impuesta por la parametrización, no evidencia de que A prediga las órbitas.",
+    )
+    add_figure(
+        doc,
+        rotation_figures / "06-shared-generator-vs-dimension.png",
+        6.55,
+        "Figura 8f. Rendimiento held-out del generador compartido frente a dimensión. La dimensión seleccionada fue d=1, línea base nula; ninguna dimensión mostró una ventaja específica de SO(2) sobre identidad o el control de ángulos barajados.",
+        "Curvas de NRMSE, R2 y captura de varianza held-out para generadores compartidos de una a seis dimensiones.",
+    )
+    add_body(
+        doc,
+        f"La acción espacial conocida sobre mu también tuvo residuos altos: medianas {rotation_decisions['spatial_action']['normal_vae']['median']:.3f} normal y {rotation_decisions['spatial_action']['so2_vae']['median']:.3f} SO(2), con 0/25 por debajo del umbral 0,25. Su canonicalización redujo la varianza intraórbita a cerca de 0,34 de la identidad, pero aumentó la varianza entre parches unas 4,7--4,8 veces; W/B quedó en 3,235 normal y 3,344 SO(2). Como esa acción espacial sobre mu no fue verificada, la reducción no respalda separación contenido--pose. Con la acción aprendida d=1, canonicalizar equivale exactamente a identidad y los probes de ángulo no mejoran. H6 queda no resuelta —no apoyada—, no rechazada.",
+    )
+    add_figure(
+        doc,
+        rotation_figures / "07-canonicalization-factorization.png",
+        6.45,
+        "Figura 8g. Canonicalización mediante la acción espacial conocida y la acción reducida aprendida. La conocida no satisface el residuo de equivarianza y la aprendida coincide con identidad; no hay evidencia válida de factorización local.",
+        "Comparación de varianza intraórbita, varianza entre parches, recuperación de identidad y fuga angular tras canonicalización.",
+    )
+
+    add_heading(doc, "Interpretación geométrica", 2)
+    add_table(
+        doc,
+        ["Nivel", "Qué significa aquí", "Resultado"],
+        [
+            [
+                "Órbita por parche",
+                "Curva de mu al rotar una imagen",
+                "Continua tras reparar el operador; evidencia descriptiva",
+            ],
+            [
+                "Acción espacial C4 prescrita",
+                "La arquitectura prescribe rho; se prueba su conmutación con el decoder",
+                f"Verificada empíricamente en {FIXED25_COUNT}/{FIXED25_COUNT} para R90, R180 y R270",
+            ],
+            [
+                "Acción reducida aprendida",
+                "Un mismo exp(theta A) predice parches y ángulos nuevos",
+                "No demostrada",
+            ],
+            [
+                "Factorización local",
+                "Q(-theta) estabiliza contenido sin borrar diferencias",
+                "No apoyada; no resuelta sin acción reducida válida",
+            ],
+            [
+                "Producto global",
+                "Un SO(2) x R^n único sobre toda la representación",
+                "Fuera de alcance e imposible de concluir con 25 parches",
+            ],
+        ],
+        widths=[1.4, 3.55, 1.75],
+        font_size=8.2,
+    )
+    add_body(
+        doc,
+        f"Prescrito por arquitectura: existen tipos F0/F1 y una acción espacial candidata rho. Verificado empíricamente: el operador de entrada corregido y la conmutación casi exacta del decodificador del checkpoint SO(2) con C4 en {FIXED25_COUNT}/{FIXED25_COUNT}; no la equivarianza continua del encoder. Observado en el checkpoint entrenado, sin atribución causal: la ventaja comparativa en consistencia de rutas decodificadas para ángulos interpolados, junto con órbitas crudas complejas y de alta dimensionalidad. Transferencia entre parches: la acción espacial C4 no usa parámetros por parche, pero ninguna acción reducida aprendida superó identidad. Lectura tipo fibrado: la canonicalización decodificada bajo giros C4 exactos fue fuerte, pero no exacta, y no define un cociente de contenido ni fases locales fiables; una interpretación de fibras, gauges o topología permanece especulativa.",
     )
 
     doc.add_page_break()
@@ -1877,7 +2686,7 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
     )
     add_figure(
         doc,
-        orbit_figures / "05-paper-style-latent-pca.png",
+        legacy_orbit_figures / "05-paper-style-latent-pca.png",
         6.45,
         "Figura 9. Visualizacion PCA-RGB de cuatro parches mostrados (ranks 0, 8, 12 y 24) de la fuente fixed-25. Los modelos usan ajustes PCA separados; los colores y rangos no deben compararse como magnitudes absolutas entre modelos.",
         "Visualizacion PCA en falso color compara mapas latentes espaciales del modelo normal y del modelo SO2.",
@@ -2049,9 +2858,14 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
                 "El beneficio de SO(2) no persiste uniformemente",
             ],
             [
-                "Equivarianza/PCA",
-                "Orbita mas regular en el ejemplo; proxies poblacionales mixtos",
-                "Suavidad descriptiva visible; ventaja global no demostrada",
+                "Geometría cruda de mu",
+                "Operador corregido; H1--H4 de Spec 0050 no pasan",
+                "Sin acción reducida aprendida ni factorización demostrada",
+            ],
+            [
+                "Rutas decodificadas",
+                f"SO(2) menor en {decoded_action_review['so2_favorable_patches']}/{FIXED25_COUNT}; decoder C4 casi sin error",
+                "Ventaja comparativa de rutas y acción C4 del decoder; no SO(2) continuo",
             ],
             [
                 "Eficiencia parametrica",
@@ -2065,7 +2879,7 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
     add_heading(doc, "Mensaje central para el profesor", 2)
     add_body(
         doc,
-        "La equivarianza continua SO(2) no mejoro automaticamente la reconstruccion ni todos los diagnosticos latentes. Si produjo un modelo mucho mas compacto en numero de parametros y senales de utilidad en diagnostico WSI y en ciertos regimenes de bajo etiquetado. La conclusion cientificamente responsable es una posible compensacion: el punto estimado de MAE sugiere una pequena desventaja de fidelidad para SO(2), sin diferencia primaria establecida, junto con utilidad posterior dependiente de la tarea y ausencia de una ventaja universal.",
+        "La arquitectura continua SO(2) no mejoró automáticamente la reconstrucción ni mostró una acción reducida aprendida o una factorización demostrable en el posterior final. En el checkpoint SO(2) se observó una acción espacial C4 casi exacta al transformar el embedding antes del decoder y una reducción comparativa consistente del error entre rutas decodificadas para ángulos interpolados. El checkpoint también es mucho más compacto y presenta señales de utilidad en diagnóstico WSI y ciertos regímenes de bajo etiquetado; este estudio no aísla causalmente la simetría de la capacidad u otros factores. La conclusión responsable es específica por endpoint: se verificó empíricamente un mecanismo de rotación C4 en el decoder, mientras que la geometría cruda de mu y la separación contenido--pose siguen sin validarse.",
     )
 
     add_heading(doc, "13. Limitaciones", 1)
@@ -2087,7 +2901,7 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
     )
     add_bullet(
         doc,
-        "El bootstrap cubre remuestreo de WSI. No cubre seleccion de parches, seleccion de arquitectura ni nuevas semillas.",
+        "Los intervalos inferenciales sellados remuestrean WSI y no cubren selección de parches, arquitectura ni nuevas semillas. En la geometría post-hoc, Spec 0050 remuestrea los 25 parches pareados; Spec 0051 resume primero las diferencias por sus 16 WSI de origen y remuestrea esas 16 WSI. Ambos intervalos son descriptivos y no poblacionales.",
     )
     add_bullet(
         doc,
@@ -2099,13 +2913,40 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
     )
     add_bullet(
         doc,
-        "Las visualizaciones de rotacion y PCA explican comportamiento, pero no constituyen endpoints de rendimiento. El barrido de 25 parches caracteriza una poblacion fija de validacion y no incorpora variacion entre semillas ni test sellado.",
+        "La geometría rotacional es post-hoc y exploratoria sobre 25 parches fijos de validación. No incorpora test sellado, variación entre semillas ni incertidumbre de una población nueva.",
+    )
+    add_bullet(
+        doc,
+        "La ventaja decodificada de Spec 0051 compara rutas dentro de cada modelo. Sus objetivos son transformaciones de la reconstrucción del propio modelo, no imágenes originales ni una nueva evaluación de fidelidad.",
+    )
+    add_bullet(
+        doc,
+        "La acción casi exacta se verificó en rotaciones de cuarto de vuelta alineadas con la cuadrícula. Los ángulos intermedios requieren interpolación y no sostienen la misma afirmación de exactitud; tampoco se evaluaron rotaciones continuas fuera de la rejilla de 5 grados.",
+    )
+    add_bullet(
+        doc,
+        "La interpolación bilineal impone parte de la regularidad de la trayectoria de entrada; las conclusiones dependen de controlar esa ruta y de la resolución angular. El efecto a 1 grado se invirtió a 5 grados.",
+    )
+    doc.add_page_break()
+    add_heading(doc, "13. Limitaciones (continuación)", 2)
+    add_bullet(
+        doc,
+        "PC1--PC6 capturaron alrededor de 11% de la variación orbital. Los generadores de d=1,...,6 examinan sólo una fracción pequeña del posterior espacial y no excluyen acciones compartidas de mayor dimensión o no lineales.",
+    )
+    add_bullet(
+        doc,
+        "La dimensión d=1 se eligió mediante una regla heurística de un error estándar leave-one-patch-out; los pliegues están correlacionados y la tolerancia no constituye incertidumbre poblacional.",
+    )
+    add_bullet(
+        doc,
+        "El addendum de revisión conserva ocho resultados por parche para el probe angular de factorización; aun así, la acción aprendida es identidad y los prerrequisitos no degenerados fallan, por lo que el estado es no resuelto.",
     )
     add_bullet(
         doc,
         "La evaluacion WSI sellada no guardo compuertas por parche. Cualquier mapa espacial de lectura o atribucion requiere una nueva inferencia instrumentada y una interpretacion post-hoc separada.",
     )
 
+    doc.add_page_break()
     add_heading(doc, "14. Conclusiones para la presentacion", 1)
     add_bullet(
         doc,
@@ -2121,11 +2962,23 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
     )
     add_bullet(
         doc,
-        "En los 25 parches fijos, el barrido cada 1 grado respalda una trayectoria SO(2) localmente mas suave, pero no una ventaja general de uniformidad, planitud PCA, residuo equivarante ni rendimiento.",
+        "El barrido corregido retira la anterior conclusión 25/25 como evidencia general: la diferencia descriptiva a 1 grado no alcanzó el umbral fijado y se invirtió a 5 grados.",
     )
     add_bullet(
         doc,
-        "La contribucion del experimento es mostrar dónde la arquitectura SO(2) presentó senales favorables, dónde no y dónde aparece una posible compensacion descriptiva con la fidelidad de reconstruccion.",
+        f"En las rutas decodificadas, SO(2) mostró una ventaja comparativa consistente para el barrido de 5 grados: menor error de acción y canonicalización en {decoded_action_review['so2_favorable_patches']}/{FIXED25_COUNT} parches. Sus medianas {es_decimal(float(decoded_action_review['so2']), 3)} y {es_decimal(float(decoded_canonical_review['so2']), 3)} no cumplieron el criterio funcional absoluto <=0,50, que es distinto de la comparación entre modelos.",
+    )
+    add_bullet(
+        doc,
+        f"Para R90, R180 y R270 exactas se verificó empíricamente una acción espacial C4 compartida del decoder del checkpoint SO(2), con razón de acción agregada {es_decimal(float(decoded_action_quarter['so2']), 8)}. El resultado no se extiende automáticamente a SO(2) continuo, al encoder ni al grupo D4 completo.",
+    )
+    add_bullet(
+        doc,
+        "No se demostró una acción rotacional reducida aprendida; la factorización local contenido--pose queda no resuelta y no se respalda una interpretación de producto global, fibrado o gauge con esta muestra.",
+    )
+    add_bullet(
+        doc,
+        "La contribución del experimento es mostrar dónde el checkpoint SO(2) presentó señales favorables, dónde no y dónde aparece una posible compensación descriptiva con la fidelidad de reconstrucción, sin atribución causal a un único componente arquitectónico.",
     )
     doc.add_page_break()
     add_heading(doc, "Anexo A. Cobertura de lo solicitado por el profesor", 1)
@@ -2138,8 +2991,36 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
             ["Desviacion estandar, n y boxplots", "Tablas y Figuras 2 y 4", "Completo"],
             ["25 originales y reconstrucciones", "Figura 3", "Completo"],
             ["Rotaciones 90/180/270", "Figura 6", "Completo"],
-            ["Orbita latente 0-359 y suavidad visual", "Figura 7", "Completo"],
-            ["Órbitas de los 25 parches cada 1 grado", "Figuras 8a y 8b", "Completo"],
+            [
+                "Órbita latente 0--359 y geometría local",
+                "Figura 7",
+                "Corregido; evidencia previa supersedida",
+            ],
+            [
+                "Órbitas de los 25 parches cada 1 grado",
+                "Figuras 8a--8c",
+                "Corregido con controles de entrada",
+            ],
+            [
+                "Armónicos y 48 campos F1",
+                "Figuras 8d y 8e",
+                "Completo; hipótesis no respaldadas",
+            ],
+            [
+                "Acción compartida y factorización",
+                "Figuras 8f y 8g",
+                "Completo; acción reducida no demostrada",
+            ],
+            [
+                "Rotar y desrotar el embedding decodificado",
+                "Figuras 6a y 6b; Sección 8",
+                "Completo; ventaja pareada y C4 exacto",
+            ],
+            [
+                "Rotaciones y flips exactos D4",
+                "Figura 6b; Sección 8",
+                "Completo; sólo flip diagonal pasa en SO(2)",
+            ],
             ["Visualizacion PCA espacial del latente", "Figura 9", "Completo"],
             [
                 "Repetir evaluacion para SO(2)",
@@ -2153,8 +3034,8 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
             ],
             [
                 "Barrido continuo 0-359 grados",
-                "Seccion 8: resumen del artefacto fijo-25",
-                "Completo; resumido",
+                "Sección 8: artefacto fijo-25 corregido",
+                "Completo; validación post-hoc",
             ],
             [
                 "Utilidad posterior y desglose por clase",
@@ -2171,6 +3052,7 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
         font_size=8.3,
     )
 
+    doc.add_page_break()
     add_heading(doc, "Anexo B. Definicion breve de metricas", 1)
     metrics_table = add_table(
         doc,
@@ -2207,11 +3089,35 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
             ],
             [
                 "Razon de linealidad local",
-                "RMS ciclico de la segunda diferencia de mu dividido por el RMS ciclico de la primera diferencia a pasos de 1 grado; menor indica un recorrido localmente mas suave.",
+                "RMS cíclico de la segunda diferencia de mu dividido por el RMS cíclico de la primera; depende del paso angular y debe compararse con la trayectoria de entrada.",
             ],
             [
                 "CV del paso angular",
                 "Desviacion estandar dividida por la media de los pasos RMS ciclicos de mu entre angulos consecutivos; menor indica velocidad de recorrido mas uniforme.",
+            ],
+            [
+                "Concentración armónica",
+                "Fracción de la energía orbital cruda total capturada por m=1,...,6 dentro de PC1--PC6; una frecuencia limpia requiere además transferencia y suficiente varianza capturada.",
+            ],
+            [
+                "NRMSE / R2 del generador",
+                "Predicción de ángulos y parches retenidos con una única acción exp(theta A); NRMSE menor y R2 mayor son mejores, siempre contra identidad y ángulos barajados.",
+            ],
+            [
+                "Residuo de acción conocida",
+                "Norma relativa entre E(R_theta x) y la rotación espacial de E(x) dentro del disco latente; cero representa equivarianza exacta.",
+            ],
+            [
+                "Razón de acción decodificada",
+                "RMS entre D(rho_T mu(x)) y T D(mu(x)), dividido por el error de dejar mu sin transformar. Uno es la línea base de no actuar; menor es mejor y 0,50 significa reducir ese error al menos a la mitad.",
+            ],
+            [
+                "Razón de canonicalización decodificada",
+                "RMS entre D(rho_T^-1 mu(Tx)) y D(mu(x)), dividido por el error sin desrotar el embedding. Mide consistencia entre rutas, no fidelidad frente a la imagen original.",
+            ],
+            [
+                "F = W / B",
+                "Varianza intraórbita después de canonicalizar dividida por varianza entre parches; sólo apoya factorización si la acción es válida, W disminuye y el contenido se conserva.",
             ],
         ],
         widths=[1.5, 5.2],
@@ -2225,7 +3131,7 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
     add_heading(doc, "Trazabilidad de resultados", 2)
     add_body(
         doc,
-        "Fuentes aceptadas: professor_metrics_v1; vae_test_reconstruction_scored_v1; ubc_ocean_mil_test_scored_v1; tissue_test_scored_v1; frozen_vae_rotation_orbits; Kaggle maximshtefan/eqvae-fixed25-dense-rotation-population/1. El informe no recalcula predicciones, no selecciona nuevos ejemplos y no modifica los artefactos experimentales.",
+        "Fuentes aceptadas: professor_metrics_v1; vae_test_reconstruction_scored_v1; ubc_ocean_mil_test_scored_v1; tissue_test_scored_v1; la PCA espacial fija de frozen_vae_rotation_orbits; Kaggle maximshtefan/eqvae-corrected-rotation-geometry/1; y Kaggle maximshtefan/eqvae-decoded-latent-transform-audit/1. Para Spec 0050, el resumen geométrico tiene SHA-256 aab68ca5b7cbe989ea1cd79740a64d83784441f85ffde09a6ee6ebebe7faf43c y el addendum ec74b37f509205bca12294321844a3cfb48dbd2f1763c8ff94290fe064e86f94. Para Spec 0051, el resumen tiene SHA-256 616e3a6c9caa6b8e72a0b21f41a5121d7a5baa420f8023b35775fedaf252a754, el manifiesto a1168b419080305138f7aedca4c1ed345c3d5947e78299b0e5ea1430a75d3c50 y el addendum b0fa0cc2eebe1207fcc2da7a00c30b9b85c40f4353e332131423f76f6c380e34. El artefacto dense-rotation-population/1 se conserva sólo como procedencia supersedida. El informe no recalcula inferencia, cambia umbrales ni selecciona ejemplos.",
     )
 
     doc.save(output_docx)

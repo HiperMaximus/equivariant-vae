@@ -3,7 +3,7 @@
 Status: implemented / complete and verified
 Implementation readiness: complete
 Owner/workstream: advisor-facing synthesis of completed experiment evidence
-Last updated: 2026-09-08
+Last updated: 2026-09-09
 
 ## Purpose
 
@@ -11,14 +11,15 @@ Create a presentation-ready Spanish report that answers the evaluation requests
 recorded in GitHub issues #2, #3, #4, and #6. The report must synthesize the
 completed normal-VAE and continuous-`SO(2)` evidence without strengthening
 exploratory results into confirmatory claims. It also incorporates the
-separately authorized fixed-validation dense-360 population check requested
-after the initial report.
+separately authorized fixed-validation rotation studies requested after the
+initial report. Specs 0050 and 0052 supersede the defective dense-rotation
+evidence and integrate the accepted decoded-transform audit.
 
 ## Non-Goals
 
 - No training, checkpoint selection, sealed-test inference, or metric change.
-- The only new inference is the one Spec 0038 private T4 pass over the frozen
-  checkpoints, fixed validation 25, and every integer rotation angle.
+- The report build performs no inference. Fixed-validation inference was
+  separately governed by Specs 0050 and 0051 and is consumed.
 - No paper, thesis, or Overleaf update. The professor-facing issue #6 comment
   was updated under separate explicit authorization.
 - No claim that either representation is universally superior.
@@ -37,13 +38,18 @@ after the initial report.
   `runs/local/ubc_ocean_mil_test_scored_v1`.
 - Sealed tissue label-efficiency score:
   `runs/local/tissue_test_scored_v1`.
-- Rotation-orbit and latent-PCA package:
-  `runs/local/frozen_vae_rotation_orbits`.
-- Immutable dense-360 source:
-  `maximshtefan/eqvae-fixed25-dense-rotation-population/1`, downloaded with a
-  receipt under `runs/kaggle/fixed25_rotation_population_v1`.
+- Superseded rotation-orbit provenance:
+  `runs/local/frozen_vae_rotation_orbits` and
+  `maximshtefan/eqvae-fixed25-dense-rotation-population/1`.
+- Accepted corrected geometry:
+  `runs/local/corrected_rotation_geometry_v1/corrected_rotation_geometry_v1`
+  under Spec 0050.
+- Accepted decoded-transform audit:
+  `runs/local/decoded_latent_transform_v1/decoded_latent_transform_v1` and
+  `docs/data/spec0051_decoded_transform_review_addendum.json` under Specs 0051
+  and 0052.
 - Canonical interpretation and limitations: `CURRENT.md`, `GOAL.md`, Specs
-  0038, 0040, 0041, 0043, 0044, and 0045.
+  0038, 0040, 0041, 0043, 0044, 0045, 0050, 0051, and 0052.
 
 All scientific numbers and existing figures remain immutable. The report
 builder reads the accepted local artifacts and embeds selected figures; it does
@@ -78,12 +84,13 @@ not recompute model outputs.
   diagnosis test, and tissue-patch test on every relevant table and caption.
 - State the direction of every paired difference. Keep confirmatory MAE separate
   from secondary reconstruction endpoints and exploratory diagnostics.
-- Use the existing figures at readable scale. Include both the selected-patch
-  0--359-degree orbit and the all-25 population grid sampled every 1 degree.
-  State that the latter supports lower raw-space local-linearity ratio for
-  SO(2) in 25/25 pairs while step-size uniformity and PCA planarity do not
-  consistently favor it; the comparable fixed-25 exact-quarter residual also
-  does not favor SO(2).
+- Use the existing figures at readable scale. Include the corrected selected-
+  patch and all-25 one-degree orbit views, input-path controls, harmonic/F1
+  diagnostics, shared-generator result, and decoded-transform audit. Withdraw
+  the defective mixed-sign geometry claim. Distinguish the 25/25 paired
+  decoded-route advantage from the unmet absolute `0.50` benchmark, and limit
+  the near-exact result to the prescribed C4 decoder action at exact quarter
+  turns.
 - Generate five deterministic summary charts from accepted evidence: supervised
   development/selection with online train-loss context, overall sealed WSI
   metrics, row-normalized WSI
@@ -124,8 +131,9 @@ The builder accepts `--repo-root`, `--output-docx`, and an optional
 8. Accessibility and image audits have no unresolved high-severity findings.
 9. Two independent clean-context reviewers find no P0/P1 claim or requirement
    defect after fixes.
-10. The report includes the accepted dense latent orbit and explains both its
-    visually regular SO(2) loop and the conflicting fixed-25 residual evidence.
+10. The report replaces the defective dense latent orbit evidence with the
+    corrected Spec 0050 analysis and separately reports the accepted Spec 0051
+    decoded-route and exact-C4 results.
 11. The report includes WSI confusion/per-class F1 and tissue per-class F1
     views, with sample support and uncertainty boundaries stated locally.
 12. No WSI attention or patch-attribution map is fabricated from artifacts that
@@ -154,30 +162,32 @@ git diff --check
 
 ## Verification Evidence
 
-- The dense-360 extension renders as a matching 20-page Letter DOCX/PDF with
-  15 inline figures; the all-25 orbit appears as readable Figures 8a/8b.
-- All 20 rendered pages were inspected at full size and by contact sheet with
+- The final extension renders as a matching 29-page Letter DOCX/PDF with 22
+  inline figures; corrected geometry appears in Figures 7/8a--8g and decoded-
+  transform evidence in Figures 6a/6b.
+- All 29 rendered pages were inspected at full size with
   no clipping, overlap, broken table, missing image, or unreadable caption.
 - The DOCX accessibility audit reports zero high, medium, or low findings; the
-  image audit finds all 15 expected inline figures. The 20-page PDF is tagged,
+  image audit finds all 22 expected inline figures. The 29-page PDF is tagged,
   Letter-sized, declares `es-CO`, has a structure tree, and is byte-identical to
   the PDF emitted from the visually inspected DOCX render.
-- Builder syntax and Ruff checks pass. Two independent clean-context final
-  reviews found no P0/P1/P2 statistical, requirement-coverage, readability, or
-  layout defect. The builder also recomputes and validates the dense-orbit
-  medians, paired counts, finiteness, angle grid, patch hashes, and checkpoint
-  hashes before writing claims.
+- Builder syntax and Ruff checks pass. Independent clean-context final reviews
+  found no P0/P1/P2 mathematical, statistical, claim-scope, readability, or
+  layout defect. The builder validates the accepted geometry and decoded-
+  transform hashes, medians, paired counts, decision margins, identities,
+  angle grids, patch hashes, and checkpoint hashes before writing claims.
 - The repo-wide Python gate still stops only on the 23 known unrelated legacy
   findings in two packaged probe files; focused checks for the report builder
   pass.
 - No training, checkpoint selection, sealed-test evaluation, paper edit, or
   thesis edit occurred. The separately authorized fixed-validation inference
   and issue #6 update are recorded by their exact remote identities. The issue
-  remains open and the final comment embeds 12 verified attachment URLs.
+  remains open and the final corrected comment retains ten verified attachment
+  URLs after removing the two defective dense-orbit embeds.
   Canonical report SHA-256 values are
-  `0ee1a866ed98dda1478a0b6da3568f5990f8a1c7af8319157107573369d58da1`
+  `c4c3cf292212830960dad6015bea518902f704a893875d407c27bc5b892ed98d`
   (DOCX) and
-  `3524c206d484b01591ac025936c44a986449ffeb6ac70de4876a1434a9653451`
+  `6107d24c3964e57a1c752382f699e8c6761a4c650732e2b4e5d305d182a95e7a`
   (PDF).
 
 ## Implementation Blockers
