@@ -9,7 +9,7 @@ The professor-facing result is:
 
 - `reports/professor/informe_final_experimento_eqvae.docx`;
 - `reports/professor/informe_final_experimento_eqvae.pdf`;
-- 20 pages and 15 figures;
+- 29 Letter pages and 22 inline figures;
 - final Spanish update on
   [GitHub issue #6](https://github.com/HiperMaximus/equivariant-vae/issues/6#issuecomment-5578529496).
 
@@ -43,14 +43,18 @@ Run the repository preflight before substantial work:
 - Full foreground embeddings cover 1,750,221 patches for each model.
 - MIL diagnosis, tissue label efficiency and reconstruction sealed tests are
   complete; their one-shot authorities are consumed.
-- The all-25 rotation diagnostic evaluates every integer angle from 0° to
-  359°.
+- The former all-25 dense rotation diagnostic is superseded because it mixed
+  opposite conventions at cardinal angles. Spec 0050 corrected the operator and
+  completed the fixed-validation post-hoc geometry audit.
 - No Kaggle job is active.
 
-The conclusion is mixed: normal is slightly better descriptively on
-reconstruction; `SO(2)` has favorable downstream point estimates without a
-general primary-test advantage; and `SO(2)` is locally smoother at one-degree
-resolution without more uniform traversal or stronger PCA planarity.
+The validated conclusion remains mixed for reconstruction and downstream
+tasks. Corrected rotation evidence does not demonstrate a robust SO(2)-specific
+regularity advantage, a transferable shared low-dimensional action, or local
+content--pose factorization. The raw-`mu` exact-quarter control does not favor
+SO(2); separately, the SO(2) decoder realizes the prescribed spatial C4 action
+at 90/180/270 degrees, without establishing continuous SO(2), encoder, or full
+D4/O(2) equivariance.
 
 ## Repository Layout
 

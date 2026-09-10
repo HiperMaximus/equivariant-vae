@@ -22,7 +22,7 @@ and hashes live in `CURRENT.md`.
 | Issue #3 | SSIM, MAE, MSE and PSNR; mean, SD, `n`; boxplots; training/evaluation dashboard | `runs/local/professor_metrics_v1` and report Figures 2–4 |
 | Issue #4 | Fixed 25 originals/reconstructions; rotated-input versus transformed-latent view; EQ-VAE-style latent PCA visualization | `runs/local/professor_metrics_v1`, `runs/local/frozen_vae_rotation_orbits` and report Figures 4–9 |
 | Issue #6 | Repeat evaluation for continuous `SO(2)`; test downstream WSI/tissue utility | Specs 0038–0048 and report Figures 8–14 |
-| Issue #6 follow-up | Verify the 0°–359° orbit across all 25 fixed patches at one-degree resolution | `runs/local/frozen_vae_rotation_orbits/07-all25-latent-orbits.{png,json}` and report Figures 8a/8b |
+| Issue #6 follow-up | Verify the 0°–359° orbit across all 25 fixed patches at one-degree resolution | Legacy Spec 0038 artifacts are superseded by a mixed-sign rotation defect; corrected validation is owned by Spec 0050. |
 | Issue #6 follow-up | Show train context with WSI validation curves | Report Figure 10; online train CE is labelled optimization telemetry |
 | Issue #6 follow-up | Consider WSI patch attribution | Deferred: accepted outputs lack patch-level gates; instrumented inference is required |
 
@@ -102,15 +102,18 @@ GitHub attachment URLs.
   superiority when the interval crosses zero.
 - Tissue: six-contrast simultaneous intervals; only the 500-label contrast
   excludes zero.
-- Rotation: lower local-linearity ratio in 25/25 supports only local
-  one-degree smoothness. Step uniformity, PCA planarity and exact-quarter
-  residuals do not generally favor `SO(2)`.
+- Rotation: the former 25/25 dense interpretation is superseded by a mixed-sign
+  defect. The corrected one-degree local-linearity direction misses the fixed
+  10% gate and reverses at five degrees; neither a shared reduced action nor
+  local content--pose factorization was demonstrated. Exact-quarter residuals
+  remain valid and do not favor `SO(2)`.
 - PCA colors and individual examples are diagnostics, not performance metrics.
 - No universal winner is established.
 - No attention heatmap may be fabricated from logits or graph coordinates.
 
 ## Current Boundary
 
-The evaluation and professor report are complete. Paper, thesis, Overleaf,
-public derived-data release, further issue mutation and WSI attribution require
-separate explicit scope.
+The sealed evaluation and corrected fixed-validation rotation audit are
+complete. The professor report contains the reviewed Spec 0050 result. Paper,
+thesis, Overleaf, public derived-data release, further issue mutation and WSI
+attribution require separate explicit scope.

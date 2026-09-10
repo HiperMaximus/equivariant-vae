@@ -16,21 +16,30 @@ equal-or-smaller learned-parameter budget.
 ## Current Outcome
 
 The two 60,000-update VAEs, frozen latent stores, supervised WSI and tissue
-comparisons, sealed reconstruction test, rotation/spatial diagnostics and final
-professor report are complete through Spec 0048.
+comparisons, and sealed reconstruction test remain complete and unchanged.
+Spec 0050 completed the validation-only correction and audit of a mixed-sign
+continuous-rotation defect and rebuilt the professor report from the reviewed
+corrected evidence.
 
 The evidence is mixed:
 
 - normal has a small descriptive reconstruction advantage;
 - `SO(2)` has favorable downstream point estimates without a general primary
   test advantage;
-- `SO(2)` has a lower one-degree local-linearity ratio in all 25 fixed
-  validation patches, but not better step uniformity or PCA planarity.
+- the corrected one-degree direction is descriptively favorable to `SO(2)` but
+  misses the fixed effect-size gate and reverses at five degrees;
+- no low-dimensional shared action, clean internal-F1 transformation or local
+  content--pose factorization was demonstrated; the raw-`mu` exact-quarter
+  control remains valid and does not favor `SO(2)`;
+- separately, the SO(2) decoder realizes the prescribed spatial C4 action at
+  exact 90/180/270-degree rotations only, not continuous SO(2), encoder
+  equivariance, or complete D4/O(2).
 
-The final Spanish report is
-`reports/professor/informe_final_experimento_eqvae.{docx,pdf}`. It has 20 pages
-and 15 figures. `CURRENT.md` owns exact results, hashes, limitations and the
-current authorization boundary.
+The current Spanish report is
+`reports/professor/informe_final_experimento_eqvae.{docx,pdf}`. Its sealed and
+supervised sections remain accepted and its rotation section now supersedes the
+defective dense figures with the reviewed Spec 0050 results. `CURRENT.md` owns
+exact state and authorization.
 
 ## Scientific Contract
 
