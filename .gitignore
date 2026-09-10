@@ -228,6 +228,10 @@ kaggle/kernels/so2_runtime_readiness/run.py
 kaggle/kernels/so2_prelaunch/run.py
 kaggle/kernels/so2_selected_runtime_full/run.py
 kaggle/kernels/ubc_ocean_test_atlas/run.py
+kaggle/kernels/corrected_rotation_geometry/run.py
+kaggle/kernels/decoded_latent_transform/run.py
+kaggle/kernels/functional_geometry_preflight/run.py
+kaggle/kernels/jvp_epsilon_grid_calibration/run.py
 
 # Kaggle credentials
 .kaggle/

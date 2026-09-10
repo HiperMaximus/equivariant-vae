@@ -315,6 +315,34 @@ else
   missing=1
 fi
 
+if git check-ignore --no-index -q kaggle/kernels/corrected_rotation_geometry/run.py; then
+  echo "ok: generated corrected-rotation geometry run.py is ignored"
+else
+  echo "error: generated corrected-rotation geometry run.py should stay ignored"
+  missing=1
+fi
+
+if git check-ignore --no-index -q kaggle/kernels/decoded_latent_transform/run.py; then
+  echo "ok: generated decoded-latent transform run.py is ignored"
+else
+  echo "error: generated decoded-latent transform run.py should stay ignored"
+  missing=1
+fi
+
+if git check-ignore --no-index -q kaggle/kernels/functional_geometry_preflight/run.py; then
+  echo "ok: generated functional-geometry preflight run.py is ignored"
+else
+  echo "error: generated functional-geometry preflight run.py should stay ignored"
+  missing=1
+fi
+
+if git check-ignore --no-index -q kaggle/kernels/jvp_epsilon_grid_calibration/run.py; then
+  echo "ok: generated JVP epsilon calibration run.py is ignored"
+else
+  echo "error: generated JVP epsilon calibration run.py should stay ignored"
+  missing=1
+fi
+
 for credential_path in kaggle.json .kaggle/kaggle.json kaggle/kernels/kaggle.json; do
   if git check-ignore --no-index -q "$credential_path"; then
     echo "ok: $credential_path is ignored"
@@ -334,7 +362,9 @@ fi
 
 echo
 echo "Stale planning-term check"
-stale_pattern='\b(MAPI4?|Springer|D4)\b'
+# D4 is now a live mathematical term in Spec 0051 (the exact dihedral group),
+# so it is no longer a safe proxy for the retired venue/project vocabulary.
+stale_pattern='\b(MAPI4?|Springer)\b'
 if ! command -v rg >/dev/null 2>&1; then
   echo "missing: rg; cannot run stale planning-term check"
   missing=1

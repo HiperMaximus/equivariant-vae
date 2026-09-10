@@ -59,6 +59,21 @@ fixed25_selector_kernel_dir="kaggle/kernels/fixed25_selector"
 fixed25_selector_output_dir="runs/kaggle/fixed25_selector"
 fixed25_rotation_population_kernel_dir="kaggle/kernels/fixed25_rotation_population"
 fixed25_rotation_population_kernel_id="maximshtefan/eqvae-fixed25-rotation-population"
+corrected_rotation_geometry_kernel_dir="kaggle/kernels/corrected_rotation_geometry"
+corrected_rotation_geometry_kernel_id="maximshtefan/eqvae-corrected-rotation-geometry"
+corrected_rotation_geometry_claim="runs/local/corrected_rotation_geometry_launch/push_claim.json"
+decoded_transform_kernel_dir="kaggle/kernels/decoded_latent_transform"
+decoded_transform_kernel_id="maximshtefan/eqvae-decoded-latent-transform"
+decoded_transform_claim="runs/local/decoded_latent_transform_launch/push_claim.json"
+functional_geometry_preflight_kernel_dir="kaggle/kernels/functional_geometry_preflight"
+functional_geometry_preflight_kernel_id="maximshtefan/eqvae-functional-geometry-preflight-04a08ab5"
+functional_geometry_preflight_claim="runs/local/functional_geometry_preflight_jvp_ladder_launch/push_claim.json"
+functional_geometry_preflight_resume_kernel_dir="runs/local/functional_geometry_preflight_jvp_ladder_resume/kernel"
+functional_geometry_preflight_resume_kernel_id="maximshtefan/eqvae-functional-geometry-preflight-04a08ab5-resume"
+functional_geometry_preflight_resume_claim="runs/local/functional_geometry_preflight_jvp_ladder_resume/push_claim.json"
+jvp_epsilon_calibration_kernel_dir="kaggle/kernels/jvp_epsilon_grid_calibration"
+jvp_epsilon_calibration_kernel_id="maximshtefan/eqvae-jvp-epsilon-grid-calibration-05a08ab5"
+jvp_epsilon_calibration_claim="runs/local/jvp_epsilon_grid_calibration_launch/push_claim.json"
 selected_runtime_compile_probe_kernel_dir="kaggle/kernels/selected_runtime_compile_probe"
 so2_architecture_probe_kernel_dir="kaggle/kernels/so2_architecture_probe"
 so2_architecture_probe_output_dir="runs/kaggle/so2_architecture_probe_v3"
@@ -469,6 +484,26 @@ make_account_portable_kernel_snapshot() {
   printf '%s\n' "$upload_dir"
 }
 
+make_corrected_rotation_geometry_snapshot() {
+  local kernel_dir="$1"
+  local actor="$2"
+  local stage_root
+  local source_dir
+  local upload_dir
+  stage_root="$(mktemp -d "$TMPDIR/corrected_rotation_geometry.XXXXXX")"
+  source_dir="$stage_root/source"
+  upload_dir="$stage_root/kernel"
+  mkdir -p "$source_dir"
+  cp -- "$kernel_dir/kernel-metadata.json" "$source_dir/kernel-metadata.json"
+  cp -- "$kernel_dir/run.py" "$source_dir/run.py"
+  require_build_python
+  "$build_python" -m eqvae.kaggle_resources snapshot \
+    --source-dir "$source_dir" \
+    --destination-dir "$upload_dir" \
+    --actor "$actor" >/dev/null
+  printf '%s\n' "$upload_dir"
+}
+
 record_account_portable_launch() {
   local kernel_dir="$1"
   local upload_dir="$2"
@@ -483,6 +518,369 @@ record_account_portable_launch() {
   )
   require_build_python
   "$build_python" "${args[@]}"
+}
+
+claim_corrected_rotation_geometry_push() {
+  local kernel_dir="$1"
+  local upload_dir="$2"
+  local actor="$3"
+  mkdir -p "$(dirname "$corrected_rotation_geometry_claim")"
+  python3 - "$corrected_rotation_geometry_claim" "$kernel_dir" "$upload_dir" \
+    "$actor" <<'PYSPEC0050CLAIM'
+import datetime
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+claim, source_dir, upload_dir = map(Path, sys.argv[1:4])
+actor = sys.argv[4]
+
+
+def sha256(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def inventory(directory):
+    entries = list(directory.iterdir())
+    if {path.name for path in entries} != {"kernel-metadata.json", "run.py"}:
+        raise SystemExit("Spec 0050 upload snapshot allow-list differs")
+    if any(path.is_symlink() or not path.is_file() for path in entries):
+        raise SystemExit("Spec 0050 upload snapshot contains a non-regular file")
+    return {
+        path.name: {"bytes": path.stat().st_size, "sha256": sha256(path)}
+        for path in sorted(entries)
+    }
+
+
+if actor != "maximshtefan":
+    raise SystemExit("Spec 0050 actor differs")
+source_files = {
+    name: {
+        "bytes": (source_dir / name).stat().st_size,
+        "sha256": sha256(source_dir / name),
+    }
+    for name in ("kernel-metadata.json", "run.py")
+}
+
+upload_files = inventory(upload_dir)
+payload = {
+    "schema_version": "spec0050.push_attempt.v1",
+    "authorization": "spec0050_corrected_rotation_geometry_authorized",
+    "authority_consumed": True,
+    "status": "attempt_claimed",
+    "actor": actor,
+    "kernel_id": "maximshtefan/eqvae-corrected-rotation-geometry",
+    "source_files": source_files,
+    "upload_files": upload_files,
+    "attempt_started_utc": datetime.datetime.now(datetime.UTC).isoformat(),
+}
+with claim.open("x", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+directory = os.open(claim.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYSPEC0050CLAIM
+}
+
+claim_decoded_transform_push() {
+  local kernel_dir="$1"
+  local upload_dir="$2"
+  local actor="$3"
+  mkdir -p "$(dirname "$decoded_transform_claim")"
+  python3 - "$decoded_transform_claim" "$kernel_dir" "$upload_dir" \
+    "$actor" <<'PYSPEC0051CLAIM'
+import datetime
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+claim, source_dir, upload_dir = map(Path, sys.argv[1:4])
+actor = sys.argv[4]
+
+
+def sha256(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def inventory(directory):
+    entries = list(directory.iterdir())
+    if {path.name for path in entries} != {"kernel-metadata.json", "run.py"}:
+        raise SystemExit("Spec 0051 upload snapshot allow-list differs")
+    if any(path.is_symlink() or not path.is_file() for path in entries):
+        raise SystemExit("Spec 0051 upload snapshot contains a non-regular file")
+    return {
+        path.name: {"bytes": path.stat().st_size, "sha256": sha256(path)}
+        for path in sorted(entries)
+    }
+
+
+if actor != "maximshtefan":
+    raise SystemExit("Spec 0051 actor differs")
+source_files = {
+    name: {
+        "bytes": (source_dir / name).stat().st_size,
+        "sha256": sha256(source_dir / name),
+    }
+    for name in ("kernel-metadata.json", "run.py")
+}
+payload = {
+    "schema_version": "spec0051.push_attempt.v1",
+    "authorization": "spec0051_decoded_latent_transform_authorized",
+    "authority_consumed": True,
+    "status": "attempt_claimed",
+    "actor": actor,
+    "kernel_id": "maximshtefan/eqvae-decoded-latent-transform",
+    "source_files": source_files,
+    "upload_files": inventory(upload_dir),
+    "attempt_started_utc": datetime.datetime.now(datetime.UTC).isoformat(),
+}
+with claim.open("x", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+directory = os.open(claim.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYSPEC0051CLAIM
+}
+
+claim_functional_geometry_preflight_push() {
+  local kernel_dir="$1"
+  local upload_dir="$2"
+  local actor="$3"
+  mkdir -p "$(dirname "$functional_geometry_preflight_claim")"
+  python3 - "$functional_geometry_preflight_claim" "$kernel_dir" "$upload_dir" \
+    "$actor" <<'PYSPEC0053PREFLIGHTCLAIM'
+import datetime
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+claim, source_dir, upload_dir = map(Path, sys.argv[1:4])
+actor = sys.argv[4]
+
+
+def inventory(directory, expected):
+    entries = [
+        path for path in directory.iterdir() if path.is_file() or path.is_symlink()
+    ]
+    if {path.name for path in entries} != expected:
+        raise SystemExit("Spec 0057 JVP ladder upload snapshot allow-list differs")
+    if any(path.is_symlink() or not path.is_file() for path in entries):
+        raise SystemExit("Spec 0057 JVP ladder upload snapshot is not regular")
+    return {
+        path.name: {
+            "bytes": path.stat().st_size,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for path in sorted(entries)
+    }
+
+
+if actor != "maximshtefan":
+    raise SystemExit("Spec 0057 JVP ladder actor differs")
+source_files = inventory(
+    source_dir,
+    {"kernel-metadata.json", "run.py", "run_template.py"},
+)
+payload = {
+    "schema_version": "spec0057.jvp_epsilon_ladder_push_attempt.v1",
+    "authorization": "spec0057_jvp_epsilon_ladder_authorized",
+    "authority_consumed": True,
+    "status": "attempt_claimed",
+    "actor": actor,
+    "kernel_id": "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5",
+    "source_files": source_files,
+    "upload_files": inventory(upload_dir, {"kernel-metadata.json", "run.py"}),
+    "attempt_started_utc": datetime.datetime.now(datetime.UTC).isoformat(),
+}
+with claim.open("x", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+directory = os.open(claim.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYSPEC0053PREFLIGHTCLAIM
+}
+
+claim_jvp_epsilon_calibration_push() {
+  local kernel_dir="$1"
+  local upload_dir="$2"
+  local actor="$3"
+  mkdir -p "$(dirname "$jvp_epsilon_calibration_claim")"
+  python3 - "$jvp_epsilon_calibration_claim" "$kernel_dir" "$upload_dir" \
+    "$actor" <<'PYSPEC0058CLAIM'
+import datetime
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+claim, source_dir, upload_dir = map(Path, sys.argv[1:4])
+actor = sys.argv[4]
+
+
+def inventory(directory, expected):
+    entries = list(directory.iterdir())
+    if {path.name for path in entries} != expected:
+        raise SystemExit("Spec 0058 calibration snapshot allow-list differs")
+    if any(path.is_symlink() or not path.is_file() for path in entries):
+        raise SystemExit("Spec 0058 calibration snapshot is not regular")
+    return {
+        path.name: {
+            "bytes": path.stat().st_size,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for path in sorted(entries)
+    }
+
+
+if actor != "maximshtefan":
+    raise SystemExit("Spec 0058 calibration actor differs")
+payload = {
+    "schema_version": "spec0058.jvp_epsilon_grid_calibration_push_attempt.v1",
+    "authorization": "spec0058_jvp_epsilon_grid_calibration_authorized",
+    "authority_consumed": True,
+    "status": "attempt_claimed",
+    "actor": actor,
+    "kernel_id": "maximshtefan/eqvae-jvp-epsilon-grid-calibration-05a08ab5",
+    "source_files": inventory(
+        source_dir,
+        {"kernel-metadata.json", "run.py", "run_template.py"},
+    ),
+    "upload_files": inventory(upload_dir, {"kernel-metadata.json", "run.py"}),
+    "attempt_started_utc": datetime.datetime.now(datetime.UTC).isoformat(),
+}
+with claim.open("x", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+directory = os.open(claim.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYSPEC0058CLAIM
+}
+
+claim_functional_geometry_preflight_resume_push() {
+  local kernel_dir="$1"
+  local upload_dir="$2"
+  local actor="$3"
+  mkdir -p "$(dirname "$functional_geometry_preflight_resume_claim")"
+  python3 - "$functional_geometry_preflight_resume_claim" "$kernel_dir" \
+    "$upload_dir" "$actor" <<'PYSPEC0057RESUMECLAIM'
+import datetime
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+claim, source_dir, upload_dir = map(Path, sys.argv[1:4])
+actor = sys.argv[4]
+
+
+def inventory(directory, expected):
+    entries = list(directory.iterdir())
+    if {path.name for path in entries} != expected:
+        raise SystemExit("Spec 0057 resume upload inventory differs")
+    if any(path.is_symlink() or not path.is_file() for path in entries):
+        raise SystemExit("Spec 0057 resume upload contains a non-regular file")
+    return {
+        path.name: {
+            "bytes": path.stat().st_size,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for path in sorted(entries)
+    }
+
+
+if actor != "maximshtefan":
+    raise SystemExit("Spec 0057 resume actor differs")
+contract = json.loads((source_dir / "continuation_contract.json").read_text(encoding="utf-8"))
+expected_binding = {
+    "schema": "spec0057.preflight_continuation_binding.v1",
+    "parent_kernel_id": "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5",
+    "parent_version": 1,
+    "parent_reference": "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5/1",
+    "parent_contract_sha256": "bc48f1f6d4a3088501054aa246cfa2785adec9947914faf76e9b44501e359482",
+    "parent_spec_sha256": "6821036a7b616f34ec5ddee339d13bc15b8167b0359e089dbc89a5eed30144b0",
+    "pending_work_id": "a8a3d5842f7d9e9f3be45029f6ed55d2e8e6651e2476312c151211259010c472",
+    "child_kernel_id": "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5-resume",
+}
+for field, value in expected_binding.items():
+    if contract.get(field) != value:
+        raise SystemExit(f"Spec 0057 resume binding differs at {field}")
+manifest_hash = contract.get("parent_manifest_sha256")
+if not isinstance(manifest_hash, str) or len(manifest_hash) != 64:
+    raise SystemExit("Spec 0057 resume parent manifest hash differs")
+output_receipt_hash = contract.get("parent_output_receipt_sha256")
+if not isinstance(output_receipt_hash, str) or len(output_receipt_hash) != 64:
+    raise SystemExit("Spec 0057 resume parent output receipt hash differs")
+payload = {
+    "schema_version": "spec0057.jvp_epsilon_ladder_resume_push_attempt.v1",
+    "authorization": "spec0057_jvp_epsilon_ladder_authorized",
+    "authority_consumed": True,
+    "status": "attempt_claimed",
+    "actor": actor,
+    "kernel_id": "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5-resume",
+    "parent_reference": contract["parent_reference"],
+    "parent_manifest_sha256": manifest_hash,
+    "source_files": inventory(source_dir, {"continuation_contract.json", "kernel-metadata.json", "run.py"}),
+    "upload_files": inventory(upload_dir, {"kernel-metadata.json", "run.py"}),
+    "attempt_started_utc": datetime.datetime.now(datetime.UTC).isoformat(),
+}
+with claim.open("x", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+directory = os.open(claim.parent, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PYSPEC0057RESUMECLAIM
+}
+
+preflight_functional_geometry_slug() {
+  local kernel_id="$1"
+  local kernel_slug="${kernel_id#*/}"
+  local listing
+  require_remote_confirmed
+  listing="$(kaggle_api kernels list --mine --search "$kernel_slug" --csv)"
+  KAGGLE_SPEC0053_KERNEL_LISTING="$listing" python3 - "$kernel_id" <<'PYSPEC0053UNLAUNCHED'
+import csv
+import io
+import os
+import sys
+
+kernel_id = sys.argv[1].casefold()
+rows = csv.reader(io.StringIO(os.environ["KAGGLE_SPEC0053_KERNEL_LISTING"]))
+if any(any(cell.casefold() == kernel_id for cell in row) for row in rows):
+    raise SystemExit("Spec 0053 unique kernel slug already exists remotely")
+PYSPEC0053UNLAUNCHED
 }
 
 claim_local_global_capacity_push() {
@@ -824,6 +1222,42 @@ validate_kernel_dir() {
   echo "ok: $metadata"
   echo "ok: $kernel_dir/$code_file"
 
+  if [[ "$kernel_dir" == "$corrected_rotation_geometry_kernel_dir" ]]; then
+    build_kernel_py \
+      --kernel-dir "$kernel_dir" \
+      --ready-marker "KAGGLE_CORRECTED_ROTATION_GEOMETRY_READY = True" \
+      --verify-only \
+      --allow-dirty
+    echo "ok: Spec 0050 corrected-geometry embedded payload matches current worktree"
+  fi
+
+  if [[ "$kernel_dir" == "$decoded_transform_kernel_dir" ]]; then
+    build_kernel_py \
+      --kernel-dir "$kernel_dir" \
+      --ready-marker "KAGGLE_DECODED_LATENT_TRANSFORM_READY = True" \
+      --verify-only \
+      --allow-dirty
+    echo "ok: Spec 0051 decoded-transform embedded payload matches current worktree"
+  fi
+
+  if [[ "$kernel_dir" == "$functional_geometry_preflight_kernel_dir" ]]; then
+    build_kernel_py \
+      --kernel-dir "$kernel_dir" \
+      --ready-marker "KAGGLE_FUNCTIONAL_GEOMETRY_JVP_LADDER_READY = True" \
+      --verify-only \
+      --allow-dirty
+    echo "ok: Spec 0057 JVP ladder preflight embedded payload matches current worktree"
+  fi
+
+  if [[ "$kernel_dir" == "$jvp_epsilon_calibration_kernel_dir" ]]; then
+    build_kernel_py \
+      --kernel-dir "$kernel_dir" \
+      --ready-marker "KAGGLE_JVP_EPSILON_GRID_CALIBRATION_READY = True" \
+      --verify-only \
+      --allow-dirty
+    echo "ok: Spec 0058 JVP epsilon calibration embedded payload matches current worktree"
+  fi
+
   if [[ "$kernel_dir" == "$real_data_runtime_pretest_kernel_dir" ]]; then
     build_kernel_py \
       --kernel-dir "$kernel_dir" \
@@ -1082,6 +1516,18 @@ embedded_ready_marker() {
     maximshtefan/eqvae-fixed25-rotation-population)
       printf '%s\n' "KAGGLE_FIXED25_ROTATION_POPULATION_READY = True"
       ;;
+    maximshtefan/eqvae-corrected-rotation-geometry)
+      printf '%s\n' "KAGGLE_CORRECTED_ROTATION_GEOMETRY_READY = True"
+      ;;
+    maximshtefan/eqvae-decoded-latent-transform)
+      printf '%s\n' "KAGGLE_DECODED_LATENT_TRANSFORM_READY = True"
+      ;;
+    maximshtefan/eqvae-functional-geometry-preflight-04a08ab5)
+      printf '%s\n' "KAGGLE_FUNCTIONAL_GEOMETRY_JVP_LADDER_READY = True"
+      ;;
+    maximshtefan/eqvae-jvp-epsilon-grid-calibration-05a08ab5)
+      printf '%s\n' "KAGGLE_JVP_EPSILON_GRID_CALIBRATION_READY = True"
+      ;;
     maximusshtefan/eqvae-selected-runtime-compile-probe)
       printf '%s\n' "KAGGLE_SELECTED_RUNTIME_COMPILE_PROBE_READY = True"
       ;;
@@ -1121,6 +1567,420 @@ guard_push_ready() {
   metadata="$(metadata_path "$kernel_dir")"
   code_file="$(json_field "$metadata" code_file)"
   kernel_id="$(json_field "$metadata" id)"
+
+  if [[ "$kernel_dir" == "$functional_geometry_preflight_resume_kernel_dir" \
+    || "$kernel_id" == "$functional_geometry_preflight_resume_kernel_id" ]]; then
+    if [[ "${KAGGLE_FUNCTIONAL_GEOMETRY_JVP_LADDER_RESUME_CONFIRMED:-}" != "1" \
+      || "${KAGGLE_REMOTE_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "$functional_geometry_preflight_resume_kernel_dir" \
+      || "$kernel_id" != "$functional_geometry_preflight_resume_kernel_id" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: exact receipt-bound Spec 0057 JVP ladder resume confirmation/path required" >&2
+      exit 1
+    fi
+    if [[ -e "$functional_geometry_preflight_resume_claim" ]] \
+      || compgen -G \
+      "runs/local/kaggle_launches/maximshtefan/eqvae-functional-geometry-preflight-04a08ab5-resume/v*.json" \
+      >/dev/null; then
+      echo "error: Spec 0057 JVP ladder resume launch authority was already consumed" >&2
+      exit 1
+    fi
+    local resume_actor
+    resume_actor="$(kaggle_authenticated_username)"
+    if [[ "$resume_actor" != "maximshtefan" ]]; then
+      echo "error: Spec 0057 JVP ladder resume launch requires authenticated actor maximshtefan" >&2
+      exit 1
+    fi
+    python3 - "$metadata" "$kernel_dir/continuation_contract.json" \
+      "$kernel_dir/$code_file" <<'PYSPEC0057RESUMEGUARD'
+import json
+import sys
+from pathlib import Path
+
+metadata_path, contract_path, source_path = map(Path, sys.argv[1:])
+metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+expected_metadata = {
+    "id": "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5-resume",
+    "title": "eqvae-functional-geometry-preflight-04a08ab5-resume",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "false",
+    "enable_internet": "false",
+    "dataset_sources": [],
+    "competition_sources": [],
+    "kernel_sources": ["maximshtefan/eqvae-functional-geometry-preflight-04a08ab5"],
+    "model_sources": [],
+}
+if metadata != expected_metadata:
+    raise SystemExit("Spec 0057 JVP ladder resume metadata differs")
+contract = json.loads(contract_path.read_text(encoding="utf-8"))
+required = {
+    "schema": "spec0057.preflight_continuation_binding.v1",
+    "parent_kernel_id": "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5",
+    "parent_version": 1,
+    "parent_reference": "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5/1",
+    "parent_contract_sha256": "bc48f1f6d4a3088501054aa246cfa2785adec9947914faf76e9b44501e359482",
+    "parent_spec_sha256": "6821036a7b616f34ec5ddee339d13bc15b8167b0359e089dbc89a5eed30144b0",
+    "pending_work_id": "a8a3d5842f7d9e9f3be45029f6ed55d2e8e6651e2476312c151211259010c472",
+    "child_kernel_id": "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5-resume",
+}
+for field, value in required.items():
+    if contract.get(field) != value:
+        raise SystemExit(f"Spec 0057 JVP ladder resume contract differs at {field}")
+manifest_hash = contract.get("parent_manifest_sha256")
+if not isinstance(manifest_hash, str) or len(manifest_hash) != 64:
+    raise SystemExit("Spec 0057 JVP ladder resume contract has no parent manifest hash")
+output_receipt_hash = contract.get("parent_output_receipt_sha256")
+if not isinstance(output_receipt_hash, str) or len(output_receipt_hash) != 64:
+    raise SystemExit("Spec 0057 JVP ladder resume contract has no parent output receipt hash")
+source = source_path.read_text(encoding="utf-8")
+if source_path.stat().st_size >= 1_000_000:
+    raise SystemExit("Spec 0057 JVP ladder resume source exceeds Kaggle's limit")
+if json.dumps(contract, sort_keys=True) not in source:
+    raise SystemExit("Spec 0057 JVP ladder resume source does not embed the validated contract")
+for required_source in (
+    "KAGGLE_FUNCTIONAL_GEOMETRY_JVP_LADDER_RESUME_READY = True",
+    "expected exactly one mounted predecessor",
+    "parent_manifest_sha256",
+    "preflight_jvp_ladder_resume_v1",
+):
+    if required_source not in source:
+        raise SystemExit(f"Spec 0057 JVP ladder resume source marker missing: {required_source}")
+for forbidden in ("torch", "optimizer", "model", "dataset"):
+    if forbidden in source.lower():
+        raise SystemExit(f"Spec 0057 JVP ladder resume forbidden source token: {forbidden}")
+compile(source, str(source_path), "exec")
+PYSPEC0057RESUMEGUARD
+    return
+  fi
+
+  if [[ "$kernel_dir" == "$jvp_epsilon_calibration_kernel_dir" \
+    || "$kernel_id" == "$jvp_epsilon_calibration_kernel_id" ]]; then
+    if [[ "${KAGGLE_JVP_EPSILON_GRID_CALIBRATION_CONFIRMED:-}" != "1" \
+      || "${KAGGLE_FULL_DATASET_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "$jvp_epsilon_calibration_kernel_dir" \
+      || "$kernel_id" != "$jvp_epsilon_calibration_kernel_id" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: exact Spec 0058 JVP calibration confirmation/path required" >&2
+      exit 1
+    fi
+    if ! grep -q 'spec0058_jvp_epsilon_grid_calibration_authorized' \
+      docs/specs/0058-jvp-epsilon-grid-calibration.md \
+      || ! grep -q 'spec0058_jvp_epsilon_grid_calibration_authorized' \
+      docs/specs/README.md; then
+      echo "error: Spec 0058 calibration authorization is not canonical" >&2
+      exit 1
+    fi
+    if [[ -e "$jvp_epsilon_calibration_claim" ]] \
+      || compgen -G \
+      "runs/local/kaggle_launches/maximshtefan/eqvae-jvp-epsilon-grid-calibration-05a08ab5/v*.json" \
+      >/dev/null; then
+      echo "error: Spec 0058 calibration launch authority was already consumed" >&2
+      exit 1
+    fi
+    local calibration_actor
+    calibration_actor="$(kaggle_authenticated_username)"
+    if [[ "$calibration_actor" != "maximshtefan" ]]; then
+      echo "error: Spec 0058 calibration launch requires actor maximshtefan" >&2
+      exit 1
+    fi
+    python3 - "$metadata" "$kernel_dir/$code_file" <<'PYSPEC0058GUARD'
+import json
+import sys
+from pathlib import Path
+
+metadata_path, source_path = map(Path, sys.argv[1:])
+metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+expected = {
+    "id": "maximshtefan/eqvae-jvp-epsilon-grid-calibration-05a08ab5",
+    "title": "eqvae-jvp-epsilon-grid-calibration-05a08ab5",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "false",
+    "machine_shape": "NvidiaTeslaT4",
+    "dataset_sources": [
+        "maximshtefan/eqvae-vae-test-reconstruction-inputs-v1",
+        "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+    ],
+    "competition_sources": [],
+    "kernel_sources": [],
+    "model_sources": [],
+}
+if metadata != expected:
+    raise SystemExit("Spec 0058 calibration metadata differs")
+source = source_path.read_text(encoding="utf-8")
+if source_path.stat().st_size >= 1_000_000:
+    raise SystemExit("Spec 0058 calibration source exceeds Kaggle's limit")
+required = (
+    "KAGGLE_JVP_EPSILON_GRID_CALIBRATION_READY = True",
+    'CONTRACT_SHA256 = "397b2cd6efc4bb7e4b3d775b27e58c63d6d8a7f4f2c0a68fb600ba337d183e08"',
+    'SPEC_SHA256 = "037e6f74b3b0f06b8fab3b43da62a6505bbfdd51d98be8d913a04fa3836223fb"',
+    'OUTPUT_ROOT = WORKING_ROOT / "jvp_epsilon_grid_calibration_v1"',
+    "frozen_bundle_ready",
+    "torch.autograd.functional.jvp",
+    "EPSILON_GRID = (0.002, 0.004, 0.008, 0.016)",
+    "SELECTION_MAX = 0.005",
+    "branch_a",
+    "branch_b",
+)
+missing = [marker for marker in required if marker not in source]
+if missing:
+    raise SystemExit(f"Spec 0058 calibration source markers missing: {missing}")
+for forbidden in ("torch.optim", ".backward(", "torch.compile(", "functional.vjp"):
+    if forbidden in source.lower():
+        raise SystemExit(f"Spec 0058 calibration forbidden source token: {forbidden}")
+compile(source, str(source_path), "exec")
+PYSPEC0058GUARD
+    return
+  fi
+
+  if [[ "$kernel_dir" == "$functional_geometry_preflight_kernel_dir" \
+    || "$kernel_id" == "$functional_geometry_preflight_kernel_id" ]]; then
+    if [[ "${KAGGLE_FUNCTIONAL_GEOMETRY_JVP_LADDER_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "$functional_geometry_preflight_kernel_dir" \
+      || "$kernel_id" != "$functional_geometry_preflight_kernel_id" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: exact Spec 0057 JVP ladder confirmation/path required" >&2
+      exit 1
+    fi
+    if ! grep -q 'spec0057_jvp_epsilon_ladder_authorized' \
+      docs/specs/0057-jvp-epsilon-ladder-preflight.md \
+      || ! grep -q 'spec0057_jvp_epsilon_ladder_authorized' \
+      docs/specs/README.md; then
+      echo "error: Spec 0057 JVP ladder authorization is not canonical" >&2
+      exit 1
+    fi
+    if [[ -e "$functional_geometry_preflight_claim" ]] \
+      || compgen -G \
+      "runs/local/kaggle_launches/maximshtefan/eqvae-functional-geometry-preflight-04a08ab5/v*.json" \
+      >/dev/null; then
+      echo "error: Spec 0057 JVP ladder launch authority was already consumed" >&2
+      exit 1
+    fi
+    local preflight_actor
+    preflight_actor="$(kaggle_authenticated_username)"
+    if [[ "$preflight_actor" != "maximshtefan" ]]; then
+      echo "error: Spec 0057 JVP ladder launch requires authenticated actor maximshtefan" >&2
+      exit 1
+    fi
+    python3 - "$metadata" "$kernel_dir/$code_file" <<'PYSPEC0053PREFLIGHT'
+import json
+import sys
+from pathlib import Path
+
+metadata_path, source_path = map(Path, sys.argv[1:])
+metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+expected = {
+    "id": "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5",
+    "title": "eqvae-functional-geometry-preflight-04a08ab5",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "false",
+    "machine_shape": "NvidiaTeslaT4",
+    "dataset_sources": [
+        "maximshtefan/eqvae-vae-test-reconstruction-inputs-v1",
+        "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+    ],
+    "competition_sources": [],
+    "kernel_sources": [],
+    "model_sources": [],
+}
+if metadata != expected:
+    raise SystemExit("Spec 0057 JVP ladder metadata differs")
+source = source_path.read_text(encoding="utf-8")
+if source_path.stat().st_size >= 1_000_000:
+    raise SystemExit("Spec 0057 JVP ladder source exceeds Kaggle's limit")
+required = (
+    "KAGGLE_FUNCTIONAL_GEOMETRY_JVP_LADDER_READY = True",
+    'CONTRACT_SHA256 = "bc48f1f6d4a3088501054aa246cfa2785adec9947914faf76e9b44501e359482"',
+    'SPEC_SHA256 = "6821036a7b616f34ec5ddee339d13bc15b8167b0359e089dbc89a5eed30144b0"',
+    'OUTPUT_ROOT = WORKING_ROOT / "preflight_jvp_ladder_parent_v1"',
+    "frozen_bundle_ready",
+    '"jvp_diagnostic_epsilons"',
+    "jvp_epsilon_0_004",
+    "jvp_epsilon_0_008",
+    "b5a32ebffd0d88a88d6f21b64ba5c9a23016f05d7a2db0546e442f12a0acecc1",
+    "branch_a",
+    "branch_b",
+    "a CUDA GPU is required",
+)
+missing = [marker for marker in required if marker not in source]
+if missing:
+    raise SystemExit(f"Spec 0057 JVP ladder source markers missing: {missing}")
+for forbidden in ("torch.optim", ".backward("):
+    if forbidden in source.lower():
+        raise SystemExit(f"Spec 0057 JVP ladder forbidden source token: {forbidden}")
+compile(source, str(source_path), "exec")
+PYSPEC0053PREFLIGHT
+    return
+  fi
+
+  if [[ "$kernel_dir" == "$decoded_transform_kernel_dir" \
+    || "$kernel_id" == "$decoded_transform_kernel_id" ]]; then
+    if [[ "${KAGGLE_DECODED_LATENT_TRANSFORM_CONFIRMED:-}" != "1" \
+      || "${KAGGLE_FULL_DATASET_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "$decoded_transform_kernel_dir" \
+      || "$kernel_id" != "$decoded_transform_kernel_id" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: exact Spec 0051 one-shot confirmation/path required" >&2
+      exit 1
+    fi
+    if ! grep -q 'spec0051_decoded_latent_transform_authorized' \
+      docs/specs/0051-decoded-latent-transform-consistency.md \
+      || ! grep -q 'spec0051_decoded_latent_transform_authorized' \
+      docs/specs/README.md; then
+      echo "error: Spec 0051 remote authorization is not canonical" >&2
+      exit 1
+    fi
+    if [[ -e "$decoded_transform_claim" ]] \
+      || compgen -G \
+      "runs/local/kaggle_launches/maximshtefan/eqvae-decoded-latent-transform/v*.json" \
+      >/dev/null; then
+      echo "error: Spec 0051 one-shot launch authority was already consumed" >&2
+      exit 1
+    fi
+    local decoded_actor
+    decoded_actor="$(kaggle_authenticated_username)"
+    if [[ "$decoded_actor" != "maximshtefan" ]]; then
+      echo "error: Spec 0051 launch requires authenticated actor maximshtefan" >&2
+      exit 1
+    fi
+    python3 - "$metadata" "$kernel_dir/$code_file" <<'PYSPEC0051TRANSFORM'
+import json
+import sys
+from pathlib import Path
+
+metadata_path, source_path = map(Path, sys.argv[1:])
+metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+expected = {
+    "id": "maximshtefan/eqvae-decoded-latent-transform",
+    "title": "EQVAE decoded latent transform audit",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "false",
+    "machine_shape": "NvidiaTeslaT4",
+    "dataset_sources": [
+        "maximshtefan/eqvae-vae-test-reconstruction-inputs-v1",
+        "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+    ],
+    "competition_sources": [],
+    "kernel_sources": [],
+    "model_sources": [],
+}
+if metadata != expected:
+    raise SystemExit("Spec 0051 metadata differs")
+source = source_path.read_text(encoding="utf-8")
+if source_path.stat().st_size >= 1_000_000:
+    raise SystemExit("Spec 0051 source exceeds Kaggle's limit")
+required = (
+    "KAGGLE_DECODED_LATENT_TRANSFORM_READY = True",
+    'CONTRACT_SHA256 = "905ef933a51c26bb3f01fcef4bb4985fa98e00f1dbecd814da3df488bd7c1018"',
+    'SPEC_SHA256 = "7a472a2de56813544506b4a9eb58e2f1f152fcee8f7d60e65ed2c2793b349679"',
+    "range(0, 360, 5)",
+    "EXACT_D4_NONIDENTITY_NAMES",
+    "a CUDA GPU is required",
+    'OUTPUT_ROOT = WORKING_ROOT / "decoded_latent_transform_v1"',
+)
+missing = [marker for marker in required if marker not in source]
+if missing:
+    raise SystemExit(f"Spec 0051 source contract markers missing: {missing}")
+for forbidden in ("optimizer", ".backward(", ".step("):
+    if forbidden in source.lower():
+        raise SystemExit(f"Spec 0051 must remain inference-only: {forbidden}")
+compile(source, str(source_path), "exec")
+PYSPEC0051TRANSFORM
+    return
+  fi
+
+  if [[ "$kernel_dir" == "$corrected_rotation_geometry_kernel_dir" \
+    || "$kernel_id" == "$corrected_rotation_geometry_kernel_id" ]]; then
+    if [[ "${KAGGLE_CORRECTED_ROTATION_GEOMETRY_CONFIRMED:-}" != "1" \
+      || "${KAGGLE_FULL_DATASET_CONFIRMED:-}" != "1" \
+      || "$kernel_dir" != "$corrected_rotation_geometry_kernel_dir" \
+      || "$kernel_id" != "$corrected_rotation_geometry_kernel_id" \
+      || "$code_file" != "run.py" ]]; then
+      echo "error: exact Spec 0050 one-shot confirmation/path required" >&2
+      exit 1
+    fi
+    if ! grep -q 'spec0050_corrected_rotation_geometry_authorized' \
+      docs/specs/0050-corrected-rotation-geometry-validation.md \
+      || ! grep -q 'spec0050_corrected_rotation_geometry_authorized' \
+      docs/specs/README.md; then
+      echo "error: Spec 0050 remote authorization is not canonical" >&2
+      exit 1
+    fi
+    if [[ -e "$corrected_rotation_geometry_claim" ]] \
+      || compgen -G \
+      "runs/local/kaggle_launches/maximshtefan/eqvae-corrected-rotation-geometry/v*.json" \
+      >/dev/null; then
+      echo "error: Spec 0050 one-shot launch authority was already consumed" >&2
+      exit 1
+    fi
+    local rotation_actor
+    rotation_actor="$(kaggle_authenticated_username)"
+    if [[ "$rotation_actor" != "maximshtefan" ]]; then
+      echo "error: Spec 0050 launch requires authenticated actor maximshtefan" >&2
+      exit 1
+    fi
+    python3 - "$metadata" "$kernel_dir/$code_file" <<'PYSPEC0050GEOMETRY'
+import json
+import sys
+from pathlib import Path
+
+metadata_path, source_path = map(Path, sys.argv[1:])
+metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+expected = {
+    "id": "maximshtefan/eqvae-corrected-rotation-geometry",
+    "title": "EQVAE corrected rotation geometry",
+    "code_file": "run.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "false",
+    "machine_shape": "NvidiaTeslaT4",
+    "dataset_sources": [
+        "maximshtefan/eqvae-vae-test-reconstruction-inputs-v1",
+        "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+    ],
+    "competition_sources": [],
+    "kernel_sources": [],
+    "model_sources": [],
+}
+if metadata != expected:
+    raise SystemExit("Spec 0050 metadata differs")
+source = source_path.read_text(encoding="utf-8")
+if source_path.stat().st_size >= 1_000_000:
+    raise SystemExit("Spec 0050 source exceeds Kaggle's limit")
+required = (
+    "KAGGLE_CORRECTED_ROTATION_GEOMETRY_READY = True",
+    'CONTRACT_SHA256 = "1dc6975979b120d85680526a3177e30caf93ca2eba7889a4452f2e78ca399756"',
+    'SPEC_SHA256 = "fbc58459d214ee32f1148f6b58507820586be1993749811294f14eddbf467b61"',
+    "range(360)",
+    "a CUDA GPU is required",
+    'OUTPUT_ROOT = WORKING_ROOT / "corrected_rotation_geometry_v1"',
+)
+missing = [marker for marker in required if marker not in source]
+if missing:
+    raise SystemExit(f"Spec 0050 source contract markers missing: {missing}")
+for forbidden in ("optimizer", ".backward(", ".step("):
+    if forbidden in source.lower():
+        raise SystemExit(f"Spec 0050 must remain inference-only: {forbidden}")
+compile(source, str(source_path), "exec")
+PYSPEC0050GEOMETRY
+    return
+  fi
 
   if [[ "$kernel_dir" == "$fixed25_rotation_population_kernel_dir" \
     || "$kernel_id" == "$fixed25_rotation_population_kernel_id" ]]; then
@@ -8439,8 +9299,48 @@ case "$action" in
     local_attention_probe_push=0
     local_attention_repair_probe_push=0
     local_global_capacity_push=0
+    corrected_rotation_geometry_push=0
+    decoded_transform_push=0
+    functional_geometry_preflight_push=0
+    functional_geometry_preflight_resume_push=0
+    jvp_epsilon_calibration_push=0
     push_kernel_id="$(kernel_id_from_metadata "$kernel_dir")"
-    if [[ "$kernel_dir" == "$local_global_capacity_kernel_dir" \
+    if [[ "$kernel_dir" == "$corrected_rotation_geometry_kernel_dir" \
+      || "$push_kernel_id" == "$corrected_rotation_geometry_kernel_id" ]]; then
+      corrected_rotation_geometry_push=1
+      if [[ "$push_wait" == "1" || "${#push_passthrough[@]}" -ne 0 ]]; then
+        echo "error: Spec 0050 push forbids wait and all CLI overrides" >&2
+        exit 1
+      fi
+    elif [[ "$kernel_dir" == "$decoded_transform_kernel_dir" \
+      || "$push_kernel_id" == "$decoded_transform_kernel_id" ]]; then
+      decoded_transform_push=1
+      if [[ "$push_wait" == "1" || "${#push_passthrough[@]}" -ne 0 ]]; then
+        echo "error: Spec 0051 push forbids wait and all CLI overrides" >&2
+        exit 1
+      fi
+    elif [[ "$kernel_dir" == "$functional_geometry_preflight_kernel_dir" \
+      || "$push_kernel_id" == "$functional_geometry_preflight_kernel_id" ]]; then
+      functional_geometry_preflight_push=1
+      if [[ "$push_wait" == "1" || "${#push_passthrough[@]}" -ne 0 ]]; then
+        echo "error: Spec 0057 JVP ladder push forbids wait and all CLI overrides" >&2
+        exit 1
+      fi
+    elif [[ "$kernel_dir" == "$functional_geometry_preflight_resume_kernel_dir" \
+      || "$push_kernel_id" == "$functional_geometry_preflight_resume_kernel_id" ]]; then
+      functional_geometry_preflight_resume_push=1
+      if [[ "$push_wait" == "1" || "${#push_passthrough[@]}" -ne 0 ]]; then
+        echo "error: Spec 0057 JVP ladder resume push forbids wait and all CLI overrides" >&2
+        exit 1
+      fi
+    elif [[ "$kernel_dir" == "$jvp_epsilon_calibration_kernel_dir" \
+      || "$push_kernel_id" == "$jvp_epsilon_calibration_kernel_id" ]]; then
+      jvp_epsilon_calibration_push=1
+      if [[ "$push_wait" == "1" || "${#push_passthrough[@]}" -ne 0 ]]; then
+        echo "error: Spec 0058 calibration push forbids wait and all CLI overrides" >&2
+        exit 1
+      fi
+    elif [[ "$kernel_dir" == "$local_global_capacity_kernel_dir" \
       || "$push_kernel_id" == "$local_global_capacity_kernel_id" ]]; then
       local_global_capacity_push=1
       if [[ "$push_wait" == "1" || "${#push_passthrough[@]}" -ne 0 ]]; then
@@ -8506,12 +9406,43 @@ case "$action" in
         echo "error: Spec 0030 corrective retry requires actor maximshtefan" >&2
         exit 1
       fi
-      upload_kernel_dir="$(
-        make_account_portable_kernel_snapshot "$kernel_dir" "$actor"
-      )"
+      if [[ "$corrected_rotation_geometry_push" == "1" \
+        || "$decoded_transform_push" == "1" \
+        || "$functional_geometry_preflight_push" == "1" \
+        || "$functional_geometry_preflight_resume_push" == "1" \
+        || "$jvp_epsilon_calibration_push" == "1" ]]; then
+        upload_kernel_dir="$(
+          make_corrected_rotation_geometry_snapshot "$kernel_dir" "$actor"
+        )"
+      else
+        upload_kernel_dir="$(
+          make_account_portable_kernel_snapshot "$kernel_dir" "$actor"
+        )"
+      fi
       push_kernel_id="$(kernel_id_from_metadata "$upload_kernel_dir")"
       if [[ "$local_global_capacity_push" == "1" ]]; then
         claim_local_global_capacity_push "$kernel_dir" "$upload_kernel_dir" "$actor"
+      fi
+      if [[ "$corrected_rotation_geometry_push" == "1" ]]; then
+        claim_corrected_rotation_geometry_push "$kernel_dir" "$upload_kernel_dir" "$actor"
+      fi
+      if [[ "$decoded_transform_push" == "1" ]]; then
+        claim_decoded_transform_push "$kernel_dir" "$upload_kernel_dir" "$actor"
+      fi
+      if [[ "$functional_geometry_preflight_push" == "1" ]]; then
+        preflight_functional_geometry_slug "$functional_geometry_preflight_kernel_id"
+        claim_functional_geometry_preflight_push \
+          "$kernel_dir" "$upload_kernel_dir" "$actor"
+      fi
+      if [[ "$functional_geometry_preflight_resume_push" == "1" ]]; then
+        preflight_functional_geometry_slug "$functional_geometry_preflight_resume_kernel_id"
+        claim_functional_geometry_preflight_resume_push \
+          "$kernel_dir" "$upload_kernel_dir" "$actor"
+      fi
+      if [[ "$jvp_epsilon_calibration_push" == "1" ]]; then
+        preflight_functional_geometry_slug "$jvp_epsilon_calibration_kernel_id"
+        claim_jvp_epsilon_calibration_push \
+          "$kernel_dir" "$upload_kernel_dir" "$actor"
       fi
       if ! push_response="$(
         kaggle_api kernels push -p "$upload_kernel_dir" 2>&1
@@ -8524,6 +9455,24 @@ case "$action" in
         confirmed_kernel_reference "$push_response"
       )"; then
         echo "error: Kaggle did not explicitly confirm a canonical kernel URL and version" >&2
+        exit 1
+      fi
+      if [[ "$functional_geometry_preflight_push" == "1" \
+        && "$canonical_kernel_reference" \
+          != "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5/1" ]]; then
+        echo "error: Spec 0057 JVP ladder parent push accepted an unexpected canonical reference" >&2
+        exit 1
+      fi
+      if [[ "$functional_geometry_preflight_resume_push" == "1" \
+        && "$canonical_kernel_reference" \
+          != "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5-resume/1" ]]; then
+        echo "error: Spec 0057 JVP ladder resume push accepted an unexpected canonical reference" >&2
+        exit 1
+      fi
+      if [[ "$jvp_epsilon_calibration_push" == "1" \
+        && "$canonical_kernel_reference" \
+          != "maximshtefan/eqvae-jvp-epsilon-grid-calibration-05a08ab5/1" ]]; then
+        echo "error: Spec 0058 calibration push accepted an unexpected canonical reference" >&2
         exit 1
       fi
       push_kernel_id="$canonical_kernel_reference"
