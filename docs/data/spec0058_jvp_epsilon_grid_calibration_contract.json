@@ -1,0 +1,70 @@
+{
+  "schema": "spec0058.jvp_epsilon_grid_calibration.v1",
+  "amendment_path": "docs/specs/0058-jvp-epsilon-grid-calibration.md",
+  "predecessor": {
+    "kernel_reference": "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5/1",
+    "log_sha256": "93cbd27473a5d50cdcd40323f4de2892e048372464c09e94db42d1a1d65085be",
+    "outcome": "primary_epsilon_0_001_failed_while_0_004_and_0_008_diagnostics_passed"
+  },
+  "inputs": {
+    "weight_bundle_contract_sha256": "b5a32ebffd0d88a88d6f21b64ba5c9a23016f05d7a2db0546e442f12a0acecc1",
+    "selector_path": "runs/kaggle/fixed25_selector/fixed_25_validation_patches.json",
+    "selector_sha256": "ace244ecdd67aaa1ebc7d08065f1e4bfa3c0d54806d4f3b50fb38a3ae000447f",
+    "selector_rank": 0,
+    "normal_checkpoint_sha256": "f733304e9178e468546113642bdf01e11348570b340c366cf148973083cb9075",
+    "normal_state_file_sha256": "30064fa414f21deeb7ec5f312467ad4e8a3a93f6e7199e7be77f6ed3b28887c7",
+    "normal_state_dict_sha256": "feb36bc81dabe49352b0e04c8ddfa11f800195a3809edcd005ebd86342a39803",
+    "so2_checkpoint_sha256": "041e0cd7483cb8642bb72eb1b63c3a36774bf9cadd0b659c9d1db6a813c8f4c7",
+    "so2_state_file_sha256": "06802ceb6ba4fb0f46d2b88f751a33a355600db84b412806b563a6d757cb3c12",
+    "so2_state_dict_sha256": "62887fc4c9549349fcceed450f16bae381fe1c4f83883652fee425203c197573"
+  },
+  "tensor_contract": {
+    "input_shape": [3, 256, 256],
+    "input_dtype": "float32",
+    "input_normalization": "uint8/255*2-1",
+    "posterior_shape": [16, 32, 32]
+  },
+  "numerics": {
+    "precision": "fp32_forward_autodiff_cpu_fp64_detached_accumulation",
+    "deterministic_algorithms": true,
+    "tf32": false,
+    "tangent_kind": "dense_rademacher_coordinate_rms_one",
+    "tangent_count": 8,
+    "tangent_seed": 5053,
+    "jvp_epsilon_grid": [0.002, 0.004, 0.008, 0.016],
+    "selection_max_relative_l2": 0.005,
+    "selection_rule": "smallest_epsilon_with_global_aggregate_and_worst_at_or_below_limit",
+    "binary_search": "forbidden_nonmonotone_finite_difference_error"
+  },
+  "scope": {
+    "result_blind": true,
+    "scientific_model_comparison_output": false,
+    "training_allowed": false,
+    "optimizer_allowed": false,
+    "checkpoint_mutation_allowed": false,
+    "dataset_write_allowed": false,
+    "sealed_test_access": false,
+    "internet": false,
+    "forbidden_workloads": ["hvp", "vjp", "compile", "continuous_rotation", "geodesic", "full_preflight_gate"]
+  },
+  "blindness": {
+    "output_labels": ["branch_a", "branch_b"],
+    "branch_permutation": "secure_random_nonpersisted_per_run",
+    "forbidden_output_fields": ["normal_vae", "so2_vae", "comparison", "difference", "ranking", "model_identity", "branch_permutation", "payload_manifest"]
+  },
+  "remote": {
+    "actor": "maximshtefan",
+    "kernel_id": "maximshtefan/eqvae-jvp-epsilon-grid-calibration-05a08ab5",
+    "launch_count": 1,
+    "privacy": "private",
+    "accelerator": "NvidiaTeslaT4",
+    "dataset_sources": ["maximshtefan/eqvae-vae-test-reconstruction-inputs-v1", "maximusshtefan/patches-pre-shuffled-ubc-ocean"],
+    "guard_phrase": "spec0058_jvp_epsilon_grid_calibration_authorized"
+  },
+  "outputs": {
+    "root": "jvp_epsilon_grid_calibration_v1",
+    "selection_statuses": ["selected", "no_eligible_epsilon"],
+    "public_fields": ["schema", "direction_count", "epsilon_grid", "selection", "branches"],
+    "forbidden_fields": ["input_contract", "payload_manifest", "model_identity", "branch_permutation"]
+  }
+}

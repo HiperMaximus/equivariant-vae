@@ -1,0 +1,105 @@
+{
+  "schema": "spec0057.jvp_epsilon_ladder_preflight.v1",
+  "amendment_path": "docs/specs/0057-jvp-epsilon-ladder-preflight.md",
+  "predecessor": {
+    "kernel_reference": "maximshtefan/eqvae-functional-geometry-preflight-03a08ab5/1",
+    "log_sha256": "09362dab13cdc708091a018be2d2aad089cd729ee699ccb1aa7e82361e819dca",
+    "outcome": "primary_jvp_fd_failed_after_frozen_bundle_and_model_load"
+  },
+  "inputs": {
+    "inherited_contract_path": "docs/data/spec0051_decoded_transform_contract.json",
+    "inherited_contract_sha256": "905ef933a51c26bb3f01fcef4bb4985fa98e00f1dbecd814da3df488bd7c1018",
+    "weight_bundle_contract_sha256": "b5a32ebffd0d88a88d6f21b64ba5c9a23016f05d7a2db0546e442f12a0acecc1",
+    "selector_path": "runs/kaggle/fixed25_selector/fixed_25_validation_patches.json",
+    "selector_sha256": "ace244ecdd67aaa1ebc7d08065f1e4bfa3c0d54806d4f3b50fb38a3ae000447f",
+    "selector_rank": 0,
+    "normal_checkpoint_sha256": "f733304e9178e468546113642bdf01e11348570b340c366cf148973083cb9075",
+    "normal_state_file_sha256": "30064fa414f21deeb7ec5f312467ad4e8a3a93f6e7199e7be77f6ed3b28887c7",
+    "normal_state_dict_sha256": "feb36bc81dabe49352b0e04c8ddfa11f800195a3809edcd005ebd86342a39803",
+    "so2_checkpoint_sha256": "041e0cd7483cb8642bb72eb1b63c3a36774bf9cadd0b659c9d1db6a813c8f4c7",
+    "so2_state_file_sha256": "06802ceb6ba4fb0f46d2b88f751a33a355600db84b412806b563a6d757cb3c12",
+    "so2_state_dict_sha256": "62887fc4c9549349fcceed450f16bae381fe1c4f83883652fee425203c197573"
+  },
+  "tensor_contract": {
+    "input_shape": [3, 256, 256],
+    "input_dtype": "float32",
+    "input_normalization": "uint8/255*2-1",
+    "posterior_shape": [16, 32, 32],
+    "native_canvas": [256, 32],
+    "padded_canvas": [384, 48],
+    "c4_angles_degrees": [0, 90, 180, 270],
+    "padded_angles_degrees": [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 260, 270, 280, 290, 300, 310, 320, 330, 340, 350],
+    "path_knots": 17,
+    "direction_microbatches": [1, 2, 4, 8, 16, 32]
+  },
+  "numerics": {
+    "precision": "fp32_forward_autodiff_cpu_fp64_detached_accumulation",
+    "deterministic_algorithms": true,
+    "tf32": false,
+    "tangent_kind": "dense_rademacher_coordinate_rms_one",
+    "tangent_count": 8,
+    "tangent_seed": 5053,
+    "cotangent_seed": 6053,
+    "jvp_epsilon": 0.001,
+    "hvp_epsilon": 0.002,
+    "jvp_diagnostic_epsilons": [0.004, 0.008],
+    "diagnostic_hvp_epsilon": 0.002,
+    "jvp_finite_difference_relative_l2_max": 0.01,
+    "vjp_adjoint_relative_scalar_max": 0.002,
+    "hvp_finite_difference_relative_l2_max": 0.05,
+    "fp32_repeat_relative_l2_max": 0.000001,
+    "compiled_relative_l2_max": 0.005,
+    "analytic_relative_max": 1e-10,
+    "analytic_zero_absolute_max": 1e-12,
+    "randomized_certificate_confidence": 0.99,
+    "randomized_sketch_shape": [4, 2],
+    "randomized_residual_ratio_99_max": 2.18,
+    "randomized_trace_samples": 32,
+    "randomized_trace_absolute_99_max": 14.0,
+    "lie_final_relative_max": 0.01,
+    "lie_angles_degrees": [1.0, 0.5, 0.25],
+    "minimum_free_vram_fraction": 0.25,
+    "compile_failure_policy": "record_eager_only_no_retry"
+  },
+  "blindness": {
+    "output_labels": ["branch_a", "branch_b"],
+    "branch_permutation": "secure_random_nonpersisted_per_run",
+    "forbidden_output_fields": ["normal_vae", "so2_vae", "comparison", "difference", "ranking", "median", "hypothesis", "decision"],
+    "forbidden_work": ["scientific_metric", "decoded_comparison", "training", "optimizer", "parameter_update"]
+  },
+  "scope": {
+    "result_blind": true,
+    "scientific_model_comparison_output": false,
+    "training_allowed": false,
+    "optimizer_allowed": false,
+    "checkpoint_mutation_allowed": false,
+    "dataset_write_allowed": false,
+    "sealed_test_access": false,
+    "internet": false
+  },
+  "remote": {
+    "actor": "maximshtefan",
+    "parent_kernel_id": "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5",
+    "child_kernel_id": "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5-resume",
+    "parent_launch_count": 1,
+    "maximum_child_continuations": 1,
+    "privacy": "private",
+    "accelerator": "NvidiaTeslaT4",
+    "dataset_sources": ["maximshtefan/eqvae-vae-test-reconstruction-inputs-v1", "maximusshtefan/patches-pre-shuffled-ubc-ocean"],
+    "output_reserve_minutes": 90,
+    "guard_phrase": "spec0057_jvp_epsilon_ladder_authorized"
+  },
+  "outputs": {
+    "parent_root": "preflight_jvp_ladder_parent_v1",
+    "child_root": "preflight_jvp_ladder_resume_v1",
+    "parent_status": "partial_with_exactly_one_synthetic_pending_unit",
+    "child_status": "complete_after_exact_singleton_pending_unit",
+    "forbidden_parent_payload_fields": ["input_contract", "payload_manifest", "model_identity", "branch_permutation"],
+    "parent_public_binding_fields": ["schema", "contract_sha256", "spec_sha256", "selector_rank", "work_unit_ids"],
+    "required_parent_download_receipt": {"schema": "eqvae.kaggle_download.v1", "name": "kaggle_output_receipt.json", "resource_reference": "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5/1"}
+  },
+  "work_units": {
+    "fixtures_and_telemetry": "e9c8493976b8cb4de5d04cc6d1d0c97e9fbf539488c71b3ecff3cfb83449fc71",
+    "authenticated_resume_fixture": "a8a3d5842f7d9e9f3be45029f6ed55d2e8e6651e2476312c151211259010c472"
+  }
+}
