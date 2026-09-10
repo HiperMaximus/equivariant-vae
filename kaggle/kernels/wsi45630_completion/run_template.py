@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-# ruff: noqa: BLE001, DOC201, DOC501, EM101, INP001, PLC0415, PLR2004, PLW0717, S404, S607, T201, TRY003, TRY300, TRY301
+# ruff: noqa: BLE001, DOC201, DOC501, EM101, INP001, PLC0415, PLR2004, PLW0717, S404, S607, TRY003, TRY300, TRY301
 """One WSI's missing posterior means, using the unchanged paired top-up worker."""
 
 from __future__ import annotations

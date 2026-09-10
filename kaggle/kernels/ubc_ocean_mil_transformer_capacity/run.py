@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-# ruff: noqa: ANN001, ANN201, ANN202, ANN204, BLE001, DOC201, DOC501, EM101, INP001, PLC0415, PLR2004, PLR6104, S404, T201, TRY003
+# ruff: noqa: ANN001, ANN201, ANN202, ANN204, BLE001, DOC201, DOC501, EM101, INP001, PLC0415, PLR2004, PLR6104, S404, TRY003
 """One-off synthetic full-bag transformer fit check; no datasets or training."""
 
 from __future__ import annotations

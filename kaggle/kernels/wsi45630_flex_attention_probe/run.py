@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-# ruff: noqa: ANN001, ANN201, ANN202, ANN204, BLE001, C901, DOC201, DOC501, E501, EM101, INP001, PLC0415, PLR0913, PLR0914, PLR0915, PLR0917, S404, T201, TRY003
+# ruff: noqa: ANN001, ANN201, ANN202, ANN204, BLE001, C901, DOC201, DOC501, E501, EM101, INP001, PLC0415, PLR0913, PLR0914, PLR0915, PLR0917, S404, TRY003
 """Probe exact coordinate-masked FlexAttention on the real WSI45630 graph."""
 
 from __future__ import annotations

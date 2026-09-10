@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-# ruff: noqa: ANN001, ANN201, ANN202, ANN204, BLE001, DOC201, DOC501, EM101, INP001, PLC0415, PLR0913, PLR0914, PLR0917, PLW0717, S404, SLF001, T201, TRY003
+# ruff: noqa: ANN001, ANN201, ANN202, ANN204, BLE001, DOC201, DOC501, EM101, INP001, PLC0415, PLR0913, PLR0914, PLR0917, PLW0717, S404, SLF001, TRY003
 """Probe exact loop-free local attention on the real WSI45630 T4 graph."""
 
 from __future__ import annotations

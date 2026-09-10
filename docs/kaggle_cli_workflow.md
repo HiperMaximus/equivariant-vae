@@ -1,7 +1,7 @@
 # Kaggle CLI Workflow
 
 Status: active operational contract
-Last updated: 2026-09-08
+Last updated: 2026-09-10
 
 Kaggle is a remote execution surface, not a Git remote. Repository code, specs,
 configs and local receipts are the source of truth. `CURRENT.md` records whether
@@ -70,6 +70,25 @@ Before any authorized push:
 Large checkpoints, manifests and binaries belong in versioned private input
 datasets, not embedded base64 strings. Generated wrappers must validate their
 payload manifest before importing project code.
+
+## Remote Observability
+
+Every new or materially revised Kaggle wrapper must emit flushed JSONL progress
+events to stdout. Logs are public execution output for contract purposes and
+must be result-blind and credential-free. A wrapper emits a bounded event at
+run start, payload/runtime/contract readiness, before and after every material
+workload, before each acceptance gate, at output write, and at terminal success
+or failure. Each event has a fixed schema/version, monotonic sequence, stable
+stage identifier, and elapsed seconds; workload events also include only the
+predeclared safe tensor/profile fields needed to locate progress.
+
+Print only through the wrapper's controlled event helper with `flush=True`.
+Never print credentials, raw data, paths, input hashes, selector contents,
+model identity/order, checkpoint identity, full contracts, exception messages,
+or tracebacks. Failures use a fixed failure code and exception class after the
+event is validated by the same blindness guard as persisted output. Ruff T201
+is disabled for `kaggle/kernels/**` solely to permit these controlled events;
+it remains active elsewhere.
 
 ## Generic Remote Pattern
 

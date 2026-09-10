@@ -92,6 +92,9 @@ unfixable = []
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["assert"]
+# Kaggle wrappers use flushed JSONL progress events as their sole remote
+# observability channel. Keep T201 enabled for local/product code.
+"kaggle/kernels/**/*.py" = ["print"]
 
 [tool.basedpyright]
 exclude = [

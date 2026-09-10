@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-# ruff: noqa: ANN001, ANN202, BLE001, DOC201, EM101, EM102, PLC0415, PLR0913, PLR0914, PLR2004, PLW0717, S404, T201, TRY003, TRY300
+# ruff: noqa: ANN001, ANN202, BLE001, DOC201, EM101, EM102, PLC0415, PLR0913, PLR0914, PLR2004, PLW0717, S404, TRY003, TRY300
 """Generated wrapper for the exact Spec 0023 largest-WSI capacity probe."""
 
 from __future__ import annotations

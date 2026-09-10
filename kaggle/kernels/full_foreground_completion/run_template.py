@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-# ruff: noqa: DOC201, DOC501, EM101, INP001, PLC0415, S404, S607, T201, TRY003
+# ruff: noqa: DOC201, DOC501, EM101, INP001, PLC0415, S404, S607, TRY003
 """One fixed whole-WSI completion job using the unchanged paired extractor."""
 
 from __future__ import annotations
