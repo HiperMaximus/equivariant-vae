@@ -69,8 +69,11 @@ stored at `runs/kaggle/functional_geometry_stage_a1_c4_slq_v1/` with SHA-256
   thin-SVD, path-energy and trust-tube helpers for numerical calibration.
 - `docs/data/functional_geometry_stage_a2_calibration_contract.json`: fixed
   non-scientific grid, selection criteria and resource ceilings.
-- `kaggle/kernels/functional_geometry_stage_a2_calibration/`: private dual-T4
-  probe with allowlisted patch-byte reads and one worst-case common reducer.
+- `experiments/spec0053_stage_a2_calibration.py`: scientific calibration
+  orchestration and one worst-case common reducer.
+- `kaggle/kernels/functional_geometry_stage_a2_calibration/main.py`: thin
+  Kaggle entrypoint; it mounts the published frozen-weight/patch datasets and
+  sparse-clones this public repository instead of embedding it.
 - `tests/test_functional_geometry_slq.py`: reusable SLQ/JVP mathematics.
 - `tests/test_functional_geometry_calibration.py` and
   `tests/test_stage_a2_calibration_kernel.py`: focused helper, leakage,
@@ -129,16 +132,17 @@ torsion. Sealed-test results remain unavailable for tuning.
 
 ## Verification state
 
-The reduced active suite passes all 25 tests, including
+The reduced active suite passes all 24 tests, including
 chunked-versus-monolithic energy and coordinate-gradient equality. Python
-compilation, kernel build/validate/check and authenticated API source checks
-pass. The exact contract SHA-256 is
-`12f46782d70ebc6d1bf89a75925928753e62bd8aaf2ac6558976185b27bcc93b`.
+compilation and direct-kernel build/validate pass. The exact contract SHA-256
+is `d89992e3ed97512451b1e2f1e1e45e38aa4aa38e23adc5f47f1348365811bf89`.
 The v1 runner was recovered from its authenticated Kaggle source; the v2
 runner is a net 51-line change (143 insertions/92 deletions) rather than the
 discarded 2,719-line replacement. The obsolete preflight/quality/spec-process
 layer and 92 historical training, launcher and completed-campaign test files
-were removed. Future parameter reruns edit the existing contract/runner and use
-only focused correctness checks. Personal `reference/` and the FSQ reference
-remain on disk but are ignored and untracked; the obsolete selector that
-depended on them was removed.
+were removed. Stage A2 no longer has an embedded payload, generated `run.py`,
+per-kernel builder registration, atomic progress artifacts, or duplicated
+checkpoint verification. Future parameter reruns edit the contract, push the
+repo and reuse the same 55-line Kaggle entrypoint. Personal `reference/` and
+the FSQ reference remain on disk but are ignored and untracked; the obsolete
+selector that depended on them was removed.

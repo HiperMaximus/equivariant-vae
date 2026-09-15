@@ -163,13 +163,11 @@ PY
 
 build_kernel() {
   local kernel_dir="${1:-$default_kernel_dir}"
-  [[ -f "$kernel_dir/run_template.py" ]] || {
-    echo "error: no run_template.py in $kernel_dir; nothing to build" >&2
-    exit 1
-  }
-  require_build_python
-  "$build_python" scripts/build_kaggle_embedded_kernel.py \
-    --kernel-dir "$kernel_dir" --allow-dirty
+  if [[ -f "$kernel_dir/run_template.py" ]]; then
+    require_build_python
+    "$build_python" scripts/build_kaggle_embedded_kernel.py \
+      --kernel-dir "$kernel_dir" --allow-dirty
+  fi
   validate_kernel_dir "$kernel_dir"
 }
 

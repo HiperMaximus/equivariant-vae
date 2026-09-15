@@ -1,42 +1,30 @@
 # Copyright 2026 HiperMaximus
-# ruff: noqa: ANN001, ANN202, BLE001, C901, COM812, D103, EM101, EM102, FBT003, INP001, PLC0415, PLR0912, PLR0913, PLR0914, PLR0915, PLR1702, PLR2004, PLW0603, PLW0717, TRY003, TRY300, TRY301
-"""Result-blind numerical calibration for functional-geometry Stage A2."""
+# ruff: noqa: ANN001, ANN202, BLE001, C901, COM812, D103, EM101, EM102, FBT003, PLC0415, PLR0912, PLR0913, PLR0914, PLR0915, PLR1702, PLR2004, PLW0717, T201, TRY003, TRY203, TRY300, TRY301
+"""Numerical calibration experiment for functional-geometry Stage A2."""
 
 from __future__ import annotations
 
-import base64
 import hashlib
-import io
 import itertools
 import json
 import math
 import multiprocessing as mp
 import os
-import shutil
 import sys
 import time
-import traceback
-import zipfile
 from pathlib import Path
 
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
-# fmt: off
-KAGGLE_FUNCTIONAL_GEOMETRY_STAGE_A2_CALIBRATION_READY = True
-EMBEDDED_PAYLOAD_B64 = """
-$embedded_payload_b64
-"""
-EMBEDDED_PAYLOAD_ZIP_SHA256 = "$embedded_payload_zip_sha256"
-EMBEDDED_PAYLOAD_MANIFEST_SHA256 = "$embedded_payload_manifest_sha256"
-# fmt: on
-
 INPUT_ROOT = Path("/kaggle/input")
 WORKING_ROOT = Path("/kaggle/working")
-SOURCE_ROOT = WORKING_ROOT / ".functional_geometry_stage_a2_calibration_source"
 OUTPUT_ROOT = WORKING_ROOT / "functional_geometry_stage_a2_calibration_v2"
 CONTRACT_PATH = Path("docs/data/functional_geometry_stage_a2_calibration_contract.json")
 SELECTOR_PATH = Path("runs/kaggle/fixed25_selector/fixed_25_validation_patches.json")
-CONTRACT_SHA256 = "12f46782d70ebc6d1bf89a75925928753e62bd8aaf2ac6558976185b27bcc93b"
+WEIGHT_ROOT = INPUT_ROOT / "eqvae-vae-test-reconstruction-inputs-v1"
+PATCH_PATH = (
+    INPUT_ROOT / "patches-pre-shuffled-ubc-ocean" / "dataset" / "ubc_ocean_valid.bin"
+)
 MODEL_KINDS = {
     "normal_vae": "non_eq_vae_translatable",
     "so2_vae": "so2_vae_fixed",
@@ -44,18 +32,14 @@ MODEL_KINDS = {
 PATCH_BYTES = 3 * 256 * 256
 HEADER_BYTES = 64
 _STARTED = time.perf_counter()
-_SEQUENCE = 0
 
 
 def _log(event: str, **values: object) -> None:
-    global _SEQUENCE
     print(
         json.dumps(
             {
                 "elapsed_seconds": round(time.perf_counter() - _STARTED, 3),
                 "event": event,
-                "pid": os.getpid(),
-                "sequence": _SEQUENCE,
                 **values,
             },
             allow_nan=False,
@@ -63,7 +47,6 @@ def _log(event: str, **values: object) -> None:
         ),
         flush=True,
     )
-    _SEQUENCE += 1
 
 
 def _sha256(path: Path) -> str:
@@ -74,34 +57,10 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _extract_payload() -> Path:
-    payload = base64.b64decode(EMBEDDED_PAYLOAD_B64.encode("ascii"))
-    if hashlib.sha256(payload).hexdigest() != EMBEDDED_PAYLOAD_ZIP_SHA256:
-        raise RuntimeError("embedded payload differs")
-    SOURCE_ROOT.mkdir(parents=True, exist_ok=False)
-    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-        for name in archive.namelist():
-            path = Path(name)
-            if path.is_absolute() or ".." in path.parts:
-                raise RuntimeError("embedded payload path differs")
-        archive.extractall(SOURCE_ROOT)
-    manifest = SOURCE_ROOT / "payload_manifest.json"
-    if _sha256(manifest) != EMBEDDED_PAYLOAD_MANIFEST_SHA256:
-        raise RuntimeError("embedded payload manifest differs")
-    contract_path = SOURCE_ROOT / CONTRACT_PATH
-    if _sha256(contract_path) != CONTRACT_SHA256:
-        raise RuntimeError("Stage A2 calibration contract differs")
-    return SOURCE_ROOT
-
-
-def _atomic_json(path: Path, value: object) -> None:
-    pending = path.with_suffix(path.suffix + ".tmp")
-    with pending.open("x", encoding="utf-8") as handle:
+def _write_json(path: Path, value: object) -> None:
+    with path.open("w", encoding="utf-8") as handle:
         json.dump(value, handle, allow_nan=False, indent=2, sort_keys=True)
         handle.write("\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    pending.replace(path)
 
 
 def _memory(device, torch) -> dict[str, int]:
@@ -133,8 +92,8 @@ def _read_selected_patch_bytes(handle, rows, selected_ranks):
     return payloads
 
 
-def _load_patches(payload_root, contract, *, np, torch):
-    selector_path = payload_root / SELECTOR_PATH
+def _load_patches(repo_root, contract, *, np, torch):
+    selector_path = repo_root / SELECTOR_PATH
     if _sha256(selector_path) != contract["inputs"]["fixed_selector_sha256"]:
         raise RuntimeError("fixed25 selector differs")
     selector = json.loads(selector_path.read_text(encoding="utf-8"))
@@ -153,10 +112,7 @@ def _load_patches(payload_root, contract, *, np, torch):
         if len(sample_id_parts) < 3 or sample_id_parts[2] in forbidden_wsis:
             raise RuntimeError("forbidden WSI leaked into numerical calibration")
         selected_rows.append(row)
-    candidates = list(INPUT_ROOT.rglob("ubc_ocean_valid.bin"))
-    if len(candidates) != 1:
-        raise RuntimeError("fixed25 patch binary differs")
-    with candidates[0].open("rb") as handle:
+    with PATCH_PATH.open("rb") as handle:
         payloads = _read_selected_patch_bytes(handle, rows, selected_ranks)
     arrays = [
         np.frombuffer(raw, dtype=np.uint8).reshape(3, 256, 256).copy()
@@ -166,20 +122,6 @@ def _load_patches(payload_root, contract, *, np, torch):
         torch.from_numpy(np.stack(arrays)).to(torch.float32).div(255).mul(2).sub(1)
     )
     return patches, selected_rows
-
-
-def _find_weight_bundle(contract):
-    expected = contract["inputs"]["weight_bundle_contract_sha256"]
-    candidates = [
-        path
-        for path in INPUT_ROOT.rglob("spec0045_vae_test_input.json")
-        if _sha256(path) == expected
-        and (path.parent / "normal_vae_state.pt").is_file()
-        and (path.parent / "so2_vae_state.pt").is_file()
-    ]
-    if len(candidates) != 1:
-        raise RuntimeError("frozen weight bundle differs")
-    return candidates[0].parent, json.loads(candidates[0].read_text(encoding="utf-8"))
 
 
 def _encode(model, images, *, batch_size, torch):
@@ -917,27 +859,17 @@ def _select_numerics(workers, contract):
             ),
             "sampled_linearity_worst_relative_l2": linearity_worst,
         },
-        "prohibited_adjustments": [
-            "bridge_gates",
-            "closure_or_return_gates",
-            "covariance_or_isometry_gates",
-            "holonomy_claim_margins",
-            "model_specific_parameters",
-        ],
         "schema": "eqvae.functional_geometry.stage_a2.calibration.selection.v2",
         "selected_numerics": selected,
         "status": "selected" if not blockers else "unresolved",
     }
 
 
-def _run_worker(model_name, device_index, payload_root_text, staging_text, contract):
-    active = {"phase": "worker_start"}
-    failure_path = WORKING_ROOT / f"stage_a2_calibration_{model_name}_failure.json"
-    progress_path = WORKING_ROOT / f"stage_a2_calibration_{model_name}_progress.json"
+def _run_worker(model_name, device_index, repo_root_text, output_text, contract):
     try:
-        payload_root = Path(payload_root_text)
-        staging = Path(staging_text)
-        sys.path.insert(0, str(payload_root / "src"))
+        repo_root = Path(repo_root_text)
+        output = Path(output_text)
+        sys.path.insert(0, str(repo_root / "src"))
         import numpy as np
         import torch
 
@@ -949,13 +881,11 @@ def _run_worker(model_name, device_index, payload_root_text, staging_text, contr
             thin_metric_spectra,
         )
         from eqvae.evaluation.functional_geometry_rla import linearize_decoder
-        from eqvae.evaluation.vae_test import sha256_file, state_dict_sha256
+        from eqvae.evaluation.vae_test import state_dict_sha256
         from eqvae.models.registry import build_model
 
-        if not torch.cuda.is_available() or torch.cuda.device_count() != 2:
-            raise RuntimeError("exactly two CUDA devices are required")
-        if any("T4" not in torch.cuda.get_device_name(index) for index in range(2)):
-            raise RuntimeError("both CUDA devices must be Tesla T4")
+        if not torch.cuda.is_available() or torch.cuda.device_count() <= device_index:
+            raise RuntimeError(f"CUDA device {device_index} is unavailable")
         torch.use_deterministic_algorithms(True)
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
@@ -991,28 +921,29 @@ def _run_worker(model_name, device_index, payload_root_text, staging_text, contr
             device_name=torch.cuda.get_device_name(device_index),
         )
 
-        active = {"phase": "load_inputs"}
-        patches, selectors = _load_patches(payload_root, contract, np=np, torch=torch)
+        patches, selectors = _load_patches(repo_root, contract, np=np, torch=torch)
         calibration_ranks = contract["scope"]["calibration_patch_ranks"]
         if [row["rank"] for row in selectors] != calibration_ranks:
             raise RuntimeError("loaded calibration ranks differ")
 
-        bundle_root, weight_contract = _find_weight_bundle(contract)
-        record = weight_contract["weights"][model_name]
-        state_path = bundle_root / f"{model_name}_state.pt"
+        weight_contract_path = WEIGHT_ROOT / "spec0045_vae_test_input.json"
         if (
-            state_path.stat().st_size != record["state_file_bytes"]
-            or sha256_file(state_path) != record["state_file_sha256"]
+            _sha256(weight_contract_path)
+            != contract["inputs"]["weight_bundle_contract_sha256"]
         ):
-            raise RuntimeError(f"state file differs for {model_name}")
+            raise RuntimeError("frozen weight contract differs")
+        weight_contract = json.loads(weight_contract_path.read_text(encoding="utf-8"))
+        record = weight_contract["weights"][model_name]
+        state_path = WEIGHT_ROOT / f"{model_name}_state.pt"
+        if _sha256(state_path) != record["state_file_sha256"]:
+            raise RuntimeError(f"frozen weights differ for {model_name}")
         state = torch.load(state_path, map_location="cpu", weights_only=True)
         if state_dict_sha256(state) != record["state_dict_sha256"]:
-            raise RuntimeError(f"state dictionary differs for {model_name}")
+            raise RuntimeError(f"frozen state differs for {model_name}")
         model = build_model(MODEL_KINDS[model_name])
         model.load_state_dict(state, strict=True)
         model = model.to(device).eval().requires_grad_(False)
         del state
-        state_hash = state_dict_sha256(model.state_dict())
         selected = patches.to(device)
         base_mu = _encode(model, selected, batch_size=4, torch=torch)
         encoded_rotated_mu = _encode(
@@ -1036,18 +967,6 @@ def _run_worker(model_name, device_index, payload_root_text, staging_text, contr
         workload_rows = []
         runtime_rows = []
 
-        def write_progress(status):
-            _atomic_json(
-                progress_path,
-                {
-                    "active_work_unit": active,
-                    "model": model_name,
-                    "runtime_path_probes": runtime_rows,
-                    "status": status,
-                    "workloads": workload_rows,
-                },
-            )
-
         for local_index, rank in enumerate(calibration_ranks):
             left = base_mu[local_index : local_index + 1]
             endpoints = {
@@ -1057,7 +976,6 @@ def _run_worker(model_name, device_index, payload_root_text, staging_text, contr
             for route in contract["scope"]["routes"]:
                 torch.cuda.empty_cache()
                 torch.cuda.reset_peak_memory_stats(device)
-                active = {"phase": "chart", "rank": rank, "route": route}
                 right = endpoints[route]
                 _log(
                     "calibration_workload_started",
@@ -1103,13 +1021,11 @@ def _run_worker(model_name, device_index, payload_root_text, staging_text, contr
                         exception_message=str(error),
                         **failure_memory,
                     )
-                    write_progress("in_progress")
                     del basis, diagnostics
                     torch.cuda.empty_cache()
                     continue
                 optimizer_rows = []
                 if rank in contract["scope"]["optimization_patch_ranks"]:
-                    active = {"phase": "optimizer", "rank": rank, "route": route}
                     optimizer_grid = itertools.product(
                         numerics["optimizer"]["chart_dimensions"],
                         numerics["optimizer"]["path_segments"],
@@ -1170,7 +1086,6 @@ def _run_worker(model_name, device_index, payload_root_text, staging_text, contr
                     and rank == calibration_ranks[0]
                     and route == "encoded"
                 ):
-                    active = {"phase": "runtime", "rank": rank, "route": route}
                     runtime_rows = _runtime_probe(
                         model,
                         left,
@@ -1211,15 +1126,12 @@ def _run_worker(model_name, device_index, payload_root_text, staging_text, contr
                     optimizer_probe_count=len(optimizer_rows),
                     **_memory(device, torch),
                 )
-                write_progress("in_progress")
                 del basis, diagnostics, optimizer_rows, right
                 torch.cuda.empty_cache()
 
         memory = capture_memory()
         memory["peak_allocated_bytes"] = peak_allocated_observed
         memory["peak_reserved_bytes"] = peak_reserved_observed
-        if state_dict_sha256(model.state_dict()) != state_hash:
-            raise RuntimeError("frozen model state changed")
         worker = {
             "device": str(device),
             "device_name": torch.cuda.get_device_name(device_index),
@@ -1230,48 +1142,23 @@ def _run_worker(model_name, device_index, payload_root_text, staging_text, contr
             ),
             "runtime": {"cuda": torch.version.cuda, "torch": torch.__version__},
             "runtime_path_probes": runtime_rows,
-            "scientific_model_comparison": False,
             "workloads": workload_rows,
         }
-        _atomic_json(staging / f"{model_name}.json", worker)
-        write_progress("complete")
+        _write_json(output / f"{model_name}.json", worker)
         _log("worker_complete", model=model_name, **memory)
-    except Exception as error:
-        failure = {
-            "active_work_unit": active,
-            "exception_message": str(error),
-            "exception_type": type(error).__name__,
-            "model": model_name,
-            "traceback": traceback.format_exc(),
-        }
-        _log("worker_failed", **failure)
-        traceback.print_exc()
-        try:
-            _atomic_json(failure_path, failure)
-        except Exception as artifact_error:
-            _log(
-                "failure_artifact_write_failed",
-                model=model_name,
-                exception_message=str(artifact_error),
-            )
+    except Exception:
         raise
 
 
-def main() -> int:
-    active = "startup"
-    staging = OUTPUT_ROOT.with_name(f".{OUTPUT_ROOT.name}.tmp")
+def run(*, repo_root: Path, source_commit: str, started_at: float) -> int:
     processes = []
-    deadline = None
     try:
         _log("run_started", model_device_map={"normal_vae": 0, "so2_vae": 1})
-        payload_root = _extract_payload()
-        contract = json.loads(
-            (payload_root / CONTRACT_PATH).read_text(encoding="utf-8")
-        )
-        deadline = _STARTED + contract["resources"]["wall_time_minutes_max"] * 60
-        staging.mkdir(parents=True, exist_ok=False)
-        _log("payload_contract_and_staging_ready", contract_sha256=CONTRACT_SHA256)
-        active = "workers"
+        contract_path = repo_root / CONTRACT_PATH
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        deadline = started_at + contract["resources"]["wall_time_minutes_max"] * 60
+        OUTPUT_ROOT.mkdir(parents=True, exist_ok=False)
+        _log("source_ready", source_commit=source_commit)
         context = mp.get_context("spawn")
         for model_name, device_index in contract["scope"]["model_device_map"].items():
             process = context.Process(
@@ -1279,8 +1166,8 @@ def main() -> int:
                 args=(
                     model_name,
                     device_index,
-                    str(payload_root),
-                    str(staging),
+                    str(repo_root),
+                    str(OUTPUT_ROOT),
                     contract,
                 ),
                 name=f"stage-a2-calibration-{model_name}",
@@ -1294,14 +1181,8 @@ def main() -> int:
                 child_pid=process.pid,
             )
         for process in processes:
-            remaining_seconds = max(
-                0.0,
-                deadline - time.perf_counter(),
-            )
-            process.join(timeout=remaining_seconds)
+            process.join(timeout=max(0.0, deadline - time.perf_counter()))
             if process.is_alive():
-                process.terminate()
-                process.join(timeout=30)
                 raise RuntimeError("calibration wall-time ceiling exceeded")
             _log("worker_joined", process_name=process.name, exit_code=process.exitcode)
         failed = {
@@ -1314,78 +1195,52 @@ def main() -> int:
         if time.perf_counter() >= deadline:
             raise RuntimeError("calibration wall-time ceiling exceeded")
 
-        active = "merge"
         workers = {
-            model: json.loads((staging / f"{model}.json").read_text(encoding="utf-8"))
+            model: json.loads(
+                (OUTPUT_ROOT / f"{model}.json").read_text(encoding="utf-8")
+            )
             for model in MODEL_KINDS
         }
         selection = _select_numerics(tuple(workers.values()), contract)
-        selection_path = staging / "calibration_selection.json"
-        _atomic_json(selection_path, selection)
+        if time.perf_counter() >= deadline:
+            raise RuntimeError("calibration wall-time ceiling exceeded")
+        selection_path = OUTPUT_ROOT / "calibration_selection.json"
+        _write_json(selection_path, selection)
         selection_sha256 = _sha256(selection_path)
         result = {
-            "calibration_policy": contract["scope"]["selection_policy"],
             "models": workers,
             "schema": "eqvae.functional_geometry.stage_a2.calibration.result.v2",
             "selection_sha256": selection_sha256,
             "selection_status": selection["status"],
-            "scientific_model_comparison": False,
+            "source_commit": source_commit,
             "status": "complete_calibration_probe",
         }
-        _atomic_json(staging / "calibration_result.json", result)
-        _atomic_json(staging / "run_contract.json", contract)
+        _write_json(OUTPUT_ROOT / "run_contract.json", contract)
         runtime = {
             "elapsed_seconds": time.perf_counter() - _STARTED,
+            "source_commit": source_commit,
             "worker_runtimes": {
                 model: worker["runtime"] for model, worker in workers.items()
             },
         }
-        _atomic_json(staging / "runtime.json", runtime)
-        output_bytes = sum(path.stat().st_size for path in staging.iterdir())
-        if output_bytes > contract["resources"]["output_bytes_max"]:
-            raise RuntimeError("output exceeds byte ceiling")
+        _write_json(OUTPUT_ROOT / "runtime.json", runtime)
         if time.perf_counter() >= deadline:
             raise RuntimeError("calibration wall-time ceiling exceeded")
-        staging.replace(OUTPUT_ROOT)
-        for model in MODEL_KINDS:
-            (WORKING_ROOT / f"stage_a2_calibration_{model}_progress.json").unlink(
-                missing_ok=True
-            )
+        result_path = OUTPUT_ROOT / "calibration_result.json"
+        _write_json(result_path, result)
+        if time.perf_counter() >= deadline:
+            result_path.unlink()
+            raise RuntimeError("calibration wall-time ceiling exceeded")
         _log(
             "run_complete",
             output_root=OUTPUT_ROOT.name,
-            output_bytes=output_bytes,
             **runtime,
         )
         return 0
-    except Exception as error:
+    except Exception:
         for process in processes:
             if process.is_alive():
                 process.terminate()
         for process in processes:
-            process.join(timeout=30)
-            if process.is_alive():
-                process.kill()
-                process.join(timeout=30)
-        shutil.rmtree(staging, ignore_errors=True)
-        failure = {
-            "active_phase": active,
-            "exception_message": str(error),
-            "exception_type": type(error).__name__,
-            "schema": "eqvae.functional_geometry.stage_a2.calibration.failure.v2",
-            "traceback": traceback.format_exc(),
-        }
-        _log("run_failed", **failure)
-        traceback.print_exc()
-        try:
-            _atomic_json(WORKING_ROOT / "stage_a2_calibration_failure.json", failure)
-        except Exception as artifact_error:
-            _log("failure_artifact_write_failed", exception_message=str(artifact_error))
-        return 1
-    finally:
-        shutil.rmtree(SOURCE_ROOT, ignore_errors=True)
-
-
-if __name__ == "__main__":
-    mp.freeze_support()
-    raise SystemExit(main())
+            process.join()
+        raise

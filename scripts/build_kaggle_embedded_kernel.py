@@ -43,9 +43,6 @@ FUNCTIONAL_GEOMETRY_STAGE_A1_KERNEL_ID = "maximshtefan/eqvae-fg-stage-a1-c4-28a0
 FUNCTIONAL_GEOMETRY_STAGE_A1_CONTRACT = Path(
     "docs/data/functional_geometry_stage_a1_contract.json",
 )
-FUNCTIONAL_GEOMETRY_STAGE_A2_CALIBRATION_KERNEL_ID = (
-    "maximshtefan/eqvae-fg-stage-a2-calibration"
-)
 VAE_TEST_INPUT_CONTRACT_PATH = Path(
     "runs/local/vae_test_evaluation_input/spec0045_vae_test_input.json",
 )
@@ -172,16 +169,6 @@ FUNCTIONAL_GEOMETRY_STAGE_A1_REMOTE_PATHS = tuple(
     )
 )
 FUNCTIONAL_GEOMETRY_STAGE_A1_STUB_PATHS = ROTATION_POPULATION_STUB_PATHS
-FUNCTIONAL_GEOMETRY_STAGE_A2_CALIBRATION_REMOTE_PATHS = (
-    *(
-        path
-        for path in FUNCTIONAL_GEOMETRY_STAGE_A1_REMOTE_PATHS
-        if path != FUNCTIONAL_GEOMETRY_STAGE_A1_CONTRACT
-    ),
-    Path("src/eqvae/evaluation/functional_geometry_calibration.py"),
-    Path("docs/data/functional_geometry_stage_a2_calibration_contract.json"),
-)
-FUNCTIONAL_GEOMETRY_STAGE_A2_CALIBRATION_STUB_PATHS = ROTATION_POPULATION_STUB_PATHS
 SPEC0021_CONFIG_NAME = "spec0021_inference_config.json"
 SPEC0021_PILOT_AUTHORITY_PATH = Path(
     "runs/kaggle/ubc_ocean_latent_pilot/dataset/spec0021_pilot_authority.json",
@@ -640,17 +627,7 @@ def _payload_manifest(  # noqa: C901
     template_path: Path,
     kernel_dir: Path,
 ) -> dict[str, object]:
-    if _is_functional_geometry_stage_a2_calibration_kernel(kernel_dir):
-        entries = {
-            path.as_posix(): _digest_file(repo_root / path)
-            for path in FUNCTIONAL_GEOMETRY_STAGE_A2_CALIBRATION_REMOTE_PATHS
-        } | {
-            archive_name: _digest_file(repo_root / source)
-            for archive_name, source in (
-                FUNCTIONAL_GEOMETRY_STAGE_A2_CALIBRATION_STUB_PATHS.items()
-            )
-        }
-    elif _is_functional_geometry_stage_a1_kernel(kernel_dir):
+    if _is_functional_geometry_stage_a1_kernel(kernel_dir):
         entries = {
             path.as_posix(): _digest_file(repo_root / path)
             for path in FUNCTIONAL_GEOMETRY_STAGE_A1_REMOTE_PATHS
@@ -770,20 +747,10 @@ def _deterministic_zip_info(archive_name: str) -> zipfile.ZipInfo:
     return info
 
 
-def _payload_files(  # noqa: C901, PLR0911, PLR0912
+def _payload_files(  # noqa: C901, PLR0912
     repo_root: Path,
     kernel_dir: Path,
 ) -> tuple[tuple[Path, str], ...]:
-    if _is_functional_geometry_stage_a2_calibration_kernel(kernel_dir):
-        return tuple(
-            (repo_root / relative, relative.as_posix())
-            for relative in FUNCTIONAL_GEOMETRY_STAGE_A2_CALIBRATION_REMOTE_PATHS
-        ) + tuple(
-            (repo_root / source, archive_name)
-            for archive_name, source in (
-                FUNCTIONAL_GEOMETRY_STAGE_A2_CALIBRATION_STUB_PATHS.items()
-            )
-        )
     if _is_functional_geometry_stage_a1_kernel(kernel_dir):
         return tuple(
             (repo_root / relative, relative.as_posix())
@@ -909,10 +876,6 @@ def _is_decoded_transform_kernel(kernel_dir: Path) -> bool:
 
 def _is_functional_geometry_stage_a1_kernel(kernel_dir: Path) -> bool:
     return _kernel_id(kernel_dir) == FUNCTIONAL_GEOMETRY_STAGE_A1_KERNEL_ID
-
-
-def _is_functional_geometry_stage_a2_calibration_kernel(kernel_dir: Path) -> bool:
-    return _kernel_id(kernel_dir) == FUNCTIONAL_GEOMETRY_STAGE_A2_CALIBRATION_KERNEL_ID
 
 
 def _vae_test_substitutions(repo_root: Path) -> dict[str, str]:
@@ -1110,17 +1073,7 @@ def _validate_manifest_against_source(  # noqa: C901, PLR0912
         errors.append(template_error)
 
     kernel_dir = repo_root / _metadata_kernel_dir(manifest)
-    if _is_functional_geometry_stage_a2_calibration_kernel(kernel_dir):
-        expected_entries = {
-            path.as_posix(): _digest_file(repo_root / path)
-            for path in FUNCTIONAL_GEOMETRY_STAGE_A2_CALIBRATION_REMOTE_PATHS
-        } | {
-            archive_name: _digest_file(repo_root / source)
-            for archive_name, source in (
-                FUNCTIONAL_GEOMETRY_STAGE_A2_CALIBRATION_STUB_PATHS.items()
-            )
-        }
-    elif _is_functional_geometry_stage_a1_kernel(kernel_dir):
+    if _is_functional_geometry_stage_a1_kernel(kernel_dir):
         expected_entries = {
             path.as_posix(): _digest_file(repo_root / path)
             for path in FUNCTIONAL_GEOMETRY_STAGE_A1_REMOTE_PATHS

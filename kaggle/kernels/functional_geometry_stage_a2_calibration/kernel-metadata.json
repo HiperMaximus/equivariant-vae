@@ -1,12 +1,12 @@
 {
   "id": "maximshtefan/eqvae-fg-stage-a2-calibration",
   "title": "eqvae fg stage a2 calibration",
-  "code_file": "run.py",
+  "code_file": "main.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "true",
   "enable_gpu": "true",
-  "enable_internet": "false",
+  "enable_internet": "true",
   "machine_shape": "NvidiaTeslaT4",
   "dataset_sources": [
     "maximshtefan/eqvae-vae-test-reconstruction-inputs-v1",

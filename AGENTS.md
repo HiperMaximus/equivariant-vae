@@ -12,7 +12,7 @@ that workflow.
 ## Working Rules
 
 1. Make the smallest change that answers the scientific question. A parameter
-   rerun changes the existing config or runner and rebuilds the same kernel; it
+   rerun changes the existing config and reuses the same thin kernel; it
    does not create a new architecture, schema, helper layer, process document,
    or broad test harness.
 2. Add reusable code only when the mathematics is genuinely shared or a focused
@@ -27,8 +27,10 @@ that workflow.
    evidence.
 6. Never store, print, or commit credentials.
 7. Kaggle experiments use `scripts/kaggle_kernel.sh` and the existing script
-   kernel. Preserve exact owner/slug/version locators because the authenticated
-   account is not necessarily the owner of every input.
+   kernel. New kernels load code from this public repo and mount frozen artifacts
+   from Kaggle; never embed a repo payload or add per-kernel builder branches.
+   Preserve exact owner/slug/version locators because the authenticated account
+   is not necessarily the owner of every input.
 8. Long Kaggle jobs are checked only when useful; after confirming `RUNNING`,
    record when to inspect the result and stop polling.
 9. `paper/sipaim2026` is the working-paper subtree. Sync it to Overleaf only

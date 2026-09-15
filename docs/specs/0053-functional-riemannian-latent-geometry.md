@@ -315,9 +315,9 @@ Only chart dimensions, finite-difference epsilon, sampled chart radius, Adam
 rate/iterations and feasible path discretizations are adjustable here. Bridge,
 closure/return, covariance/isometry and holonomy claim criteria remain outside the
 calibration and model-specific numerical settings are prohibited. The
-anonymous common selection is written atomically and hash-fixed before the
-combined named-model result is written. The complete artifact and decision are
-retained even if no common setting is viable. Raw bytes, embeddings and decodes
+common reducer runs only after both model outputs are complete. The complete
+artifact and decision are retained even if no common setting is viable. Raw
+bytes, embeddings and decodes
 for final-pilot ranks `0,12` and their WSIs are not re-accessed by this probe
 and cannot enter its reducer; their already accepted Stage A1 diagnostics
 therefore provide no calibration input. The full selector metadata is read only
