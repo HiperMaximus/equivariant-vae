@@ -93,7 +93,7 @@ def test_probe_builds_only_the_unchunked_largest_training_bag(tmp_path: Path) ->
     assert config["grad_scaler_growth_interval"] == 1_000_000
     assert config["required_deadline_reserve_seconds"] == 3600
     assert config["projected_output_bytes"] == 100_000
-    assert config["test_release_status"] == "not_authorized_not_mounted"
+    assert config["test_release_status"] == "not_available_not_mounted"
     assert metadata["kernel_sources"] == ["source-four", "source-eleven"]
     assert metadata["dataset_sources"] == []
     assert metadata["competition_sources"] == []

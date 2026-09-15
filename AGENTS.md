@@ -28,10 +28,10 @@ normal versus continuous-`SO(2)` VAE comparison.
 2. Keep live docs compact. Delete stale status, completed to-do lists and run
    narration; Git preserves history. Retain only current contracts, evidence,
    limitations and next boundaries.
-3. Verify producers, consumers, guards and settled decisions before deleting a
+3. Verify producers, consumers, validations and settled decisions before deleting a
    file or literal that appears unused.
 4. `CURRENT.md` is the current handoff, not a diary. Update it after a real
-   state, blocker or authorization change.
+   state or blocker change.
 5. Agent-local memory is not a state of record. Material state belongs in
    tracked repo docs or the active spec.
 6. Preserve unrelated modified and untracked work. Never reset or clean the
@@ -48,15 +48,17 @@ normal versus continuous-`SO(2)` VAE comparison.
 11. Treat GitHub issue images as requirements evidence; inspect them before
     deriving deliverables or claims.
 12. Do not alter frozen checkpoints, sealed predictions or scored packages in
-    place. New versions require a new explicit contract and authorization.
+    place. Use a new version and explicit conversational scope.
 13. Sealed-test results cannot drive training, checkpoint selection, tuning,
     thresholds, retries or architecture changes.
 14. No WSI attention/attribution map may be inferred from slide logits alone.
     Patch-level attribution requires instrumented inference and a separate
     scope.
 15. Never store, print or commit Kaggle, Overleaf or other credentials.
-16. Kaggle remote reads and writes require explicit user permission and the
-    confirmation variables enforced by `scripts/kaggle_kernel.sh`.
+16. Remote permission is established only in the user conversation. Never
+    encode, persist, validate or consume it through environment variables,
+    contracts, markers, claim files, receipts, tests or per-Spec branches.
+    Code validates only technical, scientific and provenance requirements.
 17. The authenticated Kaggle account owns only newly created resources.
     Preserve each input/output under its exact canonical owner, slug and
     version; never rewrite cross-owner provenance.
@@ -65,8 +67,8 @@ normal versus continuous-`SO(2)` VAE comparison.
 19. Sync Overleaf only with `scripts/sipaim_overleaf_sync.sh`. Never push the
     whole repository, never make Overleaf `origin`, and never use a plain
     `git push overleaf`.
-20. Overleaf remote reads, pulls and pushes require explicit permission and
-    `OVERLEAF_SYNC_CONFIRMED=1`. Compile and refresh
+20. Overleaf remote reads, pulls and pushes require conversational permission.
+    Do not add confirmation variables or code gates. Compile and refresh
     `paper/sipaim2026/sipaim2026.pdf` before a paper sync.
 21. The thesis repository is edited only under an explicit thesis request.
 22. For production Python changes, run `./scripts/python_quality.sh` with the

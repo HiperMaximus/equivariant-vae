@@ -1,89 +1,74 @@
 # Current Repository Status
 
-Last updated: 2026-09-10
+Last updated: 2026-09-15
 
-## Handoff
+## Active frontier
 
-Spec 0053 is the sole active planning workstream. It is a draft roadmap for
-functional latent geometry; it authorizes neither inference nor a remote launch.
-The current lifecycle of every completed/closed spec is in
-docs/specs/README.md. Specs whose bytes were embedded in consumed Kaggle
-artifacts remain immutable; their launch-time header is historical evidence,
-not live status.
+[Spec 0053](docs/specs/0053-functional-riemannian-latent-geometry.md) is the
+single live contract for comparing the functional latent geometry of the frozen
+normal and continuous-`SO(2)` VAEs.
 
-The bounded numerical lineage is closed:
+The accepted numerical method is fixed: direct disposable JVP/VJP graphs,
+matrix-free `Gv = J^T(Jv)`, eager FP32 decoder products, FP64 Lanczos
+tridiagonal solves, finite-difference epsilon `0.008`, JVP microbatch `4`,
+Lanczos depth `m=64`, `r=64` independent probes and two-sided 99% confidence
+intervals. Compilation remains disabled for this analysis.
 
-- Specs 0054--0057 consumed their one-shot parents and are negative evidence.
-  The failure pattern established finite-difference cancellation at the former
-  epsilon=.001 JVP reference; none authorizes a retry or child.
-- Spec 0058 completed as
-  maximshtefan/eqvae-jvp-epsilon-grid-calibration-05a08ab5/1. It selected
-  epsilon=.008 from .002/.004/.008/.016: global aggregate/worst is
-  .00237315/.00332016; .004 fails its worst case .00666581 > .005.
-  The immutable launch receipt is
-  runs/local/kaggle_launches/maximshtefan/eqvae-jvp-epsilon-grid-calibration-05a08ab5/v0001.json;
-  output and receipt are under
-  runs/local/kaggle_outputs/maximshtefan/eqvae-jvp-epsilon-grid-calibration-05a08ab5/v0001/.
+The first scientific stage is complete. The next bounded experiment uses only
+the exact `C4` states at ranks 0 and 12. It will compare the encoded and
+prescribed-action cycles, search for decoder-fiber bridges, solve all four
+adjacent pullback-metric geodesics, test tangent transport and action covariance,
+and perform a free continuation in which only `z_0,z_1` may determine
+`z_2,z_3,z_0`. Machine tolerances, the solver budget, focused tests and the
+Kaggle package remain to be implemented.
 
-No Kaggle job is active. This calibration is not a model comparison, full
-preflight, or scientific result.
+## Accepted scientific evidence
 
-## Frozen Models And Data
+- Both VAEs are frozen at 60,000 updates and use posterior-`mu` latents of
+  shape `(16,32,32)`.
+- Exact `C4` evaluation covers all 25 fixed validation patches. The prescribed
+  `SO(2)` decoder action has image-space RMS error around `1e-6`; the normal
+  VAE medians are approximately `0.165--0.190`.
+- This decoder result does not imply strict encoder equivariance. Raw
+  posterior-`mu` and `logvar` action errors do not favor the `SO(2)` VAE.
+- At ranks 0 and 12 over four exact angles, the `SO(2)` pullback-metric trace
+  is `0.895--0.959` of the matched normal value, and its estimated
+  `d95`/`d99` is lower in all eight matched states.
+- The spectral result is two-anchor evidence, not a patch-population estimate.
+  It does not establish a continuous-angle action, a geodesic rotation orbit or
+  a global quotient structure.
 
-- Normal and continuous-SO(2) denoising VAEs completed 60,000 updates and have
-  the matched float32[16,32,32] Gaussian posterior-mu target. Checkpoint
-  SHA-256: normal
-  f733304e9178e468546113642bdf01e11348570b340c366cf148973083cb9075;
-  SO(2) 041e0cd7483cb8642bb72eb1b63c3a36774bf9cadd0b659c9d1db6a813c8f4c7.
-  Do not retrain, tune, or modify either.
-- The shared masked-WSI cohort is frozen at 106/23/23 train/validation/test
-  WSIs. The sealed reconstruction and tissue tests use the same 23 test WSIs.
-  Specs 0017--0025 own membership, storage, and provenance details.
-- Sealed-test results never drive tuning, selection, retraining, or retries.
+The final Stage A1 kernel is
+`maximshtefan/eqvae-fg-stage-a1-c4-28a08ab5/1`. Its authenticated result is
+stored at `runs/kaggle/functional_geometry_stage_a1_c4_slq_v1/` with SHA-256
+`f59bf4eb7bba136c02cca24b237414da1dca23e4b94b781c4eb3d5978840e449`.
 
-## Accepted Evidence And Interpretation
+## Live implementation
 
-- Full-test reconstruction is descriptively lower for normal: MAE
-  .0628721/.0642299 normal/SO(2), with paired difference
-  -.00135779 [-.00221281,+.00004591].
-- WSI diagnosis and several low-label tissue point estimates favor SO(2), but
-  their prespecified intervals do not establish a general advantage. Only the
-  500-label tissue contrast excludes zero.
-- Spec 0050 supersedes the defective mixed-sign dense rotation sweep. Its
-  corrected one-degree direction misses the locked 10% effect margin and
-  reverses at five degrees; no shared reduced action or local
-  content--pose factorization was demonstrated. The raw-mu quarter-turn control
-  does not favor SO(2).
-- Separately, Spec 0051 verifies that the SO(2) decoder realizes the prescribed
-  spatial C4 action at exact 90/180/270-degree rotations. This does not imply
-  continuous SO(2), encoder equivariance, a learned low-dimensional action, or
-  complete D4/O(2) equivariance.
-- The advisor report is
-  reports/professor/informe_final_experimento_eqvae.{docx,pdf}: 29 Letter pages
-  and 22 inline figures. SHA-256: DOCX
-  c4c3cf292212830960dad6015bea518902f704a893875d407c27bc5b892ed98d;
-  PDF 6107d24c3964e57a1c752382f699e8c6761a4c650732e2b4e5d305d182a95e7a.
-  It is visually reviewed and accessible; regenerate for content equivalence,
-  not byte identity, because DOCX/PDF container timestamps vary.
+- `src/eqvae/evaluation/functional_geometry_rla.py`: direct, disposable
+  decoder JVP/VJP linearization.
+- `src/eqvae/evaluation/functional_geometry_slq.py`: matrix-free pullback
+  metric action and deterministic SLQ summaries.
+- `docs/data/functional_geometry_stage_a1_contract.json`: compact machine
+  contract for the accepted Stage A1 inputs and parameters.
+- `kaggle/kernels/functional_geometry_stage_a1_c4_slq/`: final reproducibility
+  package for Stage A1.
+- `tests/test_functional_geometry_slq.py` and
+  `tests/test_stage_a1_c4_slq_kernel.py`: focused numerical and package tests.
 
-## Verification State
+## Scientific boundary
 
-- Focused geometry, decoded-transform, preflight, and JVP-calibration suites:
-  93 passed (two third-party escnn deprecation warnings).
-- Touched scientific source passes Ruff and BasedPyright.
-- git diff --check, repository preflight, and workspace preflight pass.
-- The full Python gate still reports 23 pre-existing lint findings in two
-  packaged tissue/WSI probe files; this batch does not add one.
-- Generated Kaggle run.py payloads are ignored; commit their run_template.py,
-  metadata, contracts, and tests only.
+The target is continuous `SO(2)`, although the next pilot deliberately uses
+only exact quarter-turns. Decoder-fiber equivalence means agreement in the
+decoder-induced quotient, not equality of latent tensors. Parallel transport
+and geodesic closure are hypotheses to test, not assumptions. Sealed-test
+results remain unavailable for tuning.
 
-## Next Authorized Boundary
+## Verification state
 
-Start a separate Spec 0053 experiment contract before any new remote action.
-It may use epsilon=.008 only as the JVP finite-difference reference and must
-lock randomized-linear-algebra policy: sketch width s=k+p, r=128 independent
-full-dimensional scalar probes for trace/Frobenius certificates, a 99%
-confidence interval for scalar means, and no entrywise reconstruction of J^T J
-or averaging singular vectors. It needs focused tests, result-blind
-observability, independent review, explicit user authorization, and a unique
-one-shot guard. Do not launch it from this completed calibration.
+The 10 focused SLQ/kernel tests pass. Focused Ruff and format checks, Python
+compilation, shell syntax, embedded-payload build/verification, kernel
+`validate`/`check` and `git diff --check` pass. The generated
+`run.py` was removed after verification because the template and compact
+payload builder are the source of truth. Preserve unrelated dirty-worktree
+changes.

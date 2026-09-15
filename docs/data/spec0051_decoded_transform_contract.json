@@ -93,15 +93,12 @@
     "selection": "result_independent"
   },
   "remote": {
-    "guard_phrase": "spec0051_decoded_latent_transform_authorized",
     "kernel_id": "maximshtefan/eqvae-decoded-latent-transform",
     "privacy": "private",
     "accelerator": "NvidiaTeslaT4",
     "deterministic_algorithms": true,
     "tf32": false,
     "internet": false,
-    "launch_count": 1,
-    "retry_without_amendment": false,
     "dataset_sources": ["maximshtefan/eqvae-vae-test-reconstruction-inputs-v1", "maximusshtefan/patches-pre-shuffled-ubc-ocean"]
   },
   "outputs": {

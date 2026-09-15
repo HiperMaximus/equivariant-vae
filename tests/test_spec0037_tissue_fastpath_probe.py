@@ -157,17 +157,10 @@ def test_runtime_keeps_default_scaler_and_native_optimizer_recovery() -> None:
     assert "validation.csv" not in source and "test.csv" not in source
 
 
-def test_kaggle_guard_claims_the_single_remote_launch_before_push() -> None:
-    """A failed or accepted first push must not silently spend a second version."""
+def test_kaggle_launcher_has_no_fastpath_permission_branch() -> None:
+    """The generic launcher has no fast-path-specific permission logic."""
     launcher = (builder.ROOT / "scripts/kaggle_kernel.sh").read_text(
         encoding="utf-8",
     )
-    assert "tissue_fastpath_probe_launch_claim=" in launcher
-    assert "Spec 0037's one private kernel-launch authority is consumed" in launcher
-    assert "spec0037.kernel_launch_claim.v1" in launcher
-    assert launcher.index("KAGGLE_FULL_DATASET_CONFIRMED:-}") < launcher.index(
-        "PYSPEC0037CLAIM",
-    )
-    assert launcher.index("PYSPEC0037CLAIM") < launcher.index(
-        'kaggle_api kernels push -p "$upload_kernel_dir"',
-    )
+    assert "tissue_fastpath" not in launcher
+    assert "CONFIRMED" not in launcher

@@ -387,7 +387,7 @@ def seal_development(output: Path, summary: Mapping[str, object]) -> dict[str, o
             }
             for s in ("train", "validation")
         },
-        "test_release": "not_authorized",
+        "test_release": "not_available",
     }
     legacy._write_json(dev / "dataset.json", contract)
     return contract
@@ -458,7 +458,7 @@ def build(*, repo_root: Path, output_root: Path) -> dict[str, object]:
                 for p in sorted(staging.rglob("*"))
                 if p.is_file()
             },
-            "test_release": "not_authorized",
+            "test_release": "not_available",
             "latent_payloads_read": False,
             "existing_tissue_and_quarter_views_modified": False,
         }

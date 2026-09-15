@@ -80,8 +80,6 @@ def resolve_package():
     ]
     if (
         contract.get("schema_version") != "spec0030.local_global_mil_capacity.v1"
-        or contract.get("authorization")
-        != "spec0030_local_global_capacity_shared_access_retry_authorized"
         or contract.get("scope") != "capacity_only_not_learning_or_evaluation"
         or contract.get("model", {}).get("sha256") != MODEL_SHA256
         or contract.get("model", {}).get("parameter_count") != EXPECTED_PARAMETER_COUNT

@@ -108,14 +108,12 @@ def main() -> int:
         roots = [p for p in candidates if (p / "45630.png").is_file()]
         if len(roots) != 1:
             raise RuntimeError("Expected the official WSI45630 source PNG")
-        os.environ["EQVAE_CANCER_TOPUP_CONFIRMED"] = "1"
         _execute(bundle, roots[0])
         return 0
     except Exception:
         traceback.print_exc()
         return 1
     finally:
-        os.environ.pop("EQVAE_CANCER_TOPUP_CONFIRMED", None)
         os.environ.pop("EQVAE_SESSION_START_MONOTONIC", None)
 
 

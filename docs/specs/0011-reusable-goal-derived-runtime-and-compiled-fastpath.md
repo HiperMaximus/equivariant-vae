@@ -185,8 +185,7 @@ uses a 600-update linear warmup to effective `1e-3`, then cosine decay without r
    the overfit check requires at least 5% smoothed L1 and reconstruction improvement.
 7. Focused tests, Ruff, BasedPyright, `./scripts/python_quality.sh`, `git diff --check`,
    repo preflight, workspace preflight, and one clean-context adversarial review pass.
-8. No Kaggle push/run occurs without explicit remote-write authorization and
-   `KAGGLE_PUSH_CONFIRMED=1`.
+8. No Kaggle push/run occurs without explicit user approval in the conversation.
 9. The matched baseline and continuous-`SO(2)` full runs use beta target `0.01`, selected
    by the paired fixed-32 v10 probe, with the existing one-epoch full-run beta ramp.
 10. Full-run publication pins the measured Torch/CUDA stack and beta target, verifies
@@ -247,7 +246,7 @@ re-separate stochastic streams per DDP rank after loading the rank-0 checkpoint.
 add an artificial session cap, remote artifact-tree transport, a generalized session
 manager/merge service, or automated cleanup. The final session attaches only the
 concrete update-45000 checkpoint downloaded from session 2 beside the UBC dataset; its
-metadata, wrapper, and push guard fail closed on any other checkpoint path or hash.
+metadata, wrapper, and package validation fail on any other checkpoint path or hash.
 Session-1 local review additionally pins the beta target and measured Torch
 `2.13.0+cu130` / CUDA `13.0` stack at launch, verifies the complete ignored wrapper
 against its tracked template, and publishes checkpoints through a temporary sibling and

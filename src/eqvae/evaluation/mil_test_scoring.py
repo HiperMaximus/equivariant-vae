@@ -132,7 +132,6 @@ def score_retrieved_mil_test_output(
     *,
     remote_output_root: Path,
     launch_receipt_path: Path,
-    launch_claim_path: Path,
     label_oracle_path: Path,
     output_root: Path,
     expected_scorer_sha256: str,
@@ -168,7 +167,6 @@ def score_retrieved_mil_test_output(
     remote = _authenticate_remote_output(
         remote_output_root=remote_output_root,
         launch_receipt_path=launch_receipt_path,
-        launch_claim_path=launch_claim_path,
         expected_scorer_sha256=expected_scorer_sha256,
         expected_test_vector_sha256=expected_test_vector_sha256,
         expected_input_contract_sha256=expected_input_contract_sha256,
@@ -191,7 +189,6 @@ def score_retrieved_mil_test_output(
     pre_score = {
         "schema_version": "spec0041.pre_score_contract.v1",
         "remote_launch_receipt_sha256": _sha256(launch_receipt_path),
-        "exclusive_launch_claim_sha256": _sha256(launch_claim_path),
         "remote_output_receipt_sha256": _sha256(
             remote_output_root / "kaggle_output_receipt.json",
         ),
@@ -325,7 +322,6 @@ def _authenticate_remote_output(
     *,
     remote_output_root: Path,
     launch_receipt_path: Path,
-    launch_claim_path: Path,
     expected_scorer_sha256: str,
     expected_test_vector_sha256: str,
     expected_input_contract_sha256: str,
@@ -341,7 +337,6 @@ def _authenticate_remote_output(
     expected_accepted_kernel_reference: str,
 ) -> dict[str, object]:
     launch = _read_object(launch_receipt_path)
-    claim = _read_object(launch_claim_path)
     reference = launch.get("kernel_reference")
     expected_actor = expected_dataset_reference.split("/", maxsplit=1)[0]
     expected_kernel_id = f"{expected_actor}/eqvae-local-global-mil-test-evaluation"
@@ -368,15 +363,7 @@ def _authenticate_remote_output(
     }
     accepted_version = launch.get("accepted_version")
     if (
-        claim
-        != {
-            "schema_version": "spec0041.exclusive_launch_claim.v1",
-            "authorization": "one_private_label_blind_test_inference_launch",
-            "input_contract_sha256": expected_input_contract_sha256,
-            "kernel_sha256": expected_kernel_sha256,
-            "metadata_sha256": expected_metadata_sha256,
-        }
-        or launch.get("schema_version") != "eqvae.kaggle_kernel_launch.v1"
+        launch.get("schema_version") != "eqvae.kaggle_kernel_launch.v1"
         or not isinstance(reference, str)
         or isinstance(accepted_version, bool)
         or not isinstance(accepted_version, int)

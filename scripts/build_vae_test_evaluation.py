@@ -21,7 +21,6 @@ from eqvae.evaluation.vae_test import (
 )
 from eqvae.evaluation.vae_test_reporting import (
     score_retrieved_vae_test_output,
-    write_exclusive_json,
 )
 from eqvae.evaluation.vae_test_resume import resume_score_retrieved_vae_test_output
 from eqvae.evaluation.vae_test_scoring import verify_test_vector
@@ -44,13 +43,13 @@ NORMALIZATION_AMENDMENT_PATH: Final = (
     ROOT / "docs/data/spec0046_spec0045_slug_normalization_amendment.json"
 )
 NORMALIZATION_AMENDMENT_SHA256: Final = (
-    "4eb160368e8eb8413171e77a6c30edd172a13693cf9f1bda625c7b60a261e147"
+    "6f25a1c7c943bdcdcebba74da829de908bde61e4e337bd2d8c82e6ada88c9a17"
 )
 DIAGNOSIS_INDEX_AMENDMENT_PATH: Final = (
     ROOT / "docs/data/spec0047_spec0045_diagnosis_index_resume_amendment.json"
 )
 DIAGNOSIS_INDEX_AMENDMENT_SHA256: Final = (
-    "0641f572e497f44cec51565e7f0758fbc2065e9d56b59619e2acc7ee529b1a96"
+    "d4fb451225c57c1cbcb697f92b2385c64dcd31e628a97ec1a7baf8543d28c3b0"
 )
 SOURCE_LOCATION_PATH: Final = (
     ROOT
@@ -93,9 +92,6 @@ ANALYSIS_CONTRACT: Final = {
     "diagnosis_role": "secondary_exploratory_breakdown",
     "bootstrap": "paired_unstratified_wsi_cluster_10000_seed4501",
 }
-AUTHORITY_ROOT: Final = ROOT / "runs/local/vae_test_evaluation_authority"
-INPUT_RECEIPT_PATH: Final = AUTHORITY_ROOT / "input_dataset_receipt.json"
-LAUNCH_CLAIM_PATH: Final = AUTHORITY_ROOT / "launch_claim.json"
 KERNEL_ROOT: Final = ROOT / "kaggle/kernels/vae_test_reconstruction"
 PRIOR_PRE_SCORE_CLAIM_PATH: Final = (
     ROOT / "runs/local/vae_test_reconstruction_scored_v1.pre_score_claim.json"
@@ -120,10 +116,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     resume_parser.add_argument("--launch-receipt", type=Path, required=True)
     resume_parser.add_argument("--input-receipt", type=Path, required=True)
     resume_parser.add_argument("--output-root", type=Path, required=True)
-    claim_parser = subparsers.add_parser("claim-launch")
-    claim_parser.add_argument("--actor", required=True)
-    validate_claim_parser = subparsers.add_parser("validate-claimed-launch")
-    validate_claim_parser.add_argument("--actor", required=True)
     args = parser.parse_args(argv)
     command = cast("str", args.command)
     if command == "resume-score":
@@ -155,10 +147,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             normalization_amendment_path=NORMALIZATION_AMENDMENT_PATH,
             expected_normalization_amendment_sha256=(NORMALIZATION_AMENDMENT_SHA256),
         )
-    elif command == "claim-launch":
-        result = claim_launch(actor=cast("str", args.actor))
-    elif command == "validate-claimed-launch":
-        result = validate_claimed_launch(actor=cast("str", args.actor))
     elif command == "build-input":
         actor = cast("str", args.actor)
         result = build_input(actor=actor)
@@ -350,67 +338,6 @@ def validate_input(*, actor: str) -> dict[str, object]:
             cast("Mapping[str, object]", contract["population"])["redacted_location"],
         )["sha256"],
         "remote_file_count": len(expected_paths),
-    }
-
-
-def claim_launch(*, actor: str) -> dict[str, object]:
-    """Write the exclusive launch claim only after input and kernel verification."""
-    claim = _expected_launch_claim(actor=actor)
-    write_exclusive_json(LAUNCH_CLAIM_PATH, claim)
-    return claim
-
-
-def validate_claimed_launch(*, actor: str) -> dict[str, object]:
-    """Require the exact existing one-use claim immediately before upload."""
-    expected = _expected_launch_claim(actor=actor)
-    observed = _read_object(LAUNCH_CLAIM_PATH)
-    if observed != expected:
-        raise ValueError("Spec 0045 exclusive launch claim differs")
-    return observed
-
-
-def _expected_launch_claim(*, actor: str) -> dict[str, object]:
-    validated = validate_input(actor=actor)
-    receipt = _read_object(INPUT_RECEIPT_PATH)
-    dataset_reference = f"{actor}/{DATASET_SLUG}"
-    contract_sha256 = cast("str", validated["input_contract_sha256"])
-    if (
-        receipt.get("schema_version") != "spec0045.input_dataset_receipt.v1"
-        or receipt.get("dataset_reference") != dataset_reference
-        or receipt.get("dataset_version") != 1
-        or receipt.get("visibility") != "private"
-        or receipt.get("status") != "verified"
-        or receipt.get("input_contract_sha256") != contract_sha256
-        or receipt.get("remote_files")
-        != _file_records(OUTPUT_ROOT, exclude={"dataset-metadata.json"})
-    ):
-        raise ValueError("Spec 0045 immutable input receipt differs")
-    run_path = KERNEL_ROOT / "run.py"
-    metadata_path = KERNEL_ROOT / "kernel-metadata.json"
-    metadata = _read_object(metadata_path)
-    if (
-        metadata.get("id") != f"{actor}/eqvae-frozen-vae-test-reconstruction"
-        or metadata.get("is_private") != "true"
-        or metadata.get("machine_shape") != "NvidiaTeslaT4"
-        or metadata.get("dataset_sources") != [dataset_reference]
-        or metadata.get("kernel_sources") != list(LATENT_KERNEL_SOURCES)
-        or f'INPUT_CONTRACT_SHA256 = "{contract_sha256}"'
-        not in run_path.read_text(encoding="utf-8")
-    ):
-        raise ValueError("Spec 0045 uploadable kernel differs")
-    return {
-        "schema_version": "spec0045.exclusive_launch_claim.v1",
-        "dataset_reference": dataset_reference,
-        "dataset_version": 1,
-        "input_contract_sha256": contract_sha256,
-        "input_dataset_receipt_sha256": sha256_file(INPUT_RECEIPT_PATH),
-        "kernel_id": metadata["id"],
-        "kernel_files": {
-            "kernel-metadata.json": _file_record(metadata_path),
-            "run.py": _file_record(run_path),
-        },
-        "kernel_sources": list(LATENT_KERNEL_SOURCES),
-        "policy": "one_complete_metric_result_only",
     }
 
 

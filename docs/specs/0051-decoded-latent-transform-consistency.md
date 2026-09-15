@@ -176,11 +176,8 @@ Persist a compact package under `decoded_latent_transform_v1` containing:
 Before launch: focused unit tests, Ruff/format/BasedPyright on changed Python,
 kernel build/verify, metadata/source/hash checks, shell syntax, diff checks and
 repo preflight must pass. The remote kernel must require a CUDA T4, be private,
-disable internet, verify every input hash, remain inference-only, and claim its
-one-shot authority before the push. After launch, confirm `RUNNING` once and
+disable internet, verify every input hash and remain inference-only. After
+launch, confirm `RUNNING` once and
 stop; do not poll a long job in-turn. Accepted outputs require hash verification,
 schema/finite/count checks, visual inspection, focused verification and
 independent clean-context scientific/statistical review.
-
-Remote authorization guard:
-`spec0051_decoded_latent_transform_authorized`.

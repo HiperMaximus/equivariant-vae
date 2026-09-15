@@ -297,8 +297,8 @@ def _validate_baseline_selected_runtime(path: Path) -> None:
     # identity, coherent recipe, and the global == per_device * world_size /
     # updates == floor(P / global) relationships -- while keeping the hardware and
     # topology anchors pinned. selected_runtime_path=None skips only the runtime-proof
-    # hash, which the runner re-checks at launch and the push guard requires present,
-    # so this pre-check keeps its character and stays behavior-preserving on v5.
+    # hash, which the runner re-checks at launch, so this pre-check keeps its
+    # character and stays behavior-preserving on v5.
     from eqvae.training.selected_runtime import (  # noqa: PLC0415
         selected_runtime_plan_errors,
     )

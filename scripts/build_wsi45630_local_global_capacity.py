@@ -155,9 +155,6 @@ def _contract(root: Path) -> dict[str, object]:
     model_sha256 = _sha256(root / MODEL_PATH)
     return {
         "schema_version": "spec0030.local_global_mil_capacity.v1",
-        "authorization": (
-            "spec0030_local_global_capacity_shared_access_retry_authorized"
-        ),
         "scope": "capacity_only_not_learning_or_evaluation",
         "spec_sha256": _sha256(root / SPEC_PATH),
         "model": {

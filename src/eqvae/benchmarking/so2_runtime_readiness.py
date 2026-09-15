@@ -184,7 +184,7 @@ def parse_probe_config(path: Path) -> _ProbeConfig:
         "world_size": readiness.get("world_size") == REQUIRED_WORLD_SIZE,
         "batch": readiness.get("per_device_batch_size") == PER_DEVICE_BATCH,
         "image_size": data.get("image_size") == IMAGE_SIZE,
-        "training_forbidden": readiness.get("full_training_authorized") is False,
+        "training_forbidden": readiness.get("full_training_enabled") is False,
     }
     failures = sorted(name for name, passed in expected.items() if not passed)
     if failures:
@@ -1099,7 +1099,7 @@ def run(config_path: Path, output_dir: Path) -> JsonObject:  # noqa: C901, PLR09
         "benchmark_kind": PROBE_KIND,
         "status": "pending_verdict",
         "full_run_eligible": False,
-        "full_training_authorized": False,
+        "full_training_enabled": False,
         "model_kind": MODEL_KIND_SO2_FIXED,
         "model_identity": {
             "concrete_class": type(model).__name__,

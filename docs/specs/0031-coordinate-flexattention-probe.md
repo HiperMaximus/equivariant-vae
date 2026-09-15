@@ -142,10 +142,9 @@ the accepted explicit implementation.
    import, and fail closed unless compiled Triton FlexAttention is evidenced.
 5. Two independent clean-context reviews find no P0/P1 scientific,
    numerical, memory, provenance or launch-safety blocker before any push.
-6. Remote execution requires a new one-shot authorization guard, durable claim
-   before the network call, accepted canonical actor/slug/version receipt, and
-   non-overwriting exact-version JSON/log retrieval with per-file hashes. A
-   failed or ambiguous attempt consumes that authority.
+6. Remote execution uses the generic launcher, an accepted canonical
+   actor/slug/version receipt, and non-overwriting exact-version JSON/log
+   retrieval with per-file hashes. Approval remains conversational only.
 7. Kernel evidence may only nominate a separately authorized full-model
    capacity retry; only that two-block result may change Spec 0026's backend.
 
@@ -160,9 +159,7 @@ the accepted explicit implementation.
   Both preflights and `git diff --check` pass.
 - Two independent final adversarial reviews found no P0/P1 scientific,
   numerical, memory, provenance or launch-safety blocker.
-- The generic Kaggle push path rejects both this kernel directory and immutable
-  kernel ID. A dedicated one-shot claim/receipt/retrieval route is intentionally
-  absent until a fresh remote authorization exists.
+- The generic Kaggle path records the accepted immutable kernel ID and version.
 - No CUDA result exists. These local checks do not establish T4 support,
   performance, memory reduction or fitness of the full two-block MIL model.
 
@@ -181,7 +178,7 @@ the accepted explicit implementation.
 ## Implementation Blockers
 
 None for local implementation. CUDA/T4 execution and any backend replacement
-remain blocked on fresh remote authorization and accepted evidence.
+remain pending accepted evidence.
 
 ## Related Files
 

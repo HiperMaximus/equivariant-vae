@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-# ruff: noqa: ANN001, ANN202, BLE001, DOC201, DOC501, EM101, EM102, FBT003, INP001, PLC0415, PLR0911, PLR0913, PLR0914, PLR0915, PLR0916, PLR0917, PLR2004, PLW0717, S102, S404, SLF001, TRY003
+# ruff: noqa: ANN001, ANN201, ANN202, BLE001, DOC201, DOC501, EM101, EM102, F821, FBT003, INP001, PLC0415, PLR0911, PLR0913, PLR0914, PLR0915, PLR0916, PLR0917, PLR2004, PLW0717, S102, S404, SLF001, TRY003
 """Run the exact Spec 0034 full compiled fixed-25 MIL probe."""
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ if False:
     # Copyright 2026 HiperMaximus
     # ruff: noqa: C901, COM812, DOC201, DOC501, EM101, PLC2801, PLR0912, PLR0913, PLR0914, PLR0915, PLR0917, PLR2004, SLF001, TRY003
     """The AMP-first fixed width-192 local-global MIL architecture."""
+
 
     import hashlib
     import math
@@ -67,6 +68,7 @@ if False:
         b"coordinates:<i8;neighbor_index:<i8;neighbor_valid:u1;radial_code:u1"
     )
 
+
     @dataclass(frozen=True, init=False)
     class LocalGlobalMILConfig:
         """Expose the single locked architecture without alternative model knobs."""
@@ -92,6 +94,8 @@ if False:
         local_attention_chunk_size: int = LOCAL_CHUNK_SIZE
         global_patch_summary_activation: str = "sigmoid"
         global_patch_summary_cardinality_bias: str = "negative_log_valid_keys"
+        global_patch_summary_precision: str = "fp32_scores_weights_reduction_output"
+        global_sequence_precision: str = "float32"
         final_cls_attention_activation: str = "softmax"
         final_cls_attention_mask: str = "none"
         local_attention_cardinality_bias: str = "none"
@@ -107,7 +111,9 @@ if False:
         classifier_classes: int = 5
         classifier_precision: str = "float32"
 
+
     LOCAL_GLOBAL_MIL_CONFIG: Final = LocalGlobalMILConfig()
+
 
     @dataclass(frozen=True, init=False)
     class LocalAttentionGraph:
@@ -185,12 +191,14 @@ if False:
             if actual != self.identity_sha256:
                 raise ValueError("Graph tensors do not match their canonical identity")
 
+
     class AdamWParameterGroup(TypedDict):
         """One named AdamW group with its explicit semantic decay role."""
 
         name: str
         params: list[nn.Parameter]
         weight_decay: float
+
 
     def build_local_attention_graph(
         instances: Sequence[WSIInstance],
@@ -266,6 +274,7 @@ if False:
             identity_sha256=identity,
         )
 
+
     class PackedLinear(nn.Linear):
         """One fused projection whose rows preserve independent logical matrices."""
 
@@ -313,6 +322,7 @@ if False:
             if self.bias is not None:  # pyright: ignore[reportUnnecessaryComparison]
                 nn.init.zeros_(self.bias)
 
+
     class LocalGlobalPatchEncoder(nn.Module):
         """Compress frozen posterior means into trainable width-192 patch tokens."""
 
@@ -341,6 +351,7 @@ if False:
                 raise ValueError("A complete WSI bag may not be empty")
             return cast("Tensor", self.layers(latents))
 
+
     class SwiGLU(nn.Module):
         """The fixed token-wise width-256 SwiGLU residual branch."""
 
@@ -361,6 +372,7 @@ if False:
                 "Tensor",
                 self.output(functional.silu(gate) * value),
             )
+
 
     class SparseLocalSoftmaxAttention(nn.Module):
         """Fixed-26 gathered SDPA with one static zero-value null."""
@@ -492,6 +504,7 @@ if False:
                 )
             return context[:real_query_count, :, 0, :]
 
+
     class LocalTransformerBlock(nn.Module):
         """One separate-residual pre-norm sparse local Transformer block."""
 
@@ -510,6 +523,7 @@ if False:
             attended = tokens + attention_update
             ffn_input = cast("Tensor", self.ffn_norm(attended))
             return attended + cast("Tensor", self.ffn(ffn_input))
+
 
     class SigmoidPatchSummaryAttention(nn.Module):
         """One FP32 calibrated sigmoid read from global queries to all patches."""
@@ -541,7 +555,6 @@ if False:
                 part.reshape(-1, ATTENTION_HEADS, HEAD_WIDTH)
                 for part in self.kv.split(cast("Tensor", self.kv(patches)))
             )
-            projected_dtype = query.dtype
             with torch.autocast(device_type=query.device.type, enabled=False):
                 scores = torch.einsum(
                     "mhd,nhd->mhn",
@@ -557,11 +570,9 @@ if False:
                 scores -= patch_count.log()
                 weights = torch.sigmoid(scores)
                 context32 = torch.einsum("mhn,nhd->mhd", weights, value.float())
-            context = context32.to(dtype=projected_dtype).reshape(
-                GLOBAL_TOKENS,
-                TOKEN_WIDTH,
-            )
-            return cast("Tensor", self.output(context))
+                context = context32.reshape(GLOBAL_TOKENS, TOKEN_WIDTH)
+                return cast("Tensor", self.output(context))
+
 
     class GlobalSummaryBlock(nn.Module):
         """The sole one-way all-patch read followed by global-token SwiGLU."""
@@ -583,9 +594,11 @@ if False:
                 "Tensor",
                 self.attention(normalized_queries, normalized_patches),
             )
-            attended = global_tokens + attention_update
-            ffn_input = cast("Tensor", self.ffn_norm(attended))
-            return attended + cast("Tensor", self.ffn(ffn_input))
+            with torch.autocast(device_type=global_tokens.device.type, enabled=False):
+                attended = global_tokens.float() + attention_update.float()
+                ffn_input = cast("Tensor", self.ffn_norm(attended))
+                return attended + cast("Tensor", self.ffn(ffn_input))
+
 
     class CLSOnlyGlobalBlock(nn.Module):
         """Compute only the consumed CLS row of global-token self-attention."""
@@ -608,25 +621,31 @@ if False:
             """Return one CLS vector while all 17 normalized tokens serve as K/V."""
             if global_tokens.shape != (GLOBAL_TOKENS, TOKEN_WIDTH):
                 raise ValueError("CLS-only block requires [17,192] global tokens")
-            normalized = cast("Tensor", self.attention_norm(global_tokens))
-            query = cast("Tensor", self.query(normalized[:1])).reshape(
-                1, ATTENTION_HEADS, HEAD_WIDTH
-            )
-            key, value = (
-                part.reshape(GLOBAL_TOKENS, ATTENTION_HEADS, HEAD_WIDTH)
-                for part in self.kv.split(cast("Tensor", self.kv(normalized)))
-            )
-            attended = functional.scaled_dot_product_attention(
-                query.transpose(0, 1),
-                key.transpose(0, 1),
-                value.transpose(0, 1),
-                dropout_p=0.0,
-                is_causal=False,
-                scale=1.0 / math.sqrt(HEAD_WIDTH),
-            ).transpose(0, 1)
-            projected = cast("Tensor", self.output(attended.reshape(1, TOKEN_WIDTH)))
-            cls = global_tokens[0] + projected[0]
-            return cast("Tensor", cls + self.ffn(self.ffn_norm(cls)))
+            with torch.autocast(device_type=global_tokens.device.type, enabled=False):
+                tokens32 = global_tokens.float()
+                normalized = cast("Tensor", self.attention_norm(tokens32))
+                query = cast("Tensor", self.query(normalized[:1])).reshape(
+                    1, ATTENTION_HEADS, HEAD_WIDTH
+                )
+                key, value = (
+                    part.reshape(GLOBAL_TOKENS, ATTENTION_HEADS, HEAD_WIDTH)
+                    for part in self.kv.split(cast("Tensor", self.kv(normalized)))
+                )
+                attended = functional.scaled_dot_product_attention(
+                    query.transpose(0, 1),
+                    key.transpose(0, 1),
+                    value.transpose(0, 1),
+                    dropout_p=0.0,
+                    is_causal=False,
+                    scale=1.0 / math.sqrt(HEAD_WIDTH),
+                ).transpose(0, 1)
+                projected = cast(
+                    "Tensor",
+                    self.output(attended.reshape(1, TOKEN_WIDTH)),
+                )
+                cls = tokens32[0] + projected[0]
+                return cast("Tensor", cls + self.ffn(self.ffn_norm(cls)))
+
 
     class LocalGlobalMILClassifier(nn.Module):
         """Five-class complete-bag classifier with strict local/global directionality."""
@@ -668,6 +687,7 @@ if False:
                     self.classifier.bias.float(),
                 )
 
+
     def make_paired_local_global_mil_models() -> tuple[
         LocalGlobalMILClassifier,
         LocalGlobalMILClassifier,
@@ -678,10 +698,11 @@ if False:
         so2_model.load_state_dict(normal_model.state_dict())
         return normal_model, so2_model
 
+
     def local_global_mil_adamw_parameter_groups(
         model: LocalGlobalMILClassifier,
         *,
-        weight_decay: float = 1e-4,
+        weight_decay: float = 5e-3,
     ) -> tuple[AdamWParameterGroup, AdamWParameterGroup]:
         """Partition parameters by the exact Spec 0026 semantic decay policy."""
         if weight_decay < 0:
@@ -689,7 +710,12 @@ if False:
         decay: list[nn.Parameter] = []
         no_decay: list[nn.Parameter] = []
         for name, parameter in model.named_parameters():
-            if parameter.ndim >= 2 and not name.endswith(".relative_bias"):
+            is_content_token = name == "global_tokens" or name.endswith(".null_key")
+            if (
+                parameter.ndim >= 2
+                and not name.endswith(".relative_bias")
+                and not is_content_token
+            ):
                 decay.append(parameter)
             else:
                 no_decay.append(parameter)
@@ -697,6 +723,7 @@ if False:
             AdamWParameterGroup(name="decay", params=decay, weight_decay=weight_decay),
             AdamWParameterGroup(name="no_decay", params=no_decay, weight_decay=0.0),
         )
+
 
     def _initialize_module(module: nn.Module) -> None:
         if isinstance(module, nn.Conv2d):
@@ -710,6 +737,7 @@ if False:
         elif isinstance(module, (nn.GroupNorm, nn.LayerNorm)):
             nn.init.ones_(module.weight)
             nn.init.zeros_(module.bias)
+
 
     def _validate_tokens_and_graph(tokens: Tensor, graph: LocalAttentionGraph) -> None:
         if tokens.ndim != 2 or tokens.shape[1] != TOKEN_WIDTH:
@@ -737,12 +765,14 @@ if False:
         if graph_devices != {tokens.device}:
             raise ValueError("Graph arrays and patch tokens must be on the same device")
 
+
     def _local_query_chunks(node_count: int) -> tuple[tuple[int, int], ...]:
         """Return a complete, disjoint partition of local-attention queries."""
         return tuple(
             (start, min(start + LOCAL_CHUNK_SIZE, node_count))
             for start in range(0, node_count, LOCAL_CHUNK_SIZE)
         )
+
 
     def _validate_graph_arrays(graph: LocalAttentionGraph) -> None:
         node_count = graph.node_count
@@ -799,6 +829,7 @@ if False:
         if not squared_radius.eq(decoded_radius).all():
             raise ValueError("Graph radial codes do not match coordinate offsets")
 
+
     def _graph_identity_sha256(
         *,
         wsi_id: int,
@@ -828,13 +859,16 @@ if False:
             digest.update(payload)
         return digest.hexdigest()
 
+
     def _int64_le_bytes(values: Iterable[tuple[int, int]]) -> bytes:
         array = np.asarray(tuple(values), dtype="<i8")
         return array.tobytes(order="C")
 
+
     def _tensor_bytes(tensor: Tensor, *, dtype: str) -> bytes:
         array = tensor.detach().cpu().contiguous().numpy().astype(dtype, copy=False)
         return array.tobytes(order="C")
+
 
     __all__ = [
         "CLASS_ORDER",
@@ -862,12 +896,14 @@ if False:
     # Copyright 2026 HiperMaximus
     """Exact native candidates for the fixed-degree local-attention bakeoff."""
 
+
     import math
     from dataclasses import dataclass
     from typing import TYPE_CHECKING, cast
 
     import torch
     from torch import Tensor
+
 
     if TYPE_CHECKING:
         from eqvae.models.local_global_mil import (
@@ -880,6 +916,7 @@ if False:
     type EdgeGraphTensors = tuple[Tensor, Tensor, Tensor, Tensor]
     type LocalAttentionParameters = tuple[Tensor, Tensor, Tensor]
 
+
     @dataclass(frozen=True)
     class EdgeAttentionGraph:
         """CSR-style valid-edge view of one fixed-25 local graph."""
@@ -888,6 +925,7 @@ if False:
         key_index: Tensor
         radial_code: Tensor
         row_lengths: Tensor
+
 
     class WholeBagFixed25Attention(SparseLocalSoftmaxAttention):
         """State-compatible local module using the loop-free native candidate."""
@@ -911,6 +949,7 @@ if False:
             )
             return cast("Tensor", self.output(context.reshape(-1, TOKEN_WIDTH)))
 
+
     def use_whole_bag_fixed25_attention(model: LocalGlobalMILClassifier) -> None:
         """Replace both local attention modules without changing learned state."""
         for item in model.local_blocks:
@@ -918,6 +957,7 @@ if False:
             replacement = WholeBagFixed25Attention()
             replacement.load_state_dict(block.attention.state_dict())
             block.attention = replacement
+
 
     def edge_attention_graph(graph: LocalAttentionGraph) -> EdgeAttentionGraph:
         """Remove fixed-width padding and return query-major valid edge arrays.
@@ -937,7 +977,8 @@ if False:
             row_lengths=graph.neighbor_valid.sum(dim=1, dtype=torch.int64),
         )
 
-    def fixed25_inductor_attention(
+
+    def fixed25_inductor_attention(  # noqa: PLR0914
         projected: ProjectedQKV,
         graph: Fixed25GraphTensors,
         parameters: LocalAttentionParameters,
@@ -974,7 +1015,8 @@ if False:
         )
         return weighted_value.sum(dim=1).to(dtype=value.dtype)
 
-    def edge_segment_inductor_attention(
+
+    def edge_segment_inductor_attention(  # noqa: PLR0914
         projected: ProjectedQKV,
         graph: EdgeGraphTensors,
         parameters: LocalAttentionParameters,
@@ -1010,6 +1052,7 @@ if False:
         context = torch.segment_reduce(weighted_value, "sum", lengths=row_lengths)
         return context.to(dtype=value.dtype)
 
+
     __all__ = [
         "EdgeAttentionGraph",
         "EdgeGraphTensors",
@@ -1028,14 +1071,10 @@ if False:
 SPEC0034_FULL_COMPILED_FIXED25_PROBE_READY = True
 INPUT_ROOT = Path("/kaggle/input")
 OUTPUT_PATH = Path("/kaggle/working/spec0034_full_compiled_fixed25_mil_probe.json")
-CONTRACT_JSON = r"""{"authorization":"spec0034_pinned_torch_retry_v7_authorized","candidate":{"backend":"whole_bag_fixed25_inductor","sha256":"bd16522fc5192ec330a0f46ba8f6653e6141f9c746f670c4dcbb3330d2f88a5c","source":"src/eqvae/models/local_attention_candidates.py"},"compile":{"backend":"inductor","dynamic_axes":"N_only_permissive_cached_specialization","fullgraph":true,"mode":"max-autotune-no-cudagraphs","optimizer":"grad_scaler_and_native_fused_adamw_eager","recompile_limit":3},"correctness":{"amp_skip_gate":"eager_replay_compiled_histories_must_match","criterion":"compiler_training_effect_lte_max_amp_or_repeat_effect","decision_units":"per_parameter_optimizer_state_and_behavior_per_step","precision_control":"same_fixed25_eager_fp32","repeat_control":"same_fixed25_eager_amp","steps":5},"diagnosis_index":1,"execution":{"benchmark_workload":"single_wsi_repeated_not_epoch_requeue","branch_devices":{"normal_vae":0,"so2_vae":1},"branch_failure_policy":"record_and_continue_other_branch","checkpointing":false,"compile_warmups":2,"cudagraphs":false,"dynamic_reuse_bag_size":64,"fallback":null,"measured_committed_steps_required":5,"measured_steps":5},"initialization_seed":3401,"input_dataset":{"contract_sha256":"99bb4d2f60558aee9691b67be4867ffae434bc306581a000fd5d72a6befac660","pointer_sha256":"08e461846bf16efebac707c82962762f49837916986b29aee0dcd6ca1fc31c6c","reference":"maximusshtefan/eqvae-wsi45630-capacity-inputs","version":1},"kernel_sources":[{"reference":"maximusshtefan/eqvae-ubc-ocean-latent-run-04","version":1},{"reference":"maximusshtefan/eqvae-ubc-ocean-cancer-latent-top-up","version":1},{"reference":"maximusshtefan/eqvae-wsi45630-completion","version":1}],"model":{"parameter_count":1513055,"sha256":"1609e56ed9175e6afb4cbd6db0d91ffb73ee5765390f28d1b6c230946c7e3955","source":"src/eqvae/models/local_global_mil.py"},"optimizer":{"capturable":true,"fused":true,"learning_rate":0.0002,"matrix_weight_decay":0.0001,"name":"AdamW"},"output":"spec0034_full_compiled_fixed25_mil_probe.json","patch_count":32595,"precision":{"autocast":"float16","classifier_loss":"float32","grad_scaler":{"api":"torch.amp.GradScaler","growth_interval":1000000,"init_scale":32768.0,"overflow_policy":"skip_update_and_continue"},"input":"float16_channels_last","normalization":"standard_pytorch_amp_policy"},"runtime_dependency":{"cuda_wheel":"cu130","index_url":"https://download.pytorch.org/whl/cu130","install_scope":"torch_only_no_domain_libraries","torch":"2.14.0"},"schema_version":"spec0034.full_compiled_fixed25_mil.v1","scope":"capacity_optimization_only_not_learning_or_evaluation","spec_sha256":"8dc014d204a7ccf627b90a58f0595cb4bad1045809aa0bc0844311fd5635cdb0","wsi_id":45630}"""
-CONTRACT_SHA256 = "55a49b3682a6c624920b7b69edc4ce2cddfc476559da6722c2564a9cdad5a328"
-EMBEDDED_MODEL_SHA256 = (
-    "16b03163596ca070e276625657467a7507f617d6db216b1f00a3fcde15f1e9e3"
-)
-EMBEDDED_CANDIDATE_SHA256 = (
-    "e432147c449f648332ac3f8df460c3c535b59b57aa9e2cfd5a8183bb74002ed2"
-)
+CONTRACT_JSON = r"""{"candidate":{"backend":"whole_bag_fixed25_inductor","sha256":"bd16522fc5192ec330a0f46ba8f6653e6141f9c746f670c4dcbb3330d2f88a5c","source":"src/eqvae/models/local_attention_candidates.py"},"compile":{"backend":"inductor","dynamic_axes":"N_only_permissive_cached_specialization","fullgraph":true,"mode":"max-autotune-no-cudagraphs","optimizer":"grad_scaler_and_native_fused_adamw_eager","recompile_limit":3},"correctness":{"amp_skip_gate":"eager_replay_compiled_histories_must_match","criterion":"compiler_training_effect_lte_max_amp_or_repeat_effect","decision_units":"per_parameter_optimizer_state_and_behavior_per_step","precision_control":"same_fixed25_eager_fp32","repeat_control":"same_fixed25_eager_amp","steps":5},"diagnosis_index":1,"execution":{"benchmark_workload":"single_wsi_repeated_not_epoch_requeue","branch_devices":{"normal_vae":0,"so2_vae":1},"branch_failure_policy":"record_and_continue_other_branch","checkpointing":false,"compile_warmups":2,"cudagraphs":false,"dynamic_reuse_bag_size":64,"fallback":null,"measured_committed_steps_required":5,"measured_steps":5},"initialization_seed":3401,"input_dataset":{"contract_sha256":"99bb4d2f60558aee9691b67be4867ffae434bc306581a000fd5d72a6befac660","pointer_sha256":"08e461846bf16efebac707c82962762f49837916986b29aee0dcd6ca1fc31c6c","reference":"maximusshtefan/eqvae-wsi45630-capacity-inputs","version":1},"kernel_sources":[{"reference":"maximusshtefan/eqvae-ubc-ocean-latent-run-04","version":1},{"reference":"maximusshtefan/eqvae-ubc-ocean-cancer-latent-top-up","version":1},{"reference":"maximusshtefan/eqvae-wsi45630-completion","version":1}],"model":{"parameter_count":1513055,"sha256":"9d4513c6f7d63aeb13ffc29f7586d1b336daddba3fa2daca3c2a9c45e53a7c72","source":"src/eqvae/models/local_global_mil.py"},"optimizer":{"capturable":true,"fused":true,"learning_rate":0.0002,"matrix_weight_decay":0.0001,"name":"AdamW"},"output":"spec0034_full_compiled_fixed25_mil_probe.json","patch_count":32595,"precision":{"autocast":"float16","classifier_loss":"float32","grad_scaler":{"api":"torch.amp.GradScaler","growth_interval":1000000,"init_scale":32768.0,"overflow_policy":"skip_update_and_continue"},"input":"float16_channels_last","normalization":"standard_pytorch_amp_policy"},"runtime_dependency":{"cuda_wheel":"cu130","index_url":"https://download.pytorch.org/whl/cu130","install_scope":"torch_only_no_domain_libraries","torch":"2.14.0"},"schema_version":"spec0034.full_compiled_fixed25_mil.v1","scope":"capacity_optimization_only_not_learning_or_evaluation","spec_sha256":"8dc014d204a7ccf627b90a58f0595cb4bad1045809aa0bc0844311fd5635cdb0","wsi_id":45630}"""
+CONTRACT_SHA256 = "6140039dd087004d6bfe3ed70293828ac983c2e90ef589bbfe05f4980cd0e2eb"
+EMBEDDED_MODEL_SHA256 = "d4a4c9519c7ae482d204038638651369e20e6cdb3726db07b6966840277c0d8b"
+EMBEDDED_CANDIDATE_SHA256 = "e432147c449f648332ac3f8df460c3c535b59b57aa9e2cfd5a8183bb74002ed2"
 INPUT_CONTRACT_NAME = "wsi45630_capacity_input.json"
 INPUT_CONTRACT_SHA256 = (
     "99bb4d2f60558aee9691b67be4867ffae434bc306581a000fd5d72a6befac660"
@@ -1103,7 +1142,6 @@ def resolve_package():
     contract = json.loads(CONTRACT_JSON)
     if (
         contract.get("schema_version") != "spec0034.full_compiled_fixed25_mil.v1"
-        or contract.get("authorization") != "spec0034_pinned_torch_retry_v7_authorized"
         or contract.get("scope")
         != "capacity_optimization_only_not_learning_or_evaluation"
         or contract.get("model", {}).get("parameter_count") != PARAMETER_COUNT
@@ -1573,7 +1611,7 @@ def gradient_diagnostics(torch, named_parameters):
     return rows
 
 
-def correctness_training_step(
+def correctness_training_step(  # noqa: C901 -- explicit diagnostics keep the probe auditable.
     torch,
     model,
     optimizer,
@@ -1686,7 +1724,7 @@ def correctness_evaluation(torch, model, panel, graph):
     }
 
 
-def full_model_correctness(torch, base_state):
+def full_model_correctness(torch, base_state):  # noqa: C901 -- four comparison arms stay explicit.
     """Compare actual eager/compiled AMP training effects with measured controls."""
     torch._dynamo.reset()
     torch._dynamo.utils.counters.clear()

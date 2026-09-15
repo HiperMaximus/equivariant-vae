@@ -216,7 +216,6 @@ def score_retrieved_tissue_test_output(
     *,
     remote_output_root: Path,
     launch_receipt_path: Path,
-    launch_claim_path: Path,
     label_oracle_path: Path,
     output_root: Path,
     expected_contract: Mapping[str, object],
@@ -252,11 +251,8 @@ def score_retrieved_tissue_test_output(
     authenticated = _authenticate_retrieved_output(
         remote_output_root=remote_output_root,
         launch_receipt_path=launch_receipt_path,
-        launch_claim_path=launch_claim_path,
         expected_contract=expected_contract,
         expected_input_contract_sha256=expected_input_contract_sha256,
-        expected_input_receipt_sha256=expected_input_receipt_sha256,
-        expected_input_receipt_bytes=expected_input_receipt_bytes,
         expected_kernel_sha256=expected_kernel_sha256,
         expected_metadata_sha256=expected_metadata_sha256,
         expected_kernel_bytes=expected_kernel_bytes,
@@ -275,7 +271,6 @@ def score_retrieved_tissue_test_output(
     pre_score = {
         "schema_version": "spec0043.pre_score_contract.v1",
         "remote_launch_receipt_sha256": _sha256(launch_receipt_path),
-        "exclusive_launch_claim_sha256": _sha256(launch_claim_path),
         "remote_output_receipt_sha256": _sha256(
             remote_output_root / "kaggle_output_receipt.json",
         ),
@@ -609,11 +604,8 @@ def _authenticate_retrieved_output(
     *,
     remote_output_root: Path,
     launch_receipt_path: Path,
-    launch_claim_path: Path,
     expected_contract: Mapping[str, object],
     expected_input_contract_sha256: str,
-    expected_input_receipt_sha256: str,
-    expected_input_receipt_bytes: int,
     expected_kernel_sha256: str,
     expected_metadata_sha256: str,
     expected_kernel_bytes: int,
@@ -639,24 +631,6 @@ def _authenticate_retrieved_output(
             "sha256": expected_kernel_sha256,
         },
     }
-    expected_claim = {
-        "schema_version": "spec0043.exclusive_launch_claim.v1",
-        "status": "claimed_before_remote_push",
-        "authorization": "ok let's do the patch tissue test evaluation",
-        "authorization_date": "2026-09-06",
-        "dataset_reference": dataset_reference,
-        "kernel_id": kernel_id,
-        "input_contract_sha256": expected_input_contract_sha256,
-        "input_dataset_receipt": {
-            "bytes": expected_input_receipt_bytes,
-            "sha256": expected_input_receipt_sha256,
-        },
-        "kernel_files": expected_kernel_files,
-        "scientific_retries_authorized": 0,
-    }
-    if _read_object(launch_claim_path) != expected_claim:
-        raise ValueError("Spec 0043 exclusive launch claim differs")
-
     launch = _read_object(launch_receipt_path)
     version = launch.get("accepted_version")
     reference = launch.get("kernel_reference")

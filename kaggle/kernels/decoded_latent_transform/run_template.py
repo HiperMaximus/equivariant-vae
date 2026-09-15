@@ -31,8 +31,8 @@ OUTPUT_ROOT = WORKING_ROOT / "decoded_latent_transform_v1"
 FIGURE_ROOT = OUTPUT_ROOT / "figures"
 PATCH_BYTES = 3 * 256 * 256
 HEADER_BYTES = 64
-CONTRACT_SHA256 = "905ef933a51c26bb3f01fcef4bb4985fa98e00f1dbecd814da3df488bd7c1018"
-SPEC_SHA256 = "7a472a2de56813544506b4a9eb58e2f1f152fcee8f7d60e65ed2c2793b349679"
+CONTRACT_SHA256 = "d5d8481f7007624a45ff874e294a380896c19e6dfc4eeeec99b94c2bfe94646d"
+SPEC_SHA256 = "6fb52dca4b9074ccf0e43e48d8b2cf5deea633cbc9bf709af8808cd01538e245"
 MODEL_KINDS = {
     "normal_vae": "non_eq_vae_translatable",
     "so2_vae": "so2_vae_fixed",

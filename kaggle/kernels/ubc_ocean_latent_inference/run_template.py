@@ -32,7 +32,6 @@ OUTPUT_ROOT = WORKING_ROOT / "dataset"
 SCRATCH_ROOT = WORKING_ROOT / ".spec0021_scratch"
 PRIVATE_ROOT = WORKING_ROOT / ".spec0021_private"
 PILOT_AUTHORITY_ENV = "EQVAE_SPEC0021_PILOT_AUTHORITY_PATH"
-PRODUCTION_CONFIRMATION_ENV = "EQVAE_LATENT_PRODUCTION_CONFIRMED"
 PILOT_OUTPUT_ALLOWLIST = frozenset(
     {
         "spec0021_pilot_matrix.csv",
@@ -114,16 +113,11 @@ def _configure_worker_environment(
     pilot_authority_path: Path,
 ) -> None:
     os.environ[PILOT_AUTHORITY_ENV] = str(pilot_authority_path)
-    if mode == "production":
-        os.environ[PRODUCTION_CONFIRMATION_ENV] = "1"
-    else:
-        os.environ.pop(PRODUCTION_CONFIRMATION_ENV, None)
 
 
 def _clear_worker_environment() -> None:
     for name in (
         PILOT_AUTHORITY_ENV,
-        PRODUCTION_CONFIRMATION_ENV,
     ):
         os.environ.pop(name, None)
 

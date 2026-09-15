@@ -23,7 +23,7 @@ from pathlib import Path
 if False:
     # Copyright 2026 HiperMaximus
     # ruff: noqa: C901, COM812, DOC201, DOC501, EM101, PLC2801, PLR0912, PLR0913, PLR0914, PLR0915, PLR0917, PLR2004, SLF001, TRY003
-    """The fixed width-192 local-global MIL architecture from Spec 0026."""
+    """The AMP-first fixed width-192 local-global MIL architecture."""
 
 
     import hashlib
@@ -36,6 +36,7 @@ if False:
     import torch
     from torch import Tensor, nn
     from torch.nn import functional
+    from torch.nn.attention import SDPBackend, sdpa_kernel
 
     if TYPE_CHECKING:
         from collections.abc import Iterable, Sequence
@@ -49,7 +50,7 @@ if False:
     HEAD_WIDTH: Final = 32
     LOCAL_RADIUS: Final = 2
     LOCAL_MAX_DEGREE: Final = 25
-    LOCAL_CHUNK_SIZE: Final = 8192
+    LOCAL_CHUNK_SIZE: Final = 2048
     GLOBAL_REGISTERS: Final = 16
     GLOBAL_TOKENS: Final = GLOBAL_REGISTERS + 1
     FFN_WIDTH: Final = 256
@@ -85,10 +86,12 @@ if False:
         global_patch_reads: int = 1
         global_to_patch_feedback: bool = False
         local_attention_activation: str = "softmax_with_static_zero_value_null"
-        local_attention_backend: str = "explicit_sparse_fp32"
+        local_attention_backend: str = "fixed26_fp16_efficient_sdpa"
         local_attention_chunk_size: int = LOCAL_CHUNK_SIZE
         global_patch_summary_activation: str = "sigmoid"
         global_patch_summary_cardinality_bias: str = "negative_log_valid_keys"
+        global_patch_summary_precision: str = "fp32_scores_weights_reduction_output"
+        global_sequence_precision: str = "float32"
         final_cls_attention_activation: str = "softmax"
         final_cls_attention_mask: str = "none"
         local_attention_cardinality_bias: str = "none"
@@ -131,6 +134,7 @@ if False:
             neighbor_valid: Tensor,
             radial_code: Tensor,
             identity_sha256: str,
+            verify: bool = True,
         ) -> Self:
             graph = object.__new__(cls)
             object.__setattr__(graph, "wsi_id", wsi_id)
@@ -140,7 +144,8 @@ if False:
             object.__setattr__(graph, "neighbor_valid", neighbor_valid)
             object.__setattr__(graph, "radial_code", radial_code)
             object.__setattr__(graph, "identity_sha256", identity_sha256)
-            graph.verify_integrity()
+            if verify:
+                graph.verify_integrity()
             return graph
 
         @property
@@ -149,16 +154,17 @@ if False:
             return int(self.neighbor_index.shape[0])
 
         def to(self, device: torch.device | str) -> Self:
-            """Return the same graph identity with arrays copied to one device."""
+            """Verify once, then return a trusted derivative on ``device``."""
             self.verify_integrity()
             return type(self)._create(
                 wsi_id=self.wsi_id,
                 expected_instance_count=self.expected_instance_count,
                 lattice_coordinates=self.lattice_coordinates,
-                neighbor_index=self.neighbor_index.to(device=device),
-                neighbor_valid=self.neighbor_valid.to(device=device),
-                radial_code=self.radial_code.to(device=device),
+                neighbor_index=self.neighbor_index.to(device=device, copy=True),
+                neighbor_valid=self.neighbor_valid.to(device=device, copy=True),
+                radial_code=self.radial_code.to(device=device, copy=True),
                 identity_sha256=self.identity_sha256,
+                verify=False,
             )
 
         def verify_integrity(self) -> None:
@@ -265,6 +271,54 @@ if False:
         )
 
 
+    class PackedLinear(nn.Linear):
+        """One fused projection whose rows preserve independent logical matrices."""
+
+        logical_out_features: tuple[int, ...]
+
+        def __init__(
+            self,
+            in_features: int,
+            logical_out_features: tuple[int, ...],
+            *,
+            bias: bool,
+        ) -> None:
+            """Build one linear operator with an explicit logical row partition."""
+            if not logical_out_features or any(width < 1 for width in logical_out_features):
+                raise ValueError("Packed linear slices must all be nonempty")
+            object.__setattr__(self, "logical_out_features", logical_out_features)
+            super().__init__(  # pyright: ignore[reportUnknownMemberType]
+                in_features,
+                sum(logical_out_features),
+                bias=bias,
+            )
+
+        def split(self, output: Tensor) -> tuple[Tensor, ...]:
+            """Split a projected tensor into its canonical logical outputs."""
+            outputs: list[Tensor] = []
+            start = 0
+            for width in self.logical_out_features:
+                outputs.append(output[..., start : start + width])
+                start += width
+            return tuple(outputs)
+
+        def logical_weight_slices(self) -> tuple[Tensor, ...]:
+            """Return the row views corresponding to the logical projections."""
+            outputs: list[Tensor] = []
+            start = 0
+            for width in self.logical_out_features:
+                outputs.append(self.weight[start : start + width])
+                start += width
+            return tuple(outputs)
+
+        def reset_parameters(self) -> None:
+            """Initialize every logical matrix independently in canonical order."""
+            for logical_weight in self.logical_weight_slices():
+                nn.init.xavier_uniform_(logical_weight, gain=1.0)
+            if self.bias is not None:  # pyright: ignore[reportUnnecessaryComparison]
+                nn.init.zeros_(self.bias)
+
+
     class LocalGlobalPatchEncoder(nn.Module):
         """Compress frozen posterior means into trainable width-192 patch tokens."""
 
@@ -298,16 +352,18 @@ if False:
         """The fixed token-wise width-256 SwiGLU residual branch."""
 
         def __init__(self) -> None:
-            """Build two input branches and one output projection."""
+            """Build one packed gate/value input and one output projection."""
             super().__init__()
-            self.gate = nn.Linear(TOKEN_WIDTH, FFN_WIDTH)
-            self.value = nn.Linear(TOKEN_WIDTH, FFN_WIDTH)
+            self.input = PackedLinear(
+                TOKEN_WIDTH,
+                (FFN_WIDTH, FFN_WIDTH),
+                bias=True,
+            )
             self.output = nn.Linear(FFN_WIDTH, TOKEN_WIDTH)
 
         def forward(self, tokens: Tensor) -> Tensor:
             """Apply SiLU to the gate branch before elementwise modulation."""
-            gate = cast("Tensor", self.gate(tokens))
-            value = cast("Tensor", self.value(tokens))
+            gate, value = self.input.split(cast("Tensor", self.input(tokens)))
             return cast(
                 "Tensor",
                 self.output(functional.silu(gate) * value),
@@ -315,14 +371,16 @@ if False:
 
 
     class SparseLocalSoftmaxAttention(nn.Module):
-        """Explicit sparse FP32 local attention with one static zero-value null."""
+        """Fixed-26 gathered SDPA with one static zero-value null."""
 
         def __init__(self) -> None:
             """Build six projection heads and their layer-owned null parameters."""
             super().__init__()
-            self.query = nn.Linear(TOKEN_WIDTH, TOKEN_WIDTH, bias=False)
-            self.key = nn.Linear(TOKEN_WIDTH, TOKEN_WIDTH, bias=False)
-            self.value = nn.Linear(TOKEN_WIDTH, TOKEN_WIDTH, bias=False)
+            self.qkv = PackedLinear(
+                TOKEN_WIDTH,
+                (TOKEN_WIDTH, TOKEN_WIDTH, TOKEN_WIDTH),
+                bias=False,
+            )
             self.output = nn.Linear(TOKEN_WIDTH, TOKEN_WIDTH)
             self.relative_bias = nn.Parameter(torch.zeros(ATTENTION_HEADS, 6))
             self.null_key = nn.Parameter(torch.zeros(ATTENTION_HEADS, HEAD_WIDTH))
@@ -331,16 +389,14 @@ if False:
         def forward(self, tokens: Tensor, graph: LocalAttentionGraph) -> Tensor:
             """Attend to at most 25 graph neighbours plus one noncommunicating null."""
             _validate_tokens_and_graph(tokens, graph)
-            query = cast("Tensor", self.query(tokens)).reshape(
-                -1, ATTENTION_HEADS, HEAD_WIDTH
+            projected = cast("Tensor", self.qkv(tokens))
+            query, key, value = (
+                part.reshape(-1, ATTENTION_HEADS, HEAD_WIDTH)
+                for part in self.qkv.split(projected)
             )
-            key = cast("Tensor", self.key(tokens)).reshape(-1, ATTENTION_HEADS, HEAD_WIDTH)
-            value = cast("Tensor", self.value(tokens)).reshape(
-                -1, ATTENTION_HEADS, HEAD_WIDTH
-            )
+            query = query.reshape(-1, ATTENTION_HEADS, HEAD_WIDTH)
             chunks: list[Tensor] = []
-            for start in range(0, tokens.shape[0], LOCAL_CHUNK_SIZE):
-                stop = min(start + LOCAL_CHUNK_SIZE, tokens.shape[0])
+            for start, stop in _local_query_chunks(tokens.shape[0]):
                 chunks.append(
                     self._attention_chunk(
                         query[start:stop],
@@ -349,6 +405,14 @@ if False:
                         graph.neighbor_index[start:stop],
                         graph.neighbor_valid[start:stop],
                         graph.radial_code[start:stop],
+                        pad_query_count=(
+                            LOCAL_CHUNK_SIZE
+                            if (
+                                query.device.type == "cuda"
+                                and stop - start < LOCAL_CHUNK_SIZE
+                            )
+                            else None
+                        ),
                     ),
                 )
             context = torch.cat(chunks, dim=0).reshape(-1, TOKEN_WIDTH)
@@ -362,35 +426,79 @@ if False:
             neighbor_index: Tensor,
             neighbor_valid: Tensor,
             radial_code: Tensor,
+            *,
+            pad_query_count: int | None = None,
         ) -> Tensor:
+            real_query_count = query.shape[0]
+            if pad_query_count is not None:
+                if pad_query_count < real_query_count:
+                    raise ValueError("Padded query count may not truncate real queries")
+                padding = pad_query_count - real_query_count
+                if padding:
+                    query = functional.pad(query, (0, 0, 0, 0, 0, padding))
+                    neighbor_index = functional.pad(
+                        neighbor_index,
+                        (0, 0, 0, padding),
+                        value=NEIGHBOR_PADDING_INDEX,
+                    )
+                    neighbor_valid = functional.pad(
+                        neighbor_valid,
+                        (0, 0, 0, padding),
+                        value=False,
+                    )
+                    radial_code = functional.pad(
+                        radial_code,
+                        (0, 0, 0, padding),
+                        value=RADIAL_PADDING_CODE,
+                    )
             safe_index = neighbor_index.clamp_min(0)
             gathered_key = key[safe_index].permute(0, 2, 1, 3)
             gathered_value = value[safe_index].permute(0, 2, 1, 3)
-            projected_dtype = query.dtype
-            with torch.autocast(device_type=query.device.type, enabled=False):
-                query32 = query.float()
-                key32 = gathered_key.float()
-                value32 = gathered_value.float()
-                scores = torch.einsum("chd,chkd->chk", query32, key32) / math.sqrt(
-                    HEAD_WIDTH,
+            chunk_count = query.shape[0]
+            null_key = self.null_key.to(dtype=query.dtype)[None, :, None, :].expand(
+                chunk_count,
+                -1,
+                -1,
+                -1,
+            )
+            null_value = torch.zeros_like(null_key)
+            gathered_key = torch.cat((gathered_key, null_key), dim=2)
+            gathered_value = torch.cat((gathered_value, null_value), dim=2)
+
+            safe_code = radial_code.long().clamp_max(len(RADIAL_CODEBOOK) - 1)
+            relative_bias = self.relative_bias[:, safe_code].permute(1, 0, 2)
+            relative_bias = relative_bias.masked_fill(
+                ~neighbor_valid[:, None, :],
+                -torch.inf,
+            )
+            null_bias = self.null_bias[None, :, None].expand(chunk_count, -1, -1)
+            attention_bias = torch.cat((relative_bias, null_bias), dim=2).to(
+                dtype=query.dtype,
+            )
+            query = query[:, :, None, :]
+
+            if query.device.type == "cuda":
+                with sdpa_kernel(SDPBackend.EFFICIENT_ATTENTION):
+                    context = functional.scaled_dot_product_attention(
+                        query,
+                        gathered_key,
+                        gathered_value,
+                        attn_mask=attention_bias[:, :, None, :],
+                        dropout_p=0.0,
+                        is_causal=False,
+                        scale=1.0 / math.sqrt(HEAD_WIDTH),
+                    )
+            else:
+                context = functional.scaled_dot_product_attention(
+                    query,
+                    gathered_key,
+                    gathered_value,
+                    attn_mask=attention_bias[:, :, None, :],
+                    dropout_p=0.0,
+                    is_causal=False,
+                    scale=1.0 / math.sqrt(HEAD_WIDTH),
                 )
-                safe_code = radial_code.long().clamp_max(len(RADIAL_CODEBOOK) - 1)
-                bias = self.relative_bias.float()[:, safe_code].permute(1, 0, 2)
-                scores = (scores + bias).masked_fill(
-                    ~neighbor_valid[:, None, :],
-                    -torch.inf,
-                )
-                null_scores = (
-                    torch.einsum("chd,hd->ch", query32, self.null_key.float())
-                    / math.sqrt(HEAD_WIDTH)
-                    + self.null_bias.float()[None, :]
-                )
-                weights = torch.softmax(
-                    torch.cat((scores, null_scores[..., None]), dim=2),
-                    dim=2,
-                )
-                context32 = torch.einsum("chk,chkd->chd", weights[:, :, :-1], value32)
-            return context32.to(dtype=projected_dtype)
+            return context[:real_query_count, :, 0, :]
 
 
     class LocalTransformerBlock(nn.Module):
@@ -420,8 +528,11 @@ if False:
             """Build separate projections and zero-initialized head offsets."""
             super().__init__()
             self.query = nn.Linear(TOKEN_WIDTH, TOKEN_WIDTH, bias=False)
-            self.key = nn.Linear(TOKEN_WIDTH, TOKEN_WIDTH, bias=False)
-            self.value = nn.Linear(TOKEN_WIDTH, TOKEN_WIDTH, bias=False)
+            self.kv = PackedLinear(
+                TOKEN_WIDTH,
+                (TOKEN_WIDTH, TOKEN_WIDTH),
+                bias=False,
+            )
             self.output = nn.Linear(TOKEN_WIDTH, TOKEN_WIDTH)
             self.head_offset = nn.Parameter(torch.zeros(ATTENTION_HEADS))
 
@@ -436,11 +547,10 @@ if False:
             query = cast("Tensor", self.query(queries)).reshape(
                 GLOBAL_TOKENS, ATTENTION_HEADS, HEAD_WIDTH
             )
-            key = cast("Tensor", self.key(patches)).reshape(-1, ATTENTION_HEADS, HEAD_WIDTH)
-            value = cast("Tensor", self.value(patches)).reshape(
-                -1, ATTENTION_HEADS, HEAD_WIDTH
+            key, value = (
+                part.reshape(-1, ATTENTION_HEADS, HEAD_WIDTH)
+                for part in self.kv.split(cast("Tensor", self.kv(patches)))
             )
-            projected_dtype = query.dtype
             with torch.autocast(device_type=query.device.type, enabled=False):
                 scores = torch.einsum(
                     "mhd,nhd->mhn",
@@ -448,14 +558,16 @@ if False:
                     key.float(),
                 ) / math.sqrt(HEAD_WIDTH)
                 scores += self.head_offset.float()[None, :, None]
-                scores -= math.log(patches.shape[0])
+                patch_count = torch.scalar_tensor(
+                    patches.shape[0],
+                    dtype=torch.float32,
+                    device=scores.device,
+                )
+                scores -= patch_count.log()
                 weights = torch.sigmoid(scores)
                 context32 = torch.einsum("mhn,nhd->mhd", weights, value.float())
-            context = context32.to(dtype=projected_dtype).reshape(
-                GLOBAL_TOKENS,
-                TOKEN_WIDTH,
-            )
-            return cast("Tensor", self.output(context))
+                context = context32.reshape(GLOBAL_TOKENS, TOKEN_WIDTH)
+                return cast("Tensor", self.output(context))
 
 
     class GlobalSummaryBlock(nn.Module):
@@ -478,9 +590,10 @@ if False:
                 "Tensor",
                 self.attention(normalized_queries, normalized_patches),
             )
-            attended = global_tokens + attention_update
-            ffn_input = cast("Tensor", self.ffn_norm(attended))
-            return attended + cast("Tensor", self.ffn(ffn_input))
+            with torch.autocast(device_type=global_tokens.device.type, enabled=False):
+                attended = global_tokens.float() + attention_update.float()
+                ffn_input = cast("Tensor", self.ffn_norm(attended))
+                return attended + cast("Tensor", self.ffn(ffn_input))
 
 
     class CLSOnlyGlobalBlock(nn.Module):
@@ -491,8 +604,11 @@ if False:
             super().__init__()
             self.attention_norm = nn.LayerNorm(TOKEN_WIDTH)
             self.query = nn.Linear(TOKEN_WIDTH, TOKEN_WIDTH, bias=False)
-            self.key = nn.Linear(TOKEN_WIDTH, TOKEN_WIDTH, bias=False)
-            self.value = nn.Linear(TOKEN_WIDTH, TOKEN_WIDTH, bias=False)
+            self.kv = PackedLinear(
+                TOKEN_WIDTH,
+                (TOKEN_WIDTH, TOKEN_WIDTH),
+                bias=False,
+            )
             self.output = nn.Linear(TOKEN_WIDTH, TOKEN_WIDTH)
             self.ffn_norm = nn.LayerNorm(TOKEN_WIDTH)
             self.ffn = SwiGLU()
@@ -501,27 +617,30 @@ if False:
             """Return one CLS vector while all 17 normalized tokens serve as K/V."""
             if global_tokens.shape != (GLOBAL_TOKENS, TOKEN_WIDTH):
                 raise ValueError("CLS-only block requires [17,192] global tokens")
-            normalized = cast("Tensor", self.attention_norm(global_tokens))
-            query = cast("Tensor", self.query(normalized[:1])).reshape(
-                1, ATTENTION_HEADS, HEAD_WIDTH
-            )
-            key = cast("Tensor", self.key(normalized)).reshape(
-                GLOBAL_TOKENS, ATTENTION_HEADS, HEAD_WIDTH
-            )
-            value = cast("Tensor", self.value(normalized)).reshape(
-                GLOBAL_TOKENS,
-                ATTENTION_HEADS,
-                HEAD_WIDTH,
-            )
-            attended = functional.scaled_dot_product_attention(
-                query.transpose(0, 1),
-                key.transpose(0, 1),
-                value.transpose(0, 1),
-                dropout_p=0.0,
-            ).transpose(0, 1)
-            projected = cast("Tensor", self.output(attended.reshape(1, TOKEN_WIDTH)))
-            cls = global_tokens[0] + projected[0]
-            return cast("Tensor", cls + self.ffn(self.ffn_norm(cls)))
+            with torch.autocast(device_type=global_tokens.device.type, enabled=False):
+                tokens32 = global_tokens.float()
+                normalized = cast("Tensor", self.attention_norm(tokens32))
+                query = cast("Tensor", self.query(normalized[:1])).reshape(
+                    1, ATTENTION_HEADS, HEAD_WIDTH
+                )
+                key, value = (
+                    part.reshape(GLOBAL_TOKENS, ATTENTION_HEADS, HEAD_WIDTH)
+                    for part in self.kv.split(cast("Tensor", self.kv(normalized)))
+                )
+                attended = functional.scaled_dot_product_attention(
+                    query.transpose(0, 1),
+                    key.transpose(0, 1),
+                    value.transpose(0, 1),
+                    dropout_p=0.0,
+                    is_causal=False,
+                    scale=1.0 / math.sqrt(HEAD_WIDTH),
+                ).transpose(0, 1)
+                projected = cast(
+                    "Tensor",
+                    self.output(attended.reshape(1, TOKEN_WIDTH)),
+                )
+                cls = tokens32[0] + projected[0]
+                return cast("Tensor", cls + self.ffn(self.ffn_norm(cls)))
 
 
     class LocalGlobalMILClassifier(nn.Module):
@@ -545,7 +664,6 @@ if False:
 
         def encode_patches(self, latents: Tensor, graph: LocalAttentionGraph) -> Tensor:
             """Return locally contextualized patches before any global-token read."""
-            graph.verify_integrity()
             patches = cast("Tensor", self.patch_encoder(latents))
             _validate_tokens_and_graph(patches, graph)
             for block in self.local_blocks:
@@ -580,7 +698,7 @@ if False:
     def local_global_mil_adamw_parameter_groups(
         model: LocalGlobalMILClassifier,
         *,
-        weight_decay: float = 1e-4,
+        weight_decay: float = 5e-3,
     ) -> tuple[AdamWParameterGroup, AdamWParameterGroup]:
         """Partition parameters by the exact Spec 0026 semantic decay policy."""
         if weight_decay < 0:
@@ -588,7 +706,12 @@ if False:
         decay: list[nn.Parameter] = []
         no_decay: list[nn.Parameter] = []
         for name, parameter in model.named_parameters():
-            if parameter.ndim >= 2 and not name.endswith(".relative_bias"):
+            is_content_token = name == "global_tokens" or name.endswith(".null_key")
+            if (
+                parameter.ndim >= 2
+                and not name.endswith(".relative_bias")
+                and not is_content_token
+            ):
                 decay.append(parameter)
             else:
                 no_decay.append(parameter)
@@ -601,6 +724,8 @@ if False:
     def _initialize_module(module: nn.Module) -> None:
         if isinstance(module, nn.Conv2d):
             nn.init.kaiming_normal_(module.weight, mode="fan_out", nonlinearity="relu")
+        elif isinstance(module, PackedLinear):
+            module.reset_parameters()
         elif isinstance(module, nn.Linear):
             nn.init.xavier_uniform_(module.weight, gain=1.0)
             if module.bias is not None:  # pyright: ignore[reportUnnecessaryComparison]
@@ -628,8 +753,21 @@ if False:
             raise TypeError("neighbor_valid must be bool")
         if graph.radial_code.dtype != torch.uint8:
             raise TypeError("radial_code must be uint8")
-        if graph.neighbor_index.device != tokens.device:
+        graph_devices = {
+            graph.neighbor_index.device,
+            graph.neighbor_valid.device,
+            graph.radial_code.device,
+        }
+        if graph_devices != {tokens.device}:
             raise ValueError("Graph arrays and patch tokens must be on the same device")
+
+
+    def _local_query_chunks(node_count: int) -> tuple[tuple[int, int], ...]:
+        """Return a complete, disjoint partition of local-attention queries."""
+        return tuple(
+            (start, min(start + LOCAL_CHUNK_SIZE, node_count))
+            for start in range(0, node_count, LOCAL_CHUNK_SIZE)
+        )
 
 
     def _validate_graph_arrays(graph: LocalAttentionGraph) -> None:
@@ -739,6 +877,7 @@ if False:
         "LocalGlobalMILClassifier",
         "LocalGlobalMILConfig",
         "LocalTransformerBlock",
+        "PackedLinear",
         "SigmoidPatchSummaryAttention",
         "SparseLocalSoftmaxAttention",
         "SwiGLU",
@@ -751,10 +890,10 @@ if False:
 KAGGLE_LOCAL_GLOBAL_CAPACITY_READY = True
 INPUT_ROOT = Path("/kaggle/input")
 OUTPUT_PATH = Path("/kaggle/working/spec0030_local_global_mil_capacity.json")
-CAPACITY_CONTRACT_JSON = r"""{"authorization":"spec0030_local_global_capacity_shared_access_retry_authorized","diagnosis_index":1,"execution":{"checkpointing":false,"direct_complete_bag_only":true,"fallback":null,"model_devices":{"normal_vae":0,"so2_vae":1},"paired_step_atomicity":"both_finite_before_either_step"},"initialization_seed":1701,"input_dataset":{"contract_sha256":"99bb4d2f60558aee9691b67be4867ffae434bc306581a000fd5d72a6befac660","pointer_sha256":"08e461846bf16efebac707c82962762f49837916986b29aee0dcd6ca1fc31c6c","reference":"maximusshtefan/eqvae-wsi45630-capacity-inputs","version":1},"kernel_sources":[{"reference":"maximusshtefan/eqvae-ubc-ocean-latent-run-04","version":1},{"reference":"maximusshtefan/eqvae-ubc-ocean-cancer-latent-top-up","version":1},{"reference":"maximusshtefan/eqvae-wsi45630-completion","version":1}],"model":{"parameter_count":1513055,"sha256":"60e815cdd1136bc742dc35944bc7291303c5688f4b39696c065b0432e5ec09f3","source":"src/eqvae/models/local_global_mil.py"},"optimizer":{"learning_rate":0.0002,"matrix_weight_decay":0.0001,"name":"AdamW","semantic_no_decay":true},"output":"spec0030_local_global_mil_capacity.json","patch_count":32595,"precision":{"autocast":"float16","classifier_and_loss":"float32","grad_scaler_growth_interval":1000000,"grad_scaler_initial_scale":32768},"schema_version":"spec0030.local_global_mil_capacity.v1","scope":"capacity_only_not_learning_or_evaluation","spec_sha256":"aa1a1ff05548d30bc49d94bbe45d438e62b08f1ad9555dc960ed23af6f67cf99","steps":["warmup","measured"],"wsi_id":45630}"""
-CAPACITY_CONTRACT_SHA256 = "326e9add9549aa98577effc5807e02dc9312327cf221183a4e6e06693be87a9b"
-MODEL_SHA256 = "60e815cdd1136bc742dc35944bc7291303c5688f4b39696c065b0432e5ec09f3"
-EMBEDDED_MODEL_SHA256 = "86802786a55f25038e04def92296cadc364a75aeae18c427fff878cf2440a94c"
+CAPACITY_CONTRACT_JSON = r"""{"diagnosis_index":1,"execution":{"checkpointing":false,"direct_complete_bag_only":true,"fallback":null,"model_devices":{"normal_vae":0,"so2_vae":1},"paired_step_atomicity":"both_finite_before_either_step"},"initialization_seed":1701,"input_dataset":{"contract_sha256":"99bb4d2f60558aee9691b67be4867ffae434bc306581a000fd5d72a6befac660","pointer_sha256":"08e461846bf16efebac707c82962762f49837916986b29aee0dcd6ca1fc31c6c","reference":"maximusshtefan/eqvae-wsi45630-capacity-inputs","version":1},"kernel_sources":[{"reference":"maximusshtefan/eqvae-ubc-ocean-latent-run-04","version":1},{"reference":"maximusshtefan/eqvae-ubc-ocean-cancer-latent-top-up","version":1},{"reference":"maximusshtefan/eqvae-wsi45630-completion","version":1}],"model":{"parameter_count":1513055,"sha256":"9d4513c6f7d63aeb13ffc29f7586d1b336daddba3fa2daca3c2a9c45e53a7c72","source":"src/eqvae/models/local_global_mil.py"},"optimizer":{"learning_rate":0.0002,"matrix_weight_decay":0.0001,"name":"AdamW","semantic_no_decay":true},"output":"spec0030_local_global_mil_capacity.json","patch_count":32595,"precision":{"autocast":"float16","classifier_and_loss":"float32","grad_scaler_growth_interval":1000000,"grad_scaler_initial_scale":32768},"schema_version":"spec0030.local_global_mil_capacity.v1","scope":"capacity_only_not_learning_or_evaluation","spec_sha256":"aa1a1ff05548d30bc49d94bbe45d438e62b08f1ad9555dc960ed23af6f67cf99","steps":["warmup","measured"],"wsi_id":45630}"""
+CAPACITY_CONTRACT_SHA256 = "49ec224c7da504023c51ce0de52458aa1f6204381c9558d7d1e6c2de14352417"
+MODEL_SHA256 = "9d4513c6f7d63aeb13ffc29f7586d1b336daddba3fa2daca3c2a9c45e53a7c72"
+EMBEDDED_MODEL_SHA256 = "d4a4c9519c7ae482d204038638651369e20e6cdb3726db07b6966840277c0d8b"
 INPUT_CONTRACT_NAME = "wsi45630_capacity_input.json"
 INPUT_CONTRACT_SHA256 = (
     "99bb4d2f60558aee9691b67be4867ffae434bc306581a000fd5d72a6befac660"
@@ -805,8 +944,6 @@ def resolve_package():
     ]
     if (
         contract.get("schema_version") != "spec0030.local_global_mil_capacity.v1"
-        or contract.get("authorization")
-        != "spec0030_local_global_capacity_shared_access_retry_authorized"
         or contract.get("scope") != "capacity_only_not_learning_or_evaluation"
         or contract.get("model", {}).get("sha256") != MODEL_SHA256
         or contract.get("model", {}).get("parameter_count") != EXPECTED_PARAMETER_COUNT

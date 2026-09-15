@@ -108,9 +108,8 @@ remote long-run approval request.
   runner prerequisite.
 - `docs/specs/0006-selected-runtime-local-mechanics.md`: fail-closed readiness
   baseline and fixed-selector rejection behavior.
-- `docs/specs/0003-kaggle-cli-execution-workflow.md`: remote guard rules.
-- `docs/kaggle_cli_workflow.md`: Kaggle confirmation variables and status
-  polling policy.
+- `docs/specs/0003-kaggle-cli-execution-workflow.md`: remote workflow rules.
+- `docs/kaggle_cli_workflow.md`: Kaggle launch and status polling policy.
 
 ## Architecture Or Workflow Contract
 
@@ -149,11 +148,7 @@ remote long-run approval request.
    Before asking for any Kaggle action, run local focused tests, the
    selected-runtime debug preflight, the push-readiness CLI in
    `remote_generate` mode, diff checks, and repo/workspace preflights.
-5. Narrow Kaggle push after explicit approval.
-   Once local readiness passes, ask the user for explicit permission for the
-   selected-runtime debug/tiny push. Remote write commands must use
-   `KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1`; remote reads or
-   downloads must use `KAGGLE_REMOTE_CONFIRMED=1`.
+5. Narrow Kaggle push after explicit approval in the conversation.
 6. Do not wait on long kernels in-turn.
    If the narrow debug/tiny kernel is still running and likely to take more
    than about five minutes, record the state in `CURRENT.md`, give the user a
@@ -278,8 +273,8 @@ OAuth token that blocked the first version 5 push attempt.
    generator implementation/tests, structured readiness, exact metadata source
    attachment, and remote selector-generation readiness all pass. It must not
    require a local canonical selector path in this mode.
-6. The selected-runtime debug/tiny kernel push guard is expected to pass only
-   after local readiness passes in `remote_generate` mode.
+6. The selected-runtime debug/tiny package is ready only after local validation
+   passes in `remote_generate` mode.
 7. The approved remote debug/tiny push writes no `benchmark/selected_runtime.json`
    and launches only the bounded debug/resume/tiny proof, not the long full
    training run.
@@ -330,14 +325,11 @@ schema-valid, and proves it still fails canonical real UBC readiness.
 Expected remote sequence after explicit user approval:
 
 ```bash
-KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 \
-  ./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_debug
+./scripts/kaggle_kernel.sh push kaggle/kernels/selected_runtime_debug
 
-KAGGLE_REMOTE_CONFIRMED=1 \
-  ./scripts/kaggle_kernel.sh status-selected-runtime-debug
+./scripts/kaggle_kernel.sh status-selected-runtime-debug
 
-KAGGLE_REMOTE_CONFIRMED=1 \
-  ./scripts/kaggle_kernel.sh output-selected-runtime-debug runs/kaggle/selected_runtime_debug_<version>
+./scripts/kaggle_kernel.sh output-selected-runtime-debug runs/kaggle/selected_runtime_debug_<version>
 
 PYTHONPATH=src .venv/bin/python -m eqvae.cli.selected_runtime_gate --verify-output \
   --output-dir runs/kaggle/selected_runtime_debug_<version> \

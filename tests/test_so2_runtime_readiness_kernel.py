@@ -34,8 +34,6 @@ def test_readiness_kernel_embeds_fixed_source_and_no_dataset(tmp_path: Path) -> 
             str(kernel_dir),
             "--output-run",
             str(output),
-            "--ready-marker",
-            "KAGGLE_SO2_RUNTIME_READINESS_READY = True",
             "--allow-dirty",
         ),
         cwd=repository,
@@ -79,23 +77,7 @@ def test_readiness_kernel_embeds_fixed_source_and_no_dataset(tmp_path: Path) -> 
     assert "GATE_ROW_COUNT: Final = 68" in source
     assert "make_fastpath_step_fn" in source
     assert "run_fastpath_optimizer_step_with_metrics" in source
-    assert "full_training_authorized" in source
-
-
-def test_readiness_kernel_has_dedicated_guard_and_continuation_commands() -> None:
-    """The kernel cannot fall through to a training or legacy probe guard."""
-    repository = Path(__file__).resolve().parents[1]
-    script = (repository / "scripts/kaggle_kernel.sh").read_text(encoding="utf-8")
-    for required in (
-        "guard_so2_runtime_readiness_push_ready",
-        "preflight-so2-runtime-readiness",
-        "status-so2-runtime-readiness",
-        "wait-so2-runtime-readiness",
-        "output-so2-runtime-readiness",
-        "KAGGLE_SO2_RUNTIME_READINESS_READY = True",
-        "do not attach a dataset to SO(2) readiness",
-    ):
-        assert required in script
+    assert "full_training_enabled" in source
 
 
 def _template_namespace() -> dict[str, object]:

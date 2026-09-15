@@ -143,7 +143,7 @@ as the first attempt. This is one experiment path, not reusable product code.
 8. The prelaunch verdict records the source commit and SHA-256 identities of
    the selected runtime plan, complete `src/eqvae` payload, Spec 0016 configs,
    model producer, shared runner, both launcher templates/metadata, and full
-   config. The full preflight/push guard recomputes and requires those exact
+   config. The full package validation recomputes and requires those exact
    identities for the first full package. A continuation may change only its
    full checkpoint-transport wrapper, full metadata, and their consequent
    manifest commit/template entries. The authoritative session-1 payload is the

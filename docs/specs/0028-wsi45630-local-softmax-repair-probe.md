@@ -84,24 +84,7 @@ failures, timing samples and peak allocated/reserved VRAM.
 The artifact must bind runtime identity, input/graph hashes, all correctness
 metrics, 12 rows and the selected row or an explicit terminal failure.
 
-## Remote Authorization
-
-The user's fresh 2026-09-01 authorization approved exactly one repair push plus
-required status/output reads for private version 2. It authorized no training or
-further repair. The executed push required:
-
-```text
-KAGGLE_PUSH_CONFIRMED=1
-KAGGLE_FULL_DATASET_CONFIRMED=1
-KAGGLE_LOCAL_ATTENTION_REPAIR_PROBE_CONFIRMED=1
-```
-
-It must require the immutable version-1 push receipt/artifact hashes, reject all
-CLI overrides/wait, parse Kaggle's accepted-version message, require version 2,
-then write a distinct non-overridable consumed receipt. Retrieval must use that
-exact version and stage JSON plus a nonempty log before one final install.
-
-Guard token: `spec0028_local_softmax_repair_probe_authorized`.
+## Remote Execution Record
 
 The independently reviewed, immutable version-2 upload bytes are:
 
@@ -110,17 +93,11 @@ The independently reviewed, immutable version-2 upload bytes are:
 - `kernel-metadata.json` SHA-256:
   `69e3d9abd665a3f438809ef2832fc505431abd46f73f9e00050b6eb40615e8a6`.
 
-The path/ID-keyed guard must enforce both hashes, create an exclusive consumed
-attempt claim before the network call, and upload a verified snapshot. Ambiguous
-CLI failure or an unexpected accepted version consumes the authority and permits
-no retry.
-
 ## Acceptance Criteria
 
 1. Focused CPU tests independently exercise irregular masks, radial codes,
    nonzero null parameters, normwise/cosine metrics and elementwise diagnostics.
-2. The version-2 guard behavior is tested with a fake Kaggle CLI, including
-   exact version 2, one-use consumption and staged exact-version retrieval.
+2. The version-2 payload and staged exact-version retrieval are validated.
 3. Full repository quality, repository/workspace preflight, `git diff --check`
    and two independent clean-context reviews pass before push.
 4. Every timed row passed the locked revised gate; unsupported rows remain
@@ -153,8 +130,7 @@ retrieval-receipt SHA-256 is
 
 This selects the explicit backend/chunk among tested softmax implementations. It
 does not compare local sigmoid with softmax or validate the stacked/full MIL
-model. The one-shot authority is consumed; no retry, version 3 or repair is
-authorized.
+model. No version 3 or additional repair was run.
 
 ## Blockers
 

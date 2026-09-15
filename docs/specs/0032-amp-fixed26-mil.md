@@ -229,8 +229,7 @@ full-step graph breaks/recompiles/eager fallbacks, and complete at least two
 optimizer steps independently for each model. A failure or GradScaler skip in
 one run must be recorded but must not block or roll back the other; the affected
 WSI attempt is consumed without an optimizer/scheduler step and is not requeued.
-Spec 0030's
-consumed authority and failed artifact cannot be reused.
+Spec 0030's failed artifact cannot be reused.
 
 ## Local Acceptance Evidence
 

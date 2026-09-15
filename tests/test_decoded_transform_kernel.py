@@ -1,6 +1,6 @@
 # Copyright 2026 HiperMaximus
 # pyright: reportAny=false, reportUnnecessaryCast=false
-"""Regression tests for the guarded Spec 0051 kernel wrapper."""
+"""Regression tests for the Spec 0051 kernel wrapper."""
 
 from __future__ import annotations
 
@@ -151,44 +151,18 @@ def test_ratio_renderer_uses_its_nonidentity_angle_axis(tmp_path: Path) -> None:
     assert (tmp_path / "02-ratio-by-angle.png").is_file()
 
 
-def test_contract_hashes_and_shell_claim_are_bound_correctly() -> None:
-    """Spec/contract bytes and the shell one-shot claim share one live binding."""
+def test_contract_hashes_are_bound_into_kernel() -> None:
+    """Spec and contract bytes remain bound into the generated kernel."""
     root = Path(__file__).resolve().parents[1]
     spec = root / "docs/specs/0051-decoded-latent-transform-consistency.md"
     contract = root / "docs/data/spec0051_decoded_transform_contract.json"
     template = (
         root / "kaggle/kernels/decoded_latent_transform/run_template.py"
     ).read_text(encoding="utf-8")
-    shell = (root / "scripts/kaggle_kernel.sh").read_text(encoding="utf-8")
     spec_hash = hashlib.sha256(spec.read_bytes()).hexdigest()
     contract_hash = hashlib.sha256(contract.read_bytes()).hexdigest()
-    for source in (template, shell):
-        assert spec_hash in source
-        assert contract_hash in source
-    assert "PYSPEC0050CLAIM\n}\n\nclaim_decoded_transform_push()" in shell
-
-
-def test_shell_guard_claims_once_before_decoded_transform_push() -> None:
-    """The exact confirmations and atomic claim precede remote mutation."""
-    root = Path(__file__).resolve().parents[1]
-    shell = (root / "scripts/kaggle_kernel.sh").read_text(encoding="utf-8")
-    for marker in (
-        "KAGGLE_DECODED_LATENT_TRANSFORM_CONFIRMED",
-        "KAGGLE_FULL_DATASET_CONFIRMED",
-        '[[ -e "$decoded_transform_claim" ]]',
-        "runs/local/kaggle_launches/maximshtefan/eqvae-decoded-latent-transform/v*.json",
-        'with claim.open("x", encoding="utf-8") as handle:',
-        "Spec 0051 push forbids wait and all CLI overrides",
-    ):
-        assert marker in shell
-    claim_call = shell.index(
-        'claim_decoded_transform_push "$kernel_dir" "$upload_kernel_dir" "$actor"',
-    )
-    remote_push = shell.index(
-        'kaggle_api kernels push -p "$upload_kernel_dir"',
-        claim_call,
-    )
-    assert claim_call < remote_push
+    assert spec_hash in template
+    assert contract_hash in template
 
 
 def test_embedded_kernel_build_is_byte_reproducible(tmp_path: Path) -> None:
@@ -204,8 +178,6 @@ def test_embedded_kernel_build_is_byte_reproducible(tmp_path: Path) -> None:
                 "kaggle/kernels/decoded_latent_transform",
                 "--output-run",
                 str(output),
-                "--ready-marker",
-                "KAGGLE_DECODED_LATENT_TRANSFORM_READY = True",
                 "--allow-dirty",
             ),
             cwd=root,

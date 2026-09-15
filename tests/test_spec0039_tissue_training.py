@@ -254,19 +254,6 @@ def test_output_command_is_bound_to_the_spec0039_kernel_and_receipted() -> None:
     assert "record_kaggle_download" in output_command
 
 
-def test_retry_push_has_its_own_one_use_guard() -> None:
-    """The repaired retry cannot consume or overwrite the v1 authority."""
-    source = (builder.ROOT / "scripts/kaggle_kernel.sh").read_text(encoding="utf-8")
-    assert "KAGGLE_TISSUE_TRAINING_RETRY_V2_CONFIRMED" in source
-    assert "tissue_training_retry_launch_claim" in source
-    assert '"spec0039.kernel_launch_retry_v2_claim.v1"' in source
-    assert "build-tissue-training-retry-v2" in source
-    assert "KAGGLE_TISSUE_TRAINING_RETRY_V3_CONFIRMED" in source
-    assert '"spec0039.kernel_launch_retry_v3_claim.v1"' in source
-    assert "build-tissue-training-retry-v3" in source
-    assert "minimum_completed_epochs" in source
-
-
 def test_runtime_epoch_batches_are_static_and_rotate_b125_remainders() -> None:
     """The actual runner consumes every training row with the agreed class mix."""
     runtime = _module(builder.ROOT / builder.TEMPLATE_PATH)

@@ -1,14 +1,12 @@
 # Copyright 2026 HiperMaximus
-"""Tests for the capped real-data runtime pretest scaffold and guard."""
+"""Tests for the capped real-data runtime pretest scaffold."""
 
 from __future__ import annotations
 
 import csv
 import json
-import os
 import shutil
 import subprocess  # noqa: S404
-import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -252,103 +250,6 @@ def test_real_data_runtime_pretest_rejects_stale_selected_runtime(
         )
 
 
-def test_real_data_pretest_push_guard_requires_dataset_confirmation(
-    tmp_path: Path,
-) -> None:
-    """Real-data pretest pushes require explicit dataset attachment approval."""
-    repo_root = Path(__file__).resolve().parents[1]
-    fake_bin = _fake_bin(tmp_path=tmp_path, repo_root=repo_root)
-    kernel_dir = _generated_kernel_dir(
-        tmp_path=tmp_path,
-        repo_root=repo_root,
-        fake_bin=fake_bin,
-    )
-
-    completed = subprocess.run(  # noqa: S603
-        (
-            _required_executable("bash"),
-            str(repo_root / "scripts" / "kaggle_kernel.sh"),
-            "push",
-            str(kernel_dir),
-        ),
-        cwd=repo_root,
-        env=_guard_environment(fake_bin=fake_bin, full_dataset_confirmed=False),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert completed.returncode != 0
-    assert "KAGGLE_FULL_DATASET_CONFIRMED=1" in completed.stderr
-
-
-def test_real_data_pretest_push_guard_rejects_wrong_dataset_sources(
-    tmp_path: Path,
-) -> None:
-    """The guard rejects missing or drifted real-data source attachments."""
-    repo_root = Path(__file__).resolve().parents[1]
-    fake_bin = _fake_bin(tmp_path=tmp_path, repo_root=repo_root)
-    kernel_dir = _generated_kernel_dir(
-        tmp_path=tmp_path,
-        repo_root=repo_root,
-        fake_bin=fake_bin,
-    )
-    metadata_path = kernel_dir / "kernel-metadata.json"
-    metadata = _load_json(metadata_path)
-    metadata["dataset_sources"] = []
-    metadata_path.write_text(
-        f"{json.dumps(metadata, indent=2, sort_keys=True)}\n",
-        encoding="utf-8",
-    )
-
-    completed = subprocess.run(  # noqa: S603
-        (
-            _required_executable("bash"),
-            str(repo_root / "scripts" / "kaggle_kernel.sh"),
-            "push",
-            str(kernel_dir),
-        ),
-        cwd=repo_root,
-        env=_guard_environment(fake_bin=fake_bin),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert completed.returncode != 0
-    assert "dataset_sources must be exactly" in completed.stderr
-
-
-def test_real_data_pretest_push_guard_accepts_generated_kernel(
-    tmp_path: Path,
-) -> None:
-    """The positive guard path reaches fake Kaggle without network access."""
-    repo_root = Path(__file__).resolve().parents[1]
-    fake_bin = _fake_bin(tmp_path=tmp_path, repo_root=repo_root)
-    kernel_dir = _generated_kernel_dir(
-        tmp_path=tmp_path,
-        repo_root=repo_root,
-        fake_bin=fake_bin,
-    )
-
-    completed = subprocess.run(  # noqa: S603
-        (
-            _required_executable("bash"),
-            str(repo_root / "scripts" / "kaggle_kernel.sh"),
-            "push",
-            str(kernel_dir),
-        ),
-        cwd=repo_root,
-        env=_guard_environment(fake_bin=fake_bin),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert completed.returncode == 0, completed.stderr
-    assert "fake kaggle kernels push" in completed.stdout
-
-
 def test_real_data_pretest_validate_allows_current_worktree_payload() -> None:
     """Local validate accepts a payload freshly built from the current worktree."""
     repo_root = Path(__file__).resolve().parents[1]
@@ -381,38 +282,8 @@ def test_real_data_pretest_validate_allows_current_worktree_payload() -> None:
 
     assert build.returncode == 0, build.stderr
     assert validate.returncode == 0, validate.stderr
-    assert "matches current worktree" in validate.stdout
-
-
-def test_kaggle_pull_guard_requires_remote_confirmation(tmp_path: Path) -> None:
-    """Pull is a remote read and refuses even pull-specific approval alone."""
-    repo_root = Path(__file__).resolve().parents[1]
-    fake_bin = _fake_bin(tmp_path=tmp_path, repo_root=repo_root)
-
-    completed = subprocess.run(  # noqa: S603
-        (
-            _required_executable("bash"),
-            str(repo_root / "scripts" / "kaggle_kernel.sh"),
-            "pull",
-            "maximusshtefan/eqvae-real-data-runtime-pretest",
-            str(tmp_path / "pulled_kernel"),
-        ),
-        cwd=repo_root,
-        env=_guard_environment(
-            fake_bin=fake_bin,
-            push_confirmed=False,
-            full_dataset_confirmed=False,
-            pull_confirmed=True,
-            remote_confirmed=False,
-        ),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert completed.returncode != 0
-    assert "KAGGLE_REMOTE_CONFIRMED=1" in completed.stderr
-    assert "fake kaggle" not in completed.stdout
+    assert "ok: metadata" in validate.stdout
+    assert "ok: Python" in validate.stdout
 
 
 def test_grid_step_scope_is_enumerated_into_row_specs() -> None:
@@ -1095,116 +966,12 @@ def test_train_step_evidence_failure_preserves_candidate_diagnostics(
     assert corruption_failed[0]["failure_message_excerpt"] == "synthetic candidate boom"
 
 
-def _generated_kernel_dir(
-    *,
-    tmp_path: Path,
-    repo_root: Path,
-    fake_bin: Path,
-) -> Path:
-    kernel_source = repo_root / "kaggle" / "kernels" / "real_data_runtime_pretest"
-    kernel_dir = tmp_path / "real_data_runtime_pretest_kernel"
-    kernel_dir.mkdir()
-    shutil.copy2(kernel_source / "kernel-metadata.json", kernel_dir)
-    subprocess.run(  # noqa: S603
-        (
-            sys.executable,
-            str(repo_root / "scripts" / "build_kaggle_embedded_kernel.py"),
-            "--repo-root",
-            str(repo_root),
-            "--kernel-dir",
-            str(kernel_dir),
-            "--template",
-            str(kernel_source / "run_template.py"),
-            "--ready-marker",
-            "KAGGLE_REAL_DATA_RUNTIME_PRETEST_READY = True",
-        ),
-        cwd=repo_root,
-        env=_guard_environment(
-            fake_bin=fake_bin,
-            push_confirmed=False,
-            full_dataset_confirmed=False,
-        ),
-        check=True,
-    )
-    return kernel_dir
-
-
-def _fake_bin(*, tmp_path: Path, repo_root: Path) -> Path:
-    fake_bin = tmp_path / "fake_bin"
-    fake_bin.mkdir(exist_ok=True)
-    commit = subprocess.run(  # noqa: S603
-        (_required_executable("git"), "rev-parse", "HEAD"),
-        cwd=repo_root,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    (fake_bin / "git").write_text(
-        "#!/usr/bin/env bash\n"
-        "set -euo pipefail\n"
-        'if [[ "$1" == "rev-parse" && "${2:-}" == "HEAD" ]]; then\n'
-        f"  printf '%s\\n' '{commit}'\n"
-        'elif [[ "$1" == "status" && "${2:-}" == "--short" ]]; then\n'
-        "  exit 0\n"
-        "else\n"
-        '  command git "$@"\n'
-        "fi\n",
-        encoding="utf-8",
-    )
-    (fake_bin / "kaggle").write_text(
-        "#!/usr/bin/env bash\n"
-        "set -euo pipefail\n"
-        "printf 'fake kaggle %s\\n' \"$*\"\n"
-        "printf '%s\\n' 'Kernel version 1 successfully pushed.  Please check "
-        "progress at https://www.kaggle.com/code/professor-account/"
-        "eqvae-real-data-runtime-pretest'\n",
-        encoding="utf-8",
-    )
-    (fake_bin / "git").chmod(0o755)
-    (fake_bin / "kaggle").chmod(0o755)
-    return fake_bin
-
-
 def _required_executable(name: str) -> str:
     path = shutil.which(name)
     if path is None:
         message = f"missing executable: {name}"
         raise RuntimeError(message)
     return path
-
-
-def _guard_environment(
-    *,
-    fake_bin: Path,
-    push_confirmed: bool = True,
-    full_dataset_confirmed: bool = True,
-    pull_confirmed: bool = False,
-    remote_confirmed: bool = False,
-) -> dict[str, str]:
-    environment = os.environ.copy()
-    environment["PATH"] = f"{fake_bin}{os.pathsep}{environment['PATH']}"
-    environment["KAGGLE_DISABLE_FRESH_OAUTH"] = "1"
-    environment["KAGGLE_USERNAME"] = "professor-account"
-    environment["EQVAE_KAGGLE_LAUNCH_RECEIPT_ROOT"] = str(
-        fake_bin.parent / "launch-receipts",
-    )
-    if push_confirmed:
-        environment["KAGGLE_PUSH_CONFIRMED"] = "1"
-    else:
-        environment.pop("KAGGLE_PUSH_CONFIRMED", None)
-    if full_dataset_confirmed:
-        environment["KAGGLE_FULL_DATASET_CONFIRMED"] = "1"
-    else:
-        environment.pop("KAGGLE_FULL_DATASET_CONFIRMED", None)
-    if pull_confirmed:
-        environment["KAGGLE_PULL_CONFIRMED"] = "1"
-    else:
-        environment.pop("KAGGLE_PULL_CONFIRMED", None)
-    if remote_confirmed:
-        environment["KAGGLE_REMOTE_CONFIRMED"] = "1"
-    else:
-        environment.pop("KAGGLE_REMOTE_CONFIRMED", None)
-    return environment
 
 
 def _train_step_target_row(

@@ -83,13 +83,14 @@ printf 'protocol=https\nhost=git.overleaf.com\nusername=git\npassword=%s\n\n' "$
 unset OVERLEAF_TOKEN
 ```
 
-Overleaf remote reads and pull/push operations require explicit user permission.
-After checking status and receiving permission, run them with:
+Overleaf remote reads and pull/push operations require permission in the user
+conversation. The script does not encode permission. After checking status and
+receiving the request, run:
 
 ```bash
-OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh ls-remote
-OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh pull
-OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh push
+./scripts/sipaim_overleaf_sync.sh ls-remote
+./scripts/sipaim_overleaf_sync.sh pull
+./scripts/sipaim_overleaf_sync.sh push
 ```
 
 ## Normal Local-to-Overleaf Flow
@@ -98,14 +99,14 @@ Use this when local paper edits should appear in Overleaf.
 
 ```bash
 ./scripts/sipaim_overleaf_sync.sh check
-OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh pull
+./scripts/sipaim_overleaf_sync.sh pull
 
 # Edit files under paper/sipaim2026.
 ./scripts/sipaim_overleaf_sync.sh compile
 git add paper/sipaim2026
 git commit -m "Update SIPAIM paper"
 
-OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh push
+./scripts/sipaim_overleaf_sync.sh push
 ```
 
 Why this order:
@@ -130,7 +131,7 @@ Use this after the professor edits in Overleaf.
 
 ```bash
 ./scripts/sipaim_overleaf_sync.sh check
-OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh pull
+./scripts/sipaim_overleaf_sync.sh pull
 ./scripts/sipaim_overleaf_sync.sh compile
 git add paper/sipaim2026
 git commit -m "Pull Overleaf paper edits"

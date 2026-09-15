@@ -1,160 +1,70 @@
 # Kaggle CLI Workflow
 
-Status: active operational contract
-Last updated: 2026-09-10
+Status: active
+Last updated: 2026-09-14
 
-Kaggle is a remote execution surface, not a Git remote. Repository code, specs,
-configs and local receipts are the source of truth. `CURRENT.md` records whether
-a job is active; currently none is active and all completed evaluation
-one-shot authorities are consumed.
+Kaggle is a remote execution surface. Repository code, contracts and local
+receipts are the source of truth; CLI-managed script kernels are the executable
+source. Do not use GitHub-linked notebooks.
 
-## Entry Point
+## Permission policy
 
-Use only:
+Remote permission exists only in the user conversation. Never encode, persist,
+validate or consume it with environment variables, contract fields, marker
+strings, claim files, receipts, tests or per-Spec branches. Once the user asks
+for a remote operation, execute that operation directly. A retry or different
+remote mutation still needs conversational scope, but no code-level token.
+
+Receipts are post-operation provenance. They record what Kaggle accepted and
+must never act as permission or prevent a later version.
+
+## Commands
+
+Use the generic launcher:
 
 ```bash
-./scripts/kaggle_kernel.sh help
 ./scripts/kaggle_kernel.sh build <kernel-dir>
 ./scripts/kaggle_kernel.sh validate <kernel-dir>
 ./scripts/kaggle_kernel.sh check <kernel-dir>
+./scripts/kaggle_kernel.sh api-check <kernel-dir>
+./scripts/kaggle_kernel.sh push <kernel-dir>
+./scripts/kaggle_kernel.sh status-launch <launch-receipt.json>
+./scripts/kaggle_kernel.sh logs-launch <launch-receipt.json>
+./scripts/kaggle_kernel.sh output-launch <launch-receipt.json> <new-output-dir>
 ```
 
-The script's `help` output is the canonical action inventory. Kernel sources
-live under `kaggle/kernels/`; generated `run.py` files and payloads are ignored.
-Do not use a GitHub-linked notebook as executable source.
+`push` validates the package, creates a minimal account-portable snapshot,
+submits it, parses Kaggle's returned canonical owner/slug/version and writes a
+receipt under `runs/local/kaggle_launches/`. It accepts the version Kaggle
+returns; it does not require a fresh slug or version 1.
 
-## Authorization
+`output-launch`, `dataset-download` and `pull-launch` require new local
+directories to avoid overwriting evidence. This is a filesystem-integrity
+check, not a permission check.
 
-Local build, validation and preflight commands do not authorize network access.
-Every remote operation needs a user request plus the exact confirmation
-variables enforced by the script:
+## Technical and scientific validation
 
-| Operation | Required confirmation |
-| --- | --- |
-| Remote read/status/output | `KAGGLE_REMOTE_CONFIRMED=1` |
-| Kernel write/push | `KAGGLE_PUSH_CONFIRMED=1` |
-| Dataset publication | `KAGGLE_DATASET_WRITE_CONFIRMED=1` |
-| Source-attached run | `KAGGLE_FULL_DATASET_CONFIRMED=1` |
-| Pull that may overwrite local files | `KAGGLE_PULL_CONFIRMED=1` plus remote confirmation |
-| Workstream-specific run | Its additional spec-specific guard |
+Keep checks that protect the experiment itself:
 
-Never infer authorization from an old command, receipt, comment or completed
-run. A consumed one-shot guard is not reusable.
+- valid metadata and Python source;
+- exact dataset/kernel/model locators and owners;
+- private/internet/accelerator settings declared by the experiment;
+- payload manifests, hashes, regular files and safe archive paths;
+- checkpoint, sample, seed and numerical-contract identity;
+- finite tensors, JVP/adjoint checks, interval calculations and output schemas;
+- separation of validation, sealed test and exploratory evidence.
 
-## Identity And Provenance
+Large checkpoints and binaries belong in versioned private input datasets.
+Generated wrappers validate embedded payloads before importing project code.
 
-- Authenticate with the user's own Kaggle account; never accept another
-  person's API key.
-- The authenticated username is the actor and owner only of resources created
-  by that actor.
-- Preserve every input and output using the exact canonical
-  `owner/slug/version` returned by Kaggle.
-- Different resources in one run may have different owners.
-- Bind source, config, checkpoint and output hashes in local receipts under
-  `runs/local/kaggle_launches` or the workstream's scored package.
-- Keep credentials local, ignored and out of logs.
+## Observability
 
-## Kernel Contract
+Long experiments emit flushed, bounded progress records at startup, input and
+runtime resolution, each material workload, output publication and terminal
+failure/success. Logs may include stage, elapsed time, safe shapes, memory and
+exception details needed for diagnosis. Never log credentials, raw data,
+checkpoint contents or secret environment values.
 
-Before any authorized push:
-
-1. Read the active spec and `CURRENT.md`.
-2. Resolve the exact kernel directory and immutable source versions.
-3. Run the workstream-specific builder/preflight.
-4. Run `validate` and `check`.
-5. Confirm generated source is below Kaggle's script-size limit.
-6. Confirm metadata privacy, accelerator, internet and source settings.
-7. Confirm the worktree/provenance policy enforced by that guard.
-8. Ask for explicit authorization naming the remote mutation.
-
-Large checkpoints, manifests and binaries belong in versioned private input
-datasets, not embedded base64 strings. Generated wrappers must validate their
-payload manifest before importing project code.
-
-## Remote Observability
-
-Every new or materially revised Kaggle wrapper must emit flushed JSONL progress
-events to stdout. Logs are public execution output for contract purposes and
-must be result-blind and credential-free. A wrapper emits a bounded event at
-run start, payload/runtime/contract readiness, before and after every material
-workload, before each acceptance gate, at output write, and at terminal success
-or failure. Each event has a fixed schema/version, monotonic sequence, stable
-stage identifier, and elapsed seconds; workload events also include only the
-predeclared safe tensor/profile fields needed to locate progress.
-
-Print only through the wrapper's controlled event helper with `flush=True`.
-Never print credentials, raw data, paths, input hashes, selector contents,
-model identity/order, checkpoint identity, full contracts, exception messages,
-or tracebacks. Failures use a fixed failure code and exception class after the
-event is validated by the same blindness guard as persisted output. Ruff T201
-is disabled for `kaggle/kernels/**` solely to permit these controlled events;
-it remains active elsewhere.
-
-## Generic Remote Pattern
-
-Use a receipt-bound action whenever one exists:
-
-```bash
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh api-check <kernel-dir>
-KAGGLE_PUSH_CONFIRMED=1 ./scripts/kaggle_kernel.sh push <kernel-dir>
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status-launch <launch-receipt.json>
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output-launch \
-  <launch-receipt.json> <output-dir>
-```
-
-Source-attached writes add `KAGGLE_FULL_DATASET_CONFIRMED=1`. Dataset
-publication adds `KAGGLE_DATASET_WRITE_CONFIRMED=1`. Use the more specific
-workstream action when available; it filters downloads and validates exact
-receipts.
-
-Pulling kernel source can overwrite local files and requires both read and pull
-confirmation:
-
-```bash
-KAGGLE_REMOTE_CONFIRMED=1 KAGGLE_PULL_CONFIRMED=1 \
-  ./scripts/kaggle_kernel.sh pull-launch <launch-receipt.json> <kernel-dir>
-```
-
-## Waiting And Monitoring
-
-Do not hold an agent turn through a long Kaggle run. After one status check
-confirms `RUNNING`, give the user a concrete local time to prompt again. A
-remote poll always requires `KAGGLE_REMOTE_CONFIRMED=1`.
-
-```bash
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh wait \
-  <kernel-id> <poll-seconds> <max-polls> <max-queued-seconds>
-```
-
-`wait` distinguishes running timeout, queued timeout and terminal states.
-Prefer receipt-bound status/output actions and never repeatedly download the
-same output.
-
-## Dataset Rules
-
-- Attach datasets through `kernel-metadata.json` using exact slugs.
-- The unsupervised development source is
-  `maximusshtefan/patches-pre-shuffled-ubc-ocean`.
-- That source contains train/validation shards only; sealed evaluation uses the
-  separate Specs 0017–0047 contracts.
-- Supplemental masks are non-exhaustive and black pixels are unannotated.
-- Latent binaries remain remote and immutable; download only the compact
-  metadata/log files allowed by the workstream action.
-- Never rebuild a published immutable input in place. Create a new version and
-  bind it with a new receipt when a separately authorized contract requires it.
-
-Exact data semantics live in `docs/behavior_inventory_kaggle.md`.
-
-## Fail-Closed Guard Anchors
-
-These strings remain because `scripts/kaggle_kernel.sh` checks them before
-specific legacy-capable routes. Their presence is not launch permission:
-
-- `synthetic no-dataset setup smoke`;
-- `runtime_selection_kernel_ready`;
-- `selected_runtime_debug_gate_contract_ready`.
-
-All experiment training, sealed MIL/tissue/reconstruction evaluation and dense
-rotation runs are complete. Their specific commands, versions and scientific
-contracts remain in the relevant specs and receipts; this workflow does not
-duplicate run diaries.
+Do not wait in-turn through a multi-hour job. After confirming `RUNNING`, give
+the user a useful local time to check again. Preserve downloaded outputs under
+their exact versioned locator and receipt.

@@ -42,7 +42,7 @@
     "per_device_batch_size": 1,
     "warmup_updates": 3,
     "settled_updates": 3,
-    "full_training_authorized": false,
+    "full_training_enabled": false,
     "runtime_config": "configs/spec0001/non_eq_vae_selected_runtime.json"
   }
 }

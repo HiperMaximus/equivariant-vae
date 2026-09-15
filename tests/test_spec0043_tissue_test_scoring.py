@@ -227,7 +227,7 @@ def test_pre_score_claim_write_is_exclusive(tmp_path: Path) -> None:
     assert json.loads(claim.read_text(encoding="utf-8")) == {"frozen": True}
 
 
-def test_receipt_bound_retrieval_claims_before_join_and_completes_atomically(
+def test_receipt_bound_retrieval_records_inputs_and_completes_atomically(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -369,25 +369,6 @@ def test_receipt_bound_retrieval_claims_before_join_and_completes_atomically(
         },
         "run.py": {"bytes": kernel_bytes, "sha256": kernel_sha256},
     }
-    claim_path = tmp_path / "launch_claim.json"
-    _write_test_json(
-        claim_path,
-        {
-            "schema_version": "spec0043.exclusive_launch_claim.v1",
-            "status": "claimed_before_remote_push",
-            "authorization": "ok let's do the patch tissue test evaluation",
-            "authorization_date": "2026-09-06",
-            "dataset_reference": dataset_reference,
-            "kernel_id": kernel_id,
-            "input_contract_sha256": input_sha256,
-            "input_dataset_receipt": {
-                "bytes": input_receipt_bytes,
-                "sha256": input_receipt_sha256,
-            },
-            "kernel_files": kernel_files,
-            "scientific_retries_authorized": 0,
-        },
-    )
     launch_path = tmp_path / "launch.json"
     version = 1
     reference = f"{kernel_id}/{version}"
@@ -444,7 +425,6 @@ def test_receipt_bound_retrieval_claims_before_join_and_completes_atomically(
     completion = scorer.score_retrieved_tissue_test_output(
         remote_output_root=remote_root,
         launch_receipt_path=launch_path,
-        launch_claim_path=claim_path,
         label_oracle_path=oracle_path,
         output_root=output,
         expected_contract=expected_contract,
@@ -473,7 +453,6 @@ def test_receipt_bound_retrieval_claims_before_join_and_completes_atomically(
         scorer.score_retrieved_tissue_test_output(
             remote_output_root=remote_root,
             launch_receipt_path=launch_path,
-            launch_claim_path=claim_path,
             label_oracle_path=oracle_path,
             output_root=tmp_path / "tampered-scored",
             expected_contract=expected_contract,

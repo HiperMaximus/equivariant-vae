@@ -1235,21 +1235,6 @@ def test_private_input_dataset_pins_full_train_bytes_and_small_wrapper(  # noqa:
     assert metadata["dataset_sources"] == [DATASET_SLUGS["sweep"]]
 
 
-def test_shell_routes_both_input_modes_and_guards_confirmation() -> None:
-    """Keep all dataset actions mode-aware so confirmation cannot omit its audit."""
-    repo_root = Path(__file__).parents[1]
-    script = repo_root / "scripts/kaggle_kernel.sh"
-    source = script.read_text(encoding="utf-8")
-    for action in ("build", "publish", "verify"):
-        assert f"{action}-supervised-calibration-input)" in source
-        assert f'{action}_supervised_calibration_input "${{2:-}}" "${{3:-}}"' in source
-        assert f"{action}-supervised-calibration-sweep-input)" not in source
-    assert source.count("confirmation input requires its selection audit") == 2
-    assert INPUT_RECEIPT_FILENAMES["sweep"] in source
-    assert INPUT_RECEIPT_FILENAMES["class_specific"] in source
-    assert "sweep_input_dataset_receipt.json" not in source
-
-
 def test_kaggle_dataset_id_and_title_fit_remote_limits() -> None:
     """Keep both private input modes within Kaggle's enforced 6-50 character fields."""
     for mode, reference in DATASET_SLUGS.items():

@@ -347,7 +347,6 @@ def score(
     return score_retrieved_mil_test_output(
         remote_output_root=remote_output_root,
         launch_receipt_path=launch_receipt_path,
-        launch_claim_path=ROOT / OUTPUT_ROOT / "launch_claim.json",
         label_oracle_path=ROOT / "docs/data/ubc_ocean_eval_wsi_split.csv",
         output_root=output_root,
         expected_scorer_sha256=str(contract["scorer_sha256"]),

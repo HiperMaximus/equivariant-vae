@@ -108,22 +108,6 @@ def test_kernel_has_no_training_scoring_or_update_call_path() -> None:
     assert "torch.inference_mode" in source
 
 
-def test_shell_route_requires_verified_input_and_one_use_claim() -> None:
-    source = Path("scripts/kaggle_kernel.sh").read_text(encoding="utf-8")
-    assert 'tissue_test_launch_claim="$tissue_test_root/launch_claim.json"' in source
-    assert '[[ -f "$tissue_test_input_receipt" ]]' in source
-    assert '[[ ! -e "$tissue_test_launch_claim" ]]' in source
-    assert 'KAGGLE_TISSUE_TEST_ROUTE_ACTIVE=1 "$0" push' in source
-    assert 'validate-claimed-launch --actor "$tissue_test_actor"' in source
-    assert "EQVAE_KAGGLE_LAUNCH_RECEIPT_ROOT:-runs/local/kaggle_launches" in source
-    assert '"spec0043.exclusive_launch_claim.v1"' in Path(
-        "scripts/build_tissue_test_evaluation.py",
-    ).read_text(encoding="utf-8")
-    assert "os.O_EXCL" in Path("scripts/build_tissue_test_evaluation.py").read_text(
-        encoding="utf-8",
-    )
-
-
 def test_verified_input_receipt_is_exact_and_bound(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

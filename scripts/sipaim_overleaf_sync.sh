@@ -29,10 +29,8 @@ Rules:
     token as the password. Do not use the normal account password.
   - On the first sync only, push may initialize an existing empty-tree Overleaf
     master by creating a normal fast-forward commit on top of it.
-  - Commands that access or change Overleaf remote state require:
-      OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh ls-remote
-      OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh pull
-      OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh push
+  - Obtain remote-operation permission in the user conversation; the script
+    validates only repository, remote, subtree, and PDF integrity.
 EOF
 }
 
@@ -164,22 +162,6 @@ require_clean_paper_subtree() {
   fi
 }
 
-require_remote_confirmation() {
-  local command="$1"
-
-  if [[ "${OVERLEAF_SYNC_CONFIRMED:-}" != "1" ]]; then
-    cat >&2 <<EOF
-Refusing to run Overleaf '$command' without explicit confirmation.
-
-Agents must check status and ask the user before Overleaf pull/push operations.
-After permission, rerun as:
-
-  OVERLEAF_SYNC_CONFIRMED=1 ./scripts/sipaim_overleaf_sync.sh $command
-EOF
-    exit 1
-  fi
-}
-
 cmd_check() {
   validate_remote_safety
   echo "Repo root: $(repo_root)"
@@ -212,7 +194,6 @@ cmd_setup() {
 }
 
 cmd_ls_remote() {
-  require_remote_confirmation "ls-remote"
   validate_remote_safety
   require_overleaf_remote_exact
   git ls-remote "$REMOTE_NAME"
@@ -234,7 +215,6 @@ cmd_compile() {
 }
 
 cmd_pull() {
-  require_remote_confirmation "pull"
   ensure_overleaf_remote
   require_clean_worktree
   git status --short
@@ -302,7 +282,6 @@ cmd_push() {
   local subtree_ref
   local subtree_tree
 
-  require_remote_confirmation "push"
   ensure_overleaf_remote
   cmd_compile
   require_clean_paper_subtree

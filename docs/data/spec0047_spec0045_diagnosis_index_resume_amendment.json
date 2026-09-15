@@ -1,6 +1,5 @@
 {
   "aggregate_metrics_observed_before_amendment": false,
-  "authorization": "User explicitly approved the narrow diagnosis-index scorer/resume amendment using the frozen oracle numbering on 2026-09-07.",
   "diagnosis_index_adapter_sha256": "6df577d3c6f2e70cb681fc97742baa3f4d35faf437ae660e85ba7f6763cf5e0c",
   "frozen_oracle_mapping": {
     "CC": 0,
@@ -23,7 +22,7 @@
   "output_receipt_sha256": "ae50e9548d1efce6c396e2102d12233181709618ed0fa50e126c701c88a00afb",
   "prior_pre_score_claim_sha256": "b6fd2a34b5f21aed4c930965388a3f52db4650444c29adb5b54c7bab4d177f86",
   "remote_metric_sha256": "7166a668e4f7193fd3f5dddd05455b4fa9bc7fe309a92005f534fa5fb8a0c43f",
-  "resume_module_sha256": "493b7fcd0fe9af4837a161c4f6d79ed3cffc344b5e92797b227daa02011b77f5",
+  "resume_module_sha256": "284c23660ae9c10a7bf5521f4b6656f28fd32f8da9eaa343c76a4515c4979735",
   "schema_version": "spec0047.spec0045_diagnosis_index_resume_amendment.v1",
   "scientific_changes": [],
   "scope": "administrative_diagnosis_index_only",

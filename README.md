@@ -13,8 +13,8 @@ The professor-facing result is:
 - final Spanish update on
   [GitHub issue #6](https://github.com/HiperMaximus/equivariant-vae/issues/6#issuecomment-5578529496).
 
-The issue remains open. Exact results, hashes, limitations and authorization
-boundaries are in [CURRENT.md](CURRENT.md).
+The issue remains open. Exact results, hashes, limitations and the active
+experiment frontier are in [CURRENT.md](CURRENT.md).
 
 ## Read First
 
@@ -42,11 +42,13 @@ Run the repository preflight before substantial work:
 - The shared 152-WSI cohort uses a frozen 106/23/23 WSI split.
 - Full foreground embeddings cover 1,750,221 patches for each model.
 - MIL diagnosis, tissue label efficiency and reconstruction sealed tests are
-  complete; their one-shot authorities are consumed.
+  complete and remain isolated from tuning.
 - The former all-25 dense rotation diagnostic is superseded because it mixed
   opposite conventions at cardinal angles. Spec 0050 corrected the operator and
   completed the fixed-validation post-hoc geometry audit.
-- No Kaggle job is active.
+- The matrix-free SLQ calibration and first exact-`C4` Stage A comparison are
+  complete. The next experiment tests decoder-fiber bridges, four-sided
+  pullback geodesics, tangent transport and free quarter-turn continuation.
 
 The validated conclusion remains mixed for reconstruction and downstream
 tasks. Corrected rotation evidence does not demonstrate a robust SO(2)-specific
@@ -90,7 +92,7 @@ on Kaggle.
 
 ## Kaggle
 
-Use the guarded CLI workflow:
+Use the generic CLI workflow:
 
 ```bash
 ./scripts/kaggle_kernel.sh help
@@ -99,9 +101,9 @@ Use the guarded CLI workflow:
 ./scripts/kaggle_kernel.sh check <kernel-dir>
 ```
 
-Remote reads and writes require explicit user authorization and the exact
-confirmation variables enforced by the script. Preserve every resource using
-its canonical owner-qualified locator and version. See
+Remote permission is handled only in the user conversation; the code contains
+no confirmation variables, permission claims or per-Spec launch gates.
+Preserve every resource using its canonical owner-qualified locator and version. See
 [docs/kaggle_cli_workflow.md](docs/kaggle_cli_workflow.md).
 
 ## Paper And Overleaf
@@ -117,7 +119,7 @@ Compile through:
 ```
 
 Never push the whole repository to Overleaf. Remote reads, pulls and pushes
-require explicit authorization and must use
+require conversational permission and must use
 `scripts/sipaim_overleaf_sync.sh`. The thesis repository is separate and must
 not be edited without an explicit request.
 

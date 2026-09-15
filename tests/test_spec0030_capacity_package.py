@@ -1,6 +1,5 @@
 # Copyright 2026 HiperMaximus
 # pyright: reportAny=false, reportIndexIssue=false, reportPrivateUsage=false
-# ruff: noqa: S404, S603
 """Acceptance tests for the portable Spec 0030 capacity package."""
 
 from __future__ import annotations
@@ -8,9 +7,7 @@ from __future__ import annotations
 import importlib.util
 import inspect
 import json
-import os
 import shutil
-import subprocess
 import sys
 import textwrap
 from copy import deepcopy
@@ -194,71 +191,3 @@ def test_runtime_gradient_gate_requires_every_finite_parameter() -> None:
     passed, _, invalid = runtime.gradients_are_finite(model)
     assert not passed
     assert invalid == "1.bias"
-
-
-def test_superseded_capacity_package_is_rejected_before_network(
-    tmp_path: Path,
-) -> None:
-    """Invariant: changed model bytes make the closed Spec 0030 route inert."""
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    call_log = tmp_path / "calls.txt"
-    fake_kaggle = fake_bin / "kaggle"
-    push_confirmation = (
-        "Kernel version 1 successfully pushed. Please check progress at "
-        "https://www.kaggle.com/code/maximshtefan/"
-        "eqvae-wsi45630-local-global-mil-capacity"
-    )
-    fake_kaggle.write_text(
-        "#!/usr/bin/env bash\n"
-        f"printf '%s\\n' \"$*\" >> {call_log}\n"
-        f"printf '%s\\n' '{push_confirmation}'\n",
-        encoding="utf-8",
-    )
-    fake_kaggle.chmod(0o755)
-    claim = tmp_path / "push_claim.json"
-    receipts = tmp_path / "receipts"
-    script_copy = tmp_path / "kaggle_kernel.sh"
-    script_source = (builder.ROOT / "scripts/kaggle_kernel.sh").read_text(
-        encoding="utf-8",
-    )
-    script_source = script_source.replace(
-        'cd "$script_dir/.."',
-        f'cd "{builder.ROOT}"',
-        1,
-    ).replace(
-        'local_global_capacity_claim="runs/local/wsi45630_local_global_capacity/shared_access_retry_push_claim.json"',
-        f'local_global_capacity_claim="{claim}"',
-        1,
-    )
-    script_copy.write_text(script_source, encoding="utf-8")
-    script_copy.chmod(0o755)
-    environment = {
-        **os.environ,
-        "PATH": f"{fake_bin}:{os.environ['PATH']}",
-        "TMPDIR": str(tmp_path),
-        "KAGGLE_DISABLE_FRESH_OAUTH": "1",
-        "KAGGLE_USERNAME": "maximshtefan",
-        "KAGGLE_PUSH_CONFIRMED": "1",
-        "KAGGLE_FULL_DATASET_CONFIRMED": "1",
-        "KAGGLE_LOCAL_GLOBAL_CAPACITY_CONFIRMED": "1",
-        "EQVAE_KAGGLE_LAUNCH_RECEIPT_ROOT": str(receipts),
-    }
-    command = [
-        str(script_copy),
-        "push",
-        str(builder.DEFAULT_ROOT / "kernel"),
-    ]
-
-    first = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-        env=environment,
-    )
-    assert first.returncode != 0
-    assert "Rendered Spec 0030 launcher differs" in first.stderr
-    assert not claim.exists()
-    assert not call_log.exists()
-    assert not receipts.exists()

@@ -237,7 +237,7 @@ after pair-audit publication. Incomplete runs first roll back/fsync the accepted
 resume window into `dataset/`, write the incomplete marker last, then delete the
 working directory. Nothing outside `dataset/` is publishable.
 
-## Modes And Authorization Gates
+## Modes And Scientific Preconditions
 
 - `local-fixture`: fake/array WSI reader, CPU models, synthetic manifests; local
   mechanics only.
@@ -247,7 +247,7 @@ working directory. Nothing outside `dataset/` is publishable.
   - a matching 16-patch smoke result and the fixed worker config;
   - exact Specs 0019-0021 manifest/storage/inference hashes in the config;
   - immutable input bundle identity;
-  - fresh explicit user authorization and Kaggle confirmation variables.
+  - fresh explicit user approval in the conversation.
 
 Tracked kernel sources are
 `kaggle/kernels/ubc_ocean_latent_inference/run_template.py` and
@@ -290,26 +290,8 @@ requires it.
 Canonical JSON is UTF-8, sorted keys,
 compact separators, and one trailing newline.
 
-Authorization is staged and never inherited:
-
-1. Local staging performs no network access.
-2. Explicit input-publication authorization permits only creating/versioning
-   `eqvae-ubc-ocean-latent-inputs` and verifying its listing; it does not permit
-   a kernel push.
-3. After the receipt is pinned and pilot rebuilt locally, fresh pilot
-   authorization permits only pilot API-check/push/status/output.
-4. After local pilot validation and production rebuild, one fresh authorization
-   may name all five exact fresh run IDs; it permits only those five pushes and
-   their status/output reads.
-5. Every resume dataset publication and run-specific resume push requires a new
-   authorization naming that run and dataset version.
-6. After all five pair audits exist, finalizer build/preflight remains local.
-   A separate authorization naming only
-   `maximusshtefan/eqvae-ubc-ocean-latent-finalize` permits its push and output
-   read; no production rerun is implied.
-
-No remote operation is authorized by this spec or by completion of a prior
-stage.
+Remote approval is handled only in the user conversation and is not represented
+in code, configs, receipts or staged files.
 
 ## Outputs
 
@@ -367,7 +349,7 @@ Local smoke preparation ends only after these focused commands pass:
   tests/test_spec0021_inference_workflow.py::test_pilot_builder_binds_exact_metadata_config_and_wrapper
 ```
 
-With separate pilot authorization, use generic guarded push/status/output on
+With conversational approval, use generic push/status/output on
 `runs/local/ubc_ocean_latent_kernels/pilot`, downloading to
 `runs/kaggle/ubc_ocean_latent_pilot`. Validate the one 16-patch smoke row,
 authority binding, and scratch absence locally:
@@ -386,31 +368,11 @@ Production needs no limits file or additional probe. The build pins Kaggle's
 rows and therefore 15,885,795,456 binary bytes, leaving 4,114,204,544 bytes
 before the cap; its JSON sidecars and pair audit fit inside the reserve.
 
-After fresh authorization naming all five runs, push the five generated
-directories independently. Complete payloads remain remote for the finalizer.
-Only an incomplete run is downloaded, validated, and staged with:
-
-```bash
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output \
-  maximusshtefan/eqvae-ubc-ocean-latent-run-XX \
-  runs/kaggle/ubc_ocean_latents/run_XX_of_05
-./scripts/kaggle_kernel.sh build-latent-resume XX \
-  runs/kaggle/ubc_ocean_latents/run_XX_of_05
-KAGGLE_PUSH_CONFIRMED=1 KAGGLE_DATASET_WRITE_CONFIRMED=1 \
-  ./scripts/kaggle_kernel.sh publish-latent-resume XX
-KAGGLE_REMOTE_CONFIRMED=1 \
-  ./scripts/kaggle_kernel.sh verify-latent-resume XX
-./scripts/kaggle_kernel.sh build-latent-inference resume XX
-./scripts/kaggle_kernel.sh preflight-latent-inference run-XX
-KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 \
-  ./scripts/kaggle_kernel.sh push \
-  runs/local/ubc_ocean_latent_kernels/run_XX
-```
-
-Run the publication pair only after separate resume-dataset authorization and
-the final push only after separate resume-kernel authorization. The rebuild
-must bind the returned dataset version. Never combine files from different
-attempts.
+Push the five generated directories independently after conversational approval.
+Complete payloads remain remote for the finalizer. The old workstream-specific
+recovery commands were deleted; use the generic launcher and exact
+owner-qualified references recorded in `CURRENT.md`. A resume rebuild must bind
+the returned dataset version. Never combine files from different attempts.
 
 The ten FP32 payloads total about 73.17 GiB while the local filesystem has only
 about 33 GiB free, so they must not be downloaded or copied into one local
@@ -423,17 +385,15 @@ location CSVs plus global audit:
 ```bash
 ./scripts/kaggle_kernel.sh build-latent-inference finalizer
 ./scripts/kaggle_kernel.sh preflight-latent-inference finalizer
-KAGGLE_PUSH_CONFIRMED=1 KAGGLE_FULL_DATASET_CONFIRMED=1 \
-  ./scripts/kaggle_kernel.sh push \
+./scripts/kaggle_kernel.sh push \
   runs/local/ubc_ocean_latent_kernels/finalizer
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh status \
+./scripts/kaggle_kernel.sh status \
   maximusshtefan/eqvae-ubc-ocean-latent-finalize
-KAGGLE_REMOTE_CONFIRMED=1 ./scripts/kaggle_kernel.sh output \
+./scripts/kaggle_kernel.sh output \
   maximusshtefan/eqvae-ubc-ocean-latent-finalize \
   runs/kaggle/ubc_ocean_latent_store_finalizer
 ```
 
-The push/output commands require their own explicit finalizer authorization.
 Success means the downloaded global audit exists, has status `complete`, binds
 ten fully scanned read-only shards and all twelve split views, and accompanies
 exactly six location CSVs. A partial set, location CSVs without the audit, or an
@@ -472,14 +432,14 @@ No test embedding has been consumed.
    matches direct-crop sentinels `0`, `8`, and `15`, emits one fixed-recipe row,
    proves finite aligned FP32 outputs, and removes its temporary payloads.
 6. Production refuses a missing/changed dataset-contract hash, immutable input,
-   pilot, work manifest, checkpoint, PNG identity, or remote authorization.
+   pilot, work manifest, checkpoint or PNG identity.
 7. Pair completion validates both shards fully and publishes the audit last;
    final global validation proves all ten shards, six task-manifest/location
    pairs, and twelve model/task/split views before publishing its audit last.
 8. No raw RGB, decoder output, sampled latent, test metric, or classifier
    artifact is written.
-9. Fresh/resume guards enforce the exact staged authorization and source
-   allow-lists; every allowed Spec 0020 resume window succeeds and every other
+9. Fresh/resume validation enforces exact source allow-lists; every allowed
+   Spec 0020 resume window succeeds and every other
    file/state combination fails before an encoder runs.
 10. Focused tests, full Python quality, `git diff --check`, repo/workspace
     preflights, generated-kernel simulations, and clean-context implementation

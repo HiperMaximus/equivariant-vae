@@ -5,11 +5,8 @@ Implementation readiness: preserve evidence; decide separately on sealed-test re
 Owner/workstream: paired downstream evaluation of the frozen normal and continuous-SO(2) VAE representations
 Last updated: 2026-09-05
 
-Remote authorization: on 2026-09-04 the user explicitly authorized the clean
-paired restart and version-5 continuation; on 2026-09-05 the user explicitly
-authorized continued learning through private version 6 from version 5 and the
-revalidation-only version 7. Those authorizations are consumed; another
-publication or launch requires fresh approval.
+Remote approval is conversational only and is not persisted as repository
+state. Completed private versions 5 through 7 remain immutable evidence.
 
 ## Purpose
 
@@ -328,7 +325,7 @@ A valid authenticated resume restores its saved scaler and skips calibration.
   size, committed update/cursor and scaler. The existing version-3 resume builder
   mounts the old source and must be rejected after this repair. A clean restart
   is the controlled paired protocol; any migration requires a separately locked
-  source/checkpoint contract and fresh remote authorization.
+  source/checkpoint contract.
 
 ## Tests And Verification Commands
 

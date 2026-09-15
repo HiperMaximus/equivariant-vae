@@ -272,24 +272,3 @@ def test_uploadable_kernel_is_compact_and_binds_final_input() -> None:
     assert 'INPUT_CONTRACT_SHA256 = "b5a32ebf' in source
     assert "SPEC0045_VAE_TEST_RECONSTRUCTION_READY = True" in source
     compile(source, str(kernel), "exec")
-
-
-def test_shell_route_requires_private_receipt_and_one_use_claim() -> None:
-    source = Path("scripts/kaggle_kernel.sh").read_text(encoding="utf-8")
-    assert 'KAGGLE_VAE_TEST_ROUTE_ACTIVE=1 "$0" push' in source
-    assert '"${KAGGLE_VAE_TEST_EVALUATION_CONFIRMED:-}" != "1"' in source
-    assert '[[ -f "$vae_test_input_receipt" ]]' in source
-    assert '[[ ! -e "$vae_test_launch_claim" ]]' in source
-    assert "validate-claimed-launch --actor" in source
-    assert '"schema_version": "spec0045.input_dataset_receipt.v1"' in source
-    assert 'with receipt.open("x"' in source
-    assert (
-        'vae_test_accepted_reference="maximshtefan/'
-        'eqvae-frozen-vae-full-test-reconstruction/1"' in source
-    )
-    assert (
-        'vae_test_launch_receipt_sha256="bd7360a9ec6831b107b7b2235cfae370'
-        '60553db6434f064d949e0129788c6f3f"' in source
-    )
-    assert '"$reference" != "$vae_test_accepted_reference"' in source
-    assert '"$receipt_sha256" != "$vae_test_launch_receipt_sha256"' in source

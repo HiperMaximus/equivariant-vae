@@ -31,7 +31,7 @@ OUTPUT_PATH = WORKING_ROOT / "spec0023_mil_capacity_probe.json"
 
 
 def main() -> int:
-    """Run only the authorized unchunked complete-bag capacity measurement."""
+    """Run the unchunked complete-bag capacity measurement."""
     session_start = time.monotonic()
     try:
         _ensure_latest_torch()

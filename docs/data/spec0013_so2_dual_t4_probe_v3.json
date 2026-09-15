@@ -57,7 +57,7 @@
   "raw_probe_status": "fail_under_original_timing_cv_gate",
   "acceptance_result": "accepted_without_rerun_from_existing_compiled_evidence",
   "acceptance_decision": "On 2026-08-13 the user selected compiled execution and removed per-window timing CV as a blocking mechanics criterion; raw samples and CV remain diagnostic.",
-  "full_vae_status": "not_assembled_and_not_authorized",
+  "full_vae_status": "not_assembled",
   "next_step": "Spec 0013 is complete; full-VAE assembly remains a separate explicit authorization",
   "raw_download": {
     "artifact": "runs/kaggle/so2_architecture_probe_v3/benchmark/spec0013_so2_dual_t4_probe.json",

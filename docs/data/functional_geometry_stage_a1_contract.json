@@ -1,0 +1,49 @@
+{
+  "inputs": {
+    "fixed_selector_sha256": "ace244ecdd67aaa1ebc7d08065f1e4bfa3c0d54806d4f3b50fb38a3ae000447f",
+    "patch_dataset": "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+    "weight_bundle_contract_sha256": "b5a32ebffd0d88a88d6f21b64ba5c9a23016f05d7a2db0546e442f12a0acecc1",
+    "weight_dataset": "maximshtefan/eqvae-vae-test-reconstruction-inputs-v1"
+  },
+  "kernel_reference": "maximshtefan/eqvae-fg-stage-a1-c4-28a08ab5",
+  "numerics": {
+    "bootstrap_resamples": 4096,
+    "bootstrap_seed": 530078,
+    "compile": false,
+    "confidence_level": 0.99,
+    "jvp_epsilon": 0.008,
+    "jvp_fd_direction": "coordinate_rms_one_rademacher",
+    "jvp_relative_l2_max": 0.005,
+    "lanczos_steps": 64,
+    "metric_identity_relative_error_max": 0.002,
+    "operator": "Gv=J^T(Jv)",
+    "operator_dtype": "float32",
+    "probe_batch_size": 4,
+    "probe_count": 64,
+    "probe_distribution": "normalized_rademacher",
+    "probe_seed": 530077,
+    "tridiagonal_dtype": "float64"
+  },
+  "resources": {
+    "heavy_metric_vector_rows": 65536,
+    "log_lines_max": 20000,
+    "output_bytes_max": 33554432,
+    "peak_reserved_bytes_max_per_device": 12884901888,
+    "required_accelerator": "2 x Tesla T4",
+    "wall_time_minutes_max": 720
+  },
+  "schema": "eqvae.functional_geometry.stage_a1.v1",
+  "scope": {
+    "angles_degrees": [0, 90, 180, 270],
+    "c4_patch_ranks": "all_fixed_25",
+    "heavy_patch_ranks": [0, 12],
+    "heavy_state_count": 16,
+    "model_device_map": {
+      "normal_vae": 0,
+      "so2_vae": 1
+    },
+    "model_execution": "parallel_spawned_processes",
+    "scientific_model_comparison": true,
+    "training_allowed": false
+  }
+}

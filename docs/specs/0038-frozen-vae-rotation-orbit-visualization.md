@@ -31,8 +31,7 @@ protocol or a held-out evaluation.
   `maximshtefan/eqvae-vae-test-reconstruction-inputs-v1` for the exact frozen
   state dicts and `maximusshtefan/patches-pre-shuffled-ubc-ocean` for the
   validation binary, validate every weight and selected-patch hash, require
-  CUDA, use FP32 inference, and keep internet disabled. Authorization marker:
-  `spec0038_fixed25_dense360_population_authorized`.
+  CUDA, use FP32 inference, and keep internet disabled.
 
 ## Outputs And Acceptance Artifacts
 

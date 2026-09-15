@@ -106,7 +106,6 @@ def resolve_package():
     contract = json.loads(CONTRACT_JSON)
     if (
         contract.get("schema_version") != "spec0034.full_compiled_fixed25_mil.v1"
-        or contract.get("authorization") != "spec0034_pinned_torch_retry_v7_authorized"
         or contract.get("scope")
         != "capacity_optimization_only_not_learning_or_evaluation"
         or contract.get("model", {}).get("parameter_count") != PARAMETER_COUNT

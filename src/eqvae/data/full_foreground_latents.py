@@ -54,7 +54,7 @@ class FullForegroundBagDataset(WSIBagDataset):
         files = cast("dict[str, dict[str, object]]", contract["files"])
         if (
             contract.get("schema_version") != "spec0025.full_foreground_development.v1"
-            or contract.get("test_release") != "not_authorized"
+            or contract.get("test_release") != "not_available"
             or frozenset(files) != DEVELOPMENT_FILES
             or frozenset(p.name for p in development_root.iterdir())
             != DEVELOPMENT_FILES | {"dataset.json"}

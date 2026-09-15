@@ -35,7 +35,6 @@ from eqvae.benchmarking.real_data_runtime_pretest import (
     EXPECTED_DATASET_SLUG,
     REAL_DATA_PRETEST_SOURCE,
 )
-from eqvae.benchmarking.schedule import training_steps_per_epoch
 from eqvae.benchmarking.synthetic_timing import (
     MANIFEST_FILENAME,
     MATRIX_FILENAME,
@@ -110,14 +109,6 @@ _FULL_TARGET_UPDATES = 60000
 _FULL_HALF_EPOCH_INTERVAL = 3000
 _FULL_CONFIG_PAYLOAD_PATH = "configs/spec0001/non_eq_vae_selected_runtime_full.json"
 _SELECTED_RUNTIME_PAYLOAD_PATH = "configs/spec0001/non_eq_vae_selected_runtime.json"
-_FULL_PUSH_GUARD_HEREDOC_PATTERN = re.compile(
-    r"<<'PYFULLPAYLOAD'\n(?P<body>.*?)\nPYFULLPAYLOAD",
-    flags=re.DOTALL,
-)
-_DEBUG_PUSH_GUARD_HEREDOC_PATTERN = re.compile(
-    r"<<'PYDEBUGPAYLOAD'\n(?P<body>.*?)\nPYDEBUGPAYLOAD",
-    flags=re.DOTALL,
-)
 _FULL_TARGET_UPDATES_TOKEN = f"FULL_TARGET_UPDATES = {_FULL_TARGET_UPDATES}"
 _FULL_UPDATES_PER_EPOCH = 6000
 _BUILD_SCRIPT_MODULE = "build_kaggle_embedded_kernel"
@@ -151,7 +142,6 @@ def test_embedded_setup_kernel_survives_single_file_upload_simulation(
         tmp_path=tmp_path,
         repo_root=repo_root,
         kernel_name="setup_smoke",
-        ready_marker="KAGGLE_SETUP_SMOKE_READY = True",
     )
 
     subprocess.run(  # noqa: S603
@@ -198,7 +188,6 @@ def test_embedded_real_data_kernel_survives_single_file_upload_simulation(
         tmp_path=tmp_path,
         repo_root=repo_root,
         kernel_name="non_eq_vae_debug",
-        ready_marker="KAGGLE_SMOKE_READY = True",
     )
     environment = _run_environment(simulation.output_dir)
     environment["EQVAE_LOCAL_UPLOAD_SIMULATION_ONLY"] = "1"
@@ -229,7 +218,6 @@ def test_embedded_synthetic_timing_kernel_survives_single_file_upload_simulation
         tmp_path=tmp_path,
         repo_root=repo_root,
         kernel_name="synthetic_timing",
-        ready_marker="KAGGLE_SYNTHETIC_TIMING_READY = True",
     )
     environment = _run_environment(simulation.output_dir)
     environment["EQVAE_SYNTHETIC_TIMING_TINY_PROFILE"] = "1"
@@ -285,7 +273,6 @@ def test_embedded_selected_runtime_compile_probe_kernel_embeds_probe_payload(
         tmp_path=tmp_path,
         repo_root=repo_root,
         kernel_name="selected_runtime_compile_probe",
-        ready_marker="KAGGLE_SELECTED_RUNTIME_COMPILE_PROBE_READY = True",
     )
 
     names = _embedded_payload_names(simulation.upload_dir / "run.py")
@@ -314,24 +301,6 @@ def test_embedded_selected_runtime_compile_probe_kernel_embeds_probe_payload(
         assert required_text in run_text
 
 
-def test_compile_probe_push_guard_greps_with_end_of_options_separator() -> None:
-    """The compile-probe guard needs `grep -q --` for its dash-prefixed marker.
-
-    Its `required_text` list includes `--nproc_per_node=2`; without the `--`
-    end-of-options separator, grep parses that as an unknown option and the guard
-    fails every push even though the text is present.
-    """
-    repo_root = Path(__file__).resolve().parents[1]
-    script = (repo_root / "scripts" / "kaggle_kernel.sh").read_text(encoding="utf-8")
-    header = "guard_selected_runtime_compile_probe_push_ready()"
-    start = script.index(header)
-    guard_body = script[start : script.index("\nguard_", start + len(header))]
-
-    assert '"--nproc_per_node=2"' in guard_body
-    assert 'grep -q -- "$required_text"' in guard_body
-    assert 'grep -q "$required_text"' not in guard_body
-
-
 def test_embedded_real_data_runtime_pretest_kernel_import_simulation(
     tmp_path: Path,
 ) -> None:
@@ -341,7 +310,6 @@ def test_embedded_real_data_runtime_pretest_kernel_import_simulation(
         tmp_path=tmp_path,
         repo_root=repo_root,
         kernel_name="real_data_runtime_pretest",
-        ready_marker="KAGGLE_REAL_DATA_RUNTIME_PRETEST_READY = True",
     )
     environment = _run_environment(simulation.output_dir)
     environment["EQVAE_REAL_DATA_RUNTIME_PRETEST_IMPORT_ONLY"] = "1"
@@ -387,7 +355,6 @@ def test_embedded_real_data_runtime_pretest_kernel_full_local_simulation(
         tmp_path=tmp_path,
         repo_root=repo_root,
         kernel_name="real_data_runtime_pretest",
-        ready_marker="KAGGLE_REAL_DATA_RUNTIME_PRETEST_READY = True",
     )
 
     subprocess.run(  # noqa: S603
@@ -426,7 +393,6 @@ def test_embedded_runtime_selection_kernel_import_simulation(
         tmp_path=tmp_path,
         repo_root=repo_root,
         kernel_name="runtime_selection",
-        ready_marker="KAGGLE_RUNTIME_SELECTION_READY = True",
     )
     environment = _run_environment(simulation.output_dir)
     environment["EQVAE_RUNTIME_SELECTION_IMPORT_ONLY"] = "1"
@@ -483,7 +449,6 @@ def test_embedded_fixed25_selector_kernel_import_simulation(
         tmp_path=tmp_path,
         repo_root=repo_root,
         kernel_name="fixed25_selector",
-        ready_marker="KAGGLE_FIXED25_SELECTOR_READY = True",
     )
     environment = _run_environment(simulation.output_dir)
     environment["EQVAE_FIXED25_SELECTOR_IMPORT_ONLY"] = "1"
@@ -542,7 +507,6 @@ def test_embedded_runtime_selection_kernel_full_local_fail_closed_simulation(
         tmp_path=tmp_path,
         repo_root=repo_root,
         kernel_name="runtime_selection",
-        ready_marker="KAGGLE_RUNTIME_SELECTION_READY = True",
     )
     environment = _run_environment(simulation.output_dir)
     environment["CUDA_VISIBLE_DEVICES"] = ""
@@ -594,7 +558,6 @@ def test_embedded_selected_runtime_debug_kernel_import_simulation(
         tmp_path=tmp_path,
         repo_root=repo_root,
         kernel_name="selected_runtime_debug",
-        ready_marker="KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True",
     )
     environment = _run_environment(simulation.output_dir)
     environment["EQVAE_SELECTED_RUNTIME_DEBUG_IMPORT_ONLY"] = "1"
@@ -636,7 +599,6 @@ def test_embedded_selected_runtime_full_kernel_import_simulation(
         tmp_path=tmp_path,
         repo_root=repo_root,
         kernel_name="selected_runtime_full",
-        ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
     )
     environment = _run_environment(simulation.output_dir)
     environment["EQVAE_SELECTED_RUNTIME_FULL_IMPORT_ONLY"] = "1"
@@ -698,7 +660,6 @@ def test_embedded_selected_runtime_lr_range_kernel_is_self_contained(
         tmp_path=tmp_path,
         repo_root=repo_root,
         kernel_name="selected_runtime_lr_range",
-        ready_marker="KAGGLE_SELECTED_RUNTIME_LR_RANGE_READY = True",
     )
     run_path = simulation.upload_dir / "run.py"
     run_text = run_path.read_text(encoding="utf-8")
@@ -714,347 +675,6 @@ def test_embedded_selected_runtime_lr_range_kernel_is_self_contained(
     assert "src/eqvae/training/selected_runtime_runner.py" in names
     assert not any("runtime_recipe_bakeoff" in name for name in names)
     assert not any(name in names for name in _RUNTIME_SELECTION_BASELINE_PAYLOAD_FILES)
-
-
-def test_selected_runtime_full_push_rejects_preflight_dirty_bypass_env(
-    tmp_path: Path,
-) -> None:
-    """The local dirty bypass cannot be exported into the real push guard."""
-    repo_root = Path(__file__).resolve().parents[1]
-    simulation = _build_upload_simulation(
-        tmp_path=tmp_path,
-        repo_root=repo_root,
-        kernel_name="selected_runtime_full",
-        ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
-    )
-    fake_bin = tmp_path / "fake-bin"
-    fake_bin.mkdir()
-    fake_kaggle = fake_bin / "kaggle"
-    fake_kaggle.write_text(
-        '#!/usr/bin/env bash\necho "fake kaggle $*"\n',
-        encoding="utf-8",
-    )
-    fake_kaggle.chmod(0o755)
-    environment = os.environ.copy()
-    environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
-    environment["KAGGLE_PUSH_CONFIRMED"] = "1"
-    environment["KAGGLE_FULL_DATASET_CONFIRMED"] = "1"
-    environment["EQVAE_SELECTED_RUNTIME_FULL_LOCAL_PREFLIGHT_ALLOW_DIRTY"] = "1"
-    bash_path = shutil.which("bash")
-    assert bash_path is not None
-
-    completed = subprocess.run(  # noqa: S603
-        (
-            bash_path,
-            str(repo_root / "scripts" / "kaggle_kernel.sh"),
-            "push",
-            str(simulation.upload_dir),
-        ),
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        env=environment,
-        check=False,
-    )
-
-    assert completed.returncode != 0
-    assert "only valid" in completed.stderr
-    assert "fake kaggle" not in completed.stdout
-
-
-def test_full_push_guard_accepts_goal_derived_schedule(tmp_path: Path) -> None:
-    """The de-pinned full push guard passes on a freshly built kernel (Spec 0011 S8).
-
-    B1 removed the frozen schedule keys from the full config, so the guard's old
-    literal ``expected_training`` checks failed closed on every push. This proves the
-    goal-derived guard accepts the current config/plan at the reference batch 24.
-    """
-    repo_root = Path(__file__).resolve().parents[1]
-    simulation = _build_upload_simulation(
-        tmp_path=tmp_path,
-        repo_root=repo_root,
-        kernel_name="selected_runtime_full",
-        ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
-    )
-    guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
-    result = _run_push_guard(
-        guard_py=guard_py,
-        run_py=simulation.upload_dir / "run.py",
-        repo_root=repo_root,
-    )
-    assert result.returncode == 0, result.stderr
-
-
-def test_full_push_guard_rejects_refrozen_schedule_key(tmp_path: Path) -> None:
-    """Re-freezing a runner-derived schedule key fails the guard closed."""
-    repo_root = Path(__file__).resolve().parents[1]
-    simulation = _build_upload_simulation(
-        tmp_path=tmp_path,
-        repo_root=repo_root,
-        kernel_name="selected_runtime_full",
-        ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
-    )
-    run_py = simulation.upload_dir / "run.py"
-    run_py.write_text(
-        _rewrite_embedded_payload(
-            run_py.read_text(encoding="utf-8"),
-            _refreeze_optimizer_updates,
-        ),
-        encoding="utf-8",
-    )
-    guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
-    result = _run_push_guard(
-        guard_py=guard_py,
-        run_py=run_py,
-        repo_root=repo_root,
-    )
-    assert result.returncode != 0
-    assert "must not re-freeze" in result.stderr
-
-
-def test_full_push_guard_rejects_beta_target_drift(tmp_path: Path) -> None:
-    """The shell push guard independently pins the accepted beta-0.01 policy."""
-    repo_root = Path(__file__).resolve().parents[1]
-    simulation = _build_upload_simulation(
-        tmp_path=tmp_path,
-        repo_root=repo_root,
-        kernel_name="selected_runtime_full",
-        ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
-    )
-    run_py = simulation.upload_dir / "run.py"
-    run_py.write_text(
-        _rewrite_embedded_payload(
-            run_py.read_text(encoding="utf-8"),
-            _set_rejected_beta_target,
-        ),
-        encoding="utf-8",
-    )
-    guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
-    result = _run_push_guard(
-        guard_py=guard_py,
-        run_py=run_py,
-        repo_root=repo_root,
-    )
-    assert result.returncode != 0
-    assert "objective.beta.target must be locked to 0.01" in result.stderr
-
-
-def test_full_push_guard_rejects_off_derivation_updates(tmp_path: Path) -> None:
-    """A plan recording updates != floor(P / global_batch) fails the guard closed."""
-    repo_root = Path(__file__).resolve().parents[1]
-    simulation = _build_upload_simulation(
-        tmp_path=tmp_path,
-        repo_root=repo_root,
-        kernel_name="selected_runtime_full",
-        ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
-    )
-    run_py = simulation.upload_dir / "run.py"
-    run_py.write_text(
-        _rewrite_embedded_payload(
-            run_py.read_text(encoding="utf-8"),
-            _set_off_derivation_updates,
-        ),
-        encoding="utf-8",
-    )
-    guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
-    result = _run_push_guard(
-        guard_py=guard_py,
-        run_py=run_py,
-        repo_root=repo_root,
-    )
-    assert result.returncode != 0
-    assert "optimizer_updates_per_epoch must be" in result.stderr
-
-
-def test_full_push_guard_rejects_non_integer_epochs(tmp_path: Path) -> None:
-    """A float ``training.epochs`` (10.0) fails closed, not nulling the derivation.
-
-    Regression for an S8 fail-open: a JSON float epochs passed the ``!= 10`` anchor
-    pin yet made the derived FULL_TARGET_UPDATES/FULL_HALF_EPOCH_INTERVAL token check
-    silently skip, so a drifted run.py token could slip through with exit 0.
-    """
-    repo_root = Path(__file__).resolve().parents[1]
-    simulation = _build_upload_simulation(
-        tmp_path=tmp_path,
-        repo_root=repo_root,
-        kernel_name="selected_runtime_full",
-        ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
-    )
-    run_py = simulation.upload_dir / "run.py"
-    tampered = _rewrite_embedded_payload(
-        run_py.read_text(encoding="utf-8"),
-        _set_float_epochs,
-    ).replace(_FULL_TARGET_UPDATES_TOKEN, "FULL_TARGET_UPDATES = 999999", 1)
-    run_py.write_text(tampered, encoding="utf-8")
-    guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
-    result = _run_push_guard(
-        guard_py=guard_py,
-        run_py=run_py,
-        repo_root=repo_root,
-    )
-    assert result.returncode != 0
-    assert "training.epochs must be an integer" in result.stderr
-
-
-def test_full_push_guard_rejects_off_derivation_run_py_token(tmp_path: Path) -> None:
-    """A run.py whose FULL_TARGET_UPDATES != epochs * derived updates fails closed."""
-    repo_root = Path(__file__).resolve().parents[1]
-    simulation = _build_upload_simulation(
-        tmp_path=tmp_path,
-        repo_root=repo_root,
-        kernel_name="selected_runtime_full",
-        ready_marker="KAGGLE_SELECTED_RUNTIME_FULL_READY = True",
-    )
-    run_py = simulation.upload_dir / "run.py"
-    run_text = run_py.read_text(encoding="utf-8")
-    mutated = run_text.replace(
-        _FULL_TARGET_UPDATES_TOKEN,
-        "FULL_TARGET_UPDATES = 999999",
-        1,
-    )
-    assert mutated != run_text
-    run_py.write_text(mutated, encoding="utf-8")
-    guard_py = _extract_full_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
-    result = _run_push_guard(
-        guard_py=guard_py,
-        run_py=run_py,
-        repo_root=repo_root,
-    )
-    assert result.returncode != 0
-    assert "missing required text" in result.stderr
-
-
-# --- Spec 0011 S17b-3 sub-step 2: the debug push guard delegates to the parser.
-#
-# The debug PYDEBUGPAYLOAD heredoc now runs on the venv interpreter and validates the
-# embedded selected_runtime.json through selected_runtime_plan_errors instead of
-# mirroring the eager identity/recipe/snapshot literals. These tests extract and run the
-# real guard body verbatim (no drift) against a freshly built debug kernel whose
-# embedded plan is rewritten in place.
-
-
-def _build_debug_kernel(tmp_path: Path, repo_root: Path) -> UploadSimulation:
-    return _build_upload_simulation(
-        tmp_path=tmp_path,
-        repo_root=repo_root,
-        kernel_name="selected_runtime_debug",
-        ready_marker="KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True",
-    )
-
-
-def test_debug_push_guard_accepts_committed_plan(tmp_path: Path) -> None:
-    """The de-pinned debug push guard passes on a freshly built kernel (S17b-3).
-
-    Behavior-preserving: the committed eager v5 plan still validates once the guard
-    delegates to selected_runtime_plan_errors instead of mirroring the eager literals.
-    """
-    repo_root = Path(__file__).resolve().parents[1]
-    simulation = _build_debug_kernel(tmp_path, repo_root)
-    guard_py = _extract_debug_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
-    result = _run_push_guard(
-        guard_py=guard_py,
-        run_py=simulation.upload_dir / "run.py",
-        repo_root=repo_root,
-    )
-    assert result.returncode == 0, result.stderr
-
-
-def test_debug_push_guard_accepts_compiled_winner(tmp_path: Path) -> None:
-    """A re-measured bs47 amp-off compile-step plan now passes the debug push guard.
-
-    This is the S17b-3 goal for the debug surface: the shell mirror no longer rejects a
-    compiled winner the runtime search can emit (odd batch 47 proves no divisibility).
-    """
-    repo_root = Path(__file__).resolve().parents[1]
-    simulation = _build_debug_kernel(tmp_path, repo_root)
-    run_py = simulation.upload_dir / "run.py"
-    run_py.write_text(
-        _rewrite_embedded_payload(
-            run_py.read_text(encoding="utf-8"),
-            _install_compiled_winner_plan,
-        ),
-        encoding="utf-8",
-    )
-    guard_py = _extract_debug_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
-    result = _run_push_guard(
-        guard_py=guard_py,
-        run_py=run_py,
-        repo_root=repo_root,
-    )
-    assert result.returncode == 0, result.stderr
-
-
-def test_debug_push_guard_rejects_self_inconsistent_plan(tmp_path: Path) -> None:
-    """A compiled recipe left on the eager identity fails closed with the parser id.
-
-    Proves the guard delegates to the parser's structural identity rather than mirroring
-    the recipe literals: an amp-off precision block on the eager v5 row_id makes the
-    composed identity disagree with the recorded one.
-    """
-    repo_root = Path(__file__).resolve().parents[1]
-    simulation = _build_debug_kernel(tmp_path, repo_root)
-    run_py = simulation.upload_dir / "run.py"
-    run_py.write_text(
-        _rewrite_embedded_payload(
-            run_py.read_text(encoding="utf-8"),
-            _install_amp_off_on_eager_identity,
-        ),
-        encoding="utf-8",
-    )
-    guard_py = _extract_debug_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
-    result = _run_push_guard(
-        guard_py=guard_py,
-        run_py=run_py,
-        repo_root=repo_root,
-    )
-    assert result.returncode != 0
-    assert "selected_runtime_selected_row_id_not_self_consistent" in result.stderr
-
-
-def test_debug_push_guard_keeps_hardware_anchor(tmp_path: Path) -> None:
-    """De-pinning identity/recipe must not drop the dual-T4 hardware anchor.
-
-    A compiled winner self-declaring single_visible_t4 is rejected by the parser's
-    _launch_errors anchor -- the anchor the eager identity literal carried only
-    incidentally (Spec 0011 S17b-2 lesson). The mutation also trips identity
-    self-consistency, so the assertion targets the anchor-specific id (only
-    _launch_errors emits it) to stay load-bearing on the anchor itself.
-    """
-    repo_root = Path(__file__).resolve().parents[1]
-    simulation = _build_debug_kernel(tmp_path, repo_root)
-    run_py = simulation.upload_dir / "run.py"
-    run_py.write_text(
-        _rewrite_embedded_payload(
-            run_py.read_text(encoding="utf-8"),
-            _install_wrong_accelerator_winner,
-        ),
-        encoding="utf-8",
-    )
-    guard_py = _extract_debug_push_guard_python(repo_root=repo_root, tmp_path=tmp_path)
-    result = _run_push_guard(
-        guard_py=guard_py,
-        run_py=run_py,
-        repo_root=repo_root,
-    )
-    assert result.returncode != 0
-    assert "selected_runtime_top_level_not_dual_t4_ddp" in result.stderr
-
-
-def test_selected_runtime_push_guards_run_on_the_venv_interpreter() -> None:
-    """Both plan-delegating push guards must open on the venv interpreter, not python3.
-
-    Each heredoc body imports eqvae (selected_runtime_plan_errors); bare python3 has no
-    torch or eqvae, so reverting the opener to `python3` breaks the real push with a
-    ModuleNotFoundError. The body-only extraction guards can't see the opener line, so
-    assert the venv prefix here directly (S17b-3 / S8).
-    """
-    repo_root = Path(__file__).resolve().parents[1]
-    script = (repo_root / "scripts" / "kaggle_kernel.sh").read_text(encoding="utf-8")
-    for marker in ("PYDEBUGPAYLOAD", "PYFULLPAYLOAD"):
-        opener = f"""PYTHONPATH=src "$python_bin" - "$run_file" <<'{marker}'"""
-        assert opener in script, (
-            f"{marker} push guard must open on the venv interpreter, not bare python3"
-        )
 
 
 def test_build_derives_reference_full_schedule() -> None:
@@ -1368,7 +988,6 @@ def test_embedded_selected_runtime_debug_kernel_full_local_fail_closed_simulatio
         tmp_path=tmp_path,
         repo_root=repo_root,
         kernel_name="selected_runtime_debug",
-        ready_marker="KAGGLE_SELECTED_RUNTIME_DEBUG_READY = True",
     )
 
     subprocess.run(  # noqa: S603
@@ -1723,8 +1342,6 @@ def test_embedded_kernel_verify_rejects_stale_template(tmp_path: Path) -> None:
             str(generated_kernel),
             "--template",
             str(template_copy),
-            "--ready-marker",
-            "KAGGLE_SETUP_SMOKE_READY = True",
             "--allow-dirty",
         ),
         cwd=repo_root,
@@ -1745,8 +1362,6 @@ def test_embedded_kernel_verify_rejects_stale_template(tmp_path: Path) -> None:
             str(generated_kernel),
             "--template",
             str(template_copy),
-            "--ready-marker",
-            "KAGGLE_SETUP_SMOKE_READY = True",
             "--verify-only",
             "--allow-dirty",
         ),
@@ -1785,8 +1400,6 @@ def test_embedded_kernel_verify_rejects_tampered_wrapper(tmp_path: Path) -> None
         str(generated_kernel),
         "--template",
         str(source_kernel / "run_template.py"),
-        "--ready-marker",
-        "KAGGLE_SETUP_SMOKE_READY = True",
         "--allow-dirty",
     )
     subprocess.run(base_command, cwd=repo_root, check=True)  # noqa: S603
@@ -1830,8 +1443,6 @@ def test_embedded_kernel_verify_rejects_tampered_member_bytes(tmp_path: Path) ->
         str(generated_kernel),
         "--template",
         str(source_kernel / "run_template.py"),
-        "--ready-marker",
-        "KAGGLE_SETUP_SMOKE_READY = True",
         "--allow-dirty",
     )
     subprocess.run(base_command, cwd=repo_root, check=True)  # noqa: S603
@@ -1872,7 +1483,6 @@ def _build_upload_simulation(
     tmp_path: Path,
     repo_root: Path,
     kernel_name: str,
-    ready_marker: str,
 ) -> UploadSimulation:
     source_kernel = repo_root / "kaggle" / "kernels" / kernel_name
     build_script = repo_root / "scripts" / "build_kaggle_embedded_kernel.py"
@@ -1893,8 +1503,6 @@ def _build_upload_simulation(
             str(generated_kernel),
             "--template",
             str(source_kernel / "run_template.py"),
-            "--ready-marker",
-            ready_marker,
             "--allow-dirty",
         ),
         cwd=repo_root,
@@ -2001,50 +1609,6 @@ def _embedded_payload_names(run_path: Path) -> set[str]:
         return set(archive.namelist())
 
 
-def _extract_full_push_guard_python(*, repo_root: Path, tmp_path: Path) -> Path:
-    # Run the real PYFULLPAYLOAD guard body verbatim so the test cannot drift from the
-    # shipped shell validator (Spec 0011 S8 de-pinned it to goal-derived relationships).
-    script = (repo_root / "scripts" / "kaggle_kernel.sh").read_text(encoding="utf-8")
-    match = _FULL_PUSH_GUARD_HEREDOC_PATTERN.search(script)
-    if match is None:
-        message = "missing PYFULLPAYLOAD guard heredoc in kaggle_kernel.sh"
-        raise AssertionError(message)
-    guard_py = tmp_path / "full_push_guard.py"
-    guard_py.write_text(match.group("body"), encoding="utf-8")
-    return guard_py
-
-
-def _extract_debug_push_guard_python(*, repo_root: Path, tmp_path: Path) -> Path:
-    # Run the real PYDEBUGPAYLOAD guard body verbatim so the test cannot drift from the
-    # shipped shell validator (S17b-3 de-pinned it to the single-source parser).
-    script = (repo_root / "scripts" / "kaggle_kernel.sh").read_text(encoding="utf-8")
-    match = _DEBUG_PUSH_GUARD_HEREDOC_PATTERN.search(script)
-    if match is None:
-        message = "missing PYDEBUGPAYLOAD guard heredoc in kaggle_kernel.sh"
-        raise AssertionError(message)
-    guard_py = tmp_path / "debug_push_guard.py"
-    guard_py.write_text(match.group("body"), encoding="utf-8")
-    return guard_py
-
-
-def _run_push_guard(
-    *,
-    guard_py: Path,
-    run_py: Path,
-    repo_root: Path,
-) -> subprocess.CompletedProcess[str]:
-    environment = os.environ.copy()
-    environment["PYTHONPATH"] = "src"
-    return subprocess.run(  # noqa: S603
-        (sys.executable, str(guard_py), str(run_py)),
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        env=environment,
-        check=False,
-    )
-
-
 def _rewrite_embedded_payload(
     run_text: str,
     mutate: Callable[[dict[str, bytes]], None],
@@ -2069,28 +1633,6 @@ def _rewrite_embedded_payload(
     )
 
 
-def _refreeze_optimizer_updates(members: dict[str, bytes]) -> None:
-    config = cast("dict[str, object]", json.loads(members[_FULL_CONFIG_PAYLOAD_PATH]))
-    training = cast("dict[str, object]", config["training"])
-    training["optimizer_updates_per_epoch"] = _FULL_TARGET_UPDATES
-    members[_FULL_CONFIG_PAYLOAD_PATH] = json.dumps(config).encode("utf-8")
-
-
-def _set_float_epochs(members: dict[str, bytes]) -> None:
-    config = cast("dict[str, object]", json.loads(members[_FULL_CONFIG_PAYLOAD_PATH]))
-    training = cast("dict[str, object]", config["training"])
-    training["epochs"] = float(_FULL_EPOCHS)
-    members[_FULL_CONFIG_PAYLOAD_PATH] = json.dumps(config).encode("utf-8")
-
-
-def _set_rejected_beta_target(members: dict[str, bytes]) -> None:
-    config = cast("dict[str, object]", json.loads(members[_FULL_CONFIG_PAYLOAD_PATH]))
-    objective = cast("dict[str, object]", config["objective"])
-    beta = cast("dict[str, object]", objective["beta"])
-    beta["target"] = 0.1
-    members[_FULL_CONFIG_PAYLOAD_PATH] = json.dumps(config).encode("utf-8")
-
-
 def _load_script_module(name: str, path: Path) -> ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
@@ -2102,45 +1644,8 @@ def _load_script_module(name: str, path: Path) -> ModuleType:
     return module
 
 
-def _set_off_derivation_updates(members: dict[str, bytes]) -> None:
-    plan = cast(
-        "dict[str, object]",
-        json.loads(members[_SELECTED_RUNTIME_PAYLOAD_PATH]),
-    )
-    global_batch = plan["global_batch_size"]
-    if not isinstance(global_batch, int):
-        message = "selected runtime global_batch_size must be an integer"
-        raise TypeError(message)
-    plan["optimizer_updates_per_epoch"] = (
-        training_steps_per_epoch(
-            real_train_patch_count=REAL_TRAIN_PATCH_COUNT,
-            global_batch_size=global_batch,
-        )
-        + 1
-    )
-    members[_SELECTED_RUNTIME_PAYLOAD_PATH] = json.dumps(plan).encode("utf-8")
-
-
 def _embedded_plan(members: dict[str, bytes]) -> dict[str, object]:
     return cast(
         "dict[str, object]",
         json.loads(members[_SELECTED_RUNTIME_PAYLOAD_PATH]),
     )
-
-
-def _install_compiled_winner_plan(members: dict[str, bytes]) -> None:
-    members[_SELECTED_RUNTIME_PAYLOAD_PATH] = json.dumps(
-        _shape_compiled_winner(_embedded_plan(members)),
-    ).encode("utf-8")
-
-
-def _install_amp_off_on_eager_identity(members: dict[str, bytes]) -> None:
-    plan = _embedded_plan(members)
-    plan["mixed_precision"] = dict(_AMP_OFF_FP32_MIXED_PRECISION)
-    members[_SELECTED_RUNTIME_PAYLOAD_PATH] = json.dumps(plan).encode("utf-8")
-
-
-def _install_wrong_accelerator_winner(members: dict[str, bytes]) -> None:
-    plan = _shape_compiled_winner(_embedded_plan(members))
-    plan["accelerator_mode"] = "single_visible_t4"
-    members[_SELECTED_RUNTIME_PAYLOAD_PATH] = json.dumps(plan).encode("utf-8")

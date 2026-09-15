@@ -5,10 +5,8 @@ Implementation readiness: exact account-portable T4 probe may launch once
 Owner/workstream: Spec 0032 compiler and fixed-degree-kernel follow-up
 Last updated: 2026-09-02
 
-Launch authority: `spec0033_inductor_attention_probe_authorized`. The user
-authorized the exact private package on 2026-09-02. This authority covers one
-probe launch with the shared owner-qualified WSI45630 input; it does not cover
-learning, sealed-test access, or a production-backend change.
+The recorded private probe used the shared owner-qualified WSI45630 input and
+performed no learning, sealed-test access or production-backend change.
 
 ## Purpose
 

@@ -1347,7 +1347,6 @@ def run(output_dir: Path) -> JsonObject:
             "architecture_locked": True,
             "selected_mechanics": "padded_bmm_direct",
             "full_vae_assembled": False,
-            "follow_up_probe_permitted": False,
             "world_size": distributed.world_size,
             "nproc_per_node": distributed.nproc_per_node,
             "gpu_names": [

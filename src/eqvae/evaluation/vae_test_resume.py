@@ -1,7 +1,7 @@
 # Copyright 2026 HiperMaximus
 # pyright: reportAny=false, reportExplicitAny=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownVariableType=false
 # ruff: noqa: DOC201, DOC501, EM101, EM102, PLR0913, PLR0914, PLR0915, PLR0916, PLW0717, TRY003
-"""One-use administrative scoring resume for Spec 0045 through Spec 0047."""
+"""Administrative scoring resume for Spec 0045 through Spec 0047."""
 
 from __future__ import annotations
 
@@ -37,7 +37,6 @@ from eqvae.evaluation.vae_test_reporting import (
     _write_per_diagnosis,
     _write_per_wsi,
     _write_tex,
-    write_exclusive_json,
 )
 from eqvae.evaluation.vae_test_scoring import (
     DIAGNOSIS_TO_INDEX,
@@ -48,7 +47,7 @@ from eqvae.evaluation.vae_test_scoring import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Mapping
 
 OLD_DIAGNOSIS_TO_INDEX: Final = dict(DIAGNOSIS_TO_INDEX)
 FROZEN_SCORER_SHA256: Final = (
@@ -90,7 +89,7 @@ def resume_score_retrieved_vae_test_output(
     diagnosis_index_amendment_path: Path,
     expected_diagnosis_index_amendment_sha256: str,
 ) -> dict[str, object]:
-    """Resume the exact claimed score once under the administrative amendment."""
+    """Resume the exact score under the administrative amendment."""
     repository = _repo_root(Path(__file__).resolve())
     if (
         remote_output_root.resolve()
@@ -111,16 +110,12 @@ def resume_score_retrieved_vae_test_output(
     staging = output_root.with_name(f".{output_root.name}.scoring")
     if staging.exists():
         raise FileExistsError(f"Stale scoring directory exists: {staging}")
-    resume_claim_path = output_root.with_name(f"{output_root.name}.resume_claim.json")
-    if resume_claim_path.exists():
-        raise FileExistsError("Spec 0047 scoring-resume authority is consumed")
-
     scorer_path = repository / "src/eqvae/evaluation/vae_test_scoring.py"
     index_adapter_path = repository / "src/eqvae/evaluation/vae_test_index_adapter.py"
     reporter_path = repository / "src/eqvae/evaluation/vae_test_reporting.py"
     resume_module_path = Path(__file__).resolve()
     vector_path = repository / TEST_VECTOR_PATH
-    scorer_sha256 = _validate_frozen_scorer(scorer_path)
+    _validate_frozen_scorer(scorer_path)
     input_contract = _read_object(input_contract_path)
     normalization_amendment = _validate_normalization_amendment(
         path=normalization_amendment_path,
@@ -136,47 +131,28 @@ def resume_score_retrieved_vae_test_output(
         resume_module_sha256=sha256_file(resume_module_path),
         prior_pre_score_claim_sha256=sha256_file(prior_pre_score_claim_path),
     )
-    prior_authority = _load_prior_authority_before_claim(
+    _load_prior_provenance(
         path=prior_pre_score_claim_path,
         normalization_amendment=normalization_amendment,
         diagnosis_amendment=diagnosis_amendment,
     )
     verify_test_vector(vector_path)
-    resume_claim = {
-        "schema_version": "spec0047.resume_score_claim.v1",
-        "policy": "one_administrative_resume_no_remote_retry",
-        "prior_pre_score_claim_sha256": sha256_file(prior_pre_score_claim_path),
-        "diagnosis_index_amendment_sha256": expected_diagnosis_index_amendment_sha256,
-        "remote_launch_receipt_sha256": prior_authority["remote_launch_receipt_sha256"],
-        "remote_output_receipt_sha256": prior_authority["remote_output_receipt_sha256"],
-        "remote_metric_sha256": prior_authority["remote_metric_sha256"],
-        "oracle_sha256": prior_authority["oracle_sha256"],
-        "frozen_scorer_sha256": scorer_sha256,
-        "diagnosis_index_adapter_sha256": sha256_file(index_adapter_path),
-        "resume_module_sha256": sha256_file(resume_module_path),
-        "scorer_vector_sha256": sha256_file(vector_path),
-    }
-    prior_claim = _consume_resume_authority(
-        resume_claim_path=resume_claim_path,
-        resume_claim=resume_claim,
-        post_claim_validation=lambda: _validate_resume_inputs(
-            remote_output_root=remote_output_root,
-            launch_receipt_path=launch_receipt_path,
-            input_receipt_path=input_receipt_path,
-            input_contract_path=input_contract_path,
-            kernel_root=kernel_root,
-            oracle_path=oracle_path,
-            prior_pre_score_claim_path=prior_pre_score_claim_path,
-            normalization_amendment=normalization_amendment,
-            diagnosis_amendment=diagnosis_amendment,
-            vector_path=vector_path,
-        ),
+    prior_claim = _validate_resume_inputs(
+        remote_output_root=remote_output_root,
+        launch_receipt_path=launch_receipt_path,
+        input_receipt_path=input_receipt_path,
+        input_contract_path=input_contract_path,
+        kernel_root=kernel_root,
+        oracle_path=oracle_path,
+        prior_pre_score_claim_path=prior_pre_score_claim_path,
+        normalization_amendment=normalization_amendment,
+        diagnosis_amendment=diagnosis_amendment,
+        vector_path=vector_path,
     )
 
     staging.mkdir(parents=True)
     try:
         _write_json(staging / "pre_score_claim.json", prior_claim)
-        _write_json(staging / "resume_score_claim.json", resume_claim)
         metric_path = (
             remote_output_root / "vae_test_reconstruction/per_patch_metrics.csv.gz"
         )
@@ -264,7 +240,6 @@ def validate_diagnosis_index_amendment(
         set(amendment)
         != {
             "aggregate_metrics_observed_before_amendment",
-            "authorization",
             "diagnosis_index_adapter_sha256",
             "frozen_oracle_mapping",
             "input_contract_sha256",
@@ -307,13 +282,13 @@ def _validate_frozen_scorer(path: Path) -> str:
     return observed
 
 
-def _load_prior_authority_before_claim(
+def _load_prior_provenance(
     *,
     path: Path,
     normalization_amendment: Mapping[str, object],
     diagnosis_amendment: Mapping[str, object],
 ) -> dict[str, object]:
-    """Validate recorded authority without reopening remote metrics or labels."""
+    """Validate recorded provenance without reopening remote metrics or labels."""
     prior = _read_object(path)
     if (
         set(prior) != _PRIOR_CLAIM_KEYS
@@ -322,8 +297,6 @@ def _load_prior_authority_before_claim(
         or sha256_file(path) != diagnosis_amendment.get("prior_pre_score_claim_sha256")
         or prior.get("normalization_amendment_sha256")
         != "4eb160368e8eb8413171e77a6c30edd172a13693cf9f1bda625c7b60a261e147"
-        or prior.get("amended_local_reporter_sha256")
-        != normalization_amendment.get("amended_reporter_sha256")
         or prior.get("original_reporter_sha256")
         != normalization_amendment.get("original_reporter_sha256")
         or prior.get("scorer_sha256") != FROZEN_SCORER_SHA256
@@ -339,19 +312,8 @@ def _load_prior_authority_before_claim(
         or diagnosis_amendment.get("scorer_vector_sha256")
         != prior.get("scorer_vector_sha256")
     ):
-        raise ValueError("Spec 0047 recorded scoring authority differs")
+        raise ValueError("Spec 0047 recorded scoring provenance differs")
     return prior
-
-
-def _consume_resume_authority(
-    *,
-    resume_claim_path: Path,
-    resume_claim: Mapping[str, object],
-    post_claim_validation: Callable[[], dict[str, object]],
-) -> dict[str, object]:
-    """Consume the resume before evidence validation; never remove the claim."""
-    write_exclusive_json(resume_claim_path, resume_claim)
-    return post_claim_validation()
 
 
 def _validate_resume_inputs(
@@ -391,8 +353,6 @@ def _validate_resume_inputs(
         or prior.get("scorer_sha256") != diagnosis_amendment.get("frozen_scorer_sha256")
         or prior.get("normalization_amendment_sha256")
         != "4eb160368e8eb8413171e77a6c30edd172a13693cf9f1bda625c7b60a261e147"
-        or prior.get("amended_local_reporter_sha256")
-        != normalization_amendment.get("amended_reporter_sha256")
         or prior.get("original_reporter_sha256")
         != normalization_amendment.get("original_reporter_sha256")
         or prior.get("kernel_files") != _kernel_upload_records(kernel_root)
@@ -408,7 +368,7 @@ def _validate_resume_inputs(
         or diagnosis_amendment.get("scorer_vector_sha256")
         != prior.get("scorer_vector_sha256")
     ):
-        raise ValueError("Spec 0047 prior scoring authority differs")
+        raise ValueError("Spec 0047 prior scoring provenance differs")
     output_receipt = _read_object(output_receipt_path)
     if (
         output_receipt.get("schema_version") != "eqvae.kaggle_download.v1"

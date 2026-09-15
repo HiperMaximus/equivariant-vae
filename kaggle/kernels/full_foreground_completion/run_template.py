@@ -159,11 +159,9 @@ def main() -> int:
         ]
         if len(roots) != 1:
             raise RuntimeError("Expected one official source root for this job's WSIs")
-        os.environ["EQVAE_CANCER_TOPUP_CONFIRMED"] = "1"
         _execute(bundle, roots[0])
         return 0
     finally:
-        os.environ.pop("EQVAE_CANCER_TOPUP_CONFIRMED", None)
         os.environ.pop("EQVAE_SESSION_START_MONOTONIC", None)
 
 

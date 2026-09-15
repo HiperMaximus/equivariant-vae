@@ -202,7 +202,7 @@ def test_full_foreground_merge_rejects_wrong_membership(
     """Each corruption invalidates unique exact foreground coverage before publication.
 
     Distinct mutations catch overlapping parts, interior/end omissions, atlas
-    aliasing, candidate split drift and unauthorized extra supplement records.
+    aliasing, candidate split drift and unexpected extra supplement records.
     """
     sources, candidate, splits, _ = _fixture(tmp_path)
     if mutation == "duplicate":

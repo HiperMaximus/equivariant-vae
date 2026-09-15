@@ -73,10 +73,9 @@ origin.
 
 ## Config Contract
 
-- `KAGGLE_PUSH_CONFIRMED=1` remains required for a remote push.
-- `KAGGLE_FULL_DATASET_CONFIRMED=1` remains required when sources are attached.
-- `KAGGLE_REMOTE_CONFIRMED=1` remains required for remote reads/downloads.
-- `KAGGLE_USERNAME`, when used by legacy auth, is an actor credential field,
+- Remote approval is conversational only and has no environment-variable or
+  file representation.
+- `KAGGLE_USERNAME`, when used by credential discovery, is an actor identity,
   not a resource-owner default.
 - Launch receipts default under `runs/local/kaggle_launches/`; callers may
   select another local receipt root without changing remote identity.

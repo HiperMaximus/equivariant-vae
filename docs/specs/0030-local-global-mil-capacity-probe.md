@@ -17,11 +17,8 @@ All three 2026-09-02 authorities are consumed. The final shared-access attempt
 created private `maximshtefan/eqvae-wsi45630-local-global-mil-capacity/2`,
 attached every required cross-owner source and loaded both complete bags. It
 then OOMed in local block 2 during warmup at 15,338,887,168 peak allocated bytes
-on a 15,636,037,632-byte T4; no optimizer step completed. No retry, fallback,
-training, test access, dataset publication or visibility change is authorized.
-The consumed authorization receipt identifier is
-`spec0030_local_global_capacity_shared_access_retry_authorized`; retaining this
-identifier documents the immutable one-shot guard and does not grant a retry.
+on a 15,636,037,632-byte T4; no optimizer step completed. The run performed no
+training, test access, dataset publication or visibility change.
 
 ## Fixed Inputs
 
@@ -80,8 +77,7 @@ the network attempt and blocks every second attempt under any account.
    input contract/pointer hashes, source owner/version list, canonical model
    hash, package allow-list, Python compilation and sub-1-MB script limit.
 2. Focused tests exercise package drift, graph construction, paired atomic-step
-   gating, output schema, account-portable metadata, and the one-shot shell
-   guard without a remote call.
+   gating, output schema and account-portable metadata without a remote call.
 3. `./scripts/python_quality.sh`, both preflights and `git diff --check` pass.
 4. Independent clean-context reviewers find no P0/P1 correctness, leakage,
    provenance, portability, or launch-safety blocker.

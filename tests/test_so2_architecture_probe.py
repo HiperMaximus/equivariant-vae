@@ -903,7 +903,7 @@ def test_selected_padded_bmm_gradients_match_four_mm_oracle() -> None:
 
 
 def test_all_locked_oriented_signatures_have_fixed_shapes() -> None:
-    """Cover every eventual map shape without assembling the unauthorized VAE."""
+    """Cover every eventual map shape without assembling the unavailable VAE."""
     hidden_pairs = (
         (A_LAYOUT, A_LAYOUT),
         (A_LAYOUT, B_LAYOUT),

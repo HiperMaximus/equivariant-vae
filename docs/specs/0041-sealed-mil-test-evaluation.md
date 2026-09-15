@@ -5,12 +5,9 @@ Implementation readiness: implement and verify the label-blind inference / post-
 Owner/workstream: final paired downstream evaluation of frozen normal- and continuous-SO(2)-VAE representations
 Last updated: 2026-09-05
 
-Remote authorization: after being told that sealed-test release and a Kaggle
-launch required a separate authorization, the user explicitly replied “ok do
-it” on 2026-09-05. This authorizes the one locked private input publication and
-one test-only kernel launch below. It does not authorize retraining, tuning,
-additional seeds, changed checkpoints, paper publication, or an automatic
-scientific retry with a changed contract.
+Remote approval is conversational only and is not represented in this contract.
+The recorded execution used one locked private input and one test-only kernel;
+it performed no retraining, tuning, additional seeds or checkpoint changes.
 
 ## Purpose And Primary Question
 

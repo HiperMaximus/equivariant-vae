@@ -712,8 +712,8 @@ def _validate_baseline_selected_runtime(path: Path) -> None:
     # S17a/S17b to accept a re-measured compiled winner. selected_runtime_plan_errors
     # is the same gatekeeper debug.py parses through at launch, keeps every hardware
     # and topology anchor pinned, and selected_runtime_path=None skips only the
-    # runtime-proof hash (the launch parse re-checks it; the push guard requires the
-    # proof present), so this pre-check stays behavior-preserving on the committed plan.
+    # runtime-proof hash (the launch parse re-checks it), so this pre-check stays
+    # behavior-preserving on the committed plan.
     from eqvae.training.selected_runtime import (  # noqa: PLC0415
         selected_runtime_plan_errors,
     )

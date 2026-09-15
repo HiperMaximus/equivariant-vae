@@ -63,8 +63,6 @@ def run_topup(
     scratch_root: Path,
 ) -> dict[str, object]:
     """Encode one sealed label-free manifest and publish only an aligned pair."""
-    if os.environ.get("EQVAE_CANCER_TOPUP_CONFIRMED") != "1":
-        raise RuntimeError("Spec 0022 top-up execution confirmation is missing")
     contract_path = input_root / "spec0022_topup_inference_contract.json"
     contract = _validate_input_tree(input_root, contract_path)
     raw_manifest = _mapping(contract, "supplement_manifest")

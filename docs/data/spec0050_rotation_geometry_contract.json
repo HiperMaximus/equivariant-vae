@@ -172,12 +172,9 @@
   },
   "examples": {"ranks": [0, 12], "selection": "result_independent"},
   "remote": {
-    "guard_phrase": "spec0050_corrected_rotation_geometry_authorized",
     "privacy": "private",
     "accelerator": "NvidiaTeslaT4",
     "internet": false,
-    "launch_count": 1,
-    "retry_without_amendment": false,
     "dataset_sources": [
       "maximshtefan/eqvae-vae-test-reconstruction-inputs-v1",
       "maximusshtefan/patches-pre-shuffled-ubc-ocean"

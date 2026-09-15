@@ -131,7 +131,6 @@ def test_kaggle_kernel_status_uses_env_shebang_fresh_oauth_wrapper(
     (home / ".kaggle" / "credentials.json").write_text("{}\n", encoding="utf-8")
     env = _test_env(fake_bin=fake_bin, sdk_root=sdk_root, report_path=report_path)
     env["HOME"] = str(home)
-    env["KAGGLE_REMOTE_CONFIRMED"] = "1"
 
     completed = subprocess.run(  # noqa: S603
         (
@@ -195,7 +194,6 @@ def test_dataset_download_rejects_unversioned_reference_before_remote_call(
     sdk_root = _write_fake_kagglesdk(tmp_path)
     report_path = tmp_path / "unexpected-report.json"
     env = _test_env(fake_bin=fake_bin, sdk_root=sdk_root, report_path=report_path)
-    env["KAGGLE_REMOTE_CONFIRMED"] = "1"
     output_dir = tmp_path / "dataset-output"
 
     completed = subprocess.run(  # noqa: S603
@@ -240,7 +238,6 @@ def test_output_launch_rejects_unversioned_receipt_before_remote_call(
         encoding="utf-8",
     )
     env = _test_env(fake_bin=fake_bin, sdk_root=sdk_root, report_path=report_path)
-    env["KAGGLE_REMOTE_CONFIRMED"] = "1"
     output_dir = tmp_path / "kernel-output"
 
     completed = subprocess.run(  # noqa: S603
@@ -276,14 +273,13 @@ def test_kaggle_kernel_api_check_does_not_use_raw_token_probe(
     (home / ".kaggle" / "credentials.json").write_text("{}\n", encoding="utf-8")
     env = _test_env(fake_bin=fake_bin, sdk_root=sdk_root, report_path=report_path)
     env["HOME"] = str(home)
-    env["KAGGLE_REMOTE_CONFIRMED"] = "1"
 
     completed = subprocess.run(  # noqa: S603
         (
             _required_executable("bash"),
             str(repo_root / "scripts" / "kaggle_kernel.sh"),
             "api-check",
-            "kaggle/kernels/selected_runtime_debug",
+            "kaggle/kernels/ubc_ocean_test_atlas",
         ),
         cwd=repo_root,
         env=env,
@@ -303,25 +299,16 @@ def test_kaggle_kernel_api_check_does_not_use_raw_token_probe(
         "list",
         "--mine",
         "--search",
-        "eqvae-selected-runtime-debug",
+        "eqvae-ubc-ocean-test-atlas",
         "--csv",
     ] in calls
-    portable_id = f"{_FAKE_USERNAME}/eqvae-selected-runtime-debug"
-    assert ["kernels", "status", portable_id] in calls
-    assert ["kernels", "logs", portable_id] in calls
     assert [
         "datasets",
         "files",
-        "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+        "sohier/ubc-ovarian-cancer-competition-supplemental-masks",
         "-v",
     ] in calls
-    assert ["quota", "-v"] in calls
-    assert [
-        "kernels",
-        "files",
-        portable_id,
-        "-v",
-    ] in calls
+    assert ["competitions", "files", "UBC-OCEAN", "-v"] in calls
 
 
 def test_api_check_accepts_any_first_launch_for_authenticated_actor(
@@ -337,52 +324,6 @@ def test_api_check_accepts_any_first_launch_for_authenticated_actor(
     (home / ".kaggle" / "credentials.json").write_text("{}\n", encoding="utf-8")
     env = _test_env(fake_bin=fake_bin, sdk_root=sdk_root, report_path=report_path)
     env["HOME"] = str(home)
-    env["KAGGLE_REMOTE_CONFIRMED"] = "1"
-    env["FAKE_KAGGLE_MISSING_KERNEL"] = "1"
-
-    completed = subprocess.run(  # noqa: S603
-        (
-            _required_executable("bash"),
-            str(repo_root / "scripts" / "kaggle_kernel.sh"),
-            "api-check",
-            "kaggle/kernels/selected_runtime_debug",
-        ),
-        cwd=repo_root,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert completed.returncode == 0, completed.stderr
-    assert "first launch may proceed" in completed.stdout
-    calls = _load_reports(report_path)
-    portable_id = f"{_FAKE_USERNAME}/eqvae-selected-runtime-debug"
-    assert ["kernels", "status", portable_id] not in calls
-    assert ["kernels", "logs", portable_id] not in calls
-    assert ["kernels", "files", portable_id, "-v"] not in calls
-    assert [
-        "datasets",
-        "files",
-        "maximusshtefan/patches-pre-shuffled-ubc-ocean",
-        "-v",
-    ] in calls
-
-
-def test_atlas_api_check_accepts_first_launch_and_probes_exact_sources(
-    tmp_path: Path,
-) -> None:
-    """A never-pushed atlas kernel has no status, but both raw mounts must exist."""
-    repo_root = Path(__file__).resolve().parents[1]
-    fake_bin = _write_fake_api_check_kaggle(tmp_path)
-    sdk_root = _write_fake_kagglesdk(tmp_path)
-    report_path = tmp_path / "atlas-api-check-calls.jsonl"
-    home = tmp_path / "home"
-    (home / ".kaggle").mkdir(parents=True)
-    (home / ".kaggle" / "credentials.json").write_text("{}\n", encoding="utf-8")
-    env = _test_env(fake_bin=fake_bin, sdk_root=sdk_root, report_path=report_path)
-    env["HOME"] = str(home)
-    env["KAGGLE_REMOTE_CONFIRMED"] = "1"
     env["FAKE_KAGGLE_MISSING_KERNEL"] = "1"
 
     completed = subprocess.run(  # noqa: S603
@@ -400,7 +341,49 @@ def test_atlas_api_check_accepts_first_launch_and_probes_exact_sources(
     )
 
     assert completed.returncode == 0, completed.stderr
-    assert "first launch may proceed" in completed.stdout
+    calls = _load_reports(report_path)
+    portable_id = f"{_FAKE_USERNAME}/eqvae-ubc-ocean-test-atlas"
+    assert ["kernels", "status", portable_id] not in calls
+    assert ["kernels", "logs", portable_id] not in calls
+    assert ["kernels", "files", portable_id, "-v"] not in calls
+    assert [
+        "datasets",
+        "files",
+        "sohier/ubc-ovarian-cancer-competition-supplemental-masks",
+        "-v",
+    ] in calls
+
+
+def test_atlas_api_check_accepts_first_launch_and_probes_exact_sources(
+    tmp_path: Path,
+) -> None:
+    """A never-pushed atlas kernel has no status, but both raw mounts must exist."""
+    repo_root = Path(__file__).resolve().parents[1]
+    fake_bin = _write_fake_api_check_kaggle(tmp_path)
+    sdk_root = _write_fake_kagglesdk(tmp_path)
+    report_path = tmp_path / "atlas-api-check-calls.jsonl"
+    home = tmp_path / "home"
+    (home / ".kaggle").mkdir(parents=True)
+    (home / ".kaggle" / "credentials.json").write_text("{}\n", encoding="utf-8")
+    env = _test_env(fake_bin=fake_bin, sdk_root=sdk_root, report_path=report_path)
+    env["HOME"] = str(home)
+    env["FAKE_KAGGLE_MISSING_KERNEL"] = "1"
+
+    completed = subprocess.run(  # noqa: S603
+        (
+            _required_executable("bash"),
+            str(repo_root / "scripts" / "kaggle_kernel.sh"),
+            "api-check",
+            "kaggle/kernels/ubc_ocean_test_atlas",
+        ),
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
     calls = _load_reports(report_path)
     assert [
         "kernels",
@@ -437,6 +420,10 @@ def test_atlas_resume_api_check_probes_private_checkpoint_source(
     kernel_dir.mkdir(parents=True)
     shutil.copy2(repo_root / "scripts/kaggle_kernel.sh", scripts_dir)
     shutil.copy2(repo_root / "scripts/kaggle_oauth_exec.py", scripts_dir)
+    shutil.copy2(
+        repo_root / "kaggle/kernels/ubc_ocean_test_atlas/run.py",
+        kernel_dir,
+    )
     metadata = cast(
         "dict[str, object]",
         json.loads(
@@ -462,7 +449,6 @@ def test_atlas_resume_api_check_probes_private_checkpoint_source(
     (home / ".kaggle" / "credentials.json").write_text("{}\n", encoding="utf-8")
     env = _test_env(fake_bin=fake_bin, sdk_root=sdk_root, report_path=report_path)
     env["HOME"] = str(home)
-    env["KAGGLE_REMOTE_CONFIRMED"] = "1"
     env["FAKE_KAGGLE_MISSING_KERNEL"] = "1"
 
     completed = subprocess.run(  # noqa: S603
@@ -489,8 +475,8 @@ def test_atlas_resume_api_check_probes_private_checkpoint_source(
     ] in calls
 
 
-def test_atlas_api_check_fails_when_listed_kernel_status_fails(tmp_path: Path) -> None:
-    """An existing kernel's auth/network/status error must never look like absence."""
+def test_atlas_api_check_does_not_depend_on_prior_kernel_status(tmp_path: Path) -> None:
+    """Package and source checks do not inspect historical kernel state."""
     repo_root = Path(__file__).resolve().parents[1]
     fake_bin = _write_fake_api_check_kaggle(tmp_path)
     sdk_root = _write_fake_kagglesdk(tmp_path)
@@ -500,7 +486,6 @@ def test_atlas_api_check_fails_when_listed_kernel_status_fails(tmp_path: Path) -
     (home / ".kaggle" / "credentials.json").write_text("{}\n", encoding="utf-8")
     env = _test_env(fake_bin=fake_bin, sdk_root=sdk_root, report_path=report_path)
     env["HOME"] = str(home)
-    env["KAGGLE_REMOTE_CONFIRMED"] = "1"
     env["FAKE_KAGGLE_LIST_ATLAS"] = "1"
     env["FAKE_KAGGLE_STATUS_FAILURE"] = "1"
 
@@ -518,15 +503,14 @@ def test_atlas_api_check_fails_when_listed_kernel_status_fails(tmp_path: Path) -
         check=False,
     )
 
-    assert completed.returncode != 0
-    assert "first launch may proceed" not in completed.stdout
+    assert completed.returncode == 0, completed.stderr
     calls = _load_reports(report_path)
     assert [
         "kernels",
         "status",
         f"{_FAKE_USERNAME}/eqvae-ubc-ocean-test-atlas",
-    ] in calls
-    assert ["competitions", "files", "UBC-OCEAN", "-v"] not in calls
+    ] not in calls
+    assert ["competitions", "files", "UBC-OCEAN", "-v"] in calls
 
 
 def test_kaggle_kernel_refuses_silent_raw_fallback_when_oauth_helper_unavailable(
@@ -548,7 +532,6 @@ def test_kaggle_kernel_refuses_silent_raw_fallback_when_oauth_helper_unavailable
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
     env["HOME"] = str(home)
-    env["KAGGLE_REMOTE_CONFIRMED"] = "1"
 
     completed = subprocess.run(  # noqa: S603
         (
@@ -565,7 +548,7 @@ def test_kaggle_kernel_refuses_silent_raw_fallback_when_oauth_helper_unavailable
     )
 
     assert completed.returncode != 0
-    assert "fresh-token wrapper" in completed.stderr
+    assert "cannot resolve the Kaggle CLI Python interpreter" in completed.stderr
 
 
 def _write_fake_kaggle(tmp_path: Path) -> Path:

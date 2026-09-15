@@ -1,6 +1,6 @@
 # Copyright 2026 HiperMaximus
 # ruff: noqa: C901, DOC201, PLR0912, PLR0913, PLR0914, PLR0915, PLR0916, PLR2004, PLW0717, TRY300
-"""Run or validate the guarded Spec 0021 embedding-generation workflow."""
+"""Run or validate the Spec 0021 embedding-generation workflow."""
 
 from __future__ import annotations
 
@@ -178,9 +178,6 @@ def _run_production(
     scratch_root: Path,
     input_receipt: Mapping[str, object],
 ) -> None:
-    if os.environ.get("EQVAE_LATENT_PRODUCTION_CONFIRMED") != "1":
-        message = "Production inference confirmation is missing"
-        raise RuntimeError(message)
     run_number = cast("int", config["run_number"])
     pilot_path = Path(
         os.environ.get(

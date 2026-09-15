@@ -342,7 +342,7 @@ def _validate_artifacts(*, output_dir: Path, payload_dir: Path) -> None:
         "benchmark_kind": PROBE_KIND,
         "status": "pass",
         "full_run_eligible": False,
-        "full_training_authorized": False,
+        "full_training_enabled": False,
         "model_kind": "so2_vae_fixed",
         "world_size": 2,
         "per_device_batch_size": 1,

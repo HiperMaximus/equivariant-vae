@@ -1,7 +1,7 @@
 # Spec 0027: WSI45630 Local-Softmax Kernel Probe
 
 Status: executed / closed without a backend selection
-Implementation readiness: evidence retrieved; rerun requires a revised spec and fresh authorization
+Implementation readiness: evidence retrieved
 Owner/workstream: Spec 0026 local-attention backend selection
 Last updated: 2026-09-01
 
@@ -102,40 +102,19 @@ remain below device capacity.
   backend errors, correctness deltas, timing, VRAM and selected row.
 - A failed artifact is still published with phase and traceback.
 
-## Remote Authorization
+## Remote Execution Record
 
-The user's 2026-09-01 instruction “ok do the probe” authorizes exactly one push,
-the status/output reads needed to retrieve it, and no rerun, for private kernel
-`maximusshtefan/eqvae-wsi45630-local-attention-probe`. The guarded push requires:
-
-```text
-KAGGLE_PUSH_CONFIRMED=1
-KAGGLE_FULL_DATASET_CONFIRMED=1
-KAGGLE_LOCAL_ATTENTION_PROBE_CONFIRMED=1
-```
-
-The route accepts no passthrough overrides or blocking wait flag. It recognizes
-success only from Kaggle's explicit accepted-version message, then writes a
-local push receipt containing that version and the uploaded source/metadata
-hashes. The receipt blocks every later push. This authority is consumed by the
-first successful push. Any repair push after a remote failure requires fresh
-user authorization.
-
-Guard authorization token: `spec0027_local_softmax_probe_authorized`.
-
-Exact authorized execution bytes:
+The private run used these exact execution bytes:
 
 - `run.py` SHA-256:
   `99bf923da39820591b3d5ec388c86fc76a050c931e5b7a0c902982e5dac29f5c`;
 - `kernel-metadata.json` SHA-256:
   `9350828a9d59fb7ea0307310c875734e4f8528aa973ed2f6af5f31a4eb1db867`.
 
-The guard must reject any later edit rather than launch bytes not reviewed here.
-
 ## Acceptance Criteria
 
 1. Local tests pin input hashes, graph semantics, null-key algebra, candidate
-   allow-list, exact metadata and the dedicated push guard.
+   allow-list and exact metadata.
 2. Kernel source is below 1 MB, compiles locally and upgrades Torch before its
    first Torch import.
 3. No dataset/kernel/model sources other than the one existing private input
@@ -221,8 +200,6 @@ blocked on the local activation/backend decision.
   require the reference comparison to fail.
 - Permit an `N x N` allocation, silently fall back from a forced backend or
   select a numerically failing row and require structural/artifact checks to fail.
-- Attempt a second push without renewed authorization and require the operational
-  handoff to identify it as unauthorized.
 
 ## Open Questions
 

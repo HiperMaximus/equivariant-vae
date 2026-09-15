@@ -329,17 +329,10 @@ else
   missing=1
 fi
 
-if git check-ignore --no-index -q kaggle/kernels/functional_geometry_preflight/run.py; then
-  echo "ok: generated functional-geometry preflight run.py is ignored"
+if git check-ignore --no-index -q kaggle/kernels/functional_geometry_stage_a1_c4_slq/run.py; then
+  echo "ok: generated functional-geometry Stage A1 run.py is ignored"
 else
-  echo "error: generated functional-geometry preflight run.py should stay ignored"
-  missing=1
-fi
-
-if git check-ignore --no-index -q kaggle/kernels/jvp_epsilon_grid_calibration/run.py; then
-  echo "ok: generated JVP epsilon calibration run.py is ignored"
-else
-  echo "error: generated JVP epsilon calibration run.py should stay ignored"
+  echo "error: generated functional-geometry Stage A1 run.py should stay ignored"
   missing=1
 fi
 

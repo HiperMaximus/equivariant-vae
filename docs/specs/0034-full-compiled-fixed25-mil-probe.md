@@ -5,8 +5,7 @@ Implementation readiness: architecture/runtime capacity gate passed; learning re
 Owner/workstream: Spec 0033 full-network integration
 Last updated: 2026-09-03
 
-Version-7 retry authority: `spec0034_pinned_torch_retry_v7_authorized` was
-granted by the user and consumed on 2026-09-03 by private Kaggle kernel
+Private Kaggle kernel
 `maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/7` using the exact
 locally verified PyTorch 2.14.0/cu130 repair. Its immutable launch receipt is
 `runs/local/kaggle_launches/maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/v0007.json`
@@ -43,8 +42,7 @@ gate. `accepted_capacity=true`. This establishes capacity and internally gated
 compiled behavior for the fixed probe workload; it is not classifier learning,
 generalization, sealed-test evaluation, or a matched end-to-end speedup claim.
 
-Version-6 retry authority: `spec0034_recompile_limit3_retry_v6_authorized` was
-granted by the user and consumed on 2026-09-03 by private Kaggle kernel
+Private Kaggle kernel
 `maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/6`. Its immutable
 launch receipt is
 `runs/local/kaggle_launches/maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/v0006.json`
@@ -80,27 +78,24 @@ plus CUDA 13.0 before activating the model. It does not reinstall unused
 authenticated end to end by version 5; this removes floating dependency
 selection but is not new remote evidence.
 
-Version-5 retry authority: `spec0034_grad_scaler_retry_v5_authorized` was
-granted by the user and consumed on 2026-09-03 by private Kaggle kernel
+Private Kaggle kernel
 `maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/5` using the
 locally verified standard-GradScaler repair. Its immutable launch receipt is
 `runs/local/kaggle_launches/maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/v0005.json`
 (SHA-256 `67b0e09538f2371a9a386a06d03a1033a810e2340b2cb16db6d01fed48f09a49`).
 The launch-time spec SHA-256 is
 `0f2cdb794f33b787963694c20af0dc0194e77da59927c42f9fc28c818c008996`.
-It does not authorize learning, sealed-test access or any further retry.
+It performs no learning or sealed-test access.
 
-Version-4 retry authority: `spec0034_training_effect_retry_v4_authorized` was
-granted by the user and consumed on 2026-09-03 by private Kaggle kernel
+Private Kaggle kernel
 `maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/4`. Its immutable
 launch receipt is
 `runs/local/kaggle_launches/maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/v0004.json`
 (SHA-256 `ac8b16beccd4330f21b1d829799a1db55a0195d3164196b5814d5129a9a20f00`).
 The launch-time spec SHA-256 is
 `471cbc19e1d97b0f857aa75f0e62d0c4e6138d4bb928443db6971e5654367d11`.
-The authority covered one private capacity/optimization probe only; it did not
-authorize learning or sealed-test access. The earlier
-`spec0034_permissive_dynamic_retry_v3_authorized` authority is consumed.
+This was a private capacity/optimization probe only; it performed no learning
+or sealed-test access.
 Kaggle accepted private
 `maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/3` on 2026-09-03
 using the locally verified permissive dynamic fix; it later completed `ERROR`.
@@ -198,7 +193,7 @@ relative-L2 and cosine values; they did not cause termination. Do not relabel
 this as a passing correctness result, but do not attribute it to the repaired
 dynamic annotation either.
 
-The earlier `spec0034_standard_norm_retry_v2_authorized` authority is consumed by
+The earlier private run was
 `maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/2`. Its immutable
 receipt is
 `runs/local/kaggle_launches/maximshtefan/eqvae-wsi45630-full-compiled-fixed25-mil-probe/v0002.json`.

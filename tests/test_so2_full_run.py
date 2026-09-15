@@ -1,6 +1,6 @@
 # Copyright 2026 HiperMaximus
 """Packaging contracts for the one-off Spec 0016 SO2 launchers."""
-# ruff: noqa: PLR0913, PLR0917, S603
+# ruff: noqa: S603
 
 from __future__ import annotations
 
@@ -24,14 +24,12 @@ if TYPE_CHECKING:
 _CASES = (
     (
         "so2_prelaunch",
-        "KAGGLE_SO2_PRELAUNCH_READY = True",
         "EQVAE_SO2_PRELAUNCH_IMPORT_ONLY",
         "EQVAE_SO2_PRELAUNCH_OUTPUT_DIR",
         "benchmark/so2_prelaunch_import.json",
     ),
     (
         "so2_selected_runtime_full",
-        "KAGGLE_SO2_SELECTED_RUNTIME_FULL_READY = True",
         "EQVAE_SO2_FULL_IMPORT_ONLY",
         "EQVAE_SO2_FULL_OUTPUT_DIR",
         "benchmark/so2_full_import.json",
@@ -40,13 +38,12 @@ _CASES = (
 
 
 @pytest.mark.parametrize(
-    ("kernel_name", "ready_marker", "import_flag", "output_flag", "artifact"),
+    ("kernel_name", "import_flag", "output_flag", "artifact"),
     _CASES,
 )
 def test_so2_kernel_payload_builds_and_imports(
     tmp_path: Path,
     kernel_name: str,
-    ready_marker: str,
     import_flag: str,
     output_flag: str,
     artifact: str,
@@ -65,8 +62,6 @@ def test_so2_kernel_payload_builds_and_imports(
             str(kernel_dir),
             "--output-run",
             str(run_path),
-            "--ready-marker",
-            ready_marker,
             "--allow-dirty",
         ),
         cwd=repository,
@@ -261,37 +256,6 @@ def test_so2_full_launcher_validates_before_exact_resume_command(
     monkeypatch.delenv("EQVAE_SO2_FULL_IMPORT_ONLY", raising=False)
     assert main() == 0
     assert events == ["mount_ready", "validated", "launched"]
-
-
-def test_so2_full_push_guard_requires_fresh_proof_and_cost_acceptance() -> None:
-    """A full write needs fresh proof, cost acceptance, and the session-1 core."""
-    repository = Path(__file__).resolve().parents[1]
-    script = (repository / "scripts/kaggle_kernel.sh").read_text(encoding="utf-8")
-    for required in (
-        "guard_so2_full_push_ready",
-        "KAGGLE_SO2_FULL_COST_CONFIRMED",
-        "so2_prelaunch_verdict.json",
-        "validate_prelaunch_artifacts",
-        "prelaunch_identity",
-        "resume_identity",
-        "so2_continuation_resume_execution_core_changed",
-        "EXPECTED_CONTINUATION_WRAPPER_SHA256",
-        "preflight-so2-prelaunch",
-        "preflight-so2-selected-runtime-full",
-    ):
-        assert required in script
-    for required in (
-        'so2_full_resume_authority_dir="runs/kaggle/so2_selected_runtime_full_session6_fresh_v1"',
-        'so2_full_resume_dataset_dir="runs/kaggle/so2_session6_resume_dataset"',
-        'so2_full_resume_dataset_slug="maximshtefan/eqvae-so2-session6-step54000"',
-        'EXPECTED_RESUME_COMMIT = "396d897dc442b5e5f9f94e32f01679d35fa69858"',
-        'EXPECTED_DATASET_SLUG = "maximshtefan/eqvae-so2-session6-step54000"',
-        '"2ae4785571e2d1b4e690957e3cf74f749c7e273f1701ee274cc7b2b2e4a8742c"',
-        '"03887128886879b8c2ac4e68b210233dcbcbc181344c224a3990bb34824a8dd0"',
-        "EXPECTED_STEP = 54000",
-        'expected_files = {"dataset-metadata.json", "step_054000.pt"}',
-    ):
-        assert required in script
 
 
 def test_prelaunch_runtime_proof_rejects_nested_amp_fallback(tmp_path: Path) -> None:

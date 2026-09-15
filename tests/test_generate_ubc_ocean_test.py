@@ -6,9 +6,6 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
-import os
-import shutil
-import subprocess  # noqa: S404
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -291,14 +288,8 @@ def test_one_attached_atlas_checkpoint_is_discovered_by_stable_filenames(
         resolve_atlas_checkpoint_dir(None)
 
 
-def test_atlas_kernel_metadata_and_single_source_build_contract(  # noqa: PLR0914, PLR0915
-    tmp_path: Path,
-) -> None:
-    """Fresh atlas runs attach two raw sources; resume permits one exact third.
-
-    ``run.py`` is intentionally generated from the readable atlas script instead
-    of becoming a second implementation that can drift before a remote launch.
-    """
+def test_atlas_kernel_metadata_and_packaged_script_match() -> None:
+    """The checked-in Kaggle payload matches the readable atlas script."""
     repository = Path(__file__).parents[1]
     kernel_dir = repository / "kaggle/kernels/ubc_ocean_test_atlas"
     metadata = cast(
@@ -307,12 +298,7 @@ def test_atlas_kernel_metadata_and_single_source_build_contract(  # noqa: PLR091
             (kernel_dir / "kernel-metadata.json").read_text(encoding="utf-8"),
         ),
     )
-    workflow = (repository / "scripts/kaggle_kernel.sh").read_text(
-        encoding="utf-8",
-    )
-    generator_source = (repository / "kaggle/generate_ubc_ocean_test.py").read_text(
-        encoding="utf-8",
-    )
+    generator_path = repository / "kaggle/generate_ubc_ocean_test.py"
 
     assert metadata == {
         "id": "maximusshtefan/eqvae-ubc-ocean-test-atlas",
@@ -330,140 +316,8 @@ def test_atlas_kernel_metadata_and_single_source_build_contract(  # noqa: PLR091
         "kernel_sources": [],
         "model_sources": [],
     }
-    assert "build_ubc_ocean_test_atlas_kernel" in workflow
-    assert 'cp "$ubc_ocean_test_generator" "$kernel_dir/run.py"' in workflow
-    assert "guard_ubc_ocean_test_atlas_push_ready" in workflow
-    assert "KAGGLE_UBC_OCEAN_TEST_ATLAS_READY = True" in generator_source
+    assert (kernel_dir / "run.py").read_bytes() == generator_path.read_bytes()
     assert generator.DEFAULT_OUTPUT_DIR == generator.KAGGLE_WORKING_DIR / "dataset"
-
-    # Exercise the real action dispatch in an isolated miniature repository.
-    isolated = tmp_path / "repository"
-    isolated_script = isolated / "scripts/kaggle_kernel.sh"
-    isolated_generator = isolated / "kaggle/generate_ubc_ocean_test.py"
-    isolated_kernel = isolated / "kaggle/kernels/ubc_ocean_test_atlas"
-    isolated_script.parent.mkdir(parents=True)
-    isolated_generator.parent.mkdir(parents=True)
-    isolated_kernel.mkdir(parents=True)
-    shutil.copy2(repository / "scripts/kaggle_kernel.sh", isolated_script)
-    shutil.copy2(repository / "kaggle/generate_ubc_ocean_test.py", isolated_generator)
-    shutil.copy2(kernel_dir / "kernel-metadata.json", isolated_kernel)
-    bash = shutil.which("bash")
-    assert bash is not None
-
-    build = subprocess.run(  # noqa: S603
-        (bash, str(isolated_script), "build", "kaggle/kernels/ubc_ocean_test_atlas"),
-        cwd=isolated,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert build.returncode == 0, build.stderr
-    isolated_run = isolated_kernel / "run.py"
-    assert isolated_run.read_bytes() == isolated_generator.read_bytes()
-
-    isolated_run.write_text("# stale\n", encoding="utf-8")
-    stale = subprocess.run(  # noqa: S603
-        (
-            bash,
-            str(isolated_script),
-            "validate",
-            "kaggle/kernels/ubc_ocean_test_atlas",
-        ),
-        cwd=isolated,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert stale.returncode != 0
-    assert "does not match" in stale.stderr
-
-    shutil.copy2(isolated_generator, isolated_run)
-    resume_metadata = dict(metadata)
-    resume_metadata["dataset_sources"] = [
-        "sohier/ubc-ovarian-cancer-competition-supplemental-masks",
-        "maximusshtefan/eqvae-ubc-ocean-test-atlas-checkpoint",
-    ]
-    (isolated_kernel / "kernel-metadata.json").write_text(
-        f"{json.dumps(resume_metadata)}\n",
-        encoding="utf-8",
-    )
-    fake_bin = isolated / "fake-bin"
-    fake_bin.mkdir()
-    fake_kaggle = fake_bin / "kaggle"
-    fake_kaggle.write_text(
-        "#!/bin/sh\n"
-        "printf '%s\\n' 'Kernel version 1 successfully pushed.  Please check "
-        "progress at https://www.kaggle.com/code/professor-account/"
-        "eqvae-ubc-ocean-test-atlas'\n",
-        encoding="utf-8",
-    )
-    fake_kaggle.chmod(0o755)
-    environment = os.environ.copy()
-    environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
-    environment["KAGGLE_PUSH_CONFIRMED"] = "1"
-    environment["KAGGLE_FULL_DATASET_CONFIRMED"] = "1"
-    environment["KAGGLE_DISABLE_FRESH_OAUTH"] = "1"
-    environment["KAGGLE_USERNAME"] = "professor-account"
-    environment["PYTHON"] = str(repository / ".venv/bin/python")
-    environment["EQVAE_KAGGLE_LAUNCH_RECEIPT_ROOT"] = str(
-        tmp_path / "launch-receipts",
-    )
-    resume_ready = subprocess.run(  # noqa: S603
-        (
-            bash,
-            str(isolated_script),
-            "push",
-            "kaggle/kernels/ubc_ocean_test_atlas",
-        ),
-        cwd=isolated,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert resume_ready.returncode == 0, resume_ready.stderr
-
-    wrong_resume_metadata = dict(resume_metadata)
-    wrong_resume_metadata["dataset_sources"] = [
-        "sohier/ubc-ovarian-cancer-competition-supplemental-masks",
-        "someone/untrusted-checkpoint",
-    ]
-    (isolated_kernel / "kernel-metadata.json").write_text(
-        f"{json.dumps(wrong_resume_metadata)}\n",
-        encoding="utf-8",
-    )
-    wrong_resume = subprocess.run(  # noqa: S603
-        (
-            bash,
-            str(isolated_script),
-            "push",
-            "kaggle/kernels/ubc_ocean_test_atlas",
-        ),
-        cwd=isolated,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert wrong_resume.returncode != 0
-    assert "exact private atlas-checkpoint dataset" in wrong_resume.stderr
-
-    invalid_metadata = dict(metadata)
-    invalid_metadata["enable_gpu"] = "true"
-    (isolated_kernel / "kernel-metadata.json").write_text(
-        f"{json.dumps(invalid_metadata)}\n",
-        encoding="utf-8",
-    )
-    guarded = subprocess.run(  # noqa: S603
-        (bash, str(isolated_script), "push", "kaggle/kernels/ubc_ocean_test_atlas"),
-        cwd=isolated,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert guarded.returncode != 0
-    assert "enable_gpu must be 'false'" in guarded.stderr
 
 
 @dataclass

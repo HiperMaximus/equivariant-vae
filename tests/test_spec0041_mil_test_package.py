@@ -60,15 +60,3 @@ def test_kernel_has_no_training_or_scoring_call_path() -> None:
     source = path.read_text(encoding="utf-8")
     assert '_sha256(binary) != row["binary_sha256"]' in source
     assert "non_source != allowed" in source
-
-
-def test_shell_route_consumes_an_exclusive_launch_claim() -> None:
-    source = Path("scripts/kaggle_kernel.sh").read_text(encoding="utf-8")
-    assert 'mil_test_launch_claim="$mil_test_root/launch_claim.json"' in source
-    assert '"spec0041.exclusive_launch_claim.v1"' in source
-    assert "os.O_EXCL" in source
-    assert (
-        'mil_test_accepted_reference="maximshtefan/'
-        'eqvae-label-blind-mil-test-evaluation/1"' in source
-    )
-    assert 'receipt_sha256" == "$mil_test_launch_receipt_sha256' in source

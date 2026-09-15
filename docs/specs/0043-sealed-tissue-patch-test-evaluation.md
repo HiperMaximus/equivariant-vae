@@ -7,12 +7,9 @@ Owner/workstream: final patch-level tissue evaluation of the frozen Spec 0039
 normal- and continuous-SO(2)-VAE classifiers
 Last updated: 2026-09-06
 
-Remote authorization: after confirming that the patch-level tissue test had not
-been run, the user explicitly requested “ok let's do the patch tissue test
-evaluation” on 2026-09-06. This authorizes one locked private input publication
-and one test-only Kaggle launch after local acceptance. It does not authorize
-retraining, changed checkpoints, test-driven selection, paper/thesis edits, or
-an automatic scientific retry.
+Remote approval is conversational only and is not represented in this contract.
+The recorded execution used one locked private input and one test-only kernel;
+it performed no retraining, checkpoint changes or test-driven selection.
 
 ## Purpose And Primary Question
 

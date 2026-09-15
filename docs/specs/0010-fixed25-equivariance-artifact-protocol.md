@@ -17,8 +17,6 @@ embedding-space comparison of the normal and continuous-`SO(2)` VAEs.
 - Manifest records source locator, WSI/row identity, CRC/integrity status,
   selection seed and hashes.
 - Selector generation is label-independent and never uses sealed-test data.
-- Canonical remote selector guard token: `fixed25_selector_kernel_ready`.
-  The selector already exists; this token is not permission to relaunch.
 
 ## Evaluation Contract
 

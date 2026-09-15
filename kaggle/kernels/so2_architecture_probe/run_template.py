@@ -302,8 +302,6 @@ def _validate_artifact(  # noqa: C901, PLR0912, PLR0914, PLR0915
                 errors.append("assembly diagnostic must contain two full windows")
     if payload.get("acceptance_failures") != []:
         errors.append("acceptance_failures must be empty")
-    if payload.get("follow_up_probe_permitted") is not False:
-        errors.append("final runner must not authorize another remote arm")
     if errors:
         raise RuntimeError("; ".join(errors))
     if Path("/kaggle/working").exists() and output_dir != DEFAULT_OUTPUT_DIR:

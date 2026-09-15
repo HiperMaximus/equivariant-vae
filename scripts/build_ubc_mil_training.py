@@ -330,7 +330,7 @@ def _derive_development(
     if (
         dataset_contract.get("schema_version")
         != "spec0025.full_foreground_development.v1"
-        or dataset_contract.get("test_release") != "not_authorized"
+        or dataset_contract.get("test_release") != "not_available"
     ):
         raise ValueError("Spec 0025 development contract scope differs")
     physical_sources = _physical_sources(development_root / "physical_parts.csv")

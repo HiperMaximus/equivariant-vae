@@ -482,10 +482,9 @@ permitted. Persist every one of the 25 or 8 patch values and favorable counts.
 
 The user explicitly authorized Kaggle for this correction and experiment on
 2026-09-08. One private T4 inference-only launch is allowed after local tests,
-kernel validation, independent spec/rotation review, and a fail-closed guard
-bind the exact locked contract, payload, checkpoints, patch hashes, sources,
-privacy, GPU, FP32, and internet-disabled settings. Guard phrase:
-`spec0050_corrected_rotation_geometry_authorized`.
+kernel validation and independent spec/rotation review bind the exact locked
+contract, payload, checkpoints, patch hashes, sources, privacy, GPU, FP32, and
+internet-disabled settings.
 
 The launch may attach only the existing immutable checkpoint bundle and the
 canonical pre-shuffled validation source. It may not train, write a dataset,

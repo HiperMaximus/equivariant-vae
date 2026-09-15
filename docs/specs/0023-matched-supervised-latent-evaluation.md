@@ -1018,11 +1018,11 @@ rejected different seeds per tissue size. After considering equal-compute and
 equal-exposure alternatives, the user selected a simpler fixed-epoch protocol:
 both tasks and all five tissue sizes have a 30-epoch ceiling. Every tissue epoch
 drops its partial tail as required by the locked loader contract.
-The independent capacity-probe review then caught a missing dedicated Kaggle
-push guard, incomplete deadline/output evidence, and an OOM path that began too
-late to catch transfer failure. Those issues were fixed before submission; the
-reviewer rechecked the rebuilt guard and runner and found no remaining launch or
-scientific blocker.
+The independent capacity-probe review then caught incomplete package
+validation, deadline/output evidence, and an OOM path that began too late to
+catch transfer failure. Those issues were fixed before submission; the reviewer
+rechecked the package and runner and found no remaining launch or scientific
+blocker.
 
 The independent clean-context calibration review then challenged the local
 implementation for representation-dependent treatment, split leakage,

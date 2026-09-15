@@ -130,7 +130,6 @@ def _validate_input_authority(root: Path) -> None:
 def _contract(root: Path) -> dict[str, object]:
     return {
         "schema_version": "spec0034.full_compiled_fixed25_mil.v1",
-        "authorization": "spec0034_pinned_torch_retry_v7_authorized",
         "scope": "capacity_optimization_only_not_learning_or_evaluation",
         "spec_sha256": _sha256(root / SPEC_PATH),
         "model": {

@@ -77,7 +77,6 @@ def test_builder_emits_exact_account_portable_package(
 def test_contract_locks_full_compilation_and_independent_branches() -> None:
     """The execution recipe contains the requested dynamic full-network gate."""
     contract = builder._contract(builder.ROOT)  # noqa: SLF001
-    assert contract["authorization"] == "spec0034_pinned_torch_retry_v7_authorized"
     assert contract["scope"] == (
         "capacity_optimization_only_not_learning_or_evaluation"
     )
@@ -397,17 +396,10 @@ def test_metadata_is_private_t4_and_owner_qualified() -> None:
     assert metadata["kernel_sources"] == list(builder.KERNEL_SOURCES)
 
 
-def test_generic_launcher_has_exact_one_launch_guard() -> None:
-    """Spec 0034 cannot fall through to an unrelated guard or launch twice."""
+def test_generic_launcher_has_no_spec0034_permission_branch() -> None:
+    """The generic launcher has no Spec 0034-specific permission logic."""
     launcher = builder.ROOT.joinpath("scripts/kaggle_kernel.sh").read_text(
         encoding="utf-8",
     )
-    assert "KAGGLE_FULL_COMPILE_PROBE_CONFIRMED" in launcher
-    assert "spec0034_pinned_torch_retry_v7_authorized" in launcher
-    assert "Spec 0034 version-2 launch receipt is required" in launcher
-    assert "Spec 0034 version-3 launch receipt is required" in launcher
-    assert "Spec 0034 version-4 launch receipt is required" in launcher
-    assert "Spec 0034 version-5 launch receipt is required" in launcher
-    assert "Spec 0034 version-6 launch receipt is required" in launcher
-    assert "Spec 0034 version-7 retry authority was already consumed" in launcher
-    assert "build_wsi45630_full_compile_probe.py validate" in launcher
+    assert "full_compile_probe" not in launcher
+    assert "CONFIRMED" not in launcher

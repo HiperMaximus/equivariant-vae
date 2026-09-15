@@ -418,7 +418,3 @@ def test_cuda_path_forces_compiled_triton_without_dense_mask_builder() -> None:
     assert "BlockMask(" in source
     assert "from_kv_blocks" not in source
     assert "spec0031_flex_attention_probe.json" in source
-    launcher = Path("scripts/kaggle_kernel.sh").read_text(encoding="utf-8")
-    assert 'flex_attention_probe_kernel_dir="kaggle/kernels/' in launcher
-    assert 'flex_attention_probe_kernel_id="maximusshtefan/' in launcher
-    assert "Spec 0031 FlexAttention remote launch is not authorized" in launcher

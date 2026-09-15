@@ -39,7 +39,7 @@ The current Spanish report is
 `reports/professor/informe_final_experimento_eqvae.{docx,pdf}`. Its sealed and
 supervised sections remain accepted and its rotation section now supersedes the
 defective dense figures with the reviewed Spec 0050 results. `CURRENT.md` owns
-exact state and authorization.
+exact state and evidence.
 
 ## Scientific Contract
 

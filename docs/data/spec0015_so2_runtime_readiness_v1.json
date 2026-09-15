@@ -9,7 +9,7 @@
   "scope": {
     "data": "generated_device_resident",
     "dataset_sources": [],
-    "full_training_authorized": false
+    "full_training_enabled": false
   },
   "model": {
     "kind": "so2_vae_fixed",

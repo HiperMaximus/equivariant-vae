@@ -8,7 +8,6 @@ import base64
 import hashlib
 import io
 import json
-import math
 import re
 import shutil
 import subprocess  # noqa: S404
@@ -16,7 +15,6 @@ import sys
 import textwrap
 import zipfile
 from dataclasses import dataclass
-from itertools import starmap
 from pathlib import Path
 from string import Template
 from typing import cast
@@ -27,7 +25,6 @@ from eqvae.data.roots import REAL_TRAIN_PATCH_COUNT
 PAYLOAD_SCHEMA_VERSION = "spec0001.kaggle_payload_manifest.v1"
 DEFAULT_KERNEL_DIR = Path("kaggle/kernels/setup_smoke")
 GIT_EXECUTABLE = shutil.which("git") or "git"
-DEFAULT_READY_MARKER = "KAGGLE_SETUP_SMOKE_READY = True"
 RUNTIME_SELECTION_KERNEL_ID = "maximusshtefan/eqvae-runtime-selection"
 SELECTED_RUNTIME_DEBUG_KERNEL_ID = "maximusshtefan/eqvae-selected-runtime-debug"
 SELECTED_RUNTIME_LR_RANGE_KERNEL_ID = "maximusshtefan/eqvae-selected-runtime-lr-range"
@@ -42,30 +39,13 @@ VAE_TEST_RECONSTRUCTION_KERNEL_ID = "maximshtefan/eqvae-frozen-vae-test-reconstr
 ROTATION_POPULATION_KERNEL_ID = "maximshtefan/eqvae-fixed25-rotation-population"
 ROTATION_GEOMETRY_KERNEL_ID = "maximshtefan/eqvae-corrected-rotation-geometry"
 DECODED_TRANSFORM_KERNEL_ID = "maximshtefan/eqvae-decoded-latent-transform"
-FUNCTIONAL_GEOMETRY_PREFLIGHT_KERNEL_ID = (
-    "maximshtefan/eqvae-functional-geometry-preflight-04a08ab5"
-)
-JVP_EPSILON_CALIBRATION_KERNEL_ID = (
-    "maximshtefan/eqvae-jvp-epsilon-grid-calibration-05a08ab5"
+FUNCTIONAL_GEOMETRY_STAGE_A1_KERNEL_ID = "maximshtefan/eqvae-fg-stage-a1-c4-28a08ab5"
+FUNCTIONAL_GEOMETRY_STAGE_A1_CONTRACT = Path(
+    "docs/data/functional_geometry_stage_a1_contract.json",
 )
 VAE_TEST_INPUT_CONTRACT_PATH = Path(
     "runs/local/vae_test_evaluation_input/spec0045_vae_test_input.json",
 )
-FUNCTIONAL_GEOMETRY_PREFLIGHT_CONTRACT_PATH = Path(
-    "docs/data/spec0057_jvp_epsilon_ladder_contract.json",
-)
-JVP_EPSILON_CALIBRATION_CONTRACT_PATH = Path(
-    "docs/data/spec0058_jvp_epsilon_grid_calibration_contract.json",
-)
-CANONICAL_VAE_TEST_INPUT_CONTRACT_SHA256 = (
-    "b5a32ebffd0d88a88d6f21b64ba5c9a23016f05d7a2db0546e442f12a0acecc1"
-)
-JVP_PRIMARY_EPSILON = 0.001
-JVP_DIAGNOSTIC_EPSILONS = (0.004, 0.008)
-JVP_DIAGNOSTIC_HVP_EPSILON = 0.002
-JVP_CALIBRATION_EPSILON_GRID = (0.002, 0.004, 0.008, 0.016)
-JVP_CALIBRATION_SELECTION_MAX = 0.005
-JVP_CALIBRATION_TANGENT_COUNT = 8
 VAE_TEST_REMOTE_PATHS = tuple(
     Path(path)
     for path in (
@@ -166,12 +146,14 @@ DECODED_TRANSFORM_REMOTE_PATHS = tuple(
     )
 )
 DECODED_TRANSFORM_STUB_PATHS = ROTATION_POPULATION_STUB_PATHS
-FUNCTIONAL_GEOMETRY_PREFLIGHT_REMOTE_PATHS = tuple(
+FUNCTIONAL_GEOMETRY_STAGE_A1_REMOTE_PATHS = tuple(
     Path(path)
     for path in (
         "src/eqvae/__init__.py",
         "src/eqvae/artifacts/__init__.py",
         "src/eqvae/artifacts/rotation_orbits.py",
+        "src/eqvae/evaluation/functional_geometry_rla.py",
+        "src/eqvae/evaluation/functional_geometry_slq.py",
         "src/eqvae/evaluation/vae_test.py",
         "src/eqvae/metrics/__init__.py",
         "src/eqvae/metrics/reconstruction.py",
@@ -183,31 +165,10 @@ FUNCTIONAL_GEOMETRY_PREFLIGHT_REMOTE_PATHS = tuple(
         "src/eqvae/models/so2_architecture_probe.py",
         "src/eqvae/models/so2_vae.py",
         "runs/kaggle/fixed25_selector/fixed_25_validation_patches.json",
-        "docs/data/spec0057_jvp_epsilon_ladder_contract.json",
-        "docs/specs/0057-jvp-epsilon-ladder-preflight.md",
+        "docs/data/functional_geometry_stage_a1_contract.json",
     )
 )
-FUNCTIONAL_GEOMETRY_PREFLIGHT_STUB_PATHS = ROTATION_POPULATION_STUB_PATHS
-JVP_EPSILON_CALIBRATION_REMOTE_PATHS = tuple(
-    Path(path)
-    for path in (
-        "src/eqvae/__init__.py",
-        "src/eqvae/evaluation/vae_test.py",
-        "src/eqvae/metrics/__init__.py",
-        "src/eqvae/metrics/reconstruction.py",
-        "src/eqvae/models/activations.py",
-        "src/eqvae/models/latent.py",
-        "src/eqvae/models/non_equivariant_vae.py",
-        "src/eqvae/models/registry.py",
-        "src/eqvae/models/resampling.py",
-        "src/eqvae/models/so2_architecture_probe.py",
-        "src/eqvae/models/so2_vae.py",
-        "runs/kaggle/fixed25_selector/fixed_25_validation_patches.json",
-        "docs/data/spec0058_jvp_epsilon_grid_calibration_contract.json",
-        "docs/specs/0058-jvp-epsilon-grid-calibration.md",
-    )
-)
-JVP_EPSILON_CALIBRATION_STUB_PATHS = ROTATION_POPULATION_STUB_PATHS
+FUNCTIONAL_GEOMETRY_STAGE_A1_STUB_PATHS = ROTATION_POPULATION_STUB_PATHS
 SPEC0021_CONFIG_NAME = "spec0021_inference_config.json"
 SPEC0021_PILOT_AUTHORITY_PATH = Path(
     "runs/kaggle/ubc_ocean_latent_pilot/dataset/spec0021_pilot_authority.json",
@@ -280,7 +241,6 @@ class BuildArgs:
     output_run_path: Path
     verify_only: bool
     allow_dirty: bool
-    ready_marker: str
 
 
 def main() -> int:
@@ -466,10 +426,6 @@ def verify_run_file(args: BuildArgs) -> None:
 
     """
     run_text = args.output_run_path.read_text(encoding="utf-8")
-    if args.ready_marker not in run_text:
-        message = f"generated kernel is missing ready marker: {args.ready_marker}"
-        raise RuntimeError(message)
-
     zip_bytes = _embedded_zip_bytes(run_text)
     expected_zip_hash = _required_match(EMBEDDED_ZIP_HASH_PATTERN, run_text)
     actual_zip_hash = hashlib.sha256(zip_bytes).hexdigest()
@@ -616,7 +572,6 @@ def _parse_args() -> BuildArgs:
     )
     parser.add_argument("--template")
     parser.add_argument("--output-run")
-    parser.add_argument("--ready-marker", default=DEFAULT_READY_MARKER)
     parser.add_argument("--verify-only", action="store_true")
     parser.add_argument(
         "--allow-dirty",
@@ -651,7 +606,6 @@ def _parse_args() -> BuildArgs:
         output_run_path=output_run_path,
         verify_only=cast("bool", namespace.verify_only),
         allow_dirty=cast("bool", namespace.allow_dirty),
-        ready_marker=cast("str", namespace.ready_marker),
     )
 
 
@@ -673,23 +627,13 @@ def _payload_manifest(  # noqa: C901
     template_path: Path,
     kernel_dir: Path,
 ) -> dict[str, object]:
-    if _is_functional_geometry_preflight_kernel(kernel_dir):
-        _validate_functional_geometry_preflight_contract(repo_root)
+    if _is_functional_geometry_stage_a1_kernel(kernel_dir):
         entries = {
             path.as_posix(): _digest_file(repo_root / path)
-            for path in FUNCTIONAL_GEOMETRY_PREFLIGHT_REMOTE_PATHS
+            for path in FUNCTIONAL_GEOMETRY_STAGE_A1_REMOTE_PATHS
         } | {
             archive_name: _digest_file(repo_root / source)
-            for archive_name, source in FUNCTIONAL_GEOMETRY_PREFLIGHT_STUB_PATHS.items()
-        }
-    elif _is_jvp_epsilon_calibration_kernel(kernel_dir):
-        _validate_jvp_epsilon_calibration_contract(repo_root)
-        entries = {
-            path.as_posix(): _digest_file(repo_root / path)
-            for path in JVP_EPSILON_CALIBRATION_REMOTE_PATHS
-        } | {
-            archive_name: _digest_file(repo_root / source)
-            for archive_name, source in JVP_EPSILON_CALIBRATION_STUB_PATHS.items()
+            for archive_name, source in FUNCTIONAL_GEOMETRY_STAGE_A1_STUB_PATHS.items()
         }
     elif _is_decoded_transform_kernel(kernel_dir):
         entries = {
@@ -803,25 +747,17 @@ def _deterministic_zip_info(archive_name: str) -> zipfile.ZipInfo:
     return info
 
 
-def _payload_files(  # noqa: C901, PLR0911, PLR0912
+def _payload_files(  # noqa: C901, PLR0912
     repo_root: Path,
     kernel_dir: Path,
 ) -> tuple[tuple[Path, str], ...]:
-    if _is_functional_geometry_preflight_kernel(kernel_dir):
+    if _is_functional_geometry_stage_a1_kernel(kernel_dir):
         return tuple(
             (repo_root / relative, relative.as_posix())
-            for relative in FUNCTIONAL_GEOMETRY_PREFLIGHT_REMOTE_PATHS
+            for relative in FUNCTIONAL_GEOMETRY_STAGE_A1_REMOTE_PATHS
         ) + tuple(
             (repo_root / source, archive_name)
-            for archive_name, source in FUNCTIONAL_GEOMETRY_PREFLIGHT_STUB_PATHS.items()
-        )
-    if _is_jvp_epsilon_calibration_kernel(kernel_dir):
-        return tuple(
-            (repo_root / relative, relative.as_posix())
-            for relative in JVP_EPSILON_CALIBRATION_REMOTE_PATHS
-        ) + tuple(
-            (repo_root / source, archive_name)
-            for archive_name, source in JVP_EPSILON_CALIBRATION_STUB_PATHS.items()
+            for archive_name, source in FUNCTIONAL_GEOMETRY_STAGE_A1_STUB_PATHS.items()
         )
     if _is_decoded_transform_kernel(kernel_dir):
         return tuple(
@@ -938,109 +874,8 @@ def _is_decoded_transform_kernel(kernel_dir: Path) -> bool:
     return _kernel_id(kernel_dir) == DECODED_TRANSFORM_KERNEL_ID
 
 
-def _is_functional_geometry_preflight_kernel(kernel_dir: Path) -> bool:
-    return _kernel_id(kernel_dir) == FUNCTIONAL_GEOMETRY_PREFLIGHT_KERNEL_ID
-
-
-def _is_jvp_epsilon_calibration_kernel(kernel_dir: Path) -> bool:
-    return _kernel_id(kernel_dir) == JVP_EPSILON_CALIBRATION_KERNEL_ID
-
-
-def _validate_functional_geometry_preflight_contract(repo_root: Path) -> None:
-    contract_path = repo_root / FUNCTIONAL_GEOMETRY_PREFLIGHT_CONTRACT_PATH
-    contract = cast(
-        "dict[str, object]",
-        json.loads(contract_path.read_text(encoding="utf-8")),
-    )
-    inputs = contract.get("inputs")
-    input_values = cast("dict[str, object]", inputs) if isinstance(inputs, dict) else {}
-    numerics = contract.get("numerics")
-    numeric_values = (
-        cast("dict[str, object]", numerics) if isinstance(numerics, dict) else {}
-    )
-    local_contract_sha256 = hashlib.sha256(
-        (repo_root / VAE_TEST_INPUT_CONTRACT_PATH).read_bytes(),
-    ).hexdigest()
-    if (
-        contract.get("schema") != "spec0057.jvp_epsilon_ladder_preflight.v1"
-        or input_values.get("weight_bundle_contract_sha256")
-        != CANONICAL_VAE_TEST_INPUT_CONTRACT_SHA256
-        or not _has_locked_jvp_epsilon_ladder(numeric_values)
-        or local_contract_sha256 != CANONICAL_VAE_TEST_INPUT_CONTRACT_SHA256
-    ):
-        message = "Spec 0057 frozen bundle contract differs"
-        raise RuntimeError(message)
-
-
-def _validate_jvp_epsilon_calibration_contract(repo_root: Path) -> None:
-    contract_path = repo_root / JVP_EPSILON_CALIBRATION_CONTRACT_PATH
-    contract = cast(
-        "dict[str, object]",
-        json.loads(contract_path.read_text(encoding="utf-8")),
-    )
-    inputs = contract.get("inputs")
-    input_values = cast("dict[str, object]", inputs) if isinstance(inputs, dict) else {}
-    numerics = contract.get("numerics")
-    numeric_values = (
-        cast("dict[str, object]", numerics) if isinstance(numerics, dict) else {}
-    )
-    if (
-        contract.get("schema") != "spec0058.jvp_epsilon_grid_calibration.v1"
-        or input_values.get("weight_bundle_contract_sha256")
-        != CANONICAL_VAE_TEST_INPUT_CONTRACT_SHA256
-        or not _has_locked_jvp_epsilon_calibration(numeric_values)
-    ):
-        message = "Spec 0058 JVP epsilon calibration contract differs"
-        raise RuntimeError(message)
-
-
-def _has_locked_jvp_epsilon_calibration(values: dict[str, object]) -> bool:
-    grid_value = values.get("jvp_epsilon_grid")
-    grid = cast("list[object]", grid_value) if isinstance(grid_value, list) else []
-    return (
-        len(grid) == len(JVP_CALIBRATION_EPSILON_GRID)
-        and tuple(
-            starmap(
-                _matches_locked_float,
-                zip(grid, JVP_CALIBRATION_EPSILON_GRID, strict=True),
-            ),
-        )
-        == (True, True, True, True)
-        and _matches_locked_float(
-            values.get("selection_max_relative_l2"),
-            JVP_CALIBRATION_SELECTION_MAX,
-        )
-        and values.get("tangent_count") == JVP_CALIBRATION_TANGENT_COUNT
-    )
-
-
-def _has_locked_jvp_epsilon_ladder(values: dict[str, object]) -> bool:
-    diagnostics_value = values.get("jvp_diagnostic_epsilons")
-    diagnostics = (
-        cast("list[object]", diagnostics_value)
-        if isinstance(diagnostics_value, list)
-        else None
-    )
-    return (
-        _matches_locked_float(values.get("jvp_epsilon"), JVP_PRIMARY_EPSILON)
-        and _matches_locked_float(
-            values.get("diagnostic_hvp_epsilon"),
-            JVP_DIAGNOSTIC_HVP_EPSILON,
-        )
-        and diagnostics is not None
-        and len(diagnostics) == len(JVP_DIAGNOSTIC_EPSILONS)
-        and _matches_locked_float(diagnostics[0], JVP_DIAGNOSTIC_EPSILONS[0])
-        and _matches_locked_float(diagnostics[1], JVP_DIAGNOSTIC_EPSILONS[1])
-    )
-
-
-def _matches_locked_float(value: object, expected: float) -> bool:
-    return type(value) is float and math.isclose(
-        value,
-        expected,
-        rel_tol=0.0,
-        abs_tol=0.0,
-    )
+def _is_functional_geometry_stage_a1_kernel(kernel_dir: Path) -> bool:
+    return _kernel_id(kernel_dir) == FUNCTIONAL_GEOMETRY_STAGE_A1_KERNEL_ID
 
 
 def _vae_test_substitutions(repo_root: Path) -> dict[str, str]:
@@ -1238,21 +1073,13 @@ def _validate_manifest_against_source(  # noqa: C901, PLR0912
         errors.append(template_error)
 
     kernel_dir = repo_root / _metadata_kernel_dir(manifest)
-    if _is_functional_geometry_preflight_kernel(kernel_dir):
+    if _is_functional_geometry_stage_a1_kernel(kernel_dir):
         expected_entries = {
             path.as_posix(): _digest_file(repo_root / path)
-            for path in FUNCTIONAL_GEOMETRY_PREFLIGHT_REMOTE_PATHS
+            for path in FUNCTIONAL_GEOMETRY_STAGE_A1_REMOTE_PATHS
         } | {
             archive_name: _digest_file(repo_root / source)
-            for archive_name, source in FUNCTIONAL_GEOMETRY_PREFLIGHT_STUB_PATHS.items()
-        }
-    elif _is_jvp_epsilon_calibration_kernel(kernel_dir):
-        expected_entries = {
-            path.as_posix(): _digest_file(repo_root / path)
-            for path in JVP_EPSILON_CALIBRATION_REMOTE_PATHS
-        } | {
-            archive_name: _digest_file(repo_root / source)
-            for archive_name, source in JVP_EPSILON_CALIBRATION_STUB_PATHS.items()
+            for archive_name, source in FUNCTIONAL_GEOMETRY_STAGE_A1_STUB_PATHS.items()
         }
     elif _is_decoded_transform_kernel(kernel_dir):
         expected_entries = {

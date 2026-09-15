@@ -418,7 +418,6 @@ def _validate_normalization_amendment(
         != {
             "accepted_kernel_reference",
             "amended_reporter_sha256",
-            "authorization",
             "input_contract_sha256",
             "launch_receipt_sha256",
             "original_reporter_sha256",

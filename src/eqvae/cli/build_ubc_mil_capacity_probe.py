@@ -182,7 +182,7 @@ def build_probe(
         "saved_output_limit_bytes": 20_000_000_000,
         "projected_output_bytes": 100_000,
         "output_allowlist": ["spec0023_mil_capacity_probe.json"],
-        "test_release_status": "not_authorized_not_mounted",
+        "test_release_status": "not_available_not_mounted",
         "binary_integrity_basis": (
             "completed_audit_catalog_sha256_plus_mounted_size_and_header_count;"
             "no_full_binary_rehash"

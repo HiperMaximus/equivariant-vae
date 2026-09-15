@@ -1,7 +1,7 @@
 # Copyright 2026 HiperMaximus
 # pyright: reportAny=false
 # ruff: noqa: C901, D103, EM101, EM102, PLR0912, PLR0914, PLR0916, PLR2004, T201, TRY003
-"""Build, validate, claim and score the locked Spec 0043 tissue test."""
+"""Build, validate and score the locked Spec 0043 tissue test."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ import argparse
 import csv
 import hashlib
 import json
-import os
 import shutil
 import struct
 import zipfile
@@ -32,7 +31,6 @@ if TYPE_CHECKING:
 ROOT: Final = Path.cwd()
 OUTPUT_ROOT: Final = Path("runs/local/tissue_test_evaluation")
 INPUT_RECEIPT_NAME: Final = "input_dataset_receipt.json"
-LAUNCH_RECEIPT_ROOT: Final = Path("runs/local/kaggle_launches")
 SPEC_PATH: Final = Path("docs/specs/0043-sealed-tissue-patch-test-evaluation.md")
 SCORER_PATH: Final = Path("src/eqvae/evaluation/tissue_test_scoring.py")
 TEST_VECTOR_PATH: Final = Path("docs/data/spec0043_tissue_test_scorer_vector.json")
@@ -80,12 +78,6 @@ TRAINING_RUN_CONTRACT_SHA256: Final = (
 TRAINING_RESULT: Final = TRAINING_ROOT / "spec0039_tissue_training.json"
 TRAINING_RESULT_SHA256: Final = (
     "67eb1cd1a4a73dea5c6353af67b5cadc182dcbcf19b61617d806a97a7c04a9d6"
-)
-TRAINING_CLAIM: Final = Path(
-    "runs/local/tissue_label_efficiency_training_retry_v3_authority/launch_claim.json",
-)
-TRAINING_CLAIM_SHA256: Final = (
-    "a2332cbe9110d8205bcfaf2f5a75ffe30c80f7efd04bd1133254b8e9a9de6af2"
 )
 TRAINING_INPUT_RECEIPT: Final = Path(
     "runs/local/tissue_label_efficiency_training_authority/input_dataset_receipt.json",
@@ -256,7 +248,6 @@ def _build_staging(staging: Path, *, dataset_reference: str, actor: str) -> None
             "output_receipt_sha256": TRAINING_OUTPUT_SHA256,
             "run_contract_sha256": TRAINING_RUN_CONTRACT_SHA256,
             "result_sha256": TRAINING_RESULT_SHA256,
-            "launch_claim_sha256": TRAINING_CLAIM_SHA256,
             "input_receipt_sha256": TRAINING_INPUT_RECEIPT_SHA256,
             "original_configuration_sha256": ORIGINAL_CONFIG_SHA256,
             "executed_configuration_sha256": EXECUTED_CONFIG_SHA256,
@@ -402,61 +393,6 @@ def validate(*, expected_actor: str | None = None) -> dict[str, object]:
     return contract
 
 
-def claim_launch(*, expected_actor: str) -> dict[str, object]:
-    contract = validate(expected_actor=expected_actor)
-    root = ROOT / OUTPUT_ROOT
-    input_receipt = _validate_input_receipt(contract)
-    claim = _expected_launch_claim(contract, input_receipt=input_receipt)
-    _write_exclusive_json(root / "launch_claim.json", claim)
-    return claim
-
-
-def validate_claimed_launch(*, expected_actor: str) -> dict[str, object]:
-    """Validate the sealed input and claim immediately before generic upload.
-
-    Returns:
-        The exact authenticated exclusive launch claim.
-
-    Raises:
-        ValueError: If the sealed input or launch claim differs.
-        FileExistsError: If an accepted launch receipt already exists.
-
-    """
-    contract = validate(expected_actor=expected_actor)
-    root = ROOT / OUTPUT_ROOT
-    input_receipt = _validate_input_receipt(contract)
-    claim = _expected_launch_claim(contract, input_receipt=input_receipt)
-    if _read_object(root / "launch_claim.json") != claim:
-        raise ValueError("Spec 0043 exclusive launch claim differs")
-    receipt_dir = ROOT / LAUNCH_RECEIPT_ROOT / expected_actor / KERNEL_SLUG
-    if receipt_dir.exists() and any(receipt_dir.glob("v*.json")):
-        raise FileExistsError("Spec 0043 accepted launch receipt already exists")
-    return claim
-
-
-def _expected_launch_claim(
-    contract: Mapping[str, object],
-    *,
-    input_receipt: Mapping[str, int | str],
-) -> dict[str, object]:
-    root = ROOT / OUTPUT_ROOT
-    return {
-        "schema_version": "spec0043.exclusive_launch_claim.v1",
-        "status": "claimed_before_remote_push",
-        "authorization": "ok let's do the patch tissue test evaluation",
-        "authorization_date": "2026-09-06",
-        "dataset_reference": contract["dataset_reference"],
-        "kernel_id": contract["kernel_id"],
-        "input_contract_sha256": _sha256(root / "bundle" / CONTRACT_NAME),
-        "input_dataset_receipt": dict(input_receipt),
-        "kernel_files": {
-            name: _file_record(root / "kernel" / name)
-            for name in ("kernel-metadata.json", "run.py")
-        },
-        "scientific_retries_authorized": 0,
-    }
-
-
 def _validate_input_receipt(
     contract: Mapping[str, object],
 ) -> dict[str, int | str]:
@@ -491,7 +427,6 @@ def score(
     return score_retrieved_tissue_test_output(
         remote_output_root=remote_output_root,
         launch_receipt_path=launch_receipt_path,
-        launch_claim_path=root / "launch_claim.json",
         label_oracle_path=ROOT / ORACLE_PATH,
         output_root=output_root,
         expected_contract=contract,
@@ -516,7 +451,6 @@ def _validate_authorities() -> None:
         ROOT / TRAINING_OUTPUT_RECEIPT: TRAINING_OUTPUT_SHA256,
         ROOT / TRAINING_RUN_CONTRACT: TRAINING_RUN_CONTRACT_SHA256,
         ROOT / TRAINING_RESULT: TRAINING_RESULT_SHA256,
-        ROOT / TRAINING_CLAIM: TRAINING_CLAIM_SHA256,
         ROOT / TRAINING_INPUT_RECEIPT: TRAINING_INPUT_RECEIPT_SHA256,
     }
     for path, expected in fixed.items():
@@ -840,19 +774,6 @@ def _write_json(path: Path, value: object) -> None:
     temporary.replace(path)
 
 
-def _write_exclusive_json(path: Path, value: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8", closefd=False) as handle:
-            json.dump(value, handle, indent=2, sort_keys=True)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-    finally:
-        os.close(descriptor)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
@@ -860,10 +781,6 @@ def main() -> None:
     build_parser.add_argument("--actor", required=True)
     validate_parser = sub.add_parser("validate")
     validate_parser.add_argument("--actor")
-    claim_parser = sub.add_parser("claim-launch")
-    claim_parser.add_argument("--actor", required=True)
-    claimed_parser = sub.add_parser("validate-claimed-launch")
-    claimed_parser.add_argument("--actor", required=True)
     score_parser = sub.add_parser("score")
     score_parser.add_argument("--remote-output-root", type=Path, required=True)
     score_parser.add_argument("--launch-receipt", type=Path, required=True)
@@ -873,10 +790,6 @@ def main() -> None:
         result = build(actor=args.actor)
     elif args.command == "validate":
         result = validate(expected_actor=args.actor)
-    elif args.command == "claim-launch":
-        result = claim_launch(expected_actor=args.actor)
-    elif args.command == "validate-claimed-launch":
-        result = validate_claimed_launch(expected_actor=args.actor)
     else:
         result = score(
             remote_output_root=args.remote_output_root,

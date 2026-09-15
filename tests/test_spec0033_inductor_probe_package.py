@@ -74,9 +74,8 @@ def test_runner_contains_exact_candidates_and_no_learning() -> None:
     assert "cross_entropy" not in source
 
 
-def test_launcher_has_exact_spec0033_authorization_guard() -> None:
-    """The portable push route must not fall through to an unrelated old spec."""
+def test_launcher_has_no_spec0033_permission_branch() -> None:
+    """The generic launcher has no Spec 0033-specific permission logic."""
     launcher = Path("scripts/kaggle_kernel.sh").read_text(encoding="utf-8")
-    assert "KAGGLE_INDUCTOR_ATTENTION_PROBE_CONFIRMED" in launcher
-    assert "spec0033_inductor_attention_probe_authorized" in launcher
-    assert 'inductor_attention_probe_kernel_dir="kaggle/kernels/' in launcher
+    assert "inductor_attention_probe" not in launcher
+    assert "CONFIRMED" not in launcher

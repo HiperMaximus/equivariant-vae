@@ -18,14 +18,10 @@ from eqvae.evaluation.vae_test_index_adapter import (
     FROZEN_ORACLE_DIAGNOSIS_TO_INDEX,
     _adapt_oracle_labels,
 )
-from eqvae.evaluation.vae_test_reporting import (
-    _validate_normalization_amendment,
-    write_exclusive_json,
-)
+from eqvae.evaluation.vae_test_reporting import _validate_normalization_amendment
 from eqvae.evaluation.vae_test_resume import (
     FROZEN_SCORER_SHA256,
     OLD_DIAGNOSIS_TO_INDEX,
-    _consume_resume_authority,
     _validate_frozen_scorer,
     _validate_resume_inputs,
     validate_diagnosis_index_amendment,
@@ -134,7 +130,7 @@ def test_amendment_binds_adapter_resume_and_prior_claim() -> None:
         )
 
 
-def test_resume_authority_revalidates_exact_existing_evidence(tmp_path: Path) -> None:
+def test_resume_provenance_revalidates_exact_existing_evidence(tmp_path: Path) -> None:
     input_contract_path = (
         Path("runs/local/vae_test_evaluation_input") / "spec0045_vae_test_input.json"
     )
@@ -162,7 +158,9 @@ def test_resume_authority_revalidates_exact_existing_evidence(tmp_path: Path) ->
     prior = _validate_resume_inputs(
         remote_output_root=REMOTE_OUTPUT,
         launch_receipt_path=LAUNCH_RECEIPT,
-        input_receipt_path=builder.INPUT_RECEIPT_PATH,
+        input_receipt_path=Path(
+            "runs/local/vae_test_evaluation_authority/input_dataset_receipt.json",
+        ),
         input_contract_path=input_contract_path,
         kernel_root=builder.KERNEL_ROOT,
         oracle_path=builder.ORACLE_PATH,
@@ -180,11 +178,13 @@ def test_resume_authority_revalidates_exact_existing_evidence(tmp_path: Path) ->
         json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    with pytest.raises(ValueError, match="prior scoring authority"):
+    with pytest.raises(ValueError, match="prior scoring provenance"):
         _validate_resume_inputs(
             remote_output_root=REMOTE_OUTPUT,
             launch_receipt_path=LAUNCH_RECEIPT,
-            input_receipt_path=builder.INPUT_RECEIPT_PATH,
+            input_receipt_path=Path(
+                "runs/local/vae_test_evaluation_authority/input_dataset_receipt.json",
+            ),
             input_contract_path=input_contract_path,
             kernel_root=builder.KERNEL_ROOT,
             oracle_path=builder.ORACLE_PATH,
@@ -195,39 +195,10 @@ def test_resume_authority_revalidates_exact_existing_evidence(tmp_path: Path) ->
         )
 
 
-def test_shell_resume_route_is_exact_and_has_no_path_override() -> None:
+def test_resume_is_a_direct_builder_command_not_a_launcher_branch() -> None:
     source = Path("scripts/kaggle_kernel.sh").read_text(encoding="utf-8")
-    assert "resume-score-vae-test)" in source
-    assert '[[ "$#" -eq 1 ]]' in source
-    assert "resume-score-vae-test accepts no path overrides" in source
-    assert "--remote-output-root runs/kaggle/vae_test_reconstruction_v1" in source
-    assert "--output-root runs/local/vae_test_reconstruction_scored_v1" in source
-
-
-def test_resume_claim_is_exclusive_and_precedes_any_metric_reopen(
-    tmp_path: Path,
-) -> None:
-    claim = tmp_path / "resume_claim.json"
-    payload = {"schema_version": "test"}
-
-    def fail_after_claim() -> dict[str, object]:
-        raise RuntimeError
-
-    with pytest.raises(RuntimeError):
-        _consume_resume_authority(
-            resume_claim_path=claim,
-            resume_claim=payload,
-            post_claim_validation=fail_after_claim,
-        )
-    assert _read(claim) == payload
-    with pytest.raises(FileExistsError):
-        write_exclusive_json(claim, {"schema_version": "replacement"})
-
-    source = Path("src/eqvae/evaluation/vae_test_resume.py").read_text(
+    builder_source = Path("scripts/build_vae_test_evaluation.py").read_text(
         encoding="utf-8",
     )
-    consume_call = source.index("prior_claim = _consume_resume_authority(")
-    metric_reopen = source.index("remote_rows = load_remote_metric_rows(metric_path)")
-    oracle_reopen = source.index("labels = load_oracle_labels(")
-    assert consume_call < metric_reopen
-    assert consume_call < oracle_reopen
+    assert "resume-score-vae-test" not in source
+    assert 'subparsers.add_parser("resume-score")' in builder_source

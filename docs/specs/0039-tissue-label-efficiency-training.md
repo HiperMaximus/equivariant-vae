@@ -146,21 +146,17 @@ and all branch checkpoints/hashes validate. A numerical, source or identity
 failure is terminal and records its phase without consuming the sealed test
 split.
 
-## Packaging, checks and authorized remote actions
+## Packaging, checks and remote actions
 
 `scripts/build_tissue_training.py` builds a non-overwritable actor-portable
 input bundle at `runs/local/tissue_label_efficiency_training`, with byte
 records and source snapshot. `scripts/kaggle_kernel.sh` exposes build,
-validate, preflight, input publish/receipt verification, guarded launch and
-receipt-bound output download commands.  An input upload or kernel launch
-requires a fresh explicit user authorization plus the existing Kaggle
-confirmation variables; local implementation and validation do not publish.
-The v1 launch claim is deliberately created before the remote push: if the
-push has a transient failure, do not retry automatically. Version 1 failed
+validate, preflight, input publication/receipt verification, launch and
+receipt-bound output download commands. Remote approval is handled only in the
+user conversation. Version 1 failed
 before a training update because two Python threads overlapped PyTorch 2.14
-compiled-autograd contexts. With fresh explicit authorization, the repaired
-v2 launcher reuses the byte-verified private input v1 through a separate,
-non-overwritable retry package and one-use retry claim. It requires both the
+compiled-autograd contexts. The repaired v2 launcher reuses the byte-verified
+private input v1 through a separate, non-overwritable retry package. It requires both the
 verified input-v1 receipt and the v1 launch receipt, preserving v1 as
 non-evidence. Kaggle completed v2 as
 `maximshtefan/eqvae-tissue-label-efficiency-training/2` in 514.315 seconds;
@@ -168,13 +164,11 @@ the retrieved 105-file output matches its download receipt. All ten
 branch/budget runs completed independently and stopped by the specified
 10-check patience rule. The user then explicitly amended the future protocol
 to require ten fully completed epochs before patience may stop a branch; the
-separately guarded v3 retry reuses the verified private input v1 and records
+v3 retry reuses the verified private input v1 and records
 this execution-policy amendment in every output. Kaggle accepted and completed
 v3 as `maximshtefan/eqvae-tissue-label-efficiency-training/3` in 448.9 seconds
 on 2026-09-04. All ten independent runs completed at least ten full epochs;
-their terminal outputs are receipt-verified. Its distinct claim is
-`runs/local/tissue_label_efficiency_training_retry_v3_authority/launch_claim.json`
-and its canonical launch receipt is
+their terminal outputs are receipt-verified. Its canonical launch receipt is
 `runs/local/kaggle_launches/maximshtefan/eqvae-tissue-label-efficiency-training/v0003.json`.
 Inspect the retrieved development result before making any further remote action.
 

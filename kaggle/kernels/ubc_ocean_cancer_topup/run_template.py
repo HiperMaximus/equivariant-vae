@@ -51,7 +51,6 @@ def main() -> int:
         config = _embedded_config()
         mounted_input = _resolve_input(config)
         wsi_dir = _resolve_wsi_dir()
-        os.environ["EQVAE_CANCER_TOPUP_CONFIRMED"] = "1"
         from eqvae.cli.generate_ubc_cancer_topup import main as topup_main
 
         return_code = topup_main([
@@ -74,7 +73,6 @@ def main() -> int:
         traceback.print_exc()
         return 1
     finally:
-        os.environ.pop("EQVAE_CANCER_TOPUP_CONFIRMED", None)
         os.environ.pop("EQVAE_SESSION_START_MONOTONIC", None)
         shutil.rmtree(PRIVATE_ROOT, ignore_errors=True)
         shutil.rmtree(SCRATCH_ROOT, ignore_errors=True)

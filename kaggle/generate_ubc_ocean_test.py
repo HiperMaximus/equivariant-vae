@@ -120,8 +120,8 @@ ATLAS_COLUMNS = (
 PATCH_CSV_COLUMNS = ("idx", *ATLAS_COLUMNS)
 
 # The Kaggle kernel build copies this readable file byte-for-byte to ``run.py``.
-# Keeping the marker here lets the guarded push path recognize that generated
-# upload without maintaining a second implementation.
+# The marker identifies the generated upload without maintaining a second
+# implementation.
 KAGGLE_UBC_OCEAN_TEST_ATLAS_READY = True
 
 if struct.calcsize(HEADER_FORMAT) != HEADER_SIZE:
