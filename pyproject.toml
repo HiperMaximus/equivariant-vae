@@ -11,30 +11,10 @@ dependencies = [
     "torch>=2.12.0",
 ]
 
-# Pinned: build requirements are NOT recorded in uv.lock, so an unpinned backend would
-# leave `uv sync --locked` resolving hatchling fresh from the index -- a hole in the
-# reproducibility that --locked otherwise promises (AGENTS.md rule 25).
 [build-system]
 requires = ["hatchling==1.31.0"]
 build-backend = "hatchling.build"
 
-# Spec 0001's package/import policy: `PYTHONPATH=src` was the interim contract "until a
-# packaging backend is explicitly added". This is that backend. Without a [build-system],
-# uv treats the project as VIRTUAL (uv.lock said `source = { virtual = "." }`): it installs
-# dependencies but never the project, so `eqvae` was absent from the venv and every entry
-# point needed PYTHONPATH=src.
-#
-# The editable install emits a naive .pth containing `<repo>/src`, putting that whole
-# directory on sys.path -- so anything living beside eqvae under src/ would be importable
-# locally but ABSENT from the Kaggle payload, which ships only src/eqvae. `src/` is
-# therefore kept single-child (reference code lives in reference/, see spec 0002), which
-# makes that divergence structurally impossible rather than merely guarded. Enforced by
-# test_src_contains_only_the_shipped_eqvae_package.
-#
-# Do NOT try to solve it with `dev-mode-exact = true` instead: that swaps the .pth for a
-# finder importing `editables` at RUNTIME, which is a build-time dep absent from the venv,
-# so `import eqvae` dies with ModuleNotFoundError: No module named 'editables' (verified
-# 2026-07-15).
 [tool.hatch.build.targets.wheel]
 packages = ["src/eqvae"]
 
@@ -58,8 +38,6 @@ dev = [
 
 [tool.ruff]
 extend-exclude = [
-    "reference",
-    "kaggle/fsq_train_reference.py",
     # Hash-pinned historical evidence; linting must never rewrite these bytes.
     "docs/data/spec0011_runtime_recipe_v2/producer/run.py",
     # Generated hash-bearing upload artifact; validate it with its kernel builder.
@@ -96,6 +74,9 @@ unfixable = []
 # observability channel. Keep T201 enabled for local/product code.
 "kaggle/kernels/**/*.py" = ["print"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.basedpyright]
 exclude = [
     ".venv",
@@ -103,7 +84,6 @@ exclude = [
     "dist",
     "kaggle",
     "paper",
-    "reference",
 ]
 include = [
     "src/eqvae",

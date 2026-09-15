@@ -18,22 +18,10 @@ experiment frontier are in [CURRENT.md](CURRENT.md).
 
 ## Read First
 
-1. [AGENTS.md](AGENTS.md)
-2. [CURRENT.md](CURRENT.md)
-3. [GOAL.md](GOAL.md)
-4. [Requirements](docs/repo_goal_and_requirements.md)
-5. [Issue image inventory](docs/issue_image_inventory.md)
-6. [Architecture contract](docs/equivariant_vae_transition_plan.md)
-7. [Kaggle workflow](docs/kaggle_cli_workflow.md)
-8. [Data and behavior contract](docs/behavior_inventory_kaggle.md)
-9. [Specs index](docs/specs/README.md)
-10. [Decisions index](docs/decisions/README.md)
-
-Run the repository preflight before substantial work:
-
-```bash
-./scripts/agent_preflight.sh
-```
+Read [AGENTS.md](AGENTS.md), [CURRENT.md](CURRENT.md), [GOAL.md](GOAL.md), and
+only the scientific spec relevant to the current task. Numerical parameters
+live in machine-readable contracts; a rerun should normally be a small change
+to an existing contract or runner.
 
 ## Current Scientific State
 
@@ -72,23 +60,11 @@ reports/professor/  final advisor-facing report
 paper/sipaim2026/   working manuscript subtree
 ```
 
-## Python Workflow
+## Python
 
-Dependency truth is `pyproject.toml` plus `uv.lock`; do not add a root
-`requirements.txt`. Use the existing Python 3.12 `.venv`:
-
-```bash
-./scripts/python_quality.sh
-```
-
-The quality script does not install dependencies. Ask before running:
-
-```bash
-uv sync --locked --python 3.12 --group dev
-```
-
-Local verification uses CPU PyTorch. CUDA, Inductor and dual-T4 behavior belong
-on Kaggle.
+Dependency truth is `pyproject.toml` plus `uv.lock`. Use focused tests for the
+mathematics being changed. Local execution uses CPU PyTorch; CUDA, Inductor and
+dual-T4 behavior are measured on Kaggle.
 
 ## Kaggle
 
@@ -101,8 +77,6 @@ Use the generic CLI workflow:
 ./scripts/kaggle_kernel.sh check <kernel-dir>
 ```
 
-Remote permission is handled only in the user conversation; the code contains
-no confirmation variables, permission claims or per-Spec launch gates.
 Preserve every resource using its canonical owner-qualified locator and version. See
 [docs/kaggle_cli_workflow.md](docs/kaggle_cli_workflow.md).
 
@@ -118,10 +92,8 @@ Compile through:
 ./scripts/sipaim_overleaf_sync.sh compile
 ```
 
-Never push the whole repository to Overleaf. Remote reads, pulls and pushes
-require conversational permission and must use
-`scripts/sipaim_overleaf_sync.sh`. The thesis repository is separate and must
-not be edited without an explicit request.
+Never push the whole repository to Overleaf; use
+`scripts/sipaim_overleaf_sync.sh`. The thesis repository is separate.
 
 ## Current Boundary
 

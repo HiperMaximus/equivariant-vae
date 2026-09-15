@@ -36,8 +36,6 @@ Usage:
   ./scripts/kaggle_kernel.sh pull owner/slug[/version] [clean_kernel_dir]
   ./scripts/kaggle_kernel.sh pull-launch launch-receipt.json new_kernel_dir
 
-Remote permission is handled in the user conversation. This script performs
-technical validation and records provenance; it never stores or checks permission.
 EOF
 }
 

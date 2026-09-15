@@ -96,8 +96,7 @@ and hashes. Specs 0020–0025 own immutable latent storage and logical views.
   attempts and AMP skips.
 
 The executable implementation is under `src/eqvae`; repo-managed script kernels
-are under `kaggle/kernels`. Notebook exports and `reference/` are not executable
-sources of truth.
+are under `kaggle/kernels`. Notebook exports are not executable sources of truth.
 
 ## Sealed-Test Boundary
 

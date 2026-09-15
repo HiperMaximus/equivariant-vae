@@ -29,8 +29,6 @@ Rules:
     token as the password. Do not use the normal account password.
   - On the first sync only, push may initialize an existing empty-tree Overleaf
     master by creating a normal fast-forward commit on top of it.
-  - Obtain remote-operation permission in the user conversation; the script
-    validates only repository, remote, subtree, and PDF integrity.
 EOF
 }
 

@@ -7,7 +7,7 @@ Last updated: 2026-09-08
 
 Define the architecture and fairness contract for the completed normal versus
 continuous-`SO(2)` VAE comparison. Execution state and exact artifact identities
-belong in `CURRENT.md`; detailed implementation gates belong in Specs 0001–0016.
+belong in `CURRENT.md`; the completed implementation is preserved in Git history.
 
 ## Shared Experiment Contract
 
@@ -41,20 +41,19 @@ clean steerable counterpart:
 - no architecture-specific advantage in data, schedule or evaluation.
 
 The broad encoder/decoder shape is ResNet-like, but the frozen implementation
-is defined by Specs 0001, 0011 and its final checkpoint, not by notebook code or
-the exploratory modules under `reference/`.
+is defined by its code and final checkpoint, not by notebook code.
 
 ## Continuous-SO(2) VAE
 
 The equivariant branch is repo-owned and specialized for planar continuous
-rotations. `escnn` is a semantic/oracle reference, not a runtime dependency.
+rotations.
 
 Frozen representation schedule:
 
 - hidden fields use equal F0/F1 copy pairs `(16,16)`, `(24,24)`, `(32,32)`,
   `(48,48)`;
 - the latent is `16F0`, preserving scalar Gaussian sampling;
-- F2 was rejected by the numerical/support gate;
+- F2 was rejected by the numerical/support criterion;
 - the stem uses the accepted `9-low` kernel manifest and the remaining
   convolutions use `7-low`;
 - analytic bases use Gaussian radial shells times real angular harmonics with
@@ -97,10 +96,10 @@ The prior all-25, 360-angle local-linearity and traversal results are
 superseded: the dense sweep mixed opposite rotation conventions at cardinal
 angles. The separate exact-quarter control remains valid and does not favor
 `SO(2)`. The corrected Spec 0050 sweep removes the seams but does not pass the
-fixed regularity or harmonic gates, demonstrate clean internal-F1 behavior, or
+fixed regularity or harmonic criteria, demonstrate clean internal-F1 behavior, or
 find a transferable reduced action or local content--pose factorization.
 
-## Fairness And Claim Gates
+## Fairness And Claim Criteria
 
 Before comparing branches, require:
 
@@ -112,8 +111,8 @@ Before comparing branches, require:
 6. WSI-cluster uncertainty for WSI-level inferential claims;
 7. no tuning, selection or automatic retry from sealed-test results.
 
-The completed evidence meets these gates subject to the recorded normal
-physical-update exception, the `SO(2)` 66/68 gate-health caveat, one training
+The completed evidence meets these criteria subject to the recorded normal
+physical-update exception, the `SO(2)` 66/68 saturation caveat, one training
 trajectory per downstream branch and small sealed-test support.
 
 ## Downstream Contract

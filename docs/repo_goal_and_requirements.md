@@ -24,7 +24,7 @@ and hashes live in `CURRENT.md`.
 | Issue #6 | Repeat evaluation for continuous `SO(2)`; test downstream WSI/tissue utility | Specs 0038–0048 and report Figures 8–14 |
 | Issue #6 follow-up | Verify the 0°–359° orbit across all 25 fixed patches at one-degree resolution | Legacy Spec 0038 artifacts are superseded by a mixed-sign rotation defect; corrected validation is owned by Spec 0050. |
 | Issue #6 follow-up | Show train context with WSI validation curves | Report Figure 10; online train CE is labelled optimization telemetry |
-| Issue #6 follow-up | Consider WSI patch attribution | Deferred: accepted outputs lack patch-level gates; instrumented inference is required |
+| Issue #6 follow-up | Consider WSI patch attribution | Deferred: accepted outputs lack patch-level scores; instrumented inference is required |
 
 The final Spanish status comment is
 `https://github.com/HiperMaximus/equivariant-vae/issues/6#issuecomment-5578529496`.
@@ -104,7 +104,7 @@ GitHub attachment URLs.
   excludes zero.
 - Rotation: the former 25/25 dense interpretation is superseded by a mixed-sign
   defect. The corrected one-degree local-linearity direction misses the fixed
-  10% gate and reverses at five degrees; neither a shared reduced action nor
+  10% criterion and reverses at five degrees; neither a shared reduced action nor
   local content--pose factorization was demonstrated. Exact-quarter residuals
   remain valid and do not favor `SO(2)`.
 - PCA colors and individual examples are diagnostics, not performance metrics.

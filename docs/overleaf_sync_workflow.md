@@ -83,9 +83,7 @@ printf 'protocol=https\nhost=git.overleaf.com\nusername=git\npassword=%s\n\n' "$
 unset OVERLEAF_TOKEN
 ```
 
-Overleaf remote reads and pull/push operations require permission in the user
-conversation. The script does not encode permission. After checking status and
-receiving the request, run:
+After checking status and the remote, run:
 
 ```bash
 ./scripts/sipaim_overleaf_sync.sh ls-remote

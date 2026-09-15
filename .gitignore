@@ -207,30 +207,14 @@ paper/sipaim2026/main.pdf
 # Agent scratch (on-disk temp; use instead of the OS /tmp tmpfs)
 .agent_tmp/
 
-# Local, shallow third-party source checkouts used only as implementation references.
-reference/escnn/
+# Personal reference material; never part of repository code or tooling.
+reference/
+kaggle/fsq_train_reference.py
 
 # Experiment and Kaggle run artifacts
 runs/
 kaggle/kernels/*/payload/
-kaggle/kernels/non_eq_vae_debug/run.py
-kaggle/kernels/setup_smoke/run.py
-kaggle/kernels/synthetic_timing/run.py
-kaggle/kernels/real_data_runtime_pretest/run.py
-kaggle/kernels/runtime_selection/run.py
-kaggle/kernels/selected_runtime_debug/run.py
-kaggle/kernels/selected_runtime_lr_range/run.py
-kaggle/kernels/selected_runtime_full/run.py
-kaggle/kernels/fixed25_selector/run.py
-kaggle/kernels/selected_runtime_compile_probe/run.py
-kaggle/kernels/so2_architecture_probe/run.py
-kaggle/kernels/so2_runtime_readiness/run.py
-kaggle/kernels/so2_prelaunch/run.py
-kaggle/kernels/so2_selected_runtime_full/run.py
-kaggle/kernels/ubc_ocean_test_atlas/run.py
-kaggle/kernels/corrected_rotation_geometry/run.py
-kaggle/kernels/decoded_latent_transform/run.py
-kaggle/kernels/functional_geometry_stage_a1_c4_slq/run.py
+kaggle/kernels/**/run.py
 
 # Kaggle credentials
 .kaggle/

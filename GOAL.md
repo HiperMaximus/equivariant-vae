@@ -27,7 +27,7 @@ The evidence is mixed:
 - `SO(2)` has favorable downstream point estimates without a general primary
   test advantage;
 - the corrected one-degree direction is descriptively favorable to `SO(2)` but
-  misses the fixed effect-size gate and reverses at five degrees;
+  misses the fixed effect-size criterion and reverses at five degrees;
 - no low-dimensional shared action, clean internal-F1 transformation or local
   content--pose factorization was demonstrated; the raw-`mu` exact-quarter
   control remains valid and does not favor `SO(2)`;

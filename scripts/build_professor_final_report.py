@@ -2269,8 +2269,8 @@ def build_report(repo: Path, output_docx: Path, work_dir: Path) -> None:
                 "mu, logvar, z con epsilon controlado, decodificador y reconstruccion comprobados en angulos cardinales y no cardinales; mu tiene forma (B,16,32,32).",
             ],
             [
-                "Referencia y runtime",
-                "escnn se uso solo como oraculo de pruebas focalizadas; no es dependencia del runtime. La implementacion propia compilable pasó el prelaunch batch-25 dual T4 sin skips AMP ni recompilaciones.",
+                "Implementacion y runtime",
+                "La implementacion propia compilable pasó el prelaunch batch-25 dual T4 sin skips AMP ni recompilaciones.",
             ],
         ],
         widths=[2.05, 4.65],
