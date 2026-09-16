@@ -8,8 +8,8 @@ Last updated: 2026-09-16
 single live contract for comparing the functional latent geometry of the frozen
 normal and continuous-`SO(2)` VAEs. Stage A1 is accepted; Stage A2 is
 `draft active`. Calibration v1 and v2 completed `unresolved`; the focused v3
-solver calibration is locally verified and ready for one Kaggle launch. No
-calibration result yet justifies the scientific solver/final-pilot run.
+solver calibration is running on Kaggle. No calibration result yet justifies
+the scientific solver/final-pilot run.
 
 For accepted Stage A1 only, the numerical method is fixed: direct disposable JVP/VJP graphs,
 matrix-free `Gv = J^T(Jv)`, eager FP32 decoder products, FP64 Lanczos
@@ -81,6 +81,13 @@ stored at `runs/kaggle/functional_geometry_stage_a1_c4_slq_v1/` with SHA-256
   reducer and package tests for the calibration.
 
 ## Active Kaggle execution
+
+Private calibration `maximshtefan/eqvae-fg-stage-a2-calibration/3` was launched
+at `2026-09-16T13:45:38-05:00` and confirmed `RUNNING`. Its uploaded entrypoint
+is commit `f2021eed207fcd4358c0d2a38f2abc60e58c1380`; the experiment itself is
+pinned to source commit `b9879ecb38f5d25cb182ea4868ddce5899ec7241`.
+Inspect after the 120-minute experiment ceiling, around
+`2026-09-16T15:45:38-05:00`; do not launch another version while v3 is active.
 
 Private calibration version
 `maximshtefan/eqvae-fg-stage-a2-calibration/1` was accepted at

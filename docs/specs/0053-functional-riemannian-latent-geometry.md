@@ -1,8 +1,8 @@
 # Spec 0053: Functional And Riemannian Latent Geometry
 
 Status: draft active; Stage A1 implemented and accepted; numerical calibration
-v1/v2 completed `unresolved`; focused v3 is launch-ready; scientific Stage A2
-remains blocked until a justified common numerical contract exists
+v1/v2 completed `unresolved`; focused v3 is running on Kaggle; scientific Stage
+A2 remains blocked until a justified common numerical contract exists
 Owner/workstream: frozen normal versus continuous-`SO(2)` VAE latent analysis
 Last updated: 2026-09-16
 
