@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "b9879ecb38f5d25cb182ea4868ddce5899ec7241"
+SOURCE_COMMIT = "b3a9bfc0f5ae22a402da84981154b9e97afa0c1a"
 SOURCE_ROOT = Path("/kaggle/working/equivariant-vae")
 
 
