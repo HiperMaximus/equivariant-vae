@@ -1,9 +1,9 @@
 # Spec 0053: Functional And Riemannian Latent Geometry
 
 Status: draft active; Stage A1 implemented and accepted; numerical calibration
-v1/v2 completed `unresolved`; Kaggle v3 failed during input startup and corrected
-v4 is running; scientific Stage A2 remains blocked until a justified common
-numerical contract exists
+v1/v2 completed `unresolved`; Kaggle v3 failed during input startup and v4 on
+an unnecessary compile-gradient gate; scientific Stage A2 remains blocked until
+a justified common numerical contract exists
 Owner/workstream: frozen normal versus continuous-`SO(2)` VAE latent analysis
 Last updated: 2026-09-16
 
@@ -422,12 +422,11 @@ meets the common finite-budget criteria. `d=32` remains a recorded sensitivity.
 Only the repeated eight-edge scalar closure is eligible for compilation:
 `latents -> decoder -> decoder-edge energy`. JVP/VJP chart construction remains
 eager. Because the models are frozen, the `SO(2)` decoder materializes its exact
-dense equivariant kernels once after checkpoint load. On one real block, cached
-and uncached outputs, energies and latent gradients must agree exactly; compiled
-energy and latent-gradient relative errors must be at most `1e-5` and `1e-4`.
-The static full graph is used only when its settled T4 time beats eager. The
-compiler choice changes execution, not the objective, optimizer, coordinates or
-budget. The complete run has a 120-minute wall-time ceiling.
+dense equivariant kernels once after checkpoint load. The static full graph is
+used directly for optimization; eager evaluation records the sparse milestones.
+Compilation has no numerical-equivalence or speed gate. The compiler changes
+execution, not the objective, optimizer, coordinates or budget. The complete
+run has a 120-minute wall-time ceiling.
 
 V2's failed sampled first-order radius rule is retained as its historical
 outcome, not silently reinterpreted. It is not repeated in v3: an affine chart

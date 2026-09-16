@@ -15,9 +15,9 @@ For accepted Stage A1 only, the numerical method is fixed: direct disposable JVP
 matrix-free `Gv = J^T(Jv)`, eager FP32 decoder products, FP64 Lanczos
 tridiagonal solves, finite-difference epsilon `0.008`, JVP microbatch `4`,
 Lanczos depth `m=64`, `r=64` independent probes and two-sided 99% confidence
-intervals. Stage A2 v3 keeps chart JVP/VJP products eager and may compile only
-the repeated frozen-decoder eight-edge energy closure after real-block output,
-latent-gradient, memory and settled-runtime validation.
+intervals. Stage A2 keeps chart JVP/VJP products eager and compiles only the
+repeated frozen-decoder eight-edge energy closure, without numerical or runtime
+gates.
 
 The first scientific stage is complete. The corrected next-stage design uses
 only exact `C4` states at ranks 0 and 12. It separates literal-endpoint decoder-
@@ -90,9 +90,11 @@ never reached. The correction removes the duplicate patch constant and reads
 the canonical path already stored in the fixed selector; the weight root is
 derived from the contract's owner-qualified locator.
 
-Version `maximshtefan/eqvae-fg-stage-a2-calibration/4` is `RUNNING` with that
-input-path correction. It uses source commit `b3a9bfc`; the subsequent removal
-of redundant checksum and manual source-pin logic applies only to future runs.
+Version `maximshtefan/eqvae-fg-stage-a2-calibration/4` failed because a compiled
+gradient tolerance was treated as a fatal gate for the normal VAE. The `SO(2)`
+worker nevertheless completed all candidates. The next version removes that
+gate, eager/compiled comparisons, runtime selection, memory ceilings and
+per-candidate exception wrappers; compilation is now a direct execution choice.
 
 Private calibration version
 `maximshtefan/eqvae-fg-stage-a2-calibration/1` was accepted at

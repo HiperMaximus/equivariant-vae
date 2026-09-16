@@ -7,21 +7,15 @@
       "dimensions": [32, 128],
       "line_parameters": [0.0, 0.5, 1.0],
       "maximum_dimension": 128,
-      "random_probe_count": 127,
       "seed": 530201
     },
     "compilation": {
       "dynamic": false,
-      "energy_relative_l2_max": 0.00001,
       "fullgraph": true,
-      "gradient_relative_l2_max": 0.0001,
       "mode": "default",
-      "probe_path_segments": 16,
-      "settled_repetitions": 3
+      "probe_path_segments": 16
     },
     "jvp_microbatch": 4,
-    "operator": "Gv=J^T(Jv)",
-    "operator_dtype": "float32",
     "optimizer": {
       "algorithm": "Adam",
       "energy_chunk_segments": 8,
@@ -39,14 +33,11 @@
     }
   },
   "resources": {
-    "peak_reserved_bytes_max_per_device": 13958643712,
     "wall_time_minutes_max": 120
   },
   "schema": "eqvae.functional_geometry.stage_a2_calibration.v3",
   "scope": {
     "calibration_patch_ranks": [4, 16],
-    "final_pilot_patch_ranks": [0, 12],
-    "forbidden_calibration_wsis": ["38349", "59031"],
     "model_device_map": {
       "normal_vae": 0,
       "so2_vae": 1

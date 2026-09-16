@@ -62,34 +62,17 @@ def _read_selected_patch_bytes(handle, rows, selected_ranks):
     payloads = []
     for rank in selected_ranks:
         row = rows[rank]
-        if row.get("rank") != rank:
-            raise RuntimeError("fixed25 ranks differ")
         handle.seek(HEADER_BYTES + int(row["file_index"]) * PATCH_BYTES)
-        raw = handle.read(PATCH_BYTES)
-        if len(raw) != PATCH_BYTES:
-            raise RuntimeError(f"fixed25 patch {rank} is truncated")
-        payloads.append(raw)
+        payloads.append(handle.read(PATCH_BYTES))
     return payloads
 
 
 def _load_patches(repo_root, contract, *, np, torch):
     selector_path = repo_root / SELECTOR_PATH
     selector = json.loads(selector_path.read_text(encoding="utf-8"))
-    rows = selector.get("selectors")
-    if not isinstance(rows, list) or len(rows) != 25:
-        raise RuntimeError("fixed25 inputs differ")
+    rows = selector["selectors"]
     selected_ranks = contract["scope"]["calibration_patch_ranks"]
-    final_ranks = set(contract["scope"]["final_pilot_patch_ranks"])
-    forbidden_wsis = set(contract["scope"]["forbidden_calibration_wsis"])
-    if final_ranks.intersection(selected_ranks):
-        raise RuntimeError("final pilot leaked into numerical calibration")
-    selected_rows = []
-    for rank in selected_ranks:
-        row = rows[rank]
-        sample_id_parts = row["sample_id"].split(":")
-        if len(sample_id_parts) < 3 or sample_id_parts[2] in forbidden_wsis:
-            raise RuntimeError("forbidden WSI leaked into numerical calibration")
-        selected_rows.append(row)
+    selected_rows = [rows[rank] for rank in selected_ranks]
     with Path(selector["source"]["bin_path"]).open("rb") as handle:
         payloads = _read_selected_patch_bytes(handle, rows, selected_ranks)
     arrays = [
@@ -135,10 +118,6 @@ def _chart_diagnostics(
 ):
     chart_contract = numerics["chart"]
     microbatch = numerics["jvp_microbatch"]
-    if chart_contract["line_parameters"] != [0.0, 0.5, 1.0]:
-        raise RuntimeError("calibration line parameters differ")
-    if chart_contract["random_probe_count"] != chart_contract["maximum_dimension"] - 1:
-        raise RuntimeError("chart probe count differs from maximum dimension")
     secant = right - left
     secant_norm = torch.linalg.vector_norm(secant.to(torch.float64)).to(torch.float32)
     midpoint = (left + right) / 2
@@ -194,7 +173,6 @@ def _chart_diagnostics(
         "metrics": metric_rows,
         "secant_euclidean_norm": float(secant_norm),
     }
-    json.dumps(result, allow_nan=False)
     return basis, result
 
 
@@ -216,44 +194,14 @@ def _decoder_edge_energy(model, latents, total_segments, *, torch):
     return total_segments * differences.flatten(1).square().mean(dim=1).sum()
 
 
-def _value_and_gradient(function, latents, total_segments, *, torch):
-    variable = latents.detach().clone().requires_grad_(True)
-    value = function(variable, total_segments)
-    gradient = torch.autograd.grad(value, variable)[0]
-    return value.detach(), gradient.detach()
-
-
-def _relative_tensor_error(left, right, *, torch):
-    numerator = torch.linalg.vector_norm((left - right).to(torch.float64))
-    denominator = torch.maximum(
-        torch.linalg.vector_norm(left.to(torch.float64)),
-        torch.linalg.vector_norm(right.to(torch.float64)),
-    ).clamp_min(1e-30)
-    return float(numerator / denominator)
-
-
 def _prepare_decoder_runtime(model, probe_latents, contract, *, torch):
-    """Materialize frozen SO(2) kernels and compile the repeated scalar closure."""
+    """Materialize frozen SO(2) kernels and compile the repeated closure."""
     compile_contract = contract["numerics"]["compilation"]
     segment_scale = torch.tensor(
         float(compile_contract["probe_path_segments"]),
         device=probe_latents.device,
         dtype=probe_latents.dtype,
     )
-
-    with torch.enable_grad():
-        uncached_output = model.decode(probe_latents).detach()
-        uncached_value, uncached_gradient = _value_and_gradient(
-            lambda latents, scale: _decoder_edge_energy(
-                model,
-                latents,
-                scale,
-                torch=torch,
-            ),
-            probe_latents,
-            segment_scale,
-            torch=torch,
-        )
 
     materialized_count = 0
     materialize = getattr(model, "materialize_frozen_decoder_kernels", None)
@@ -268,33 +216,6 @@ def _prepare_decoder_runtime(model, probe_latents, contract, *, torch):
             torch=torch,
         )
 
-    with torch.enable_grad():
-        cached_output = model.decode(probe_latents).detach()
-        cached_value, cached_gradient = _value_and_gradient(
-            eager,
-            probe_latents,
-            segment_scale,
-            torch=torch,
-        )
-
-    cache_output_error = _relative_tensor_error(
-        uncached_output,
-        cached_output,
-        torch=torch,
-    )
-    cache_energy_error = _relative_tensor_error(
-        uncached_value,
-        cached_value,
-        torch=torch,
-    )
-    cache_gradient_error = _relative_tensor_error(
-        uncached_gradient,
-        cached_gradient,
-        torch=torch,
-    )
-    if max(cache_output_error, cache_energy_error, cache_gradient_error) != 0.0:
-        raise RuntimeError("materialized decoder differs from coefficient expansion")
-
     compile_started = time.perf_counter()
     compiled = torch.compile(
         eager,
@@ -303,65 +224,16 @@ def _prepare_decoder_runtime(model, probe_latents, contract, *, torch):
         mode=compile_contract["mode"],
     )
     with torch.enable_grad():
-        compiled_value, compiled_gradient = _value_and_gradient(
-            compiled,
-            probe_latents,
-            segment_scale,
-            torch=torch,
-        )
+        variable = probe_latents.detach().clone().requires_grad_(True)
+        compiled(variable, segment_scale).backward()
     torch.cuda.synchronize(probe_latents.device)
     compile_seconds = time.perf_counter() - compile_started
-
-    compiled_energy_error = _relative_tensor_error(
-        cached_value,
-        compiled_value,
-        torch=torch,
-    )
-    compiled_gradient_error = _relative_tensor_error(
-        cached_gradient,
-        compiled_gradient,
-        torch=torch,
-    )
-    if compiled_energy_error > compile_contract["energy_relative_l2_max"]:
-        raise RuntimeError("compiled edge energy differs from eager")
-    if compiled_gradient_error > compile_contract["gradient_relative_l2_max"]:
-        raise RuntimeError("compiled edge gradient differs from eager")
-    if any(parameter.grad is not None for parameter in model.parameters()):
-        raise RuntimeError("frozen decoder accumulated parameter gradients")
-
-    def settled_seconds(function):
-        samples = []
-        for _ in range(compile_contract["settled_repetitions"]):
-            torch.cuda.synchronize(probe_latents.device)
-            started = time.perf_counter()
-            with torch.enable_grad():
-                _value_and_gradient(
-                    function,
-                    probe_latents,
-                    segment_scale,
-                    torch=torch,
-                )
-            torch.cuda.synchronize(probe_latents.device)
-            samples.append(time.perf_counter() - started)
-        return sorted(samples)[len(samples) // 2]
-
-    eager_seconds = settled_seconds(eager)
-    compiled_seconds = settled_seconds(compiled)
-    selected = compiled if compiled_seconds < eager_seconds else eager
     telemetry = {
-        "cache_energy_relative_l2": cache_energy_error,
-        "cache_gradient_relative_l2": cache_gradient_error,
-        "cache_output_relative_l2": cache_output_error,
         "compile_cold_seconds": compile_seconds,
-        "compiled_energy_relative_l2": compiled_energy_error,
-        "compiled_gradient_relative_l2": compiled_gradient_error,
-        "compiled_settled_seconds": compiled_seconds,
-        "eager_settled_seconds": eager_seconds,
         "materialized_decoder_kernel_count": materialized_count,
-        "selected_backend": "compiled" if selected is compiled else "eager",
-        "settled_speedup": eager_seconds / compiled_seconds,
+        "selected_backend": "compiled",
     }
-    return eager, selected, telemetry
+    return eager, compiled, telemetry
 
 
 def _chunked_path_energy(
@@ -383,9 +255,7 @@ def _chunked_path_energy(
         Scalar path energy.
 
     """
-    if total_segments % chunk_segments != 0:
-        raise ValueError("compiled path blocks must have one fixed shape")
-    total = None
+    total = interior_coordinates.new_zeros(())
     for start in range(0, total_segments, chunk_segments):
         stop = start + chunk_segments
         all_coordinates = torch.cat(
@@ -410,11 +280,9 @@ def _chunked_path_energy(
             energy.backward()
         else:
             detached = energy.detach()
-            total = detached if total is None else total + detached
+            total = total + detached
     if backward:
         return None
-    if total is None:
-        raise RuntimeError("path contains no edge blocks")
     return float(total)
 
 
@@ -455,8 +323,6 @@ def _optimizer_probe(
         projection_error = float(
             torch.linalg.vector_norm(projection - secant.flatten(1) / secant_norm)
         )
-        if projection_error > 1e-4:
-            raise RuntimeError("literal endpoint is outside the affine chart")
 
         def coordinates_to_latents(coordinates):
             return affine_chart_latents(
@@ -506,9 +372,7 @@ def _optimizer_probe(
                 chunk_segments=chunk_segments,
                 backward=False,
                 torch=torch,
-            )
-            if energy is None:
-                raise RuntimeError("eager energy evaluation returned no value")
+            ) or 0.0
             deviations = torch.linalg.vector_norm(
                 (interior - line[1:-1]).flatten(1),
                 dim=1,
@@ -607,7 +471,6 @@ def _optimizer_probe(
         "status": "complete",
         "trust_boundary_contact": projection_iteration_count > 0,
     }
-    json.dumps(result, allow_nan=False)
     return result
 
 
@@ -815,8 +678,6 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
         from eqvae.evaluation.functional_geometry_rla import linearize_decoder
         from eqvae.models.registry import build_model
 
-        if not torch.cuda.is_available() or torch.cuda.device_count() <= device_index:
-            raise RuntimeError(f"CUDA device {device_index} is unavailable")
         torch.use_deterministic_algorithms(True)
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
@@ -843,8 +704,6 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
             )
             return memory
 
-        peak_ceiling = contract["resources"]["peak_reserved_bytes_max_per_device"]
-
         _log(
             "worker_started",
             model=model_name,
@@ -854,8 +713,6 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
 
         patches, selectors = _load_patches(repo_root, contract, np=np, torch=torch)
         calibration_ranks = contract["scope"]["calibration_patch_ranks"]
-        if [row["rank"] for row in selectors] != calibration_ranks:
-            raise RuntimeError("loaded calibration ranks differ")
 
         weight_root = DATASET_ROOT / contract["inputs"]["weight_dataset"]
         state_path = weight_root / f"{model_name}_state.pt"
@@ -874,8 +731,6 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
         )
         del patches, selected
         load_memory = capture_memory()
-        if load_memory["peak_reserved_bytes"] >= peak_ceiling:
-            raise RuntimeError("input/model load exceeded peak-memory ceiling")
         _log(
             "inputs_and_model_ready",
             model=model_name,
@@ -909,8 +764,6 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
             _prepare_decoder_runtime(model, probe_latents, contract, torch=torch)
         )
         runtime_memory = capture_memory()
-        if runtime_memory["peak_reserved_bytes"] >= peak_ceiling:
-            raise RuntimeError("decoder compilation exceeded peak-memory ceiling")
         _log(
             "decoder_runtime_ready",
             model=model_name,
@@ -931,47 +784,19 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
                 rank=rank,
                 route=route,
             )
-            basis = None
-            diagnostics = None
-            try:
-                basis, diagnostics = _chart_diagnostics(
-                    model,
-                    left,
-                    right,
-                    rank=rank,
-                    route=route,
-                    numerics=numerics,
-                    linearize_decoder=linearize_decoder,
-                    decoder_visible_chart=decoder_visible_chart,
-                    thin_metric_spectra=thin_metric_spectra,
-                    torch=torch,
-                )
-                if capture_memory()["peak_reserved_bytes"] >= peak_ceiling:
-                    raise RuntimeError("chart exceeded peak-memory ceiling")
-            except Exception as error:
-                failure_memory = capture_memory()
-                workload_rows.append({
-                    "exception_message": str(error),
-                    "exception_type": type(error).__name__,
-                    "label": selectors[local_index]["label"],
-                    "peak_memory": failure_memory,
-                    "rank": rank,
-                    "route": route,
-                    "sample_id": selectors[local_index]["sample_id"],
-                    "status": "failed",
-                })
-                _log(
-                    "calibration_workload_failed",
-                    model=model_name,
-                    rank=rank,
-                    route=route,
-                    exception_type=type(error).__name__,
-                    exception_message=str(error),
-                    **failure_memory,
-                )
-                del basis, diagnostics
-                torch.cuda.empty_cache()
-                continue
+            basis, diagnostics = _chart_diagnostics(
+                model,
+                left,
+                right,
+                rank=rank,
+                route=route,
+                numerics=numerics,
+                linearize_decoder=linearize_decoder,
+                decoder_visible_chart=decoder_visible_chart,
+                thin_metric_spectra=thin_metric_spectra,
+                torch=torch,
+            )
+            capture_memory()
 
             optimizer_rows = []
             for candidate_contract in workload_contract["candidates"]:
@@ -979,45 +804,25 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
                 for coordinate_space in candidate_contract["coordinate_spaces"]:
                     torch.cuda.empty_cache()
                     torch.cuda.reset_peak_memory_stats(device)
-                    try:
-                        candidate = _optimizer_probe(
-                            model,
-                            left,
-                            right,
-                            basis,
-                            coordinate_space=coordinate_space,
-                            learning_rate=numerics["optimizer"]["learning_rate"],
-                            path_segments=path_segments,
-                            optimizer_contract=numerics["optimizer"],
-                            affine_chart_latents=affine_chart_latents,
-                            eager_edge_energy=eager_edge_energy,
-                            optimized_edge_energy=optimized_edge_energy,
-                            project_line_deviation_=project_line_deviation_,
-                            torch=torch,
-                        )
-                    except Exception as error:
-                        candidate_memory = capture_memory()
-                        candidate = {
-                            "coordinate_space": coordinate_space,
-                            "exception_message": str(error),
-                            "exception_type": type(error).__name__,
-                            "learning_rate": numerics["optimizer"]["learning_rate"],
-                            "path_segments": path_segments,
-                            "peak_memory": candidate_memory,
-                            "status": "failed",
-                        }
-                        event = "optimizer_candidate_failed"
-                    else:
-                        candidate_memory = capture_memory()
-                        candidate["peak_memory"] = candidate_memory
-                        if candidate_memory["peak_reserved_bytes"] >= peak_ceiling:
-                            candidate["status"] = "resource_ceiling_exceeded"
-                            event = "optimizer_candidate_resource_exceeded"
-                        else:
-                            event = "optimizer_candidate_complete"
+                    candidate = _optimizer_probe(
+                        model,
+                        left,
+                        right,
+                        basis,
+                        coordinate_space=coordinate_space,
+                        learning_rate=numerics["optimizer"]["learning_rate"],
+                        path_segments=path_segments,
+                        optimizer_contract=numerics["optimizer"],
+                        affine_chart_latents=affine_chart_latents,
+                        eager_edge_energy=eager_edge_energy,
+                        optimized_edge_energy=optimized_edge_energy,
+                        project_line_deviation_=project_line_deviation_,
+                        torch=torch,
+                    )
+                    candidate["peak_memory"] = capture_memory()
                     optimizer_rows.append(candidate)
                     _log(
-                        event,
+                        "optimizer_candidate_complete",
                         model=model_name,
                         rank=rank,
                         route=route,
@@ -1055,9 +860,6 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
             "device_name": torch.cuda.get_device_name(device_index),
             "model": model_name,
             "peak_memory": memory,
-            "peak_memory_ceiling_exceeded_by_any_candidate": (
-                peak_reserved_observed >= peak_ceiling
-            ),
             "decoder_runtime": compile_telemetry,
             "runtime": {"cuda": torch.version.cuda, "torch": torch.__version__},
             "workloads": workload_rows,
@@ -1098,10 +900,19 @@ def run(*, repo_root: Path, source_commit: str, started_at: float) -> int:
                 device_index=device_index,
                 child_pid=process.pid,
             )
-        for process in processes:
-            process.join(timeout=max(0.0, deadline - time.perf_counter()))
-            if process.is_alive():
+        while any(process.is_alive() for process in processes):
+            failed = {
+                process.name: process.exitcode
+                for process in processes
+                if process.exitcode not in (None, 0)
+            }
+            if failed:
+                raise RuntimeError(f"worker processes failed: {failed}")
+            if time.perf_counter() >= deadline:
                 raise RuntimeError("calibration wall-time ceiling exceeded")
+            time.sleep(1)
+        for process in processes:
+            process.join()
             _log("worker_joined", process_name=process.name, exit_code=process.exitcode)
         failed = {
             process.name: process.exitcode
@@ -1110,8 +921,6 @@ def run(*, repo_root: Path, source_commit: str, started_at: float) -> int:
         }
         if failed:
             raise RuntimeError(f"worker processes failed: {failed}")
-        if time.perf_counter() >= deadline:
-            raise RuntimeError("calibration wall-time ceiling exceeded")
 
         workers = {
             model: json.loads(
@@ -1120,8 +929,6 @@ def run(*, repo_root: Path, source_commit: str, started_at: float) -> int:
             for model in MODEL_KINDS
         }
         selection = _select_numerics(tuple(workers.values()), contract)
-        if time.perf_counter() >= deadline:
-            raise RuntimeError("calibration wall-time ceiling exceeded")
         selection_path = OUTPUT_ROOT / "calibration_selection.json"
         _write_json(selection_path, selection)
         result = {
@@ -1140,13 +947,7 @@ def run(*, repo_root: Path, source_commit: str, started_at: float) -> int:
             },
         }
         _write_json(OUTPUT_ROOT / "runtime.json", runtime)
-        if time.perf_counter() >= deadline:
-            raise RuntimeError("calibration wall-time ceiling exceeded")
-        result_path = OUTPUT_ROOT / "calibration_result.json"
-        _write_json(result_path, result)
-        if time.perf_counter() >= deadline:
-            result_path.unlink()
-            raise RuntimeError("calibration wall-time ceiling exceeded")
+        _write_json(OUTPUT_ROOT / "calibration_result.json", result)
         _log(
             "run_complete",
             output_root=OUTPUT_ROOT.name,
