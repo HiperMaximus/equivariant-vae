@@ -1,9 +1,5 @@
 # Copyright 2026 HiperMaximus
-# pyright: reportUnknownArgumentType=false
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 """Focused numerical tests for the Stage A2 calibration helpers."""
-
-from __future__ import annotations
 
 import math
 
@@ -30,7 +26,7 @@ def test_decoder_visible_chart_is_orthonormal_and_contains_secant() -> None:
 
     midpoint = torch.zeros(1, 3)
     secant = torch.tensor([[1.0, -2.0, 0.5]])
-    operator = linearize_decoder(decoder, midpoint, compile_operators=False)
+    operator = linearize_decoder(decoder, midpoint)
     basis = decoder_visible_chart(
         operator,
         secant,
@@ -54,7 +50,6 @@ def test_thin_metric_spectrum_matches_known_linear_decoder() -> None:
     operator = linearize_decoder(
         decoder,
         torch.zeros(1, 3),
-        compile_operators=False,
     )
     spectra = thin_metric_spectra(
         operator,
@@ -88,7 +83,6 @@ def test_thin_metric_preserves_near_threshold_rotated_singular_ratio() -> None:
     operator = linearize_decoder(
         decoder,
         torch.zeros(1, 3),
-        compile_operators=False,
     )
     spectrum = thin_metric_spectra(
         operator,
@@ -146,3 +140,14 @@ def test_trust_projection_caps_each_knot_without_changing_safe_rows() -> None:
 
     assert torch.allclose(coordinates[0], torch.tensor([0.1, 0.0]))
     assert torch.allclose(coordinates[1], torch.tensor([0.15, 0.2]))
+
+
+def test_trust_projection_supports_full_latent_rows() -> None:
+    """Full-latent path variables use the same rowwise Euclidean trust tube."""
+    line = torch.zeros(2, 1, 2)
+    coordinates = torch.tensor([[[0.1, 0.0]], [[3.0, 4.0]]])
+
+    project_line_deviation_(coordinates, line, maximum_deviation=0.25)
+
+    assert torch.allclose(coordinates[0], torch.tensor([[0.1, 0.0]]))
+    assert torch.allclose(coordinates[1], torch.tensor([[0.15, 0.2]]))

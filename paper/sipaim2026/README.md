@@ -41,10 +41,9 @@ PDF policy:
 
 Template files:
 
-- `template/IEEEtran/` contains the downloaded CTAN `IEEEtran` package.
-- `template/IEEEtran/bare_conf.tex` is the bare IEEE conference starter file.
-- `template/IEEEtran/IEEEtran.cls` is the IEEEtran class file.
-- `template/IEEEtran/bibtex/IEEEtran.bst` is the bibliography style.
+- `template/IEEEtran/IEEEtran.cls` is the bundled IEEEtran class file.
+- `template/IEEEtran/bibtex/IEEEtran.bst` is the bundled bibliography style.
+- Unused CTAN examples, manuals, alternate styles and test fixtures are omitted.
 - `main.tex` is a minimal SIPAIM full-paper starter built on
   `\documentclass[conference]{IEEEtran}`.
 - `.latexmkrc` adds the bundled IEEEtran class and bibliography directories to

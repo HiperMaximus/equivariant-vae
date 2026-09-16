@@ -1,8 +1,5 @@
 # Copyright 2026 HiperMaximus
-# ruff: noqa: D103, INP001, PLC0415, S404, S603, S607
 """Thin Kaggle entrypoint; models are mounted and code comes from GitHub."""
-
-from __future__ import annotations
 
 import multiprocessing as mp
 import subprocess
@@ -27,6 +24,7 @@ def main() -> int:
             str(SOURCE_ROOT),
         ],
         check=True,
+        timeout=300,
     )
     subprocess.run(
         [
@@ -38,13 +36,15 @@ def main() -> int:
             "src",
             "experiments",
             "docs/data",
-            "runs/kaggle/fixed25_selector",
+            "configs/spec0001",
         ],
         check=True,
+        timeout=300,
     )
     commit = subprocess.check_output(
         ["git", "-C", str(SOURCE_ROOT), "rev-parse", "HEAD"],
         text=True,
+        timeout=60,
     ).strip()
     sys.path[:0] = [str(SOURCE_ROOT), str(SOURCE_ROOT / "src")]
 

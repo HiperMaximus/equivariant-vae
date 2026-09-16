@@ -1,4 +1,2 @@
 # Copyright 2026 HiperMaximus
-"""Test package for eqvae."""
-
-from __future__ import annotations
+"""Focused tests for active research code."""

@@ -4,18 +4,17 @@ Status: active
 
 ## Decision
 
-Kaggle script kernels receive repo code through a generated single-file
-embedded payload. Generated wrappers bind a payload manifest and validate it
-before importing `eqvae`.
+Kaggle script kernels use one small direct code file that sparse-clones this
+public repository and records the exact executed Git commit. The commit is
+pushed immediately before the requested kernel version; repository payloads
+are never embedded or regenerated per experiment.
 
-Large checkpoints, manifests and binary datasets are versioned private input
-datasets referenced by exact owner/slug/version and receipts; they are not
-embedded in `run.py`.
+Large checkpoints and binary data remain versioned Kaggle inputs referenced by
+their exact owner-qualified locators.
 
 ## Consequences
 
 - Repository source, not notebook JSON, is executable truth.
-- Generated `run.py` and payload directories remain ignored.
-- Internet settings are explicit per kernel and may serve only declared runtime
-  installation needs.
-- A public Git-based install route requires a separate delivery decision.
+- `scripts/kaggle_kernel.sh` uploads only metadata and the direct code file.
+- Internet access serves the declared public Git clone; mounted data locators
+  remain independent of the authenticated actor.

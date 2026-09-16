@@ -2,17 +2,18 @@
 
 These files record scientific questions, definitions, inputs, and accepted
 evidence. For new work read only the active relevant spec. Old specs are result
-provenance, not mandatory workflow. Parameter values belong in the experiment's
-machine-readable contract and do not require a new spec.
+provenance, not mandatory workflow; paths and commands in them may refer to
+executables preserved only by Git history. Parameter values belong in the
+experiment's machine-readable contract and do not require a new spec.
 
 ## Spec Index
 
 | Spec | Status | Blocked By | Current Rule |
 | --- | --- | --- | --- |
 | `0001-translatable-normal-vae-baseline.md` | Normal-VAE control implemented and verified at update 60000; beta `0.01`, fixed-25 evidence, and final checkpoint are locked. | None for the completed comparison. | Preserve the frozen baseline and accepted evidence without retraining it. |
-| `0006-selected-runtime-local-mechanics.md` | Implemented, locally verified, and exercised by the completed baseline. | None. | Maintain fail-closed runtime identity/checkpoint checks. |
-| `0007-real-ubc-ddp-amp-selected-runtime-runner.md` | Implemented and remote-verified through update 60000. | None for the normal-VAE runner. | Reuse shared mechanics; change only architecture-specific `SO(2)` details. |
-| `0008-canonical-fixed32-and-remote-debug-tiny-readiness.md` | Implemented; debug/resume/tiny proof complete. | None. | Retain as the short pre-long-run proof pattern. |
+| `0006-selected-runtime-local-mechanics.md` | Implemented, locally verified, and exercised by the completed baseline. | None. | Preserve the accepted evidence and historical implementation through Git; no live gate remains. |
+| `0007-real-ubc-ddp-amp-selected-runtime-runner.md` | Implemented and remote-verified through update 60000. | None for the completed normal-VAE run. | Preserve the frozen checkpoint and provenance; the consumed runner is no longer live code. |
+| `0008-canonical-fixed32-and-remote-debug-tiny-readiness.md` | Implemented; debug/resume/tiny proof complete. | None. | Preserve the result as provenance; do not recreate a readiness framework. |
 | `0009-first-full-selected-runtime-training-run.md` | Implemented durability and DDP lifecycle contract; executed runtime selection is owned by Spec 0011. | None; its v1 checkpoint is not a resume base. | Preserve the lifecycle contract and provenance. |
 | `0004-sipaim-paper-scaffold.md` | SIPAIM route ended without submission; the scaffold remains the working manuscript. | A new venue and an explicitly requested paper update; downstream MIL and its sealed test are complete. | Do not present SIPAIM as active; integrate fixed results only under a separately scoped paper task. |
 | `0005-overleaf-empty-project-initialization.md` | implemented | None for the narrow empty-project first-sync case. It is not a general conflict-resolution or force-push policy. | Use only `scripts/sipaim_overleaf_sync.sh push`; it may initialize an empty-tree Overleaf `master` with a normal fast-forward commit, but must abort for nonempty remote content. |
@@ -58,7 +59,7 @@ machine-readable contract and do not require a new spec.
 | `0050-corrected-rotation-geometry-validation.md` | Implemented / accepted: private Kaggle v1 corrected the mixed-sign sweep and completed the fixed-25 geometry audit. H1--H4 failed; no shared action was demonstrated and H6 factorization is unresolved. The report was rebuilt from hash-verified outputs and independently reviewed. | None. | Preserve Spec 0038 as superseded provenance and the accepted v1 outputs. |
 | `0051-decoded-latent-transform-consistency.md` | Implemented / accepted: receipt-bound private Kaggle v1 completed the fixed-25 decoder-side audit. Dense H1--H3 failed their locked thresholds, but the SO(2) decoder exactly realizes the prescribed C4 action at `rot90/180/270`; only `flip_diag` passes the reflection rule. | None. | Preserve the exact-C4 result without generalizing it to continuous SO(2), encoder equivariance, learned low-dimensional action, factorization, or complete D4/O(2); report integration is complete under Spec 0052, while issue changes remain separate. |
 | `0052-professor-report-decoded-transform-integration.md` | Implemented / complete: the professor report separates the 25/25 paired SO(2) decoded-route advantage from the unmet absolute `0.50` benchmark and limits the near-exact claim to the prescribed C4 decoder action. | None; no new inference or remote mutation occurred. | Preserve the 29-page/22-figure report, accepted hashes, and no-causal/no-continuous-generalization boundaries; paper, thesis, Overleaf, and further issue edits remain separate. |
-| `0053-functional-riemannian-latent-geometry.md` | `draft active`: exact-`C4` action and two-anchor SLQ are accepted; calibration v1 completed `unresolved`; lean v2 is running on Kaggle. | Retrieve and evaluate v2 after completion; scientific Stage A2 remains blocked until one complete common contract is selected. | Never promote partial calibration values. Calibration excludes final ranks/WSIs and cannot support model claims; keep paths, bridges, continuation, return/holonomy and `q` diagnostics separate. |
+| `0053-functional-riemannian-latent-geometry.md` | `draft active`: exact-`C4` action and two-anchor SLQ are accepted; calibration v1/v2 completed `unresolved`; focused v3 is launch-ready. | Launch and evaluate v3; scientific Stage A2 remains blocked until one complete common contract is selected. | Never promote partial calibration values. Calibration excludes final ranks/WSIs and cannot support model claims; keep paths, bridges, continuation, return/holonomy and `q` diagnostics separate. |
 
 Update the active spec only when the scientific question, definition, or
 interpretation changes.

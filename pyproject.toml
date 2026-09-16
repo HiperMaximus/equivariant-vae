@@ -38,41 +38,14 @@ dev = [
 
 [tool.ruff]
 extend-exclude = [
-    # Hash-pinned historical evidence; linting must never rewrite these bytes.
+    # Immutable Spec 0011 evidence; linting must not rewrite its recorded hash.
     "docs/data/spec0011_runtime_recipe_v2/producer/run.py",
-    # Generated hash-bearing upload artifact; validate it with its kernel builder.
-    "kaggle/kernels/vae_test_reconstruction/run.py",
 ]
-fix = false
-line-length = 88
-preview = true
-src = ["src", "tests"]
 target-version = "py312"
 
-[tool.ruff.format]
-docstring-code-format = true
-indent-style = "space"
-line-ending = "lf"
-quote-style = "double"
-
 [tool.ruff.lint]
-fixable = ["ALL"]
-ignore = [
-    # noqa-comments (RUF105) nags to rewrite every `# noqa` into ruff-native
-    # `# ruff:ignore[...]`. Cosmetic-only (no correctness/quality gain) and its
-    # autofix mangles existing suppressions, so `import-outside-top-level`/
-    # `import-private-name` spuriously fire. Deliberately excluded; the
-    # `# noqa`/`# ruff:ignore` mix stays as-is.
-    "noqa-comments",
-]
-select = ["ALL"]
-unfixable = []
-
-[tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["assert"]
-# Kaggle wrappers use flushed JSONL progress events as their sole remote
-# observability channel. Keep T201 enabled for local/product code.
-"kaggle/kernels/**/*.py" = ["print"]
+# Research code: catch syntax, invalid control flow and undefined names only.
+select = ["E9", "F6", "F7", "F82"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -86,19 +59,14 @@ exclude = [
     "paper",
 ]
 include = [
+    "experiments",
     "src/eqvae",
     "tests",
 ]
 pythonPlatform = "Linux"
 pythonVersion = "3.12"
-reportAny = "error"
-reportIgnoreCommentWithoutRule = "error"
-reportMissingImports = "error"
-reportMissingTypeStubs = "error"
-strict = [
-    "src/eqvae",
-    "tests",
-]
-typeCheckingMode = "strict"
+# PyTorch tensor shapes and experiment payloads are runtime-checked where needed;
+# static analysis should catch ordinary mistakes, not require exhaustive typing.
+typeCheckingMode = "basic"
 venv = ".venv"
 venvPath = "."

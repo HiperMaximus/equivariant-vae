@@ -1,7 +1,4 @@
 # Copyright 2026 HiperMaximus
-# ruff: noqa: DOC201, EM101, PLR0914, PLR2004, TRY003
-# pyright: reportAny=false, reportUnknownArgumentType=false
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 """Small numerical helpers for the Stage A2 geometry calibration probe."""
 
 from __future__ import annotations
@@ -209,6 +206,7 @@ def project_line_deviation_(
         raise ValueError("maximum_deviation must be positive")
     with torch.no_grad():
         deviation = coordinates - line_coordinates
-        norms = torch.linalg.vector_norm(deviation, dim=1, keepdim=True)
+        norms = torch.linalg.vector_norm(deviation.flatten(1), dim=1)
         scales = torch.clamp(maximum_deviation / norms.clamp_min(1e-12), max=1.0)
+        scales = scales.reshape(-1, *(1 for _ in coordinates.shape[1:]))
         coordinates.copy_(line_coordinates + deviation * scales)

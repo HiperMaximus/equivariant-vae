@@ -5,62 +5,78 @@
   },
   "numerics": {
     "chart": {
-      "dimensions": [8, 16, 32],
+      "dimensions": [32, 128],
       "line_parameters": [0.0, 0.5, 1.0],
-      "maximum_dimension": 32,
-      "random_probe_count": 31,
+      "maximum_dimension": 128,
+      "random_probe_count": 127,
       "seed": 530201
     },
-    "conditioning": {
-      "relative_minimum_singular_value_candidates": [0.01, 0.003, 0.001, 0.0003]
-    },
-    "finite_difference": {
-      "epsilon_candidates": [0.004, 0.008, 0.016, 0.032, 0.064],
-      "seed": 530202
+    "compilation": {
+      "dynamic": false,
+      "energy_relative_l2_max": 0.00001,
+      "fullgraph": true,
+      "gradient_relative_l2_max": 0.0001,
+      "mode": "default",
+      "probe_path_segments": 16,
+      "settled_repetitions": 3
     },
     "jvp_microbatch": 4,
-    "linearity": {
-      "rademacher_combination_count": 4,
-      "radius_fractions_of_endpoint_secant": [0.00025, 0.0005, 0.001, 0.0015, 0.002, 0.003, 0.005],
-      "relative_l2_targets": [0.02, 0.05, 0.1],
-      "seed": 530203,
-      "two_sided": true
-    },
     "operator": "Gv=J^T(Jv)",
     "operator_dtype": "float32",
     "optimizer": {
       "algorithm": "Adam",
-      "chart_dimensions": [16, 32],
       "energy_chunk_segments": 8,
-      "iterations": 384,
-      "learning_rates": [0.005],
-      "milestones": [0, 8, 16, 32, 48, 64, 96, 128, 160, 192, 256, 320, 384],
-      "path_segments": [16, 32],
+      "iterations": 128,
+      "learning_rate": 0.005,
+      "learning_rate_reference_dimension": 32,
+      "milestones": [0, 16, 32, 64, 96, 128],
       "trust_deviation_fraction_of_endpoint_secant": 0.2
     },
-    "runtime_path_segments": [8, 16, 32, 64],
     "selection": {
       "conditioning_minimum_ratio": 0.001,
-      "finite_difference_worst_relative_l2_max": 0.005,
       "optimizer_energy_plateau_relative_slack": 0.01,
       "optimizer_minimum_relative_energy_decrease": 0.01,
-      "sampled_linearity_relative_l2_max": 0.05
+      "reduced_to_full_best_energy_excess_max": 0.01
     }
   },
   "resources": {
     "peak_reserved_bytes_max_per_device": 13958643712,
-    "wall_time_minutes_max": 690
+    "wall_time_minutes_max": 120
   },
-  "schema": "eqvae.functional_geometry.stage_a2_calibration.v2",
+  "schema": "eqvae.functional_geometry.stage_a2_calibration.v3",
   "scope": {
-    "calibration_patch_ranks": [4, 8, 10, 16, 24],
+    "calibration_patch_ranks": [4, 16],
     "final_pilot_patch_ranks": [0, 12],
     "forbidden_calibration_wsis": ["38349", "59031"],
     "model_device_map": {
       "normal_vae": 0,
       "so2_vae": 1
     },
-    "optimization_patch_ranks": [4, 16],
-    "routes": ["encoded", "prescribed"]
+    "optimizer_workloads": [
+      {
+        "candidates": [
+          {
+            "coordinate_spaces": [32, 128, "full"],
+            "path_segments": 16
+          },
+          {
+            "coordinate_spaces": [128, "full"],
+            "path_segments": 32
+          }
+        ],
+        "rank": 4,
+        "route": "prescribed"
+      },
+      {
+        "candidates": [
+          {
+            "coordinate_spaces": [32, 128, "full"],
+            "path_segments": 16
+          }
+        ],
+        "rank": 16,
+        "route": "encoded"
+      }
+    ]
   }
 }

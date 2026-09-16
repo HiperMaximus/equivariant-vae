@@ -49,10 +49,11 @@ D4/O(2) equivariance.
 ## Repository Layout
 
 ```text
-src/eqvae/          model, data, training, inference and evaluation code
+src/eqvae/          frozen VAE definitions and active geometry code
 configs/            frozen experiment contracts
-tests/              local verification
-kaggle/kernels/     CLI-managed Kaggle script kernels
+experiments/        active Spec 0053 orchestration
+tests/              focused geometry/model verification
+kaggle/kernels/     the active CLI-managed Kaggle script kernel
 docs/specs/         detailed implementation and experiment contracts
 docs/decisions/     settled design decisions
 runs/               ignored local/remote evidence and receipts

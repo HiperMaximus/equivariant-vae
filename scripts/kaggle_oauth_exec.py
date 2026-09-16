@@ -16,7 +16,7 @@ import pathlib
 import re
 import shutil
 import stat
-import subprocess  # noqa: S404
+import subprocess
 import sys
 import tempfile
 
@@ -125,7 +125,7 @@ def main(argv: list[str]) -> int:
 
         env = os.environ.copy()
         env["KAGGLE_API_TOKEN"] = token_file.name
-        return subprocess.run(  # noqa: S603
+        return subprocess.run(
             [kaggle_bin, *argv],
             env=env,
             check=False,

@@ -221,6 +221,17 @@ class SO2VAE(nn.Module):
             hidden = cast("torch.Tensor", block(hidden))
         return cast("torch.Tensor", self.output_head(hidden))
 
+    def materialize_frozen_decoder_kernels(self) -> int:
+        """Expand each frozen equivariant decoder kernel exactly once."""
+        count = 0
+        roots = (self.latent_projection_conv, self.decoder_blocks, self.output_head)
+        for root in roots:
+            for module in root.modules():
+                if isinstance(module, (_ScalarToF01Conv, _F01ToF01Conv, _F01ToScalarConv)):
+                    module.materialize_frozen_kernel()
+                    count += 1
+        return count
+
     def forward(
         self,
         inputs: torch.Tensor,

@@ -1,15 +1,12 @@
 # Copyright 2026 HiperMaximus
-# ruff: noqa: ANN001, ANN202, BLE001, C901, COM812, D103, EM101, EM102, FBT003, PLC0415, PLR0912, PLR0913, PLR0914, PLR0915, PLR1702, PLR2004, PLW0717, T201, TRY003, TRY203, TRY300, TRY301
 """Numerical calibration experiment for functional-geometry Stage A2."""
 
-from __future__ import annotations
-
 import hashlib
-import itertools
 import json
 import math
 import multiprocessing as mp
 import os
+import struct
 import sys
 import time
 from pathlib import Path
@@ -18,9 +15,9 @@ os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
 INPUT_ROOT = Path("/kaggle/input")
 WORKING_ROOT = Path("/kaggle/working")
-OUTPUT_ROOT = WORKING_ROOT / "functional_geometry_stage_a2_calibration_v2"
+OUTPUT_ROOT = WORKING_ROOT / "functional_geometry_stage_a2_calibration_v3"
 CONTRACT_PATH = Path("docs/data/functional_geometry_stage_a2_calibration_contract.json")
-SELECTOR_PATH = Path("runs/kaggle/fixed25_selector/fixed_25_validation_patches.json")
+SELECTOR_PATH = Path("configs/spec0001/fixed_25_validation_patches.json")
 WEIGHT_ROOT = INPUT_ROOT / "eqvae-vae-test-reconstruction-inputs-v1"
 PATCH_PATH = (
     INPUT_ROOT / "patches-pre-shuffled-ubc-ocean" / "dataset" / "ubc_ocean_valid.bin"
@@ -31,6 +28,7 @@ MODEL_KINDS = {
 }
 PATCH_BYTES = 3 * 256 * 256
 HEADER_BYTES = 64
+STATE_HASH_SCHEMA = b"eqvae_spec0045_state_dict_v1"
 _STARTED = time.perf_counter()
 
 
@@ -61,6 +59,23 @@ def _write_json(path: Path, value: object) -> None:
     with path.open("w", encoding="utf-8") as handle:
         json.dump(value, handle, allow_nan=False, indent=2, sort_keys=True)
         handle.write("\n")
+
+
+def _state_dict_sha256(state) -> str:
+    digest = hashlib.sha256(STATE_HASH_SCHEMA)
+    for name in sorted(state):
+        tensor = state[name].detach().cpu().contiguous()
+        metadata = json.dumps(
+            {"dtype": str(tensor.dtype), "name": name, "shape": list(tensor.shape)},
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+        payload = tensor.numpy().tobytes(order="C")
+        digest.update(struct.pack("<Q", len(metadata)))
+        digest.update(metadata)
+        digest.update(struct.pack("<Q", len(payload)))
+        digest.update(payload)
+    return digest.hexdigest()
 
 
 def _memory(device, torch) -> dict[str, int]:
@@ -133,15 +148,6 @@ def _encode(model, images, *, batch_size, torch):
     return torch.cat(means)
 
 
-def _relative_l2(left, right, *, torch) -> float:
-    numerator = torch.linalg.vector_norm((left - right).to(torch.float64))
-    denominator = torch.maximum(
-        torch.linalg.vector_norm(left.to(torch.float64)),
-        torch.linalg.vector_norm(right.to(torch.float64)),
-    ).clamp_min(1e-12)
-    return float(numerator / denominator)
-
-
 def _spectrum_payload(spectrum) -> dict[str, object]:
     return {
         "condition_number": spectrum.condition_number,
@@ -149,25 +155,6 @@ def _spectrum_payload(spectrum) -> dict[str, object]:
         "minimum_to_maximum_ratio": spectrum.minimum_to_maximum_ratio,
         "singular_values_descending": list(spectrum.singular_values_descending),
     }
-
-
-def _linearity_directions(basis, dimension, *, seed, combination_count, torch):
-    chart = basis[:dimension]
-    generator = torch.Generator(device=basis.device).manual_seed(seed)
-    signs = torch.randint(
-        0,
-        2,
-        (combination_count, dimension),
-        generator=generator,
-        device=basis.device,
-        dtype=torch.int8,
-    )
-    coefficients = (signs.to(basis.dtype) * 2 - 1) / math.sqrt(dimension)
-    combinations = coefficients @ chart.flatten(1)
-    return torch.cat((
-        chart[:1],
-        combinations.reshape(combination_count, *chart.shape[1:]),
-    ))
 
 
 def _chart_diagnostics(
@@ -192,11 +179,7 @@ def _chart_diagnostics(
     secant = right - left
     secant_norm = torch.linalg.vector_norm(secant.to(torch.float64)).to(torch.float32)
     midpoint = (left + right) / 2
-    midpoint_operator = linearize_decoder(
-        model.decode,
-        midpoint,
-        compile_operators=False,
-    )
+    midpoint_operator = linearize_decoder(model.decode, midpoint)
     route_offset = 0 if route == "encoded" else 1
     basis = decoder_visible_chart(
         midpoint_operator,
@@ -221,13 +204,12 @@ def _chart_diagnostics(
     )
 
     metric_rows = []
-    line_operators = []
     for parameter_index, parameter in enumerate(chart_contract["line_parameters"]):
         point = left + float(parameter) * secant
         operator = (
             midpoint_operator
             if parameter_index == 1
-            else linearize_decoder(model.decode, point, compile_operators=False)
+            else linearize_decoder(model.decode, point)
         )
         spectra = thin_metric_spectra(
             operator,
@@ -239,73 +221,6 @@ def _chart_diagnostics(
             "line_parameter": parameter,
             "spectra": [_spectrum_payload(spectrum) for spectrum in spectra],
         })
-        line_operators.append((float(parameter), point, operator))
-
-    linearity_rows = []
-    linearity = numerics["linearity"]
-    for dimension in chart_contract["dimensions"]:
-        directions = _linearity_directions(
-            basis,
-            dimension,
-            seed=linearity["seed"] + 100 * rank + 10 * route_offset + dimension,
-            combination_count=linearity["rademacher_combination_count"],
-            torch=torch,
-        )
-        for parameter, point, operator in line_operators:
-            tangents = torch.cat([
-                operator.jvp_batch(directions[start : start + microbatch])
-                for start in range(0, directions.shape[0], microbatch)
-            ])
-            for radius_fraction in linearity["radius_fractions_of_endpoint_secant"]:
-                for sign in (-1, 1):
-                    scale = sign * float(radius_fraction) * secant_norm
-                    with torch.no_grad():
-                        output1 = model.decode(point + scale * directions)
-                    linear = scale * tangents
-                    linearity_rows.extend(
-                        {
-                            "chart_dimension": dimension,
-                            "direction_index": direction_index,
-                            "direction_kind": (
-                                "secant" if direction_index == 0 else "rademacher"
-                            ),
-                            "line_parameter": parameter,
-                            "radius_fraction": radius_fraction,
-                            "relative_l2": _relative_l2(
-                                output1[direction_index] - operator.output[0],
-                                linear[direction_index],
-                                torch=torch,
-                            ),
-                            "sign": sign,
-                        }
-                        for direction_index in range(directions.shape[0])
-                    )
-
-    fd_contract = numerics["finite_difference"]
-    generator = torch.Generator(device=left.device).manual_seed(
-        fd_contract["seed"] + 10 * rank + route_offset
-    )
-    fd_signs = torch.randint(
-        0,
-        2,
-        left.shape,
-        generator=generator,
-        device=left.device,
-        dtype=torch.int8,
-    )
-    fd_direction = fd_signs.to(torch.float32) * 2 - 1
-    fd_tangent = midpoint_operator.jvp_batch(fd_direction)
-    fd_rows = []
-    for epsilon in fd_contract["epsilon_candidates"]:
-        with torch.no_grad():
-            finite = (
-                model.decode(midpoint + float(epsilon) * fd_direction)
-                - model.decode(midpoint - float(epsilon) * fd_direction)
-            ) / (2 * float(epsilon))
-        fd_rows.append({
-            "epsilon": epsilon,
-            "relative_l2": _relative_l2(fd_tangent, finite, torch=torch),
-        })
 
     result = {
         "basis": {
@@ -313,8 +228,6 @@ def _chart_diagnostics(
             "orthonormality_operator_error": orthonormality_error,
             "secant_relative_projection_residual": secant_relative_residual,
         },
-        "finite_difference": fd_rows,
-        "linearity": linearity_rows,
         "metrics": metric_rows,
         "secant_euclidean_norm": float(secant_norm),
     }
@@ -330,21 +243,174 @@ def _path_coordinates(*, segments, endpoint_coordinates, torch):
         device=endpoint_coordinates.device,
         dtype=endpoint_coordinates.dtype,
     )
-    return times[:, None] * endpoint_coordinates[None, :]
+    times = times.reshape(-1, *(1 for _ in endpoint_coordinates.shape))
+    return times * endpoint_coordinates.unsqueeze(0)
+
+
+def _decoder_edge_energy(model, latents, total_segments, *, torch):
+    decoded = model.decode(latents)
+    differences = decoded[1:] - decoded[:-1]
+    return total_segments * differences.flatten(1).square().mean(dim=1).sum()
+
+
+def _value_and_gradient(function, latents, total_segments, *, torch):
+    variable = latents.detach().clone().requires_grad_(True)
+    value = function(variable, total_segments)
+    gradient = torch.autograd.grad(value, variable)[0]
+    return value.detach(), gradient.detach()
+
+
+def _relative_tensor_error(left, right, *, torch):
+    numerator = torch.linalg.vector_norm((left - right).to(torch.float64))
+    denominator = torch.maximum(
+        torch.linalg.vector_norm(left.to(torch.float64)),
+        torch.linalg.vector_norm(right.to(torch.float64)),
+    ).clamp_min(1e-30)
+    return float(numerator / denominator)
+
+
+def _prepare_decoder_runtime(model, probe_latents, contract, *, torch):
+    """Materialize frozen SO(2) kernels and compile the repeated scalar closure."""
+    compile_contract = contract["numerics"]["compilation"]
+    segment_scale = torch.tensor(
+        float(compile_contract["probe_path_segments"]),
+        device=probe_latents.device,
+        dtype=probe_latents.dtype,
+    )
+
+    with torch.enable_grad():
+        uncached_output = model.decode(probe_latents).detach()
+        uncached_value, uncached_gradient = _value_and_gradient(
+            lambda latents, scale: _decoder_edge_energy(
+                model,
+                latents,
+                scale,
+                torch=torch,
+            ),
+            probe_latents,
+            segment_scale,
+            torch=torch,
+        )
+
+    materialized_count = 0
+    materialize = getattr(model, "materialize_frozen_decoder_kernels", None)
+    if materialize is not None:
+        materialized_count = materialize()
+
+    def eager(latents, total_segments):
+        return _decoder_edge_energy(
+            model,
+            latents,
+            total_segments,
+            torch=torch,
+        )
+
+    with torch.enable_grad():
+        cached_output = model.decode(probe_latents).detach()
+        cached_value, cached_gradient = _value_and_gradient(
+            eager,
+            probe_latents,
+            segment_scale,
+            torch=torch,
+        )
+
+    cache_output_error = _relative_tensor_error(
+        uncached_output,
+        cached_output,
+        torch=torch,
+    )
+    cache_energy_error = _relative_tensor_error(
+        uncached_value,
+        cached_value,
+        torch=torch,
+    )
+    cache_gradient_error = _relative_tensor_error(
+        uncached_gradient,
+        cached_gradient,
+        torch=torch,
+    )
+    if max(cache_output_error, cache_energy_error, cache_gradient_error) != 0.0:
+        raise RuntimeError("materialized decoder differs from coefficient expansion")
+
+    compile_started = time.perf_counter()
+    compiled = torch.compile(
+        eager,
+        dynamic=compile_contract["dynamic"],
+        fullgraph=compile_contract["fullgraph"],
+        mode=compile_contract["mode"],
+    )
+    with torch.enable_grad():
+        compiled_value, compiled_gradient = _value_and_gradient(
+            compiled,
+            probe_latents,
+            segment_scale,
+            torch=torch,
+        )
+    torch.cuda.synchronize(probe_latents.device)
+    compile_seconds = time.perf_counter() - compile_started
+
+    compiled_energy_error = _relative_tensor_error(
+        cached_value,
+        compiled_value,
+        torch=torch,
+    )
+    compiled_gradient_error = _relative_tensor_error(
+        cached_gradient,
+        compiled_gradient,
+        torch=torch,
+    )
+    if compiled_energy_error > compile_contract["energy_relative_l2_max"]:
+        raise RuntimeError("compiled edge energy differs from eager")
+    if compiled_gradient_error > compile_contract["gradient_relative_l2_max"]:
+        raise RuntimeError("compiled edge gradient differs from eager")
+    if any(parameter.grad is not None for parameter in model.parameters()):
+        raise RuntimeError("frozen decoder accumulated parameter gradients")
+
+    def settled_seconds(function):
+        samples = []
+        for _ in range(compile_contract["settled_repetitions"]):
+            torch.cuda.synchronize(probe_latents.device)
+            started = time.perf_counter()
+            with torch.enable_grad():
+                _value_and_gradient(
+                    function,
+                    probe_latents,
+                    segment_scale,
+                    torch=torch,
+                )
+            torch.cuda.synchronize(probe_latents.device)
+            samples.append(time.perf_counter() - started)
+        return sorted(samples)[len(samples) // 2]
+
+    eager_seconds = settled_seconds(eager)
+    compiled_seconds = settled_seconds(compiled)
+    selected = compiled if compiled_seconds < eager_seconds else eager
+    telemetry = {
+        "cache_energy_relative_l2": cache_energy_error,
+        "cache_gradient_relative_l2": cache_gradient_error,
+        "cache_output_relative_l2": cache_output_error,
+        "compile_cold_seconds": compile_seconds,
+        "compiled_energy_relative_l2": compiled_energy_error,
+        "compiled_gradient_relative_l2": compiled_gradient_error,
+        "compiled_settled_seconds": compiled_seconds,
+        "eager_settled_seconds": eager_seconds,
+        "materialized_decoder_kernel_count": materialized_count,
+        "selected_backend": "compiled" if selected is compiled else "eager",
+        "settled_speedup": eager_seconds / compiled_seconds,
+    }
+    return eager, selected, telemetry
 
 
 def _chunked_path_energy(
-    model,
     left,
     right,
     *,
-    basis,
+    endpoint_coordinates,
     interior_coordinates,
-    secant_norm,
+    coordinates_to_latents,
+    edge_energy,
     total_segments,
     chunk_segments,
-    affine_chart_latents,
-    decoder_path_edge_energy,
     backward,
     torch,
 ):
@@ -354,36 +420,39 @@ def _chunked_path_energy(
         Scalar path energy.
 
     """
-    endpoint = (right - left).flatten(1) @ basis.flatten(1).T / secant_norm
-    total = 0.0
+    if total_segments % chunk_segments != 0:
+        raise ValueError("compiled path blocks must have one fixed shape")
+    total = None
     for start in range(0, total_segments, chunk_segments):
-        stop = min(start + chunk_segments, total_segments)
+        stop = start + chunk_segments
         all_coordinates = torch.cat(
             (
-                interior_coordinates.new_zeros((1, interior_coordinates.shape[1])),
+                interior_coordinates.new_zeros((1, *interior_coordinates.shape[1:])),
                 interior_coordinates,
-                endpoint,
+                endpoint_coordinates.unsqueeze(0),
             ),
             dim=0,
         )
-        latents = affine_chart_latents(
-            left,
-            basis,
-            all_coordinates[start : stop + 1],
-            secant_norm=secant_norm,
-        )
+        latents = coordinates_to_latents(all_coordinates[start : stop + 1])
         if start == 0:
             latents = torch.cat((left, latents[1:]), dim=0)
         if stop == total_segments:
             latents = torch.cat((latents[:-1], right), dim=0)
-        energy = decoder_path_edge_energy(
-            model.decode(latents),
-            total_path_segments=total_segments,
+        segment_scale = latents.new_tensor(float(total_segments))
+        energy = edge_energy(
+            latents,
+            segment_scale,
         )
         if backward:
             energy.backward()
-        total += float(energy.detach())
-    return total
+        else:
+            detached = energy.detach()
+            total = detached if total is None else total + detached
+    if backward:
+        return None
+    if total is None:
+        raise RuntimeError("path contains no edge blocks")
+    return float(total)
 
 
 def _optimizer_probe(
@@ -392,35 +461,60 @@ def _optimizer_probe(
     right,
     basis,
     *,
-    dimension,
+    coordinate_space,
     learning_rate,
     path_segments,
     optimizer_contract,
     affine_chart_latents,
-    decoder_path_edge_energy,
+    eager_edge_energy,
+    optimized_edge_energy,
     project_line_deviation_,
     torch,
 ):
     segments = path_segments
-    chart = basis[:dimension]
     secant = right - left
     secant_norm = torch.linalg.vector_norm(secant).detach()
-    endpoint_coordinates = (
-        torch.einsum("dn,bn->d", chart.flatten(1), secant.flatten(1)) / secant_norm
-    )
-    projection = torch.einsum("d,dn->n", endpoint_coordinates, chart.flatten(1))
-    projection_error = float(
-        torch.linalg.vector_norm(projection - secant.flatten(1) / secant_norm)
-    )
-    if projection_error > 1e-4:
-        raise RuntimeError("literal endpoint is outside the affine chart")
+    if coordinate_space == "full":
+        endpoint_coordinates = secant[0] / secant_norm
+        projection_error = 0.0
+
+        def coordinates_to_latents(coordinates):
+            return left + secant_norm * coordinates
+
+    else:
+        dimension = int(coordinate_space)
+        chart = basis[:dimension]
+        endpoint_coordinates = (
+            torch.einsum("dn,bn->d", chart.flatten(1), secant.flatten(1))
+            / secant_norm
+        )
+        projection = torch.einsum("d,dn->n", endpoint_coordinates, chart.flatten(1))
+        projection_error = float(
+            torch.linalg.vector_norm(projection - secant.flatten(1) / secant_norm)
+        )
+        if projection_error > 1e-4:
+            raise RuntimeError("literal endpoint is outside the affine chart")
+
+        def coordinates_to_latents(coordinates):
+            return affine_chart_latents(
+                left,
+                chart,
+                coordinates,
+                secant_norm=secant_norm,
+            )
+
     line = _path_coordinates(
         segments=segments,
         endpoint_coordinates=endpoint_coordinates,
         torch=torch,
     )
     interior = line[1:-1].clone().detach().requires_grad_(True)
-    optimizer = torch.optim.Adam([interior], lr=learning_rate)
+    coordinate_dimension = endpoint_coordinates.numel()
+    effective_learning_rate = learning_rate * math.sqrt(
+        optimizer_contract["learning_rate_reference_dimension"]
+        / coordinate_dimension
+    )
+    optimizer = torch.optim.Adam([interior], lr=effective_learning_rate)
     milestones = set(optimizer_contract["milestones"])
     with torch.no_grad():
         endpoint_decoded = model.decode(torch.cat((left, right), dim=0))
@@ -439,20 +533,23 @@ def _optimizer_probe(
     def record(iteration, preupdate_gradient_norm):
         with torch.no_grad():
             energy = _chunked_path_energy(
-                model,
                 left,
                 right,
-                basis=chart,
+                endpoint_coordinates=endpoint_coordinates,
                 interior_coordinates=interior,
-                secant_norm=secant_norm,
+                coordinates_to_latents=coordinates_to_latents,
+                edge_energy=eager_edge_energy,
                 total_segments=segments,
                 chunk_segments=chunk_segments,
-                affine_chart_latents=affine_chart_latents,
-                decoder_path_edge_energy=decoder_path_edge_energy,
                 backward=False,
                 torch=torch,
             )
-            deviations = torch.linalg.vector_norm(interior - line[1:-1], dim=1)
+            if energy is None:
+                raise RuntimeError("eager energy evaluation returned no value")
+            deviations = torch.linalg.vector_norm(
+                (interior - line[1:-1]).flatten(1),
+                dim=1,
+            )
             maximum_deviation = float(deviations.max())
             history.append({
                 "energy": energy,
@@ -471,29 +568,30 @@ def _optimizer_probe(
             })
 
     record(0, None)
-    last_gradient_norm = None
     started = time.perf_counter()
     for iteration in range(1, optimizer_contract["iterations"] + 1):
         optimizer.zero_grad(set_to_none=True)
         _chunked_path_energy(
-            model,
             left,
             right,
-            basis=chart,
+            endpoint_coordinates=endpoint_coordinates,
             interior_coordinates=interior,
-            secant_norm=secant_norm,
+            coordinates_to_latents=coordinates_to_latents,
+            edge_energy=optimized_edge_energy,
             total_segments=segments,
             chunk_segments=chunk_segments,
-            affine_chart_latents=affine_chart_latents,
-            decoder_path_edge_energy=decoder_path_edge_energy,
             backward=True,
             torch=torch,
         )
-        last_gradient_norm = float(torch.linalg.vector_norm(interior.grad))
+        preupdate_gradient_norm = (
+            float(torch.linalg.vector_norm(interior.grad))
+            if iteration in milestones
+            else None
+        )
         optimizer.step()
         with torch.no_grad():
             preprojection = torch.linalg.vector_norm(
-                interior - line[1:-1],
+                (interior - line[1:-1]).flatten(1),
                 dim=1,
             )
             preprojection_maximum = float(preprojection.max())
@@ -511,26 +609,34 @@ def _optimizer_probe(
         )
         with torch.no_grad():
             postprojection_maximum = float(
-                torch.linalg.vector_norm(interior - line[1:-1], dim=1).max()
+                torch.linalg.vector_norm(
+                    (interior - line[1:-1]).flatten(1),
+                    dim=1,
+                ).max()
             )
             maximum_postprojection_deviation = max(
                 maximum_postprojection_deviation,
                 postprojection_maximum,
             )
         if iteration in milestones:
-            record(iteration, last_gradient_norm)
+            record(iteration, preupdate_gradient_norm)
     if left.device.type == "cuda":
         torch.cuda.synchronize(left.device)
     elapsed = time.perf_counter() - started
     result = {
         "algorithm": optimizer_contract["algorithm"],
-        "chart_dimension": dimension,
+        "best_recorded_energy": min(row["energy"] for row in history),
+        "coordinate_space": coordinate_space,
         "decoder_forward_backward_iterations": optimizer_contract["iterations"],
         "energy_chunk_segments": chunk_segments,
         "elapsed_seconds": elapsed,
         "endpoint_chord_squared_rms": endpoint_chord_squared,
+        "effective_learning_rate": effective_learning_rate,
         "history": history,
         "learning_rate": learning_rate,
+        "learning_rate_reference_dimension": optimizer_contract[
+            "learning_rate_reference_dimension"
+        ],
         "path_segments": segments,
         "projection_applied_count": projection_applied_count,
         "projection_iteration_count": projection_iteration_count,
@@ -542,125 +648,22 @@ def _optimizer_probe(
     return result
 
 
-def _runtime_probe(
-    model,
-    left,
-    right,
-    basis,
-    *,
-    segment_candidates,
-    chunk_segments,
-    peak_reserved_bytes_max,
-    affine_chart_latents,
-    decoder_path_edge_energy,
-    torch,
-):
-    dimension = min(16, basis.shape[0])
-    chart = basis[:dimension]
-    secant = right - left
-    secant_norm = torch.linalg.vector_norm(secant).detach()
-    endpoint_coordinates = (
-        torch.einsum("dn,bn->d", chart.flatten(1), secant.flatten(1)) / secant_norm
-    )
-    rows = []
-    for segments in segment_candidates:
-        torch.cuda.empty_cache()
-        torch.cuda.reset_peak_memory_stats(left.device)
-        line = _path_coordinates(
-            segments=segments,
-            endpoint_coordinates=endpoint_coordinates,
-            torch=torch,
-        )
-        interior = line[1:-1].clone().detach().requires_grad_(True)
-        torch.cuda.synchronize(left.device)
-        started = time.perf_counter()
-        try:
-            energy = _chunked_path_energy(
-                model,
-                left,
-                right,
-                basis=chart,
-                interior_coordinates=interior,
-                secant_norm=secant_norm,
-                total_segments=segments,
-                chunk_segments=chunk_segments,
-                affine_chart_latents=affine_chart_latents,
-                decoder_path_edge_energy=decoder_path_edge_energy,
-                backward=True,
-                torch=torch,
-            )
-            torch.cuda.synchronize(left.device)
-            peak_memory = _memory(left.device, torch)
-            rows.append({
-                "elapsed_seconds": time.perf_counter() - started,
-                "energy": energy,
-                "energy_chunk_segments": chunk_segments,
-                "path_segments": segments,
-                "peak_memory": peak_memory,
-                "status": (
-                    "complete"
-                    if peak_memory["peak_reserved_bytes"] < peak_reserved_bytes_max
-                    else "resource_ceiling_exceeded"
-                ),
-            })
-        except torch.cuda.OutOfMemoryError as error:
-            rows.append({
-                "exception_message": str(error),
-                "path_segments": segments,
-                "peak_memory": _memory(left.device, torch),
-                "status": "cuda_oom",
-            })
-        finally:
-            del interior, line
-            torch.cuda.empty_cache()
-    return rows
-
-
 def _select_numerics(workers, contract):
     numerics = contract["numerics"]
+    workload_contracts = contract["scope"]["optimizer_workloads"]
     workloads = [
         workload
         for worker in workers
         for workload in worker["workloads"]
         if workload.get("status") == "complete"
     ]
-    expected_workloads = (
-        len(workers)
-        * len(contract["scope"]["calibration_patch_ranks"])
-        * len(contract["scope"]["routes"])
-    )
+    expected_workloads = len(workers) * len(workload_contracts)
     blockers = []
     if len(workloads) != expected_workloads:
         blockers.append("one_or_more_calibration_workloads_failed")
 
-    epsilon_worst = {}
-    for epsilon in numerics["finite_difference"]["epsilon_candidates"]:
-        values = [
-            row["relative_l2"]
-            for workload in workloads
-            for row in workload["chart_diagnostics"]["finite_difference"]
-            if row["epsilon"] == epsilon
-        ]
-        if workloads and len(values) == len(workloads):
-            epsilon_worst[str(epsilon)] = max(values)
-    epsilon_limit = numerics["selection"]["finite_difference_worst_relative_l2_max"]
-    passing_epsilons = [
-        float(key) for key, value in epsilon_worst.items() if value <= epsilon_limit
-    ]
-    selected_epsilon = (
-        min(
-            passing_epsilons,
-            key=lambda value: (epsilon_worst[str(value)], value),
-        )
-        if passing_epsilons
-        else None
-    )
-    if selected_epsilon is None:
-        blockers.append("no_finite_difference_epsilon_passed")
-
     ratio_floor = numerics["selection"]["conditioning_minimum_ratio"]
     dimension_minimum_ratios = {}
-    passing_dimensions = []
     for dimension in numerics["chart"]["dimensions"]:
         values = [
             spectrum["minimum_to_maximum_ratio"]
@@ -671,195 +674,159 @@ def _select_numerics(workers, contract):
         ]
         expected = len(workloads) * len(numerics["chart"]["line_parameters"])
         if expected > 0 and len(values) == expected:
-            minimum = min(values)
-            dimension_minimum_ratios[str(dimension)] = minimum
-            if minimum >= ratio_floor:
-                passing_dimensions.append(dimension)
-    primary_dimension = None
-    refinement_dimension = None
-    if len(passing_dimensions) >= 2:
-        primary_dimension = passing_dimensions[-2]
-        refinement_dimension = passing_dimensions[-1]
-    else:
-        blockers.append("fewer_than_two_conditioned_nested_chart_dimensions")
-    conditioning_dimension_pass_by_floor = {
-        str(floor): [
-            dimension
-            for dimension in numerics["chart"]["dimensions"]
-            if dimension_minimum_ratios.get(str(dimension), -1.0) >= floor
-        ]
-        for floor in numerics["conditioning"][
-            "relative_minimum_singular_value_candidates"
-        ]
-    }
+            dimension_minimum_ratios[str(dimension)] = min(values)
 
-    linearity_worst = {}
-    selected_radius = None
-    linearity_limit = numerics["selection"]["sampled_linearity_relative_l2_max"]
-    selected_dimensions = tuple(
-        dimension
-        for dimension in (primary_dimension, refinement_dimension)
-        if dimension is not None
-    )
-    if selected_dimensions:
-        expected_linearity_values = (
-            len(workloads)
-            * len(selected_dimensions)
-            * len(numerics["chart"]["line_parameters"])
-            * (1 + numerics["linearity"]["rademacher_combination_count"])
-            * 2
-        )
-        for radius in numerics["linearity"]["radius_fractions_of_endpoint_secant"]:
-            values = [
-                row["relative_l2"]
-                for workload in workloads
-                for row in workload["chart_diagnostics"]["linearity"]
-                if row["chart_dimension"] in selected_dimensions
-                and row["radius_fraction"] == radius
-            ]
-            if len(values) == expected_linearity_values:
-                linearity_worst[str(radius)] = max(values)
-        acceptable_radii = [
-            float(radius)
-            for radius, value in linearity_worst.items()
-            if value <= linearity_limit
-        ]
-        if acceptable_radii:
-            selected_radius = max(acceptable_radii)
-    if selected_radius is None:
-        blockers.append("no_sampled_linearity_radius_passed")
-    linearity_radius_pass_by_target = {
-        str(target): [
-            float(radius)
-            for radius, value in linearity_worst.items()
-            if value <= target
-        ]
-        for target in numerics["linearity"]["relative_l2_targets"]
-    }
+    expected_candidates = sum(
+        len(candidate["coordinate_spaces"])
+        for workload in workload_contracts
+        for candidate in workload["candidates"]
+    ) * len(workers)
+    candidates = [
+        candidate
+        for workload in workloads
+        for candidate in workload["optimizer_probes"]
+        if candidate.get("status") == "complete"
+    ]
+    if len(candidates) != expected_candidates:
+        blockers.append("one_or_more_optimizer_candidates_failed")
 
-    optimizer_expected = (
-        len(workers)
-        * len(contract["scope"]["optimization_patch_ranks"])
-        * len(contract["scope"]["routes"])
-        * len(selected_dimensions)
-        * len(numerics["optimizer"]["path_segments"])
-    )
-    learning_rate_worst_energy_ratio = {}
-    optimizer_by_learning_rate = {}
-    if selected_dimensions:
-        for learning_rate in numerics["optimizer"]["learning_rates"]:
-            candidates = [
-                candidate
-                for workload in workloads
-                if workload["rank"] in contract["scope"]["optimization_patch_ranks"]
-                for candidate in workload["optimizer_probes"]
-                if candidate.get("status") == "complete"
-                and candidate["chart_dimension"] in selected_dimensions
-                and candidate["learning_rate"] == learning_rate
-            ]
-            if len(candidates) != optimizer_expected or any(
-                candidate["trust_boundary_contact"] for candidate in candidates
-            ):
-                continue
-            ratios = [
-                min(row["normalized_energy"] for row in candidate["history"])
-                / max(candidate["history"][0]["normalized_energy"], 1e-30)
-                for candidate in candidates
-            ]
-            learning_rate_worst_energy_ratio[str(learning_rate)] = max(ratios)
-            optimizer_by_learning_rate[str(learning_rate)] = candidates
     minimum_energy_decrease = numerics["selection"][
         "optimizer_minimum_relative_energy_decrease"
     ]
-    passing_learning_rates = [
-        float(key)
-        for key, value in learning_rate_worst_energy_ratio.items()
-        if value <= 1.0 - minimum_energy_decrease
-    ]
-    selected_learning_rate = (
-        min(
-            passing_learning_rates,
-            key=lambda value: (
-                learning_rate_worst_energy_ratio[str(value)],
-                value,
-            ),
-        )
-        if passing_learning_rates
-        else None
-    )
-    selected_iterations = None
-    if selected_learning_rate is None:
-        blockers.append("no_common_improving_optimizer_candidate")
-    else:
-        candidates = optimizer_by_learning_rate[str(selected_learning_rate)]
-        slack = numerics["selection"]["optimizer_energy_plateau_relative_slack"]
-        for milestone in numerics["optimizer"]["milestones"][1:]:
-            milestone_passes = []
-            for candidate in candidates:
-                history_by_iteration = {
-                    row["iteration"]: row["normalized_energy"]
-                    for row in candidate["history"]
-                }
-                best = min(history_by_iteration.values())
-                milestone_passes.append(
-                    history_by_iteration[milestone] <= (1.0 + slack) * best
-                )
-            if all(milestone_passes):
-                selected_iterations = milestone
-                break
-        if selected_iterations is None or selected_iterations == 0:
-            blockers.append("optimizer_did_not_improve_within_grid")
-        elif selected_iterations == numerics["optimizer"]["milestones"][-1]:
-            selected_iterations = None
-            blockers.append("optimizer_not_plateaued_before_iteration_ceiling")
+    plateau_slack = numerics["selection"]["optimizer_energy_plateau_relative_slack"]
+    gap_limit = numerics["selection"]["reduced_to_full_best_energy_excess_max"]
+    candidate_rows = []
+    for worker in workers:
+        for workload in worker["workloads"]:
+            complete = {
+                (candidate["path_segments"], str(candidate["coordinate_space"])): candidate
+                for candidate in workload.get("optimizer_probes", [])
+                if candidate.get("status") == "complete"
+            }
+            for path_segments in {key[0] for key in complete}:
+                full = complete.get((path_segments, "full"))
+                if full is None:
+                    continue
+                full_best = full["best_recorded_energy"]
+                for (segments, coordinate_space), candidate in complete.items():
+                    if segments != path_segments:
+                        continue
+                    initial = candidate["history"][0]["energy"]
+                    final = candidate["history"][-1]["energy"]
+                    best = candidate["best_recorded_energy"]
+                    candidate_rows.append({
+                        "best_to_initial_energy_ratio": best / max(initial, 1e-30),
+                        "best_to_full_energy_excess": max(
+                            0.0,
+                            best / max(full_best, 1e-30) - 1.0,
+                        ),
+                        "coordinate_space": coordinate_space,
+                        "final_to_best_energy_ratio": final / max(best, 1e-30),
+                        "model": worker["model"],
+                        "path_segments": path_segments,
+                        "rank": workload["rank"],
+                        "route": workload["route"],
+                        "trust_boundary_contact": candidate["trust_boundary_contact"],
+                    })
 
-    runtime_complete = {}
-    for segments in numerics["runtime_path_segments"]:
+    def optimization_passes(row):
+        return (
+            row["best_to_initial_energy_ratio"] <= 1.0 - minimum_energy_decrease
+            and row["final_to_best_energy_ratio"] <= 1.0 + plateau_slack
+            and not row["trust_boundary_contact"]
+        )
+
+    def row_key(row):
+        return (
+            row["model"],
+            row["rank"],
+            row["route"],
+            row["path_segments"],
+        )
+
+    full_rows = {
+        row_key(row): row
+        for row in candidate_rows
+        if row["coordinate_space"] == "full"
+    }
+
+    def space_passes(space):
         rows = [
             row
-            for worker in workers
-            for row in (worker["runtime_path_probes"] or [])
-            if row["path_segments"] == segments
+            for row in candidate_rows
+            if str(row["coordinate_space"]) == str(space)
         ]
-        runtime_complete[str(segments)] = len(rows) == len(workers) and all(
-            row["status"] == "complete" for row in rows
+        expected = sum(
+            str(space) in {str(item) for item in candidate["coordinate_spaces"]}
+            for workload in workload_contracts
+            for candidate in workload["candidates"]
+        ) * len(workers)
+        return len(rows) == expected and all(
+            optimization_passes(row)
+            and (
+                space == "full"
+                or (
+                    row["best_to_full_energy_excess"] <= gap_limit
+                    and row_key(row) in full_rows
+                    and optimization_passes(full_rows[row_key(row)])
+                )
+            )
+            for row in rows
         )
-    if not runtime_complete.get("16") or not runtime_complete.get("32"):
-        blockers.append("K16_or_K32_runtime_probe_failed")
+
+    d128_conditioned = dimension_minimum_ratios.get("128", -1.0) >= ratio_floor
+    if d128_conditioned and space_passes(128):
+        selected_space = 128
+    elif space_passes("full"):
+        selected_space = "full"
+    else:
+        selected_space = None
+        blockers.append("neither_d128_nor_full_latent_met_the_common_budget")
+
+    selected_iterations = None
+    if selected_space is not None:
+        selected_candidates = [
+            candidate
+            for workload in workloads
+            for candidate in workload["optimizer_probes"]
+            if candidate.get("status") == "complete"
+            and str(candidate["coordinate_space"]) == str(selected_space)
+        ]
+        for milestone in numerics["optimizer"]["milestones"][1:]:
+            if all(
+                next(
+                    row["energy"]
+                    for row in candidate["history"]
+                    if row["iteration"] == milestone
+                )
+                <= (1.0 + plateau_slack) * candidate["best_recorded_energy"]
+                for candidate in selected_candidates
+            ):
+                selected_iterations = milestone
+                break
+        if selected_iterations is None:
+            blockers.append("selected_space_not_near_best_within_128_steps")
 
     selected = {
-        "chart_primary_dimension": primary_dimension,
-        "chart_refinement_dimension": refinement_dimension,
+        "coordinate_space": selected_space,
         "conditioning_minimum_ratio": ratio_floor,
-        "finite_difference_epsilon": selected_epsilon,
-        "finite_difference_worst_relative_l2_max": epsilon_limit,
         "optimizer_iterations": selected_iterations,
-        "optimizer_learning_rate": selected_learning_rate,
+        "optimizer_learning_rate": numerics["optimizer"]["learning_rate"],
         "optimizer_minimum_relative_energy_decrease": minimum_energy_decrease,
-        "path_segments_primary": 16 if runtime_complete.get("16") else None,
-        "path_segments_refinement": 32 if runtime_complete.get("32") else None,
-        "path_segments_sensitivity": 64 if runtime_complete.get("64") else None,
-        "sampled_linearity_radius_fraction": selected_radius,
-        "sampled_linearity_relative_l2_max": linearity_limit,
+        "path_segments_primary": 16,
+        "path_segments_refinement": 32,
     }
     return {
         "blockers": blockers,
         "decision_inputs": {
-            "conditioning_dimension_pass_by_floor": (
-                conditioning_dimension_pass_by_floor
-            ),
+            "candidate_comparisons": candidate_rows,
+            "d128_conditioned": d128_conditioned,
+            "d32_passes_full_latent_control": space_passes(32),
+            "d128_passes_full_latent_control": space_passes(128),
             "dimension_minimum_ratios": dimension_minimum_ratios,
-            "finite_difference_worst_relative_l2": epsilon_worst,
-            "learning_rate_worst_best_to_initial_energy_ratio": (
-                learning_rate_worst_energy_ratio
-            ),
-            "runtime_complete": runtime_complete,
-            "sampled_linearity_radius_pass_by_target": (
-                linearity_radius_pass_by_target
-            ),
-            "sampled_linearity_worst_relative_l2": linearity_worst,
+            "full_latent_passes_common_budget": space_passes("full"),
         },
-        "schema": "eqvae.functional_geometry.stage_a2.calibration.selection.v2",
+        "schema": "eqvae.functional_geometry.stage_a2.calibration.selection.v3",
         "selected_numerics": selected,
         "status": "selected" if not blockers else "unresolved",
     }
@@ -867,6 +834,9 @@ def _select_numerics(workers, contract):
 
 def _run_worker(model_name, device_index, repo_root_text, output_text, contract):
     try:
+        compiler_cache = f"/tmp/eqvae_spec0053_compile_{model_name}"
+        os.environ["TORCHINDUCTOR_CACHE_DIR"] = compiler_cache
+        os.environ["TRITON_CACHE_DIR"] = compiler_cache
         repo_root = Path(repo_root_text)
         output = Path(output_text)
         sys.path.insert(0, str(repo_root / "src"))
@@ -875,13 +845,11 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
 
         from eqvae.evaluation.functional_geometry_calibration import (
             affine_chart_latents,
-            decoder_path_edge_energy,
             decoder_visible_chart,
             project_line_deviation_,
             thin_metric_spectra,
         )
         from eqvae.evaluation.functional_geometry_rla import linearize_decoder
-        from eqvae.evaluation.vae_test import state_dict_sha256
         from eqvae.models.registry import build_model
 
         if not torch.cuda.is_available() or torch.cuda.device_count() <= device_index:
@@ -938,7 +906,7 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
         if _sha256(state_path) != record["state_file_sha256"]:
             raise RuntimeError(f"frozen weights differ for {model_name}")
         state = torch.load(state_path, map_location="cpu", weights_only=True)
-        if state_dict_sha256(state) != record["state_dict_sha256"]:
+        if _state_dict_sha256(state) != record["state_dict_sha256"]:
             raise RuntimeError(f"frozen state differs for {model_name}")
         model = build_model(MODEL_KINDS[model_name])
         model.load_state_dict(state, strict=True)
@@ -965,169 +933,167 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
 
         numerics = contract["numerics"]
         workload_rows = []
-        runtime_rows = []
+        rank_to_index = {rank: index for index, rank in enumerate(calibration_ranks)}
 
-        for local_index, rank in enumerate(calibration_ranks):
+        def endpoints_for(workload):
+            local_index = rank_to_index[workload["rank"]]
             left = base_mu[local_index : local_index + 1]
             endpoints = {
                 "encoded": encoded_rotated_mu[local_index : local_index + 1],
                 "prescribed": torch.rot90(left, 1, (-2, -1)),
             }
-            for route in contract["scope"]["routes"]:
-                torch.cuda.empty_cache()
-                torch.cuda.reset_peak_memory_stats(device)
-                right = endpoints[route]
-                _log(
-                    "calibration_workload_started",
-                    model=model_name,
+            return local_index, left, endpoints[workload["route"]]
+
+        first_workload = contract["scope"]["optimizer_workloads"][0]
+        _, probe_left, probe_right = endpoints_for(first_workload)
+        probe_times = torch.linspace(
+            0.0,
+            1.0,
+            numerics["optimizer"]["energy_chunk_segments"] + 1,
+            device=device,
+        ).reshape(-1, 1, 1, 1)
+        probe_latents = probe_left + probe_times * (probe_right - probe_left)
+        eager_edge_energy, optimized_edge_energy, compile_telemetry = (
+            _prepare_decoder_runtime(model, probe_latents, contract, torch=torch)
+        )
+        runtime_memory = capture_memory()
+        if runtime_memory["peak_reserved_bytes"] >= peak_ceiling:
+            raise RuntimeError("decoder compilation exceeded peak-memory ceiling")
+        _log(
+            "decoder_runtime_ready",
+            model=model_name,
+            **compile_telemetry,
+            **runtime_memory,
+        )
+        del probe_latents, probe_left, probe_right
+
+        for workload_contract in contract["scope"]["optimizer_workloads"]:
+            local_index, left, right = endpoints_for(workload_contract)
+            rank = workload_contract["rank"]
+            route = workload_contract["route"]
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats(device)
+            _log(
+                "calibration_workload_started",
+                model=model_name,
+                rank=rank,
+                route=route,
+            )
+            basis = None
+            diagnostics = None
+            try:
+                basis, diagnostics = _chart_diagnostics(
+                    model,
+                    left,
+                    right,
                     rank=rank,
                     route=route,
+                    numerics=numerics,
+                    linearize_decoder=linearize_decoder,
+                    decoder_visible_chart=decoder_visible_chart,
+                    thin_metric_spectra=thin_metric_spectra,
+                    torch=torch,
                 )
-                basis = None
-                diagnostics = None
-                try:
-                    basis, diagnostics = _chart_diagnostics(
-                        model,
-                        left,
-                        right,
-                        rank=rank,
-                        route=route,
-                        numerics=numerics,
-                        linearize_decoder=linearize_decoder,
-                        decoder_visible_chart=decoder_visible_chart,
-                        thin_metric_spectra=thin_metric_spectra,
-                        torch=torch,
-                    )
-                    if capture_memory()["peak_reserved_bytes"] >= peak_ceiling:
-                        raise RuntimeError("chart exceeded peak-memory ceiling")
-                except Exception as error:
-                    failure_memory = capture_memory()
-                    workload_rows.append({
-                        "exception_message": str(error),
-                        "exception_type": type(error).__name__,
-                        "label": selectors[local_index]["label"],
-                        "peak_memory": failure_memory,
-                        "rank": rank,
-                        "route": route,
-                        "sample_id": selectors[local_index]["sample_id"],
-                        "status": "failed",
-                    })
-                    _log(
-                        "calibration_workload_failed",
-                        model=model_name,
-                        rank=rank,
-                        route=route,
-                        exception_type=type(error).__name__,
-                        exception_message=str(error),
-                        **failure_memory,
-                    )
-                    del basis, diagnostics
-                    torch.cuda.empty_cache()
-                    continue
-                optimizer_rows = []
-                if rank in contract["scope"]["optimization_patch_ranks"]:
-                    optimizer_grid = itertools.product(
-                        numerics["optimizer"]["chart_dimensions"],
-                        numerics["optimizer"]["path_segments"],
-                        numerics["optimizer"]["learning_rates"],
-                    )
-                    for dimension, path_segments, learning_rate in optimizer_grid:
-                        torch.cuda.empty_cache()
-                        torch.cuda.reset_peak_memory_stats(device)
-                        try:
-                            candidate = _optimizer_probe(
-                                model,
-                                left,
-                                right,
-                                basis,
-                                dimension=dimension,
-                                learning_rate=learning_rate,
-                                path_segments=path_segments,
-                                optimizer_contract=numerics["optimizer"],
-                                affine_chart_latents=affine_chart_latents,
-                                decoder_path_edge_energy=decoder_path_edge_energy,
-                                project_line_deviation_=project_line_deviation_,
-                                torch=torch,
-                            )
-                        except Exception as error:
-                            candidate_memory = capture_memory()
-                            candidate = {
-                                "chart_dimension": dimension,
-                                "exception_message": str(error),
-                                "exception_type": type(error).__name__,
-                                "learning_rate": learning_rate,
-                                "path_segments": path_segments,
-                                "peak_memory": candidate_memory,
-                                "status": "failed",
-                            }
-                            event = "optimizer_candidate_failed"
-                        else:
-                            candidate_memory = capture_memory()
-                            candidate["peak_memory"] = candidate_memory
-                            if candidate_memory["peak_reserved_bytes"] >= peak_ceiling:
-                                candidate["status"] = "resource_ceiling_exceeded"
-                                event = "optimizer_candidate_resource_exceeded"
-                            else:
-                                event = "optimizer_candidate_complete"
-                        optimizer_rows.append(candidate)
-                        _log(
-                            event,
-                            model=model_name,
-                            rank=rank,
-                            route=route,
-                            chart_dimension=dimension,
-                            learning_rate=learning_rate,
-                            path_segments=path_segments,
-                            **_memory(device, torch),
-                        )
-                        torch.cuda.empty_cache()
-                if (
-                    not runtime_rows
-                    and rank == calibration_ranks[0]
-                    and route == "encoded"
-                ):
-                    runtime_rows = _runtime_probe(
-                        model,
-                        left,
-                        right,
-                        basis,
-                        segment_candidates=numerics["runtime_path_segments"],
-                        chunk_segments=numerics["optimizer"]["energy_chunk_segments"],
-                        peak_reserved_bytes_max=peak_ceiling,
-                        affine_chart_latents=affine_chart_latents,
-                        decoder_path_edge_energy=decoder_path_edge_energy,
-                        torch=torch,
-                    )
-                    for runtime_row in runtime_rows:
-                        runtime_memory = runtime_row.get("peak_memory")
-                        if runtime_memory is not None:
-                            peak_allocated_observed = max(
-                                peak_allocated_observed,
-                                runtime_memory["peak_allocated_bytes"],
-                            )
-                            peak_reserved_observed = max(
-                                peak_reserved_observed,
-                                runtime_memory["peak_reserved_bytes"],
-                            )
+                if capture_memory()["peak_reserved_bytes"] >= peak_ceiling:
+                    raise RuntimeError("chart exceeded peak-memory ceiling")
+            except Exception as error:
+                failure_memory = capture_memory()
                 workload_rows.append({
-                    "chart_diagnostics": diagnostics,
+                    "exception_message": str(error),
+                    "exception_type": type(error).__name__,
                     "label": selectors[local_index]["label"],
-                    "optimizer_probes": optimizer_rows,
+                    "peak_memory": failure_memory,
                     "rank": rank,
                     "route": route,
                     "sample_id": selectors[local_index]["sample_id"],
-                    "status": "complete",
+                    "status": "failed",
                 })
                 _log(
-                    "calibration_workload_complete",
+                    "calibration_workload_failed",
                     model=model_name,
                     rank=rank,
                     route=route,
-                    optimizer_probe_count=len(optimizer_rows),
-                    **_memory(device, torch),
+                    exception_type=type(error).__name__,
+                    exception_message=str(error),
+                    **failure_memory,
                 )
-                del basis, diagnostics, optimizer_rows, right
+                del basis, diagnostics
                 torch.cuda.empty_cache()
+                continue
+
+            optimizer_rows = []
+            for candidate_contract in workload_contract["candidates"]:
+                path_segments = candidate_contract["path_segments"]
+                for coordinate_space in candidate_contract["coordinate_spaces"]:
+                    torch.cuda.empty_cache()
+                    torch.cuda.reset_peak_memory_stats(device)
+                    try:
+                        candidate = _optimizer_probe(
+                            model,
+                            left,
+                            right,
+                            basis,
+                            coordinate_space=coordinate_space,
+                            learning_rate=numerics["optimizer"]["learning_rate"],
+                            path_segments=path_segments,
+                            optimizer_contract=numerics["optimizer"],
+                            affine_chart_latents=affine_chart_latents,
+                            eager_edge_energy=eager_edge_energy,
+                            optimized_edge_energy=optimized_edge_energy,
+                            project_line_deviation_=project_line_deviation_,
+                            torch=torch,
+                        )
+                    except Exception as error:
+                        candidate_memory = capture_memory()
+                        candidate = {
+                            "coordinate_space": coordinate_space,
+                            "exception_message": str(error),
+                            "exception_type": type(error).__name__,
+                            "learning_rate": numerics["optimizer"]["learning_rate"],
+                            "path_segments": path_segments,
+                            "peak_memory": candidate_memory,
+                            "status": "failed",
+                        }
+                        event = "optimizer_candidate_failed"
+                    else:
+                        candidate_memory = capture_memory()
+                        candidate["peak_memory"] = candidate_memory
+                        if candidate_memory["peak_reserved_bytes"] >= peak_ceiling:
+                            candidate["status"] = "resource_ceiling_exceeded"
+                            event = "optimizer_candidate_resource_exceeded"
+                        else:
+                            event = "optimizer_candidate_complete"
+                    optimizer_rows.append(candidate)
+                    _log(
+                        event,
+                        model=model_name,
+                        rank=rank,
+                        route=route,
+                        coordinate_space=coordinate_space,
+                        path_segments=path_segments,
+                        **_memory(device, torch),
+                    )
+                    torch.cuda.empty_cache()
+
+            workload_rows.append({
+                "chart_diagnostics": diagnostics,
+                "label": selectors[local_index]["label"],
+                "optimizer_probes": optimizer_rows,
+                "rank": rank,
+                "route": route,
+                "sample_id": selectors[local_index]["sample_id"],
+                "status": "complete",
+            })
+            _log(
+                "calibration_workload_complete",
+                model=model_name,
+                rank=rank,
+                route=route,
+                optimizer_probe_count=len(optimizer_rows),
+                **_memory(device, torch),
+            )
+            del basis, diagnostics, optimizer_rows, right
+            torch.cuda.empty_cache()
 
         memory = capture_memory()
         memory["peak_allocated_bytes"] = peak_allocated_observed
@@ -1140,8 +1106,8 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
             "peak_memory_ceiling_exceeded_by_any_candidate": (
                 peak_reserved_observed >= peak_ceiling
             ),
+            "decoder_runtime": compile_telemetry,
             "runtime": {"cuda": torch.version.cuda, "torch": torch.__version__},
-            "runtime_path_probes": runtime_rows,
             "workloads": workload_rows,
         }
         _write_json(output / f"{model_name}.json", worker)
@@ -1209,7 +1175,7 @@ def run(*, repo_root: Path, source_commit: str, started_at: float) -> int:
         selection_sha256 = _sha256(selection_path)
         result = {
             "models": workers,
-            "schema": "eqvae.functional_geometry.stage_a2.calibration.result.v2",
+            "schema": "eqvae.functional_geometry.stage_a2.calibration.result.v3",
             "selection_sha256": selection_sha256,
             "selection_status": selection["status"],
             "source_commit": source_commit,
@@ -1242,5 +1208,10 @@ def run(*, repo_root: Path, source_commit: str, started_at: float) -> int:
             if process.is_alive():
                 process.terminate()
         for process in processes:
-            process.join()
+            process.join(timeout=5)
+        for process in processes:
+            if process.is_alive():
+                process.kill()
+        for process in processes:
+            process.join(timeout=5)
         raise

@@ -1,11 +1,10 @@
 # Spec 0053: Functional And Riemannian Latent Geometry
 
-Status: draft active; Stage A1 implemented and accepted; corrected numerical
-calibration v2 is implemented (execution state lives in `CURRENT.md`);
-scientific Stage A2 remains blocked until calibration selects one complete
-common contract
+Status: draft active; Stage A1 implemented and accepted; numerical calibration
+v1/v2 completed `unresolved`; focused v3 is launch-ready; scientific Stage A2
+remains blocked until a justified common numerical contract exists
 Owner/workstream: frozen normal versus continuous-`SO(2)` VAE latent analysis
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 
 ## Purpose
 
@@ -230,9 +229,9 @@ model parameters frozen:
 
 `Gv=J_D(z)^T(J_D(z)v)`.
 
-The accepted settings are:
+The accepted Stage A1 settings are:
 
-- eager FP32 operator arithmetic with `torch.compile` disabled;
+- eager FP32 operator arithmetic;
 - finite-difference JVP reference epsilon `0.008`;
 - direct graphs released after every work unit;
 - microbatch 4 for compatible independent directions;
@@ -264,9 +263,8 @@ The accepted scientific result is:
 - The spectral observations describe two anchors only. They establish neither
   a population effect nor a continuous orbit or geodesic.
 
-Final reproducible implementation:
-`kaggle/kernels/functional_geometry_stage_a1_c4_slq/`.
-Accepted output:
+The immutable Stage A1 implementation is preserved by Git history and Kaggle
+kernel `maximshtefan/eqvae-fg-stage-a1-c4-28a08ab5/1`. Accepted output:
 `runs/kaggle/functional_geometry_stage_a1_c4_slq_v1/functional_geometry_stage_a1_c4_slq_v1/stage_a1_result.json`,
 SHA-256
 `f59bf4eb7bba136c02cca24b237414da1dca23e4b94b781c4eb3d5978840e449`.
@@ -370,7 +368,72 @@ Path energy is the unchanged sum over edges, evaluated in blocks of eight so
 accumulate before one ordinary Adam step; there is no stationary-gradient,
 monotonicity, rollback or restart condition. A focused regression test checks energy
 and coordinate-gradient equality against the monolithic objective. `K=64`
-remains a runtime sensitivity only, and `torch.compile` remains disabled.
+remains a runtime sensitivity only. V2 used eager decoder-energy evaluation.
+
+#### Calibration v2 outcome
+
+Private version `maximshtefan/eqvae-fg-stage-a2-calibration/2` completed in
+`35906.99` seconds with both workers successful. Its common decision remains
+`unresolved` (selection SHA-256
+`4ae2b22f98419fe2ddb3777b14a53a49b834a3e7186c8a776d86c9523e40a4b1`).
+All runtime probes through `K=64` completed within the fixed memory ceiling;
+dimensions `16/32`, epsilon `.016` and Adam rate `.005` satisfy their partial
+criteria.
+
+Two preregistered criteria fail. No radius meets the worst-case `.05`
+linearization bound: `.0015` is best at `.061422`, although 1190/1200 samples
+pass and p99 is `.048893`; the ten exceedances are prescribed-`SO(2)` midpoint
+directions. Every one of the 32 optimizer candidates reduces energy by at least
+`5.046%` without trust contact, but there is no common recorded milestone
+within 1% of all candidates' individual best energies, and six candidates first
+reach their best at the 384-iteration ceiling. Consequently the emitted blocker
+name `optimizer_did_not_improve_within_grid` must be read as failure of the
+common-near-best milestone rule, not absence of optimization progress. These
+calibration outputs are not Stage A2 scientific evidence and do not unlock the
+final-pilot inputs.
+
+#### Calibration v3 contract
+
+V3 resolves only the remaining solver search-space and finite-budget questions;
+it does not repeat the complete v2 diagnostics. The same frozen models receive
+the same candidates. The two fixed workloads are rank 4 prescribed and rank 16
+encoded, which cover both endpoint routes and were the hardest complementary
+128-step cases in v2. At `K=16`, compare nested midpoint-visible affine charts
+`d=32,128` with a full-latent control. At the harder rank 4 prescribed workload,
+repeat `d=128` and full latent at `K=32`. Every candidate creates Adam once and
+runs continuously for 128 steps at learning rate `.005`, with milestones
+`0,16,32,64,96,128`. `.005` is the `d=32` reference rate; each candidate uses
+`.005 sqrt(32/d)` so Adam's expected coordinate-step norm does not grow merely
+because the parameterization contains more coordinates (`d=16384` for full
+latent).
+
+The full-latent control directly optimizes the `K-1` normalized latent offsets
+of shape `16x32x32`; it never materializes a `16384x16384` identity. The reduced
+charts share one nested `d=128` basis per endpoint pair. V3 selects `d=128` only
+if its thin metric remains conditioned on the initialization line, every common
+candidate improves by at least 1%, finishes within 1% of its best observed
+milestone energy, avoids the trust boundary, and its best recorded energy is
+within 1% of the equal-budget full-latent control at both discretizations.
+Otherwise it selects
+the full-latent decoder-energy parameterization only if that control itself
+meets the common finite-budget criteria. `d=32` remains a recorded sensitivity.
+
+Only the repeated eight-edge scalar closure is eligible for compilation:
+`latents -> decoder -> decoder-edge energy`. JVP/VJP chart construction remains
+eager. Because the models are frozen, the `SO(2)` decoder materializes its exact
+dense equivariant kernels once after checkpoint load. On one real block, cached
+and uncached outputs, energies and latent gradients must agree exactly; compiled
+energy and latent-gradient relative errors must be at most `1e-5` and `1e-4`.
+The static full graph is used only when its settled T4 time beats eager. The
+compiler choice changes execution, not the objective, optimizer, coordinates or
+budget. The complete run has a 120-minute wall-time ceiling.
+
+V2's failed sampled first-order radius rule is retained as its historical
+outcome, not silently reinterpreted. It is not repeated in v3: an affine chart
+is an exact smooth map, while decoder nonlinearity is part of its pullback
+metric rather than an error against a linear decoder approximation. Scientific
+Riemannian labels still require the later pathwise rank, conditioning, trust,
+and knot/chart-refinement checks defined below.
 
 ### Objective
 

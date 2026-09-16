@@ -126,7 +126,7 @@ def _pair_generators(
     )
 
 
-def _build_pair_bank(  # noqa: PLR0914
+def _build_pair_bank(
     input_frequency: Literal[0, 1],
     output_frequency: Literal[0, 1],
     profile: _FixedProfile,
@@ -222,7 +222,7 @@ def _new_coefficients(
     return nn.Parameter(coefficients)
 
 
-def _expand_pair(  # noqa: PLR0913
+def _expand_pair(
     coefficients: torch.Tensor,
     basis: torch.Tensor,
     *,
@@ -253,7 +253,32 @@ def _expand_pair(  # noqa: PLR0913
     )
 
 
-class _ScalarToF01Conv(nn.Module):
+class _ExpandedKernelConv(nn.Module):
+    """Equivariant convolution with an optional exact frozen-weight kernel."""
+
+    _frozen_kernel: torch.Tensor | None
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.register_buffer("_frozen_kernel", None, persistent=False)
+
+    def expanded_kernel(self) -> torch.Tensor:
+        raise NotImplementedError
+
+    def materialize_frozen_kernel(self) -> None:
+        """Cache the dense kernel after the learned coefficients are frozen."""
+        if any(parameter.requires_grad for parameter in self.parameters()):
+            raise RuntimeError("kernel materialization requires frozen parameters")
+        self._frozen_kernel = self.expanded_kernel().detach().clone().contiguous()
+
+    def kernel(self) -> torch.Tensor:
+        """Return the cached kernel when present, otherwise expand coefficients."""
+        if self._frozen_kernel is not None:
+            return self._frozen_kernel
+        return self.expanded_kernel()
+
+
+class _ScalarToF01Conv(_ExpandedKernelConv):
     """Fixed scalar-to-F01 learned convolution with statically unrolled banks."""
 
     basis00: torch.Tensor
@@ -322,13 +347,13 @@ class _ScalarToF01Conv(nn.Module):
         """
         return functional.conv2d(
             inputs,
-            self.expanded_kernel(),
+            self.kernel(),
             bias=None,
             padding=self.kernel_size // 2,
         )
 
 
-class _F01ToF01Conv(nn.Module):
+class _F01ToF01Conv(_ExpandedKernelConv):
     """Fixed F01-to-F01 convolution with one padded batched contraction."""
 
     packed_bases: torch.Tensor
@@ -447,13 +472,13 @@ class _F01ToF01Conv(nn.Module):
         """
         return functional.conv2d(
             inputs,
-            self.expanded_kernel(),
+            self.kernel(),
             bias=None,
             padding=self.kernel_size // 2,
         )
 
 
-class _F01ToScalarConv(nn.Module):
+class _F01ToScalarConv(_ExpandedKernelConv):
     """Fixed F01-to-scalar convolution for posterior and RGB heads."""
 
     basis00: torch.Tensor
@@ -532,7 +557,7 @@ class _F01ToScalarConv(nn.Module):
         """
         return functional.conv2d(
             inputs,
-            self.expanded_kernel(),
+            self.kernel(),
             bias=self.bias,
             padding=self.kernel_size // 2,
         )
@@ -549,7 +574,7 @@ class FixedF01FieldNorm(nn.Module):
         self.f0_beta = nn.Parameter(torch.zeros(layout.n0, dtype=torch.float32))
         self.f1_gamma = nn.Parameter(torch.ones(layout.n1, dtype=torch.float32))
 
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:  # noqa: PLR0914
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         """Normalize scalar and vector fields using only invariant statistics.
 
         Returns:
@@ -705,7 +730,7 @@ class _FixedF01Downsample2x(nn.Module):
 class _FixedF01Upsample2x(nn.Module):
     """Probe-only fieldwise bilinear upsampler with the locked grid rule."""
 
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:  # noqa: PLR6301
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         """Apply uniform bilinear x2 interpolation to every packed component.
 
         Returns:

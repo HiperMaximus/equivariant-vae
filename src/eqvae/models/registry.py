@@ -11,7 +11,6 @@ a non-equivariant-only concept (``norm_groups``, a GroupNorm parameter) is never
 promoted to a universal signature the field-aware equivariant model has no use for
 (Spec 0011 R2).
 """
-# pyright: reportPrivateUsage=false
 
 from __future__ import annotations
 

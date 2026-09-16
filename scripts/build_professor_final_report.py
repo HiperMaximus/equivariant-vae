@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# ruff: noqa: ANN401, C901, CPY001, D103, DOC201, E501, I001, PIE808, PLR0912, PLR0914, PLR0915, PLR0916, PLR2004, SLF001, T201
 """Build the advisor-facing final experiment report from accepted local artifacts."""
 
 from __future__ import annotations
@@ -1380,7 +1379,7 @@ def draw_supervised_development_chart(
     def x_at(boundary: float, left: int, right: int, maximum: float) -> float:
         return left + boundary / maximum * (right - left)
 
-    def axes(  # noqa: PLR0913, PLR0917
+    def axes(
         left: int,
         top: int,
         right: int,

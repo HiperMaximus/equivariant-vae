@@ -1,14 +1,10 @@
 # Kaggle CLI Workflow
 
 Kaggle experiments are CLI-managed script kernels. Frozen checkpoints and data
-are mounted from their published Kaggle datasets. New kernels use a small direct
-`code_file` that loads the public repository and calls experiment code from the
-exact Git commit recorded in the output.
-
-Do not embed the repository as ZIP/base64 or add a new branch to
-`build_kaggle_embedded_kernel.py`. That builder remains only for reproducing old
-kernels that already have a `run_template.py`. For a direct kernel, `build`
-simply compiles and validates its declared `code_file`.
+are mounted from their published Kaggle datasets. Each kernel uses a small
+direct `code_file` that loads the public repository and records the exact Git
+commit in its output. `build` only compiles and validates that file; the
+repository is never embedded as a ZIP/base64 payload.
 
 ## Commands
 
@@ -17,14 +13,15 @@ simply compiles and validates its declared `code_file`.
 ./scripts/kaggle_kernel.sh validate <kernel-dir>
 ./scripts/kaggle_kernel.sh check <kernel-dir>
 ./scripts/kaggle_kernel.sh push <kernel-dir>
-./scripts/kaggle_kernel.sh status-launch <launch-receipt.json>
-./scripts/kaggle_kernel.sh logs-launch <launch-receipt.json>
-./scripts/kaggle_kernel.sh output-launch <launch-receipt.json> <new-output-dir>
+./scripts/kaggle_kernel.sh status owner/slug/version
+./scripts/kaggle_kernel.sh logs owner/slug/version
+./scripts/kaggle_kernel.sh output owner/slug/version <new-output-dir>
 ```
 
-`push` submits the existing package and records the exact Kaggle
-owner/slug/version under `runs/local/kaggle_launches/`. Preserve that locator:
-the active account is not necessarily the owner of every input.
+`push` uploads only `kernel-metadata.json` and its direct `code_file`. It requires
+the metadata owner to match the authenticated account. Record the exact
+owner/slug/version reported by Kaggle in `CURRENT.md`; input locators remain
+unchanged in the metadata and may belong to other owners.
 
 For a parameter rerun, edit the existing contract, commit and push it to the
 public repository, then push the same thin kernel. Do not duplicate model code,

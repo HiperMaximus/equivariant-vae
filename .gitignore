@@ -186,7 +186,7 @@ cython_debug/
 #  that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
 #  and can be added to the global gitignore or merged into this file. However, if you prefer, 
 #  you could uncomment the following to ignore the entire vscode folder
-# .vscode/
+.vscode/
 
 # Ruff stuff:
 .ruff_cache/
@@ -210,6 +210,9 @@ paper/sipaim2026/main.pdf
 # Personal reference material; never part of repository code or tooling.
 reference/
 kaggle/fsq_train_reference.py
+kaggle/dataset_generation
+kaggle/generate_dataset_Classification_With_Masks
+kaggle/train_runs
 
 # Experiment and Kaggle run artifacts
 runs/

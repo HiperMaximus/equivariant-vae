@@ -1,6 +1,6 @@
 # Copyright 2026 HiperMaximus
-# ruff: noqa: DOC201, EM101, PLR2004, TRY003
-# pyright: reportAny=false, reportUnknownMemberType=false
+# PyTorch's jvp/vjp stubs keep the 3-item has_aux return in their union.
+# pyright: reportAssignmentType=false
 """Direct disposable JVP/VJP operators for decoder geometry."""
 
 from __future__ import annotations
@@ -27,21 +27,15 @@ class LinearizedDecoder:
 def linearize_decoder(
     decoder: Callable[[Tensor], Tensor],
     latent: Tensor,
-    *,
-    compile_operators: bool,
-    compile_mode: str = "reduce-overhead",
 ) -> LinearizedDecoder:
     """Build direct batched JVP/VJP operators with disposable graphs.
 
     Raises:
-        ValueError: If the latent shape is invalid or compilation is requested.
+        ValueError: If the latent shape is invalid.
 
     """
     if latent.ndim < 2 or latent.shape[0] != 1:
         raise ValueError("decoder linearization requires one batched latent point")
-    if compile_operators:
-        raise ValueError("torch.compile is disabled for direct decoder operators")
-    _ = compile_mode
     base_latent = latent.detach()
     with torch.no_grad():
         output = decoder(base_latent).detach()

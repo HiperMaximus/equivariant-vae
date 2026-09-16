@@ -197,7 +197,7 @@ def gradient_mse_per_image(
     return (sum_x + sum_y) / count
 
 
-def paired_bootstrap_median_difference(  # noqa: PLR0913
+def paired_bootstrap_median_difference(
     normal: Sequence[float],
     so2: Sequence[float],
     *,

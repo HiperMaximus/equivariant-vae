@@ -1,8 +1,6 @@
 # Copyright 2026 HiperMaximus
 """CPU invariants for the low-memory decoder metric and SLQ prototype."""
 
-from __future__ import annotations
-
 from operator import neg
 
 import pytest
@@ -250,11 +248,7 @@ def test_decoder_metric_matvec_matches_real_jtj_and_rejects_nonfinite() -> None:
     weight = torch.tensor(((1.0, 2.0), (0.0, 3.0), (4.0, 0.0)))
     with torch.no_grad():
         decoder.weight.copy_(weight)
-    operator = linearize_decoder(
-        decoder,
-        torch.zeros((1, 2)),
-        compile_operators=False,
-    )
+    operator = linearize_decoder(decoder, torch.zeros((1, 2)))
     directions = torch.tensor(((1.0, -1.0), (2.0, 0.5)), requires_grad=True)
 
     actual = decoder_metric_matvec(operator, directions, microbatch=1)

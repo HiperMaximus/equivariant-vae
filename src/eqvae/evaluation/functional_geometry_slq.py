@@ -1,8 +1,5 @@
 # Copyright 2026 HiperMaximus
-# ruff: noqa: C901, DOC201, DOC501, EM101, PLR0912, PLR0913, PLR0914, PLR0915, PLR2004, TRY003
-# pyright: reportAny=false, reportAssignmentType=false
-# pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false
-# pyright: reportUnknownVariableType=false
+# pyright: reportAssignmentType=false
 """Small matrix-free stochastic Lanczos tools for decoder pullback spectra."""
 
 from __future__ import annotations
