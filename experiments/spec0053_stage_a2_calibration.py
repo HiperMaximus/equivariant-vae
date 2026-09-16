@@ -13,15 +13,11 @@ from pathlib import Path
 
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
-INPUT_ROOT = Path("/kaggle/input")
+DATASET_ROOT = Path("/kaggle/input/datasets")
 WORKING_ROOT = Path("/kaggle/working")
-OUTPUT_ROOT = WORKING_ROOT / "functional_geometry_stage_a2_calibration_v3"
+OUTPUT_ROOT = WORKING_ROOT / "functional_geometry_stage_a2_calibration_v4"
 CONTRACT_PATH = Path("docs/data/functional_geometry_stage_a2_calibration_contract.json")
 SELECTOR_PATH = Path("configs/spec0001/fixed_25_validation_patches.json")
-WEIGHT_ROOT = INPUT_ROOT / "eqvae-vae-test-reconstruction-inputs-v1"
-PATCH_PATH = (
-    INPUT_ROOT / "patches-pre-shuffled-ubc-ocean" / "dataset" / "ubc_ocean_valid.bin"
-)
 MODEL_KINDS = {
     "normal_vae": "non_eq_vae_translatable",
     "so2_vae": "so2_vae_fixed",
@@ -127,7 +123,7 @@ def _load_patches(repo_root, contract, *, np, torch):
         if len(sample_id_parts) < 3 or sample_id_parts[2] in forbidden_wsis:
             raise RuntimeError("forbidden WSI leaked into numerical calibration")
         selected_rows.append(row)
-    with PATCH_PATH.open("rb") as handle:
+    with Path(selector["source"]["bin_path"]).open("rb") as handle:
         payloads = _read_selected_patch_bytes(handle, rows, selected_ranks)
     arrays = [
         np.frombuffer(raw, dtype=np.uint8).reshape(3, 256, 256).copy()
@@ -894,7 +890,8 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
         if [row["rank"] for row in selectors] != calibration_ranks:
             raise RuntimeError("loaded calibration ranks differ")
 
-        weight_contract_path = WEIGHT_ROOT / "spec0045_vae_test_input.json"
+        weight_root = DATASET_ROOT / contract["inputs"]["weight_dataset"]
+        weight_contract_path = weight_root / "spec0045_vae_test_input.json"
         if (
             _sha256(weight_contract_path)
             != contract["inputs"]["weight_bundle_contract_sha256"]
@@ -902,7 +899,7 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
             raise RuntimeError("frozen weight contract differs")
         weight_contract = json.loads(weight_contract_path.read_text(encoding="utf-8"))
         record = weight_contract["weights"][model_name]
-        state_path = WEIGHT_ROOT / f"{model_name}_state.pt"
+        state_path = weight_root / f"{model_name}_state.pt"
         if _sha256(state_path) != record["state_file_sha256"]:
             raise RuntimeError(f"frozen weights differ for {model_name}")
         state = torch.load(state_path, map_location="cpu", weights_only=True)

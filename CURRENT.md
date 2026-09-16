@@ -7,9 +7,9 @@ Last updated: 2026-09-16
 [Spec 0053](docs/specs/0053-functional-riemannian-latent-geometry.md) is the
 single live contract for comparing the functional latent geometry of the frozen
 normal and continuous-`SO(2)` VAEs. Stage A1 is accepted; Stage A2 is
-`draft active`. Calibration v1 and v2 completed `unresolved`; the focused v3
-solver calibration is running on Kaggle. No calibration result yet justifies
-the scientific solver/final-pilot run.
+`draft active`. Calibration v1 and v2 completed `unresolved`; Kaggle v3 failed
+during input startup and the corrected v4 is locally verified for launch. No
+calibration result yet justifies the scientific solver/final-pilot run.
 
 For accepted Stage A1 only, the numerical method is fixed: direct disposable JVP/VJP graphs,
 matrix-free `Gv = J^T(Jv)`, eager FP32 decoder products, FP64 Lanczos
@@ -82,12 +82,12 @@ stored at `runs/kaggle/functional_geometry_stage_a1_c4_slq_v1/` with SHA-256
 
 ## Active Kaggle execution
 
-Private calibration `maximshtefan/eqvae-fg-stage-a2-calibration/3` was launched
-at `2026-09-16T13:45:38-05:00` and confirmed `RUNNING`. Its uploaded entrypoint
-is commit `f2021eed207fcd4358c0d2a38f2abc60e58c1380`; the experiment itself is
-pinned to source commit `b9879ecb38f5d25cb182ea4868ddce5899ec7241`.
-Inspect after the 120-minute experiment ceiling, around
-`2026-09-16T15:45:38-05:00`; do not launch another version while v3 is active.
+Private calibration `maximshtefan/eqvae-fg-stage-a2-calibration/3` failed after
+18 seconds, before model loading, because the direct-mounted patch path omitted
+Kaggle's `/datasets/<owner>/` prefix. The numerical solver and compilation were
+never reached. The correction removes the duplicate patch constant and reads
+the canonical path already stored in the fixed selector; the weight root is
+derived from the contract's owner-qualified locator.
 
 Private calibration version
 `maximshtefan/eqvae-fg-stage-a2-calibration/1` was accepted at
@@ -138,7 +138,7 @@ at `K=32` for the harder prescribed route. Every candidate runs one continuous
 only when its paired full-latent control also improves, settles and avoids the
 trust boundary. The full control uses direct `(K-1)x16x32x32` offsets, never a
 materialized `16384x16384` identity. The machine contract SHA-256 is
-`99e09f326be2dcdf787bfc168538e09753dc3275fbde672c204550a59be204a7`.
+`3944a02383ae6f492f6e66a88e7c7d6e084236d456262f5eccec7da118c2d1e0`.
 
 ## Scientific boundary
 
@@ -159,7 +159,7 @@ Python compilation and direct-kernel build/validate pass. Ruff now checks only
 `E9/F6/F7/F82` runtime-error families and Basedpyright runs in `basic` mode; do
 not restore `ALL`, exhaustive annotation/docstring rules or strict tensor typing.
 Both checks pass. The exact v3 contract SHA-256 is
-`99e09f326be2dcdf787bfc168538e09753dc3275fbde672c204550a59be204a7`.
+`3944a02383ae6f492f6e66a88e7c7d6e084236d456262f5eccec7da118c2d1e0`.
 Only the thin Stage A2 Kaggle package remains live. This cleanup deletes 265
 versioned files and more than 164,000 lines: historical embedded kernels,
 per-campaign builders, runtime/readiness gates, CLIs, consumed training/data/

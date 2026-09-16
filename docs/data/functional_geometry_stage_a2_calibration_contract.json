@@ -1,7 +1,8 @@
 {
   "inputs": {
     "fixed_selector_sha256": "ace244ecdd67aaa1ebc7d08065f1e4bfa3c0d54806d4f3b50fb38a3ae000447f",
-    "weight_bundle_contract_sha256": "b5a32ebffd0d88a88d6f21b64ba5c9a23016f05d7a2db0546e442f12a0acecc1"
+    "weight_bundle_contract_sha256": "b5a32ebffd0d88a88d6f21b64ba5c9a23016f05d7a2db0546e442f12a0acecc1",
+    "weight_dataset": "maximshtefan/eqvae-vae-test-reconstruction-inputs-v1"
   },
   "numerics": {
     "chart": {
