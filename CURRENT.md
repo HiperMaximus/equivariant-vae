@@ -74,7 +74,7 @@ stored at `runs/kaggle/functional_geometry_stage_a1_c4_slq_v1/` with SHA-256
   orchestration and one worst-case common reducer.
 - `kaggle/kernels/functional_geometry_stage_a2_calibration/main.py`: thin
   Kaggle entrypoint; it mounts the published frozen-weight/patch datasets and
-  sparse-clones this public repository instead of embedding it.
+  sparse-clones the exact pinned public source commit instead of embedding it.
 - `tests/test_functional_geometry_slq.py`: reusable SLQ/JVP mathematics.
 - `tests/test_functional_geometry_calibration.py` and
   `tests/test_stage_a2_calibration_kernel.py`: focused helper, leakage,
