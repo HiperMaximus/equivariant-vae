@@ -1,12 +1,10 @@
 # Copyright 2026 HiperMaximus
 """Numerical calibration experiment for functional-geometry Stage A2."""
 
-import hashlib
 import json
 import math
 import multiprocessing as mp
 import os
-import struct
 import sys
 import time
 from pathlib import Path
@@ -24,7 +22,6 @@ MODEL_KINDS = {
 }
 PATCH_BYTES = 3 * 256 * 256
 HEADER_BYTES = 64
-STATE_HASH_SCHEMA = b"eqvae_spec0045_state_dict_v1"
 _STARTED = time.perf_counter()
 
 
@@ -43,35 +40,10 @@ def _log(event: str, **values: object) -> None:
     )
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _write_json(path: Path, value: object) -> None:
     with path.open("w", encoding="utf-8") as handle:
         json.dump(value, handle, allow_nan=False, indent=2, sort_keys=True)
         handle.write("\n")
-
-
-def _state_dict_sha256(state) -> str:
-    digest = hashlib.sha256(STATE_HASH_SCHEMA)
-    for name in sorted(state):
-        tensor = state[name].detach().cpu().contiguous()
-        metadata = json.dumps(
-            {"dtype": str(tensor.dtype), "name": name, "shape": list(tensor.shape)},
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode()
-        payload = tensor.numpy().tobytes(order="C")
-        digest.update(struct.pack("<Q", len(metadata)))
-        digest.update(metadata)
-        digest.update(struct.pack("<Q", len(payload)))
-        digest.update(payload)
-    return digest.hexdigest()
 
 
 def _memory(device, torch) -> dict[str, int]:
@@ -94,19 +66,14 @@ def _read_selected_patch_bytes(handle, rows, selected_ranks):
             raise RuntimeError("fixed25 ranks differ")
         handle.seek(HEADER_BYTES + int(row["file_index"]) * PATCH_BYTES)
         raw = handle.read(PATCH_BYTES)
-        if (
-            len(raw) != PATCH_BYTES
-            or hashlib.sha256(raw).hexdigest() != row["patch_sha256"]
-        ):
-            raise RuntimeError(f"fixed25 patch {rank} differs")
+        if len(raw) != PATCH_BYTES:
+            raise RuntimeError(f"fixed25 patch {rank} is truncated")
         payloads.append(raw)
     return payloads
 
 
 def _load_patches(repo_root, contract, *, np, torch):
     selector_path = repo_root / SELECTOR_PATH
-    if _sha256(selector_path) != contract["inputs"]["fixed_selector_sha256"]:
-        raise RuntimeError("fixed25 selector differs")
     selector = json.loads(selector_path.read_text(encoding="utf-8"))
     rows = selector.get("selectors")
     if not isinstance(rows, list) or len(rows) != 25:
@@ -891,20 +858,8 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
             raise RuntimeError("loaded calibration ranks differ")
 
         weight_root = DATASET_ROOT / contract["inputs"]["weight_dataset"]
-        weight_contract_path = weight_root / "spec0045_vae_test_input.json"
-        if (
-            _sha256(weight_contract_path)
-            != contract["inputs"]["weight_bundle_contract_sha256"]
-        ):
-            raise RuntimeError("frozen weight contract differs")
-        weight_contract = json.loads(weight_contract_path.read_text(encoding="utf-8"))
-        record = weight_contract["weights"][model_name]
         state_path = weight_root / f"{model_name}_state.pt"
-        if _sha256(state_path) != record["state_file_sha256"]:
-            raise RuntimeError(f"frozen weights differ for {model_name}")
         state = torch.load(state_path, map_location="cpu", weights_only=True)
-        if _state_dict_sha256(state) != record["state_dict_sha256"]:
-            raise RuntimeError(f"frozen state differs for {model_name}")
         model = build_model(MODEL_KINDS[model_name])
         model.load_state_dict(state, strict=True)
         model = model.to(device).eval().requires_grad_(False)
@@ -1169,11 +1124,9 @@ def run(*, repo_root: Path, source_commit: str, started_at: float) -> int:
             raise RuntimeError("calibration wall-time ceiling exceeded")
         selection_path = OUTPUT_ROOT / "calibration_selection.json"
         _write_json(selection_path, selection)
-        selection_sha256 = _sha256(selection_path)
         result = {
             "models": workers,
             "schema": "eqvae.functional_geometry.stage_a2.calibration.result.v3",
-            "selection_sha256": selection_sha256,
             "selection_status": selection["status"],
             "source_commit": source_commit,
             "status": "complete_calibration_probe",

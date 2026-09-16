@@ -74,7 +74,8 @@ stored at `runs/kaggle/functional_geometry_stage_a1_c4_slq_v1/` with SHA-256
   orchestration and one worst-case common reducer.
 - `kaggle/kernels/functional_geometry_stage_a2_calibration/main.py`: thin
   Kaggle entrypoint; it mounts the published frozen-weight/patch datasets and
-  sparse-clones the exact pinned public source commit instead of embedding it.
+  sparse-clones public `main` and records the executed commit instead of
+  embedding repository payloads.
 - `tests/test_functional_geometry_slq.py`: reusable SLQ/JVP mathematics.
 - `tests/test_functional_geometry_calibration.py` and
   `tests/test_stage_a2_calibration_kernel.py`: focused helper, leakage,
@@ -137,8 +138,7 @@ at `K=32` for the harder prescribed route. Every candidate runs one continuous
 128-step Adam trajectory with `.005 sqrt(32/d)`. A reduced chart can be selected
 only when its paired full-latent control also improves, settles and avoids the
 trust boundary. The full control uses direct `(K-1)x16x32x32` offsets, never a
-materialized `16384x16384` identity. The machine contract SHA-256 is
-`3944a02383ae6f492f6e66a88e7c7d6e084236d456262f5eccec7da118c2d1e0`.
+materialized `16384x16384` identity.
 
 ## Scientific boundary
 
@@ -158,8 +158,7 @@ full-latent Adam, valid full-control pairing and frozen-`SO(2)` kernel caching.
 Python compilation and direct-kernel build/validate pass. Ruff now checks only
 `E9/F6/F7/F82` runtime-error families and Basedpyright runs in `basic` mode; do
 not restore `ALL`, exhaustive annotation/docstring rules or strict tensor typing.
-Both checks pass. The exact v3 contract SHA-256 is
-`3944a02383ae6f492f6e66a88e7c7d6e084236d456262f5eccec7da118c2d1e0`.
+Both checks pass.
 Only the thin Stage A2 Kaggle package remains live. This cleanup deletes 265
 versioned files and more than 164,000 lines: historical embedded kernels,
 per-campaign builders, runtime/readiness gates, CLIs, consumed training/data/

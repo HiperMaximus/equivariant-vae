@@ -8,7 +8,6 @@ import time
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "b3a9bfc0f5ae22a402da84981154b9e97afa0c1a"
 SOURCE_ROOT = Path("/kaggle/working/equivariant-vae")
 
 
@@ -21,29 +20,12 @@ def main() -> int:
             "--depth=1",
             "--filter=blob:none",
             "--sparse",
+            "--branch=main",
             REPOSITORY,
             str(SOURCE_ROOT),
         ],
         check=True,
         timeout=300,
-    )
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            str(SOURCE_ROOT),
-            "fetch",
-            "--depth=1",
-            "origin",
-            SOURCE_COMMIT,
-        ],
-        check=True,
-        timeout=300,
-    )
-    subprocess.run(
-        ["git", "-C", str(SOURCE_ROOT), "checkout", "--detach", SOURCE_COMMIT],
-        check=True,
-        timeout=60,
     )
     subprocess.run(
         [
@@ -65,8 +47,6 @@ def main() -> int:
         text=True,
         timeout=60,
     ).strip()
-    if commit != SOURCE_COMMIT:
-        raise RuntimeError(f"source commit mismatch: {commit} != {SOURCE_COMMIT}")
     sys.path[:0] = [str(SOURCE_ROOT), str(SOURCE_ROOT / "src")]
 
     from experiments.spec0053_stage_a2_calibration import run
