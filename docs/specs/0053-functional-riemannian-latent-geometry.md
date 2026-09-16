@@ -2,7 +2,7 @@
 
 Status: draft active; Stage A1 implemented and accepted; numerical calibration
 v1/v2 completed `unresolved`; Kaggle v3 failed during input startup and corrected
-v4 is launch-ready; scientific Stage A2 remains blocked until a justified common
+v4 is running; scientific Stage A2 remains blocked until a justified common
 numerical contract exists
 Owner/workstream: frozen normal versus continuous-`SO(2)` VAE latent analysis
 Last updated: 2026-09-16

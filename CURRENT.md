@@ -8,8 +8,8 @@ Last updated: 2026-09-16
 single live contract for comparing the functional latent geometry of the frozen
 normal and continuous-`SO(2)` VAEs. Stage A1 is accepted; Stage A2 is
 `draft active`. Calibration v1 and v2 completed `unresolved`; Kaggle v3 failed
-during input startup and the corrected v4 is locally verified for launch. No
-calibration result yet justifies the scientific solver/final-pilot run.
+during input startup and corrected v4 is running. No calibration result yet
+justifies the scientific solver/final-pilot run.
 
 For accepted Stage A1 only, the numerical method is fixed: direct disposable JVP/VJP graphs,
 matrix-free `Gv = J^T(Jv)`, eager FP32 decoder products, FP64 Lanczos
@@ -89,6 +89,10 @@ Kaggle's `/datasets/<owner>/` prefix. The numerical solver and compilation were
 never reached. The correction removes the duplicate patch constant and reads
 the canonical path already stored in the fixed selector; the weight root is
 derived from the contract's owner-qualified locator.
+
+Version `maximshtefan/eqvae-fg-stage-a2-calibration/4` is `RUNNING` with that
+input-path correction. It uses source commit `b3a9bfc`; the subsequent removal
+of redundant checksum and manual source-pin logic applies only to future runs.
 
 Private calibration version
 `maximshtefan/eqvae-fg-stage-a2-calibration/1` was accepted at
