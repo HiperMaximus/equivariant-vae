@@ -2,8 +2,9 @@
 
 Status: draft active; Stage A1 implemented and accepted; numerical calibration
 is complete; reduced charts are excluded and the full-latent `K=32`, 512-step
-budget is fixed; the compact Stage A2 numerical contract is frozen and its
-scientific runner remains to be implemented
+budget is fixed; the compact Stage A2 numerical contract is frozen; its
+scientific runner and thin Kaggle entrypoint are implemented locally, with the
+scientific run still pending
 Owner/workstream: frozen normal versus continuous-`SO(2)` VAE latent analysis
 Last updated: 2026-09-17
 
@@ -929,23 +930,20 @@ synthetic Exp/Log and holonomy cases, exact-`C4` covariance, and transport
 coordinate consistency. Do not mirror the complete contract in tests and do
 not run unrelated repository tests.
 
-### Immediate next implementation
+### Implemented Stage A2 runner and next execution
 
-1. Convert `experiments/spec0053_stage_a2_calibration.py` in place into the
-   scientific Stage A2 runner. Reuse its model loading, compiled eight-edge
-   closure, chunked full-latent optimizer, and two-GPU model split; do not add a
-   parallel runner, builder, payload, receipt layer, or validation framework.
-2. First emit anchors, full-latent sides, bridges, decoded knots, paired
-   residuals, and local differential-regularity telemetry. No scientific
-   residual aborts the run.
-3. Derive and freeze `U_0` from each permitted first-side path, then run the
-   shooting-consistency IVP, continuation, transport, frame return, the conditional holonomy estimator,
-   and the monodromy diagnostic wherever each term is mathematically defined.
-   Otherwise emit the ambient results with the intrinsic fields marked
-   undefined.
-4. Submit through the existing thin `scripts/kaggle_kernel.sh` flow. One
-   scientific run consumes the frozen contract; parameter changes edit that
-   contract rather than creating another Kaggle workflow.
+`experiments/spec0053_stage_a2_calibration.py` now reuses the calibrated path
+optimizer in place and emits anchors, three nonidentity bridges, all four sides
+of both cycles, decoded knots, ambient covariance, the first-side `U_0`, fixed
+8/16-step shooting rollouts, transport/frame return, closure/representative
+return defects, and post-rollout `q` diagnostics. Intrinsic outputs become
+undefined on numerical rank loss without discarding the ambient paths.
+
+The explicit thin entrypoint is
+`kaggle/kernels/functional_geometry_stage_a2/`; it clones the public repository
+and mounts the frozen inputs, with no payload or parallel workflow. The next
+operation is one submission through `scripts/kaggle_kernel.sh`, followed by
+scientific interpretation only after both model workers complete.
 
 ## Later Work
 

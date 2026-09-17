@@ -17,7 +17,9 @@ steps and retain the lowest-energy iterate. The compact Stage A2 numerical
 contract is now frozen: it constructs `U` deterministically from the first
 full-latent side, uses one common FP32-aware SVD convention, and specifies a
 one-shot shooting consistency IVP plus fixed time and frozen-path quadrature
-refinements.
+refinements. The scientific runner and its explicit thin Kaggle entrypoint are
+implemented locally; no Stage A2 scientific result exists until that run
+completes.
 No further hyperparameter calibration, longer-step probe, or plateau-scheduler
 rerun is justified. Stage A2 will report scientific residuals continuously for
 both models rather than use comparison tolerances as acceptance gates or
@@ -55,10 +57,10 @@ uses the first quarter only; its future anchors and closure scorer are isolated
 until predictions are computed. `q` sectors are descriptive four-point DFT
 diagnostics, not the primary chart or evidence for a continuous action.
 
-The scientific Stage A2 solver may now be implemented from the frozen compact
-machine contract. It fixes path-local rank handling, the IVP integrator and
-common compute budget without scientific pass/fail tolerances. No pooled
-cross-patch action is part of Stage A2.
+The scientific Stage A2 solver now implements the frozen compact machine
+contract. It fixes path-local rank handling, the IVP integrator and common
+compute budget without scientific pass/fail tolerances. No pooled cross-patch
+action is part of Stage A2.
 
 ## Accepted scientific evidence
 
@@ -94,16 +96,19 @@ stored at `runs/kaggle/functional_geometry_stage_a1_c4_slq_v1/` with SHA-256
 - `docs/data/functional_geometry_stage_a2_contract.json`: frozen scientific
   path, path-local `U_0`/SVD, one-shot shooting-consistency and refinement
   numerics.
-- `experiments/spec0053_stage_a2_calibration.py`: reusable model/patch loading,
-  compiled eight-edge closure, and chunked direct full-latent path optimizer
-  with best-iterate retention. Stage A2 orchestration remains to be added in
-  this file.
-- `scripts/kaggle_kernel.sh`: generic thin-kernel commands with an explicit
-  kernel directory; no Stage A2 Kaggle entrypoint is active before the
-  scientific runner exists.
+- `src/eqvae/evaluation/functional_geometry_stage_a2.py`: deterministic
+  path-local chart construction, one-shot RK2 shooting and discrete transport.
+- `experiments/spec0053_stage_a2_calibration.py`: the in-place scientific
+  runner, reusing model/patch loading, the compiled eight-edge closure and the
+  chunked full-latent optimizer with best-iterate retention.
+- `kaggle/kernels/functional_geometry_stage_a2/`: explicit thin entrypoint for
+  the pending scientific run; `scripts/kaggle_kernel.sh` remains the single
+  generic upload path.
 - `tests/test_functional_geometry_slq.py`: reusable SLQ/JVP mathematics.
 - `tests/test_stage_a2_path.py`: chunked/full energy-gradient equality,
   dimension-scaled full-latent Adam, and actual best-path retention.
+- `tests/test_functional_geometry_stage_a2.py`: focused synthetic chart,
+  shooting, second-directional and transport seams.
 
 ## Active Kaggle execution
 
@@ -216,15 +221,15 @@ structure is validated. Sealed-test results remain unavailable for tuning.
 
 ## Verification state
 
-The reduced active suite passes all 22 tests, including
+The reduced active suite passes all 26 tests, including
 chunked-versus-monolithic energy/gradient equality, dimension-normalized
 full-latent Adam, best-path retention and frozen-`SO(2)` kernel caching.
 Python compilation passes. Ruff now checks only
 `E9/F6/F7/F82` runtime-error families and Basedpyright runs in `basic` mode; do
 not restore `ALL`, exhaustive annotation/docstring rules or strict tensor typing.
-Both checks pass. No Stage A2 Kaggle package is active while the scientific
-runner is pending. Historical calibration kernels and contracts are preserved
-by Git and their authenticated Kaggle results; the generic shell script will
-upload an explicit thin kernel only after the runner exists. Personal
+Both checks pass. The Stage A2 thin package validates locally but has not been
+submitted. Historical calibration kernels and contracts are preserved by Git
+and their authenticated Kaggle results; the generic shell script is the only
+upload path. Personal
 references remain ignored and no live code depends on the local experiment
 archive.
