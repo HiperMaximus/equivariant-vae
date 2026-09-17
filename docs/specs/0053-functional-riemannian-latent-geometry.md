@@ -945,6 +945,11 @@ and mounts the frozen inputs, with no payload or parallel workflow. The next
 operation is one submission through `scripts/kaggle_kernel.sh`, followed by
 scientific interpretation only after both model workers complete.
 
+Operationally, each completed full-latent path writes one checkpoint containing
+its last Adam iterate, retained best iterate and metrics. A later run may mount
+those outputs and skip completed paths; an interrupted path is recomputed. This
+changes no optimizer state, scientific objective, path order or model budget.
+
 ## Later Work
 
 - Expand geodesic/action analysis to the five evaluation WSIs only after the

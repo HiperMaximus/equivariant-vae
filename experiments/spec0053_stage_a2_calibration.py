@@ -248,6 +248,9 @@ def _optimize_full_latent_path(
         "best_path": _path_from_interior(left, best_interior, right, torch=torch),
         "effective_learning_rate": effective_learning_rate,
         "final_energy": final_energy,
+        "final_path": _path_from_interior(
+            left, interior.detach(), right, torch=torch
+        ),
     }
 
 
@@ -346,6 +349,7 @@ def _solve_path(
         torch=torch,
     )
     path = result.pop("best_path")
+    final_path = result.pop("final_path")
     decoded = _decode_knots(model, path, torch=torch)
     metrics = _path_metrics(
         path,
@@ -363,6 +367,65 @@ def _solve_path(
         decoded,
         torch=torch,
     )
+    return path, final_path, decoded, metrics
+
+
+def _write_checkpoint(path, tensors, *, torch):
+    temporary = path.with_suffix(".tmp")
+    torch.save(tensors, temporary)
+    temporary.replace(path)
+
+
+def _solve_or_resume_path(
+    model,
+    left,
+    right,
+    *,
+    name,
+    model_name,
+    checkpoint_root,
+    eager_edge_energy,
+    optimized_edge_energy,
+    contract,
+    tensors,
+    torch,
+):
+    checkpoint_path = checkpoint_root / f"{name}.pt"
+    checkpoint_source = (
+        checkpoint_path
+        if checkpoint_path.exists()
+        else next(
+            DATASET_ROOT.glob(f"**/checkpoints/{model_name}/{checkpoint_path.name}"),
+            None,
+        )
+    )
+    if checkpoint_source is not None:
+        saved = torch.load(checkpoint_source, map_location="cpu", weights_only=True)
+        _log("path_resumed", model=model_name, path=name)
+        path = saved["best_path"].to(left.device)
+        decoded = _decode_knots(model, path, torch=torch)
+        _save_path(tensors, name, path, decoded, torch=torch)
+        return path, decoded, saved["metrics"]
+    path, final_path, decoded, metrics = _solve_path(
+        model,
+        left,
+        right,
+        eager_edge_energy=eager_edge_energy,
+        optimized_edge_energy=optimized_edge_energy,
+        contract=contract,
+        torch=torch,
+    )
+    _write_checkpoint(
+        checkpoint_path,
+        {
+            "best_path": path.detach().to("cpu"),
+            "last_path": final_path.detach().to("cpu"),
+            "metrics": metrics,
+        },
+        torch=torch,
+    )
+    _log("path_checkpointed", model=model_name, path=name)
+    _save_path(tensors, name, path, decoded, torch=torch)
     return path, decoded, metrics
 
 
@@ -772,22 +835,27 @@ def _run_cycle(
     optimized_edge_energy,
     contract,
     tensors,
+    model_name,
+    checkpoint_root,
     torch,
 ):
     paths = []
     left = cycle[0].unsqueeze(0)
     right = cycle[1].unsqueeze(0)
-    path, decoded, metrics = _solve_path(
+    path, decoded, metrics = _solve_or_resume_path(
         model,
         left,
         right,
+        name=f"{cycle_name}_side_0",
+        model_name=model_name,
+        checkpoint_root=checkpoint_root,
         eager_edge_energy=eager_edge_energy,
         optimized_edge_energy=optimized_edge_energy,
         contract=contract,
+        tensors=tensors,
         torch=torch,
     )
     side0 = {"decoded": decoded, "metrics": metrics, "path": path}
-    _save_path(tensors, f"{cycle_name}_side_0", path, decoded, torch=torch)
     paths.append(side0)
 
     # This call receives only side 0 and z1. z2/z3 and all closure scores are
@@ -820,16 +888,19 @@ def _run_cycle(
     }
 
     for side in range(1, 4):
-        path, decoded, metrics = _solve_path(
+        path, decoded, metrics = _solve_or_resume_path(
             model,
             cycle[side].unsqueeze(0),
             cycle[(side + 1) % 4].unsqueeze(0),
+            name=f"{cycle_name}_side_{side}",
+            model_name=model_name,
+            checkpoint_root=checkpoint_root,
             eager_edge_energy=eager_edge_energy,
             optimized_edge_energy=optimized_edge_energy,
             contract=contract,
+            tensors=tensors,
             torch=torch,
         )
-        _save_path(tensors, f"{cycle_name}_side_{side}", path, decoded, torch=torch)
         paths.append({"decoded": decoded, "metrics": metrics, "path": path})
 
     return {
@@ -852,6 +923,8 @@ def _run_patch(
     optimized_edge_energy,
     contract,
     tensors,
+    model_name,
+    checkpoint_root,
     torch,
 ):
     with torch.no_grad():
@@ -876,16 +949,19 @@ def _run_patch(
         "rank": rank,
     }
     for turn in range(1, 4):
-        path, decoded, metrics = _solve_path(
+        path, decoded, metrics = _solve_or_resume_path(
             model,
             encoded[turn].unsqueeze(0),
             prescribed[turn].unsqueeze(0),
+            name=f"rank_{rank}_bridge_{turn}",
+            model_name=model_name,
+            checkpoint_root=checkpoint_root,
             eager_edge_energy=eager_edge_energy,
             optimized_edge_energy=optimized_edge_energy,
             contract=contract,
+            tensors=tensors,
             torch=torch,
         )
-        _save_path(tensors, f"rank_{rank}_bridge_{turn}", path, decoded, torch=torch)
         result["bridges"].append(
             {"turn": turn, **_bridge_metrics(decoded, torch=torch), **metrics}
         )
@@ -898,6 +974,8 @@ def _run_patch(
             optimized_edge_energy=optimized_edge_energy,
             contract=contract,
             tensors=tensors,
+            model_name=model_name,
+            checkpoint_root=checkpoint_root,
             torch=torch,
         )
     return result
@@ -939,6 +1017,8 @@ def _worker(model_name, device_index, repo_root_text, output_text, source_commit
     probe = _latent_line(encoded[0, :1], encoded[1, :1], 8, torch=torch)
     eager_edge_energy, optimized_edge_energy = _prepare_decoder_runtime(model, probe, torch=torch)
     del probe, patches, selected
+    checkpoint_root = output / "checkpoints" / model_name
+    checkpoint_root.mkdir(parents=True, exist_ok=True)
     tensors = {"anchors": {}, "free": {}, "paths": {}}
     results = []
     for local_index, rank in enumerate(contract["scope"]["pilot_patch_ranks"]):
@@ -953,6 +1033,8 @@ def _worker(model_name, device_index, repo_root_text, output_text, source_commit
                 optimized_edge_energy=optimized_edge_energy,
                 contract=contract,
                 tensors=tensors,
+                model_name=model_name,
+                checkpoint_root=checkpoint_root,
                 torch=torch,
             )
         )
@@ -1000,7 +1082,7 @@ def _paired(normal, so2):
 def run(*, repo_root: Path, source_commit: str, started_at: float) -> int:
     del started_at
     output = OUTPUT_ROOT
-    output.mkdir(parents=True, exist_ok=False)
+    output.mkdir(parents=True, exist_ok=True)
     contract = json.loads((repo_root / CONTRACT_PATH).read_text(encoding="utf-8"))
     context = mp.get_context("spawn")
     workers = []

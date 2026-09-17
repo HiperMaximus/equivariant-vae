@@ -115,13 +115,19 @@ stored at `runs/kaggle/functional_geometry_stage_a1_c4_slq_v1/` with SHA-256
 Scientific kernel
 `maximusshtefan/eqvae-functional-geometry-stage-a2/1` was submitted at
 `2026-09-17T13:58:28-05:00` from public commit
-`f0ff9c3225530d1abd24709bad9b17a847d2cd93` and reached `RUNNING`. Kaggle
-normalized the initial metadata title to this URL slug; the local metadata now
-matches it. Do not resubmit or poll continuously; inspect the run after
-`2026-09-18T02:00:00-05:00`. The prior calibration measured roughly 48 minutes
-per 512-step `SO(2)` path, so the 22-path scientific worker has material
-wall-time risk before the additional chart/shooting work; preserve any failure
-as runtime evidence rather than silently changing the scientific contract.
+`f0ff9c3225530d1abd24709bad9b17a847d2cd93`, reached `RUNNING`, and was
+user-cancelled after about nine minutes once the missing resumability was
+identified; Kaggle reports `CANCEL_ACKNOWLEDGED`. It completed no path and
+produced no scientific result. Kaggle normalized the initial metadata title to
+this URL slug; the local metadata now matches it.
+
+The runner now writes one atomic checkpoint after every completed path, with
+both its final Adam iterate and retained best iterate plus metrics. A restart
+skips matching paths found in the current output or a mounted prior-output
+input; an interrupted path restarts from its line initialization. Kaggle
+working storage is not persistent across version runs, so a timed-out version's
+checkpoint directory must be exposed as a later input before it can be reused.
+No replacement run has been submitted yet.
 
 Private calibration `maximshtefan/eqvae-fg-stage-a2-calibration/3` failed after
 18 seconds, before model loading, because the direct-mounted patch path omitted
