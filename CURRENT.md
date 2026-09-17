@@ -14,8 +14,8 @@ conditioned but materially restricts the optimized paths relative to direct
 full-latent control. Its automatic decision remains `unresolved` because one
 full-latent path touched the fixed trust tube. No calibration result yet
 justifies the scientific solver/final-pilot run. The one remaining calibration
-is prepared but not launched: full-latent only, `K=32`, 512 continuous Adam
-steps, with line deviation recorded but never projected or used as a gate.
+is running on Kaggle: full-latent only, `K=32`, 512 continuous Adam steps, with
+line deviation recorded but never projected or used as a gate.
 The local Kaggle CLI is authenticated as replacement account
 `maximusshtefan`. Private dataset
 `maximusshtefan/eqvae-frozen-vae-weights-v1/1` contains only the two accepted
@@ -126,6 +126,12 @@ is only whether 512 full-latent steps at `K=32` provide an adequate numerical
 path. The prepared runner deletes all `d=32/128` candidates, chart construction,
 trust projection and automatic acceptance gates. It runs four paths total: two
 models by the prescribed-rank-4 and encoded-rank-16 calibration routes.
+
+Replacement-account kernel
+`maximusshtefan/eqvae-fg-stage-a2-calibration/1` launched from public commit
+`99d908cb5cf6a3ca0df56e54c4c82b09062da644` and entered `RUNNING`. It mounts
+only datasets owned by `maximusshtefan`. Do not launch a parallel replacement;
+inspect this version through its 120-minute ceiling.
 
 Private calibration version
 `maximshtefan/eqvae-fg-stage-a2-calibration/1` was accepted at
