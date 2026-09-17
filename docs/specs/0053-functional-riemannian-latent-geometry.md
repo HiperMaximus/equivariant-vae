@@ -2,8 +2,8 @@
 
 Status: draft active; Stage A1 implemented and accepted; numerical calibration
 is complete; reduced charts are excluded and the full-latent `K=32`, 512-step
-budget is fixed; scientific Stage A2 awaits its compact pathwise validity and
-interpretation contract
+budget is fixed; the compact Stage A2 numerical contract is frozen and its
+scientific runner remains to be implemented
 Owner/workstream: frozen normal versus continuous-`SO(2)` VAE latent analysis
 Last updated: 2026-09-17
 
@@ -107,9 +107,9 @@ theorem identify the tangent of a regular fiber with
 `T_z F_y=ker J_D(z)`. Without that condition, `ker J_D(z)` is only the instantaneous
 null space. A numerically small but positive singular direction is an
 `epsilon`-inactive direction, not an exact vertical or gauge direction. Two
-distant latent states are called approximately decoder-equivalent here only
-when a preregistered connected-bridge test passes; similar endpoint decodes
-alone do not define a fiber or an equivalence relation.
+distant latent states receive evidence of approximate decoder equivalence only
+from a connected bridge whose decoded motion is reported quantitatively;
+similar endpoint decodes alone do not define a fiber or an equivalence relation.
 
 A pose orbit `{rho(g)z}` is different: it normally moves across decoder
 fibers over differently rotated outputs. Only in a separately established
@@ -146,9 +146,10 @@ For a fixed orthonormal local chart `phi:Omega subset R^d -> Z`, let
 
 Rank and conditioning are determined from the thin operator `B`, not from
 squaring its condition number and guessing from noisy eigenvalues of `G_phi`.
-Riemannian language is permitted only when `phi` is fixed and `C2` on a
-declared trust region, `B` has constant full column rank there, and the result
-is stable under chart, dimension, and knot refinement. Then `G_phi` is positive
+Riemannian language is permitted only when `phi` is fixed and `C2` on the
+evaluated path neighborhood, `B` has numerically constant full column rank
+there under the fixed SVD convention, and the result is stable under chart and
+knot refinement. Then `G_phi` is positive
 definite and defines the Levi-Civita connection of that explicitly restricted
 decoder immersion. A sequence of independently adapted frames does not by
 itself define an atlas, connection, Exp, Log, or holonomy. If any chart criterion
@@ -160,10 +161,9 @@ constant-rank/fiber assumptions above plus
 `Im(J_phi) direct-sum ker(J_D)=T_z Z`. Stage A2 does not assume or expect a
 small chart to pass those full-quotient criteria. It studies the Riemannian
 geometry of an explicitly restricted immersion and separately tests
-operational decoder equivalence with connected bridges. If positive singular
-directions are discarded at a declared threshold, freeze a new lower-
-dimensional chart before solving; never relabel the result as an exact decoder
-quotient.
+operational decoder equivalence with connected bridges. Any fixed numerical
+rank truncation belongs to the reported construction of `U`; never relabel the
+result as an exact decoder quotient.
 
 Latent paths may differ while their decoded curves agree. Such multiplicity is
 possible gauge evidence and remains visible in the results.
@@ -503,6 +503,13 @@ lowest-energy iterate encountered under the unchanged objective. This selection
 is part of the optimizer itself and does not compare models or impose a
 geometric acceptance gate.
 
+This closes optimizer calibration. Stage A2 does not add a longer-step probe or
+a plateau scheduler: either would define a new optimizer after the common
+budget was fixed. It uses the calibrated fixed learning rate, runs at most 512
+steps, and retains the lowest-energy iterate. The later one-shot IVP tests
+geodesic consistency of its initial tangent; it is not a reason to restart
+path-energy calibration.
+
 ### Objective
 
 Determine independently whether:
@@ -538,53 +545,131 @@ Using all four anchors to concatenate four endpoint-known sides is a
 teacher-forced description. Using all four anchors to select a chart and then
 claiming that the chart predicted the cycle is prohibited.
 
-### Fixed local charts and representative separation
+### Full-latent paths, fixed local charts, and representative separation
 
-A single pooled linear `U` is not the primary manifold model. Every candidate
-Riemannian solve uses one fixed `C2` chart `phi` with an orthonormal Jacobian
-basis, a declared coordinate domain, and a preregistered trust radius. The
-first implementation may use an affine `C-infinity` chart
-`phi(xi)=z_ref+U xi`; it must not call independently changing knot frames an
-atlas. A deterministic calibration may construct nested candidate `U(d)` from
-the permitted endpoints, decoder JVP/VJP, and decoder-energy gradients on the
-latent-line initialization. Each candidate is then frozen before optimization.
-Increasing `d` creates a separate sensitivity solve rather than silently
-changing coordinates inside one solve.
+The primary path search is full latent, not a solve inside a preselected `U`.
+It first records a `K=32` decoder-energy path without trust projection. Only
+after that path is frozen may a deterministic path-local decomposition use its
+knot span, decoder JVP/VJP products, and tangent information to construct a
+fixed affine chart `phi(xi)=z_ref+U_0 xi` for its free shooting continuation
+and transport. The v1 contract constructs this chart from the permitted first
+side only; future anchors remain unavailable. It does not construct analogous
+charts for sides 1--3 or an intrinsic identification between their tangents.
 
-The trust region limits coordinate radius, distance from the permitted local
-initialization, and per-step motion using model-independent dimensionless
-scales derived only from permitted endpoint secants. A path that touches the
-trust boundary without convergence loses the word `local`; the unrestricted
-solution is retained only as a global decoder-energy sensitivity with latent
-norm, raw-output range, sharpness, content drift, and rank diagnostics.
+`U` is a restricted decoder-visible, approximately horizontal complement to
+the exact-null and numerically inactive directions observed along that path.
+Those inactive directions are retained separately as vertical/gauge
+diagnostics rather than deleted from the full-latent result. The purpose of
+`U` is to make the thin pullback metric usable for Exp/Log, shooting, and
+transport; it does not prove a quotient, and it does not retroactively turn the
+full-latent optimizer into a reduced solve. The restricted shooting curve is
+compared with the original full-latent decoded path and both remain reported.
 
-Two endpoint contracts are required:
+The one `U_0` is frozen for the complete free rollout. Independently changing
+knot frames are diagnostics, not an atlas. Report the complete singular spectrum available
+in the thin chart, numerical rank, condition, principal-angle drift, and their
+variation along the path. A singular or unstable chart does not abort the
+experiment: full-latent paths and ambient decoded comparisons remain valid,
+while intrinsic Exp/Log, Levi-Civita, holonomy, and monodromy interpretations
+are marked undefined for that path. Line deviation, latent norm, raw-output
+range, sharpness, content drift, and posterior-support diagnostics are
+telemetry, not trust-region gates.
+
+Two endpoint views are required:
 
 1. **Representative-conditioned path:** both `z_L` and `z_R` are literal.
    Vertical or `epsilon`-inactive motion is allowed and measured. This is
    always called a decoder-energy path, not a quotient geodesic.
-2. **Class-target path:** fix `gamma(0)=z_L`, require
-   `D(gamma(1))~=D(z_R)` under the endpoint criterion, and allow the terminal latent
-   `z_R_prime` to differ from `z_R`. Only if the fixed-chart and full-rank criteria
-   pass may this be called a reduced Riemannian geodesic. The residual
-   `z_R_prime-z_R` is not called gauge until a separate connected-bridge test
-   validates approximate decoder equivalence.
+2. **Class-target shooting view:** fix `gamma(0)=z_L`, initialize its tangent
+   only from the representative-conditioned variational path, and allow the
+   IVP terminal `z_R_prime` to differ from `z_R`. Report the decoded target
+   residual continuously; do not fit the initial velocity to that residual.
+   Only a numerically usable fixed chart supports a restricted-geodesic
+   interpretation, and `z_R_prime-z_R` is not called gauge until a separate
+   connected-bridge analysis supports that interpretation.
 
-At a valid chart knot, let `Q_j` be an orthonormal frame for the complete fixed
-chart tangent and `C_j=J_D(z_j)Q_j` its decoder-image tangent frame. Every
-chart direction participates in `G_phi`, the geodesic, and transport. If any
-chart singular value falls below the preregistered conditioning threshold, reject
-that chart; do not drop the direction inside the solve or insert an eigenvalue
-floor. Exact null and positive-but-small `epsilon`-inactive directions are
-recorded separately as diagnostics. Any rank or conditioning failure
-invalidates Exp/Log, Levi-Civita, and holonomy labels for that path.
+At a usable chart knot, let `Q_j` be an orthonormal frame for the complete fixed
+decoder-visible chart tangent and `C_j=J_D(z_j)Q_j` its decoder-image tangent
+frame. Every retained chart direction participates in `G_phi`, the geodesic,
+and transport. Do not drop a direction dynamically inside the solve or hide it
+with an eigenvalue floor. Exact-null and numerically inactive directions are
+recorded separately. Rank loss or numerical singularity makes the intrinsic
+labels undefined but is reported as a result rather than raised as a failed
+run.
 
-Fiber searches use a distinct joint search space containing both literal endpoints,
-their secant, target-free exact-null candidates when identifiable, declared
-`epsilon`-inactive candidates, and visible corrections. A Riemannian chart that
-excluded inactive directions must not be reused as if it could discover them.
-Conversely, an inactive bridge direction cannot lower a reduced geodesic merely
-by changing its representative.
+Fiber searches remain full latent so that they can use both visible and
+decoder-insensitive motion. A Riemannian `U` that excluded inactive directions
+must not be reused as if it could discover a bridge. Conversely, an inactive
+bridge direction cannot lower a restricted geodesic merely by changing its
+representative.
+
+#### Frozen Stage A2 numerical contract
+
+The machine-readable contract is
+`docs/data/functional_geometry_stage_a2_contract.json`. For each model, patch,
+and cycle, first optimize the literal-endpoint side `z_0 -> z_1` in the full
+latent space. Let `S` contain up to 32 of its nonzero consecutive secants after
+unit-`l2` normalization. Compute the right singular frame `V` of this observed
+path-tangent span, then accumulate in FP64 the small matrix
+
+`H=(1/33) sum_j (J_D(z_j)V)^T(J_D(z_j)V)/n_X`
+
+from FP32 decoder JVPs at all 33 knots. Eigendecompose the Gram matrix as
+`H W=W diag(lambda)` in decreasing `lambda` order and define
+`sigma_i=sqrt(max(lambda_i,0))`. Then `U_0=V W_retained`, where retention applies
+the common numerical rank rule to `sigma`, not to `lambda`. The complementary
+`V W_inactive` vectors inside `span(V)` are retained as the path-observed
+decoder-inactive component. This decomposition says nothing about unobserved
+directions in the full 16,384-dimensional latent space and does not assert a
+fiber or quotient.
+Order modes by decreasing singular value and orient each by making its
+largest-absolute latent entry positive, breaking ties by the lowest flattened
+index. Freeze `U_0`, the chart origin `z_0`, and the aggregate largest singular
+value before shooting.
+
+Both the path-span SVD and decoder-visibility SVD use the numerical rule
+
+`sigma_i > 32 eps_FP32 sigma_max`.
+
+The factor 32 is the maximum possible rank of the observed 32-secant path span.
+Small Gram matrices and SVDs use FP64; decoder products remain FP32. This is a
+shared floating-point convention tied to the computed thin problem, not a
+scientific threshold. During shooting
+the same absolute floor, obtained from the frozen aggregate `sigma_max`, is
+applied to the complete fixed `U_0`. Modes are never dropped dynamically and no
+eigenvalue floor is inserted. If any integrator stage loses numerical full
+rank, intrinsic output is undefined from that stage onward; the run retains
+the full-latent paths, decodes, residuals, and all other extrinsic results.
+
+This is a **one-shot shooting consistency test** of the branch supplied by the
+variational path, not a shooting solve, boundary-value solve, or second
+calibrated optimizer: `c_0` is never refitted to the target. In chart coordinates
+`z=z_0+U_0 xi`, initialize
+
+`c_0=(4 U_0^T(z_1^path-z_0)-U_0^T(z_2^path-z_0))/(2/32)`
+
+and solve `xi_dot=c` and
+
+`c_dot=-(J_D(z)U_0)^dagger D^2D(z)[U_0c,U_0c]`.
+
+Use fixed-step explicit midpoint RK2 with eight steps per quarter and continue
+the same state for four quarters. Reintegrate the same frozen `c_0` with 16
+steps per quarter as the time refinement; do not refit it. This fixed 8/16
+order-two pair is an economical common budget whose discrepancy is reported;
+it was not selected from model results and is neither a scientific threshold
+nor a runtime gate. The free terminal
+`hat z_1` is scored by normalized decoded MSE against `D(z_1)`, with the
+literal endpoint signal as denominator. That target score is reported, not
+minimized or thresholded. Therefore `c_0` is a Log candidate with a continuous
+shooting residual, not an asserted exact Log. Future anchors and closure scores
+remain unavailable until both rollouts are frozen.
+
+The frozen-path quadrature sensitivity inserts one latent midpoint per segment
+of the `K=32` result and reevaluates energy and length on 64 segments. It also
+reports the decoded midpoint RMS from `D((z_j+z_(j+1))/2)` to the output chord midpoint
+`(D(z_j)+D(z_(j+1)))/2`. It does not rerun Adam or select a model. It measures
+quadrature and chord sensitivity of one frozen curve, not convergence of a
+reoptimized `K=64` optimum.
 
 ### A. Exact anchors and decoder-fiber bridges
 
@@ -593,28 +678,28 @@ direct exact-`C4` action residuals and add the missing comparison `D(e_k)`
 versus `D(a_k)`. The equality `e_0=a_0` is an exact no-op sanity row; do not
 optimize a degenerate `k=0` bridge.
 
-For each nonidentity `k`, first require the normalized endpoint decoded RMS to
-pass the bridge-assessability criterion. Then optimize a joint-chart bridge
-`beta_k:e_k -> a_k` under
+For each nonidentity `k`, record the normalized endpoint decoded RMS and then
+optimize a direct full-latent bridge `beta_k:e_k -> a_k` under
 
 `E_D(beta)=sum_j ||D(beta_(j+1))-D(beta_j)||_X^2/delta_t`.
 
-Use exactly the preregistered latent line and two seeded, secant-normalized
-Rademacher perturbation starts. Persist every result. The canonical reported
-candidate is the lowest-energy converged path that passes endpoint, decoded-
-tube, reversal, and knot/chart-refinement criteria; no target retained elsewhere
-may break a tie. Report endpoint decoded RMS, bridge energy and length, maximum
-decoded diameter relative to both endpoint decodes, latent length, exact-null
-and `epsilon`-inactive usage, active rank, reversal, refinement, and distinct
-solutions found under those starts.
+Use the same `K=32`, fixed learning rate, 512-step ceiling, latent-line start,
+and best-iterate retention as the calibrated path search. Persist the result.
+Report endpoint decoded RMS, bridge energy and length, maximum decoded diameter
+relative to both endpoint decodes, latent length, exact-null and inactive
+usage, active rank, reversal discrepancy, and frozen-path quadrature
+discrepancy.
+These are continuous paired measurements for the normal and `SO(2)` models,
+not pre-run pass/fail tolerances.
 
-A large latent displacement with a connected negligible-output-motion bridge
-supports approximate decoder equivalence under the operational tolerance; it
-does not prove an exact fiber. Similar endpoint decodes without a connected
-bridge do not. Failure to find a bridge is `unresolved/not found`, never
-evidence that no bridge exists. The equal-budget full-latent control detects
-reduced-chart search bias; only a separately established mathematical lower
-bound or global certificate could exclude bridge existence.
+A large latent displacement with a connected low-output-motion bridge is
+evidence for approximate decoder equivalence, with its strength quantified by
+the reported endpoint RMS, decoded diameter, energy, and their matched-model
+differences and ratios. Stage A2 does not threshold these measurements into a
+model winner or abort the run. It does not prove an exact fiber, and failure to
+find a low-energy bridge is `unresolved/not found`, never evidence that no
+bridge exists. Only a mathematical lower bound or global certificate could
+exclude bridge existence.
 
 ### B. Four independently optimized sides
 
@@ -622,32 +707,33 @@ For both the encoded and prescribed cycles, independently optimize
 
 `gamma_k:z_k -> z_((k+1) mod 4)`, `k=0,1,2,3`.
 
-Solve both the literal representative-conditioned and free-terminal
-class-target contracts. The primary objective is unregularized decoder energy
-inside the preregistered local trust region; the same objective without the
-trust region is a labelled global sensitivity, not a fallback selected from
-its result. Use the same three preregistered starts as the bridge protocol.
-Use `K=16` and mandatory `K=32` refinement; `K=64` is a fixed first-side knot
-sensitivity. Run an equal-budget full-latent control for every side and
-endpoint contract used by a cycle, covariance, closure, or holonomy decision.
-If that complete control is computationally excluded by the locked budget,
-the affected reduced-chart conclusion remains unresolved rather than being
-inferred from the first side.
+Solve the literal representative-conditioned contract directly in the full
+latent space; the later class-target view is the frozen one-shot shooting test
+defined above. The common primary path solve starts from the latent line and
+uses unregularized decoder energy, `K=32`, the calibrated
+dimension-normalized fixed Adam rate, at most 512 steps,
+and the lowest-energy iterate. For the full latent dimension `16384`, the rate
+is exactly `.005 sqrt(32/16384)`. There is no trust projection, automatic
+acceptance gate, plateau scheduler, or longer-step calibration arm. The frozen-
+path 32-to-64 midpoint reevaluation measures quadrature and chord sensitivity
+without reoptimizing the curve, selecting a model, or claiming convergence of
+the discrete optimum.
 
 No intermediate desired rotation image, other side, cross-patch basis, or
-withheld anchor enters the objective, initialization, chart/dimension choice,
-stopping rule, or branch selection. Persist all solutions found under the
-fixed starts and cluster distinct paths with a preregistered decoded-curve
-distance; do not claim exhaustive Logs or global uniqueness.
+withheld anchor enters the objective, initialization, chart construction,
+stopping rule, or branch selection. The one deterministic primary result is
+not claimed to be the global or unique energy-minimizing path.
 
 Report every decoded knot, endpoint error, energy, length, constant-speed
-error, reversal, knot/chart/full-latent refinement, decoded sharpness and
-content drift, latent norm, exact-null and `epsilon`-inactive velocity,
-rank/conditioning, and agreement across starts. Raw length and energy are
+error, reversal, frozen-path quadrature sensitivity, and shooting time-step
+sensitivity, decoded sharpness and content
+drift, latent norm, exact-null and inactive velocity, rank/conditioning, and
+metric variation along the path. Raw length and energy are
 reported beside `L_D/||D(z_R)-D(z_L)||_X` and
-`E_D/||D(z_R)-D(z_L)||_X^2`, with a preregistered endpoint-signal degeneracy
-criterion. Persist contact sheets and animations or ordered frames so the
-intermediate interpolation is directly inspectable.
+`E_D/||D(z_R)-D(z_L)||_X^2`. Persist contact sheets and animations or ordered
+frames so the intermediate interpolation is directly inspectable. Report
+matched normal-versus-`SO(2)` differences and ratios without a predeclared
+scientific superiority threshold.
 
 ### C. Exact-C4 covariance of complete paths
 
@@ -658,30 +744,15 @@ the result:
 
 This uses only exact array permutations. For the prescribed cycle,
 `rho(r)a_k=a_(k+1)` is true by construction; empirical evidence concerns the
-decoder paths, not discovery of that latent group law. Where the differential
-action-isometry criterion passes, also compare
-
-`[gamma_(k+1)(t)]_D` with `[rho(r)gamma_k(t)]_D`.
-
-At every valid knot, let `Q_z` and `Q_rz` be the complete source and target
-chart-tangent frames, and define
-
-`T_r=J_D(rho(r)z) d rho(r) Q_z`, `S_r=R_90 J_D(z)Q_z`.
-
-The model-independent criterion includes all of:
-
-- worst-direction commutation
-  `||T_r-S_r||_2/(||S_r||_2+epsilon)`;
-- metric distortion
-  `||T_r^T T_r-S_r^T S_r||_2/(||S_r^T S_r||_2+epsilon)`;
-- chart-subspace covariance
-  `||(I-Q_rz Q_rz^T)d rho(r)Q_z||_2` and every principal angle between
-  `d rho(r)Q_z` and `span(Q_rz)`;
-- pointwise decoder commutation, equal chart dimension/rank, and preservation
-  under knot and chart refinement.
-
-The machine contract fixes every threshold. An averaged Frobenius residual or
-exact endpoint commutation alone cannot establish differential isometry.
+decoder paths, not discovery of that latent group law. Frozen-contract v1
+compares the four independently optimized paths only in their common ambient
+decoded space. It defines `U_0` only for the first-side free rollout, so it does
+not manufacture `U_k`, compare chart tangent frames across the other sides, or
+claim differential action isometry. Those intrinsic covariance tests require
+a later contract that explicitly constructs and identifies all side charts.
+Report the ambient pointwise and curve-level residuals continuously for both
+models; exact endpoint commutation alone cannot establish differential
+isometry.
 
 Measure endpoint and tangent continuity, equality of side length/energy,
 decoded closure, and fourfold composition. If independently solved sides have
@@ -690,14 +761,16 @@ smooth closed geodesic.
 
 ### D. Free geodesic continuation
 
-For each encoded and prescribed cycle whose class-target first side passes all
-restricted-immersion Riemannian criteria, solve
+For each encoded and prescribed cycle whose representative-conditioned first
+side yields a numerically usable fixed restricted-immersion chart, construct
 
-`v_0=Log^phi_(z_0)(hat z_1)`, with `D(hat z_1)~=D(z_1)`,
+the Log candidate `v_0=U c_0` and its free terminal `hat z_1`, and report
+`D(hat z_1)` versus `D(z_1)`,
 
-using only its permitted information. The machine contract must fix the IVP
-geodesic integrator, order, step schedule, chart evaluation, velocity update,
-retraction, rank-change behavior, and time refinement. Continue the same
+using only its permitted information. The frozen machine contract fixes the
+IVP geodesic integrator, order, step schedule, affine chart evaluation,
+velocity update, absence of retraction, rank-change behavior, and time
+refinement. There is no target-aware velocity correction. Continue the same
 geodesic and velocity for three further equal quarter durations to produce
 
 `hat z_2=Exp^phi_(z_0)(2 v_0)`, `hat z_3=Exp^phi_(z_0)(3 v_0)`, and
@@ -718,78 +791,63 @@ by literal `z_1` in any continuation or downstream diagnostic.
 The continuation state may retain the fixed chart origin and numerical scales
 required by the IVP, but no functional of return distance to `z_0` may affect
 steps, stopping, enrichment, branch clustering, or selection after the first
-quarter. Without an accepted post-hoc bridge, decoded agreement is reported
+quarter. Without a reported post-hoc bridge, decoded agreement is reported
 only as decoded agreement, not quotient closure or gauge motion. A
 teacher-forced diagnostic may restart from each observed anchor but is never
 pooled with or called free continuation.
 
-Continue every distinct first-side solution found under the preregistered
-starts and refinements. This does not establish that all mathematical Logs were
-found or that the Log is unique. Chart failure, rank change, or multiple
-scientifically different continuations is reported as unresolved rather than
-selecting the branch closest to a withheld or closure anchor.
+Continue the deterministic first-side rollout and its fixed time refinement.
+This does not establish that `c_0` is an exact or unique mathematical Log.
+Chart failure or rank change leaves the
+intrinsic continuation undefined rather than selecting a branch closest to a
+withheld or closure anchor; the ambient decoded path remains reportable.
 
 ### E. Parallel transport and closed-loop holonomy
 
-Moving a point along `gamma_k` is geodesic motion. Parallel transport moves a
-tangent vector. Let
-
-`v_k=Log^phi_k_(z_k)(hat z_(k+1)^k)`, where
-`D(hat z_(k+1)^k)~=D(z_(k+1))`.
-
-Compare separately
-
-`P_(gamma_k)v_k`, `d rho(r)v_k`, and `v_(k+1)`.
-
-The transported tangent ends at the class-target representative
-`hat z_(k+1)^k`, whereas the next independently solved tangent begins at the
-literal `z_(k+1)`. Therefore every intrinsic comparison with `v_(k+1)` first
-requires an accepted bridge plus preregistered tangent-space identification
-between those base points. For the prescribed cycle, `d rho(r)v_k` is based at
-literal `z_(k+1)` by construction and needs the same identification before it
-can be compared with the transported endpoint. For the encoded cycle,
-`rho(r)e_k` is generally not even literal `e_(k+1)`, so an additional accepted
-identification is required. Without all required criteria, report decoded vectors
-in the common ambient output space only as an extrinsic return defect and make
-no intrinsic angle, continuity, or transport-agreement claim.
+Moving a point along the free rollout is geodesic motion within its restricted
+chart; parallel transport moves a tangent vector. Frozen-contract v1 transports
+only along this rollout in `U_0`. It does not define side-specific `v_k`, `U_k`,
+or intrinsic identifications with the independently optimized sides. Their
+tangents and `d rho(r)` images may be decoded into the common ambient output
+space and reported as extrinsic discrepancies, but no intrinsic angle,
+continuity, or transport-agreement claim is made across those undefined base-
+point identifications.
 
 At adjacent path knots of one fixed valid chart, use the first-order
 induced-metric projection
 
 `c_(j+1)=C_(j+1)^dagger C_j c_j`,
 
-where the latent tangent is `u_j=Q_j c_j`, its decoded tangent is `C_j c_j`,
-and `u_(j+1)=Q_(j+1)c_(j+1)`. Coordinates, latent tangents, and decoded
+where `Q_j=Q_(j+1)=U_0`, the latent tangent is `u_j=U_0 c_j`, its decoded
+tangent is `C_j c_j`, and `u_(j+1)=U_0 c_(j+1)`. Coordinates, latent tangents, and decoded
 tangents are persisted separately.
 
-`C_j` has full column rank by the chart criterion, and the pseudoinverse uses the
-complete chart tangent. Do not truncate positive modes or hide failed
+When `C_j` has numerical rank `dim(U_0)` under the fixed SVD convention, its
+pseudoinverse uses the complete chart tangent. Do not truncate modes dynamically or hide failed
 directions with an eigenvalue floor. Check metric-norm preservation,
-forward/backward error, knot and frame refinement, tangent angles, and action
-covariance. Preservation of a geodesic's own velocity under the same connection
+forward/backward error, knot and frame refinement, and return-tangent angles.
+Preservation of a geodesic's own velocity under the same connection
 is a numerical implementation check, not independent scientific evidence. The
-independent evidence is agreement with sealed future anchors, separately solved
-side Logs, or `d rho(r)` where their base points are validly identified.
+independent evidence in v1 is agreement with the sealed future anchors after
+the rollout has been frozen.
 
-The teacher-forced holonomy diagnostic uses one separate, fixed, cycle-local
-`C2` chart containing all four literal anchors and re-solves all four sides
-inside that one chart. It never transports across independently chosen
-side-chart coordinates. Because it uses all anchors, it is descriptive only
-and cannot enter free continuation. Holonomy is defined only if this chart has
-constant full column rank along an exactly closed loop and the side junctions
-admit the declared tangent-continuity classification.
-The free rollout instead reports point, tangent, and frame **return defects**.
+The frozen v1 contract does not introduce a second all-anchor chart or re-solve
+the four sides inside one. Such a teacher-forced holonomy analysis would need a
+separate fixed cycle-local chart and is not part of the first Stage A2
+implementation. The free rollout reports point, tangent, and frame **return
+defects** in its one first-side-derived `U_0`.
 It is not assigned a holonomy operator merely because its endpoint decode is
 close to `D(z_0)`. A later explicitly closed comparison may be reported only if
-an accepted connected bridge and a preregistered compatible tangent-space
+a reported connected bridge and an explicitly fixed compatible tangent-space
 identification make the complete return path well defined.
 
 Report:
 
 - **point closure/representative return defect (monodromy diagnostic):** raw
-  latent, decoded-output, and—only after an accepted connected bridge—operational
-  decoder-equivalence discrepancy; interpret a nontrivial representative return
-  as monodromy only after validating the required fiber/quotient/gauge structure;
+  latent, decoded-output, and—only through a reported connected bridge—operational
+  decoder-equivalence discrepancy; interpret a nontrivial representative
+  return as monodromy only after validating the required fiber/quotient/gauge
+  structure;
 - **rotation-tangent return:** metric norm, cosine/angle, and decoded-tangent
   discrepancy between the transported tangent and the initial tangent;
 - **frame return map:** start from an output-orthonormal complete chart frame, transport
@@ -824,14 +882,14 @@ uses only the pilot-safe ten-WSI pool and cannot alter or rescue local results.
 
 | Observation | Local interpretation |
 | --- | --- |
-| `e_k-a_k` is large but connected bridge criteria pass | Different encoder/action representatives are approximately decoder-equivalent under the operational tolerance. |
+| `e_k-a_k` is large but the connected bridge has much smaller decoded motion | Different encoder/action representatives have quantitative evidence of approximate decoder equivalence; report its magnitude rather than a binary pass. |
 | Complete sides are exact-`C4`-covariant but free continuation misses anchors | The independently solved paths share cardinal covariance, but the first geodesic branch does not generate the later anchors. |
-| Free continuation predicts `z_2,z_3,z_0`, closes, and agrees with independent side Logs | Strong evidence for a local closed geodesic, covariant under `C4`, through the rotated anchors. It is not yet a continuous group orbit. |
+| Free continuation predicts `z_2,z_3,z_0`, closes, and agrees in decoded space with independent sides | Strong evidence for a local closed restricted-geodesic branch through the rotated anchors. It is not yet a continuous group orbit or an intrinsic identification of the four side tangents. |
 | Prescribed cycle is clean and encoded cycle has accepted representative bridges | Decoder rotation geometry is coherent while the encoder may choose a different local section. |
 | Free continuation fades while the prescribed action rotates | The prescribed action does not coincide with continuation of the geodesic branch found from the first quarter. |
 | Fiber bridges visibly change decoded content | Encoder/action disagreement is not explained only by decoder redundancy. |
 | Restricted-chart rank changes along a path | Only decoder-energy evidence is defined there. |
-| Point closes under an accepted bridge and the rotation tangent returns under a valid identification | Local operational decoder-equivalence closure and a persistent restricted-geodesic generator are plausible. |
+| Point closes through a reported low-output-motion bridge and the rotation tangent returns under a valid identification | Local operational decoder-equivalence closure and a persistent restricted-geodesic generator are plausible, with strength given by the reported residuals. |
 | Point closes but the chart-tangent rotation direction does not | The loop is closed but not a smooth geodesic cycle with one persistent generator. |
 | Rotation tangent returns but the remaining frame has holonomy | The cycle direction is coherent while surrounding chart directions record curvature of the restricted immersion. |
 | Predicted and observed `q` sectors agree | The free four-state tuple reproduces that exact-`C4` Fourier summary; the DFT identity itself supplies no evidence. |
@@ -854,17 +912,40 @@ uses only the pilot-safe ten-WSI pool and cannot alter or rescue local results.
 - Produce one result JSON plus the decoded intermediate images and compact
   plots needed to inspect paths, return, and holonomy.
 
-Before Stage A2, its machine contract fixes only the numerical values actually
-used: chart construction and dimension, trust radius, rank/conditioning
-thresholds, optimizer and iterations, path discretization, IVP integrator,
-starts, refinements, and comparison tolerances. Both models receive the same
-settings and compute budget.
+The frozen Stage A2 machine contract fixes only the numerical choices actually
+used: deterministic path-local `U` construction, numerical SVD convention,
+the already calibrated optimizer and iterations, path discretization, IVP
+integrator, and refinements. Both models receive the same settings and compute
+budget. Scientific residuals—bridge constancy, covariance, closure, transport,
+holonomy, monodromy, smoothness, and uniformity—are recorded continuously and
+compared with matched differences and ratios. They are not acceptance gates,
+runtime errors, or predeclared model-winner thresholds. Numerical singularity
+may make an intrinsic quantity undefined, but must not discard the remaining
+extrinsic measurements.
 
 Focused tests are limited to numerical seams where a plausible bug changes the
 result: endpoint handling, energy/gradient equivalence, target isolation, known
 synthetic Exp/Log and holonomy cases, exact-`C4` covariance, and transport
 coordinate consistency. Do not mirror the complete contract in tests and do
 not run unrelated repository tests.
+
+### Immediate next implementation
+
+1. Convert `experiments/spec0053_stage_a2_calibration.py` in place into the
+   scientific Stage A2 runner. Reuse its model loading, compiled eight-edge
+   closure, chunked full-latent optimizer, and two-GPU model split; do not add a
+   parallel runner, builder, payload, receipt layer, or validation framework.
+2. First emit anchors, full-latent sides, bridges, decoded knots, paired
+   residuals, and local differential-regularity telemetry. No scientific
+   residual aborts the run.
+3. Derive and freeze `U_0` from each permitted first-side path, then run the
+   shooting-consistency IVP, continuation, transport, frame return, the conditional holonomy estimator,
+   and the monodromy diagnostic wherever each term is mathematically defined.
+   Otherwise emit the ambient results with the intrinsic fields marked
+   undefined.
+4. Submit through the existing thin `scripts/kaggle_kernel.sh` flow. One
+   scientific run consumes the frozen contract; parameter changes edit that
+   contract rather than creating another Kaggle workflow.
 
 ## Later Work
 
@@ -884,6 +965,11 @@ not run unrelated repository tests.
 - Connection, holonomy, gauge synchronization, vector diffusion, and transport
   support only local bundle compatibility; stabilizers and ambiguous phases
   remain explicit. Holonomy is not torsion.
+- Stage A2 also reports local differential regularity along every path: thin
+  singular spectra and rank, metric condition and anisotropy, variation of
+  `G_phi(t)`, decoded speed/energy density, and their knot refinement. These
+  quantify how smooth and uniform motion is locally; they do not determine
+  global topology.
 - After Stage A2, a separate sampled-manifold experiment may compare
   connection-Laplacian or GEOMANCER structure in raw image space, encoder
   space, and the decoder-visible restricted geometry. It requires dense local
@@ -892,6 +978,13 @@ not run unrelated repository tests.
   holonomy, failure of unsupervised GEOMANCER factorization cannot refute a
   pose orbit. Validate the method first on synthetic products with known
   nontrivial holonomy.
+- Global holes, disconnected regions, and off-data-support zones require a
+  separate dense-sampling topology experiment, for example neighborhood-graph
+  connectivity and persistent homology together with aggregate-posterior
+  density and decoded-image plausibility. The VAE latent domain itself is
+  Euclidean, but the data-supported latent subset and decoder image may still
+  be sparse, folded, or self-intersecting. Do not infer any of these properties
+  from four cardinal anchors or from holonomy alone.
 - A `D4` claim requires every reflection and group relation, not one favorable
   transform.
 

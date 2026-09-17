@@ -4,20 +4,17 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$script_dir/.."
 
-default_kernel_dir="kaggle/kernels/functional_geometry_stage_a2_calibration"
-default_output_dir="runs/kaggle/functional_geometry_stage_a2_calibration"
-
 usage() {
   cat <<'EOF'
-Usage:
-  ./scripts/kaggle_kernel.sh build [kernel_dir]
-  ./scripts/kaggle_kernel.sh validate [kernel_dir]
-  ./scripts/kaggle_kernel.sh check [kernel_dir]
+Usage: kernel_dir is required because no experiment kernel is active.
+  ./scripts/kaggle_kernel.sh build kernel_dir
+  ./scripts/kaggle_kernel.sh validate kernel_dir
+  ./scripts/kaggle_kernel.sh check kernel_dir
   ./scripts/kaggle_kernel.sh identity
-  ./scripts/kaggle_kernel.sh push [kernel_dir]
-  ./scripts/kaggle_kernel.sh status [owner/slug[/version]]
-  ./scripts/kaggle_kernel.sh logs [owner/slug[/version]]
-  ./scripts/kaggle_kernel.sh output owner/slug/version [new_output_dir]
+  ./scripts/kaggle_kernel.sh push kernel_dir
+  ./scripts/kaggle_kernel.sh status owner/slug[/version]
+  ./scripts/kaggle_kernel.sh logs owner/slug[/version]
+  ./scripts/kaggle_kernel.sh output owner/slug/version new_output_dir
   ./scripts/kaggle_kernel.sh dataset-download owner/slug/version new_output_dir
 EOF
 }
@@ -97,7 +94,7 @@ PY
 }
 
 validate_kernel() {
-  local kernel_dir="${1:-$default_kernel_dir}" metadata code_file
+  local kernel_dir="${1:?missing kernel_dir}" metadata code_file
   metadata="$kernel_dir/kernel-metadata.json"
   [[ -f "$metadata" ]] || { echo "missing: $metadata" >&2; exit 1; }
   code_file="$(metadata_value "$metadata" code_file)"
@@ -123,24 +120,18 @@ require_versioned_reference() {
 
 action="${1:-}"
 case "$action" in
-  build|validate) validate_kernel "${2:-$default_kernel_dir}" ;;
+  build|validate) validate_kernel "${2:?missing kernel_dir}" ;;
   check)
-    validate_kernel "${2:-$default_kernel_dir}"
+    validate_kernel "${2:?missing kernel_dir}"
     require_kaggle_cli
     kaggle --version
     ;;
   identity) kaggle_username ;;
   push)
-    kernel_dir="${2:-$default_kernel_dir}"
+    kernel_dir="${2:?missing kernel_dir}"
     validate_kernel "$kernel_dir"
     require_kaggle_cli
     metadata="$kernel_dir/kernel-metadata.json"
-    kernel_id="$(metadata_value "$metadata" id)"
-    actor="$(kaggle_username)"
-    [[ "${kernel_id%%/*}" == "$actor" ]] || {
-      echo "error: metadata owner ${kernel_id%%/*} != authenticated user $actor" >&2
-      exit 1
-    }
     upload_dir="$(mktemp -d)"
     trap 'rm -rf "$upload_dir"' EXIT
     code_file="$(metadata_value "$metadata" code_file)"
@@ -150,19 +141,19 @@ case "$action" in
     ;;
   status)
     require_kaggle_cli
-    reference="${2:-$(metadata_value "$default_kernel_dir/kernel-metadata.json" id)}"
+    reference="${2:?missing owner/slug[/version]}"
     kaggle_api kernels status "$reference"
     ;;
   logs)
     require_kaggle_cli
-    reference="${2:-$(metadata_value "$default_kernel_dir/kernel-metadata.json" id)}"
+    reference="${2:?missing owner/slug[/version]}"
     kaggle_api kernels logs "$reference"
     ;;
   output)
     require_kaggle_cli
     reference="${2:?missing owner/slug/version}"
     require_versioned_reference "$reference"
-    output_dir="${3:-$default_output_dir}"
+    output_dir="${3:?missing new_output_dir}"
     [[ ! -e "$output_dir" ]] || { echo "error: output exists: $output_dir" >&2; exit 1; }
     mkdir -p "$output_dir"
     kaggle_api kernels output "$reference" -p "$output_dir" --page-size 200

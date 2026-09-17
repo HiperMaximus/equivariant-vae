@@ -1,0 +1,77 @@
+{
+  "comparison": {
+    "model_pairing": "matched_normal_vs_so2",
+    "report": ["both_values", "so2_minus_normal", "so2_over_normal"],
+    "ratio_zero_denominator": "null",
+    "scientific_acceptance_thresholds": null,
+    "scientific_runtime_gates": false
+  },
+  "full_latent_paths": {
+    "energy_chunk_segments": 8,
+    "initialization": "latent_line",
+    "optimizer": "Adam",
+    "optimizer_steps_max": 512,
+    "path_segments": 32,
+    "retain": "lowest_energy_iterate_including_step_0",
+    "step_size": "0.005*sqrt(32/16384)",
+    "trust_projection": false
+  },
+  "path_local_chart": {
+    "aggregate_decoder_gram": "mean_j((J_D(z_j)V)^T(J_D(z_j)V))/output_numel",
+    "aggregate_eigendecomposition": "H*W=W*diag(lambda)_with_lambda_descending",
+    "aggregate_singular_values": "sigma_i=sqrt(max(lambda_i,0))",
+    "chart": "phi(xi)=z_0+U_0*xi",
+    "decoder_evaluation_knots": "all_33_primary_path_knots",
+    "decoder_inactive_component": "V*W_columns_not_retained_by_numeric_rank",
+    "freeze_scope": "U_0_only_for_free_rollout_per_model_patch_cycle_from_representative_conditioned_side_0",
+    "orientation": "descending_singular_value_then_largest_absolute_latent_entry_positive_with_lowest_index_tie",
+    "path_secants": "up_to_32_unit_l2_normalized_nonzero_consecutive_latent_differences",
+    "path_span": "V_is_the_right_singular_frame_of_the_at_most_32_by_16384_secant_matrix_retained_by_numeric_rank",
+    "visible_basis": "U_0=V*W_columns_whose_sigma_is_retained_by_numeric_rank"
+  },
+  "numeric_svd": {
+    "decoder_products_dtype": "float32",
+    "numeric_rank_rtol": "32*eps(float32)",
+    "numeric_rank_rtol_basis": "32_is_the_maximum_observed_path_span_rank",
+    "rank_rule": "sigma_i>numeric_rank_rtol*sigma_max",
+    "small_matrix_dtype": "float64",
+    "shooting_rank_reference": "aggregate_path_sigma_max_frozen_before_shooting",
+    "zero_scale_rank": 0
+  },
+  "frozen_path_quadrature_refinement": {
+    "interpretation": "quadrature_and_chord_sensitivity_of_the_frozen_path_not_discretization_convergence_of_a_reoptimized_optimum",
+    "method": "piecewise_linear_latent_midpoint_insertion",
+    "optimization_steps": 0,
+    "refined_segments": 64,
+    "report": ["energy_discrepancy", "length_discrepancy", "decoded_midpoint_chord_rms"]
+  },
+  "scope": {
+    "cycles": ["encoded", "prescribed"],
+    "four_side_covariance": "ambient_decoded_curves_only_no_other_side_U_or_intrinsic_tangent_identification",
+    "pilot_patch_ranks": [0, 12],
+    "side_0_only_inputs_before_free_rollout": ["z_0", "z_1", "D", "representative_conditioned_path_0"],
+    "withheld_until_rollout_is_frozen": ["z_2", "z_3", "D(z_2)", "D(z_3)", "closure_scores"]
+  },
+  "shooting": {
+    "acceleration": "c_dot=-(J_D(z)U_0)^dagger*D2_D(z)[U_0*c,U_0*c]",
+    "chart_state": "z=z_0+U_0*xi; xi_dot=c; xi(0)=0",
+    "class_target_objective_report_only": "mean((D(z_hat_1)-D(z_1))^2)/max(mean((D(z_1)-D(z_0))^2),tiny(float32))",
+    "initial_velocity": "c_0=(4*U_0^T(z_path_1-z_0)-U_0^T(z_path_2-z_0))/(2*(1/32))",
+    "integrator": "explicit_midpoint_rk2",
+    "integrator_choice": "fixed_economical_order_2_pair_with_reported_8_vs_16_step_error_not_calibrated_or_gated",
+    "primary_steps_per_quarter": 8,
+    "refinement": "reintegrate_the_same_c_0_without_refitting",
+    "refinement_steps_per_quarter": 16,
+    "retraction": "none_affine_chart",
+    "rollout_quarters": 4,
+    "target_use": "score_z_hat_1_only_no_target_aware_velocity_refit_not_a_shooting_solve_or_boundary_value_solve",
+    "terminal": "free_z_hat_1_from_the_ivp"
+  },
+  "singularity_handling": {
+    "intrinsic_status": "undefined_from_first_stage_where_any_sigma_i_is_not_above_the_frozen_numeric_floor",
+    "metric_regularization": "none",
+    "mode_dropping_during_solve": false,
+    "run_behavior": "retain_all_full_latent_and_decoded_results_and_continue_nonintrinsic_work"
+  },
+  "version": "stage_a2_v1"
+}
