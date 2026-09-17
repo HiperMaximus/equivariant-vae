@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-09-16
+Last updated: 2026-09-17
 
 ## Active frontier
 
@@ -11,11 +11,11 @@ normal and continuous-`SO(2)` VAEs. Stage A1 is accepted; Stage A2 is
 during input startup and v4 on an unnecessary compile gate. Simplified v5
 completed successfully and resolved the search-space question: `d=128` is
 conditioned but materially restricts the optimized paths relative to direct
-full-latent control. Its automatic decision remains `unresolved` because one
-full-latent path touched the fixed trust tube. No calibration result yet
-justifies the scientific solver/final-pilot run. The one remaining calibration
-is running on Kaggle: full-latent only, `K=32`, 512 continuous Adam steps, with
-line deviation recorded but never projected or used as a gate.
+full-latent control. The replacement-account full-latent calibration completed
+successfully and closes the numerical search: use `K=32`, at most 512 Adam
+steps and retain the lowest-energy iterate. The scientific Stage A2 run still
+requires its compact pathwise rank/immersion and interpretation contract; no
+further hyperparameter calibration is justified.
 The local Kaggle CLI is authenticated as replacement account
 `maximusshtefan`. Private dataset
 `maximusshtefan/eqvae-frozen-vae-weights-v1/1` contains only the two accepted
@@ -23,6 +23,12 @@ state files; a clean redownload verified their immutable SHA-256 values
 `30064fa...87c7` and `06802ceb...3c12`. The active kernel metadata and
 owner-independent contract use that dataset. No active runner or contract
 depends on `maximshtefan`.
+
+An anonymous six-page INCISCOS 2026 manuscript now lives under
+`paper/inciscos2026/`. It uses the IEEE A4 conference format and synthesizes
+only accepted evidence through Stage A1; the active Stage A2 work is excluded.
+`paper/inciscos2026/inciscos2026.pdf` is the visually reviewed build. The
+existing SIPAIM paper subtree remains unchanged.
 
 For accepted Stage A1 only, the numerical method is fixed: direct disposable JVP/VJP graphs,
 matrix-free `Gv = J^T(Jv)`, eager FP32 decoder products, FP64 Lanczos
@@ -121,17 +127,24 @@ ratio `.03647`, but its best energies remain `15.05%--29.76%` above the paired
 full-latent controls. All full-latent controls reduce energy by
 `23.94%--43.27%`; only normal rank 16 encoded touches the arbitrary `.2`
 line-deviation trust tube. Several paths are still descending at iteration
-128. Do not repeat the reduced-chart arms; the remaining calibration question
-is only whether 512 full-latent steps at `K=32` provide an adequate numerical
-path. The prepared runner deletes all `d=32/128` candidates, chart construction,
-trust projection and automatic acceptance gates. It runs four paths total: two
-models by the prescribed-rank-4 and encoded-rank-16 calibration routes.
+128. Do not repeat the reduced-chart arms. The focused follow-up deleted all
+`d=32/128` candidates, chart construction, trust projection and automatic
+acceptance gates. It ran four paths total: two models by the prescribed-rank-4
+and encoded-rank-16 calibration routes.
 
 Replacement-account kernel
-`maximusshtefan/eqvae-fg-stage-a2-calibration/1` launched from public commit
-`99d908cb5cf6a3ca0df56e54c4c82b09062da644` and entered `RUNNING`. It mounts
-only datasets owned by `maximusshtefan`. Do not launch a parallel replacement;
-inspect this version through its 120-minute ceiling.
+`maximusshtefan/eqvae-fg-stage-a2-calibration/1` completed in `5874.02` seconds
+from public commit `99d908c75139f88b763433c985ada3e5fe5e9bdd`; both workers
+exited normally and all four full-latent `K=32` paths completed 512 steps.
+Best energy reductions from the linear initialization are `28.55%`, `36.40%`,
+`46.78%` and `23.95%`. Three candidates attain their recorded best at step
+512; the `SO(2)` rank-16 encoded path is best at 384 and is `3.94%` worse at
+512. The common step 384 has the smallest worst candidate gap (`3.38%`), but
+the fixed scientific rule is a common 512-step ceiling with best-iterate
+retention rather than a model-specific stop. Maximum line-deviation fractions
+are `.208--.283`, confirming that the discarded `.2` trust tube was binding.
+Outputs are downloaded under
+`runs/kaggle/functional_geometry_stage_a2_full_v1/`.
 
 Private calibration version
 `maximshtefan/eqvae-fg-stage-a2-calibration/1` was accepted at
@@ -191,7 +204,10 @@ approximate decoder equivalence requires a connected bridge. A small fixed
 chart defines only a restricted decoder immersion unless the stronger full-
 quotient rank/transversality criteria pass. Geodesic continuation, point closure,
 tangent return and frame holonomy are distinct hypotheses. Holonomy is not
-torsion. Sealed-test results remain unavailable for tuning.
+torsion. A return to the same accepted decoder-equivalence class at a different
+latent representative is recorded as a representative return defect (monodromy
+diagnostic), and is called monodromy only if the required fiber/quotient/gauge
+structure is validated. Sealed-test results remain unavailable for tuning.
 
 ## Verification state
 

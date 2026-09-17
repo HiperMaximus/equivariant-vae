@@ -1,12 +1,11 @@
 # Spec 0053: Functional And Riemannian Latent Geometry
 
 Status: draft active; Stage A1 implemented and accepted; numerical calibration
-v1/v2/v5 completed `unresolved`; Kaggle v3/v4 were runner failures; v5 excludes
-the reduced charts but leaves the full-latent budget/trust question open;
-scientific Stage A2 remains blocked until a justified common numerical contract
-exists
+is complete; reduced charts are excluded and the full-latent `K=32`, 512-step
+budget is fixed; scientific Stage A2 awaits its compact pathwise validity and
+interpretation contract
 Owner/workstream: frozen normal versus continuous-`SO(2)` VAE latent analysis
-Last updated: 2026-09-16
+Last updated: 2026-09-17
 
 ## Purpose
 
@@ -199,6 +198,11 @@ be the identity. On a validated stable chart the target connection is
 Levi-Civita and therefore torsion-free by construction. The implemented
 repeated-projection transport is only a discrete approximation and must
 converge under knot refinement before supporting a holonomy claim.
+
+If a free rollout returns to the same operational decoder-equivalence class
+but to a different latent representative, report the **representative return
+defect (monodromy diagnostic)**. Call it monodromy only after the required
+fiber, quotient, or gauge structure and connected bridge have been validated.
 
 ### Exact-C4 Fourier sectors are a secondary diagnostic
 
@@ -476,6 +480,28 @@ rate already exercised in v5. Line deviation is telemetry only; there is no
 trust projection, acceptance tolerance or automatic scientific gate. The run
 reports energy, gradient norm and deviation histories so that the fixed
 numerical budget can be recorded before the final-pilot ranks are accessed.
+
+#### Focused full-latent outcome
+
+Private kernel `maximusshtefan/eqvae-fg-stage-a2-calibration/1` completed in
+`5874.02` seconds from commit
+`99d908c75139f88b763433c985ada3e5fe5e9bdd`. Both model workers exited normally
+and all four paths completed. Relative best-energy reductions from the linear
+initialization were `28.55%` and `36.40%` for the normal VAE, and `46.78%` and
+`23.95%` for the `SO(2)` VAE. Maximum normalized deviations from the latent
+secant were `.208`, `.267`, `.283` and `.222`; three paths would therefore have
+been modified by the discarded `.2` trust projection.
+
+Three paths reached their lowest recorded milestone energy at step 512. The
+`SO(2)` rank-16 encoded path reached its lowest recorded value at step 384 and
+ended `3.94%` higher at step 512. Across the four candidates, step 384 minimizes
+the worst relative gap to each candidate's own recorded best (`3.38%`, versus
+`3.94%` at step 512). The pattern is consistent with late fixed-rate Adam
+nonmonotonicity, and extra fixed-rate steps do not reliably improve every path.
+Stage A2 therefore fixes a common maximum of 512 steps and retains the
+lowest-energy iterate encountered under the unchanged objective. This selection
+is part of the optimizer itself and does not compare models or impose a
+geometric acceptance gate.
 
 ### Objective
 
@@ -760,8 +786,10 @@ identification make the complete return path well defined.
 
 Report:
 
-- **point closure/return defect:** raw latent, decoded-output, and—only after an
-  accepted connected bridge—operational decoder-equivalence discrepancy;
+- **point closure/representative return defect (monodromy diagnostic):** raw
+  latent, decoded-output, and—only after an accepted connected bridge—operational
+  decoder-equivalence discrepancy; interpret a nontrivial representative return
+  as monodromy only after validating the required fiber/quotient/gauge structure;
 - **rotation-tangent return:** metric norm, cosine/angle, and decoded-tangent
   discrepancy between the transported tangent and the initial tangent;
 - **frame return map:** start from an output-orthonormal complete chart frame, transport
