@@ -8,9 +8,21 @@ Last updated: 2026-09-16
 single live contract for comparing the functional latent geometry of the frozen
 normal and continuous-`SO(2)` VAEs. Stage A1 is accepted; Stage A2 is
 `draft active`. Calibration v1 and v2 completed `unresolved`; Kaggle v3 failed
-during input startup, v4 on an unnecessary compile gate, and simplified v5 is
-running. No calibration result yet justifies the scientific solver/final-pilot
-run.
+during input startup and v4 on an unnecessary compile gate. Simplified v5
+completed successfully and resolved the search-space question: `d=128` is
+conditioned but materially restricts the optimized paths relative to direct
+full-latent control. Its automatic decision remains `unresolved` because one
+full-latent path touched the fixed trust tube. No calibration result yet
+justifies the scientific solver/final-pilot run. The one remaining calibration
+is prepared but not launched: full-latent only, `K=32`, 512 continuous Adam
+steps, with line deviation recorded but never projected or used as a gate.
+The local Kaggle CLI is authenticated as replacement account
+`maximusshtefan`. Private dataset
+`maximusshtefan/eqvae-frozen-vae-weights-v1/1` contains only the two accepted
+state files; a clean redownload verified their immutable SHA-256 values
+`30064fa...87c7` and `06802ceb...3c12`. The active kernel metadata and
+owner-independent contract use that dataset. No active runner or contract
+depends on `maximshtefan`.
 
 For accepted Stage A1 only, the numerical method is fixed: direct disposable JVP/VJP graphs,
 matrix-free `Gv = J^T(Jv)`, eager FP32 decoder products, FP64 Lanczos
@@ -97,10 +109,23 @@ worker nevertheless completed all candidates. The next version removes that
 gate, eager/compiled comparisons, runtime selection, memory ceilings and
 per-candidate exception wrappers; compilation is now a direct execution choice.
 
-Version `maximshtefan/eqvae-fg-stage-a2-calibration/5` launched from commit
-`c31f8e733658cbd733ee932dc70d30d15a24733e` and remained `RUNNING` after the
-point where v4 failed. Inspect after its 120-minute ceiling; do not launch a
-parallel replacement while it is active.
+Version `maximshtefan/eqvae-fg-stage-a2-calibration/5` completed successfully
+in `3942.73` seconds. Kaggle executed commit
+`592b2519213835f5c2eba3eb99fc100a787ec8f4`; both compiled workers completed
+all candidates without OOM. The result is stored under
+`runs/kaggle/functional_geometry_stage_a2_calibration_v5/`. Its automatic
+decision is `unresolved` with the single blocker
+`neither_d128_nor_full_latent_met_the_common_budget`. The reason is not a
+runtime or conditioning failure: `d=128` has worst minimum singular-value
+ratio `.03647`, but its best energies remain `15.05%--29.76%` above the paired
+full-latent controls. All full-latent controls reduce energy by
+`23.94%--43.27%`; only normal rank 16 encoded touches the arbitrary `.2`
+line-deviation trust tube. Several paths are still descending at iteration
+128. Do not repeat the reduced-chart arms; the remaining calibration question
+is only whether 512 full-latent steps at `K=32` provide an adequate numerical
+path. The prepared runner deletes all `d=32/128` candidates, chart construction,
+trust projection and automatic acceptance gates. It runs four paths total: two
+models by the prescribed-rank-4 and encoded-rank-16 calibration routes.
 
 Private calibration version
 `maximshtefan/eqvae-fg-stage-a2-calibration/1` was accepted at

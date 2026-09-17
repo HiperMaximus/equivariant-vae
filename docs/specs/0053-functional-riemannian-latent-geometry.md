@@ -1,9 +1,10 @@
 # Spec 0053: Functional And Riemannian Latent Geometry
 
 Status: draft active; Stage A1 implemented and accepted; numerical calibration
-v1/v2 completed `unresolved`; Kaggle v3/v4 were runner failures and simplified
-v5 is running; scientific Stage A2 remains blocked until a justified common
-numerical contract exists
+v1/v2/v5 completed `unresolved`; Kaggle v3/v4 were runner failures; v5 excludes
+the reduced charts but leaves the full-latent budget/trust question open;
+scientific Stage A2 remains blocked until a justified common numerical contract
+exists
 Owner/workstream: frozen normal versus continuous-`SO(2)` VAE latent analysis
 Last updated: 2026-09-16
 
@@ -24,7 +25,7 @@ interpolation-free anchor; continuous `SO(2)` claims require separate evidence.
 | --- | --- |
 | Normal checkpoint | `runs/kaggle/selected_runtime_full_v4_session3/checkpoints/step_060000.pt`; SHA-256 `f733304e9178e468546113642bdf01e11348570b340c366cf148973083cb9075` |
 | `SO(2)` checkpoint | `runs/kaggle/so2_selected_runtime_full_session7_fresh_v1_retry1/checkpoints/step_060000.pt`; SHA-256 `041e0cd7483cb8642bb72eb1b63c3a36774bf9cadd0b659c9d1db6a813c8f4c7` |
-| Weight dataset | `maximshtefan/eqvae-vae-test-reconstruction-inputs-v1`, version 1; consumed files remain hash-verified |
+| Weight dataset | `maximusshtefan/eqvae-frozen-vae-weights-v1`, version 1; its two state files are byte-identical to the accepted inputs |
 | Patch dataset | `maximusshtefan/patches-pre-shuffled-ubc-ocean`, version 1; selected patch bytes remain hash-verified |
 | Fixed patches | The accepted ordered validation 25; selector SHA-256 `ace244ecdd67aaa1ebc7d08065f1e4bfa3c0d54806d4f3b50fb38a3ae000447f` |
 | Input | FP32 `3x256x256` normalized image |
@@ -434,6 +435,47 @@ is an exact smooth map, while decoder nonlinearity is part of its pullback
 metric rather than an error against a linear decoder approximation. Scientific
 Riemannian labels still require the later pathwise rank, conditioning, trust,
 and knot/chart-refinement checks defined below.
+
+#### Calibration v5 outcome
+
+Private version `maximshtefan/eqvae-fg-stage-a2-calibration/5` completed all
+candidates in `3942.73` seconds using repository commit
+`592b2519213835f5c2eba3eb99fc100a787ec8f4`. Both compiled workers exited
+normally and no candidate exhausted memory. The deterministic reducer emitted
+`unresolved` with blocker
+`neither_d128_nor_full_latent_met_the_common_budget`.
+
+This result excludes the reduced charts for the intended path solve. The
+`d=128` chart remains numerically conditioned: its worst sampled minimum
+singular-value ratio is `.03647`, well above the fixed `.001` threshold. It is
+nevertheless too restrictive: across the six paired workloads its best energy
+is `15.05%--29.76%` above the equal-budget full-latent control, rather than
+within the preregistered `1%`. `d=32` is no better. Increasing the reduced
+dimension is therefore not justified by this calibration; direct full-latent
+offsets are both more expressive and essentially no more expensive because
+decoder evaluation dominates the cost.
+
+Every full-latent candidate improved the line initialization by
+`23.94%--43.27%`. Five of six avoided the fixed trust boundary. Only the normal
+rank-16 encoded path touched the `.2` maximum-deviation tube, beginning at
+iteration 64, while continuing to lower its decoder energy. Several candidates
+were still descending at iteration 128. Thus v5 does not show that full-latent
+optimization is numerically unviable; it shows that the fixed line-centered
+trust tube and 128-step common-budget rule have not yet been scientifically
+justified for a 90-degree endpoint displacement. A follow-up, if run, must be
+full-latent only and must treat path deviation as reported geometry rather than
+silently using a projection rule to define the desired curve.
+
+#### Focused full-latent follow-up contract
+
+The final calibration follow-up no longer compares coordinate dimensions. It
+optimizes exactly four paths: both frozen models on the rank-4 prescribed and
+rank-16 encoded calibration routes. Every path uses direct full-latent offsets,
+`K=32`, Adam for 512 continuous steps, and the dimension-normalized learning
+rate already exercised in v5. Line deviation is telemetry only; there is no
+trust projection, acceptance tolerance or automatic scientific gate. The run
+reports energy, gradient norm and deviation histories so that the fixed
+numerical budget can be recorded before the final-pilot ranks are accessed.
 
 ### Objective
 

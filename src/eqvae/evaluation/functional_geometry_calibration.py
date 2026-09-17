@@ -186,27 +186,3 @@ def affine_chart_latents(
         normalized_coordinates.shape[0],
         *left.shape[1:],
     )
-
-
-def project_line_deviation_(
-    coordinates: Tensor,
-    line_coordinates: Tensor,
-    *,
-    maximum_deviation: float,
-) -> None:
-    """Project mutable interior coordinates into a line-centered trust tube.
-
-    Raises:
-        ValueError: If shapes differ or the trust radius is not positive.
-
-    """
-    if coordinates.shape != line_coordinates.shape:
-        raise ValueError("coordinates and line coordinates must have equal shape")
-    if maximum_deviation <= 0.0:
-        raise ValueError("maximum_deviation must be positive")
-    with torch.no_grad():
-        deviation = coordinates - line_coordinates
-        norms = torch.linalg.vector_norm(deviation.flatten(1), dim=1)
-        scales = torch.clamp(maximum_deviation / norms.clamp_min(1e-12), max=1.0)
-        scales = scales.reshape(-1, *(1 for _ in coordinates.shape[1:]))
-        coordinates.copy_(line_coordinates + deviation * scales)

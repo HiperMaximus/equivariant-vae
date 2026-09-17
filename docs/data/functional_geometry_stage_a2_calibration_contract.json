@@ -1,41 +1,27 @@
 {
   "inputs": {
-    "weight_dataset": "maximshtefan/eqvae-vae-test-reconstruction-inputs-v1"
+    "weight_dataset_slug": "eqvae-frozen-vae-weights-v1"
   },
   "numerics": {
-    "chart": {
-      "dimensions": [32, 128],
-      "line_parameters": [0.0, 0.5, 1.0],
-      "maximum_dimension": 128,
-      "seed": 530201
-    },
     "compilation": {
       "dynamic": false,
       "fullgraph": true,
-      "mode": "default",
-      "probe_path_segments": 16
+      "mode": "default"
     },
-    "jvp_microbatch": 4,
     "optimizer": {
       "algorithm": "Adam",
       "energy_chunk_segments": 8,
-      "iterations": 128,
+      "iterations": 512,
       "learning_rate": 0.005,
       "learning_rate_reference_dimension": 32,
-      "milestones": [0, 16, 32, 64, 96, 128],
-      "trust_deviation_fraction_of_endpoint_secant": 0.2
-    },
-    "selection": {
-      "conditioning_minimum_ratio": 0.001,
-      "optimizer_energy_plateau_relative_slack": 0.01,
-      "optimizer_minimum_relative_energy_decrease": 0.01,
-      "reduced_to_full_best_energy_excess_max": 0.01
+      "milestones": [0, 64, 128, 192, 256, 384, 512],
+      "path_segments": 32
     }
   },
   "resources": {
     "wall_time_minutes_max": 120
   },
-  "schema": "eqvae.functional_geometry.stage_a2_calibration.v3",
+  "schema": "eqvae.functional_geometry.stage_a2_calibration.v4",
   "scope": {
     "calibration_patch_ranks": [4, 16],
     "model_device_map": {
@@ -44,26 +30,10 @@
     },
     "optimizer_workloads": [
       {
-        "candidates": [
-          {
-            "coordinate_spaces": [32, 128, "full"],
-            "path_segments": 16
-          },
-          {
-            "coordinate_spaces": [128, "full"],
-            "path_segments": 32
-          }
-        ],
         "rank": 4,
         "route": "prescribed"
       },
       {
-        "candidates": [
-          {
-            "coordinate_spaces": [32, 128, "full"],
-            "path_segments": 16
-          }
-        ],
         "rank": 16,
         "route": "encoded"
       }

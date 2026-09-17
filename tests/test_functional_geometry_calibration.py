@@ -11,7 +11,6 @@ from eqvae.evaluation.functional_geometry_calibration import (
     decoder_path_edge_energy,
     decoder_path_energy,
     decoder_visible_chart,
-    project_line_deviation_,
     thin_metric_spectra,
 )
 from eqvae.evaluation.functional_geometry_rla import linearize_decoder
@@ -58,10 +57,12 @@ def test_thin_metric_spectrum_matches_known_linear_decoder() -> None:
         microbatch=2,
     )
 
-    assert spectra[0].singular_values_descending == pytest.approx((
-        4.0 / math.sqrt(3.0),
-        2.0 / math.sqrt(3.0),
-    ))
+    assert spectra[0].singular_values_descending == pytest.approx(
+        (
+            4.0 / math.sqrt(3.0),
+            2.0 / math.sqrt(3.0),
+        )
+    )
     assert spectra[0].condition_number == pytest.approx(2.0)
     assert spectra[1].minimum_to_maximum_ratio == pytest.approx(0.25)
 
@@ -69,11 +70,13 @@ def test_thin_metric_spectrum_matches_known_linear_decoder() -> None:
 def test_thin_metric_preserves_near_threshold_rotated_singular_ratio() -> None:
     """Ensure thin SVD does not square the conditioning policy input."""
     angle = 0.37
-    rotation = torch.tensor([
-        [math.cos(angle), -math.sin(angle), 0.0],
-        [math.sin(angle), math.cos(angle), 0.0],
-        [0.0, 0.0, 1.0],
-    ])
+    rotation = torch.tensor(
+        [
+            [math.cos(angle), -math.sin(angle), 0.0],
+            [math.sin(angle), math.cos(angle), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
     scales = torch.diag(torch.tensor([1.0, 0.003, 0.0003]))
     matrix = rotation @ scales @ rotation.T
 
@@ -129,25 +132,3 @@ def test_edge_blocks_sum_to_the_complete_path_energy() -> None:
     ).sum()
 
     assert torch.allclose(chunked, complete)
-
-
-def test_trust_projection_caps_each_knot_without_changing_safe_rows() -> None:
-    """Invariant: trust projection is row-local; radius 0.25 is pinned probe policy."""
-    line = torch.zeros(2, 2)
-    coordinates = torch.tensor([[0.1, 0.0], [3.0, 4.0]])
-
-    project_line_deviation_(coordinates, line, maximum_deviation=0.25)
-
-    assert torch.allclose(coordinates[0], torch.tensor([0.1, 0.0]))
-    assert torch.allclose(coordinates[1], torch.tensor([0.15, 0.2]))
-
-
-def test_trust_projection_supports_full_latent_rows() -> None:
-    """Full-latent path variables use the same rowwise Euclidean trust tube."""
-    line = torch.zeros(2, 1, 2)
-    coordinates = torch.tensor([[[0.1, 0.0]], [[3.0, 4.0]]])
-
-    project_line_deviation_(coordinates, line, maximum_deviation=0.25)
-
-    assert torch.allclose(coordinates[0], torch.tensor([[0.1, 0.0]]))
-    assert torch.allclose(coordinates[1], torch.tensor([[0.15, 0.2]]))

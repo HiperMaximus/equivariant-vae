@@ -1,5 +1,5 @@
 {
-  "id": "maximshtefan/eqvae-fg-stage-a2-calibration",
+  "id": "maximusshtefan/eqvae-fg-stage-a2-calibration",
   "title": "eqvae fg stage a2 calibration",
   "code_file": "main.py",
   "language": "python",
@@ -9,7 +9,7 @@
   "enable_internet": "true",
   "machine_shape": "NvidiaTeslaT4",
   "dataset_sources": [
-    "maximshtefan/eqvae-vae-test-reconstruction-inputs-v1",
+    "maximusshtefan/eqvae-frozen-vae-weights-v1",
     "maximusshtefan/patches-pre-shuffled-ubc-ocean"
   ],
   "competition_sources": [],

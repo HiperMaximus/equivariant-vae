@@ -165,7 +165,7 @@ case "$action" in
     output_dir="${3:-$default_output_dir}"
     [[ ! -e "$output_dir" ]] || { echo "error: output exists: $output_dir" >&2; exit 1; }
     mkdir -p "$output_dir"
-    kaggle_api kernels output "$reference" -p "$output_dir"
+    kaggle_api kernels output "$reference" -p "$output_dir" --page-size 200
     ;;
   dataset-download)
     require_kaggle_cli

@@ -13,7 +13,7 @@ os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
 DATASET_ROOT = Path("/kaggle/input/datasets")
 WORKING_ROOT = Path("/kaggle/working")
-OUTPUT_ROOT = WORKING_ROOT / "functional_geometry_stage_a2_calibration_v4"
+OUTPUT_ROOT = WORKING_ROOT / "functional_geometry_stage_a2_calibration"
 CONTRACT_PATH = Path("docs/data/functional_geometry_stage_a2_calibration_contract.json")
 SELECTOR_PATH = Path("configs/spec0001/fixed_25_validation_patches.json")
 MODEL_KINDS = {
@@ -94,88 +94,6 @@ def _encode(model, images, *, batch_size, torch):
     return torch.cat(means)
 
 
-def _spectrum_payload(spectrum) -> dict[str, object]:
-    return {
-        "condition_number": spectrum.condition_number,
-        "dimension": spectrum.dimension,
-        "minimum_to_maximum_ratio": spectrum.minimum_to_maximum_ratio,
-        "singular_values_descending": list(spectrum.singular_values_descending),
-    }
-
-
-def _chart_diagnostics(
-    model,
-    left,
-    right,
-    *,
-    rank,
-    route,
-    numerics,
-    linearize_decoder,
-    decoder_visible_chart,
-    thin_metric_spectra,
-    torch,
-):
-    chart_contract = numerics["chart"]
-    microbatch = numerics["jvp_microbatch"]
-    secant = right - left
-    secant_norm = torch.linalg.vector_norm(secant.to(torch.float64)).to(torch.float32)
-    midpoint = (left + right) / 2
-    midpoint_operator = linearize_decoder(model.decode, midpoint)
-    route_offset = 0 if route == "encoded" else 1
-    basis = decoder_visible_chart(
-        midpoint_operator,
-        secant,
-        maximum_dimension=chart_contract["maximum_dimension"],
-        seed=chart_contract["seed"] + 10 * rank + route_offset,
-        microbatch=microbatch,
-    )
-    flat_basis = basis.flatten(1)
-    orthonormality_error = float(
-        torch.linalg.matrix_norm(
-            (flat_basis @ flat_basis.T).to(torch.float64)
-            - torch.eye(basis.shape[0], device=basis.device, dtype=torch.float64),
-            ord=2,
-        )
-    )
-    secant_projection = torch.einsum("dn,bn->d", flat_basis, secant.flatten(1))
-    secant_residual = secant.flatten(1) - secant_projection @ flat_basis
-    secant_relative_residual = float(
-        torch.linalg.vector_norm(secant_residual.to(torch.float64))
-        / secant_norm.to(torch.float64).clamp_min(1e-12)
-    )
-
-    metric_rows = []
-    for parameter_index, parameter in enumerate(chart_contract["line_parameters"]):
-        point = left + float(parameter) * secant
-        operator = (
-            midpoint_operator
-            if parameter_index == 1
-            else linearize_decoder(model.decode, point)
-        )
-        spectra = thin_metric_spectra(
-            operator,
-            basis,
-            dimensions=tuple(chart_contract["dimensions"]),
-            microbatch=microbatch,
-        )
-        metric_rows.append({
-            "line_parameter": parameter,
-            "spectra": [_spectrum_payload(spectrum) for spectrum in spectra],
-        })
-
-    result = {
-        "basis": {
-            "construction": "secant_plus_midpoint_G_rademacher_then_qr",
-            "orthonormality_operator_error": orthonormality_error,
-            "secant_relative_projection_residual": secant_relative_residual,
-        },
-        "metrics": metric_rows,
-        "secant_euclidean_norm": float(secant_norm),
-    }
-    return basis, result
-
-
 def _path_coordinates(*, segments, endpoint_coordinates, torch):
     times = torch.linspace(
         0.0,
@@ -197,11 +115,7 @@ def _decoder_edge_energy(model, latents, total_segments, *, torch):
 def _prepare_decoder_runtime(model, probe_latents, contract, *, torch):
     """Materialize frozen SO(2) kernels and compile the repeated closure."""
     compile_contract = contract["numerics"]["compilation"]
-    segment_scale = torch.tensor(
-        float(compile_contract["probe_path_segments"]),
-        device=probe_latents.device,
-        dtype=probe_latents.dtype,
-    )
+    segment_scale = probe_latents.new_tensor(1.0)
 
     materialized_count = 0
     materialize = getattr(model, "materialize_frozen_decoder_kernels", None)
@@ -290,47 +204,21 @@ def _optimizer_probe(
     model,
     left,
     right,
-    basis,
     *,
-    coordinate_space,
     learning_rate,
     path_segments,
     optimizer_contract,
-    affine_chart_latents,
     eager_edge_energy,
     optimized_edge_energy,
-    project_line_deviation_,
     torch,
 ):
     segments = path_segments
     secant = right - left
     secant_norm = torch.linalg.vector_norm(secant).detach()
-    if coordinate_space == "full":
-        endpoint_coordinates = secant[0] / secant_norm
-        projection_error = 0.0
+    endpoint_coordinates = secant[0] / secant_norm
 
-        def coordinates_to_latents(coordinates):
-            return left + secant_norm * coordinates
-
-    else:
-        dimension = int(coordinate_space)
-        chart = basis[:dimension]
-        endpoint_coordinates = (
-            torch.einsum("dn,bn->d", chart.flatten(1), secant.flatten(1))
-            / secant_norm
-        )
-        projection = torch.einsum("d,dn->n", endpoint_coordinates, chart.flatten(1))
-        projection_error = float(
-            torch.linalg.vector_norm(projection - secant.flatten(1) / secant_norm)
-        )
-
-        def coordinates_to_latents(coordinates):
-            return affine_chart_latents(
-                left,
-                chart,
-                coordinates,
-                secant_norm=secant_norm,
-            )
+    def coordinates_to_latents(coordinates):
+        return left + secant_norm * coordinates
 
     line = _path_coordinates(
         segments=segments,
@@ -340,8 +228,7 @@ def _optimizer_probe(
     interior = line[1:-1].clone().detach().requires_grad_(True)
     coordinate_dimension = endpoint_coordinates.numel()
     effective_learning_rate = learning_rate * math.sqrt(
-        optimizer_contract["learning_rate_reference_dimension"]
-        / coordinate_dimension
+        optimizer_contract["learning_rate_reference_dimension"] / coordinate_dimension
     )
     optimizer = torch.optim.Adam([interior], lr=effective_learning_rate)
     milestones = set(optimizer_contract["milestones"])
@@ -352,47 +239,41 @@ def _optimizer_probe(
         )
 
     history = []
-    maximum_allowed = optimizer_contract["trust_deviation_fraction_of_endpoint_secant"]
-    maximum_postprojection_deviation = 0.0
-    maximum_preprojection_deviation = 0.0
-    projection_applied_count = 0
-    projection_iteration_count = 0
+    maximum_deviation_seen = 0.0
     chunk_segments = optimizer_contract["energy_chunk_segments"]
 
     def record(iteration, preupdate_gradient_norm):
         with torch.no_grad():
-            energy = _chunked_path_energy(
-                left,
-                right,
-                endpoint_coordinates=endpoint_coordinates,
-                interior_coordinates=interior,
-                coordinates_to_latents=coordinates_to_latents,
-                edge_energy=eager_edge_energy,
-                total_segments=segments,
-                chunk_segments=chunk_segments,
-                backward=False,
-                torch=torch,
-            ) or 0.0
+            energy = (
+                _chunked_path_energy(
+                    left,
+                    right,
+                    endpoint_coordinates=endpoint_coordinates,
+                    interior_coordinates=interior,
+                    coordinates_to_latents=coordinates_to_latents,
+                    edge_energy=eager_edge_energy,
+                    total_segments=segments,
+                    chunk_segments=chunk_segments,
+                    backward=False,
+                    torch=torch,
+                )
+                or 0.0
+            )
             deviations = torch.linalg.vector_norm(
                 (interior - line[1:-1]).flatten(1),
                 dim=1,
             )
             maximum_deviation = float(deviations.max())
-            history.append({
-                "energy": energy,
-                "iteration": iteration,
-                "last_preupdate_gradient_norm": preupdate_gradient_norm,
-                "maximum_line_deviation_fraction": maximum_deviation,
-                "maximum_postprojection_deviation_seen": (
-                    maximum_postprojection_deviation
-                ),
-                "maximum_preprojection_deviation_seen": (
-                    maximum_preprojection_deviation
-                ),
-                "normalized_energy": energy / max(endpoint_chord_squared, 1e-12),
-                "projection_applied_count": projection_applied_count,
-                "projection_iteration_count": projection_iteration_count,
-            })
+            history.append(
+                {
+                    "energy": energy,
+                    "iteration": iteration,
+                    "last_preupdate_gradient_norm": preupdate_gradient_norm,
+                    "maximum_line_deviation_fraction": maximum_deviation,
+                    "maximum_line_deviation_fraction_seen": maximum_deviation_seen,
+                    "normalized_energy": energy / max(endpoint_chord_squared, 1e-12),
+                }
+            )
 
     record(0, None)
     started = time.perf_counter()
@@ -417,34 +298,11 @@ def _optimizer_probe(
         )
         optimizer.step()
         with torch.no_grad():
-            preprojection = torch.linalg.vector_norm(
+            deviation = torch.linalg.vector_norm(
                 (interior - line[1:-1]).flatten(1),
                 dim=1,
             )
-            preprojection_maximum = float(preprojection.max())
-            maximum_preprojection_deviation = max(
-                maximum_preprojection_deviation,
-                preprojection_maximum,
-            )
-            projected_rows = int((preprojection > maximum_allowed).sum())
-            projection_applied_count += projected_rows
-            projection_iteration_count += int(projected_rows > 0)
-        project_line_deviation_(
-            interior,
-            line[1:-1],
-            maximum_deviation=maximum_allowed,
-        )
-        with torch.no_grad():
-            postprojection_maximum = float(
-                torch.linalg.vector_norm(
-                    (interior - line[1:-1]).flatten(1),
-                    dim=1,
-                ).max()
-            )
-            maximum_postprojection_deviation = max(
-                maximum_postprojection_deviation,
-                postprojection_maximum,
-            )
+            maximum_deviation_seen = max(maximum_deviation_seen, float(deviation.max()))
         if iteration in milestones:
             record(iteration, preupdate_gradient_norm)
     if left.device.type == "cuda":
@@ -453,7 +311,7 @@ def _optimizer_probe(
     result = {
         "algorithm": optimizer_contract["algorithm"],
         "best_recorded_energy": min(row["energy"] for row in history),
-        "coordinate_space": coordinate_space,
+        "coordinate_space": "full",
         "decoder_forward_backward_iterations": optimizer_contract["iterations"],
         "energy_chunk_segments": chunk_segments,
         "elapsed_seconds": elapsed,
@@ -465,196 +323,44 @@ def _optimizer_probe(
             "learning_rate_reference_dimension"
         ],
         "path_segments": segments,
-        "projection_applied_count": projection_applied_count,
-        "projection_iteration_count": projection_iteration_count,
-        "projection_error": projection_error,
+        "maximum_line_deviation_fraction_seen": maximum_deviation_seen,
         "status": "complete",
-        "trust_boundary_contact": projection_iteration_count > 0,
     }
     return result
 
 
-def _select_numerics(workers, contract):
-    numerics = contract["numerics"]
-    workload_contracts = contract["scope"]["optimizer_workloads"]
-    workloads = [
-        workload
-        for worker in workers
-        for workload in worker["workloads"]
-        if workload.get("status") == "complete"
-    ]
-    expected_workloads = len(workers) * len(workload_contracts)
-    blockers = []
-    if len(workloads) != expected_workloads:
-        blockers.append("one_or_more_calibration_workloads_failed")
-
-    ratio_floor = numerics["selection"]["conditioning_minimum_ratio"]
-    dimension_minimum_ratios = {}
-    for dimension in numerics["chart"]["dimensions"]:
-        values = [
-            spectrum["minimum_to_maximum_ratio"]
-            for workload in workloads
-            for metric in workload["chart_diagnostics"]["metrics"]
-            for spectrum in metric["spectra"]
-            if spectrum["dimension"] == dimension
-        ]
-        expected = len(workloads) * len(numerics["chart"]["line_parameters"])
-        if expected > 0 and len(values) == expected:
-            dimension_minimum_ratios[str(dimension)] = min(values)
-
-    expected_candidates = sum(
-        len(candidate["coordinate_spaces"])
-        for workload in workload_contracts
-        for candidate in workload["candidates"]
-    ) * len(workers)
-    candidates = [
-        candidate
-        for workload in workloads
-        for candidate in workload["optimizer_probes"]
-        if candidate.get("status") == "complete"
-    ]
-    if len(candidates) != expected_candidates:
-        blockers.append("one_or_more_optimizer_candidates_failed")
-
-    minimum_energy_decrease = numerics["selection"][
-        "optimizer_minimum_relative_energy_decrease"
-    ]
-    plateau_slack = numerics["selection"]["optimizer_energy_plateau_relative_slack"]
-    gap_limit = numerics["selection"]["reduced_to_full_best_energy_excess_max"]
-    candidate_rows = []
+def _summarize(workers, contract):
+    candidates = []
     for worker in workers:
         for workload in worker["workloads"]:
-            complete = {
-                (candidate["path_segments"], str(candidate["coordinate_space"])): candidate
-                for candidate in workload.get("optimizer_probes", [])
-                if candidate.get("status") == "complete"
-            }
-            for path_segments in {key[0] for key in complete}:
-                full = complete.get((path_segments, "full"))
-                if full is None:
-                    continue
-                full_best = full["best_recorded_energy"]
-                for (segments, coordinate_space), candidate in complete.items():
-                    if segments != path_segments:
-                        continue
-                    initial = candidate["history"][0]["energy"]
-                    final = candidate["history"][-1]["energy"]
-                    best = candidate["best_recorded_energy"]
-                    candidate_rows.append({
+            for candidate in workload["optimizer_probes"]:
+                initial = candidate["history"][0]["energy"]
+                final = candidate["history"][-1]["energy"]
+                best = candidate["best_recorded_energy"]
+                candidates.append(
+                    {
                         "best_to_initial_energy_ratio": best / max(initial, 1e-30),
-                        "best_to_full_energy_excess": max(
-                            0.0,
-                            best / max(full_best, 1e-30) - 1.0,
-                        ),
-                        "coordinate_space": coordinate_space,
                         "final_to_best_energy_ratio": final / max(best, 1e-30),
+                        "maximum_line_deviation_fraction_seen": candidate[
+                            "maximum_line_deviation_fraction_seen"
+                        ],
                         "model": worker["model"],
-                        "path_segments": path_segments,
+                        "path_segments": candidate["path_segments"],
                         "rank": workload["rank"],
                         "route": workload["route"],
-                        "trust_boundary_contact": candidate["trust_boundary_contact"],
-                    })
-
-    def optimization_passes(row):
-        return (
-            row["best_to_initial_energy_ratio"] <= 1.0 - minimum_energy_decrease
-            and row["final_to_best_energy_ratio"] <= 1.0 + plateau_slack
-            and not row["trust_boundary_contact"]
-        )
-
-    def row_key(row):
-        return (
-            row["model"],
-            row["rank"],
-            row["route"],
-            row["path_segments"],
-        )
-
-    full_rows = {
-        row_key(row): row
-        for row in candidate_rows
-        if row["coordinate_space"] == "full"
-    }
-
-    def space_passes(space):
-        rows = [
-            row
-            for row in candidate_rows
-            if str(row["coordinate_space"]) == str(space)
-        ]
-        expected = sum(
-            str(space) in {str(item) for item in candidate["coordinate_spaces"]}
-            for workload in workload_contracts
-            for candidate in workload["candidates"]
-        ) * len(workers)
-        return len(rows) == expected and all(
-            optimization_passes(row)
-            and (
-                space == "full"
-                or (
-                    row["best_to_full_energy_excess"] <= gap_limit
-                    and row_key(row) in full_rows
-                    and optimization_passes(full_rows[row_key(row)])
+                    }
                 )
-            )
-            for row in rows
-        )
-
-    d128_conditioned = dimension_minimum_ratios.get("128", -1.0) >= ratio_floor
-    if d128_conditioned and space_passes(128):
-        selected_space = 128
-    elif space_passes("full"):
-        selected_space = "full"
-    else:
-        selected_space = None
-        blockers.append("neither_d128_nor_full_latent_met_the_common_budget")
-
-    selected_iterations = None
-    if selected_space is not None:
-        selected_candidates = [
-            candidate
-            for workload in workloads
-            for candidate in workload["optimizer_probes"]
-            if candidate.get("status") == "complete"
-            and str(candidate["coordinate_space"]) == str(selected_space)
-        ]
-        for milestone in numerics["optimizer"]["milestones"][1:]:
-            if all(
-                next(
-                    row["energy"]
-                    for row in candidate["history"]
-                    if row["iteration"] == milestone
-                )
-                <= (1.0 + plateau_slack) * candidate["best_recorded_energy"]
-                for candidate in selected_candidates
-            ):
-                selected_iterations = milestone
-                break
-        if selected_iterations is None:
-            blockers.append("selected_space_not_near_best_within_128_steps")
-
-    selected = {
-        "coordinate_space": selected_space,
-        "conditioning_minimum_ratio": ratio_floor,
-        "optimizer_iterations": selected_iterations,
-        "optimizer_learning_rate": numerics["optimizer"]["learning_rate"],
-        "optimizer_minimum_relative_energy_decrease": minimum_energy_decrease,
-        "path_segments_primary": 16,
-        "path_segments_refinement": 32,
-    }
+    optimizer = contract["numerics"]["optimizer"]
     return {
-        "blockers": blockers,
-        "decision_inputs": {
-            "candidate_comparisons": candidate_rows,
-            "d128_conditioned": d128_conditioned,
-            "d32_passes_full_latent_control": space_passes(32),
-            "d128_passes_full_latent_control": space_passes(128),
-            "dimension_minimum_ratios": dimension_minimum_ratios,
-            "full_latent_passes_common_budget": space_passes("full"),
+        "candidates": candidates,
+        "numerics": {
+            "coordinate_space": "full",
+            "optimizer_iterations": optimizer["iterations"],
+            "optimizer_learning_rate": optimizer["learning_rate"],
+            "path_segments": optimizer["path_segments"],
         },
-        "schema": "eqvae.functional_geometry.stage_a2.calibration.selection.v3",
-        "selected_numerics": selected,
-        "status": "selected" if not blockers else "unresolved",
+        "schema": "eqvae.functional_geometry.stage_a2.calibration.summary.v4",
+        "status": "complete",
     }
 
 
@@ -669,13 +375,6 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
         import numpy as np
         import torch
 
-        from eqvae.evaluation.functional_geometry_calibration import (
-            affine_chart_latents,
-            decoder_visible_chart,
-            project_line_deviation_,
-            thin_metric_spectra,
-        )
-        from eqvae.evaluation.functional_geometry_rla import linearize_decoder
         from eqvae.models.registry import build_model
 
         torch.use_deterministic_algorithms(True)
@@ -714,7 +413,9 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
         patches, selectors = _load_patches(repo_root, contract, np=np, torch=torch)
         calibration_ranks = contract["scope"]["calibration_patch_ranks"]
 
-        weight_root = DATASET_ROOT / contract["inputs"]["weight_dataset"]
+        weight_root = next(
+            DATASET_ROOT.glob(f"*/{contract['inputs']['weight_dataset_slug']}")
+        )
         state_path = weight_root / f"{model_name}_state.pt"
         state = torch.load(state_path, map_location="cpu", weights_only=True)
         model = build_model(MODEL_KINDS[model_name])
@@ -784,72 +485,51 @@ def _run_worker(model_name, device_index, repo_root_text, output_text, contract)
                 rank=rank,
                 route=route,
             )
-            basis, diagnostics = _chart_diagnostics(
+            path_segments = numerics["optimizer"]["path_segments"]
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats(device)
+            candidate = _optimizer_probe(
                 model,
                 left,
                 right,
-                rank=rank,
-                route=route,
-                numerics=numerics,
-                linearize_decoder=linearize_decoder,
-                decoder_visible_chart=decoder_visible_chart,
-                thin_metric_spectra=thin_metric_spectra,
+                learning_rate=numerics["optimizer"]["learning_rate"],
+                path_segments=path_segments,
+                optimizer_contract=numerics["optimizer"],
+                eager_edge_energy=eager_edge_energy,
+                optimized_edge_energy=optimized_edge_energy,
                 torch=torch,
             )
-            capture_memory()
+            candidate["peak_memory"] = capture_memory()
+            _log(
+                "optimizer_candidate_complete",
+                model=model_name,
+                rank=rank,
+                route=route,
+                coordinate_space="full",
+                path_segments=path_segments,
+                **_memory(device, torch),
+            )
+            torch.cuda.empty_cache()
 
-            optimizer_rows = []
-            for candidate_contract in workload_contract["candidates"]:
-                path_segments = candidate_contract["path_segments"]
-                for coordinate_space in candidate_contract["coordinate_spaces"]:
-                    torch.cuda.empty_cache()
-                    torch.cuda.reset_peak_memory_stats(device)
-                    candidate = _optimizer_probe(
-                        model,
-                        left,
-                        right,
-                        basis,
-                        coordinate_space=coordinate_space,
-                        learning_rate=numerics["optimizer"]["learning_rate"],
-                        path_segments=path_segments,
-                        optimizer_contract=numerics["optimizer"],
-                        affine_chart_latents=affine_chart_latents,
-                        eager_edge_energy=eager_edge_energy,
-                        optimized_edge_energy=optimized_edge_energy,
-                        project_line_deviation_=project_line_deviation_,
-                        torch=torch,
-                    )
-                    candidate["peak_memory"] = capture_memory()
-                    optimizer_rows.append(candidate)
-                    _log(
-                        "optimizer_candidate_complete",
-                        model=model_name,
-                        rank=rank,
-                        route=route,
-                        coordinate_space=coordinate_space,
-                        path_segments=path_segments,
-                        **_memory(device, torch),
-                    )
-                    torch.cuda.empty_cache()
-
-            workload_rows.append({
-                "chart_diagnostics": diagnostics,
-                "label": selectors[local_index]["label"],
-                "optimizer_probes": optimizer_rows,
-                "rank": rank,
-                "route": route,
-                "sample_id": selectors[local_index]["sample_id"],
-                "status": "complete",
-            })
+            workload_rows.append(
+                {
+                    "label": selectors[local_index]["label"],
+                    "optimizer_probes": [candidate],
+                    "rank": rank,
+                    "route": route,
+                    "sample_id": selectors[local_index]["sample_id"],
+                    "status": "complete",
+                }
+            )
             _log(
                 "calibration_workload_complete",
                 model=model_name,
                 rank=rank,
                 route=route,
-                optimizer_probe_count=len(optimizer_rows),
+                optimizer_probe_count=1,
                 **_memory(device, torch),
             )
-            del basis, diagnostics, optimizer_rows, right
+            del candidate, right
             torch.cuda.empty_cache()
 
         memory = capture_memory()
@@ -928,13 +608,11 @@ def run(*, repo_root: Path, source_commit: str, started_at: float) -> int:
             )
             for model in MODEL_KINDS
         }
-        selection = _select_numerics(tuple(workers.values()), contract)
-        selection_path = OUTPUT_ROOT / "calibration_selection.json"
-        _write_json(selection_path, selection)
+        summary = _summarize(tuple(workers.values()), contract)
+        _write_json(OUTPUT_ROOT / "calibration_summary.json", summary)
         result = {
             "models": workers,
-            "schema": "eqvae.functional_geometry.stage_a2.calibration.result.v3",
-            "selection_status": selection["status"],
+            "schema": "eqvae.functional_geometry.stage_a2.calibration.result.v4",
             "source_commit": source_commit,
             "status": "complete_calibration_probe",
         }
