@@ -127,7 +127,12 @@ skips matching paths found in the current output or a mounted prior-output
 input; an interrupted path restarts from its line initialization. Kaggle
 working storage is not persistent across version runs, so a timed-out version's
 checkpoint directory must be exposed as a later input before it can be reused.
-No replacement run has been submitted yet.
+Replacement version
+`maximusshtefan/eqvae-functional-geometry-stage-a2/2` was submitted at
+`2026-09-17T20:15:36-05:00` from public commit
+`1715b0070349ee7555123f7a12534f15c949749c`; Kaggle reports `RUNNING`. Do not
+poll continuously; inspect it again after `2026-09-17T21:30:00-05:00` or when
+Kaggle reports a terminal state.
 
 Private calibration `maximshtefan/eqvae-fg-stage-a2-calibration/3` failed after
 18 seconds, before model loading, because the direct-mounted patch path omitted
@@ -244,8 +249,8 @@ full-latent Adam, best-path retention and frozen-`SO(2)` kernel caching.
 Python compilation passes. Ruff now checks only
 `E9/F6/F7/F82` runtime-error families and Basedpyright runs in `basic` mode; do
 not restore `ALL`, exhaustive annotation/docstring rules or strict tensor typing.
-Both checks pass. The Stage A2 thin package validates locally but has not been
-submitted. Historical calibration kernels and contracts are preserved by Git
+Both checks pass. The Stage A2 thin package validates locally and version 2 is
+running on Kaggle. Historical calibration kernels and contracts are preserved by Git
 and their authenticated Kaggle results; the generic shell script is the only
 upload path. Personal
 references remain ignored and no live code depends on the local experiment
