@@ -10,7 +10,8 @@
   "machine_shape": "NvidiaTeslaT4",
   "dataset_sources": [
     "maximusshtefan/eqvae-frozen-vae-weights-v1",
-    "maximusshtefan/patches-pre-shuffled-ubc-ocean"
+    "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+    "maximusshtefan/eqvae-stage-a2-v2-checkpoints"
   ],
   "competition_sources": [],
   "kernel_sources": [],

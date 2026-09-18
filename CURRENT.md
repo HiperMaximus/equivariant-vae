@@ -106,7 +106,8 @@ stored at `runs/kaggle/functional_geometry_stage_a1_c4_slq_v1/` with SHA-256
   generic upload path.
 - `tests/test_functional_geometry_slq.py`: reusable SLQ/JVP mathematics.
 - `tests/test_stage_a2_path.py`: chunked/full energy-gradient equality,
-  dimension-scaled full-latent Adam, and actual best-path retention.
+  dimension-scaled full-latent Adam, actual best-path retention, and the exact
+  two-GPU resume partition.
 - `tests/test_functional_geometry_stage_a2.py`: focused synthetic chart,
   shooting, second-directional and transport seams.
 
@@ -130,9 +131,15 @@ checkpoint directory must be exposed as a later input before it can be reused.
 Replacement version
 `maximusshtefan/eqvae-functional-geometry-stage-a2/2` was submitted at
 `2026-09-17T20:15:36-05:00` from public commit
-`1715b0070349ee7555123f7a12534f15c949749c`; Kaggle reports `RUNNING`. Do not
-poll continuously; inspect it again after `2026-09-17T21:30:00-05:00` or when
-Kaggle reports a terminal state.
+`1715b0070349ee7555123f7a12534f15c949749c` and ended
+`CANCEL_ACKNOWLEDGED` near the session limit without a traceback. Its normal
+worker completed all 22 paths; the `SO(2)` worker completed 13 of 22. The 35
+atomic checkpoints are preserved in private dataset
+`maximusshtefan/eqvae-stage-a2-v2-checkpoints/1`; only
+`rank_12_bridge_3` and the eight rank-12 `encoded`/`prescribed` sides remain.
+The resume runner assigns those nine independent paths 5/4 across both T4s,
+then uses both GPUs for the normal and `SO(2)` aggregate metrics after every
+checkpoint exists. No solver or scientific parameter changed.
 
 Private calibration `maximshtefan/eqvae-fg-stage-a2-calibration/3` failed after
 18 seconds, before model loading, because the direct-mounted patch path omitted
@@ -243,14 +250,14 @@ structure is validated. Sealed-test results remain unavailable for tuning.
 
 ## Verification state
 
-The reduced active suite passes all 26 tests, including
+The reduced active suite passes all 27 tests, including
 chunked-versus-monolithic energy/gradient equality, dimension-normalized
 full-latent Adam, best-path retention and frozen-`SO(2)` kernel caching.
 Python compilation passes. Ruff now checks only
 `E9/F6/F7/F82` runtime-error families and Basedpyright runs in `basic` mode; do
 not restore `ALL`, exhaustive annotation/docstring rules or strict tensor typing.
-Both checks pass. The Stage A2 thin package validates locally and version 2 is
-running on Kaggle. Historical calibration kernels and contracts are preserved by Git
+Both checks pass. The Stage A2 thin package validates locally; the next version
+will resume from the private checkpoint dataset. Historical calibration kernels and contracts are preserved by Git
 and their authenticated Kaggle results; the generic shell script is the only
 upload path. Personal
 references remain ignored and no live code depends on the local experiment

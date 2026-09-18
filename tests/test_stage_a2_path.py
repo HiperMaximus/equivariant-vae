@@ -8,6 +8,15 @@ import torch
 from experiments import spec0053_stage_a2_calibration as stage_a2
 
 
+def test_so2_resume_shards_cover_the_interrupted_paths() -> None:
+    paths = {path for shard in stage_a2.SO2_RESUME_PATH_SHARDS for path in shard}
+
+    assert paths == {
+        "rank_12_bridge_3",
+        *(f"rank_12_{cycle}_side_{side}" for cycle in ("encoded", "prescribed") for side in range(4)),
+    }
+
+
 def test_chunked_energy_and_gradient_match_the_monolithic_objective() -> None:
     """Decoder batching changes memory use, not path energy or its gradient."""
 

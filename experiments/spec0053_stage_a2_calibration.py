@@ -24,6 +24,10 @@ MODEL_KINDS = {
     "so2_vae": "so2_vae_fixed",
 }
 MODEL_DEVICE_MAP = {"normal_vae": 0, "so2_vae": 1}
+SO2_RESUME_PATH_SHARDS = (
+    ("rank_12_bridge_3", *(f"rank_12_encoded_side_{side}" for side in range(4))),
+    tuple(f"rank_12_prescribed_side_{side}" for side in range(4)),
+)
 PATCH_BYTES = 3 * 256 * 256
 HEADER_BYTES = 64
 _STARTED = time.perf_counter()
@@ -981,7 +985,14 @@ def _run_patch(
     return result
 
 
-def _worker(model_name, device_index, repo_root_text, output_text, source_commit):
+def _worker(
+    model_name,
+    device_index,
+    repo_root_text,
+    output_text,
+    source_commit,
+    path_names=(),
+):
     repo_root = Path(repo_root_text)
     output = Path(output_text)
     sys.path.insert(0, str(repo_root / "src"))
@@ -994,8 +1005,8 @@ def _worker(model_name, device_index, repo_root_text, output_text, source_commit
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
     torch.set_float32_matmul_precision("highest")
-    os.environ["TORCHINDUCTOR_CACHE_DIR"] = f"/tmp/eqvae_spec0053_stage_a2_{model_name}"
-    os.environ["TRITON_CACHE_DIR"] = f"/tmp/eqvae_spec0053_stage_a2_{model_name}"
+    os.environ["TORCHINDUCTOR_CACHE_DIR"] = f"/tmp/eqvae_spec0053_stage_a2_{model_name}_{device_index}"
+    os.environ["TRITON_CACHE_DIR"] = f"/tmp/eqvae_spec0053_stage_a2_{model_name}_{device_index}"
     device = torch.device(f"cuda:{device_index}")
     torch.cuda.set_device(device)
     torch.cuda.empty_cache()
@@ -1020,6 +1031,40 @@ def _worker(model_name, device_index, repo_root_text, output_text, source_commit
     checkpoint_root = output / "checkpoints" / model_name
     checkpoint_root.mkdir(parents=True, exist_ok=True)
     tensors = {"anchors": {}, "free": {}, "paths": {}}
+    if path_names:
+        local_index = contract["scope"]["pilot_patch_ranks"].index(12)
+        encoded_rank = encoded[:, local_index]
+        prescribed_rank = prescribed[:, local_index]
+        requests = {
+            **{
+                f"rank_12_bridge_{turn}": (encoded_rank[turn], prescribed_rank[turn])
+                for turn in range(1, 4)
+            },
+            **{
+                f"rank_12_{cycle_name}_side_{side}": (
+                    cycle[side], cycle[(side + 1) % 4]
+                )
+                for cycle_name, cycle in (("encoded", encoded_rank), ("prescribed", prescribed_rank))
+                for side in range(4)
+            },
+        }
+        for name in path_names:
+            left, right = requests[name]
+            _solve_or_resume_path(
+                model,
+                left.unsqueeze(0),
+                right.unsqueeze(0),
+                name=name,
+                model_name=model_name,
+                checkpoint_root=checkpoint_root,
+                eager_edge_energy=eager_edge_energy,
+                optimized_edge_energy=optimized_edge_energy,
+                contract=contract,
+                tensors=tensors,
+                torch=torch,
+            )
+        _log("path_shard_complete", device=str(device), model=model_name)
+        return
     results = []
     for local_index, rank in enumerate(contract["scope"]["pilot_patch_ranks"]):
         _log("patch_started", model=model_name, rank=rank)
@@ -1085,23 +1130,31 @@ def run(*, repo_root: Path, source_commit: str, started_at: float) -> int:
     output.mkdir(parents=True, exist_ok=True)
     contract = json.loads((repo_root / CONTRACT_PATH).read_text(encoding="utf-8"))
     context = mp.get_context("spawn")
-    workers = []
     _log("run_started", model_device_map=MODEL_DEVICE_MAP)
-    for model_name, device_index in MODEL_DEVICE_MAP.items():
-        process = context.Process(
-            target=_worker,
-            args=(model_name, device_index, str(repo_root), str(output), source_commit),
-            name=f"stage-a2-{model_name}",
-        )
-        process.start()
-        workers.append(process)
-    exitcodes = {}
-    for process in workers:
-        process.join()
-        exitcodes[process.name] = process.exitcode
-    if any(exitcode != 0 for exitcode in exitcodes.values()):
-        _log("worker_failed", exitcodes=exitcodes)
-        return 1
+    phases = (
+        (
+            ("stage-a2-so2_vae-left", ("so2_vae", 0, *SO2_RESUME_PATH_SHARDS[0])),
+            ("stage-a2-so2_vae-right", ("so2_vae", 1, *SO2_RESUME_PATH_SHARDS[1])),
+        ),
+        tuple((f"stage-a2-{name}", (name, device)) for name, device in MODEL_DEVICE_MAP.items()),
+    )
+    for phase in phases:
+        workers = [
+            context.Process(
+                target=_worker,
+                args=(model_name, device, str(repo_root), str(output), source_commit, path_names),
+                name=name,
+            )
+            for name, (model_name, device, *path_names) in phase
+        ]
+        for process in workers:
+            process.start()
+        for process in workers:
+            process.join()
+        exitcodes = {process.name: process.exitcode for process in workers}
+        if any(exitcode != 0 for exitcode in exitcodes.values()):
+            _log("worker_failed", exitcodes=exitcodes)
+            return 1
     model_results = {
         name: json.loads((output / f"{name}.json").read_text(encoding="utf-8"))
         for name in MODEL_KINDS
