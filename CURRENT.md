@@ -140,6 +140,10 @@ atomic checkpoints are preserved in private dataset
 The resume runner assigns those nine independent paths 5/4 across both T4s,
 then uses both GPUs for the normal and `SO(2)` aggregate metrics after every
 checkpoint exists. No solver or scientific parameter changed.
+Version `maximusshtefan/eqvae-functional-geometry-stage-a2/3` was submitted at
+`2026-09-18T09:37:20-05:00` from public commit
+`f339209` with the private checkpoint dataset mounted; Kaggle reports
+`RUNNING`.
 
 Private calibration `maximshtefan/eqvae-fg-stage-a2-calibration/3` failed after
 18 seconds, before model loading, because the direct-mounted patch path omitted
@@ -256,8 +260,8 @@ full-latent Adam, best-path retention and frozen-`SO(2)` kernel caching.
 Python compilation passes. Ruff now checks only
 `E9/F6/F7/F82` runtime-error families and Basedpyright runs in `basic` mode; do
 not restore `ALL`, exhaustive annotation/docstring rules or strict tensor typing.
-Both checks pass. The Stage A2 thin package validates locally; the next version
-will resume from the private checkpoint dataset. Historical calibration kernels and contracts are preserved by Git
+Both checks pass. The Stage A2 thin package validates locally and version 3 is
+resuming from the private checkpoint dataset on both GPUs. Historical calibration kernels and contracts are preserved by Git
 and their authenticated Kaggle results; the generic shell script is the only
 upload path. Personal
 references remain ignored and no live code depends on the local experiment
