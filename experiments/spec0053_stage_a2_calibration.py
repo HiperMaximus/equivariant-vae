@@ -1,6 +1,6 @@
 # Copyright 2026 HiperMaximus
 # PyTorch experiment payloads are intentionally dynamic dictionaries.
-# pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportIndexIssue=false
+# pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportIndexIssue=false
 """One-shot scientific runner for Spec 0053 Stage A2."""
 
 import json
@@ -13,21 +13,21 @@ from pathlib import Path
 
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
-DATASET_ROOT = Path("/kaggle/input/datasets")
 WORKING_ROOT = Path("/kaggle/working")
 OUTPUT_ROOT = WORKING_ROOT / "functional_geometry_stage_a2"
 CONTRACT_PATH = Path("docs/data/functional_geometry_stage_a2_contract.json")
 SELECTOR_PATH = Path("configs/spec0001/fixed_25_validation_patches.json")
-WEIGHT_DATASET_SLUG = "eqvae-frozen-vae-weights-v1"
+WEIGHT_DATASET_ROOT = Path(
+    "/kaggle/input/datasets/maximusshtefan/eqvae-frozen-vae-weights-v1"
+)
+CHECKPOINT_DATASET_ROOT = Path(
+    "/kaggle/input/datasets/maximusshtefan/eqvae-stage-a2-complete-checkpoints"
+)
 MODEL_KINDS = {
     "normal_vae": "non_eq_vae_translatable",
     "so2_vae": "so2_vae_fixed",
 }
 MODEL_DEVICE_MAP = {"normal_vae": 0, "so2_vae": 1}
-SO2_RESUME_PATH_SHARDS = (
-    ("rank_12_bridge_3", *(f"rank_12_encoded_side_{side}" for side in range(4))),
-    tuple(f"rank_12_prescribed_side_{side}" for side in range(4)),
-)
 PATCH_BYTES = 3 * 256 * 256
 HEADER_BYTES = 64
 _STARTED = time.perf_counter()
@@ -50,20 +50,8 @@ def _log(event: str, **values: object) -> None:
 
 def _write_json(path: Path, value: object) -> None:
     with path.open("w", encoding="utf-8") as handle:
-        json.dump(_json_safe(value), handle, allow_nan=False, indent=2, sort_keys=True)
+        json.dump(value, handle, allow_nan=False, indent=2, sort_keys=True)
         handle.write("\n")
-
-
-def _json_safe(value):
-    if hasattr(value, "item") and getattr(value, "numel", lambda: 0)() == 1:
-        return _json_safe(value.item())
-    if isinstance(value, dict):
-        return {key: _json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, float) and not math.isfinite(value):
-        return None
-    return value
 
 
 def _read_selected_patch_bytes(handle, rows, selected_ranks):
@@ -105,157 +93,10 @@ def _load_frozen_model(model_name, state_path, device, *, torch):
     state = torch.load(state_path, map_location="cpu", weights_only=True)
     model = build_model(MODEL_KINDS[model_name])
     model.load_state_dict(state, strict=True)
-    return model.to(device).eval().requires_grad_(False)
-
-
-def _latent_line(left, right, segments, *, torch):
-    times = torch.linspace(
-        0.0,
-        1.0,
-        segments + 1,
-        device=left.device,
-        dtype=left.dtype,
-    ).reshape(-1, *(1 for _ in left.shape[1:]))
-    return left + times * (right - left)
-
-
-def _decoder_edge_energy(model, latents, total_segments, *, torch):
-    decoded = model.decode(latents)
-    differences = decoded[1:] - decoded[:-1]
-    return total_segments * differences.flatten(1).square().mean(dim=1).sum()
-
-
-def _prepare_decoder_runtime(model, probe_latents, *, torch):
-    """Materialize frozen kernels and compile the fixed eight-edge closure."""
-    materialize = getattr(model, "materialize_frozen_decoder_kernels", None)
-    if materialize is not None:
-        materialize()
-
-    def eager(latents, total_segments):
-        return _decoder_edge_energy(model, latents, total_segments, torch=torch)
-
-    compiled = torch.compile(eager, dynamic=False, fullgraph=True, mode="default")
-    with torch.enable_grad():
-        variable = probe_latents.detach().clone().requires_grad_(True)
-        compiled(variable, probe_latents.new_tensor(1.0)).backward()
-    if probe_latents.device.type == "cuda":
-        torch.cuda.synchronize(probe_latents.device)
-    return eager, compiled
-
-
-def _path_from_interior(left, interior, right, *, torch):
-    return torch.cat((left, interior, right), dim=0)
-
-
-def _chunked_path_energy(
-    left,
-    interior,
-    right,
-    *,
-    edge_energy,
-    total_segments,
-    chunk_segments,
-    backward,
-    torch,
-):
-    """Evaluate one path objective in bounded decoder batches."""
-    total = 0.0
-    with torch.set_grad_enabled(backward):
-        for start in range(0, total_segments, chunk_segments):
-            stop = start + chunk_segments
-            chunks = []
-            if start == 0:
-                chunks.append(left)
-            interior_start = max(start - 1, 0)
-            interior_stop = min(stop, total_segments - 1)
-            if interior_start < interior_stop:
-                chunks.append(interior[interior_start:interior_stop])
-            if stop == total_segments:
-                chunks.append(right)
-            energy = edge_energy(
-                torch.cat(chunks, dim=0),
-                interior.new_tensor(float(total_segments)),
-            )
-            total += float(energy.detach())
-            if backward:
-                energy.backward()
-    return total
-
-
-def _full_latent_learning_rate(
-    base_learning_rate, latent_dimension, reference_dimension
-):
-    return base_learning_rate * math.sqrt(reference_dimension / latent_dimension)
-
-
-def _optimize_full_latent_path(
-    left,
-    right,
-    *,
-    learning_rate,
-    learning_rate_reference_dimension,
-    path_segments,
-    optimizer_steps,
-    chunk_segments,
-    eager_edge_energy,
-    optimized_edge_energy,
-    torch,
-):
-    """Optimize direct full-latent knots and retain the lowest-energy iterate."""
-    line = _latent_line(left, right, path_segments, torch=torch)
-    interior = line[1:-1].detach().clone().requires_grad_(True)
-    effective_learning_rate = _full_latent_learning_rate(
-        learning_rate,
-        interior[0].numel(),
-        learning_rate_reference_dimension,
-    )
-    optimizer = torch.optim.Adam([interior], lr=effective_learning_rate)
-    best_energy = math.inf
-    best_interior = interior.detach().clone()
-    best_iteration = 0
-
-    for iteration in range(optimizer_steps):
-        optimizer.zero_grad(set_to_none=True)
-        energy = _chunked_path_energy(
-            left,
-            interior,
-            right,
-            edge_energy=optimized_edge_energy,
-            total_segments=path_segments,
-            chunk_segments=chunk_segments,
-            backward=True,
-            torch=torch,
-        )
-        if energy < best_energy:
-            best_energy = energy
-            best_interior = interior.detach().clone()
-            best_iteration = iteration
-        optimizer.step()
-
-    final_energy = _chunked_path_energy(
-        left,
-        interior,
-        right,
-        edge_energy=eager_edge_energy,
-        total_segments=path_segments,
-        chunk_segments=chunk_segments,
-        backward=False,
-        torch=torch,
-    )
-    if final_energy < best_energy:
-        best_energy = final_energy
-        best_interior = interior.detach().clone()
-        best_iteration = optimizer_steps
-    return {
-        "best_energy": best_energy,
-        "best_iteration": best_iteration,
-        "best_path": _path_from_interior(left, best_interior, right, torch=torch),
-        "effective_learning_rate": effective_learning_rate,
-        "final_energy": final_energy,
-        "final_path": _path_from_interior(
-            left, interior.detach(), right, torch=torch
-        ),
-    }
+    model = model.to(device).eval().requires_grad_(False)
+    if model_name == "so2_vae":
+        model.materialize_frozen_decoder_kernels()
+    return model
 
 
 def _rms(values, *, torch):
@@ -270,58 +111,6 @@ def _decode_knots(model, latents, *, torch):
     return torch.cat(decoded)
 
 
-def _path_metrics(path, decoded, *, segments, torch):
-    decoded_steps = _rms(decoded[1:] - decoded[:-1], torch=torch)
-    edge_rms = torch.sqrt((decoded[1:] - decoded[:-1]).flatten(1).square().mean(1))
-    latent_steps = torch.linalg.vector_norm((path[1:] - path[:-1]).flatten(1), dim=1)
-    endpoint_rms = _rms(decoded[-1] - decoded[0], torch=torch)
-    decoded_speed = segments * edge_rms
-    return {
-        "constant_speed_cv": float(decoded_speed.std(unbiased=False) / decoded_speed.mean().clamp_min(torch.finfo(torch.float32).tiny)),
-        "decoded_energy": float(segments * edge_rms.square().sum()),
-        "decoded_length": float(edge_rms.sum()),
-        "decoded_length_over_endpoint_rms": float(edge_rms.sum() / endpoint_rms.clamp_min(torch.finfo(torch.float32).tiny)),
-        "decoded_speed_max": float(decoded_speed.max()),
-        "decoded_speed_mean": float(decoded_speed.mean()),
-        "endpoint_rms": float(endpoint_rms),
-        "energy_over_endpoint_rms_squared": float(
-            segments * edge_rms.square().sum() / endpoint_rms.square().clamp_min(torch.finfo(torch.float32).tiny)
-        ),
-        "latent_length": float(latent_steps.sum()),
-        "mean_edge_rms": float(edge_rms.mean()),
-        "step_rms_std": float(edge_rms.std(unbiased=False)),
-        "total_decoded_step_rms": float(decoded_steps),
-    }
-
-
-def _frozen_path_refinement(model, path, decoded, *, torch):
-    midpoints = 0.5 * (path[1:] + path[:-1])
-    refined = torch.empty(
-        (path.shape[0] * 2 - 1, *path.shape[1:]),
-        device=path.device,
-        dtype=path.dtype,
-    )
-    refined[::2] = path
-    refined[1::2] = midpoints
-    refined_decoded = _decode_knots(model, refined, torch=torch)
-    base = _path_metrics(path, decoded, segments=path.shape[0] - 1, torch=torch)
-    detail = _path_metrics(
-        refined,
-        refined_decoded,
-        segments=refined.shape[0] - 1,
-        torch=torch,
-    )
-    chord = _rms(
-        refined_decoded[1::2] - 0.5 * (decoded[1:] + decoded[:-1]),
-        torch=torch,
-    )
-    return {
-        "decoded_midpoint_chord_rms": float(chord),
-        "energy_discrepancy": detail["decoded_energy"] - base["decoded_energy"],
-        "length_discrepancy": detail["decoded_length"] - base["decoded_length"],
-    }
-
-
 def _save_path(tensors, name, path, decoded, *, torch):
     tensors["paths"][name] = {
         "decoded_raw_fp16": decoded.detach().to("cpu", torch.float16),
@@ -329,108 +118,17 @@ def _save_path(tensors, name, path, decoded, *, torch):
     }
 
 
-def _solve_path(
-    model,
-    left,
-    right,
-    *,
-    eager_edge_energy,
-    optimized_edge_energy,
-    contract,
-    torch,
-):
-    numerics = contract["full_latent_paths"]
-    result = _optimize_full_latent_path(
-        left,
-        right,
-        learning_rate=0.005,
-        learning_rate_reference_dimension=32,
-        path_segments=numerics["path_segments"],
-        optimizer_steps=numerics["optimizer_steps_max"],
-        chunk_segments=numerics["energy_chunk_segments"],
-        eager_edge_energy=eager_edge_energy,
-        optimized_edge_energy=optimized_edge_energy,
-        torch=torch,
+def _load_completed_path(model, *, model_name, name, device, tensors, torch):
+    saved = torch.load(
+        CHECKPOINT_DATASET_ROOT / f"{model_name}__{name}.pt",
+        map_location="cpu",
+        weights_only=True,
     )
-    path = result.pop("best_path")
-    final_path = result.pop("final_path")
+    path = saved["best_path"].to(device)
     decoded = _decode_knots(model, path, torch=torch)
-    metrics = _path_metrics(
-        path,
-        decoded,
-        segments=numerics["path_segments"],
-        torch=torch,
-    )
-    metrics["optimizer_best_energy"] = result["best_energy"]
-    metrics["optimizer_best_iteration"] = result["best_iteration"]
-    metrics["optimizer_final_energy"] = result["final_energy"]
-    metrics["optimizer_effective_learning_rate"] = result["effective_learning_rate"]
-    metrics["frozen_path_refinement"] = _frozen_path_refinement(
-        model,
-        path,
-        decoded,
-        torch=torch,
-    )
-    return path, final_path, decoded, metrics
-
-
-def _write_checkpoint(path, tensors, *, torch):
-    temporary = path.with_suffix(".tmp")
-    torch.save(tensors, temporary)
-    temporary.replace(path)
-
-
-def _solve_or_resume_path(
-    model,
-    left,
-    right,
-    *,
-    name,
-    model_name,
-    checkpoint_root,
-    eager_edge_energy,
-    optimized_edge_energy,
-    contract,
-    tensors,
-    torch,
-):
-    checkpoint_path = checkpoint_root / f"{name}.pt"
-    checkpoint_source = (
-        checkpoint_path
-        if checkpoint_path.exists()
-        else next(
-            DATASET_ROOT.glob(f"**/checkpoints/{model_name}/{checkpoint_path.name}"),
-            None,
-        )
-    )
-    if checkpoint_source is not None:
-        saved = torch.load(checkpoint_source, map_location="cpu", weights_only=True)
-        _log("path_resumed", model=model_name, path=name)
-        path = saved["best_path"].to(left.device)
-        decoded = _decode_knots(model, path, torch=torch)
-        _save_path(tensors, name, path, decoded, torch=torch)
-        return path, decoded, saved["metrics"]
-    path, final_path, decoded, metrics = _solve_path(
-        model,
-        left,
-        right,
-        eager_edge_energy=eager_edge_energy,
-        optimized_edge_energy=optimized_edge_energy,
-        contract=contract,
-        torch=torch,
-    )
-    _write_checkpoint(
-        checkpoint_path,
-        {
-            "best_path": path.detach().to("cpu"),
-            "last_path": final_path.detach().to("cpu"),
-            "metrics": metrics,
-        },
-        torch=torch,
-    )
-    _log("path_checkpointed", model=model_name, path=name)
     _save_path(tensors, name, path, decoded, torch=torch)
-    return path, decoded, metrics
+    _log("path_loaded", model=model_name, path=name)
+    return path, decoded, saved["metrics"]
 
 
 def _anchor_metrics(encoded, prescribed, decoded_encoded, decoded_prescribed, *, torch):
@@ -835,27 +533,16 @@ def _run_cycle(
     cycle,
     *,
     cycle_name,
-    eager_edge_energy,
-    optimized_edge_energy,
-    contract,
     tensors,
     model_name,
-    checkpoint_root,
     torch,
 ):
     paths = []
-    left = cycle[0].unsqueeze(0)
-    right = cycle[1].unsqueeze(0)
-    path, decoded, metrics = _solve_or_resume_path(
+    path, decoded, metrics = _load_completed_path(
         model,
-        left,
-        right,
         name=f"{cycle_name}_side_0",
         model_name=model_name,
-        checkpoint_root=checkpoint_root,
-        eager_edge_energy=eager_edge_energy,
-        optimized_edge_energy=optimized_edge_energy,
-        contract=contract,
+        device=cycle.device,
         tensors=tensors,
         torch=torch,
     )
@@ -892,16 +579,11 @@ def _run_cycle(
     }
 
     for side in range(1, 4):
-        path, decoded, metrics = _solve_or_resume_path(
+        path, decoded, metrics = _load_completed_path(
             model,
-            cycle[side].unsqueeze(0),
-            cycle[(side + 1) % 4].unsqueeze(0),
             name=f"{cycle_name}_side_{side}",
             model_name=model_name,
-            checkpoint_root=checkpoint_root,
-            eager_edge_energy=eager_edge_energy,
-            optimized_edge_energy=optimized_edge_energy,
-            contract=contract,
+            device=cycle.device,
             tensors=tensors,
             torch=torch,
         )
@@ -923,12 +605,8 @@ def _run_patch(
     rank,
     encoded,
     prescribed,
-    eager_edge_energy,
-    optimized_edge_energy,
-    contract,
     tensors,
     model_name,
-    checkpoint_root,
     torch,
 ):
     with torch.no_grad():
@@ -953,16 +631,11 @@ def _run_patch(
         "rank": rank,
     }
     for turn in range(1, 4):
-        path, decoded, metrics = _solve_or_resume_path(
+        path, decoded, metrics = _load_completed_path(
             model,
-            encoded[turn].unsqueeze(0),
-            prescribed[turn].unsqueeze(0),
             name=f"rank_{rank}_bridge_{turn}",
             model_name=model_name,
-            checkpoint_root=checkpoint_root,
-            eager_edge_energy=eager_edge_energy,
-            optimized_edge_energy=optimized_edge_energy,
-            contract=contract,
+            device=encoded.device,
             tensors=tensors,
             torch=torch,
         )
@@ -974,12 +647,8 @@ def _run_patch(
             model,
             cycle,
             cycle_name=f"rank_{rank}_{name}",
-            eager_edge_energy=eager_edge_energy,
-            optimized_edge_energy=optimized_edge_energy,
-            contract=contract,
             tensors=tensors,
             model_name=model_name,
-            checkpoint_root=checkpoint_root,
             torch=torch,
         )
     return result
@@ -991,7 +660,6 @@ def _worker(
     repo_root_text,
     output_text,
     source_commit,
-    path_names=(),
 ):
     repo_root = Path(repo_root_text)
     output = Path(output_text)
@@ -1013,10 +681,9 @@ def _worker(
     torch.cuda.reset_peak_memory_stats(device)
     contract = json.loads((repo_root / CONTRACT_PATH).read_text(encoding="utf-8"))
     patches, selectors = _load_patches(repo_root, contract["scope"]["pilot_patch_ranks"], np=np, torch=torch)
-    state_root = next(DATASET_ROOT.glob(f"*/{WEIGHT_DATASET_SLUG}"))
     model = _load_frozen_model(
         model_name,
-        state_root / f"{model_name}_state.pt",
+        WEIGHT_DATASET_ROOT / f"{model_name}_state.pt",
         device,
         torch=torch,
     )
@@ -1025,46 +692,8 @@ def _worker(
         [_encode(model, torch.rot90(selected, turn, (-2, -1)), batch_size=4, torch=torch) for turn in range(4)]
     )
     prescribed = torch.stack([torch.rot90(encoded[0], turn, (-2, -1)) for turn in range(4)])
-    probe = _latent_line(encoded[0, :1], encoded[1, :1], 8, torch=torch)
-    eager_edge_energy, optimized_edge_energy = _prepare_decoder_runtime(model, probe, torch=torch)
-    del probe, patches, selected
-    checkpoint_root = output / "checkpoints" / model_name
-    checkpoint_root.mkdir(parents=True, exist_ok=True)
+    del patches, selected
     tensors = {"anchors": {}, "free": {}, "paths": {}}
-    if path_names:
-        local_index = contract["scope"]["pilot_patch_ranks"].index(12)
-        encoded_rank = encoded[:, local_index]
-        prescribed_rank = prescribed[:, local_index]
-        requests = {
-            **{
-                f"rank_12_bridge_{turn}": (encoded_rank[turn], prescribed_rank[turn])
-                for turn in range(1, 4)
-            },
-            **{
-                f"rank_12_{cycle_name}_side_{side}": (
-                    cycle[side], cycle[(side + 1) % 4]
-                )
-                for cycle_name, cycle in (("encoded", encoded_rank), ("prescribed", prescribed_rank))
-                for side in range(4)
-            },
-        }
-        for name in path_names:
-            left, right = requests[name]
-            _solve_or_resume_path(
-                model,
-                left.unsqueeze(0),
-                right.unsqueeze(0),
-                name=name,
-                model_name=model_name,
-                checkpoint_root=checkpoint_root,
-                eager_edge_energy=eager_edge_energy,
-                optimized_edge_energy=optimized_edge_energy,
-                contract=contract,
-                tensors=tensors,
-                torch=torch,
-            )
-        _log("path_shard_complete", device=str(device), model=model_name)
-        return
     results = []
     for local_index, rank in enumerate(contract["scope"]["pilot_patch_ranks"]):
         _log("patch_started", model=model_name, rank=rank)
@@ -1074,12 +703,8 @@ def _worker(
                 rank=rank,
                 encoded=encoded[:, local_index],
                 prescribed=prescribed[:, local_index],
-                eager_edge_energy=eager_edge_energy,
-                optimized_edge_energy=optimized_edge_energy,
-                contract=contract,
                 tensors=tensors,
                 model_name=model_name,
-                checkpoint_root=checkpoint_root,
                 torch=torch,
             )
         )
@@ -1106,12 +731,10 @@ def _paired(normal, so2):
     if isinstance(normal, list) and isinstance(so2, list):
         return [_paired(left, right) for left, right in zip(normal, so2, strict=True)]
     if isinstance(normal, dict) and isinstance(so2, dict):
-        paired = {}
-        for key in normal.keys() & so2.keys():
-            value = _paired(normal[key], so2[key])
-            if value is not None:
-                paired[key] = value
-        return paired
+        return {
+            key: _paired(normal[key], so2[key])
+            for key in normal.keys() | so2.keys()
+        }
     if isinstance(normal, (float, int)) and isinstance(so2, (float, int)):
         normal_value = float(normal)
         so2_value = float(so2)
@@ -1121,7 +744,7 @@ def _paired(normal, so2):
             "so2_minus_normal": so2_value - normal_value,
             "so2_over_normal": None if normal_value == 0 else so2_value / normal_value,
         }
-    return None
+    return {"normal": normal, "so2": so2}
 
 
 def run(*, repo_root: Path, source_commit: str, started_at: float) -> int:
@@ -1131,30 +754,29 @@ def run(*, repo_root: Path, source_commit: str, started_at: float) -> int:
     contract = json.loads((repo_root / CONTRACT_PATH).read_text(encoding="utf-8"))
     context = mp.get_context("spawn")
     _log("run_started", model_device_map=MODEL_DEVICE_MAP)
-    phases = (
-        (
-            ("stage-a2-so2_vae-left", ("so2_vae", 0, *SO2_RESUME_PATH_SHARDS[0])),
-            ("stage-a2-so2_vae-right", ("so2_vae", 1, *SO2_RESUME_PATH_SHARDS[1])),
-        ),
-        tuple((f"stage-a2-{name}", (name, device)) for name, device in MODEL_DEVICE_MAP.items()),
-    )
-    for phase in phases:
-        workers = [
-            context.Process(
-                target=_worker,
-                args=(model_name, device, str(repo_root), str(output), source_commit, path_names),
-                name=name,
-            )
-            for name, (model_name, device, *path_names) in phase
-        ]
-        for process in workers:
-            process.start()
-        for process in workers:
-            process.join()
-        exitcodes = {process.name: process.exitcode for process in workers}
-        if any(exitcode != 0 for exitcode in exitcodes.values()):
-            _log("worker_failed", exitcodes=exitcodes)
-            return 1
+    workers = [
+        context.Process(
+            target=_worker,
+            args=(model_name, device, str(repo_root), str(output), source_commit),
+            name=f"stage-a2-{model_name}",
+        )
+        for model_name, device in MODEL_DEVICE_MAP.items()
+    ]
+    for process in workers:
+        process.start()
+    pending = set(workers)
+    while pending:
+        for process in tuple(pending):
+            process.join(timeout=1)
+            if process.exitcode is None:
+                continue
+            pending.remove(process)
+            if process.exitcode != 0:
+                for other in pending:
+                    other.terminate()
+                for other in pending:
+                    other.join()
+                return process.exitcode
     model_results = {
         name: json.loads((output / f"{name}.json").read_text(encoding="utf-8"))
         for name in MODEL_KINDS

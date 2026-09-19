@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-09-17
+Last updated: 2026-09-19
 
 ## Active frontier
 
@@ -98,16 +98,13 @@ stored at `runs/kaggle/functional_geometry_stage_a1_c4_slq_v1/` with SHA-256
   numerics.
 - `src/eqvae/evaluation/functional_geometry_stage_a2.py`: deterministic
   path-local chart construction, one-shot RK2 shooting and discrete transport.
-- `experiments/spec0053_stage_a2_calibration.py`: the in-place scientific
-  runner, reusing model/patch loading, the compiled eight-edge closure and the
-  chunked full-latent optimizer with best-iterate retention.
+- `experiments/spec0053_stage_a2_calibration.py`: the aggregation-only
+  scientific runner; it loads the 44 completed paths from exact dataset paths
+  and computes the remaining geometry with one frozen model per GPU.
 - `kaggle/kernels/functional_geometry_stage_a2/`: explicit thin entrypoint for
   the pending scientific run; `scripts/kaggle_kernel.sh` remains the single
   generic upload path.
 - `tests/test_functional_geometry_slq.py`: reusable SLQ/JVP mathematics.
-- `tests/test_stage_a2_path.py`: chunked/full energy-gradient equality,
-  dimension-scaled full-latent Adam, actual best-path retention, and the exact
-  two-GPU resume partition.
 - `tests/test_functional_geometry_stage_a2.py`: focused synthetic chart,
   shooting, second-directional and transport seams.
 
@@ -122,28 +119,24 @@ identified; Kaggle reports `CANCEL_ACKNOWLEDGED`. It completed no path and
 produced no scientific result. Kaggle normalized the initial metadata title to
 this URL slug; the local metadata now matches it.
 
-The runner now writes one atomic checkpoint after every completed path, with
-both its final Adam iterate and retained best iterate plus metrics. A restart
-skips matching paths found in the current output or a mounted prior-output
-input; an interrupted path restarts from its line initialization. Kaggle
-working storage is not persistent across version runs, so a timed-out version's
-checkpoint directory must be exposed as a later input before it can be reused.
 Replacement version
 `maximusshtefan/eqvae-functional-geometry-stage-a2/2` was submitted at
 `2026-09-17T20:15:36-05:00` from public commit
 `1715b0070349ee7555123f7a12534f15c949749c` and ended
 `CANCEL_ACKNOWLEDGED` near the session limit without a traceback. Its normal
 worker completed all 22 paths; the `SO(2)` worker completed 13 of 22. The 35
-atomic checkpoints are preserved in private dataset
-`maximusshtefan/eqvae-stage-a2-v2-checkpoints/1`; only
-`rank_12_bridge_3` and the eight rank-12 `encoded`/`prescribed` sides remain.
-The resume runner assigns those nine independent paths 5/4 across both T4s,
-then uses both GPUs for the normal and `SO(2)` aggregate metrics after every
-checkpoint exists. No solver or scientific parameter changed.
+atomic checkpoints were downloaded locally; only `rank_12_bridge_3` and the
+eight rank-12 `encoded`/`prescribed` sides remained.
 Version `maximusshtefan/eqvae-functional-geometry-stage-a2/3` was submitted at
 `2026-09-18T09:37:20-05:00` from public commit
-`f339209` with the private checkpoint dataset mounted; Kaggle reports
-`RUNNING`.
+`f339209` and ended `CANCEL_ACKNOWLEDGED`. Its two-GPU first phase completed
+those nine paths in `14191.29` seconds. The mounted v2 dataset exposed one
+`checkpoints.zip`, while the runner searched for unpacked `.pt` files; its
+fallback therefore recomputed old paths until the session limit. The local
+union of v2 and v3 now contains 44/44 loadable checkpoints. The active runner
+has no optimizer, checkpoint writer, discovery, fallback, resume branch, or
+shard phase: it directly loads the 44 required flat files from exact paths and
+performs only the two-model aggregate geometry. No Kaggle run is active.
 
 Private calibration `maximshtefan/eqvae-fg-stage-a2-calibration/3` failed after
 18 seconds, before model loading, because the direct-mounted patch path omitted
@@ -254,14 +247,14 @@ structure is validated. Sealed-test results remain unavailable for tuning.
 
 ## Verification state
 
-The reduced active suite passes all 27 tests, including
-chunked-versus-monolithic energy/gradient equality, dimension-normalized
-full-latent Adam, best-path retention and frozen-`SO(2)` kernel caching.
+The reduced active suite passes all 23 tests, including the focused Stage A2
+chart, shooting, second-directional and transport seams.
 Python compilation passes. Ruff now checks only
 `E9/F6/F7/F82` runtime-error families and Basedpyright runs in `basic` mode; do
 not restore `ALL`, exhaustive annotation/docstring rules or strict tensor typing.
-Both checks pass. The Stage A2 thin package validates locally and version 3 is
-resuming from the private checkpoint dataset on both GPUs. Historical calibration kernels and contracts are preserved by Git
+Both checks pass. The Stage A2 thin package validates locally; the private
+flat-file checkpoint dataset is prepared locally but not yet uploaded.
+Historical calibration kernels and contracts are preserved by Git
 and their authenticated Kaggle results; the generic shell script is the only
 upload path. Personal
 references remain ignored and no live code depends on the local experiment

@@ -6,7 +6,7 @@ budget is fixed; the compact Stage A2 numerical contract is frozen; its
 scientific runner and thin Kaggle entrypoint are implemented locally, with the
 scientific run still pending
 Owner/workstream: frozen normal versus continuous-`SO(2)` VAE latent analysis
-Last updated: 2026-09-17
+Last updated: 2026-09-19
 
 ## Purpose
 
@@ -932,9 +932,9 @@ not run unrelated repository tests.
 
 ### Implemented Stage A2 runner and next execution
 
-`experiments/spec0053_stage_a2_calibration.py` now reuses the calibrated path
-optimizer in place and emits anchors, three nonidentity bridges, all four sides
-of both cycles, decoded knots, ambient covariance, the first-side `U_0`, fixed
+`experiments/spec0053_stage_a2_calibration.py` now directly loads the 44
+completed path checkpoints and emits anchors, three nonidentity bridges, all
+four sides of both cycles, decoded knots, ambient covariance, the first-side `U_0`, fixed
 8/16-step shooting rollouts, transport/frame return, closure/representative
 return defects, and post-rollout `q` diagnostics. Intrinsic outputs become
 undefined on numerical rank loss without discarding the ambient paths.
@@ -945,10 +945,11 @@ and mounts the frozen inputs, with no payload or parallel workflow. The next
 operation is one submission through `scripts/kaggle_kernel.sh`, followed by
 scientific interpretation only after both model workers complete.
 
-Operationally, each completed full-latent path writes one checkpoint containing
-its last Adam iterate, retained best iterate and metrics. A later run may mount
-those outputs and skip completed paths; an interrupted path is recomputed. This
-changes no optimizer state, scientific objective, path order or model budget.
+Operationally, Stage A2 aggregation-only execution requires all 44 completed
+path checkpoints at the exact flat-file paths fixed by the runner. Each contains its
+last Adam iterate, retained best iterate, and metrics. The aggregator performs
+no Adam optimization, discovery, skip, recomputation, retry, recovery, or
+fallback; a missing or unreadable required checkpoint fails at its direct load.
 
 ## Later Work
 
