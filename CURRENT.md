@@ -136,7 +136,12 @@ fallback therefore recomputed old paths until the session limit. The local
 union of v2 and v3 now contains 44/44 loadable checkpoints. The active runner
 has no optimizer, checkpoint writer, discovery, fallback, resume branch, or
 shard phase: it directly loads the 44 required flat files from exact paths and
-performs only the two-model aggregate geometry. No Kaggle run is active.
+performs only the two-model aggregate geometry. Dataset
+`maximusshtefan/eqvae-stage-a2-complete-checkpoints/1` contains those 44 flat
+files. Scientific kernel
+`maximusshtefan/eqvae-functional-geometry-stage-a2/4` was submitted at
+`2026-09-19T01:43:17-05:00` from public commit
+`3ddda735457a70cb2444bf98f48a6a9d3f0a3e9a` and is `RUNNING`.
 
 Private calibration `maximshtefan/eqvae-fg-stage-a2-calibration/3` failed after
 18 seconds, before model loading, because the direct-mounted patch path omitted
@@ -253,7 +258,7 @@ Python compilation passes. Ruff now checks only
 `E9/F6/F7/F82` runtime-error families and Basedpyright runs in `basic` mode; do
 not restore `ALL`, exhaustive annotation/docstring rules or strict tensor typing.
 Both checks pass. The Stage A2 thin package validates locally; the private
-flat-file checkpoint dataset is prepared locally but not yet uploaded.
+flat-file checkpoint dataset is uploaded and ready.
 Historical calibration kernels and contracts are preserved by Git
 and their authenticated Kaggle results; the generic shell script is the only
 upload path. Personal
