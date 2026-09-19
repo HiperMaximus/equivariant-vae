@@ -145,7 +145,10 @@ files. Scientific kernel
 loading any path. The checkpoint dataset was attached with Kaggle's short
 `/kaggle/input/eqvae-stage-a2-complete-checkpoints` mount, while the runner used
 the owner-qualified resource-cache path. The correction changes only that exact
-root; missing checkpoint files still fail directly in `torch.load`.
+root; missing checkpoint files still fail directly in `torch.load`. Replacement
+version `maximusshtefan/eqvae-functional-geometry-stage-a2/5` was submitted at
+`2026-09-19T02:22:31-05:00` from public commit
+`b41ebb9467221757cb8d88fec0a08a999dc3faef` and is `RUNNING`.
 
 Private calibration `maximshtefan/eqvae-fg-stage-a2-calibration/3` failed after
 18 seconds, before model loading, because the direct-mounted patch path omitted
