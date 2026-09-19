@@ -141,7 +141,11 @@ performs only the two-model aggregate geometry. Dataset
 files. Scientific kernel
 `maximusshtefan/eqvae-functional-geometry-stage-a2/4` was submitted at
 `2026-09-19T01:43:17-05:00` from public commit
-`3ddda735457a70cb2444bf98f48a6a9d3f0a3e9a` and is `RUNNING`.
+`3ddda735457a70cb2444bf98f48a6a9d3f0a3e9a` and failed in 29 seconds before
+loading any path. The checkpoint dataset was attached with Kaggle's short
+`/kaggle/input/eqvae-stage-a2-complete-checkpoints` mount, while the runner used
+the owner-qualified resource-cache path. The correction changes only that exact
+root; missing checkpoint files still fail directly in `torch.load`.
 
 Private calibration `maximshtefan/eqvae-fg-stage-a2-calibration/3` failed after
 18 seconds, before model loading, because the direct-mounted patch path omitted

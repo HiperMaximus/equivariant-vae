@@ -21,7 +21,7 @@ WEIGHT_DATASET_ROOT = Path(
     "/kaggle/input/datasets/maximusshtefan/eqvae-frozen-vae-weights-v1"
 )
 CHECKPOINT_DATASET_ROOT = Path(
-    "/kaggle/input/datasets/maximusshtefan/eqvae-stage-a2-complete-checkpoints"
+    "/kaggle/input/eqvae-stage-a2-complete-checkpoints"
 )
 MODEL_KINDS = {
     "normal_vae": "non_eq_vae_translatable",
