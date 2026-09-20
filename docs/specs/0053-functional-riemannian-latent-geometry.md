@@ -4,8 +4,9 @@ Status: draft active; Stage A1 implemented and accepted; numerical calibration
 is complete; reduced charts are excluded and the full-latent `K=32`, 512-step
 budget is fixed; the compact Stage A2 numerical contract is frozen; Stage A2
 numerical computation is complete and packaged locally, with scientific
-analysis active; a post-hoc Stage A2b continuation tests whether the retained
-full-latent paths were solver-limited at the 512-step ceiling
+analysis active; post-hoc Stage A2b confirmed that the retained full-latent
+paths remained solver-limited after the 512-step ceiling and saved complete
+optimizer state for exact continuation
 Owner/workstream: frozen normal versus continuous-`SO(2)` VAE latent analysis
 Last updated: 2026-09-20
 
@@ -512,6 +513,12 @@ steps, and retains the lowest-energy iterate. The later one-shot IVP tests
 geodesic consistency of its initial tangent; it is not a reason to restart
 path-energy calibration.
 
+This statement remains the historical frozen Stage A2 contract. Stage A2b is a
+separately labelled post-hoc convergence analysis motivated by the observed
+fact that every scientific Stage A2 side and bridge attained its retained best
+energy at the 512-step ceiling. It does not alter or replace the frozen Stage
+A2 result.
+
 ### Objective
 
 Determine independently whether:
@@ -931,7 +938,7 @@ synthetic Exp/Log and holonomy cases, exact-`C4` covariance, and transport
 coordinate consistency. Do not mirror the complete contract in tests and do
 not run unrelated repository tests.
 
-### Implemented Stage A2 runner and next execution
+### Implemented Stage A2 runner and Stage A2b outcome
 
 `experiments/spec0053_stage_a2_calibration.py` now directly loads the 44
 completed path checkpoints and emits anchors, three nonidentity bridges, all
@@ -942,15 +949,73 @@ undefined on numerical rank loss without discarding the ambient paths.
 
 The explicit thin entrypoint is
 `kaggle/kernels/functional_geometry_stage_a2/`; it clones the public repository
-and mounts the frozen inputs, with no payload or parallel workflow. The next
-operation is one submission through `scripts/kaggle_kernel.sh`, followed by
-scientific interpretation only after both model workers complete.
+and mounts the frozen inputs, with no payload or parallel workflow. Its Kaggle
+v5 workers completed; the model-specific outputs were downloaded and the
+combined result was assembled locally after the convenience paired formatter
+failed on unequal transport-array lengths. No scientific computation was
+repeated.
 
 Operationally, Stage A2 aggregation-only execution requires all 44 completed
 path checkpoints at the exact flat-file paths fixed by the runner. Each contains its
 last Adam iterate, retained best iterate, and metrics. The aggregator performs
 no Adam optimization, discovery, skip, recomputation, retry, recovery, or
 fallback; a missing or unreadable required checkpoint fails at its direct load.
+
+Post-hoc Stage A2b selected one coherent triplet per model and rank 0/12: the
+first encoded side, first prescribed side, and corresponding quarter-turn
+encoded--prescribed bridge. It warm-restarted each published best full-latent
+path for 1,024 additional Adam steps with `ReduceLROnPlateau`, retained the best
+iterate, measured the decoded bottleneck to the endpoint chord, and saved the
+current path plus complete Adam and scheduler state every 128 steps. Version 2
+completed all 12 paths in `34498` seconds.
+
+Every A2b path attained its lowest energy at additional step 1,024 and retained
+the initial LR `.0002209708691`; no plateau reduction fired. Relative energy
+reductions were:
+
+| Family | Normal | `SO(2)` |
+| --- | ---: | ---: |
+| encoded/prescribed sides | `7.00%--16.16%` | `5.18%--21.77%` |
+| quarter-turn bridges | `9.88%--14.81%` | `44.24%--46.09%` |
+
+For the `SO(2)` bridge, `E/Delta^2` fell from `77.62` to `43.28` at rank 0
+and from `102.34` to `55.17` at rank 12. Length/endpoint fell from `8.68` to
+`6.55` and from `9.97` to `7.41`; the final decoded bottleneck was still
+`2.91x` and `3.29x` the endpoint gap. Thus Stage A2b demonstrates substantial
+solver limitation but still does not supply a decoder-insensitive connected
+fiber. For prescribed `SO(2)` sides, `E/Delta^2` fell from `1.658` to `1.297`
+and from `1.502` to `1.258`: part of their apparent excess curvature was
+optimization error, while the group orbit remains more costly than the matched
+encoded path.
+
+### Active continuation plan
+
+The 12 A2b states are published privately as
+`maximusshtefan/eqvae-stage-a2b-continuation-checkpoints`. Each contains the
+exact `current_path`, Adam state and scheduler state at step 1,024.
+
+1. Continue those exact states for another 1,024 steps, through cumulative
+   step 2,048. Do not warm-restart or recompute Stage A2 or A2b.
+2. After the energy and full-gradient histories settle, interpolate selected
+   converged paths to `K=64`, reoptimize them, and compare decoded curves,
+   reversals and residuals. This is a discretization/multiplicity experiment,
+   not another parameter sweep.
+3. Study decoder equivalence separately in full latent space: estimate stable
+   small modes of `J_D`, follow them by predictor--corrector continuation, and
+   minimize/report decoded bottleneck. The horizontal shooting chart `U` must
+   not be used as a fiber-search space.
+4. Sample the continuous prescribed orbit `rho(theta)z_0`; measure continuous
+   equivariance, decoded speed, energy density and geodesic curvature, and
+   compare it with encoded and variational routes.
+5. Only after the preceding objects are numerically stable, compare the
+   converged variational branch with matrix-free full-latent shooting. Then use
+   periodic multiple shooting with decoded/class-valued closure. Holonomy and
+   monodromy remain conditional on an explicitly closed loop and a validated
+   equivalence/tangent identification.
+
+No new `d=32/128/256` sweep is planned. A reduced frame may later be used for
+transport only when a stable spectral gap determines its rank; it is not the
+primary path or shooting geometry.
 
 ## Later Work
 

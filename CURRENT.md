@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-09-19
+Last updated: 2026-09-20
 
 ## Active frontier
 
@@ -12,20 +12,23 @@ during input startup and v4 on an unnecessary compile gate. Simplified v5
 completed successfully and resolved the search-space question: `d=128` is
 conditioned but materially restricts the optimized paths relative to direct
 full-latent control. The replacement-account full-latent calibration completed
-successfully and closes the numerical search: use `K=32`, at most 512 Adam
-steps and retain the lowest-energy iterate. The compact Stage A2 numerical
-contract is now frozen: it constructs `U` deterministically from the first
+successfully and fixed the original Stage A2 solver at `K=32`, at most 512 Adam
+steps and best-iterate retention. That result remains frozen, but the completed
+post-hoc Stage A2b run shows that its paths were solver-limited. The compact
+Stage A2 numerical contract constructs `U` deterministically from the first
 full-latent side, uses one common FP32-aware SVD convention, and specifies a
 one-shot shooting consistency IVP plus fixed time and frozen-path quadrature
 refinements. The scientific runner and its explicit thin Kaggle entrypoint are
 implemented locally. Stage A2 numerical computation completed in Kaggle v5;
 the recovered per-model outputs and locally assembled combined result show that
 all 32 sides and 12 bridges attained their recorded best energy at the 512-step
-ceiling. Stage A2b therefore continues a fixed informative subset full-latent
-instead of treating those paths as converged. Scientific residuals remain
-continuous measurements rather than comparison tolerances or acceptance gates.
-runtime errors; only numerical singularity limits which intrinsic quantities
-are defined.
+ceiling. Stage A2b continued 12 informative full-latent paths for 1,024 more
+steps. Every path again attained its best value at the final step and no LR
+plateau reduction fired, so exact continuation from the newly saved optimizer
+state is the active numerical next step. Scientific residuals remain continuous
+measurements rather than comparison tolerances, acceptance gates, or runtime
+errors; only numerical singularity limits which intrinsic quantities are
+defined.
 The local Kaggle CLI is authenticated as replacement account
 `maximusshtefan`. Private dataset
 `maximusshtefan/eqvae-frozen-vae-weights-v1/1` contains only the two accepted
@@ -170,8 +173,42 @@ run is explicitly a warm restart. Its scientific outputs are convergence,
 gradient, path-change, and decoded bottleneck measurements.
 Version 1 failed before model loading because this new kernel received the
 checkpoint dataset at Kaggle's owner-qualified mount while the runner used the
-legacy short alias. Version 2 fixes only that exact constant; missing files
-still fail directly in `torch.load`.
+legacy short alias. Version 2 fixed only that exact constant and completed all
+12 paths in `34498` seconds. Its outputs are downloaded under
+`runs/kaggle/functional_geometry_stage_a2b_v2/`.
+
+All 12 A2b paths reached their lowest energy at additional step 1,024 and kept
+the initial LR `.0002209708691`; the plateau scheduler never fired. Relative
+energy reductions were `7.00%--16.16%` for normal sides, `5.18%--21.77%` for
+`SO(2)` sides, `9.88%--14.81%` for normal bridges, and `44.24%--46.09%` for
+`SO(2)` bridges. The `SO(2)` quarter-turn bridge `E/Delta^2` improved from
+`77.62` to `43.28` at rank 0 and from `102.34` to `55.17` at rank 12; its
+length/endpoint ratio improved from `8.68` to `6.55` and from `9.97` to `7.41`.
+Its decoded bottleneck remains `2.91x` and `3.29x` the endpoint gap, so A2b
+strengthens the solver-limited diagnosis but still does not establish a
+decoder-insensitive connected fiber. The prescribed `SO(2)` side
+`E/Delta^2` improved from `1.658` to `1.297` and from `1.502` to `1.258`, so
+part of its earlier excess curvature was optimization error.
+
+The 12 exact A2b states are now available in the private Kaggle dataset
+`maximusshtefan/eqvae-stage-a2b-continuation-checkpoints`. The continuation
+runner directly restores each `current_path`, Adam state and plateau-scheduler
+state; a missing state fails at its exact `torch.load` path.
+
+The active plan is deliberately sequential:
+
+1. Run that exact continuation for another 1,024 steps, from cumulative step
+   1,025 through 2,048, without reloading or recomputing Stage A2 or A2b.
+2. Once energy and gradient histories settle, reoptimize selected converged
+   paths at `K=64` and compare decoded curves, not only their energies.
+3. Characterize possible fibers with full-latent Jacobian small modes,
+   predictor--corrector continuation and decoded bottleneck; do not use the
+   horizontal shooting chart `U` for this search.
+4. Measure the continuous prescribed `SO(2)` orbit and its speed, covariance
+   and geodesic curvature, then compare it with encoded and variational paths.
+5. Only after those steps, test matrix-free full-latent shooting, periodic
+   multiple shooting with closure in a validated equivalence class, and then
+   holonomy. Do not repeat arbitrary `d=32/128/256` chart sweeps.
 
 Private calibration `maximshtefan/eqvae-fg-stage-a2-calibration/3` failed after
 18 seconds, before model loading, because the direct-mounted patch path omitted

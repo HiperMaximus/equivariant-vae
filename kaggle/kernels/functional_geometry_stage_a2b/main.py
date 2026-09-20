@@ -44,7 +44,7 @@ def main() -> int:
         timeout=60,
     ).strip()
     sys.path[:0] = [str(SOURCE_ROOT), str(SOURCE_ROOT / "src")]
-    from experiments.spec0053_stage_a2b_convergence import run
+    from experiments.spec0053_stage_a2c_continuation import run
 
     return run(repo_root=SOURCE_ROOT, source_commit=commit)
 

@@ -33,7 +33,12 @@ The evidence is mixed:
   control remains valid and does not favor `SO(2)`;
 - separately, the SO(2) decoder realizes the prescribed spatial C4 action at
   exact 90/180/270-degree rotations only, not continuous SO(2), encoder
-  equivariance, or complete D4/O(2).
+  equivariance, or complete D4/O(2);
+- the two-patch functional-geometry pilot finds lower-energy encoded paths for
+  `SO(2)`, but its exact prescribed orbit is not yet supported as a geodesic;
+- post-hoc full-latent continuation lowered every selected path and especially
+  the `SO(2)` representative bridges, while their decoded bottlenecks remain
+  too large to establish a connected decoder fiber or gauge equivalence.
 
 The current Spanish report is
 `reports/professor/informe_final_experimento_eqvae.{docx,pdf}`. Its sealed and
