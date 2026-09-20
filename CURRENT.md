@@ -194,6 +194,8 @@ The 12 exact A2b states are now available in the private Kaggle dataset
 `maximusshtefan/eqvae-stage-a2b-continuation-checkpoints`. The continuation
 runner directly restores each `current_path`, Adam state and plateau-scheduler
 state; a missing state fails at its exact `torch.load` path.
+Kernel `maximusshtefan/eqvae-functional-geometry-stage-a2b/3` was submitted
+from public commit `4ae6ce8` at `2026-09-20T15:13:51-05:00` and is running.
 
 The active plan is deliberately sequential:
 
