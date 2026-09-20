@@ -18,11 +18,12 @@ contract is now frozen: it constructs `U` deterministically from the first
 full-latent side, uses one common FP32-aware SVD convention, and specifies a
 one-shot shooting consistency IVP plus fixed time and frozen-path quadrature
 refinements. The scientific runner and its explicit thin Kaggle entrypoint are
-implemented locally; no Stage A2 scientific result exists until that run
-completes.
-No further hyperparameter calibration, longer-step probe, or plateau-scheduler
-rerun is justified. Stage A2 will report scientific residuals continuously for
-both models rather than use comparison tolerances as acceptance gates or
+implemented locally. Stage A2 numerical computation completed in Kaggle v5;
+the recovered per-model outputs and locally assembled combined result show that
+all 32 sides and 12 bridges attained their recorded best energy at the 512-step
+ceiling. Stage A2b therefore continues a fixed informative subset full-latent
+instead of treating those paths as converged. Scientific residuals remain
+continuous measurements rather than comparison tolerances or acceptance gates.
 runtime errors; only numerical singularity limits which intrinsic quantities
 are defined.
 The local Kaggle CLI is authenticated as replacement account
@@ -147,8 +148,26 @@ loading any path. The checkpoint dataset was attached with Kaggle's short
 the owner-qualified resource-cache path. The correction changes only that exact
 root; missing checkpoint files still fail directly in `torch.load`. Replacement
 version `maximusshtefan/eqvae-functional-geometry-stage-a2/5` was submitted at
-`2026-09-19T02:22:31-05:00` from public commit
-`b41ebb9467221757cb8d88fec0a08a999dc3faef` and is `RUNNING`.
+`2026-09-19T02:22:31-05:00` after public commit `b41ebb9`; its thin entrypoint
+cloned and executed `dbbe0210a422c4e4b6aafcc55fc71257c5b07b5b`. Both model
+workers completed and wrote their JSON and tensor outputs, but the kernel ended
+`ERROR` after `8332` seconds because the final convenience aggregator tried to
+zip model-specific transport spectra of unequal lengths. The computation was
+not repeated. Its outputs are stored under
+`runs/kaggle/functional_geometry_stage_a2_v5/`; the corrected local combined
+`stage_a2_result.json` has status `complete` and SHA-256
+`256965a5f971eae87f63a2285fcf421d9c099edc5b56451c6139f14be92cea86`.
+
+Stage A2b is a post-hoc convergence experiment, not a replacement for the
+frozen Stage A2 result. For each model and ranks 0/12 it warm-starts the first
+encoded side, first prescribed side, and quarter-turn representative bridge
+from their published best full-latent paths. Each receives 1,024 additional
+Adam steps with energy-driven LR plateau reduction. One GPU owns each frozen
+model. The new runner saves the current and best paths plus optimizer and
+scheduler state every 128 steps; it has no path discovery or recomputation
+fallback. Because the Stage A2 files did not store Adam state, this first A2b
+run is explicitly a warm restart. Its scientific outputs are convergence,
+gradient, path-change, and decoded bottleneck measurements.
 
 Private calibration `maximshtefan/eqvae-fg-stage-a2-calibration/3` failed after
 18 seconds, before model loading, because the direct-mounted patch path omitted

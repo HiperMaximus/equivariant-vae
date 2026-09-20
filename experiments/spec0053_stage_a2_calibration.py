@@ -728,12 +728,12 @@ def _worker(
 
 
 def _paired(normal, so2):
-    if isinstance(normal, list) and isinstance(so2, list):
-        return [_paired(left, right) for left, right in zip(normal, so2, strict=True)]
     if isinstance(normal, dict) and isinstance(so2, dict):
+        if normal.keys() != so2.keys():
+            return {"normal": normal, "so2": so2}
         return {
             key: _paired(normal[key], so2[key])
-            for key in normal.keys() | so2.keys()
+            for key in normal
         }
     if isinstance(normal, (float, int)) and isinstance(so2, (float, int)):
         normal_value = float(normal)
@@ -782,7 +782,14 @@ def run(*, repo_root: Path, source_commit: str, started_at: float) -> int:
         for name in MODEL_KINDS
     }
     result = {
-        "comparison": _paired(model_results["normal_vae"]["patches"], model_results["so2_vae"]["patches"]),
+        "comparison": [
+            _paired(normal, so2)
+            for normal, so2 in zip(
+                model_results["normal_vae"]["patches"],
+                model_results["so2_vae"]["patches"],
+                strict=True,
+            )
+        ],
         "contract": contract,
         "models": model_results,
         "schema": "eqvae.functional_geometry.stage_a2.v1",

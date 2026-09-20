@@ -2,11 +2,12 @@
 
 Status: draft active; Stage A1 implemented and accepted; numerical calibration
 is complete; reduced charts are excluded and the full-latent `K=32`, 512-step
-budget is fixed; the compact Stage A2 numerical contract is frozen; its
-scientific runner and thin Kaggle entrypoint are implemented locally, with the
-scientific run still pending
+budget is fixed; the compact Stage A2 numerical contract is frozen; Stage A2
+numerical computation is complete and packaged locally, with scientific
+analysis active; a post-hoc Stage A2b continuation tests whether the retained
+full-latent paths were solver-limited at the 512-step ceiling
 Owner/workstream: frozen normal versus continuous-`SO(2)` VAE latent analysis
-Last updated: 2026-09-19
+Last updated: 2026-09-20
 
 ## Purpose
 
