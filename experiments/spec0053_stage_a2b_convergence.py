@@ -12,7 +12,9 @@ from pathlib import Path
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
 OUTPUT_ROOT = Path("/kaggle/working/functional_geometry_stage_a2b")
-CHECKPOINT_ROOT = Path("/kaggle/input/eqvae-stage-a2-complete-checkpoints")
+CHECKPOINT_ROOT = Path(
+    "/kaggle/input/datasets/maximusshtefan/eqvae-stage-a2-complete-checkpoints"
+)
 MODEL_DEVICE_MAP = {"normal_vae": 0, "so2_vae": 1}
 PATH_NAMES = tuple(
     f"rank_{rank}_{name}"

@@ -168,6 +168,10 @@ scheduler state every 128 steps; it has no path discovery or recomputation
 fallback. Because the Stage A2 files did not store Adam state, this first A2b
 run is explicitly a warm restart. Its scientific outputs are convergence,
 gradient, path-change, and decoded bottleneck measurements.
+Version 1 failed before model loading because this new kernel received the
+checkpoint dataset at Kaggle's owner-qualified mount while the runner used the
+legacy short alias. Version 2 fixes only that exact constant; missing files
+still fail directly in `torch.load`.
 
 Private calibration `maximshtefan/eqvae-fg-stage-a2-calibration/3` failed after
 18 seconds, before model loading, because the direct-mounted patch path omitted
