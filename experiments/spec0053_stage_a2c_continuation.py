@@ -9,9 +9,7 @@ from pathlib import Path
 
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
-INPUT_ROOT = Path(
-    "/kaggle/input/datasets/maximusshtefan/eqvae-stage-a2b-continuation-checkpoints"
-)
+INPUT_ROOT = Path("/kaggle/input/eqvae-stage-a2b-continuation-checkpoints")
 OUTPUT_ROOT = Path("/kaggle/working/functional_geometry_stage_a2c")
 ADDITIONAL_STEPS = 1024
 

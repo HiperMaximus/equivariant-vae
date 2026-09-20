@@ -195,7 +195,9 @@ The 12 exact A2b states are now available in the private Kaggle dataset
 runner directly restores each `current_path`, Adam state and plateau-scheduler
 state; a missing state fails at its exact `torch.load` path.
 Kernel `maximusshtefan/eqvae-functional-geometry-stage-a2b/3` was submitted
-from public commit `4ae6ce8` at `2026-09-20T15:13:51-05:00` and is running.
+from public commit `4ae6ce8` at `2026-09-20T15:13:51-05:00` and failed before
+optimization because the attached dataset used Kaggle's short mount while the
+runner used the owner-qualified path. The correction changes only that root.
 
 The active plan is deliberately sequential:
 
