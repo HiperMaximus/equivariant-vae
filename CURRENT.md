@@ -198,11 +198,22 @@ Kernel `maximusshtefan/eqvae-functional-geometry-stage-a2b/3` was submitted
 from public commit `4ae6ce8` at `2026-09-20T15:13:51-05:00` and failed before
 optimization because the attached dataset used Kaggle's short mount while the
 runner used the owner-qualified path. The correction changes only that root.
+Version 4 then reached `SUCCESS` in 9h42 (`34924` seconds), completing all 12 exact continuations,
+restoring their current paths, Adam states and schedulers at step 1,024 and
+retaining checkpoints through step 2,048. Every retained best is at step 2,048
+and the LR remains `.0002209708691`. The normal quarter-turn bridges reached
+`E/Delta^2=1.117`/`1.077` (ranks 0/12); the `SO(2)` bridges reached
+`29.426`/`34.765`, with decoded bottlenecks `2.35x`/`2.54x` their endpoint
+gaps. These state files are available privately as
+`maximusshtefan/eqvae-stage-a2c-bridge-checkpoints`, containing exactly the
+four bridge checkpoints required next.
 
 The active plan is deliberately sequential:
 
-1. Run that exact continuation for another 1,024 steps, from cumulative step
-   1,025 through 2,048, without reloading or recomputing Stage A2 or A2b.
+1. Continue only `bridge_1` at ranks 0 and 12 for normal and `SO(2)` from
+   their exact step-2,048 `current_path`, Adam and scheduler states for another
+   2,048 steps, through cumulative step 4,096. Keep one frozen model per GPU,
+   checkpoints every 128 steps, and no recomputation or warm restart.
 2. Once energy and gradient histories settle, reoptimize selected converged
    paths at `K=64` and compare decoded curves, not only their energies.
 3. Characterize possible fibers with full-latent Jacobian small modes,

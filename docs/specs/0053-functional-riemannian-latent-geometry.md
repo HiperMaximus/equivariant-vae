@@ -990,12 +990,23 @@ encoded path.
 
 ### Active continuation plan
 
-The 12 A2b states are published privately as
-`maximusshtefan/eqvae-stage-a2b-continuation-checkpoints`. Each contains the
-exact `current_path`, Adam state and scheduler state at step 1,024.
+The A2c v4 continuation reached `SUCCESS` in 9h42 and completed all 12 states
+through cumulative step 2,048;
+every retained best is at that final step and the plateau scheduler retained
+the initial learning rate. The normal quarter-turn bridges reached
+`E/Delta^2=1.117`/`1.077` (ranks 0/12), while the corresponding `SO(2)`
+bridges reached `29.426`/`34.765`; the latter retain decoded bottlenecks
+`2.35x`/`2.54x` their endpoint gap. This remains solver-convergence evidence,
+not a connected decoder-fiber finding.
 
-1. Continue those exact states for another 1,024 steps, through cumulative
-   step 2,048. Do not warm-restart or recompute Stage A2 or A2b.
+The private input `maximusshtefan/eqvae-stage-a2c-bridge-checkpoints` contains
+only those four exact bridge states: normal and `SO(2)`, each at ranks 0 and
+12. Each contains `current_path`, Adam state and scheduler state at step 2,048.
+
+1. Continue only those four exact bridge states for another 2,048 steps,
+   through cumulative step 4,096, with one frozen model per GPU and
+   checkpoints every 128 steps. Do not warm-restart or recompute Stage A2,
+   A2b, A2c, or the eight side paths.
 2. After the energy and full-gradient histories settle, interpolate selected
    converged paths to `K=64`, reoptimize them, and compare decoded curves,
    reversals and residuals. This is a discretization/multiplicity experiment,

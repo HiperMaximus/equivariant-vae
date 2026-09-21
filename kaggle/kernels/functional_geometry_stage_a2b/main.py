@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-"""Thin Kaggle entrypoint for Spec 0053 Stage A2b."""
+"""Thin Kaggle entrypoint for Spec 0053 Stage A2d."""
 
 import multiprocessing as mp
 import subprocess

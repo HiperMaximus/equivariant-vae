@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-"""Continue Stage A2b from its exact optimizer and scheduler states."""
+"""Continue selected Stage A2c bridges from exact solver states."""
 
 import json
 import multiprocessing as mp
@@ -9,9 +9,10 @@ from pathlib import Path
 
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
-INPUT_ROOT = Path("/kaggle/input/eqvae-stage-a2b-continuation-checkpoints")
-OUTPUT_ROOT = Path("/kaggle/working/functional_geometry_stage_a2c")
-ADDITIONAL_STEPS = 1024
+INPUT_ROOT = Path("/kaggle/input/eqvae-stage-a2c-bridge-checkpoints")
+OUTPUT_ROOT = Path("/kaggle/working/functional_geometry_stage_a2d")
+ADDITIONAL_STEPS = 2048
+PATH_NAMES = ("rank_0_bridge_1", "rank_12_bridge_1")
 
 
 def _continue_path(
@@ -136,7 +137,6 @@ def _worker(model_name, device_index, repo_root_text, source_commit):
     )
     from experiments.spec0053_stage_a2b_convergence import (
         CHUNK,
-        PATH_NAMES,
         SEGMENTS,
         _edge_energy,
         _log,
