@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "80973a72d75a48db33760efa8aadc52e5f736b41"
+SOURCE_COMMIT = "9f7caebb53c79c013543877ac667274fe07de97e"
 SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
 
 
