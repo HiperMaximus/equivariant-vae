@@ -102,8 +102,9 @@ exploratory probe. The runner now has no numerical pass/fail thresholds, no
 retry ceiling and no equivalence gate: it stores raw deltas, scaler states and
 skipped-attempt sequences. Dataset/header/cohort differences are also recorded
 as audit values rather than converted into failures. Only six structural
-conditions that make execution impossible still raise. Simplified Kaggle v4
-is running from source commit
+conditions that make execution impossible still raise. Obsolete v3 was
+cancelled after the accidental concurrent launch; simplified Kaggle v4 is the
+only active session and runs from source commit
 `9f7caebb53c79c013543877ac667274fe07de97e`. Cadence and the full training
 runner stay pending A0 measurements. Heavy T2 remains future work.
 The separate 152-WSI cohort
