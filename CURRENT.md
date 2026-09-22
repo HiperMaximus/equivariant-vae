@@ -37,9 +37,16 @@ state files; a clean redownload verified their immutable SHA-256 values
 owner-independent contract use that dataset. No active runner or contract
 depends on `maximshtefan`.
 
-An anonymous six-page INCISCOS 2026 manuscript now lives under
-`paper/inciscos2026/`. It uses the IEEE A4 conference format and synthesizes
-only accepted evidence through Stage A1; the active Stage A2 work is excluded.
+An anonymous eight-page INCISCOS 2026 professor-review manuscript now lives
+under `paper/inciscos2026/`. It uses the IEEE A4 conference format and is
+written as a direct experimental report of the conventional and continuous-
+`SO(2)` VAEs, reconstruction, five-class WSI diagnosis, and three-class tissue
+recognition. An independent adversarial language and issue-compliance review
+removed overstatements, made the six-contrast tissue family explicit, added
+source-location markers to the real WSI/patch example, and added the total of
+513 WSIs to the detailed split diagram. The manuscript describes the models
+separately and reports classwise downstream results. Stage A1/A2 geometry and
+the later MIL-dynamics work are deliberately excluded.
 `paper/inciscos2026/inciscos2026.pdf` is the visually reviewed build. The
 existing SIPAIM paper subtree remains unchanged.
 

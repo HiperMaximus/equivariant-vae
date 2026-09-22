@@ -1,0 +1,50 @@
+\begin{tikzpicture}[
+    font=\sffamily\scriptsize,
+    >=Latex,
+    source/.style={draw=black!65, fill=black!3, rounded corners=2pt,
+        align=center, minimum height=8mm, text width=28mm},
+    vae/.style={draw=blue!65!black, fill=blue!7, rounded corners=2pt,
+        align=center, minimum height=9mm, text width=30mm},
+    supervised/.style={draw=orange!75!black, fill=orange!8, rounded corners=2pt,
+        align=center, minimum height=9mm, text width=31mm},
+    split/.style={draw=purple!65!black, fill=purple!7, rounded corners=2pt,
+        align=center, minimum height=9mm, text width=26mm},
+    task/.style={draw=green!50!black, fill=green!8, rounded corners=2pt,
+        align=center, minimum height=10mm, text width=34mm},
+    flow/.style={->, thick, draw=black!65},
+    note/.style={font=\sffamily\tiny, align=center, text width=29mm}
+]
+
+\node[source] (source) at (0,0) {UBC-OCEAN non-TMA cohort\\513 WSIs};
+
+\node[vae] (vae-cohort) at (4.0,1.55) {VAE development cohort\\361 WSIs, no downstream labels used};
+\node[vae] (vae-train) at (8.1,2.25) {VAE training\\322 WSIs\\300,000 patches};
+\node[vae] (vae-val) at (8.1,0.85) {VAE validation\\39 WSIs\\30,000 patches};
+
+\node[supervised] (eval-cohort) at (4.0,-1.60) {Independent downstream cohort\\152 WSIs with supplemental masks};
+\node[split] (train) at (8.0,-0.70) {Training\\106 WSIs\\23/24/40/11/8};
+\node[split] (val) at (8.0,-1.75) {Validation\\23 WSIs\\5/6/8/2/2};
+\node[split] (test) at (8.0,-2.80) {Sealed test\\23 WSIs\\5/6/8/2/2};
+
+\node[task] (wsi-task) at (12.3,-0.85) {Five-class WSI diagnosis\\train/validation/test by WSI\\261,168 test instances};
+\node[task] (tissue-task) at (12.3,-2.20) {Three-class tissue recognition\\nested balanced training budgets\\31,572 test patches};
+\node[task] (recon-task) at (12.3,-3.55) {VAE reconstruction\\sealed test only\\67,138 patches};
+
+\draw[flow] (source) -- (vae-cohort);
+\draw[flow] (source) -- (eval-cohort);
+\draw[flow] (vae-cohort) -- (vae-train);
+\draw[flow] (vae-cohort) -- (vae-val);
+\draw[flow] (eval-cohort) -- (train);
+\draw[flow] (eval-cohort) -- (val);
+\draw[flow] (eval-cohort) -- (test);
+\draw[flow] (train.east) -- (wsi-task.west);
+\draw[flow] (val.east) -- (wsi-task.west);
+\draw[flow] (test.east) -- (wsi-task.west);
+\draw[flow] (train.east) -- (tissue-task.west);
+\draw[flow] (val.east) -- (tissue-task.west);
+\draw[flow] (test.east) -- (tissue-task.west);
+\draw[flow] (test.east) -- (recon-task.west);
+
+\node[note, below=1.5mm of test] {Class order: CC / EC / HGSC / LGSC / MC.};
+
+\end{tikzpicture}

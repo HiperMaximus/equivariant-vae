@@ -4,15 +4,17 @@
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{array}
 \usepackage{textcomp}
 \usepackage{xcolor}
 \usepackage{url}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc}
 
 \newcommand{\SOtwo}{\mathrm{SO}(2)}
-\newcommand{\Cfour}{C_4}
 
-\title{What Rotation Equivariance Changes in Histopathology VAEs:\
-Reconstruction, Label Efficiency, and Decoder Geometry}
+\title{Rotation-Equivariant Variational Autoencoders for Histopathology\\
+Representation Learning and Downstream Classification}
 
 \author{\IEEEauthorblockN{Anonymous Authors}}
 
@@ -21,273 +23,469 @@ Reconstruction, Label Efficiency, and Decoder Geometry}
 \maketitle
 
 \begin{abstract}
-Histopathology has abundant unlabeled image patches, scarce expert labels, and
-no preferred tissue orientation. These properties motivate rotation-aware
-self-supervised representations, but architectural equivariance does not by
-itself guarantee better reconstructions, downstream performance, or a simple
-latent pose coordinate. We compare two denoising variational autoencoders
-(VAEs) trained on the same ovarian-cancer patches: a conventional convolutional
-VAE and a continuous-rotation-equivariant $\SOtwo$ VAE. Both use a spatial
-$16\times32\times32$ Gaussian latent and are frozen after 60,000 updates. We
-evaluate reconstruction on 67,138 patches from 23 held-out whole-slide images
-(WSIs), five-class WSI diagnosis, three-class tissue recognition under five
-label budgets, and transformation consistency of the frozen latent-decoder
-maps. The normal VAE has a slightly lower mean absolute reconstruction error,
-but the paired WSI-bootstrap interval for the primary difference includes zero.
-The $\SOtwo$ representation yields higher point estimates for WSI macro-F1
-(0.483 vs. 0.389) and accuracy (0.609 vs. 0.522), without a conclusive macro-F1
-interval. In tissue recognition, it is better at four low-label budgets, but
-only 500 labels per class has a simultaneous interval excluding zero; the
-highest budget favors the normal VAE. The strongest mechanistic result is more
-specific: applying the prescribed spatial action to the $\SOtwo$ latent before
-decoding realizes exact quarter-turn image rotations at approximately
-$10^{-6}$ RMS error, while raw encoder posterior means are not strictly
-equivariant. Thus, rotation-aware structure is clearly visible in the decoder,
-yet it does not imply universal task improvement or content--pose
-factorization. This endpoint-specific analysis provides a cautious template
-for evaluating equivariant generative representations in digital pathology.
+Histopathology patches have no canonical upright orientation, and the
+diagnostic and tissue labels considered here are unchanged by global in-plane
+rotation. Expert annotations remain costly and substantially less abundant
+than unlabeled image regions. This study evaluates whether continuous rotation equivariance improves
+the representations learned by a variational autoencoder (VAE) and whether
+those representations are useful for subsequent classification. A conventional
+convolutional VAE and a continuous-$\SOtwo$-equivariant VAE were trained on the
+same 300,000 ovarian-cancer patches from 322 whole-slide images (WSIs), using
+the same denoising objective, latent shape and budget of 60,000 updates. Their
+checkpoints were then frozen. Evaluation used an independent cohort of 152
+WSIs divided into 106 training, 23 validation and 23 test slides for supervised
+tasks. The test set contained 67,138 patches for reconstruction, 23 complete
+bags for five-class WSI diagnosis and 31,572 annotated patches for three-class
+tissue recognition. The conventional VAE obtained a lower mean absolute
+reconstruction error, although the paired WSI-bootstrap interval for the
+primary difference included zero. For WSI diagnosis, the equivariant
+representation obtained higher macro-F1 (0.483 versus 0.389) and accuracy
+(0.609 versus 0.522), but the corresponding intervals did not establish a
+difference. For tissue recognition, it produced higher macro-F1 at four of
+five label budgets; only the 500-label-per-class comparison had a simultaneous
+95\% interval excluding zero, and the largest budget favored the conventional
+representation. The primary analysis did not establish a reconstruction
+difference between the two implemented VAEs or a general classification
+advantage. The WSI macro-F1 interval and four of the five simultaneous tissue
+macro-F1 intervals included zero.
 \end{abstract}
 
 \begin{IEEEkeywords}
 histopathology, variational autoencoder, rotation equivariance, $\SOtwo$,
-whole-slide image classification, label efficiency
+whole-slide image classification, representation learning
 \end{IEEEkeywords}
 
 \section{Introduction}
 
-Whole-slide histopathology combines gigapixel images with labels that require
-specialist review. Patch-based representation learning is therefore attractive:
-large quantities of unlabeled tissue can train an encoder before a smaller
-supervised model is fitted for diagnosis or tissue recognition
-\cite{litjens_survey_2017,song_artificial_2023,tellez_neural_2021}. A second
-property makes pathology a natural setting for symmetry-aware learning. Unlike
-upright natural objects, many local tissue structures retain their biological
-meaning after in-plane rotation.
+Digital histopathology converts glass slides into whole-slide images whose
+dimensions commonly reach gigapixel scale. These images contain many local
+tissue regions, but their diagnostic labels and detailed annotations require
+specialist review. Representation learning from unlabeled patches offers a way
+to use this image volume before fitting a smaller supervised model
+\cite{litjens_survey_2017,song_artificial_2023,tellez_neural_2021}.
 
-Equivariant neural networks encode a transformation law rather than learning it
-only from augmentation \cite{cohen_group_2016,cohen_steerable_2017}. Steerable
-convolutions extend this principle to continuous planar rotations and
-reflections \cite{weiler_general_2019}; rotation-equivariant classifiers have
-also been studied directly in digital pathology \cite{veeling_rotation_2018}.
-In principle, a correct inductive bias can reduce the number of examples needed
-to learn a target function \cite{elesedy_provably_2021}. In practice, however,
-three questions are often conflated:
+Histopathological images also differ from many natural-image datasets because
+local tissue structures do not have a fixed upright orientation. A tissue
+pattern can appear at any in-plane angle without changing its biological
+meaning. Conventional convolutional networks account for this variation
+mainly through rotated examples or by learning separate filters for different
+orientations. Rotation-equivariant networks instead constrain intermediate
+representations to transform according to the same rotation applied to the
+input \cite{cohen_group_2016,cohen_steerable_2017,weiler_general_2019}.
+This construction is relevant to histopathology, where rotation-equivariant
+classifiers have previously been evaluated for patch-level prediction
+\cite{veeling_rotation_2018}.
+
+An equivariant architecture does not, however, ensure that a trained model
+will reconstruct images more accurately or provide a better representation
+for every supervised task. The effect must be measured under a common data and
+training protocol. In this study, two denoising VAEs
+\cite{kingma_auto_encoding_2014} are compared: a
+conventional residual convolutional model and a model whose convolutional
+kernels are constrained to be equivariant to the continuous planar rotation
+group $\SOtwo$. Both models produce a spatial Gaussian latent representation
+and are frozen before any diagnostic or tissue label is used.
+
+The experiment addresses two questions:
 
 \begin{enumerate}
-    \item Does an equivariant autoencoder reconstruct unseen tissue better?
-    \item Are its frozen representations more useful with limited labels?
-    \item Where is the prescribed symmetry visible in a trained encoder--decoder?
+    \item Does the rotation-equivariant VAE improve reconstruction of unseen
+    histopathology patches relative to the conventional VAE?
+    \item Does the frozen equivariant representation improve classification at
+    WSI level or tissue-patch level under the same supervised protocol?
 \end{enumerate}
 
-The questions are related but not equivalent. A decoder may commute with a
-group action even when the encoder selects different representatives. A useful
-downstream representation need not minimize pixel error. Conversely, a clean
-architectural transformation law need not produce a low-dimensional latent
-pose coordinate after training.
-
-This work separates those claims in a matched experiment. We train a normal
-convolutional denoising VAE and a repo-owned continuous-$\SOtwo$ steerable VAE
-on the same $256\times256$ histopathology patches. The models share the data,
-spatial latent shape, denoising objective, optimizer policy, update budget, and
-evaluation splits. We then freeze both checkpoints and compare: (i) sealed
-reconstruction, (ii) WSI diagnosis with the same multiple-instance learner,
-(iii) tissue classification over nested label budgets, and (iv) exact and
-interpolated rotation consistency. We additionally examine the decoder
-pullback metric locally, because Euclidean latent differences can exaggerate
-directions that barely affect the decoded image \cite{arvanitidis_latent_2018}.
-
-Our contribution is not a claim that one model wins every endpoint. Instead, we
-provide a controlled and statistically explicit account of where continuous
-rotation structure helps, where it does not, and which equivariance claims are
-actually supported by the frozen checkpoints.
+The work consists of an experimental characterization of the two VAEs and an
+evaluation of their contribution to two downstream classification tasks. The
+comparison preserves the image populations, spatial latent dimensions,
+reconstruction objective, optimization budget and supervised data assignments.
+Results are reported with uncertainty at WSI level because patches from one
+slide are not independent biological observations.
 
 \section{Related Work}
 
-\subsection{Weakly Supervised Histopathology}
+\subsection{Representation Learning in Histopathology}
 
-WSIs are commonly represented as bags of patch features because processing the
-complete slide at native resolution is infeasible. Attention-based multiple
-instance learning (MIL) learns a slide-level predictor from bag labels
-\cite{ilse_attention_2018}, and later computational-pathology systems have
-shown that such weak supervision can be data efficient
-\cite{lu_data_2021}. Tellez \emph{et al.} demonstrated a complementary route:
-learn an unsupervised compression model on image patches and use the resulting
-codes for gigapixel prediction \cite{tellez_neural_2021}. Our evaluation follows
-this two-stage logic, but holds the downstream learners fixed while changing
-the frozen representation.
+Whole-slide images cannot generally be processed at native resolution in one
+forward pass. A common approach divides each WSI into patches, learns a local
+representation, and aggregates patch features for slide-level prediction.
+Tellez \emph{et al.} used neural image compression to learn patch codes before
+gigapixel prediction \cite{tellez_neural_2021}. Attention-based multiple
+instance learning (MIL) provides a related supervised formulation in which a
+WSI is treated as a bag of instances and only the bag label is required
+\cite{ilse_attention_2018}. Subsequent work has applied weakly supervised MIL
+to large histopathology cohorts \cite{lu_data_2021}.
 
-\subsection{Equivariance and Generative Representations}
+The present study follows this two-stage organization. The VAE learns from
+unlabeled patches. Its posterior mean is then used either as a patch-level
+input for tissue recognition or as the instance representation of a WSI bag.
+The VAE weights remain fixed in both cases.
 
-For a group $G$, an encoder $E$, decoder $D$, input action $T_g$, and latent
-action $\rho_g$, strict equivariance and decoder covariance are different
-conditions:
-\begin{align}
-E(T_g x) &= \rho_g E(x), \label{eq:encoder-equivariance}\\
-D(\rho_g z) &= T_g D(z). \label{eq:decoder-equivariance}
-\end{align}
-The first constrains the representative produced by the encoder; the second
-constrains how a latent transforms when decoded. Group-equivariant and
-steerable CNNs provide constructions for these transformation laws
-\cite{cohen_group_2016,cohen_steerable_2017,weiler_general_2019}. VAEs provide
-a probabilistic spatial representation through posterior parameters $\mu$ and
-$\log\sigma^2$ and the reparameterization trick
-\cite{kingma_auto_encoding_2014}. Our study evaluates both posterior and
-decoded transformation behavior instead of treating architectural
-equivariance as sufficient empirical evidence.
+\subsection{Rotation Equivariance}
 
-\section{Methods}
+For an input transformation $T_g$, a representation map $E$ is equivariant
+when there is a corresponding latent action $\rho_g$ such that
 
-\subsection{Dataset and Split Discipline}
-
-We use ovarian-cancer histopathology from the UBC-OCEAN resource
-\cite{ubc_ocean_2023}. The unsupervised source contains 300,000 training and
-30,000 validation patches from 322 and 39 non-TMA WSIs, respectively. Patches
-are RGB, $256\times256$, and normalized to $[-1,1]$. The training corruption
-changes hematoxylin/eosin stain coordinates and adds Gaussian noise with
-probability 0.3. Twenty-five validation patches, five per source diagnosis,
-were fixed before model comparison for visual and rotation analyses.
-
-The sealed evaluation comprises 23 WSIs disjoint from the 106 training and 23
-development WSIs used by downstream classifiers. It contains 67,138
-foreground patches for reconstruction. The WSI task predicts five ovarian
-diagnoses with supports 5/6/8/2/2. The tissue task uses 31,572 patches from the
-same 23 WSIs: 21,796 tumor, 8,500 stroma, and 1,276 necrosis patches. Necrosis
-occurs in only five WSIs. Sealed results were never used to select checkpoints,
-architectures, label budgets, or stopping rules.
-
-\subsection{Matched Variational Autoencoders}
-
-Both VAEs map an input to spatial posterior parameters
-$\mu,\log\sigma^2\in\mathbb{R}^{16\times32\times32}$ and decode a sampled
-latent to RGB. They share 43 learned convolutions, the spatial schedule
-$256\rightarrow128\rightarrow64\rightarrow32$, fixed anti-aliased
-downsampling, bilinear upsampling followed by convolution, and a raw RGB output.
-The objective is
 \begin{equation}
-\begin{aligned}
-\mathcal{L}={}&\lVert \hat{x}-x\rVert_1
-+0.1\bigl(1-\mathrm{SSIM}(\hat{x},x)\bigr)\\
-&+\beta\,D_{\mathrm{KL}}(q_\phi(z\mid\tilde{x})\|\mathcal{N}(0,I)),
-\end{aligned}
+E(T_g\mathbf{x})=\rho_g E(\mathbf{x}).
 \end{equation}
-with $\beta=0.01$ after warmup. AdamW, learning-rate scheduling, corruption,
-training order, and the 60,000-update budget are matched.
 
-The normal VAE uses ordinary convolutions, GroupNorm, and scalar gates. The
-$\SOtwo$ VAE replaces these operations with continuous steerable convolutions,
-field-aware normalization, and radial gates over scalar and first-order field
-types. Its final posterior comprises 16 spatial scalar fields. The comparison
-is intentionally capacity-conservative: the $\SOtwo$ model has 1,180,035
-learned parameters versus 3,958,435 for the normal model (29.8\%). This avoids
-giving the equivariant model more capacity, but it also means symmetry and
-parameter count are not causally separated.
+Group-equivariant convolutional networks construct layers that satisfy this
+relation for a selected transformation group \cite{cohen_group_2016}.
+Steerable convolutions extend the construction to continuous rotations by
+restricting the kernel space according to the representations carried by the
+input and output fields \cite{cohen_steerable_2017,weiler_general_2019}.
+When the target function follows the same symmetry, this restriction can
+reduce the effective hypothesis space \cite{elesedy_provably_2021}. It also
+changes parameter count, computation and optimization, so an empirical
+comparison does not isolate symmetry unless these factors are separately
+controlled.
 
-\begin{table}[t]
-\caption{Frozen representation contract.}
-\label{tab:contract}
+\section{Materials and Methods}
+
+\subsection{Experimental Design}
+
+The experiment had two stages. First, the conventional and equivariant VAEs
+were trained with unlabeled patches. Second, the final checkpoints were frozen
+and their deterministic posterior means were used for reconstruction and
+supervised classification. No downstream label was used to update either VAE.
+
+Both VAEs received the same ordered patches, normalization, corruption policy,
+loss, number of updates and validation schedule. The supervised comparisons
+also used the same WSI assignments, patch coordinates, classifier
+initialization, epoch order and model-selection rule for the two
+representations. The experiment therefore compares two complete frozen
+representations under a common protocol; it does not estimate the isolated
+causal effect of equivariance.
+
+\subsection{Data Source and Image Units}
+
+The data were obtained from the UBC-OCEAN ovarian-cancer resource
+\cite{ubc_ocean_2023}. The diagnostic labels are clear cell carcinoma (CC),
+endometrioid carcinoma (EC), high-grade serous carcinoma (HGSC), low-grade
+serous carcinoma (LGSC), and mucinous carcinoma (MC). Tissue microarrays were
+excluded because their scale and layout differ from conventional WSIs.
+
+Each WSI was represented by non-overlapping RGB patches of
+$256\times256$ pixels. The biological unit used to separate data populations
+was the WSI, not the patch. Patches from one slide were never assigned to
+different train, validation or test subsets.
+
+Figure~\ref{fig:wsi-patches} shows one WSI and two actual patches used in the
+VAE validation population. Both patches originate from WSI 59031 and retain
+their full-resolution coordinates. The thumbnail is used only to illustrate
+the relation between a slide and the local inputs; model inference uses the
+original $256\times256$ crops.
+
+\begin{figure*}[t]
+\centering
+\begin{minipage}[c]{0.49\textwidth}
+    \centering
+    \begin{tikzpicture}
+        \node[anchor=south west,inner sep=0] (slide) at (0,0)
+            {\includegraphics[width=\linewidth]{figures/wsi_59031_thumbnail.png}};
+        \begin{scope}[x={(slide.south east)},y={(slide.north west)}]
+            \draw[-{Latex[length=1.8mm]},very thick,blue!70!black]
+                (0.34,0.75) node[below,fill=white,inner sep=1pt] {\footnotesize (b)}
+                -- (0.267,0.903);
+            \draw[blue!70!black,very thick] (0.267,0.903) circle[radius=0.012];
+            \draw[-{Latex[length=1.8mm]},very thick,orange!85!black]
+                (0.82,0.66) node[below,fill=white,inner sep=1pt] {\footnotesize (c)}
+                -- (0.911,0.789);
+            \draw[orange!85!black,very thick] (0.911,0.789) circle[radius=0.012];
+        \end{scope}
+    \end{tikzpicture}
+    \\[-1mm]\footnotesize (a) WSI 59031 thumbnail
+\end{minipage}
+\hfill
+{\Large$\Longrightarrow$}
+\hfill
+\begin{minipage}[c]{0.42\textwidth}
+    \centering
+    \includegraphics[width=0.46\linewidth]{figures/wsi_59031_patch_13056_4608.png}
+    \hfill
+    \includegraphics[width=0.46\linewidth]{figures/wsi_59031_patch_44544_9984.png}
+    \\[1mm]
+    \begin{minipage}[t]{0.46\linewidth}
+        \centering\footnotesize (b) Patch at\\$(x,y)=(13056,4608)$
+    \end{minipage}
+    \hfill
+    \begin{minipage}[t]{0.46\linewidth}
+        \centering\footnotesize (c) Patch at\\$(x,y)=(44544,9984)$
+    \end{minipage}
+\end{minipage}
+\caption{Example of the whole-slide and patch data hierarchy. The markers in
+(a) show the full-resolution locations of the two archived $256\times256$
+patches in (b) and (c) from WSI 59031 (HGSC). The thumbnail is shown for
+context and is not the image supplied to the VAE.}
+\label{fig:wsi-patches}
+\end{figure*}
+
+\subsection{Patch Selection and Tissue Annotations}
+
+Foreground selection for reconstruction and WSI diagnosis was derived from
+the image rather than from human masks. Each distributed WSI thumbnail was
+converted to HSV, and Otsu's threshold was applied to the saturation channel
+\cite{otsu_threshold_1979}. A full-resolution grid cell was retained when more
+than 60\% of its projected thumbnail area belonged to foreground. This
+procedure prevented the supplemental tissue annotations from determining the
+patches used for the primary reconstruction and diagnostic tasks.
+
+Supplemental masks were used only to construct the tissue-recognition
+population. Red, green and blue mask regions were interpreted as tumor,
+stroma and necrosis. The masks are not exhaustive; an unpainted region cannot
+be treated as a negative class. A patch was therefore eligible for tissue
+classification only when at least 10\% of its area was annotated and at least
+95\% of that annotated area belonged to one tissue class. The resulting task
+classifies high-purity annotated regions and does not constitute dense
+pixel-level segmentation of the complete WSI.
+
+\subsection{Data Populations and Partitions}
+
+Two non-overlapping WSI populations were used. VAE development used 322 WSIs
+for training and 39 for validation, represented by 300,000 and 30,000 patches,
+respectively. The later evaluation cohort contained 152 different WSIs and was
+fixed as 106 supervised-training, 23 validation and 23 test slides before VAE
+or classifier outputs on that cohort were inspected.
+
+The class counts for train/validation/test were 23/5/5 CC, 24/6/6 EC,
+40/8/8 HGSC, 11/2/2 LGSC and 8/2/2 MC. The assignment was shared by both
+downstream tasks. It used diagnosis and the availability of annotated tissue
+to maintain a feasible rare-tissue evaluation, but it did not use image
+pixels, VAE representations or model predictions. Figure~\ref{fig:data-split}
+shows the complete experimental partition.
+
+\begin{figure*}[t]
+\centering
+\resizebox{0.98\textwidth}{!}{\input{figures/data_split}}
+\caption{Data populations and WSI-level partitions. The VAE-development and
+downstream cohorts are disjoint. All three supervised subsets are fixed at WSI
+level and shared by the conventional and equivariant representations. Numbers
+inside split boxes follow the order CC/EC/HGSC/LGSC/MC.}
+\label{fig:data-split}
+\end{figure*}
+
+\begin{table*}[t]
+\caption{Populations used for representation learning and evaluation.}
+\label{tab:populations}
 \centering
 \footnotesize
-\begin{tabular}{lcc}
+\begin{tabular}{lrrp{0.48\textwidth}}
 \toprule
-Property & Normal VAE & $\SOtwo$ VAE \\
+Population & WSIs & Patches/instances & Role and sampling unit \\
 \midrule
-Updates & 60,000 & 60,000 \\
-Latent $\mu$ shape & $16\times32\times32$ & $16\times32\times32$ \\
-Learned parameters & 3,958,435 & 1,180,035 \\
-Training patches & 300,000 & 300,000 \\
-Rotation constraint & none & continuous $\SOtwo$ \\
-Downstream state & frozen $\mu$ & frozen $\mu$ \\
+VAE training & 322 & 300,000 & Unlabeled $256\times256$ patches used to optimize both VAEs. \\
+VAE validation & 39 & 30,000 & Unlabeled patches used for scheduled validation; no downstream labels. \\
+Supervised training & 106 & task dependent & WSI bags for diagnosis and nested balanced patch subsets for tissue recognition. \\
+Supervised validation & 23 & task dependent & Independent checkpoint selection for each frozen representation and task. \\
+Sealed reconstruction & 23 & 67,138 & Foreground patches; uncertainty aggregated by WSI. \\
+Sealed WSI diagnosis & 23 & 261,168 & Complete selected foreground bags; the principal unit is one WSI. \\
+Sealed tissue recognition & 23 & 31,572 & High-purity annotated patches: 21,796 tumor, 8,500 stroma and 1,276 necrosis. \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 
-\subsection{Downstream Evaluation}
+\subsection{Conventional Variational Autoencoder}
 
-For WSI diagnosis, every foreground patch is represented by deterministic
-posterior $\mu$. The shared 1.51M-parameter MIL classifier first compresses each
-latent map with a trainable convolutional patch encoder. Two local attention
-blocks exchange information within a radius-two patch graph, while a learned
-global stream summarizes the complete WSI for five-class prediction. The two
-representation branches receive identical WSI membership, coordinate graphs,
-initial classifier weights, epoch order, optimizer, and validation schedule.
-Each branch independently selects its highest development macro-F1 checkpoint.
+The conventional model was derived from a residual convolutional design
+informed by ResNet-18 \cite{he_deep_2016}, with the downsampling schedule
+limited to preserve a spatial latent map. Its encoder used stages with 32, 48,
+64 and 96 channels at spatial resolutions 256, 128, 64 and 32. Each stage
+contained two residual blocks. Fixed anti-aliased downsampling was applied
+between encoder stages. The decoder reversed the schedule through bilinear
+upsampling followed by convolution.
 
-For tissue recognition, a smaller shared convolutional classifier predicts
-tumor, stroma, or necrosis from frozen patch latents. We use nested,
-class-balanced training subsets of 250, 500, 1,000, 2,500, and 5,671 labels per
-class. Each budget begins from identical weights for both representations.
-Natural-distribution validation selects the checkpoint; the complete sealed
-test distribution is evaluated once.
+Ordinary learned convolutions, GroupNorm and learned scalar gates were used
+throughout the hidden layers. Separate $5\times5$ heads produced the posterior
+mean and log-variance
 
-\subsection{Reconstruction and Rotation Geometry}
-
-Reconstruction is evaluated with MAE and MSE in the normalized domain and with
-PSNR and SSIM after clamping to $[0,1]$. The primary endpoint is mean MAE.
-
-For rotations, let $R_k$ be an exact array rotation by $90k$ degrees and let
-$\rho_k$ rotate every spatial latent channel in the same way. We distinguish
-the encoded cycle $e_k=E_\mu(R_kx)$ from the prescribed cycle
-$a_k=\rho_kE_\mu(x)$. The decoder-action error is
 \begin{equation}
-\epsilon_D(k,x)=\operatorname{RMS}\!\left[D(a_k)-R_kD(e_0)\right].
+\boldsymbol{\mu},\log\boldsymbol{\sigma}^{2}
+\in\mathbb{R}^{16\times32\times32}.
 \end{equation}
-We also use an interpolated $0,5,\ldots,355$ degree sweep. Its normalized action
-ratio divides the action error by the error produced when the latent is left
-untransformed; 1 is the no-action baseline. The canonicalization ratio similarly
-compares $D(\rho_{-\theta}E_\mu(R_\theta x))$ with $D(E_\mu(x))$ relative to
-leaving the rotated embedding unchanged. A preregistered absolute target of
-0.5 asks whether the action removes at least half of the baseline error.
 
-Finally, at fixed validation ranks 0 and 12 we estimate the local decoder
-pullback $G(z)=J_D(z)^\top J_D(z)$ without materializing the Jacobian. Direct
-JVP/VJP products and stochastic Lanczos quadrature with 64 probes and depth 64
-estimate the trace and dimensions required for 95\% and 99\% spectral mass.
-This is a two-anchor diagnostic, not a population estimate or proof of a global
-manifold.
+The decoder received a sampled latent tensor with the same shape and returned
+a raw three-channel image without a final $\tanh$ operation. The conventional
+model contained 3,958,435 learned parameters.
 
-\subsection{Uncertainty and Claim Boundaries}
+\subsection{Continuous-$\SOtwo$-Equivariant Variational Autoencoder}
 
-Reconstruction differences use 10,000 paired WSI-cluster bootstrap replicates;
-patch standard deviations describe dispersion only. WSI diagnosis uses a
-diagnosis-stratified paired bootstrap over 23 WSIs. Tissue differences use a
-WSI bootstrap stratified by observed tissue support and simultaneous 95\%
-intervals across the five label budgets. These intervals do not cover new VAE
-or classifier training seeds. Rotation analyses use the fixed validation set;
-their WSI-resampled intervals are descriptive and do not support population
-inference.
+The equivariant VAE used the same input, output, spatial schedule, number of
+residual blocks and posterior shape. Ordinary convolutional kernels were
+replaced by steerable kernels constrained for the continuous group $\SOtwo$.
+Hidden feature maps combined scalar fields $F_0$ and first-order vector fields
+$F_1$. The four encoder stages contained 16, 24, 32 and 48 copies of each field
+type. Field-aware normalization was used, and each $F_1$ pair shared a radial
+gate so that the nonlinearity did not introduce an orientation-dependent
+component.
+
+The kernel basis was evaluated on fixed spatial grids and the learned
+parameters were the expansion coefficients of that basis. The final posterior
+heads produced 16 scalar fields, giving the same
+$16\times32\times32$ Gaussian latent shape as the conventional VAE. The
+equivariant model contained 1,180,035 learned parameters, or 29.8\% of the
+conventional count. The kernel expansion nevertheless increased the estimated
+convolutional work, so the lower parameter count should not be interpreted as
+lower computational cost.
+
+\begin{table*}[t]
+\caption{Architecture comparison.}
+\label{tab:architectures}
+\centering
+\footnotesize
+\begin{tabular}{p{0.25\textwidth}p{0.32\textwidth}p{0.34\textwidth}}
+\toprule
+Property & Conventional VAE & Continuous-$\SOtwo$ VAE \\
+\midrule
+Hidden representation & Ordinary channels: 32, 48, 64, 96 & Scalar/vector field copies: 16+16, 24+24, 32+32, 48+48 \\
+Learned convolutions & 43 ordinary convolutions & 43 steerable convolutions \\
+Normalization/nonlinearity & GroupNorm and learned scalar gates & Field-aware normalization and scalar/radial gates \\
+Posterior & $\boldsymbol{\mu},\log\boldsymbol{\sigma}^{2}\in\mathbb{R}^{16\times32\times32}$ & Same spatial Gaussian posterior, represented by scalar fields \\
+Learned parameters & 3,958,435 & 1,180,035 \\
+Estimated convolutional work & $3.65\times10^{10}$ MAC/sample & $1.598\times10^{11}$ MAC/sample \\
+Rotation constraint & None beyond translation-equivariant convolution & Continuous $\SOtwo$ kernel constraint \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{VAE Objective and Training}
+
+Both models were trained as denoising VAEs. With probability 0.3, the input
+patch was perturbed in hematoxylin/eosin/residual coordinates using color
+deconvolution \cite{ruifrok_color_2001}, and Gaussian noise was added. The
+target remained the corresponding clean patch. RGB values were normalized to
+$[-1,1]$.
+
+For a clean target $\mathbf{x}$ and reconstruction $\widehat{\mathbf{x}}$, the
+objective was
+
+\begin{equation}
+\begin{aligned}
+\mathcal{L}={}&\operatorname{MAE}(\widehat{\mathbf{x}},\mathbf{x})
++0.1\left[1-\operatorname{SSIM}(\widehat{\mathbf{x}},\mathbf{x})\right]\\
+&+\beta D_{\mathrm{KL}}\!\left(
+q_{\boldsymbol{\phi}}(\mathbf{z}\mid\widetilde{\mathbf{x}})
+\,\|\,\mathcal{N}(\mathbf{0},\mathbf{I})\right),
+\end{aligned}
+\label{eq:vae-loss}
+\end{equation}
+
+where SSIM is the structural similarity index \cite{wang_image_2004} and
+$\widetilde{\mathbf{x}}$ denotes the corrupted input. The KL weight increased
+linearly from zero to $0.01$ during the first 6,000 updates and remained fixed
+thereafter.
+
+AdamW \cite{loshchilov_adamw_2019} used coefficients $(0.9,0.999)$,
+$\epsilon=10^{-8}$, weight decay $10^{-5}$ and gradient-norm clipping at 1.0.
+The learning rate increased linearly for 600 updates to $10^{-3}$ and then
+decreased with a cosine schedule to $10^{-5}$. Each model was trained for
+60,000 successful updates with a global batch of 50 patches distributed over
+two NVIDIA T4 GPUs. Validation and checkpointing occurred every 3,000 updates.
+The comparison used the final update-60,000 checkpoint for both models rather
+than selecting different VAE checkpoints from the downstream results.
+
+\subsection{Frozen Representations}
+
+After VAE training, all encoder and decoder parameters were frozen. Downstream
+tasks used the posterior mean $\boldsymbol{\mu}$ rather than a sampled latent.
+For each selected coordinate, the RGB patch was read once and passed through
+both encoders. The two FP32 latent records were stored in the same logical
+order, which made WSI membership, tissue labels and patch coordinates
+identical between representation branches.
+
+\subsection{Reconstruction Evaluation}
+
+The reconstruction test contained 67,138 foreground patches from the 23 test
+WSIs, with at most 3,000 systematically distributed coordinates per slide.
+MAE and mean squared error (MSE) were measured in the normalized $[-1,1]$
+domain. Peak signal-to-noise ratio (PSNR) and SSIM were measured after
+conversion to $[0,1]$ and clamping. Mean MAE was the primary reconstruction
+endpoint. The other metrics describe complementary error properties.
+
+\subsection{WSI Diagnosis}
+
+The diagnostic task predicted the five ovarian-cancer subtypes. Every selected
+foreground patch was represented by its frozen posterior mean. A trainable
+convolutional patch encoder compressed the $16\times32\times32$ latent map.
+Two local attention blocks exchanged information within a radius-two spatial
+neighborhood, and a global stream summarized the complete WSI through learned
+sigmoid attention. A final classification layer produced five logits. The
+supervised model contained approximately 1.51 million parameters.
+
+Training used one complete WSI bag per optimizer step, AdamW and class-weighted
+cross-entropy computed from the 106 training WSIs. Each representation branch
+started from the same classifier weights and received the same WSI order. The
+maximum was 150 epochs, validation was performed twice per epoch, and each
+branch independently retained its highest validation macro-F1 checkpoint.
+The primary test metric was macro-F1; balanced accuracy, accuracy, mean
+cross-entropy, classwise F1 and confusion matrices were secondary summaries.
+
+\subsection{Tissue Recognition and Label Budgets}
+
+The tissue task predicted tumor, stroma or necrosis from a single frozen latent
+map. The classifier contained three convolutional stages
+$16\rightarrow32\rightarrow64\rightarrow128$, GroupNorm, GELU activations
+\cite{hendrycks_gelu_2016}, adaptive average pooling and a linear
+$128\rightarrow3$ output layer.
+
+Training subsets contained 250, 500, 1,000, 2,500 and 5,671 labeled patches
+per class. They were class balanced, nested and selected without replacement;
+every smaller set was a subset of each larger one. WSI-stratified ordering
+ensured that the smallest subset did not collapse onto a single slide. Each
+normal/equivariant pair started from identical classifier weights and received
+the same patch order. Models were optimized for at most 30 epochs, and the
+best validation macro-F1 checkpoint was retained. The test distribution was
+not balanced and contained 21,796 tumor, 8,500 stroma and 1,276 necrosis
+patches from 23 WSIs.
+
+\subsection{Statistical Analysis}
+
+All difference intervals are reported as conventional-minus-equivariant.
+Reconstruction differences used 10,000 paired cluster-bootstrap replicates at
+WSI level \cite{field_bootstrapping_2007}. WSI diagnosis used 10,000 paired
+bootstrap replicates stratified by diagnosis. Tissue recognition used a paired
+WSI bootstrap stratified by observed tissue support. The five label-budget
+macro-F1 differences and the prespecified area under the log-budget learning
+curve (AULC) difference form a six-contrast family and use simultaneous 95\%
+intervals. Patch-level standard deviations describe patch
+dispersion and do not replace WSI-level uncertainty. These procedures estimate
+sampling variation across the observed WSIs; they do not measure variation
+across new VAE or classifier training seeds.
 
 \section{Results}
 
-\subsection{Reconstruction Fidelity}
+\subsection{VAE Reconstruction}
 
-Both models preserve the major tissue structures and staining patterns on the
-same predetermined validation patches (Fig.~\ref{fig:reconstructions}). On the
-sealed set, the normal VAE has slightly better point estimates for all four
-reconstruction metrics (Table~\ref{tab:reconstruction}). Primary MAE is
-0.062872 for normal and 0.064230 for $\SOtwo$. The paired difference
-normal-minus-$\SOtwo$ is $-0.001358$, with 95\% CI
-$[-0.002213,0.000046]$. Because the interval includes zero, the primary
-reconstruction difference is not established. PSNR and SSIM favor the normal
-model descriptively, but remain secondary endpoints.
+Both models reconstructed the major tissue structures and stain patterns in
+the predetermined validation panel shown in Fig.~\ref{fig:reconstructions}.
+The visual panel was fixed before the final comparison and was not selected
+from the test results.
 
 \begin{figure*}[t]
 \centering
 \includegraphics[width=0.96\textwidth]{figures/reconstructions_fixed25.png}
-\caption{Originals and final reconstructions for the same 25 validation
-patches fixed before analysis. Visual inspection is descriptive; the sealed
-quantitative evaluation uses 67,138 patches from 23 WSIs.}
+\caption{Original patches and final reconstructions for the same 25 fixed VAE
+validation examples. This panel is descriptive. Quantitative reconstruction
+results use 67,138 patches from the 23 test WSIs.}
 \label{fig:reconstructions}
 \end{figure*}
 
+The conventional VAE had lower pooled MAE and MSE and higher pooled PSNR and
+SSIM (Table~\ref{tab:reconstruction}). Mean MAE was 0.062872 for the conventional
+model and 0.064230 for the equivariant model. The paired difference was
+$-0.001358$, with a 95\% interval of $[-0.002213,0.000046]$. The interval
+included zero, so the primary analysis did not establish a reconstruction
+difference. MSE, PSNR and SSIM favored the conventional model descriptively.
+
 \begin{table}[t]
-\caption{Sealed reconstruction over 67,138 patches. Values are mean
-(population SD).}
+\caption{Reconstruction on 67,138 test patches. Values are mean (population
+standard deviation).}
 \label{tab:reconstruction}
 \centering
 \footnotesize
 \begin{tabular}{lcc}
 \toprule
-Metric & Normal VAE & $\SOtwo$ VAE \\
+Metric & Conventional & $\SOtwo$ \\
 \midrule
 MAE $\downarrow$ & 0.0629 (0.0239) & 0.0642 (0.0223) \\
 MSE $\downarrow$ & 0.0080 (0.0074) & 0.0083 (0.0067) \\
@@ -297,199 +495,196 @@ SSIM $\uparrow$ & 0.7575 (0.0842) & 0.7436 (0.0862) \\
 \end{tabular}
 \end{table}
 
-\subsection{WSI Diagnosis and Tissue Label Efficiency}
+\subsection{Five-Class WSI Diagnosis}
 
-On 23 sealed WSIs, $\SOtwo$ has higher point estimates for macro-F1 and
-accuracy, while balanced accuracy is essentially unchanged
-(Fig.~\ref{fig:downstream}). Macro-F1 is 0.483 versus 0.389, but the 95\%
-interval for normal-minus-$\SOtwo$, $[-0.207,0.050]$, includes zero. Accuracy
-is 0.609 versus 0.522 with interval $[-0.217,0.043]$. Mean cross-entropy is
-lower for $\SOtwo$ (0.993 versus 1.323), and its paired interval favors
-$\SOtwo$; this is a secondary endpoint. Class-level conclusions are fragile:
-LGSC and MC contain only two WSIs each, and the two models fail on different
-rare classes.
+The equivariant representation obtained higher point estimates for macro-F1
+and accuracy (Table~\ref{tab:wsi-overall}). Macro-F1 was 0.483 versus 0.389,
+with a conventional-minus-equivariant difference of $-0.095$ and a 95\%
+interval of $[-0.207,0.050]$. Accuracy was 0.609 versus 0.522, with interval
+$[-0.217,0.043]$. Neither interval established a difference. Balanced accuracy
+was nearly equal: 0.503 for the equivariant representation and 0.510 for the
+conventional representation.
 
-The tissue task reveals a non-monotone interaction with label budget.
-$\SOtwo$ has higher macro-F1 at 250, 500, 1,000, and 2,500 labels per class.
-Only the 500-label difference has a simultaneous interval excluding zero:
-normal-minus-$\SOtwo=-0.064$, 95\% simultaneous CI
-$[-0.121,-0.008]$. At 5,671 labels per class, the normal representation is
-higher (0.766 versus 0.710), although the simultaneous interval nearly touches
-zero. The normalized area under the log-budget learning curve is 0.615 for
-normal and 0.631 for $\SOtwo$; its simultaneous difference interval includes
-zero. Therefore, the results support one budget-specific low-label advantage,
-not universal sample-efficiency dominance.
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=0.94\textwidth]{figures/downstream_results.png}
-\caption{Frozen-representation downstream results. (a) WSI diagnosis point
-estimates on 23 sealed slides. (b) Tissue macro-F1 on 31,572 sealed patches;
-training subsets are nested and class balanced. Only 500 labels per class has
-a simultaneous difference interval excluding zero.}
-\label{fig:downstream}
-\end{figure*}
+Mean cross-entropy was 0.993 for the equivariant representation and 1.323 for
+the conventional representation. Its difference interval, $[0.135,0.524]$,
+favored the equivariant branch. Cross-entropy was a secondary endpoint and does
+not change the inconclusive primary macro-F1 result.
 
 \begin{table}[t]
-\caption{Sealed downstream macro-F1. Tissue intervals are simultaneous across
-budgets and are reported for normal-minus-$\SOtwo$.}
-\label{tab:downstream}
+\caption{Overall WSI diagnosis results on 23 test slides. Difference intervals
+are conventional-minus-$\SOtwo$.}
+\label{tab:wsi-overall}
 \centering
 \footnotesize
 \begin{tabular}{lccc}
 \toprule
-Task/budget & Normal & $\SOtwo$ & Difference CI \\
+Metric & Conventional & $\SOtwo$ & Difference 95\% CI \\
 \midrule
-WSI diagnosis & 0.389 & 0.483 & $[-0.207,0.050]$ \\
-Tissue 250 & 0.508 & 0.523 & $[-0.072,0.041]$ \\
-Tissue 500 & 0.511 & 0.575 & $[-0.121,-0.008]$ \\
-Tissue 1,000 & 0.582 & 0.598 & $[-0.072,0.041]$ \\
-Tissue 2,500 & 0.701 & 0.714 & $[-0.069,0.044]$ \\
-Tissue 5,671 & 0.766 & 0.710 & $[-0.001,0.112]$ \\
+Macro-F1 & 0.389 & 0.483 & $[-0.207,0.050]$ \\
+Balanced accuracy & 0.510 & 0.503 & $[-0.167,0.180]$ \\
+Accuracy & 0.522 & 0.609 & $[-0.217,0.043]$ \\
+Mean cross-entropy & 1.323 & 0.993 & $[0.135,0.524]$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{Decoder Equivariance Is Stronger Than Encoder Equivariance}
+The classwise results show why the overall comparison remains uncertain
+(Table~\ref{tab:wsi-class}). The conventional representation had zero F1 for
+EC and LGSC but classified both MC slides correctly. The equivariant
+representation improved EC and LGSC but failed on both MC slides. LGSC and MC
+each contained only two test WSIs, so a change of one prediction produces a
+large classwise difference.
 
-The dense interpolated sweep favors $\SOtwo$ consistently in route
-agreement. Median decoded-action ratios are 0.550 for $\SOtwo$ and 0.713 for
-normal; canonicalization ratios are 0.513 and 0.661. The $\SOtwo$ value is
-lower on all 25 paired patches for both metrics, and the WSI-resampled
-descriptive intervals for the paired median differences exclude zero. However,
-the $\SOtwo$ medians remain just above the absolute 0.5 target, so this dense
-interpolation experiment does not by itself verify exact continuous
-equivariance.
+\begin{table}[t]
+\caption{Classwise WSI F1 and test support.}
+\label{tab:wsi-class}
+\centering
+\footnotesize
+\begin{tabular}{lrrr}
+\toprule
+Diagnosis & Support & Conventional F1 & $\SOtwo$ F1 \\
+\midrule
+CC & 5 & 0.667 & 0.750 \\
+EC & 6 & 0.000 & 0.533 \\
+HGSC & 8 & 0.706 & 0.800 \\
+LGSC & 2 & 0.000 & 0.333 \\
+MC & 2 & 0.571 & 0.000 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-The exact quarter-turn control is qualitatively different. At 90, 180, and
-270 degrees, the prescribed latent action of the $\SOtwo$ checkpoint commutes
-with decoding at approximately $10^{-6}$ image RMS, compared with normal-VAE
-medians of 0.165--0.190. The corresponding normalized action ratio aggregates
-to $2.18\times10^{-6}$ for $\SOtwo$ and 0.709 for normal. This verifies a
-shared, parameter-free $\Cfour$ decoder action on all 25 fixed patches
-(Fig.~\ref{fig:decoder-geometry}). It does not verify all continuous angles,
-encoder equivariance, reflections, or complete $D_4/O(2)$ symmetry.
+\subsection{Three-Class Tissue Recognition}
 
-Indeed, raw posterior behavior is less favorable. For exact quarter-turns, the
-relative discrepancies between $E_\mu(R_kx)$ and $\rho_kE_\mu(x)$ are not lower
-for $\SOtwo$. Thus, Eqs.~\eqref{eq:encoder-equivariance} and
-\eqref{eq:decoder-equivariance} must not be merged: the decoder realizes the
-prescribed cardinal action while the encoder posterior mean can select a
-different latent representative.
+The tissue results changed with the amount of labeled training data
+(Fig.~\ref{fig:downstream} and Table~\ref{tab:tissue}). The equivariant
+representation had higher macro-F1 at 250, 500, 1,000 and 2,500 labels per
+class. At 500 labels per class, the macro-F1 values were 0.575 and 0.511, and
+the simultaneous interval for conventional-minus-equivariant was
+$[-0.121,-0.008]$. This was the only label budget whose simultaneous interval
+excluded zero.
+
+At 500 labels per class, the classwise F1 values for
+conventional/equivariant representations were 0.769/0.781 for tumor,
+0.485/0.560 for stroma and 0.279/0.384 for necrosis. The supported difference
+at this budget was therefore not produced by tumor alone.
+
+At the largest budget, the conventional representation obtained macro-F1
+0.766 compared with 0.710 for the equivariant representation. The simultaneous
+interval included zero, with a lower bound of $-0.001$.
+The corresponding classwise F1 values were 0.868/0.871 for tumor,
+0.728/0.711 for stroma and 0.701/0.548 for necrosis. The normalized area under
+the log-budget learning curve was 0.615 for the conventional representation
+and 0.631 for the equivariant representation; its simultaneous difference
+interval included zero.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.94\textwidth]{figures/decoder_geometry.png}
-\caption{Transformation consistency on the fixed validation set. (a)
-Interpolated 5-degree sweep; lower normalized RMS ratios indicate better route
-agreement, and 0.5 is the preregistered absolute target. (b) Exact cardinal
-rotations on a logarithmic scale. The $\SOtwo$ decoder realizes the prescribed
-$\Cfour$ action almost exactly.}
-\label{fig:decoder-geometry}
+\includegraphics[width=0.94\textwidth]{figures/downstream_results.png}
+\caption{Frozen-representation classification results. (a) Five-class WSI
+diagnosis on 23 test slides. (b) Tissue macro-F1 on 31,572 test patches under
+nested class-balanced training budgets. Only the 500-label-per-class tissue
+comparison has a simultaneous difference interval excluding zero.}
+\label{fig:downstream}
 \end{figure*}
 
-\subsection{Local Decoder-Visible Geometry}
-
-The pullback analysis supports a narrower claim about decoder-visible
-complexity. Across ranks 0 and 12 and four exact angles, the estimated
-$\SOtwo$/normal trace ratio ranges from 0.895 to 0.959. The $\SOtwo$ estimate
-also requires fewer dimensions to reach both 95\% and 99\% spectral mass in
-all eight matched states. At rank 0, normal $d_{95}$ ranges 4,886--4,928 while
-$\SOtwo$ ranges 4,565--4,581; at rank 12, the ranges are 3,835--4,036 and
-3,726--3,750. These observations are consistent with a somewhat more compact
-local decoder-visible spectrum, but they come from only two anchors. They do
-not establish a population effect, a continuous rotation orbit, a global
-quotient, or low-dimensional disentanglement.
-
-\begin{table*}[t]
-\caption{Evidence map. Each conclusion is intentionally limited to the
-measurement that supports it.}
-\label{tab:evidence-map}
+\begin{table}[t]
+\caption{Tissue macro-F1 on 31,572 test patches. Simultaneous intervals are
+reported for conventional-minus-$\SOtwo$.}
+\label{tab:tissue}
 \centering
 \footnotesize
-\begin{tabular}{p{0.19\textwidth}p{0.35\textwidth}p{0.38\textwidth}}
+\begin{tabular}{rccc}
 \toprule
-Question & Main evidence & Supported conclusion \\
+Labels/class & Conventional & $\SOtwo$ & Simultaneous 95\% CI \\
 \midrule
-Reconstruction fidelity & 67,138 sealed patches; WSI-cluster bootstrap &
-Normal is descriptively better; the primary MAE difference is not established. \\
-WSI representation utility & 23 sealed WSIs under one shared MIL contract &
-$\SOtwo$ has favorable point estimates, without a conclusive macro-F1 interval. \\
-Low-label tissue utility & Five nested budgets with simultaneous intervals &
-One supported advantage at 500 labels/class; no global sample-efficiency claim. \\
-Decoder rotation action & Fixed-25 exact quarter-turn control &
-The $\SOtwo$ decoder realizes the prescribed $\Cfour$ action near numerical precision. \\
-Encoder equivariance & $E_\mu(R_kx)$ versus $\rho_kE_\mu(x)$ &
-Strict equivariance of the final posterior mean is not supported. \\
-Continuous/content--pose geometry & Dense interpolation and shared-action probes &
-No verified continuous action, global quotient, or content--pose factorization. \\
+250 & 0.508 & 0.523 & $[-0.072,0.041]$ \\
+500 & 0.511 & 0.575 & $[-0.121,-0.008]$ \\
+1,000 & 0.582 & 0.598 & $[-0.072,0.041]$ \\
+2,500 & 0.701 & 0.714 & $[-0.069,0.044]$ \\
+5,671 & 0.766 & 0.710 & $[-0.001,0.112]$ \\
 \bottomrule
 \end{tabular}
-\end{table*}
+\end{table}
 
 \section{Discussion}
 
-The results separate three effects that would be obscured by a single summary
-score. First, the normal VAE retains a small descriptive reconstruction
-advantage. The primary interval crosses zero, but the consistent secondary
-metrics warn against assuming that stronger architectural structure must
-improve pixel fidelity.
+The first research question concerned reconstruction. The conventional VAE had
+lower pooled MAE and MSE and higher pooled PSNR and SSIM.
+The primary paired MAE interval included zero. The primary analysis therefore
+did not establish a reconstruction difference between the two implemented
+VAEs.
 
-Second, the $\SOtwo$ representation shows promising but uneven downstream
-behavior. Its WSI point estimates are better for macro-F1 and accuracy, and it
-has a clear simultaneous advantage at one low-label tissue budget. Yet these
-signals do not persist at the highest tissue budget, and the global learning
-curve comparison is inconclusive. This pattern is compatible with an inductive
-bias that can help in a restricted low-data regime, but one training seed and
-23 test WSIs cannot isolate that mechanism.
+The second question concerned downstream classification. For WSI diagnosis,
+the equivariant representation obtained higher macro-F1 and accuracy, but the
+test set contained only 23 slides and the primary difference interval was
+wide. The per-class results were also unstable for LGSC and MC, which had two
+slides each. These values are point estimates and do not establish a WSI-level
+difference.
 
-Third, the most decisive evidence is mechanistic rather than task-level. The
-$\SOtwo$ decoder realizes the prescribed exact $\Cfour$ spatial action nearly
-perfectly. At the same time, the raw posterior mean does not satisfy the same
-strict encoder relation, dense interpolated ratios miss the absolute target,
-and previous low-dimensional shared-action probes fail to outperform identity.
-Consequently, the correct interpretation is not that the learned latent equals
-``content times angle.'' A more conservative interpretation is that the
-decoder contains a coherent cardinal rotation mechanism while the encoder may
-choose different representatives in a high-dimensional, decoder-redundant
-space.
+In tissue recognition, the equivariant representation had higher macro-F1 at
+the four smaller budgets. Only the 500-label interval excluded zero; the
+remaining budget intervals and the AULC interval included zero. At 5,671 labels
+per class, the conventional representation had higher macro-F1, largely because
+it had higher necrosis F1. These results do not establish a general increase in
+label efficiency.
 
-The parameter count deserves equal emphasis. The $\SOtwo$ VAE uses only 29.8\%
-of the parameters of the normal VAE. This is an efficiency result, but also a
-causal confound: any difference may reflect symmetry, capacity, optimization,
-or their interaction. Our study therefore supports endpoint-specific
-comparison between these frozen checkpoints, not attribution to symmetry alone.
+The two models also differ in capacity and computation. The equivariant VAE
+has approximately 30\% of the learned parameters of the conventional VAE, but
+its constrained kernel expansion requires more estimated multiply-accumulate
+operations. A result from this comparison may arise from equivariance,
+parameter count, numerical optimization, or their interaction. The experiment
+characterizes the two implemented representations; it does not separate these
+mechanisms.
+
+Results differed by endpoint. Reconstruction means and the largest tissue
+budget favored the conventional VAE. Selected WSI and smaller-budget tissue
+point estimates favored the equivariant representation. The primary WSI
+interval and all but one tissue-budget interval included zero, so the experiment
+does not establish a general ordering between the representations.
 
 \section{Limitations}
 
-The study has one training trajectory per VAE and one downstream trajectory per
-representation and budget. Bootstrap intervals measure sampling variation
-across observed WSIs, not initialization or training-seed uncertainty. The WSI
-test contains 23 slides, with only two examples in each of two diagnoses.
-Tissue evaluation contains many patches but only 23 biological clusters, and
-necrosis appears in five.
+Each VAE and each downstream configuration was represented by one training
+trajectory. The bootstrap intervals quantify variation across the observed
+WSIs, not variation across new initializations, data orders or optimization
+runs. Repeated training would be required to estimate that component.
 
-The reconstruction aggregation and bootstrap were finalized after later test
-labels had been opened, although neither VAE checkpoint was changed. Rotation
-geometry is post-hoc validation-only analysis on 25 fixed patches. Interpolated
-angles depend on bilinear resampling and do not inherit the numerical exactness
-of array quarter-turns. Pullback spectra cover two anchors only. Finally, the
-models differ substantially in parameter count, so the experiment does not
-identify the causal effect of equivariance independently of capacity.
+The WSI test contains 23 slides. LGSC and MC have two slides each, which limits
+classwise interpretation and produces wide macro-F1 intervals. Tissue
+recognition contains many patches but only 23 independent biological clusters;
+necrosis is present in five of them. Patch count therefore overstates the
+effective amount of independent test information.
 
-\newpage
+Supplemental tissue masks are incomplete. The tissue experiment evaluates
+selected high-purity annotated regions and cannot be interpreted as exhaustive
+segmentation of complete WSIs. Results also come from one ovarian-cancer data
+source and have not been externally validated on another institution or organ.
+
+The reconstruction aggregation and its bootstrap analysis were finalized
+after later test labels had been opened. Neither VAE checkpoint, architecture
+nor reconstruction output was changed at that stage, but the statistical
+analysis should be regarded as a finalized post-training evaluation rather
+than a fully preregistered endpoint.
+
+Finally, the comparison does not match parameter count or computational work.
+A future experiment would require repeated seeds, a larger class-complete WSI
+test cohort and capacity-matched controls before attributing a classification
+difference specifically to continuous rotation equivariance.
+
 \section{Conclusion}
 
-A continuous-$\SOtwo$ VAE can expose meaningful rotation structure without
-winning every conventional endpoint. Here, the normal VAE reconstructs slightly
-better descriptively; the $\SOtwo$ representation has favorable but uncertain
-WSI results and one simultaneous low-label tissue advantage; and its decoder
-realizes exact cardinal rotations with near-numerical precision. Raw posterior
-means do not support strict encoder equivariance or a simple content--pose
-factorization. Evaluations should therefore report reconstruction, downstream
-utility, and transformation mechanism separately.
+This study compared a conventional convolutional VAE and a continuous-$\SOtwo$
+VAE trained on the same histopathology patches and evaluated their frozen
+representations in reconstruction, WSI diagnosis and tissue recognition. The
+primary reconstruction analysis did not establish a difference between the two
+models. The equivariant representation obtained higher point estimates in WSI
+macro-F1 and accuracy, but the primary interval included zero. In tissue
+recognition, it had higher macro-F1 at four smaller label budgets, with an
+interval excluding zero only at 500 labels per class; the conventional
+representation had higher macro-F1 at the largest budget. Results varied by
+endpoint and did not establish a general advantage for either representation.
 
-\IEEEtriggeratref{4}
+\IEEEtriggeratref{13}
 \bibliographystyle{IEEEtran}
 \bibliography{references}
 

@@ -4,6 +4,12 @@ This directory is the anonymous INCISCOS 2026 adaptation of the earlier SIPAIM
 paper scaffold. It uses the standard IEEE conference A4 format requested by
 INCISCOS; the conference does not provide a separate LaTeX class.
 
+The current eight-page build is the complete professor-review draft. It is
+organized as a direct experimental report of the conventional and continuous-
+`SO(2)` VAEs, reconstruction, WSI diagnosis, and tissue recognition. Later
+geometry experiments are deliberately excluded. Content can be shortened for
+submission after academic review.
+
 Submission constraints checked on 2026-09-16:
 
 - English;
@@ -12,10 +18,10 @@ Submission constraints checked on 2026-09-16:
 - double-blind review, with no author or affiliation details;
 - PDF or Microsoft Word submission.
 
-Build the paper from this directory:
+Build the tracked review PDF from this directory:
 
 ```bash
-latexmk -pdf main.tex
+latexmk -pdf -jobname=inciscos2026 main.tex
 ```
 
 Regenerate the English-language result figures from the accepted local evidence:
