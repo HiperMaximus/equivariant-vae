@@ -104,8 +104,9 @@ second fail-fast assertion requiring strict first-update equivalence. That is a
 scientific A0 outcome, not an execution failure: the runner now writes the
 exact differences, thresholds and baseline/T0 scaler trajectories to a branch
 receipt, reports `passed=false` when applicable, and continues through the
-paired cost panel. A corrected submission is pending. Cadence and the full
-training runner stay pending A0 measurements. Heavy T2 remains future work.
+paired cost panel. Kaggle v3 is running from source commit
+`80973a72d75a48db33760efa8aadc52e5f736b41`. Cadence and the full training
+runner stay pending A0 measurements. Heavy T2 remains future work.
 The separate 152-WSI cohort
 remains outside all new decisions and must be reported as historically exposed
 rather than a newly sealed test population.
