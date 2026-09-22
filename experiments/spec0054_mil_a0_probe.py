@@ -29,6 +29,7 @@ PATCH_RECORD_BYTES = 3 * 256 * 256
 ENCODER_BATCH_SIZE = 8
 CLASSIFIER_SEED = 1701
 PEAK_LR = 2e-4
+MAX_AMP_RETRIES = 16
 
 
 @dataclass(frozen=True)
@@ -424,50 +425,68 @@ def _run_branch_probe(
     }
     targets = {wsi_id: rows_by_wsi[wsi_id][0].label for wsi_id in selected_ids}
 
-    baseline = _make_classifier(classifier_state, device, torch)
-    baseline_optimizer = _make_optimizer(baseline, torch)
-    baseline_scaler = torch.amp.GradScaler("cuda")
-    baseline_fn = _compiled_closure(baseline, instrumented=False, torch=torch)
     target = torch.tensor([targets[median_id]], device=device)
     weight = torch.tensor(class_weights[targets[median_id]], device=device)
     median_latent, median_graph = latents[median_id], graphs[median_id]
 
-    torch.cuda.reset_peak_memory_stats(device)
-    torch.cuda.synchronize(device)
-    cold_started = time.perf_counter()
-    baseline_optimizer.zero_grad(set_to_none=True)
-    base_logits, base_loss, base_weighted = baseline_fn(
-        median_latent, median_graph, target, weight
-    )
-    baseline_scaler.scale(base_weighted).backward()
-    baseline_scaler.unscale_(baseline_optimizer)
-    baseline_scaler.step(baseline_optimizer)
-    baseline_scaler.update()
-    baseline_optimizer.zero_grad(set_to_none=True)
-    torch.cuda.synchronize(device)
-    baseline_cold = time.perf_counter() - cold_started
-    baseline_first_model_state = copy_state_to_cpu(baseline.state_dict())
-    baseline_first_optimizer_state = copy_state_to_cpu(
-        baseline_optimizer.state_dict()
-    )
-    baseline_first_scaler_state = baseline_scaler.state_dict()
-    baseline_times: list[float] = []
-    for _ in range(2, 5):
+    def run_baseline() -> dict[str, Any]:
+        baseline = _make_classifier(classifier_state, device, torch)
+        optimizer = _make_optimizer(baseline, torch)
+        scaler = torch.amp.GradScaler("cuda")
+        compiled = _compiled_closure(baseline, instrumented=False, torch=torch)
+
+        def update() -> tuple[Any, Any, int]:
+            skipped = 0
+            while True:
+                optimizer.zero_grad(set_to_none=True)
+                logits, loss, weighted = compiled(
+                    median_latent, median_graph, target, weight
+                )
+                initial_scale = float(scaler.get_scale())
+                scaler.scale(weighted).backward()
+                scaler.unscale_(optimizer)
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
+                if float(scaler.get_scale()) >= initial_scale:
+                    return logits, loss, skipped
+                skipped += 1
+                if skipped >= MAX_AMP_RETRIES:
+                    raise RuntimeError("Baseline AMP retries exceeded the A0 limit")
+
+        torch.cuda.reset_peak_memory_stats(device)
         torch.cuda.synchronize(device)
-        step_started = time.perf_counter()
-        baseline_optimizer.zero_grad(set_to_none=True)
-        _, _, weighted = baseline_fn(median_latent, median_graph, target, weight)
-        baseline_scaler.scale(weighted).backward()
-        baseline_scaler.unscale_(baseline_optimizer)
-        baseline_scaler.step(baseline_optimizer)
-        baseline_scaler.update()
-        baseline_optimizer.zero_grad(set_to_none=True)
+        cold_started = time.perf_counter()
+        logits, loss, first_skips = update()
         torch.cuda.synchronize(device)
-        baseline_times.append(time.perf_counter() - step_started)
-    baseline_final_model_state = copy_state_to_cpu(baseline.state_dict())
-    baseline_peak_allocated = torch.cuda.max_memory_allocated(device)
-    baseline_peak_reserved = torch.cuda.max_memory_reserved(device)
-    del baseline_fn, baseline_scaler, baseline_optimizer, baseline
+        cold_seconds = time.perf_counter() - cold_started
+        first_model_state = copy_state_to_cpu(baseline.state_dict())
+        first_optimizer_state = copy_state_to_cpu(optimizer.state_dict())
+        first_scaler_state = scaler.state_dict()
+        steady_seconds: list[float] = []
+        skipped_attempts = [first_skips]
+        for _ in range(2, 5):
+            torch.cuda.synchronize(device)
+            step_started = time.perf_counter()
+            _, _, skipped = update()
+            torch.cuda.synchronize(device)
+            steady_seconds.append(time.perf_counter() - step_started)
+            skipped_attempts.append(skipped)
+        return {
+            "logits": logits.detach().float().cpu(),
+            "loss": float(loss.detach().float().cpu()),
+            "first_model_state": first_model_state,
+            "first_optimizer_state": first_optimizer_state,
+            "first_scaler_state": first_scaler_state,
+            "final_model_state": copy_state_to_cpu(baseline.state_dict()),
+            "cold_seconds": cold_seconds,
+            "steady_seconds": steady_seconds,
+            "skipped_attempts": skipped_attempts,
+            "peak_allocated": torch.cuda.max_memory_allocated(device),
+            "peak_reserved": torch.cuda.max_memory_reserved(device),
+        }
+
+    baseline_result = run_baseline()
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats(device)
 
@@ -488,57 +507,69 @@ def _run_branch_probe(
 
     torch.cuda.synchronize(device)
     cold_started = time.perf_counter()
-    first = instrumented_adamw_attempt(
-        model=observed,
-        optimizer=observed_optimizer,
-        scaler=observed_scaler,
-        telemetry=telemetry,
-        next_committed_update=1,
-        forward_loss=observed_loss,
-    )
-    torch.cuda.synchronize(device)
-    observed_cold = time.perf_counter() - cold_started
-    observed_peak_allocated = torch.cuda.max_memory_allocated(device)
-    observed_peak_reserved = torch.cuda.max_memory_reserved(device)
-    if not first.committed:
-        raise RuntimeError("A0 first telemetry update overflowed")
-
-    logit_difference = float(
-        (base_logits.detach().float().cpu() - torch.tensor(first.logits)).abs().max()
-    )
-    model_difference = _state_max_difference(
-        baseline_first_model_state, observed.state_dict(), torch
-    )
-    optimizer_difference = _state_max_difference(
-        baseline_first_optimizer_state, observed_optimizer.state_dict(), torch
-    )
-    scaler_equal = baseline_first_scaler_state == observed_scaler.state_dict()
-    if (
-        logit_difference > 1e-6
-        or abs(float(base_loss) - first.unweighted_loss) > 1e-6
-        or model_difference > 1e-7
-        or optimizer_difference > 1e-7
-        or not scaler_equal
-    ):
-        raise RuntimeError("T0 changed first-update numerical semantics")
-
-    observed_times: list[float] = []
-    t0_rows: list[dict[str, Any]] = []
-    for update in range(2, 5):
-        torch.cuda.synchronize(device)
-        started = time.perf_counter()
-        result = instrumented_adamw_attempt(
+    first_observed_skips = 0
+    while True:
+        first = instrumented_adamw_attempt(
             model=observed,
             optimizer=observed_optimizer,
             scaler=observed_scaler,
             telemetry=telemetry,
-            next_committed_update=update,
+            next_committed_update=1,
             forward_loss=observed_loss,
         )
+        if first.committed:
+            break
+        first_observed_skips += 1
+        if first_observed_skips >= MAX_AMP_RETRIES:
+            raise RuntimeError("T0 AMP retries exceeded the A0 limit")
+    torch.cuda.synchronize(device)
+    observed_cold = time.perf_counter() - cold_started
+    observed_peak_allocated = torch.cuda.max_memory_allocated(device)
+    observed_peak_reserved = torch.cuda.max_memory_reserved(device)
+    logit_difference = float(
+        (baseline_result["logits"] - torch.tensor(first.logits)).abs().max()
+    )
+    model_difference = _state_max_difference(
+        baseline_result["first_model_state"], observed.state_dict(), torch
+    )
+    optimizer_difference = _state_max_difference(
+        baseline_result["first_optimizer_state"], observed_optimizer.state_dict(), torch
+    )
+    scaler_equal = baseline_result["first_scaler_state"] == observed_scaler.state_dict()
+    if (
+        logit_difference > 1e-6
+        or abs(baseline_result["loss"] - first.unweighted_loss) > 1e-6
+        or model_difference > 1e-7
+        or optimizer_difference > 1e-7
+        or not scaler_equal
+        or baseline_result["skipped_attempts"][0] != first_observed_skips
+    ):
+        raise RuntimeError("T0 changed first-update numerical semantics")
+
+    observed_times: list[float] = []
+    observed_skips = [first_observed_skips]
+    t0_rows: list[dict[str, Any]] = []
+    for update in range(2, 5):
+        torch.cuda.synchronize(device)
+        started = time.perf_counter()
+        skipped = 0
+        while True:
+            result = instrumented_adamw_attempt(
+                model=observed,
+                optimizer=observed_optimizer,
+                scaler=observed_scaler,
+                telemetry=telemetry,
+                next_committed_update=update,
+                forward_loss=observed_loss,
+            )
+            if result.committed:
+                break
+            skipped += 1
+            if skipped >= MAX_AMP_RETRIES:
+                raise RuntimeError("T0 AMP retries exceeded the A0 limit")
         torch.cuda.synchronize(device)
         observed_times.append(time.perf_counter() - started)
-        if not result.committed:
-            raise RuntimeError("A0 telemetry timing update overflowed")
+        observed_skips.append(skipped)
         t0_rows.append(
             {
                 "update": update,
@@ -554,10 +585,12 @@ def _run_branch_probe(
             observed_peak_reserved, torch.cuda.max_memory_reserved(device)
         )
     final_model_difference = _state_max_difference(
-        baseline_final_model_state, observed.state_dict(), torch
+        baseline_result["final_model_state"], observed.state_dict(), torch
     )
     if final_model_difference > 1e-7:
         raise RuntimeError("T0 changed the measured update trajectory")
+    if baseline_result["skipped_attempts"] != observed_skips:
+        raise RuntimeError("T0 changed the AMP overflow/retry trajectory")
 
     t1_results: dict[str, Any] = {}
     t2_rows: list[dict[str, Any]] = []
@@ -608,24 +641,31 @@ def _run_branch_probe(
         "branch": branch,
         "first_update_equivalence": {
             "logit_max_abs_difference": logit_difference,
-            "loss_abs_difference": abs(float(base_loss) - first.unweighted_loss),
+            "loss_abs_difference": abs(
+                baseline_result["loss"] - first.unweighted_loss
+            ),
             "model_max_abs_difference": model_difference,
             "optimizer_max_abs_difference": optimizer_difference,
             "scaler_equal": scaler_equal,
             "measured_trajectory_model_max_abs_difference": final_model_difference,
+            "amp_skipped_attempts_by_update": baseline_result["skipped_attempts"],
         },
-        "cold_seconds": {"baseline": baseline_cold, "t0": observed_cold},
+        "cold_seconds": {
+            "baseline": baseline_result["cold_seconds"],
+            "t0": observed_cold,
+        },
         "steady_seconds": {
-            "baseline": baseline_times,
+            "baseline": baseline_result["steady_seconds"],
             "t0": observed_times,
-            "t0_over_baseline_ratio": sum(observed_times) / sum(baseline_times),
+            "t0_over_baseline_ratio": sum(observed_times)
+            / sum(baseline_result["steady_seconds"]),
         },
         "peak_allocated_bytes": {
-            "baseline": baseline_peak_allocated,
+            "baseline": baseline_result["peak_allocated"],
             "t0": observed_peak_allocated,
         },
         "peak_reserved_bytes": {
-            "baseline": baseline_peak_reserved,
+            "baseline": baseline_result["peak_reserved"],
             "t0": observed_peak_reserved,
         },
         "graph_identities": {
