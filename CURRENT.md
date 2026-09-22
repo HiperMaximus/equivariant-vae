@@ -99,9 +99,10 @@ real-data probe but stopped when its first AMP attempt overflowed at the
 initial GradScaler scale. The baseline had skipped that attempt normally while
 the instrumented arm treated it as fatal. The runner now retries both arms
 until the same committed update, records paired skipped-attempt counts and
-retains a finite retry guard; a corrected submission is pending. Cadence and
-the full training runner stay pending A0 measurements. Heavy T2 remains future
-work.
+retains a finite retry guard. Corrected Kaggle version
+`maximusshtefan/eqvae-spec0054-mil-a0/2` is running from source commit
+`9ae903f3db2c92258f47feaa331f9bc8d2bc403a`. Cadence and the full training
+runner stay pending A0 measurements. Heavy T2 remains future work.
 The separate 152-WSI cohort
 remains outside all new decisions and must be reported as historically exposed
 rather than a newly sealed test population.
