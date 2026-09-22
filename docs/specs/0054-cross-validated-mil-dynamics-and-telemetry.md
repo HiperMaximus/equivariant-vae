@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: telemetry primitives and bounded A0 contract/runner implemented; remote A0 pending
+Status: bounded A0 v1 running on Kaggle; five-fold training remains pending
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-09-22

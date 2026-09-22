@@ -94,8 +94,10 @@ frozen. A thin Kaggle A0 runner audits mounted patch identities and binary
 headers, emits the physical-row instance manifest, reconstructs paired
 frozen-VAE bags for a class-sentinel and median/P99/maximum cost panel, proves
 first-update T0 equivalence, and measures paired T0/T1/T2-lite cost before full
-training. The remote A0 has not yet been submitted; cadence and the full
-training runner stay pending its measurements. Heavy T2 remains future work.
+training. Kaggle kernel
+`maximusshtefan/eqvae-spec0054-mil-a0/1` is running from source commit
+`d5b2fc2b013d5c482166c81fd5cdd71d4407a111`; cadence and the full training
+runner stay pending its measurements. Heavy T2 remains future work.
 The separate 152-WSI cohort
 remains outside all new decisions and must be reported as historically exposed
 rather than a newly sealed test population.
