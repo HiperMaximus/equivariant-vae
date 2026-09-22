@@ -1,0 +1,19 @@
+{
+  "id": "maximusshtefan/eqvae-spec0054-mil-a0",
+  "title": "eqvae spec0054 mil a0",
+  "code_file": "main.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_internet": "true",
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "maximusshtefan/patches-pre-shuffled-ubc-ocean",
+    "maximusshtefan/train-val-atlas-ubc-ocean",
+    "maximusshtefan/eqvae-frozen-vae-weights-v1"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}
