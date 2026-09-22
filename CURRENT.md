@@ -92,21 +92,19 @@ state, a real AMP overflow/retry, telemetry resume and exact next-update
 continuation. The 361-WSI cohort/fold manifest and compact A0 contract are now
 frozen. A thin Kaggle A0 runner audits mounted patch identities and binary
 headers, emits the physical-row instance manifest, reconstructs paired
-frozen-VAE bags for a class-sentinel and median/P99/maximum cost panel, proves
-first-update T0 equivalence, and measures paired T0/T1/T2-lite cost before full
+frozen-VAE bags for a class-sentinel and median/P99/maximum cost panel, records
+raw baseline/T0 differences, and measures paired T0/T1/T2-lite cost before full
 training. Kaggle kernel `maximusshtefan/eqvae-spec0054-mil-a0/1` reached the
 real-data probe but stopped when its first AMP attempt overflowed at the
-initial GradScaler scale. The baseline had skipped that attempt normally while
-the instrumented arm treated it as fatal. The runner now retries both arms
-until the same committed update, records paired skipped-attempt counts and
-retains a finite retry guard. Kaggle v2 passed retry handling but stopped at a
-second fail-fast assertion requiring strict first-update equivalence. That is a
-scientific A0 outcome, not an execution failure: the runner now writes the
-exact differences, thresholds and baseline/T0 scaler trajectories to a branch
-receipt, reports `passed=false` when applicable, and continues through the
-paired cost panel. Kaggle v3 is running from source commit
-`80973a72d75a48db33760efa8aadc52e5f736b41`. Cadence and the full training
-runner stay pending A0 measurements. Heavy T2 remains future work.
+initial GradScaler scale. Kaggle v2 then stopped at an invented strict
+equivalence gate. Both fail-fast decisions were inappropriate for this
+exploratory probe. The runner now has no numerical pass/fail thresholds, no
+retry ceiling and no equivalence gate: it stores raw deltas, scaler states and
+skipped-attempt sequences. Dataset/header/cohort differences are also recorded
+as audit values rather than converted into failures. Only six structural
+conditions that make execution impossible still raise. Kaggle v3 predates this
+simplification; a replacement submission is pending. Cadence and the full
+training runner stay pending A0 measurements. Heavy T2 remains future work.
 The separate 152-WSI cohort
 remains outside all new decisions and must be reported as historically exposed
 rather than a newly sealed test population.

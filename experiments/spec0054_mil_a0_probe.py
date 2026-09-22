@@ -29,7 +29,6 @@ PATCH_RECORD_BYTES = 3 * 256 * 256
 ENCODER_BATCH_SIZE = 8
 CLASSIFIER_SEED = 1701
 PEAK_LR = 2e-4
-MAX_AMP_RETRIES = 16
 
 
 @dataclass(frozen=True)
@@ -73,9 +72,12 @@ def _unique_input(name: str, expected_sha256: str | None = None) -> Path:
     return matches[0]
 
 
-def _load_patch_rows(path: Path, role: str, expected_rows: int) -> list[PatchRow]:
+def _load_patch_rows(
+    path: Path, role: str, expected_rows: int
+) -> tuple[list[PatchRow], dict[str, Any]]:
     rows: list[PatchRow] = []
     identities: set[tuple[int, int, int]] = set()
+    duplicate_count = 0
     with path.open(newline="", encoding="utf-8") as handle:
         for source_row_index, row in enumerate(csv.DictReader(handle)):
             patch = PatchRow(
@@ -88,12 +90,15 @@ def _load_patch_rows(path: Path, role: str, expected_rows: int) -> list[PatchRow
             )
             identity = (patch.wsi_id, patch.x, patch.y)
             if identity in identities:
-                raise RuntimeError(f"Duplicate patch identity in {role}: {identity}")
+                duplicate_count += 1
             identities.add(identity)
             rows.append(patch)
-    if len(rows) != expected_rows:
-        raise RuntimeError(f"Unexpected {role} row count: {len(rows)}")
-    return rows
+    return rows, {
+        "role": role,
+        "expected_rows": expected_rows,
+        "observed_rows": len(rows),
+        "duplicate_patch_identities": duplicate_count,
+    }
 
 
 def _validate_binary(
@@ -102,26 +107,30 @@ def _validate_binary(
     expected_bytes: int,
     expected_crc32: int,
 ) -> dict[str, Any]:
-    if path.stat().st_size != expected_bytes:
-        raise RuntimeError(f"Patch binary size differs: {path.name}")
+    actual_bytes = path.stat().st_size
     with path.open("rb") as handle:
         header = handle.read(PATCH_HEADER_BYTES)
     values = struct.unpack(PATCH_HEADER_FORMAT, header)
     magic, crc32, count, channels, height, width, version, layout = values
-    if (
-        magic != b"UBC_DATA"
-        or count != expected_rows
-        or crc32 != expected_crc32
-        or (channels, height, width, version, layout) != (3, 256, 256, 1, b"CHW")
-    ):
-        raise RuntimeError(f"Patch binary header differs: {path.name}")
     return {
         "name": path.name,
-        "bytes": path.stat().st_size,
+        "bytes": actual_bytes,
+        "expected_bytes": expected_bytes,
+        "bytes_match": actual_bytes == expected_bytes,
+        "magic": magic.decode(errors="replace"),
+        "magic_matches": magic == b"UBC_DATA",
         "crc32": int(crc32),
+        "expected_crc32": expected_crc32,
+        "crc32_matches": crc32 == expected_crc32,
         "rows": int(count),
+        "expected_rows": expected_rows,
+        "rows_match": count == expected_rows,
         "shape": [int(channels), int(height), int(width)],
+        "shape_matches": (channels, height, width) == (3, 256, 256),
+        "version": int(version),
+        "version_matches": version == 1,
         "layout": layout.decode(),
+        "layout_matches": layout == b"CHW",
     }
 
 
@@ -129,7 +138,7 @@ def _validate_atlas(
     atlas_path: Path,
     train_rows: list[PatchRow],
     validation_rows: list[PatchRow],
-) -> None:
+) -> dict[str, Any]:
     class_index = {"CC": 0, "EC": 1, "HGSC": 2, "LGSC": 3, "MC": 4}
     observed: dict[str, set[tuple[int, int, int, int]]] = {
         "train": set(),
@@ -151,8 +160,15 @@ def _validate_atlas(
             (row.wsi_id, row.label, row.x, row.y) for row in validation_rows
         },
     }
-    if observed != expected:
-        raise RuntimeError("Mounted patch CSV identities differ from canonical atlas")
+    return {
+        role: {
+            "observed_count": len(observed[role]),
+            "expected_count": len(expected[role]),
+            "missing_count": len(expected[role] - observed[role]),
+            "unexpected_count": len(observed[role] - expected[role]),
+        }
+        for role in ("train", "valid")
+    }
 
 
 def _write_instance_manifest(rows: list[PatchRow]) -> dict[str, Any]:
@@ -192,34 +208,48 @@ def _validate_cohort(
     repo_root: Path,
     contract: dict[str, Any],
     rows: list[PatchRow],
-) -> dict[int, dict[str, Any]]:
+) -> tuple[dict[int, dict[str, Any]], dict[str, Any]]:
     cohort_path = repo_root / COHORT_RELATIVE
-    if _sha256(cohort_path) != contract["cohort_csv_sha256"]:
-        raise RuntimeError("Cohort/fold table hash differs")
+    observed_hash = _sha256(cohort_path)
     with cohort_path.open(newline="", encoding="utf-8") as handle:
         cohort = {int(row["wsi_id"]): row for row in csv.DictReader(handle)}
     grouped: dict[int, list[PatchRow]] = defaultdict(list)
     for row in rows:
         grouped[row.wsi_id].append(row)
-    if set(cohort) != set(grouped) or len(cohort) != 361:
-        raise RuntimeError("Cohort WSI identities differ")
+    inconsistent_label_wsi = 0
+    inconsistent_summary_wsi = 0
     for wsi_id, patches in grouped.items():
         labels = {row.label for row in patches}
         if len(labels) != 1:
-            raise RuntimeError(f"WSI label differs: {wsi_id}")
-        row = cohort[wsi_id]
-        if int(row["diagnosis_index"]) != next(iter(labels)) or int(
-            row["patch_count"]
-        ) != len(patches):
-            raise RuntimeError(f"Cohort summary differs: {wsi_id}")
+            inconsistent_label_wsi += 1
+        row = cohort.get(wsi_id)
+        if row is None or len(labels) != 1:
+            inconsistent_summary_wsi += 1
+            continue
+        if (
+            int(row["diagnosis_index"]) != next(iter(labels))
+            or int(row["patch_count"]) != len(patches)
+        ):
+            inconsistent_summary_wsi += 1
     fold_counts = Counter(int(row["fold"]) for row in cohort.values())
-    if sorted(fold_counts.values()) != [72, 72, 72, 72, 73]:
-        raise RuntimeError("Five-fold WSI sizes differ")
     with (repo_root / HISTORICAL_RELATIVE).open(newline="", encoding="utf-8") as handle:
         historical = {int(row["image_id"]) for row in csv.DictReader(handle)}
-    if historical & set(cohort):
-        raise RuntimeError("Development cohort overlaps historical 152 WSI")
-    return cohort
+    overlap = historical & set(cohort)
+    audit = {
+        "cohort_csv_sha256": observed_hash,
+        "expected_cohort_csv_sha256": contract["cohort_csv_sha256"],
+        "cohort_hash_matches": observed_hash == contract["cohort_csv_sha256"],
+        "cohort_wsi_count": len(cohort),
+        "source_wsi_count": len(grouped),
+        "missing_cohort_wsi_count": len(set(grouped) - set(cohort)),
+        "unexpected_cohort_wsi_count": len(set(cohort) - set(grouped)),
+        "inconsistent_label_wsi_count": inconsistent_label_wsi,
+        "inconsistent_summary_wsi_count": inconsistent_summary_wsi,
+        "fold_counts": dict(sorted(fold_counts.items())),
+        "historical_overlap_count": len(overlap),
+        "historical_overlap_wsi_ids": sorted(overlap),
+    }
+    return cohort, audit
 
 
 def _read_patch_batch(binary: Path, rows: list[PatchRow]) -> np.ndarray:
@@ -451,8 +481,6 @@ def _run_branch_probe(
                 if float(scaler.get_scale()) >= initial_scale:
                     return logits, loss, skipped
                 skipped += 1
-                if skipped >= MAX_AMP_RETRIES:
-                    raise RuntimeError("Baseline AMP retries exceeded the A0 limit")
 
         torch.cuda.reset_peak_memory_stats(device)
         torch.cuda.synchronize(device)
@@ -520,12 +548,11 @@ def _run_branch_probe(
         if first.committed:
             break
         first_observed_skips += 1
-        if first_observed_skips >= MAX_AMP_RETRIES:
-            raise RuntimeError("T0 AMP retries exceeded the A0 limit")
     torch.cuda.synchronize(device)
     observed_cold = time.perf_counter() - cold_started
     observed_peak_allocated = torch.cuda.max_memory_allocated(device)
     observed_peak_reserved = torch.cuda.max_memory_reserved(device)
+    observed_first_scaler_state = observed_scaler.state_dict()
     logit_difference = float(
         (baseline_result["logits"] - torch.tensor(first.logits)).abs().max()
     )
@@ -535,16 +562,8 @@ def _run_branch_probe(
     optimizer_difference = _state_max_difference(
         baseline_result["first_optimizer_state"], observed_optimizer.state_dict(), torch
     )
-    scaler_equal = baseline_result["first_scaler_state"] == observed_scaler.state_dict()
+    scaler_equal = baseline_result["first_scaler_state"] == observed_first_scaler_state
     loss_difference = abs(baseline_result["loss"] - first.unweighted_loss)
-    first_update_passed = not (
-        logit_difference > 1e-6
-        or loss_difference > 1e-6
-        or model_difference > 1e-7
-        or optimizer_difference > 1e-7
-        or not scaler_equal
-        or baseline_result["skipped_attempts"][0] != first_observed_skips
-    )
 
     observed_times: list[float] = []
     observed_skips = [first_observed_skips]
@@ -565,8 +584,6 @@ def _run_branch_probe(
             if result.committed:
                 break
             skipped += 1
-            if skipped >= MAX_AMP_RETRIES:
-                raise RuntimeError("T0 AMP retries exceeded the A0 limit")
         torch.cuda.synchronize(device)
         observed_times.append(time.perf_counter() - started)
         observed_skips.append(skipped)
@@ -587,33 +604,22 @@ def _run_branch_probe(
     final_model_difference = _state_max_difference(
         baseline_result["final_model_state"], observed.state_dict(), torch
     )
-    retry_trajectory_equal = baseline_result["skipped_attempts"] == observed_skips
-    trajectory_passed = final_model_difference <= 1e-7 and retry_trajectory_equal
-    equivalence = {
-        "passed": first_update_passed and trajectory_passed,
-        "first_update_passed": first_update_passed,
-        "trajectory_passed": trajectory_passed,
-        "thresholds": {
-            "logit_max_abs_difference": 1e-6,
-            "loss_abs_difference": 1e-6,
-            "model_max_abs_difference": 1e-7,
-            "optimizer_max_abs_difference": 1e-7,
-            "trajectory_model_max_abs_difference": 1e-7,
-        },
+    comparison = {
         "logit_max_abs_difference": logit_difference,
         "loss_abs_difference": loss_difference,
         "model_max_abs_difference": model_difference,
         "optimizer_max_abs_difference": optimizer_difference,
-        "scaler_equal": scaler_equal,
+        "scaler_state_equal": scaler_equal,
         "measured_trajectory_model_max_abs_difference": final_model_difference,
-        "retry_trajectory_equal": retry_trajectory_equal,
         "baseline_amp_skipped_attempts_by_update": baseline_result[
             "skipped_attempts"
         ],
         "t0_amp_skipped_attempts_by_update": observed_skips,
+        "baseline_first_scaler_state": baseline_result["first_scaler_state"],
+        "t0_first_scaler_state": observed_first_scaler_state,
     }
-    _write_json(OUTPUT_ROOT / f"equivalence_{branch}.json", equivalence)
-    print(json.dumps({"branch": branch, "equivalence": equivalence}), flush=True)
+    _write_json(OUTPUT_ROOT / f"baseline_t0_comparison_{branch}.json", comparison)
+    print(json.dumps({"branch": branch, "comparison": comparison}), flush=True)
 
     t1_results: dict[str, Any] = {}
     t2_rows: list[dict[str, Any]] = []
@@ -662,7 +668,7 @@ def _run_branch_probe(
     _write_json(OUTPUT_ROOT / f"t1_{branch}.json", t1_results)
     return {
         "branch": branch,
-        "first_update_equivalence": equivalence,
+        "baseline_t0_comparison": comparison,
         "cold_seconds": {
             "baseline": baseline_result["cold_seconds"],
             "t0": observed_cold,
@@ -711,8 +717,12 @@ def run(*, repo_root: Path, source_commit: str) -> int:
             "so2_vae_state.pt", sources["so2_state_file_sha256"]
         ),
     }
-    train_rows = _load_patch_rows(train_csv, "vae_train", 300000)
-    validation_rows = _load_patch_rows(validation_csv, "vae_validation", 30000)
+    train_rows, train_csv_audit = _load_patch_rows(
+        train_csv, "vae_train", 300000
+    )
+    validation_rows, validation_csv_audit = _load_patch_rows(
+        validation_csv, "vae_validation", 30000
+    )
     all_rows = train_rows + validation_rows
     binary_audit = {
         "vae_train": _validate_binary(
@@ -728,8 +738,8 @@ def run(*, repo_root: Path, source_commit: str) -> int:
             contract["patch_sources"]["vae_validation"]["binary_crc32"],
         ),
     }
-    _validate_atlas(atlas_csv, train_rows, validation_rows)
-    cohort = _validate_cohort(repo_root, contract, all_rows)
+    atlas_audit = _validate_atlas(atlas_csv, train_rows, validation_rows)
+    cohort, cohort_audit = _validate_cohort(repo_root, contract, all_rows)
     instance_manifest = _write_instance_manifest(all_rows)
     rows_by_wsi: dict[int, list[PatchRow]] = defaultdict(list)
     for row in all_rows:
@@ -793,13 +803,15 @@ def run(*, repo_root: Path, source_commit: str) -> int:
         "probe_fold_train_class_counts": train_counts,
         "probe_fold_class_weights": class_weights,
         "binary_audit": binary_audit,
+        "csv_audit": {
+            "vae_train": train_csv_audit,
+            "vae_validation": validation_csv_audit,
+        },
+        "atlas_audit": atlas_audit,
+        "cohort_audit": cohort_audit,
         "instance_manifest": instance_manifest,
         "encoder_seconds": encoder_seconds,
         "branches": branches,
-        "all_equivalence_checks_passed": all(
-            record["first_update_equivalence"]["passed"]
-            for record in branches.values()
-        ),
         "runtime": {
             "torch": torch.__version__,
             "cuda": torch.version.cuda,

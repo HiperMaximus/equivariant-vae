@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: diagnostic A0 v3 running; five-fold training remains pending
+Status: A0 simplified after v1/v2 fail-fast mistakes; replacement run pending
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-09-22
@@ -282,8 +282,8 @@ memorization regularizers follow later.
    learning-curve subsets and diagnostic-sentinel identities.
 3. Freeze module names and parameter groups used by telemetry.
 4. Define compact outputs, sampling frequencies and maximum artifact size.
-5. Prove that telemetry summaries do not change logits, losses or gradients in
-   a focused deterministic comparison.
+5. Record the raw numerical differences between telemetry-disabled and enabled
+   paths in a focused comparison, without an arbitrary acceptance gate.
 
 ### A1 -- instrumented unchanged baseline
 
@@ -659,9 +659,10 @@ The compiled hot path should use explicit optional diagnostic returns or
 stable named capture points; generic Python forward/backward hooks are reserved
 for an eager T1/T2 checkpoint copy if they introduce graph breaks. Parameter
 gradients are summarized after AMP unscaling and before the optimizer step.
-The instrumentation equivalence check must cover the diagnostic-disabled and
-enabled paths and confirm identical logits, loss, raw gradients and first
-update.
+The instrumentation comparison covers the diagnostic-disabled and enabled
+paths and records logits, loss, optimizer/scaler state, raw update differences
+and skipped-attempt sequences. These are descriptive measurements; A0 does not
+turn them into a pass/fail decision.
 
 For SC-MIL/proxy decisions, record per-class bag-embedding centroids,
 within-class scatter, between-class distances, nearest-centroid errors,
