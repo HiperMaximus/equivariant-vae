@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: A0 simplified after v1/v2 fail-fast mistakes; replacement run pending
+Status: simplified A0 v4 running; five-fold training remains pending
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-09-22
