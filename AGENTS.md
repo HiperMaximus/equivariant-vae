@@ -24,6 +24,10 @@ that workflow.
    gates or check frameworks. Contract-defined scientific conditionals (for
    example, an intrinsic quantity becoming undefined on numerical singularity)
    remain required.
+   **Fail-fast means letting an operation fail naturally, never making it fail.**
+   Do not manufacture failures with assertions, arbitrary tolerances,
+   pass/fail labels, acceptance gates, or defensive `raise` statements for
+   scientifically observable outcomes.
 4. Keep `CURRENT.md` as the concise handoff. Scientific definitions and claims
    belong in the active spec; numerical parameters belong in machine-readable
    contracts. Do not duplicate them in policy files or assertion-heavy tests.
