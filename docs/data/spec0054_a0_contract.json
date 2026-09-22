@@ -1,0 +1,169 @@
+{
+  "acquisition_site": "unavailable_in_canonical_source",
+  "class_counts": {
+    "CC": 61,
+    "EC": 83,
+    "HGSC": 161,
+    "LGSC": 27,
+    "MC": 29
+  },
+  "class_order": [
+    "CC",
+    "EC",
+    "HGSC",
+    "LGSC",
+    "MC"
+  ],
+  "cohort_csv": "spec0054_cohort_folds.csv",
+  "cohort_csv_sha256": "777b1a3f6ec72c40c7b96a914f9e59f6bc6d57df13636a99dfdcb478e2e9397e",
+  "cost_panel": {
+    "maximum": {
+      "diagnosis": "LGSC",
+      "patch_count": 6617,
+      "source_role": "vae_train",
+      "wsi_id": 26862
+    },
+    "median": {
+      "diagnosis": "HGSC",
+      "patch_count": 625,
+      "source_role": "vae_train",
+      "wsi_id": 28121
+    },
+    "p99": {
+      "diagnosis": "MC",
+      "patch_count": 4328,
+      "source_role": "vae_train",
+      "wsi_id": 9254
+    }
+  },
+  "fold_algorithm": "diagnosis_primary_greedy_role_then_patch_balance",
+  "fold_class_counts": {
+    "0": {
+      "CC": 12,
+      "EC": 17,
+      "HGSC": 32,
+      "LGSC": 6,
+      "MC": 6
+    },
+    "1": {
+      "CC": 12,
+      "EC": 16,
+      "HGSC": 33,
+      "LGSC": 5,
+      "MC": 6
+    },
+    "2": {
+      "CC": 12,
+      "EC": 17,
+      "HGSC": 32,
+      "LGSC": 6,
+      "MC": 5
+    },
+    "3": {
+      "CC": 12,
+      "EC": 17,
+      "HGSC": 32,
+      "LGSC": 5,
+      "MC": 6
+    },
+    "4": {
+      "CC": 13,
+      "EC": 16,
+      "HGSC": 32,
+      "LGSC": 5,
+      "MC": 6
+    }
+  },
+  "fold_count": 5,
+  "fold_seed": 5401,
+  "fold_sentinels": {
+    "0": {
+      "holdout": 27739,
+      "train": 28121
+    },
+    "1": {
+      "holdout": 54590,
+      "train": 28121
+    },
+    "2": {
+      "holdout": 14617,
+      "train": 64950
+    },
+    "3": {
+      "holdout": 27851,
+      "train": 59900
+    },
+    "4": {
+      "holdout": 64188,
+      "train": 64950
+    }
+  },
+  "historical_152_overlap_count": 0,
+  "historical_holdout_csv_sha256": "9fa03421694f77d3964097da2388beca45b31ce3e50da0b170c13781b86dea81",
+  "image_update_indicator": "unavailable_in_canonical_source",
+  "patch_sources": {
+    "header_bytes": 64,
+    "logical_order": "wsi_id_y_x",
+    "physical_index": "zero_based_csv_data_row_aligned_to_binary_record",
+    "record_bytes": 196608,
+    "vae_train": {
+      "binary_bytes": 58982400064,
+      "binary_crc32": 1289496176,
+      "binary_name": "ubc_train_shuffled.bin",
+      "csv_name": "ubc_train_shuffled.csv",
+      "rows": 300000
+    },
+    "vae_validation": {
+      "binary_bytes": 5898240064,
+      "binary_crc32": 3532641891,
+      "binary_name": "ubc_ocean_valid.bin",
+      "csv_name": "ubc_ocean_valid.csv",
+      "rows": 30000
+    }
+  },
+  "patient_or_case_group": "unavailable_in_canonical_source",
+  "probe_fold": 0,
+  "schema_version": "spec0054.a0_contract.v1",
+  "scope": "361_vae_development_wsi_no_historical_152",
+  "sentinels": {
+    "CC": {
+      "patch_count": 853,
+      "source_role": "vae_validation",
+      "wsi_id": 1660
+    },
+    "EC": {
+      "patch_count": 609,
+      "source_role": "vae_validation",
+      "wsi_id": 4608
+    },
+    "HGSC": {
+      "patch_count": 335,
+      "source_role": "vae_validation",
+      "wsi_id": 22654
+    },
+    "LGSC": {
+      "patch_count": 1545,
+      "source_role": "vae_validation",
+      "wsi_id": 21260
+    },
+    "MC": {
+      "patch_count": 1766,
+      "source_role": "vae_validation",
+      "wsi_id": 57265
+    }
+  },
+  "source_role_counts": {
+    "vae_train": 322,
+    "vae_validation": 39
+  },
+  "sources": {
+    "atlas_csv_sha256": "1fc3fc675c519fa08c4031b860c4e9fb4ae419ad7d97e61543fe91f559dc1da0",
+    "atlas_dataset": "maximusshtefan/train-val-atlas-ubc-ocean/1",
+    "frozen_weights": "maximusshtefan/eqvae-frozen-vae-weights-v1/1",
+    "normal_state_file_sha256": "30064fa414f21deeb7ec5f312467ad4e8a3a93f6e7199e7be77f6ed3b28887c7",
+    "patch_dataset": "maximusshtefan/patches-pre-shuffled-ubc-ocean/1",
+    "so2_state_file_sha256": "06802ceb6ba4fb0f46d2b88f751a33a355600db84b412806b563a6d757cb3c12",
+    "train_csv_sha256": "8fc4959f7de006eed259f818ef2cc4ea03d1f3ec6ba483bf7229c04562f22a52",
+    "validation_csv_sha256": "f630eca03f52345171d39b38f72e424e1d0c02251a5495a99840fdb7b17657ac"
+  }
+}

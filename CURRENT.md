@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-09-20
+Last updated: 2026-09-22
 
 ## Active frontier
 
@@ -42,6 +42,63 @@ An anonymous six-page INCISCOS 2026 manuscript now lives under
 only accepted evidence through Stage A1; the active Stage A2 work is excluded.
 `paper/inciscos2026/inciscos2026.pdf` is the visually reviewed build. The
 existing SIPAIM paper subtree remains unchanged.
+
+A standalone Spanish methodology is available in
+`reports/methodology/descripcion_metodologica_experimento_eqvae.md`, with its
+visually reviewed human-readable PDF in
+`output/pdf/descripcion_metodologica_experimento_eqvae.pdf`. It preserves the
+scientific intent of the UBC-OCEAN data construction, the matched
+ResNet-18-derived VAEs, continuous-`SO(2)` tensor operations, corruption model,
+downstream tasks, visualization mathematics and the active Stage A2
+continuation, while omitting incidental execution and file-fragment history.
+
+[Spec 0054](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md) is a
+draft plan for a future classifier rerun on the 361 VAE-development WSI. It
+defines paired five-fold OOF learning dynamics, an optional three-fold
+sensitivity/inner-selection role, repeated initialization/order trajectories,
+tiered optimization and MIL-attention telemetry, and a later full-data refit.
+Its counterfactual boundary diagnostics now cover transferable per-step
+step-size selection, SAM, orthogonal-gradient and StableMax hypotheses,
+per-example/noise regularization, hybrid Muon direction quality and offline
+PANTHER prototype suitability without activating any of those methods. A
+later, narrow architecture screen now retains mean pooling and a full-data
+matched gated-ABMIL control, then admits only mechanism-selected MIL families;
+fold-aware nuisance probes, per-WSI gradient sketches and representation
+trajectories distinguish memorization from dataset shortcuts. Its immediate
+recommended execution is now explicit: an unchanged batch-one Spec 0026/AdamW
+five-fold observational anchor on the 361 WSI, with counterfactual diagnostics
+unable to affect training, immediately followed within the first campaign by
+five-fold effective-batch 4/8 arms under the same exposure-indexed recipe.
+Initialization/order repeats use the selected batch; architecture arms remain
+later.
+The telemetry contract includes a named capture point for every semantic
+layer/sublayer, with cheap blockwise forward/gradient/update summaries at T0,
+sampled activation-gradient and optimizer statistics at T1, and full
+distribution/spectral diagnostics at T2. It also makes runtime packaging
+explicit: a Kaggle session is a resumable compute shard, T0/T1 plus a sparse
+prebudgeted T2 subset accompanies useful training progress, and the exhaustive
+T2 catalogue is distributed across frozen checkpoints rather than repeated at
+every boundary. Historical throughput is only a capacity bound; A0 must freeze
+the final cadence after measuring each diagnostic family's marginal cost.
+The local implementation now provides the non-disruptive observational core:
+a compile-compatible T0 reduction wrapper, exact actual-gradient and
+actual-AdamW-update summaries, sampled eager T1 layer probes, direct T2-lite
+attention/representation reconstruction, resumable learning-dynamics state,
+three self-describing cumulative NPZ tables and one atomic `latest.pt` per run
+containing RNG, optimizer, scaler, scheduler and exact order/cursor. Focused
+local tests cover functional equivalence, compile compatibility,
+accepted attention-backend state equivalence, exact first-step gradients/AdamW
+state, a real AMP overflow/retry, telemetry resume and exact next-update
+continuation. The 361-WSI cohort/fold manifest and compact A0 contract are now
+frozen. A thin Kaggle A0 runner audits mounted patch identities and binary
+headers, emits the physical-row instance manifest, reconstructs paired
+frozen-VAE bags for a class-sentinel and median/P99/maximum cost panel, proves
+first-update T0 equivalence, and measures paired T0/T1/T2-lite cost before full
+training. The remote A0 has not yet been submitted; cadence and the full
+training runner stay pending its measurements. Heavy T2 remains future work.
+The separate 152-WSI cohort
+remains outside all new decisions and must be reported as historically exposed
+rather than a newly sealed test population.
 
 For accepted Stage A1 only, the numerical method is fixed: direct disposable JVP/VJP graphs,
 matrix-free `Gv = J^T(Jv)`, eager FP32 decoder products, FP64 Lanczos
@@ -88,6 +145,30 @@ stored at `runs/kaggle/functional_geometry_stage_a1_c4_slq_v1/` with SHA-256
 `f59bf4eb7bba136c02cca24b237414da1dca23e4b94b781c4eb3d5978840e449`.
 
 ## Live implementation
+
+- `src/eqvae/models/local_global_mil.py` and
+  `src/eqvae/models/local_attention_candidates.py`: restored accepted
+  Spec 0026 MIL topology and local-attention backend, with an additive
+  representation-return path that leaves the ordinary forward unchanged.
+- `src/eqvae/training/mil_dynamics.py`: compile-compatible T0 reductions,
+  resumable per-WSI dynamics, exact actual-gradient/update diagnostics and
+  sampled eager T1 layer/optimizer probes.
+- `src/eqvae/training/mil_t2_lite.py`: direct diagnostic reconstruction of
+  local radial/null attention, global gates and weights, final CLS attention,
+  SwiGLU products, residual ratios and representation spectra.
+- `src/eqvae/training/mil_telemetry_io.py` and
+  `src/eqvae/training/mil_dynamics_checkpoint.py`: small cumulative NPZ tables
+  and direct atomic `latest.pt`/`final.pt` checkpoint/resume, including mandatory
+  WSI-dynamics restoration and no object-store/manifest machinery.
+- `src/eqvae/training/mil_dynamics_step.py`: public-API AMP step orchestration
+  with skipped-attempt rollback semantics and committed-update dynamics.
+- `tests/test_spec0054_mil_dynamics.py`: focused mathematical, equivalence,
+  persistence and restart tests for the local Spec 0054 primitives.
+- `docs/data/spec0054_cohort_folds.csv` and
+  `docs/data/spec0054_a0_contract.json`: deterministic five-fold cohort and
+  source/hash/CRC-bound A0 contract; fold 0 is the cost-probe context only.
+- `experiments/spec0054_mil_a0_probe.py`: bounded real-data A0 audit and paired
+  telemetry-equivalence/cost runner. It is not the five-fold training runner.
 
 - `src/eqvae/evaluation/functional_geometry_rla.py`: direct, disposable
   decoder JVP/VJP linearization.
