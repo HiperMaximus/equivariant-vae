@@ -536,15 +536,15 @@ def _run_branch_probe(
         baseline_result["first_optimizer_state"], observed_optimizer.state_dict(), torch
     )
     scaler_equal = baseline_result["first_scaler_state"] == observed_scaler.state_dict()
-    if (
+    loss_difference = abs(baseline_result["loss"] - first.unweighted_loss)
+    first_update_passed = not (
         logit_difference > 1e-6
-        or abs(baseline_result["loss"] - first.unweighted_loss) > 1e-6
+        or loss_difference > 1e-6
         or model_difference > 1e-7
         or optimizer_difference > 1e-7
         or not scaler_equal
         or baseline_result["skipped_attempts"][0] != first_observed_skips
-    ):
-        raise RuntimeError("T0 changed first-update numerical semantics")
+    )
 
     observed_times: list[float] = []
     observed_skips = [first_observed_skips]
@@ -587,10 +587,33 @@ def _run_branch_probe(
     final_model_difference = _state_max_difference(
         baseline_result["final_model_state"], observed.state_dict(), torch
     )
-    if final_model_difference > 1e-7:
-        raise RuntimeError("T0 changed the measured update trajectory")
-    if baseline_result["skipped_attempts"] != observed_skips:
-        raise RuntimeError("T0 changed the AMP overflow/retry trajectory")
+    retry_trajectory_equal = baseline_result["skipped_attempts"] == observed_skips
+    trajectory_passed = final_model_difference <= 1e-7 and retry_trajectory_equal
+    equivalence = {
+        "passed": first_update_passed and trajectory_passed,
+        "first_update_passed": first_update_passed,
+        "trajectory_passed": trajectory_passed,
+        "thresholds": {
+            "logit_max_abs_difference": 1e-6,
+            "loss_abs_difference": 1e-6,
+            "model_max_abs_difference": 1e-7,
+            "optimizer_max_abs_difference": 1e-7,
+            "trajectory_model_max_abs_difference": 1e-7,
+        },
+        "logit_max_abs_difference": logit_difference,
+        "loss_abs_difference": loss_difference,
+        "model_max_abs_difference": model_difference,
+        "optimizer_max_abs_difference": optimizer_difference,
+        "scaler_equal": scaler_equal,
+        "measured_trajectory_model_max_abs_difference": final_model_difference,
+        "retry_trajectory_equal": retry_trajectory_equal,
+        "baseline_amp_skipped_attempts_by_update": baseline_result[
+            "skipped_attempts"
+        ],
+        "t0_amp_skipped_attempts_by_update": observed_skips,
+    }
+    _write_json(OUTPUT_ROOT / f"equivalence_{branch}.json", equivalence)
+    print(json.dumps({"branch": branch, "equivalence": equivalence}), flush=True)
 
     t1_results: dict[str, Any] = {}
     t2_rows: list[dict[str, Any]] = []
@@ -639,17 +662,7 @@ def _run_branch_probe(
     _write_json(OUTPUT_ROOT / f"t1_{branch}.json", t1_results)
     return {
         "branch": branch,
-        "first_update_equivalence": {
-            "logit_max_abs_difference": logit_difference,
-            "loss_abs_difference": abs(
-                baseline_result["loss"] - first.unweighted_loss
-            ),
-            "model_max_abs_difference": model_difference,
-            "optimizer_max_abs_difference": optimizer_difference,
-            "scaler_equal": scaler_equal,
-            "measured_trajectory_model_max_abs_difference": final_model_difference,
-            "amp_skipped_attempts_by_update": baseline_result["skipped_attempts"],
-        },
+        "first_update_equivalence": equivalence,
         "cold_seconds": {
             "baseline": baseline_result["cold_seconds"],
             "t0": observed_cold,
@@ -783,6 +796,10 @@ def run(*, repo_root: Path, source_commit: str) -> int:
         "instance_manifest": instance_manifest,
         "encoder_seconds": encoder_seconds,
         "branches": branches,
+        "all_equivalence_checks_passed": all(
+            record["first_update_equivalence"]["passed"]
+            for record in branches.values()
+        ),
         "runtime": {
             "torch": torch.__version__,
             "cuda": torch.version.cuda,
