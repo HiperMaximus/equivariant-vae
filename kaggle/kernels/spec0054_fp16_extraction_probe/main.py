@@ -1,7 +1,6 @@
 # Copyright 2026 HiperMaximus
-"""Thin Kaggle entrypoint for the 16-row FP16 extraction smoke run."""
+"""Thin Kaggle entrypoint for the complete first FP16 latent shard."""
 
-import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -11,12 +10,18 @@ SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
 
 
 def main() -> int:
-    if importlib.util.find_spec("pyvips") is None:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", "pyvips==3.1.0"],
-            check=True,
-            timeout=300,
-        )
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--quiet",
+            "pyvips[binary]==3.1.0",
+        ],
+        check=True,
+        timeout=300,
+    )
     subprocess.run(
         [
             "git",
@@ -57,7 +62,6 @@ def main() -> int:
         repo_root=SOURCE_ROOT,
         source_commit=commit,
         shard_index=1,
-        row_limit=16,
     )
 
 
