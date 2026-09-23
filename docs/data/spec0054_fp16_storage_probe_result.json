@@ -55,6 +55,7 @@
   "complete_extraction_inputs": {
     "historical_foreground_boundary": "Decision 0013: complete means complete historical Otsu-selected foreground",
     "private_datasets_to_share_with_maximshtefan": [
+      "maximusshtefan/raw-atlas-ubc-ocean",
       "maximusshtefan/train-val-atlas-ubc-ocean/1",
       "maximusshtefan/eqvae-frozen-vae-weights-v1/1"
     ],
