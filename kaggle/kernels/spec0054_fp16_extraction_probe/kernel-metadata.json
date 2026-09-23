@@ -1,5 +1,5 @@
 {
-  "id": "maximshtefan/eqvae-spec0054-fp16-extraction-probe",
+  "id": "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
   "title": "eqvae spec0054 fp16 latent shard 1",
   "code_file": "main.py",
   "language": "python",
