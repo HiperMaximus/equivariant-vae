@@ -1,0 +1,20 @@
+{
+  "id": "maximshtefan/eqvae-spec0054-fp16-extraction-probe",
+  "title": "eqvae spec0054 fp16 extraction probe",
+  "code_file": "main.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_internet": "true",
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "maximusshtefan/raw-atlas-ubc-ocean",
+    "maximusshtefan/eqvae-frozen-vae-weights-v1"
+  ],
+  "competition_sources": [
+    "UBC-OCEAN"
+  ],
+  "kernel_sources": [],
+  "model_sources": []
+}

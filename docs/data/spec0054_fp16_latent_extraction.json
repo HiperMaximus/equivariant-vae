@@ -1,0 +1,47 @@
+{
+  "schema_version": "spec0054.fp16_latent_extraction.v1",
+  "scope": "361_vae_development_wsi_historical_otsu_foreground",
+  "atlas": {
+    "dataset": "maximusshtefan/raw-atlas-ubc-ocean/1",
+    "filename": "raw_atlas.csv",
+    "sha256": "d82ab76494f1fb2562dd95319b310272a995b6c4661bb6c891ae24cfbac01ad2",
+    "bytes": 53049524,
+    "rows": 3056833,
+    "wsi_count": 361,
+    "order": "numeric_wsi_id_then_y_then_x"
+  },
+  "cohort": {
+    "path": "docs/data/spec0054_cohort_folds.csv",
+    "sha256": "777b1a3f6ec72c40c7b96a914f9e59f6bc6d57df13636a99dfdcb478e2e9397e"
+  },
+  "weights": {
+    "dataset": "maximusshtefan/eqvae-frozen-vae-weights-v1/1",
+    "normal_vae_sha256": "30064fa414f21deeb7ec5f312467ad4e8a3a93f6e7199e7be77f6ed3b28887c7",
+    "so2_vae_sha256": "06802ceb6ba4fb0f46d2b88f751a33a355600db84b412806b563a6d757cb3c12"
+  },
+  "execution": {
+    "batch_size": 8,
+    "normal_device": "cuda:0",
+    "so2_device": "cuda:1",
+    "vae_compute_dtype": "float32",
+    "stored_dtype": "little_endian_float16",
+    "latent_shape": [16, 32, 32],
+    "bytes_per_record": 32768,
+    "compile": "torch_compile_fixed_batch",
+    "so2_optimization": "materialize_frozen_encoder_kernels_before_compile"
+  },
+  "shards": [
+    {"shard": 1, "first_wsi": 4, "last_wsi": 5307, "wsi_count": 36, "rows": 254527, "paired_bytes": 16680681472},
+    {"shard": 2, "first_wsi": 5456, "last_wsi": 10077, "wsi_count": 25, "rows": 256247, "paired_bytes": 16793403392},
+    {"shard": 3, "first_wsi": 10469, "last_wsi": 17487, "wsi_count": 32, "rows": 256001, "paired_bytes": 16777281536},
+    {"shard": 4, "first_wsi": 18014, "last_wsi": 24023, "wsi_count": 28, "rows": 256869, "paired_bytes": 16834166784},
+    {"shard": 5, "first_wsi": 24507, "last_wsi": 29240, "wsi_count": 30, "rows": 252467, "paired_bytes": 16545677312},
+    {"shard": 6, "first_wsi": 29331, "last_wsi": 33839, "wsi_count": 29, "rows": 251944, "paired_bytes": 16511401984},
+    {"shard": 7, "first_wsi": 33984, "last_wsi": 38479, "wsi_count": 27, "rows": 258431, "paired_bytes": 16936534016},
+    {"shard": 8, "first_wsi": 38535, "last_wsi": 43796, "wsi_count": 31, "rows": 257030, "paired_bytes": 16844718080},
+    {"shard": 9, "first_wsi": 43875, "last_wsi": 48861, "wsi_count": 30, "rows": 252405, "paired_bytes": 16541614080},
+    {"shard": 10, "first_wsi": 48973, "last_wsi": 53402, "wsi_count": 32, "rows": 247041, "paired_bytes": 16190078976},
+    {"shard": 11, "first_wsi": 53859, "last_wsi": 59589, "wsi_count": 29, "rows": 260636, "paired_bytes": 17081040896},
+    {"shard": 12, "first_wsi": 59900, "last_wsi": 65371, "wsi_count": 32, "rows": 253235, "paired_bytes": 16596008960}
+  ]
+}
