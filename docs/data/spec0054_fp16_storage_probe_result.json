@@ -1,0 +1,64 @@
+{
+  "schema_version": "spec0054.fp16_storage_probe_result.v1",
+  "status": "accepted_for_complete_361_wsi_latent_extraction",
+  "decision": {
+    "classifier_input": "load stored posterior mu directly as FP16 without an FP32 upcast",
+    "encoder_output": "compute posterior mu in FP32 and cast once to FP16 for storage",
+    "inductor_interpretation": "small eager-versus-compiled and FP32-input-versus-FP16-input differences are expected numerical variation, not a bug or a scientific failure",
+    "prohibited_reinterpretation": "this result validates the current CUDA-FP16-autocast MIL consumer; it is not a blanket guarantee for future FP32 consumers"
+  },
+  "provenance": {
+    "kernel": "maximusshtefan/eqvae-spec0054-fp16-storage-probe/1",
+    "source_commit": "2f3d9c56e25985937bfc018d2678aec6d9e5a5d3",
+    "result_json_sha256": "827bc9ca5ea5190ce3f690cecb405867c6a9da92bb8d9f14bef1e3705c6ef4d2",
+    "wsi_id": 52108,
+    "patch_count": 15,
+    "runtime_seconds": 264.693483906,
+    "torch": "2.10.0+cu128",
+    "devices": [
+      "Tesla T4",
+      "Tesla T4"
+    ]
+  },
+  "shared_observations": {
+    "raw_fp16_disk_roundtrip_exact": true,
+    "raw_fp16_bytes_per_branch": 491520,
+    "nonfinite_values": 0,
+    "nonzero_values_rounded_to_zero": 0,
+    "eager_first_convolution_exact": true,
+    "eager_logits_loss_gradients_and_adamw_update_exact": true
+  },
+  "branches": {
+    "normal_vae": {
+      "latent_relative_l2": 0.0002080463539231952,
+      "latent_absolute_difference_p99": 0.0005944743752479553,
+      "latent_maximum_absolute_difference": 0.0018873214721679688,
+      "compiled_maximum_logit_difference": 0.0006558895111083984,
+      "compiled_loss_absolute_difference": 0.00037407875061035156,
+      "compiled_gradient_cosine": 0.999999711406822,
+      "compiled_gradient_rmse": 0.000054138703397650986,
+      "compiled_adamw_update_cosine": 0.9995764922835481,
+      "compiled_adamw_update_rmse": 0.0000058203140798421624
+    },
+    "so2_vae": {
+      "latent_relative_l2": 0.00020770540489657192,
+      "latent_absolute_difference_p99": 0.00061044842004776,
+      "latent_maximum_absolute_difference": 0.0018749237060546875,
+      "compiled_maximum_logit_difference": 0.0013388395309448242,
+      "compiled_loss_absolute_difference": 0.00038993358612060547,
+      "compiled_gradient_cosine": 0.9999996053283865,
+      "compiled_gradient_rmse": 0.00007603075282826856,
+      "compiled_adamw_update_cosine": 0.9994185565978778,
+      "compiled_adamw_update_rmse": 0.000006819955873201303
+    }
+  },
+  "complete_extraction_inputs": {
+    "historical_foreground_boundary": "Decision 0013: complete means complete historical Otsu-selected foreground",
+    "private_datasets_to_share_with_maximshtefan": [
+      "maximusshtefan/train-val-atlas-ubc-ocean/1",
+      "maximusshtefan/eqvae-frozen-vae-weights-v1/1"
+    ],
+    "account_access_to_verify": "maximshtefan must have accepted access to the official UBC-OCEAN competition data",
+    "not_required_for_complete_extraction": "maximusshtefan/patches-pre-shuffled-ubc-ocean/1"
+  }
+}
