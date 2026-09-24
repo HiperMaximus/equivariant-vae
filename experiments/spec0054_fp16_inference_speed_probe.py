@@ -47,8 +47,10 @@ def _run_case(
     }
     devices = {"normal_vae": "cuda:0", "so2_vae": "cuda:1"}
 
-    def batches(collect: bool) -> dict[str, np.ndarray[Any, Any]]:
-        outputs: dict[str, list[np.ndarray[Any, Any]]] = {name: [] for name in models}
+    def batches(
+        collect: bool, names: tuple[str, ...]
+    ) -> dict[str, np.ndarray[Any, Any]]:
+        outputs: dict[str, list[np.ndarray[Any, Any]]] = {name: [] for name in names}
         with (
             torch.inference_mode(),
             torch.autocast("cuda", dtype=torch.float16, enabled=amp),
@@ -59,7 +61,7 @@ def _run_case(
                 ).pin_memory()
                 latents = {
                     name: functions[name](source.to(devices[name], non_blocking=True))
-                    for name in models
+                    for name in names
                 }
                 for name, latent in latents.items():
                     stored = latent.to(device="cpu", dtype=torch.float16).contiguous()
@@ -92,14 +94,24 @@ def _run_case(
     torch.cuda.reset_peak_memory_stats(1)
     seconds: list[float] = []
     stored_outputs: dict[str, np.ndarray[Any, Any]] = {}
+    paired_names = tuple(models)
     for repeat in range(REPEATS):
         started = time.perf_counter()
-        observed = batches(collect=repeat == 0)
+        observed = batches(collect=repeat == 0, names=paired_names)
         torch.cuda.synchronize(0)
         torch.cuda.synchronize(1)
         seconds.append(time.perf_counter() - started)
         if repeat == 0:
             stored_outputs = observed
+    per_model_seconds: dict[str, list[float]] = {}
+    for index, name in enumerate(models):
+        observations: list[float] = []
+        for _ in range(2):
+            started = time.perf_counter()
+            batches(collect=False, names=(name,))
+            torch.cuda.synchronize(index)
+            observations.append(time.perf_counter() - started)
+        per_model_seconds[name] = observations
     return (
         {
             "batch_size": batch_size,
@@ -107,6 +119,11 @@ def _run_case(
             "compile_and_warmup_seconds": compile_seconds,
             "repeat_seconds": seconds,
             "median_patches_per_second": len(images) / statistics.median(seconds),
+            "per_model_repeat_seconds": per_model_seconds,
+            "per_model_median_patches_per_second": {
+                name: len(images) / statistics.median(values)
+                for name, values in per_model_seconds.items()
+            },
             "peak_allocated_bytes": {
                 name: torch.cuda.max_memory_allocated(index)
                 for index, name in enumerate(models)
