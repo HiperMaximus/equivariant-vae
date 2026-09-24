@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-"""Finish the real-WSI AMP batch sweep after the first four measured cases."""
+"""Compare three AMP batch sizes on the same real WSI patches."""
 
 from __future__ import annotations
 
@@ -22,11 +22,12 @@ from experiments.spec0054_fp16_latent_extraction import (
 from experiments.spec0054_mil_a0_probe import _load_frozen_model, _sha256, _unique_input
 
 SAMPLE_PATCHES = 512
-REPEATS = 3
+WARMUP_PASSES = 10
+REPEATS = 5
 CASES = (
-    ("fp32_b8", 8, False),
-    ("amp_b32", 32, True),
-    ("amp_b64", 64, True),
+    ("amp_b32", 32),
+    ("amp_b48", 48),
+    ("amp_b64", 64),
 )
 OUTPUT = Path("/kaggle/working/spec0054_fp16_inference_speed_probe.json")
 
@@ -36,21 +37,17 @@ def _run_case(
     models: dict[str, Any],
     *,
     batch_size: int,
-    amp: bool,
     torch: Any,
-) -> tuple[dict[str, Any], dict[str, np.ndarray[Any, Any]]]:
+) -> dict[str, Any]:
     functions = {
         name: _encoder_function(model, torch) for name, model in models.items()
     }
     devices = {"normal_vae": "cuda:0", "so2_vae": "cuda:1"}
 
-    def batches(
-        collect: bool, names: tuple[str, ...]
-    ) -> dict[str, np.ndarray[Any, Any]]:
-        outputs: dict[str, list[np.ndarray[Any, Any]]] = {name: [] for name in names}
+    def batches(names: tuple[str, ...]) -> None:
         with (
             torch.inference_mode(),
-            torch.autocast("cuda", dtype=torch.float16, enabled=amp),
+            torch.autocast("cuda", dtype=torch.float16),
         ):
             for start in range(0, len(images), batch_size):
                 source = torch.from_numpy(
@@ -62,95 +59,65 @@ def _run_case(
                 }
                 for name, latent in latents.items():
                     stored = latent.to(device="cpu", dtype=torch.float16).contiguous()
-                    payload = _payload(stored)
-                    if collect:
-                        outputs[name].append(
-                            np.frombuffer(payload, dtype="<f2")
-                            .reshape(-1, 16, 32, 32)
-                            .copy()
-                        )
-        return (
-            {name: np.concatenate(chunks) for name, chunks in outputs.items()}
-            if collect
-            else {}
-        )
+                    _payload(stored)
 
     compile_started = time.perf_counter()
     with (
         torch.inference_mode(),
-        torch.autocast("cuda", dtype=torch.float16, enabled=amp),
+        torch.autocast("cuda", dtype=torch.float16),
     ):
-        warm = torch.from_numpy(images[:batch_size]).pin_memory()
-        for name in models:
-            functions[name](warm.to(devices[name], non_blocking=True))
+        remainder = len(images) % batch_size
+        compile_batch_sizes = (batch_size, remainder) if remainder else (batch_size,)
+        for size in compile_batch_sizes:
+            warm = torch.from_numpy(images[:size]).pin_memory()
+            for name in models:
+                functions[name](warm.to(devices[name], non_blocking=True))
     torch.cuda.synchronize(0)
     torch.cuda.synchronize(1)
     compile_seconds = time.perf_counter() - compile_started
 
+    warmup_started = time.perf_counter()
+    paired_names = tuple(models)
+    for _ in range(WARMUP_PASSES):
+        batches(paired_names)
+    torch.cuda.synchronize(0)
+    torch.cuda.synchronize(1)
+    warmup_seconds = time.perf_counter() - warmup_started
+
     torch.cuda.reset_peak_memory_stats(0)
     torch.cuda.reset_peak_memory_stats(1)
     seconds: list[float] = []
-    stored_outputs: dict[str, np.ndarray[Any, Any]] = {}
-    paired_names = tuple(models)
-    for repeat in range(REPEATS):
+    for _ in range(REPEATS):
         started = time.perf_counter()
-        observed = batches(collect=repeat == 0, names=paired_names)
+        batches(paired_names)
         torch.cuda.synchronize(0)
         torch.cuda.synchronize(1)
         seconds.append(time.perf_counter() - started)
-        if repeat == 0:
-            stored_outputs = observed
     per_model_seconds: dict[str, list[float]] = {}
     for index, name in enumerate(models):
         observations: list[float] = []
         for _ in range(2):
             started = time.perf_counter()
-            batches(collect=False, names=(name,))
+            batches((name,))
             torch.cuda.synchronize(index)
             observations.append(time.perf_counter() - started)
         per_model_seconds[name] = observations
-    return (
-        {
-            "batch_size": batch_size,
-            "amp_fp16": amp,
-            "compile_and_warmup_seconds": compile_seconds,
-            "repeat_seconds": seconds,
-            "median_patches_per_second": len(images) / statistics.median(seconds),
-            "per_model_repeat_seconds": per_model_seconds,
-            "per_model_median_patches_per_second": {
-                name: len(images) / statistics.median(values)
-                for name, values in per_model_seconds.items()
-            },
-            "peak_allocated_bytes": {
-                name: torch.cuda.max_memory_allocated(index)
-                for index, name in enumerate(models)
-            },
-        },
-        stored_outputs,
-    )
-
-
-def _difference(
-    reference: np.ndarray[Any, Any], candidate: np.ndarray[Any, Any]
-) -> dict[str, float | int | None]:
-    left = reference.astype(np.float32)
-    right = candidate.astype(np.float32)
-    finite = np.isfinite(left) & np.isfinite(right)
-    delta = (right[finite] - left[finite]).astype(np.float64)
-    absolute = np.abs(delta)
-    reference_norm = np.linalg.norm(left[finite].astype(np.float64))
     return {
-        "elements": int(left.size),
-        "nonfinite_count": int(np.count_nonzero(~np.isfinite(right))),
-        "changed_fp16_elements": int(np.count_nonzero(reference != candidate)),
-        "relative_l2": (
-            float(np.linalg.norm(delta) / reference_norm)
-            if reference_norm > 0
-            else None
-        ),
-        "rmse": float(np.sqrt(np.mean(delta * delta))) if delta.size else None,
-        "p99_absolute": float(np.quantile(absolute, 0.99)) if delta.size else None,
-        "max_absolute": float(np.max(absolute)) if delta.size else None,
+        "batch_size": batch_size,
+        "amp_fp16": True,
+        "compile_and_initial_batch_seconds": compile_seconds,
+        "ten_full_warmup_passes_seconds": warmup_seconds,
+        "repeat_seconds": seconds,
+        "median_patches_per_second": len(images) / statistics.median(seconds),
+        "per_model_repeat_seconds": per_model_seconds,
+        "per_model_median_patches_per_second": {
+            name: len(images) / statistics.median(values)
+            for name, values in per_model_seconds.items()
+        },
+        "peak_allocated_bytes": {
+            name: torch.cuda.max_memory_allocated(index)
+            for index, name in enumerate(models)
+        },
     }
 
 
@@ -184,26 +151,20 @@ def run(*, repo_root: Path, source_commit: str) -> int:
     }
     materialized_count = _materialize_so2_encoder(models["so2_vae"])
     observations: dict[str, Any] = {}
-    reference: dict[str, np.ndarray[Any, Any]] = {}
-    for name, batch_size, amp in CASES:
-        timing, outputs = _run_case(
-            images, models, batch_size=batch_size, amp=amp, torch=torch
-        )
-        if name == "fp32_b8":
-            reference = outputs
-        timing["difference_from_fp32_b8_stored_fp16"] = {
-            model_name: _difference(reference[model_name], outputs[model_name])
-            for model_name in models
-        }
+    for name, batch_size in CASES:
+        torch.compiler.reset()
+        timing = _run_case(images, models, batch_size=batch_size, torch=torch)
         observations[name] = timing
         print(json.dumps({"case": name, **timing}, sort_keys=True), flush=True)
     result = {
-        "schema_version": "spec0054.fp16_inference_speed_probe.v1",
+        "schema_version": "spec0054.fp16_inference_speed_probe.v2",
         "source_commit": source_commit,
         "contract_sha256": _sha256(contract_path),
         "sample_wsi_id": rows[0].wsi_id,
         "sample_atlas_row_indices": [rows[0].atlas_row_index, rows[-1].atlas_row_index],
         "sample_patches": len(images),
+        "warmup_full_passes_per_case": WARMUP_PASSES,
+        "timed_full_passes_per_case": REPEATS,
         "sample_read_seconds": read_seconds,
         "so2_materialized_encoder_kernels": materialized_count,
         "cases": observations,
