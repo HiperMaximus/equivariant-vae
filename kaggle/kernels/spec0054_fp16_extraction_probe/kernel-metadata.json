@@ -1,6 +1,6 @@
 {
-  "id": "maximshtefan/eqvae-spec0054-fp16-latent-shard-3",
-  "title": "eqvae spec0054 AMP latent shard 3",
+  "id": "maximshtefan/eqvae-spec0054-amp-latent-shard-5",
+  "title": "eqvae spec0054 amp latent shard 5",
   "code_file": "main.py",
   "language": "python",
   "kernel_type": "script",
