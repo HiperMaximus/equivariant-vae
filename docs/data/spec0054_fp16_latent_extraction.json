@@ -20,10 +20,10 @@
     "so2_vae_sha256": "06802ceb6ba4fb0f46d2b88f751a33a355600db84b412806b563a6d757cb3c12"
   },
   "execution": {
-    "batch_size": 8,
+    "batch_size": 48,
     "normal_device": "cuda:0",
     "so2_device": "cuda:1",
-    "vae_compute_dtype": "float32",
+    "vae_compute_dtype": "float16_amp",
     "stored_dtype": "little_endian_float16",
     "latent_shape": [16, 32, 32],
     "bytes_per_record": 32768,

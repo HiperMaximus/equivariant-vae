@@ -25,7 +25,7 @@ from experiments.spec0054_mil_a0_probe import (
 OUTPUT_ROOT = Path("/kaggle/working/spec0054_fp16_latents")
 CONTRACT_RELATIVE = Path("docs/data/spec0054_fp16_latent_extraction.json")
 COHORT_RELATIVE = Path("docs/data/spec0054_cohort_folds.csv")
-BATCH_SIZE = 8
+BATCH_SIZE = 48
 PATCH_SIZE = 256
 LATENT_SHAPE = (16, 32, 32)
 LATENT_RECORD_BYTES = int(np.prod(LATENT_SHAPE)) * np.dtype("<f2").itemsize
@@ -228,15 +228,18 @@ def _prepare_encoders(
     so2_input = source.to(devices["so2_vae"], non_blocking=True)
     normalize = lambda value: value.float().div(255).mul(2).sub(1)
     with torch.inference_mode():
-        normal_eager = models["normal_vae"].encode(normalize(normal_input))[0]
         so2_before = models["so2_vae"].encode(normalize(so2_input))[0]
+        # Cache the frozen dense kernels in FP32 before enabling AMP inference.
         materialized_count = _materialize_so2_encoder(models["so2_vae"])
         so2_materialized = models["so2_vae"].encode(normalize(so2_input))[0]
-        functions = {
-            name: _encoder_function(model, torch) for name, model in models.items()
-        }
-        normal_compiled = functions["normal_vae"](normal_input)
-        so2_compiled = functions["so2_vae"](so2_input)
+        with torch.autocast("cuda", dtype=torch.float16):
+            normal_eager = models["normal_vae"].encode(normalize(normal_input))[0]
+            so2_amp_eager = models["so2_vae"].encode(normalize(so2_input))[0]
+            functions = {
+                name: _encoder_function(model, torch) for name, model in models.items()
+            }
+            normal_compiled = functions["normal_vae"](normal_input)
+            so2_compiled = functions["so2_vae"](so2_input)
     torch.cuda.synchronize(devices["normal_vae"])
     torch.cuda.synchronize(devices["so2_vae"])
     probe = {
@@ -244,7 +247,7 @@ def _prepare_encoders(
         "normal_eager_vs_compiled": _delta(normal_eager, normal_compiled, torch),
         "so2_eager_vs_materialized": _delta(so2_before, so2_materialized, torch),
         "so2_materialized_vs_compiled": _delta(
-            so2_materialized,
+            so2_amp_eager,
             so2_compiled,
             torch,
         ),
@@ -259,7 +262,7 @@ def _encode_batch(
 ) -> tuple[Any, Any]:
     valid_count = images.shape[0]
     source = _padded_tensor(images, torch)
-    with torch.inference_mode():
+    with torch.inference_mode(), torch.autocast("cuda", dtype=torch.float16):
         normal = functions["normal_vae"](
             source.to("cuda:0", non_blocking=True)
         )
@@ -370,6 +373,7 @@ def run(
         "schema_version": "spec0054.fp16_latent_shard.v1",
         "source_commit": source_commit,
         "contract_sha256": _sha256(contract_path),
+        "execution": contract["execution"],
         "cohort_sha256": _sha256(cohort_path),
         "shard": shard,
         "row_limit": row_limit,
