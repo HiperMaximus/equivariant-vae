@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-"""Small real-WSI benchmark for FP16 autocast and encoder batch size."""
+"""Finish the real-WSI AMP batch sweep after the first four measured cases."""
 
 from __future__ import annotations
 
@@ -25,9 +25,6 @@ SAMPLE_PATCHES = 512
 REPEATS = 3
 CASES = (
     ("fp32_b8", 8, False),
-    ("fp32_b32", 32, False),
-    ("amp_b8", 8, True),
-    ("amp_b16", 16, True),
     ("amp_b32", 32, True),
     ("amp_b64", 64, True),
 )
