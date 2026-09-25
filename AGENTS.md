@@ -49,6 +49,12 @@ that workflow.
 11. The separate thesis repository is changed only for a thesis task.
 12. Professor-facing GitHub updates are written in Spanish. Do not close an
     issue unless the user asks.
+13. Prevent conversational-context leakage in papers, reports, issue updates and
+    figures. Every sentence must stand on evidence and context present in the
+    artifact itself. Remove answers to prior chat questions, unintroduced
+    caveats, defensive negations, review-process remarks and references to
+    decisions the reader cannot see. Explain genuine limitations where the
+    study design or results make them relevant, with a clear referent.
 
 ## Scientific Invariants
 
@@ -66,6 +72,12 @@ that workflow.
   numerical experiment actually establishes.
 - Compare the two models with the same inputs and numerical budget. Keep
   exploratory, validation, and sealed-test evidence separate.
+- Historical HSV-saturation Otsu foreground is not exhaustive tissue and has a
+  documented pale-tissue miss plus coordinate-rounding variation. Before any
+  VAE retraining, latent re-extraction, WSI-bag rebuild, reconstruction-cohort
+  change or transfer to new WSIs, explicitly raise the foreground-selection
+  flag and read `docs/decisions/0013-historical-otsu-foreground-boundary.md`.
+  Never silently describe the frozen Otsu population as complete tissue.
 
 ## Verification
 

@@ -1,0 +1,64 @@
+\begin{tikzpicture}[
+  x=2.40cm,y=1.25cm,
+  stage/.style={draw,rounded corners=1pt,minimum width=2.17cm,
+                minimum height=1.05cm,align=center,inner sep=1.5pt,
+                font=\scriptsize},
+  normal/.style={stage,fill=blue!6,draw=blue!55!black},
+  equiv/.style={stage,fill=orange!8,draw=orange!75!black},
+  flow/.style={-{Latex[length=1.5mm]},semithick}
+]
+\node[anchor=west,font=\footnotesize\bfseries] at (-1.08,0.76) {(a) Encoder paths};
+\node[anchor=west,font=\footnotesize\bfseries] at (-1.08,-2.16) {(b) Decoder paths};
+\node[normal] (ne0) at (0,0) {Conventional VAE\\RGB $3\times256^2$};
+\node[normal] (ne1) at (1,0) {Stem: $7\times7$ conv\\$32\times256^2$};
+\node[normal] (ne2) at (2,0) {A: 2 residual blocks\\$32\times256^2$};
+\node[normal] (ne3) at (3,0) {B: $\downarrow2$, 2 blocks\\$48\times128^2$};
+\node[normal] (ne4) at (4,0) {C: $\downarrow2$, 2 blocks\\$64\times64^2$};
+\node[normal] (ne5) at (5,0) {D: $\downarrow2$, 2 blocks\\$96\times32^2$};
+\node[normal] (ne6) at (6,0) {Two $5\times5$ heads\\$\mu,\log\sigma^2: 16\times32^2$};
+\draw[flow] (ne0.east)--(ne1.west);
+\draw[flow] (ne1.east)--(ne2.west);
+\draw[flow] (ne2.east)--(ne3.west);
+\draw[flow] (ne3.east)--(ne4.west);
+\draw[flow] (ne4.east)--(ne5.west);
+\draw[flow] (ne5.east)--(ne6.west);
+\node[equiv] (se0) at (0,-1.12) {$\SOtwo$ VAE\\RGB $3\times256^2$};
+\node[equiv] (se1) at (1,-1.12) {Stem: $9\times9$ steerable\\$16F_0+16F_1,\ 256^2$};
+\node[equiv] (se2) at (2,-1.12) {A: 2 residual blocks\\$16F_0+16F_1,\ 256^2$};
+\node[equiv] (se3) at (3,-1.12) {B: $\downarrow2$, 2 blocks\\$24F_0+24F_1,\ 128^2$};
+\node[equiv] (se4) at (4,-1.12) {C: $\downarrow2$, 2 blocks\\$32F_0+32F_1,\ 64^2$};
+\node[equiv] (se5) at (5,-1.12) {D: $\downarrow2$, 2 blocks\\$48F_0+48F_1,\ 32^2$};
+\node[equiv] (se6) at (6,-1.12) {Two $7\times7$ heads\\$\mu,\log\sigma^2: 16F_0,\ 32^2$};
+\draw[flow] (se0.east)--(se1.west);
+\draw[flow] (se1.east)--(se2.west);
+\draw[flow] (se2.east)--(se3.west);
+\draw[flow] (se3.east)--(se4.west);
+\draw[flow] (se4.east)--(se5.west);
+\draw[flow] (se5.east)--(se6.west);
+\node[normal] (nd0) at (0,-2.92) {Conventional VAE\\$z: 16\times32^2$};
+\node[normal] (nd1) at (1,-2.92) {$5\times5$ projection\\$96\times32^2$};
+\node[normal] (nd2) at (2,-2.92) {D: 2 residual blocks\\$96\times32^2$};
+\node[normal] (nd3) at (3,-2.92) {C: $\uparrow2$, 2 blocks\\$64\times64^2$};
+\node[normal] (nd4) at (4,-2.92) {B: $\uparrow2$, 2 blocks\\$48\times128^2$};
+\node[normal] (nd5) at (5,-2.92) {A: $\uparrow2$, 2 blocks\\$32\times256^2$};
+\node[normal] (nd6) at (6,-2.92) {$5\times5$ output head\\RGB $3\times256^2$};
+\draw[flow] (nd0.east)--(nd1.west);
+\draw[flow] (nd1.east)--(nd2.west);
+\draw[flow] (nd2.east)--(nd3.west);
+\draw[flow] (nd3.east)--(nd4.west);
+\draw[flow] (nd4.east)--(nd5.west);
+\draw[flow] (nd5.east)--(nd6.west);
+\node[equiv] (sd0) at (0,-4.04) {$\SOtwo$ VAE\\$z: 16F_0,\ 32^2$};
+\node[equiv] (sd1) at (1,-4.04) {$7\times7$ projection\\$48F_0+48F_1,\ 32^2$};
+\node[equiv] (sd2) at (2,-4.04) {D: 2 residual blocks\\$48F_0+48F_1,\ 32^2$};
+\node[equiv] (sd3) at (3,-4.04) {C: $\uparrow2$, 2 blocks\\$32F_0+32F_1,\ 64^2$};
+\node[equiv] (sd4) at (4,-4.04) {B: $\uparrow2$, 2 blocks\\$24F_0+24F_1,\ 128^2$};
+\node[equiv] (sd5) at (5,-4.04) {A: $\uparrow2$, 2 blocks\\$16F_0+16F_1,\ 256^2$};
+\node[equiv] (sd6) at (6,-4.04) {$7\times7$ output head\\RGB $3\times256^2$};
+\draw[flow] (sd0.east)--(sd1.west);
+\draw[flow] (sd1.east)--(sd2.west);
+\draw[flow] (sd2.east)--(sd3.west);
+\draw[flow] (sd3.east)--(sd4.west);
+\draw[flow] (sd4.east)--(sd5.west);
+\draw[flow] (sd5.east)--(sd6.west);
+\end{tikzpicture}

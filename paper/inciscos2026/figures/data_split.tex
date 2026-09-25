@@ -18,8 +18,8 @@
 \node[source] (source) at (0,0) {UBC-OCEAN non-TMA cohort\\513 WSIs};
 
 \node[vae] (vae-cohort) at (4.0,1.55) {VAE development cohort\\361 WSIs, no downstream labels used};
-\node[vae] (vae-train) at (8.1,2.25) {VAE training\\322 WSIs\\300,000 patches};
-\node[vae] (vae-val) at (8.1,0.85) {VAE validation\\39 WSIs\\30,000 patches};
+\node[vae] (vae-train) at (8.1,2.25) {VAE training\\322 WSIs\\300,000 patches\\60,000 per diagnosis};
+\node[vae] (vae-val) at (8.1,0.85) {VAE validation\\39 WSIs\\30,000 patches\\6,000 per diagnosis};
 
 \node[supervised] (eval-cohort) at (4.0,-1.60) {Independent downstream cohort\\152 WSIs with supplemental masks};
 \node[split] (train) at (8.0,-0.70) {Training\\106 WSIs\\23/24/40/11/8};

@@ -1,0 +1,74 @@
+% Same-resolution encoder/decoder blocks in the accepted frozen models.
+% Stage transitions add branch-local resampling and a skip projection; see caption.
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\textbf{(a) Conventional VAE}\par\smallskip
+\begin{tikzpicture}[
+  >=Latex,
+  node distance=2.6mm,
+  block/.style={draw,rounded corners=1pt,align=center,
+    minimum width=3.0cm,minimum height=0.56cm,inner sep=1.4mm,
+    font=\footnotesize,fill=blue!6,draw=blue!55!black},
+  endpoint/.style={block,fill=white},
+  add/.style={draw,circle,minimum size=6mm,inner sep=0pt,font=\normalsize},
+  flow/.style={-{Latex[length=2mm]},semithick}
+]
+\node[endpoint] (in) {Input features $\mathbf u$};
+\node[block,below=of in] (conv1) {$5\times5$ ordinary convolution};
+\node[block,below=of conv1] (norm1) {8-group GroupNorm};
+\node[block,below=of norm1] (gate1) {Scalar gate $A_0$};
+\node[block,below=of gate1] (conv2) {$5\times5$ ordinary convolution};
+\node[block,below=of conv2] (norm2) {8-group GroupNorm};
+\node[add,below=3.5mm of norm2] (sum) {$+$};
+\node[block,below=3.5mm of sum] (gate2) {Scalar gate $A_0$};
+\node[endpoint,below=of gate2] (out) {Output features};
+\draw[flow] (in)--(conv1);
+\draw[flow] (conv1)--(norm1);
+\draw[flow] (norm1)--(gate1);
+\draw[flow] (gate1)--(conv2);
+\draw[flow] (conv2)--(norm2);
+\draw[flow] (norm2)--(sum);
+\draw[flow] (sum)--(gate2);
+\draw[flow] (gate2)--(out);
+\coordinate (skiptop) at ($(in.west)+(-1.25cm,0)$);
+\coordinate (skipbottom) at (skiptop |- sum.center);
+\draw[flow] (in.west)--(skiptop)--node[left,font=\scriptsize,align=center]
+  {identity\\skip} (skipbottom)--(sum.west);
+\end{tikzpicture}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\textbf{(b) Continuous-$\SOtwo$ VAE}\par\smallskip
+\begin{tikzpicture}[
+  >=Latex,
+  node distance=2.6mm,
+  block/.style={draw,rounded corners=1pt,align=center,
+    minimum width=3.0cm,minimum height=0.56cm,inner sep=1.4mm,
+    font=\footnotesize,fill=orange!8,draw=orange!75!black},
+  endpoint/.style={block,fill=white},
+  add/.style={draw,circle,minimum size=6mm,inner sep=0pt,font=\normalsize},
+  flow/.style={-{Latex[length=2mm]},semithick}
+]
+\node[endpoint] (in) {Input $F_0/F_1$ fields $\mathbf u$};
+\node[block,below=of in] (conv1) {$7\times7$ steerable convolution};
+\node[block,below=of conv1] (norm1) {$F_0$: 8-group GN; $F_1$: 4-group RMS};
+\node[block,below=of norm1] (gate1) {$F_0$: scalar; $F_1$: radial gate};
+\node[block,below=of gate1] (conv2) {$7\times7$ steerable convolution};
+\node[block,below=of conv2] (norm2) {$F_0$: 8-group GN; $F_1$: 4-group RMS};
+\node[add,below=3.5mm of norm2] (sum) {$+$};
+\node[block,below=3.5mm of sum] (gate2) {$F_0$: scalar; $F_1$: radial gate};
+\node[endpoint,below=of gate2] (out) {Output $F_0/F_1$ fields};
+\draw[flow] (in)--(conv1);
+\draw[flow] (conv1)--(norm1);
+\draw[flow] (norm1)--(gate1);
+\draw[flow] (gate1)--(conv2);
+\draw[flow] (conv2)--(norm2);
+\draw[flow] (norm2)--(sum);
+\draw[flow] (sum)--(gate2);
+\draw[flow] (gate2)--(out);
+\coordinate (skiptop) at ($(in.west)+(-1.25cm,0)$);
+\coordinate (skipbottom) at (skiptop |- sum.center);
+\draw[flow] (in.west)--(skiptop)--node[left,font=\scriptsize,align=center]
+  {identity\\skip} (skipbottom)--(sum.west);
+\end{tikzpicture}
+\end{minipage}
