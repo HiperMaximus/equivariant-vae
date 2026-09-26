@@ -37,18 +37,73 @@ state files; a clean redownload verified their immutable SHA-256 values
 owner-independent contract use that dataset. No active runner or contract
 depends on `maximshtefan`.
 
-An anonymous eight-page INCISCOS 2026 professor-review manuscript now lives
+An anonymous INCISCOS 2026 professor-review manuscript now lives
 under `paper/inciscos2026/`. It uses the IEEE A4 conference format and is
 written as a direct experimental report of the conventional and continuous-
 `SO(2)` VAEs, reconstruction, five-class WSI diagnosis, and three-class tissue
-recognition. An independent adversarial language and issue-compliance review
-removed overstatements, made the six-contrast tissue family explicit, added
-source-location markers to the real WSI/patch example, and added the total of
-513 WSIs to the detailed split diagram. The manuscript describes the models
-separately and reports classwise downstream results. Stage A1/A2 geometry and
-the later MIL-dynamics work are deliberately excluded.
-`paper/inciscos2026/inciscos2026.pdf` is the visually reviewed build. The
-existing SIPAIM paper subtree remains unchanged.
+recognition. Its abstract and section structure now follow the direct pattern
+used by established MIL papers: one motivation--method--result--scope pass, a
+two-part classification question, and an explicit separation between frozen
+representation and MIL aggregation. Classification A evaluates five-class WSI
+diagnosis from complete historical Otsu-selected bags; Classification B removes
+bag aggregation and tests recovery of local tissue information from the
+complete spatial latent map across label budgets. Independent adversarial
+language, claim, and issue-compliance reviews removed overstatements and
+repetition, made the
+six-contrast tissue family explicit, vertically stacked the two real patches
+beside their WSI and connected each source marker directly to its patch, and
+added the total of 513 WSIs to the detailed split diagram. The manuscript
+describes the models separately and reports classwise downstream results. Stage
+A1/A2 geometry and the later MIL-dynamics work are deliberately excluded.
+The dataset account in the INCISCOS manuscript now separates VAE, complete-bag
+MIL and tissue-patch inputs by split. It reports VAE diagnosis composition in
+both WSI and sampled-patch units, MIL WSI labels and full-foreground bag sizes,
+and tissue patch distributions and balanced training budgets. The current professor-review draft is `paper/inciscos2026/inciscos2026.pdf`
+(eleven A4 pages). It now introduces the 538-image source (513 non-TMA WSIs,
+25 TMAs) and 152 supplemental masks before the split discussion; explains
+reconstruction separately from MIL and tissue classification; adds a VAE
+encoder/posterior/decoder diagram, denoising objective and accessible SO(2),
+steerable-kernel and F0/F1 definitions. Figure 1 shows two real patches
+from the same WSI with arrows from source centers matched directly against
+the official Kaggle thumbnail. A CSV-dimension projection proved inaccurate;
+the corrected marker coordinates and source hash are in the paper README. Figure 2 now shows a real paired WSI thumbnail, partial
+supplemental mask and aligned overlay obtained from Kaggle. Figure 3
+compares that WSI with an actual TMA, including original dimensions and patch
+counts. Figure 6 shows the separate two-convolution residual paths of the
+conventional and continuous-SO(2) VAEs, including normalization, gates and
+identity skips. Figure 7 details the full encoder and decoder stages.
+Image provenance and reduction steps are recorded in the paper README.
+The illustrative WSI, mask overlay and TMA rasters were reduced to 600–800 px
+wide (JPEG quality 75; categorical mask as 600 × 632 PNG). The 256 × 256
+patches and quantitative plots remain lossless. The illustrative-image compression reduced the PDF from 10,399,856 to about
+2.7 MB; after the vector residual diagrams, the eleven-page build is about
+2.7 MB, with no unresolved references or overfull boxes.
+The architecture section also gives the scalar/radial-gate and field-norm
+equations, checked against the frozen model code. AGENTS.md requires active
+prevention of conversational-context leakage in standalone artifacts.
+Cross-references use whole-phrase autoref links, and tables mark metric
+direction. The PDF compiles without overfull boxes or unresolved references.
+Text, page geometry, image alignment, internal PDF links and build were
+checked. The local image-view surface did not provide a page preview for
+manual visual inspection in this session.
+The existing SIPAIM paper subtree remains unchanged.
+
+The INCISCOS manuscript, PDF and nine lightweight issue figure previews were
+pushed in commit `b9da0ba`. Issue #7 now contains the PDF link, all nine
+figures and a DSMIL (Li et al., CVPR 2021) reference for reusing
+unlabeled training-slide images in later supervised MIL training:
+`https://github.com/HiperMaximus/equivariant-vae/issues/7#issuecomment-5835967519`.
+
+The historical HSV-saturation Otsu selector is now a documented experimental
+boundary, not a general tissue detector. In the 152-WSI mask atlas it omitted
+56,488 of 606,141 patches with at least 60% annotated area and at least 95%
+single-tissue purity (9.32%; stroma 17.27%), and the floor-projected thumbnail
+rectangles make the nominal 60% cutoff coordinate dependent. Existing
+checkpoints, latents and evaluations remain frozen.
+[Decision 0013](docs/decisions/0013-historical-otsu-foreground-boundary.md)
+requires any future VAE retraining, latent re-extraction, WSI-bag rebuild or
+new-WSI transfer to raise this flag, define the foreground selector as a new
+data contract and freeze it without sealed-test tuning.
 
 A standalone Spanish methodology is available in
 `reports/methodology/descripcion_metodologica_experimento_eqvae.md`, with its
