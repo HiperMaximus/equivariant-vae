@@ -1,7 +1,7 @@
 # Goal And Evaluation Requirements
 
 Status: complete for the professor report
-Last updated: 2026-09-08
+Last updated: 2026-09-22
 
 ## Goal
 
@@ -38,7 +38,7 @@ Never merge or relabel these populations:
 | --- | --- |
 | Fixed validation 25 | Qualitative reconstruction, rotation and latent diagnostics |
 | Full reconstruction test | 67,138 patches clustered in 23 sealed-test WSIs |
-| WSI diagnosis test | 23 complete WSI bags; support CC/EC/HGSC/LGSC/MC = 5/6/8/2/2 |
+| WSI diagnosis test | 23 complete historical Otsu-selected bags; support CC/EC/HGSC/LGSC/MC = 5/6/8/2/2 |
 | Tissue test | 31,572 patches from 23 WSIs at five nested label budgets |
 | Development train/validation | Optimization and checkpoint selection only |
 
@@ -110,6 +110,10 @@ GitHub attachment URLs.
 - PCA colors and individual examples are diagnostics, not performance metrics.
 - No universal winner is established.
 - No attention heatmap may be fabricated from logits or graph coordinates.
+- Historical Otsu-selected foreground is not exhaustive tissue. Any retraining,
+  latent re-extraction or bag rebuild must first review
+  [Decision 0013](decisions/0013-historical-otsu-foreground-boundary.md) and
+  freeze a replacement selector without sealed-test tuning.
 
 ## Current Boundary
 

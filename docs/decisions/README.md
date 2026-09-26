@@ -15,6 +15,7 @@ Read order:
 9. `0010-verify-the-premise-before-changing-a-pin.md`
 10. `0011-kaggle-code-delivery.md`
 11. `0012-kaggle-runtime-torch-upgrade.md`
+12. `0013-historical-otsu-foreground-boundary.md`
 
 Keep notes short. If a decision no longer governs the repository, delete it;
 Git retains its history. Update `CURRENT.md`, `GOAL.md` and affected contracts

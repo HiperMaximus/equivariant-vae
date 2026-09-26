@@ -39,6 +39,12 @@ The evidence is mixed:
 - post-hoc full-latent continuation lowered every selected path and especially
   the `SO(2)` representative bridges, while their decoded bottlenecks remain
   too large to establish a connected decoder fiber or gauge equivalence.
+- the historical HSV-saturation Otsu population is not exhaustive tissue. A
+  mask audit found a pale-tissue miss, especially for stroma, and the projected
+  area calculation has coordinate-rounding variation. Existing artifacts stay
+  frozen; any retraining or coordinate regeneration must first resolve the
+  foreground-selection decision in
+  [Decision 0013](docs/decisions/0013-historical-otsu-foreground-boundary.md).
 
 The current Spanish report is
 `reports/professor/informe_final_experimento_eqvae.{docx,pdf}`. Its sealed and
@@ -64,6 +70,11 @@ exact state and evidence.
   access, metric code and qualitative protocol.
 - Test discipline: sealed results never drive tuning, checkpoint selection,
   retraining or retries.
+- Foreground discipline: call the frozen population historical Otsu-selected
+  foreground, not complete tissue. Any future retraining, latent extraction or
+  bag reconstruction must explicitly review
+  [Decision 0013](docs/decisions/0013-historical-otsu-foreground-boundary.md)
+  and freeze any new selector before sealed evaluation.
 
 ## Required Evaluation Surface
 

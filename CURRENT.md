@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-09-22
+Last updated: 2026-09-26
 
 ## Active frontier
 
@@ -110,12 +110,244 @@ retry ceiling and no equivalence gate: it stores raw deltas, scaler states and
 skipped-attempt sequences. Dataset/header/cohort differences are also recorded
 as audit values rather than converted into failures. Only six structural
 conditions that make execution impossible still raise. Obsolete v3 was
-cancelled after the accidental concurrent launch; simplified Kaggle v4 is the
-only active session and runs from source commit
-`9f7caebb53c79c013543877ac667274fe07de97e`. Cadence and the full training
-runner stay pending A0 measurements. Heavy T2 remains future work.
-The separate 152-WSI cohort
-remains outside all new decisions and must be reported as historically exposed
+cancelled after the accidental concurrent launch. Simplified Kaggle v4
+completed from source commit
+`9f7caebb53c79c013543877ac667274fe07de97e` in `1708.38` seconds, and its
+artifacts are downloaded under `runs/kaggle/spec0054_mil_a0_v4/`. All 330,000
+patch rows, binary headers/CRCs, the 361-WSI cohort and the five fold counts
+matched their frozen sources. The normal and `SO(2)` latent reconstructions
+took `262.96` and `914.43` seconds. In both branches, baseline and instrumented
+paths each skipped the first AMP attempt at scale 65,536, backed off to 32,768
+and then committed all four requested updates; this was recorded behavior, not
+a failure. Raw baseline-versus-T0 differences were at most `2.51e-4` for
+logits, `2.31e-4` for loss and `4.34e-4` over the measured model trajectory,
+with equal scaler state. Stable T0 steps cost `0.139--0.221` seconds versus
+`0.0123--0.0166` seconds without telemetry (`10.89--11.65x`), while peak
+allocated memory increased by only 12.13 MB. T1 cost `0.54--2.70` seconds per
+sampled WSI and T2-lite was about `0.08--0.24` seconds after its first cold
+call. No sampled activation or gradient summary was nonfinite. These absolute
+costs support retaining complete T0 on every committed update for the first
+observational anchor, with T1 and T2-lite restricted to precommitted
+boundaries; the horizon and resumable full training runner remain to be
+frozen. Heavy T2 remains future work.
+A bounded FP16-storage probe then completed in private Kaggle kernel
+`maximusshtefan/eqvae-spec0054-fp16-storage-probe/1` from commit
+`2f3d9c56e25985937bfc018d2678aec6d9e5a5d3`. Its downloaded result is under
+`runs/kaggle/spec0054_fp16_storage_probe_v1/`; the result JSON SHA-256 is
+`827bc9ca5ea5190ce3f690cecb405867c6a9da92bb8d9f14bef1e3705c6ef4d2`. It
+encoded the same real 15-patch
+development WSI through both frozen VAEs in FP32, wrote and reloaded each
+posterior-mean bag as raw FP16, and compared the current MIL classifier under
+CUDA FP16 autocast. Each 491,520-byte disk round-trip was exact. Quantization
+introduced relative latent L2 error `2.08e-4`, no nonfinite values and no
+nonzero-to-zero values. In eager execution, FP32-stored versus FP16-stored input
+gave bitwise-identical first-convolution outputs, logits, loss, gradients and
+AdamW update for both branches. Under Inductor, the corresponding maximum logit
+difference was `6.56e-4` for the normal VAE and `1.34e-3` for the `SO(2)` VAE;
+gradient cosines were `0.99999971` and `0.99999961`, and update cosines were
+`0.999576` and `0.999419`, without nonfinite values. This drift is comparable
+to the independently measured eager-versus-compiled drift. The complete latent
+store may therefore write each FP32 encoder posterior mean once as FP16 and
+feed it directly to this AMP classifier without an FP32 upcast. This is a
+validation of the current AMP consumer, not a blanket claim for future FP32
+consumers. Full latent extraction still uses the historical Otsu-selected
+foreground boundary documented in Decision 0013.
+The 16-patch extraction smoke completed in Kaggle kernel
+`maximshtefan/eqvae-spec0054-fp16-extraction-probe/2`; its files are under
+`runs/kaggle/spec0054_fp16_extraction_probe_v2/`. Both aligned FP16 binaries
+contain 16 finite `(16,32,32)` records, with matching file hashes and an index
+ordered by WSI, y, x. The SO(2) materialized encoder matched eager output
+exactly; eager/compiled differences were recorded as normal numerical drift.
+Complete shard 1 was submitted as private Kaggle kernel
+`maximshtefan/eqvae-spec0054-fp16-latent-shard-1/3` from source commit
+`bdadb38` on 2026-09-23. It covers 36 whole WSI and 254,527 historical
+Otsu-selected patches, yielding two aligned FP16 stores of 8.34 GB each.
+It completed in 9,914.77 seconds (25.67 patches/s). Its Kaggle result reports
+254,527/254,527 rows, 36 completed WSI, two 8,340,340,736-byte FP16 binaries
+and no incomplete shard. The downloaded index and result are under
+`runs/kaggle/spec0054_fp16_latent_shard_1_v3_metadata/`; the index SHA-256
+matches, file indices are consecutive, WSI/y/x order is monotone and each WSI
+occupies one contiguous run. The full binaries remain on Kaggle and were not
+redownloaded locally. At the measured rate, the remaining 11 shards would
+take about 30 hours. Kaggle reported 27.14 GPU hours remaining, refreshing
+2026-09-26T00:00:00, so completion before that refresh requires higher
+throughput. The full 361-WSI dataset is not yet available.
+Shard 2 was then submitted from commit `5ad4cdc` as private Kaggle kernel
+`maximshtefan/eqvae-spec0054-fp16-latent-shard-2/1`. It covers the next 25
+complete WSI and 256,247 historical Otsu-selected patches (16.79 GB paired
+FP16 output). It completed in 10,593.56 seconds (24.19 patches/s) with all
+256,247 rows and 25 WSI. Its two binary sizes each equal 8,396,701,696 bytes.
+The downloaded index/result under
+`runs/kaggle/spec0054_fp16_latent_shard_2_v1_metadata/` match the index SHA-256;
+file indices are consecutive and WSI/y/x order is monotone, with one contiguous
+run per WSI. Kaggle lists both binary outputs; they were not downloaded locally.
+A bounded inference-speed probe was submitted from commit `9737b94` as private
+Kaggle kernel `maximshtefan/eqvae-spec0054-fp16-inference-speed-probe/1` after
+shard 2 completed. It used 512 identical real patches from WSI 4, three
+post-compile timing repeats and separate timing for each VAE. Its log is under
+`runs/kaggle/spec0054_fp16_inference_speed_probe_v1/`. Four cases completed:
+paired throughput was 27.19/27.42 patches/s for FP32 batches 8/32 and
+44.89/49.11 for AMP batches 8/16. The SO(2) encoder alone was slower than the
+normal encoder in all four. The stored-FP16 `mu` relative L2 difference from
+the FP32 batch-8 baseline was approximately 1.21% normal and 2.37% SO(2)
+under AMP, with no nonfinite values. This is much larger than the accepted
+FP16-storage-only discrepancy, so AMP extraction is not yet accepted. The
+fifth case hit PyTorch's shared eight-variant `torch.compile` cache limit;
+this was a probe process limit, not a VAE numerical failure. Version 2 from
+commit `28aaf86` reruns the FP32 batch-8 reference and only the two pending
+AMP batches 32/64. Kernel
+`maximshtefan/eqvae-spec0054-fp16-inference-speed-probe/2` completed. Its JSON
+and log are under `runs/kaggle/spec0054_fp16_inference_speed_probe_v2/`.
+For the same 512 patches, paired median throughput was 25.86 patches/s at
+FP32 batch 8, 51.55 at AMP batch 32, and 50.49 at AMP batch 64. SO(2)-only
+throughput was 26.26, 56.66, and 55.48 patches/s respectively; batch 64 did
+not improve the bottleneck over batch 32 in this small sample. AMP batch 32/64
+stored-FP16 `mu` relative L2 differences from FP32 batch 8 were 1.21% for
+normal and 2.37% for SO(2), with no nonfinite values. Compilation and one
+warmup batch per model/configuration were timed separately (about 230-260 s
+per case) and excluded from the three full-sample timing repeats; there were
+not multiple untimed full-sample warmups, so small speed differences are not
+resolved precisely. The first of the three timed passes also collected the
+latent arrays for numerical comparison, unlike the other two; the timing is
+adequate for the approximate 2x AMP gain but not for fine batch ranking.
+Cases ran sequentially in one Python process: separate
+`torch.compile` wrappers per model and batch still shared PyTorch's per-code-
+object variant cache, which caused the v1 fifth-case error. Distinct GPUs do
+not isolate that cache. FP32 batch 8 versus 32 alone changed stored values by
+only about 0.007% relative L2 in v1, far less than AMP. At that point AMP
+had not been accepted; the user subsequently chose AMP for the new dataset,
+accepting the measured numerical differences.
+The historical VAE training contract used FP16 autocast, but that does not
+establish numerical equivalence for this inference.
+At the user's direction, AMP is now the intended precision for subsequent
+latent extraction. A focused speed-only v3 from commit `556d458` was pushed as
+private Kaggle kernel
+`maximshtefan/eqvae-spec0054-fp16-inference-speed-probe/3` and confirmed
+`RUNNING` at 2026-09-24 02:16 UTC; it subsequently completed. Its JSON and log
+are under `runs/kaggle/spec0054_fp16_inference_speed_probe_v3/`. It compares
+AMP batches 32, 48 and 64 on
+the same 512 historical Otsu-selected patches, with compile variants for full
+and tail batches, a compiler-cache reset between cases, 10 full untimed warmup
+passes and 5 identical timed passes per case. Compilation, warmup, paired
+throughput and each VAE's standalone throughput are recorded separately.
+The five timed paired-pass medians were 55.16, 55.51 and 54.74 patches/s for
+batches 32, 48 and 64 respectively. SO(2)-only medians were 55.71, 55.95
+and 55.26 patches/s. Batch 48 is the measured fastest, but its paired
+advantage over 32 is only 0.6%; this probe does not establish a meaningful
+end-to-end extraction-speed difference between them. Peak SO(2) allocated
+memory increased from 1.13 to 1.66 to 2.19 GB. The ~2x AMP improvement over
+the earlier FP32 probe is much larger than any observed batch-size difference.
+By the user's explicit
+decision, retain completed shards 1 and 2 (FP32 VAE compute, FP16 storage)
+and use AMP batch 48 for shards 3--12 (FP16 storage). The probe measured
+AMP-versus-FP32 stored-latent relative L2 differences of about 1.21% normal
+and 2.37% SO(2); these are accepted for this exploratory dataset, not
+numerical identity. Preserve each shard's compute provenance when assembling
+the store; do not describe all 12 shards as AMP-computed.
+The extraction runner and contract now use CUDA FP16
+autocast with batch 48, while retaining FP32 frozen weights, FP32 materialized
+SO(2) dense kernels, the same 361-WSI historical Otsu atlas and FP16 output
+records. The result JSON now includes the exact execution block from the
+contract. The thin Kaggle kernel points to shard 3. Python
+compilation, JSON parsing, kernel validation and focused diff checks passed.
+The existing versions of shards 1 and 2 remain in the classifier dataset;
+their original contract SHA-256 values distinguish their compute policy.
+Shard 3 was submitted from commit `f2e9b06` as private Kaggle kernel
+`maximshtefan/eqvae-spec0054-amp-latent-shard-3/1` at 2026-09-24 14:23 UTC.
+It completed in 6,502.74 seconds (39.37 patches/s): 32 complete WSI,
+256,001 historical Otsu-selected patches and 16,777,281,536 paired FP16
+output bytes. The downloaded result and index are under
+`runs/kaggle/spec0054_fp16_latent_shard_3_v1_metadata/`; the index SHA-256
+matches, file indices and atlas indices are consecutive, and WSI/y/x order is
+monotone with one contiguous run per WSI. Kaggle lists both final `.bin` files;
+the binaries were not downloaded locally. The result records AMP batch 48,
+the new contract SHA-256 and exact FP32 SO(2) kernel materialization.
+Kaggle warned that the title resolved to the AMP slug rather than the requested
+FP16 slug; local metadata was aligned with the actual slug after launch but
+was not repushed.
+Shard 5 (not shard 4) from commit `1164e50` completed as private Kaggle kernel
+`maximshtefan/eqvae-spec0054-amp-latent-shard-5/1` in 6,361.19 seconds
+(39.69 patches/s). It wrote 252,467 rows from 30 complete WSI, or
+16,545,677,312 paired FP16 bytes, under the unchanged AMP batch-48 contract.
+The downloaded index and result are under
+`runs/kaggle/spec0054_fp16_latent_shard_5_v1_metadata/`. The index SHA-256
+matches; file and atlas indices are consecutive; WSI/y/x order is monotone
+with one contiguous run per WSI. Kaggle lists both final `.bin` files; they
+were not downloaded locally.
+Shard 6 from commit `adc7fab` completed as private Kaggle kernel
+`maximshtefan/eqvae-spec0054-amp-latent-shard-6/1` in 6,296.62 seconds
+(40.01 patches/s). It wrote 251,944 rows from 29 complete WSI, or
+16,511,401,984 paired FP16 bytes. The downloaded index and result are under
+`runs/kaggle/spec0054_fp16_latent_shard_6_v1_metadata/`. The index SHA-256
+matches; file and atlas indices are consecutive; WSI/y/x order is monotone
+with one contiguous run per WSI. Kaggle lists both final `.bin` files; they
+were not downloaded locally.
+Shard 4 from commit `4313215` completed as private Kaggle kernel
+`maximshtefan/eqvae-spec0054-amp-latent-shard-4/1` in 6,820.82 seconds
+(37.66 patches/s). It wrote 256,869 rows from 28 complete WSI, or
+16,834,166,784 paired FP16 bytes. The downloaded index and result are under
+`runs/kaggle/spec0054_fp16_latent_shard_4_v1_metadata/`. The index SHA-256
+matches; file and atlas indices are consecutive; WSI/y/x order is monotone
+with one contiguous run per WSI. Kaggle lists both final `.bin` files; they
+were not downloaded locally. Shards 1--6 are now complete.
+Shard 7 from commit `5de2956` completed as private Kaggle kernel
+`maximshtefan/eqvae-spec0054-amp-latent-shard-7/1` in 6,019.05 seconds
+(42.94 patches/s). It wrote 258,431 rows from 27 complete WSI, or
+16,936,534,016 paired FP16 bytes. The downloaded index and result are under
+`runs/kaggle/spec0054_fp16_latent_shard_7_v1_metadata/`. The index SHA-256
+matches; file and atlas indices are consecutive; WSI/y/x order is monotone
+with one contiguous run per WSI. Kaggle lists both final `.bin` files; they
+were not downloaded locally. Shards 1--7 are now complete.
+Shard 8 from commit `81c901b` completed as private Kaggle kernel
+`maximshtefan/eqvae-spec0054-amp-latent-shard-8/1` in 6,704.61 seconds
+(38.34 patches/s). It wrote 257,030 rows from 31 complete WSI, or
+16,844,718,080 paired FP16 bytes. The downloaded index and result are under
+`runs/kaggle/spec0054_fp16_latent_shard_8_v1_metadata/`. The index SHA-256
+matches; file and atlas indices are consecutive; WSI/y/x order is monotone
+with one contiguous run per WSI. Kaggle lists both final `.bin` files; they
+were not downloaded locally. Shards 1--8 are now complete.
+Shard 9 from commit `1b0ec3b` completed as private Kaggle kernel
+`maximshtefan/eqvae-spec0054-amp-latent-shard-9/1` in 6,633.47 seconds
+(38.05 patches/s). It wrote 252,405 rows from 30 complete WSI, or
+16,541,614,080 paired FP16 bytes. The downloaded index and result are under
+`runs/kaggle/spec0054_fp16_latent_shard_9_v1_metadata/`. The index SHA-256
+matches; file and atlas indices are consecutive; WSI/y/x order is monotone
+with one contiguous run per WSI. Kaggle lists both final `.bin` files; they
+were not downloaded locally. Shards 1--9 are now complete.
+Shard 10 from commit `398fbb1` completed as private Kaggle kernel
+`maximshtefan/eqvae-spec0054-amp-latent-shard-10/1` in 7,629.75 seconds
+(32.38 patches/s). It wrote 247,041 rows from 32 complete WSI, or
+16,190,078,976 paired FP16 bytes. The downloaded index and result are under
+`runs/kaggle/spec0054_fp16_latent_shard_10_v1_metadata/`. The index SHA-256
+matches; file and atlas indices are consecutive; WSI/y/x order is monotone
+with one contiguous run per WSI. Kaggle lists both final `.bin` files; they
+were not downloaded locally. Shards 1--10 are now complete.
+Shard 11 from commit `6a4acb7` completed as private Kaggle kernel
+`maximshtefan/eqvae-spec0054-amp-latent-shard-11/1` in 9,541.49 seconds
+(27.32 patches/s). It wrote 260,636 rows from 29 complete WSI, or
+17,081,040,896 paired FP16 bytes. The downloaded index and result are under
+`runs/kaggle/spec0054_fp16_latent_shard_11_v1_metadata/`. The index SHA-256
+matches; file and atlas indices are consecutive; WSI/y/x order is monotone
+with one contiguous run per WSI. Kaggle lists both final `.bin` files; they
+were not downloaded locally. Shards 1--11 are now complete.
+Shard 12 from commit `9398899` completed as private Kaggle kernel
+`maximshtefan/eqvae-spec0054-amp-latent-shard-12/1` in 5,656.27 seconds
+(44.77 patches/s). It wrote 253,235 rows from 32 complete WSI, or
+16,596,008,960 paired FP16 bytes. The downloaded index and result are under
+`runs/kaggle/spec0054_fp16_latent_shard_12_v1_metadata/`. The index SHA-256
+matches; Kaggle lists both final `.bin` files, which were not downloaded.
+All 12 shard indices were audited together: 3,056,833 consecutive atlas rows
+from 0 through 3,056,832, 361 distinct WSI each in one contiguous run,
+monotone WSI/y/x order, no duplicate coordinates, and consistent diagnosis,
+VAE source role and fold within each WSI (322 train, 39 validation). Every
+index hash and reported binary byte count matches its shard result and the
+frozen atlas contract; paired FP16 storage totals 200,332,607,488 bytes.
+The two `.bin` files per shard remain on Kaggle and have not been independently
+downloaded or rehashed locally. Shards 1--2 used FP32 VAE computation before
+FP16 storage; shards 3--12 used AMP batch 48 before FP16 storage. The complete
+historical Otsu-selected latent dataset is now generated, but no full MIL
+classifier training has been launched from it yet.
+The separate 152-WSI cohort remains outside all new decisions and must be reported as historically exposed
 rather than a newly sealed test population.
 
 For accepted Stage A1 only, the numerical method is fixed: direct disposable JVP/VJP graphs,

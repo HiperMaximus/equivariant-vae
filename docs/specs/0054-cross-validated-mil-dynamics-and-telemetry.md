@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: simplified A0 v4 running; five-fold training remains pending
+Status: simplified A0 v4 complete; five-fold training remains pending
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-09-22
@@ -23,8 +23,17 @@ justified by the measurements defined here.
 This document is a scientific plan, not the execution contract. The exact
 361-WSI identities, five folds, A0 sentinels/cost panel, source hashes, binary
 headers and probe fold are frozen in `docs/data/spec0054_a0_contract.json`.
-Training horizons, cadence and the full-run artifact budget remain to be frozen
-from the bounded A0 measurement before any classifier campaign begins.
+The training horizon and full-run artifact budget remain to be frozen before
+the classifier campaign begins.
+
+The bounded A0 measurement completed in Kaggle v4 in `1708.38` seconds. Stable
+instrumented T0 steps cost `0.139--0.221` seconds, or `10.89--11.65x` the
+unobserved step, but added only 12.13 MB of peak allocated device memory. T1
+cost `0.54--2.70` seconds for each sampled median/P99/maximum WSI and warmed
+T2-lite cost about `0.08--0.24` seconds per sentinel WSI. These absolute costs
+support complete T0 on every committed update in the first anchor and
+T1/T2-lite only at precommitted boundaries. Cold compilation timings are
+retained as runtime observations but are not used to compare the paths.
 
 ## Local Implementation Boundary
 

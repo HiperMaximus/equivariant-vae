@@ -119,8 +119,8 @@ trajectory per downstream branch and small sealed-test support.
 
 Frozen posterior-`mu` embeddings feed matched supervised heads:
 
-- WSI diagnosis uses complete foreground bags and the fixed local-global MIL
-  architecture;
+- WSI diagnosis uses complete historical Otsu-selected foreground bags and the
+  fixed local-global MIL architecture;
 - tissue classification uses nested balanced label budgets;
 - model initialization, example order, optimizer and schedule are paired;
 - development validation selects checkpoints; sealed test is consumed once;
