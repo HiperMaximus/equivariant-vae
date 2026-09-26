@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-"""Thin Kaggle entrypoint for the eleventh latent shard."""
+"""Thin Kaggle entrypoint for the twelfth latent shard."""
 
 import subprocess
 import sys
@@ -61,7 +61,7 @@ def main() -> int:
     return run(
         repo_root=SOURCE_ROOT,
         source_commit=commit,
-        shard_index=11,
+        shard_index=12,
     )
 
 
