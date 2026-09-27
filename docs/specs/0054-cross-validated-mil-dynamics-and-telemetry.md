@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: simplified A0 v4 complete; fold-0 Kaggle v2 running
+Status: simplified A0 v4 complete; fold-0 v2 checkpointed, v3 running
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-09-27

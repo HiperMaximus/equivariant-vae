@@ -453,10 +453,29 @@ The full fold-0 run was submitted as private Kaggle kernel
 `0c9fd5729941a2f817f402b9fc41b820607d801f`; its thin entrypoint is in
 Git commit `ae6f21d`. It uses the same 12-shard reader, AMP, effective batch 1,
 150 epochs (43,200 train-WSI exposures per VAE) and periodic checkpoints.
-Kaggle reported `RUNNING` at 2026-09-27 06:47 UTC. Inspect after 07:15 UTC
-for early progress or failure, then inspect near the 12-hour session boundary;
-do not start a duplicate run while v2 is active. A completed session may need
-a continuation from its saved `latest.pt` before the fold is finished.
+Kaggle v2 completed normally near its 12-hour session boundary. Its downloaded
+output is under `runs/kaggle/spec0054_mil_fold0_v2/`. The normal-VAE checkpoint
+SHA-256 is `824dace289b732bdefd81eb5e9f3b1e2ab957294658de3c4f76cc14df1c22e60`;
+it loads at update/exposure 10,080, epoch 35, cursor 0, effective batch 1,
+with the 288-entry paired order and GradScaler scale 32,768. The cumulative
+T0/T1/T2-lite/prediction tables load at that update; T0 has 10,080 rows and
+predictions 4,332. No `SO(2)` branch began in v2. T0 recorded five total AMP
+backoff attempts, zero nonfinite loss or forward captures and no nonfinite
+gradients in the global/head summaries. Peak allocated device memory was
+5.153 GiB. At exposure 10,080 the fixed-boundary normal train/validation
+accuracies were 0.399/0.411 (288/73 WSI), with validation accuracy varying
+across earlier boundaries; these exploratory values do not change the anchor.
+The train-only ten-WSI panel already shows frequent gradient conflict, but
+method decisions await the paired branch and complete OOF evidence.
+
+The six files needed for exact continuation were uploaded as private dataset
+`maximshtefan/eqvae-spec0054-fold0-resume/1` and redownloaded byte-identical
+to v2. Kernel `maximshtefan/eqvae-spec0054-mil-fold0/3` uses the same pinned
+scientific commit and thin entrypoint commit `0d44145` to restore those files;
+it was `RUNNING` at 2026-09-27 19:55 UTC. Inspect after 20:25 UTC for
+early resume progress or failure, then near the next session boundary. The
+full 43,200-exposure horizon remains in progress; do not start a duplicate
+run while v3 is active.
 
 The separate 152-WSI cohort remains outside all new decisions and must be reported as historically exposed
 rather than a newly sealed test population.
