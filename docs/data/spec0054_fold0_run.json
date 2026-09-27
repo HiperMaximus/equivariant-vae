@@ -1,0 +1,144 @@
+{
+  "fold": 0,
+  "epochs": 150,
+  "warmup_epochs": 5,
+  "seed": 1701,
+  "peak_lr": 0.0002,
+  "effective_batches": [
+    1,
+    4,
+    8
+  ],
+  "t1_train_wsi": 28121,
+  "t2_holdout_wsi": 27739,
+  "sources": [
+    {
+      "shard": 1,
+      "kernel": "maximshtefan/eqvae-spec0054-fp16-latent-shard-1/3",
+      "result_sha256": "638adb54b68bcb2057166ffac8016cfb5c9ee6a28b4cad8e479a6ba54bea76b6",
+      "stored_dtype": "<f2"
+    },
+    {
+      "shard": 2,
+      "kernel": "maximshtefan/eqvae-spec0054-fp16-latent-shard-2/1",
+      "result_sha256": "f21ae8becb9d6531a73ca364d4bc3e36f58281d1150508fdd772d1b9a4d26baf",
+      "stored_dtype": "<f2"
+    },
+    {
+      "shard": 3,
+      "kernel": "maximshtefan/eqvae-spec0054-amp-latent-shard-3/1",
+      "result_sha256": "e1e398f58e83a76e9123609dab0b88d4b3cfdf82407501d606b054f30e41e8e6",
+      "stored_dtype": "<f2"
+    },
+    {
+      "shard": 4,
+      "kernel": "maximshtefan/eqvae-spec0054-amp-latent-shard-4/1",
+      "result_sha256": "ff6fb7dd5b1d76bbe7979df1c901de881ddb0fac1bc4a0e18f42e8cb3e7ca46a",
+      "stored_dtype": "<f2"
+    },
+    {
+      "shard": 5,
+      "kernel": "maximshtefan/eqvae-spec0054-amp-latent-shard-5/1",
+      "result_sha256": "44c31cdb7247becbcb64e47afc55e9b9e7dbe1f3554e4c12144b5120cedcdc75",
+      "stored_dtype": "<f2"
+    },
+    {
+      "shard": 6,
+      "kernel": "maximshtefan/eqvae-spec0054-amp-latent-shard-6/1",
+      "result_sha256": "279ba4d969a1cce7babf7925157765866626351dc735a7f71ff1b57f06fa40a7",
+      "stored_dtype": "<f2"
+    },
+    {
+      "shard": 7,
+      "kernel": "maximshtefan/eqvae-spec0054-amp-latent-shard-7/1",
+      "result_sha256": "dba99089482543d2b0508d9284aafec2e5aa64aedc75168ee185df9f179b74cc",
+      "stored_dtype": "<f2"
+    },
+    {
+      "shard": 8,
+      "kernel": "maximshtefan/eqvae-spec0054-amp-latent-shard-8/1",
+      "result_sha256": "d811f94698f57ed3db9c81c003853b68bc628d4e66d84ccee773560acca7b64e",
+      "stored_dtype": "<f2"
+    },
+    {
+      "shard": 9,
+      "kernel": "maximshtefan/eqvae-spec0054-amp-latent-shard-9/1",
+      "result_sha256": "905fb49e7722a8bab7ce309f2c8bcfee730ef4025d2af34f4f487ca62c95228f",
+      "stored_dtype": "<f2"
+    },
+    {
+      "shard": 10,
+      "kernel": "maximshtefan/eqvae-spec0054-amp-latent-shard-10/1",
+      "result_sha256": "2731429ef9ea784092070dceb8d1638ac5e7cafe0157d224521669bf608273aa",
+      "stored_dtype": "<f2"
+    },
+    {
+      "shard": 11,
+      "kernel": "maximshtefan/eqvae-spec0054-amp-latent-shard-11/1",
+      "result_sha256": "ae3495fa6d58b278f836d002dc9248a5e79b18e4acfec7cf8daa5385ec9f4246",
+      "stored_dtype": "<f2"
+    },
+    {
+      "shard": 12,
+      "kernel": "maximshtefan/eqvae-spec0054-amp-latent-shard-12/1",
+      "result_sha256": "ad9ce1ebdbf5c3b6c1ce6bf90507d6c371efb78dee62ada5071b5951ef2712cb",
+      "stored_dtype": "<f2"
+    }
+  ],
+  "evaluation_early_epochs": [
+    1,
+    2,
+    3,
+    5
+  ],
+  "evaluation_every_epochs": 5,
+  "t1_early_epochs": [
+    1,
+    2
+  ],
+  "t1_every_epochs": 5,
+  "t2_early_epochs": [
+    1,
+    2
+  ],
+  "t2_every_epochs": 10,
+  "snapshot_epochs": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    10,
+    20,
+    30,
+    50,
+    75,
+    100,
+    125,
+    150
+  ],
+  "snapshot_first_half_epoch": true,
+  "gradient_probe_epochs": [
+    0,
+    1,
+    2,
+    5,
+    20,
+    50,
+    100,
+    150
+  ],
+  "gradient_probe_wsi_ids": [
+    45990,
+    7482,
+    34690,
+    51032,
+    970,
+    8240,
+    12244,
+    38585,
+    30868,
+    3084
+  ],
+  "checkpoint_every_exposures": 144
+}

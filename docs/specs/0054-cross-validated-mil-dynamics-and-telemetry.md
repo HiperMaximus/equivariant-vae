@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: simplified A0 v4 complete; five-fold training remains pending
+Status: simplified A0 v4 complete; first-fold runner locally prepared, training pending
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-09-22
@@ -97,6 +97,77 @@ and five-fold training runner remain prerequisites for A1. Heavy T2
 families remain future work: iterative line search, SAM, Hessian/Lanczos,
 per-example full gradients, perturbation sweeps, Muon counterfactuals and
 PANTHER fitting.
+
+## Frozen first-fold execution
+
+The local first-fold contract is `docs/data/spec0054_fold0_run.json`. It pins
+the twelve audited Kaggle producer versions and result hashes. All twelve
+inputs have the same FP16 record format and use one reader and training path.
+The classifier reads every row of each complete historical
+Otsu-selected WSI bag directly from the shard binary. The 330,000-patch A0
+physical source is not the full atlas and its `patch_count` column is not a
+complete-bag size. The complete atlas has 3,056,833 rows across 361 WSI.
+
+The fold-0 paired anchor has 288 training and 73 validation WSI, seed 1701,
+150 epochs and exactly 43,200 training-WSI exposures for each VAE. Effective
+batch one is the first run (43,200 committed updates absent AMP backoffs).
+The same ordered exposure horizon permits later batch 4 and 8 arms (10,800
+and 5,400 updates) without changing model, loss, peak LR or WSI order. The
+historical five-epoch 10%-to-peak warmup and 1%-minimum cosine are evaluated
+by cumulative WSI exposure; fold-training class weights are recomputed from
+its 288 WSI. The model and AdamW parameter groups remain those of Spec 0026/0036.
+The classifier uses CUDA FP16 autocast for the train, validation, T1 and
+T2-lite forwards, with FP32 classifier head, logits and CE, FP32 trainable
+weights and the ordinary GradScaler. AMP backoffs retry
+the same effective batch without advancing exposure or order.
+No outer-fold metric changes the training path.
+
+T0 includes per-WSI prediction/loss and six-terminal forward summaries plus
+actual unscaled-gradient/AdamW-update summaries at every committed update.
+T0 also stores the complete bag size and AMP scale before/after the committed
+attempt. At T1, the runner snapshots the model and AdamW state, obtains the
+sampled unscaled gradient on the disposable copy, and stores both named-layer
+activation/activation-gradient summaries and per-parameter weights, gradients,
+Adam moments, effective steps, radial components and previous actual updates.
+The fixed-boundary prediction rows include cumulative per-WSI learning and
+forgetting state, the complete bag's graph degree/occupancy and all 192 FP32
+bag-embedding coordinates. With the saved five probabilities and true class,
+these coordinates reconstruct the exact unweighted classifier-head gradient
+`(p - one_hot(y)) outer embedding` for every WSI and permit embedding-drift,
+centroid and head-gradient-similarity analyses. Step wall time and peak device
+allocation are recorded with T0. A frozen ten-WSI, fold-train-only gradient
+panel samples the lower and upper complete-bag-size quartiles within each of
+the five classes at exposure 0 and epochs 1/2/5/20/50/100/150. It measures
+unscaled AMP per-WSI gradient norms, pairwise cosine/conflict, `G2`, mean-
+gradient energy, gradient variance and a noise-scale proxy on a disposable
+model copy. The exact IDs and cadence are in the run contract; these
+measurements cannot change weights, optimizer state or WSI order. Fixed full train/validation inference occurs
+at exposure 0, halfway through
+epoch 1, at epochs 1/2/3/5 and every five epochs from 10 through 150. T1
+uses fold-training WSI 28121 at exposure 0, epochs 1/2/5 and every five
+epochs thereafter. T2-lite uses WSI 28121 and fold-0 holdout WSI 27739 at
+exposure 0, epochs 1/2 and every ten epochs thereafter. These probes operate
+on disposable model copies and cannot alter the optimizer or training RNG.
+The runner atomically replaces `latest.pt` and its cumulative telemetry
+tables every 144 committed WSI exposures (half of fold 0), at fixed evaluation
+boundaries and before a 12-hour Kaggle session reaches its 15-minute save
+margin. Its state contains the exact order/cursor, scaler, optimizer, exposure
+schedule and RNG. A continuation mounts the previous run output and restores
+`latest.pt`; no epoch or WSI is skipped, and an AMP backoff is never treated as
+a committed update. Sparse immutable boundary checkpoints are saved at the initial and
+first-half-epoch points and at precommitted epochs 1/2/3/5/10/20/30/50/75/100/125/150,
+so later diagnostics can replay the same model state without changing the
+training path. The first complete Kaggle training run is still pending. This
+anchor implements the observational T0/T1/T2-lite subset and a sparse
+train-only gradient-conflict/noise panel. Full-gradient sketches of every WSI,
+EMA and the counterfactual step-size, SAM, Muon, orthogonal-gradient,
+StableMax, spatial-stress and prototype diagnostics remain separate planned
+work. The anchor can motivate a later targeted test but cannot establish the
+benefit of any unrun method. This fold is
+only the first outer-validation partition: across all five folds each of the
+361 WSI is held out exactly once, with 288 or 289 training WSI in each fold.
+After comparing and freezing the recipe, the final refit uses all 361 WSI for
+training, with duration fixed independently of the external 152 WSI.
 
 ## Scientific Boundary
 

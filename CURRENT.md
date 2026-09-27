@@ -183,8 +183,7 @@ sampled WSI and T2-lite was about `0.08--0.24` seconds after its first cold
 call. No sampled activation or gradient summary was nonfinite. These absolute
 costs support retaining complete T0 on every committed update for the first
 observational anchor, with T1 and T2-lite restricted to precommitted
-boundaries; the horizon and resumable full training runner remain to be
-frozen. Heavy T2 remains future work.
+boundaries; the first-fold horizon and resumable runner are now frozen locally. Heavy T2 remains future work.
 A bounded FP16-storage probe then completed in private Kaggle kernel
 `maximusshtefan/eqvae-spec0054-fp16-storage-probe/1` from commit
 `2f3d9c56e25985937bfc018d2678aec6d9e5a5d3`. Its downloaded result is under
@@ -402,6 +401,43 @@ downloaded or rehashed locally. Shards 1--2 used FP32 VAE computation before
 FP16 storage; shards 3--12 used AMP batch 48 before FP16 storage. The complete
 historical Otsu-selected latent dataset is now generated, but no full MIL
 classifier training has been launched from it yet.
+The local Spec 0054 fold-0 runner now reads complete bags directly from the
+twelve paired shard binaries using each audited index's contiguous FP16 record
+range. It pins all twelve producer versions/result hashes and reads every shard through
+the same FP16 path.
+Fold 0 has 288 train and 73 validation WSI. The first paired run is effective
+batch 1 for 150 epochs or 43,200 training-WSI exposures per VAE; the same
+exposure-indexed order, LR and horizon also admit later effective batches 4
+and 8. It retains the Spec 0026 model, weighted CE, AdamW and AMP rule, records
+T0 each committed update, scheduled T1 layer plus per-parameter weight,
+gradient and Adam-state measurements, T2-lite and fixed full-fold inference
+with cumulative WSI learning/forgetting records, exact FP32 bag embeddings and
+reconstructible classifier-head gradients. It records full-atlas graph
+covariates, step wall time and peak device allocation, and writes atomic
+resumable checkpoints with order/cursor/RNG/scaler/schedule every 144 WSI
+exposures, each fixed evaluation boundary and before the 12-hour session wall,
+plus sparse frozen boundary snapshots for offline replay. A continuation
+mounts the previous output and restores `latest.pt` and the cumulative tables.
+A precommitted ten-WSI fold-train panel
+also measures sparse full-gradient norms, pairwise conflict and gradient-noise
+scale at eight fixed boundaries. The classifier train/evaluation/T1/T2-lite
+and gradient-panel forwards use AMP; weights, logits and CE retain the original
+FP32 policy. Full-model gradient sketches for every WSI, EMA and expensive T2
+counterfactuals are not wired into this first-fold anchor and cannot yet
+support their later method decisions.
+The contract and cadence are in `docs/data/spec0054_fold0_run.json` and Spec
+0054. Local synthetic FP16 read/order, audited 12-index order (3,056,833 rows,
+361 WSI), exposure schedule, table truncation and exact next-update resume
+checks passed. The 200.33 GB of paired binary payloads remain on Kaggle, so
+local tests do not measure real WSI memory/runtime or rehash those bytes.
+No classifier training has been launched. Fold 0 is only the first of the
+five frozen outer folds: its 73 holdouts and the other folds' 72 holdouts give
+each of the 361 WSI one out-of-fold prediction. After selecting and freezing
+the classifier recipe without the external 152 WSI, the final refit trains on
+all 361 development WSI with a fixed duration and no validation-dependent
+stopping. A bounded Kaggle smoke with two complete WSI per branch, AMP/T0, T1/T2-lite
+and a checkpoint restore is the next run; full fold training remains pending.
+
 The separate 152-WSI cohort remains outside all new decisions and must be reported as historically exposed
 rather than a newly sealed test population.
 
