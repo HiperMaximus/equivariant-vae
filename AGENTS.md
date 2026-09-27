@@ -41,7 +41,10 @@ that workflow.
    kernel. New kernels load code from this public repo and mount frozen artifacts
    from Kaggle; never embed a repo payload or add per-kernel builder branches.
    Preserve exact owner/slug/version locators because the authenticated account
-   is not necessarily the owner of every input.
+   is not necessarily the owner of every input. When independent VAE branches
+   or shards run on a multi-GPU Kaggle machine, assign them to separate GPUs
+   concurrently and log the device mapping; state any reason to leave one idle
+   before launch.
 9. Long Kaggle jobs are checked only when useful; after confirming `RUNNING`,
    record when to inspect the result and stop polling.
 10. `paper/sipaim2026` is the working-paper subtree. Sync it to Overleaf only

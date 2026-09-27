@@ -481,7 +481,9 @@ memory on that one device, and GPU 1 is unused. The next continuation's thin
 entrypoint is prepared in the repository to run one branch per visible GPU in separate
 processes while importing the same pinned scientific source; it has not been
 submitted and will first need the v3 checkpoint in the private resume dataset.
-The two-GPU execution and cross-session restore remain to be verified on Kaggle.
+The next entrypoint logs the physical GPU assignment and visible GPU count
+for each branch. The two-GPU execution and cross-session restore remain to be
+verified on Kaggle.
 
 The separate 152-WSI cohort remains outside all new decisions and must be reported as historically exposed
 rather than a newly sealed test population.

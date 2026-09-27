@@ -28,13 +28,20 @@ def main() -> None:
     )
     resume_identity = next(Path("/kaggle/input").rglob("normal_vae/identity.json"))
     resume_root = resume_identity.parent.parent
-    worker_code = (
-        "import sys; from pathlib import Path; "
-        "import experiments.spec0054_mil_fold0 as fold; "
-        "fold.BRANCHES = (sys.argv[1],); "
-        "fold.run(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]), "
-        "Path(sys.argv[5]), 1)"
-    )
+    worker_code = """
+import os
+import sys
+from pathlib import Path
+
+import torch
+import experiments.spec0054_mil_fold0 as fold
+
+print("branch", sys.argv[1], "physical_gpu", os.environ["CUDA_VISIBLE_DEVICES"],
+      "visible_gpu_count", torch.cuda.device_count(), flush=True)
+fold.BRANCHES = (sys.argv[1],)
+fold.run(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]),
+         Path(sys.argv[5]), 1)
+"""
     workers = []
     for branch, gpu in (("normal_vae", "0"), ("so2_vae", "1")):
         output_root = Path("/kaggle/working") / f"spec0054_mil_fold0_{branch}"
