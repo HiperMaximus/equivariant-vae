@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-"""Thin Kaggle entrypoint for the bounded Spec 0054 fold-0 smoke."""
+"""Thin Kaggle entrypoint for the resumable Spec 0054 fold-0 run."""
 
 import subprocess
 import sys
@@ -26,12 +26,14 @@ def main() -> None:
         check=True, timeout=60,
     )
     sys.path[:0] = [str(SOURCE_ROOT), str(SOURCE_ROOT / "src")]
-    from experiments.spec0054_mil_fold0 import run_smoke
+    from experiments.spec0054_mil_fold0 import run
 
-    run_smoke(
-        SOURCE_ROOT,
-        Path("/kaggle/input"),
-        Path("/kaggle/working/spec0054_mil_fold0_smoke"),
+    run(
+        repo_root=SOURCE_ROOT,
+        latent_root=Path("/kaggle/input"),
+        output_root=Path("/kaggle/working/spec0054_mil_fold0"),
+        resume_root=None,
+        effective_batch=1,
     )
 
 
