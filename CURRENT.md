@@ -430,13 +430,16 @@ The contract and cadence are in `docs/data/spec0054_fold0_run.json` and Spec
 361 WSI), exposure schedule, table truncation and exact next-update resume
 checks passed. The 200.33 GB of paired binary payloads remain on Kaggle, so
 local tests do not measure real WSI memory/runtime or rehash those bytes.
-No classifier training has been launched. Fold 0 is only the first of the
+No full classifier training has been launched. Fold 0 is only the first of the
 five frozen outer folds: its 73 holdouts and the other folds' 72 holdouts give
 each of the 361 WSI one out-of-fold prediction. After selecting and freezing
 the classifier recipe without the external 152 WSI, the final refit trains on
 all 361 development WSI with a fixed duration and no validation-dependent
 stopping. A bounded Kaggle smoke with two complete WSI per branch, AMP/T0, T1/T2-lite
-and a checkpoint restore is the next run; full fold training remains pending.
+and a checkpoint restore was submitted as private kernel
+`maximshtefan/eqvae-spec0054-mil-fold0/1` from source commit `0c9fd57`.
+It was `RUNNING` at 2026-09-27 00:29 UTC. Inspect its result after 00:45 UTC;
+full fold training remains pending.
 
 The separate 152-WSI cohort remains outside all new decisions and must be reported as historically exposed
 rather than a newly sealed test population.
