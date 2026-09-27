@@ -435,11 +435,21 @@ five frozen outer folds: its 73 holdouts and the other folds' 72 holdouts give
 each of the 361 WSI one out-of-fold prediction. After selecting and freezing
 the classifier recipe without the external 152 WSI, the final refit trains on
 all 361 development WSI with a fixed duration and no validation-dependent
-stopping. A bounded Kaggle smoke with two complete WSI per branch, AMP/T0, T1/T2-lite
-and a checkpoint restore was submitted as private kernel
-`maximshtefan/eqvae-spec0054-mil-fold0/1` from source commit `0c9fd57`.
-It was `RUNNING` at 2026-09-27 00:29 UTC. Inspect its result after 00:45 UTC;
-full fold training remains pending.
+stopping. Private Kaggle kernel `maximshtefan/eqvae-spec0054-mil-fold0/1` completed the
+bounded smoke from source commit `0c9fd5729941a2f817f402b9fc41b820607d801f`.
+Its downloaded output is under `runs/kaggle/spec0054_mil_fold0_smoke_v1/`;
+`smoke.json` SHA-256 is `1553fa1db37cc93cdef65542662ffa1009cacd8bc4f05225185351e1eafa0abe`.
+The reader indexed all 12 mounted shards and 361 WSI and read complete 473- and
+173-instance bags from two different shards for each VAE. Both branches committed
+two AMP/T0 updates, captured 47 T1 layers and 570 T2-lite scalar rows, saved
+a checkpoint after update 1, restored its model exactly, and committed update 2.
+Both checkpoints load locally with update/exposure/cursor `1/1/1`, and the result's
+config hash matches the frozen local contract. Both branches backed GradScaler
+off four attempts to 4096 on the first WSI and then committed both updates.
+Cold compile dominated the first two normal-branch step timings; the tiny bags'
+peak allocation does not measure the largest WSI or predict full-fold capacity.
+The full fold remains pending and will use the same 12-shard reader, AMP and
+periodic checkpoint code.
 
 The separate 152-WSI cohort remains outside all new decisions and must be reported as historically exposed
 rather than a newly sealed test population.
