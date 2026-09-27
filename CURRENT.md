@@ -475,7 +475,13 @@ scientific commit and thin entrypoint commit `0d44145` to restore those files;
 it was `RUNNING` at 2026-09-27 19:55 UTC. Inspect after 20:25 UTC for
 early resume progress or failure, then near the next session boundary. The
 full 43,200-exposure horizon remains in progress; do not start a duplicate
-run while v3 is active.
+run while v3 is active. The v2/v3 thin entrypoint executes both branches
+sequentially on `cuda:0`; the 5.153-GiB figure is PyTorch peak allocated
+memory on that one device, and GPU 1 is unused. The next continuation's thin
+entrypoint is prepared in the repository to run one branch per visible GPU in separate
+processes while importing the same pinned scientific source; it has not been
+submitted and will first need the v3 checkpoint in the private resume dataset.
+The two-GPU execution and cross-session restore remain to be verified on Kaggle.
 
 The separate 152-WSI cohort remains outside all new decisions and must be reported as historically exposed
 rather than a newly sealed test population.

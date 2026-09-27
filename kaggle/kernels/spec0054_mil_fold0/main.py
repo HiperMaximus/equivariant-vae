@@ -1,6 +1,7 @@
 # Copyright 2026 HiperMaximus
 """Thin Kaggle entrypoint for the resumable Spec 0054 fold-0 run."""
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -25,19 +26,31 @@ def main() -> None:
         ["git", "-C", str(SOURCE_ROOT), "checkout", "--detach", "FETCH_HEAD"],
         check=True, timeout=60,
     )
-    sys.path[:0] = [str(SOURCE_ROOT), str(SOURCE_ROOT / "src")]
-    from experiments.spec0054_mil_fold0 import run
-
     resume_identity = next(Path("/kaggle/input").rglob("normal_vae/identity.json"))
     resume_root = resume_identity.parent.parent
-
-    run(
-        repo_root=SOURCE_ROOT,
-        latent_root=Path("/kaggle/input"),
-        output_root=Path("/kaggle/working/spec0054_mil_fold0"),
-        resume_root=resume_root,
-        effective_batch=1,
+    worker_code = (
+        "import sys; from pathlib import Path; "
+        "import experiments.spec0054_mil_fold0 as fold; "
+        "fold.BRANCHES = (sys.argv[1],); "
+        "fold.run(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]), "
+        "Path(sys.argv[5]), 1)"
     )
+    workers = []
+    for branch, gpu in (("normal_vae", "0"), ("so2_vae", "1")):
+        output_root = Path("/kaggle/working") / f"spec0054_mil_fold0_{branch}"
+        environment = os.environ.copy()
+        environment["CUDA_VISIBLE_DEVICES"] = gpu
+        environment["PYTHONPATH"] = f"{SOURCE_ROOT}:{SOURCE_ROOT / 'src'}"
+        environment["PYTHONUNBUFFERED"] = "1"
+        workers.append(subprocess.Popen(
+            [sys.executable, "-c", worker_code, branch, str(SOURCE_ROOT),
+             "/kaggle/input", str(output_root), str(resume_root)],
+            env=environment,
+        ))
+    statuses = [worker.wait() for worker in workers]
+    for worker, status in zip(workers, statuses, strict=True):
+        if status:
+            raise subprocess.CalledProcessError(status, worker.args)
 
 
 if __name__ == "__main__":
