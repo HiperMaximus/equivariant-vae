@@ -430,7 +430,7 @@ The contract and cadence are in `docs/data/spec0054_fold0_run.json` and Spec
 361 WSI), exposure schedule, table truncation and exact next-update resume
 checks passed. The 200.33 GB of paired binary payloads remain on Kaggle, so
 local tests do not measure real WSI memory/runtime or rehash those bytes.
-No full classifier training has been launched. Fold 0 is only the first of the
+Fold 0 is only the first of the
 five frozen outer folds: its 73 holdouts and the other folds' 72 holdouts give
 each of the 361 WSI one out-of-fold prediction. After selecting and freezing
 the classifier recipe without the external 152 WSI, the final refit trains on
@@ -448,8 +448,15 @@ config hash matches the frozen local contract. Both branches backed GradScaler
 off four attempts to 4096 on the first WSI and then committed both updates.
 Cold compile dominated the first two normal-branch step timings; the tiny bags'
 peak allocation does not measure the largest WSI or predict full-fold capacity.
-The full fold remains pending and will use the same 12-shard reader, AMP and
-periodic checkpoint code.
+The full fold-0 run was submitted as private Kaggle kernel
+`maximshtefan/eqvae-spec0054-mil-fold0/2` from the same pinned source commit
+`0c9fd5729941a2f817f402b9fc41b820607d801f`; its thin entrypoint is in
+Git commit `ae6f21d`. It uses the same 12-shard reader, AMP, effective batch 1,
+150 epochs (43,200 train-WSI exposures per VAE) and periodic checkpoints.
+Kaggle reported `RUNNING` at 2026-09-27 06:47 UTC. Inspect after 07:15 UTC
+for early progress or failure, then inspect near the 12-hour session boundary;
+do not start a duplicate run while v2 is active. A completed session may need
+a continuation from its saved `latest.pt` before the fold is finished.
 
 The separate 152-WSI cohort remains outside all new decisions and must be reported as historically exposed
 rather than a newly sealed test population.

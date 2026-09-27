@@ -1,9 +1,9 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: simplified A0 v4 complete; first-fold runner locally prepared, training pending
+Status: simplified A0 v4 complete; fold-0 Kaggle v2 running
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-09-22
+Last updated: 2026-09-27
 
 ## Purpose
 
@@ -157,7 +157,7 @@ schedule and RNG. A continuation mounts the previous run output and restores
 a committed update. Sparse immutable boundary checkpoints are saved at the initial and
 first-half-epoch points and at precommitted epochs 1/2/3/5/10/20/30/50/75/100/125/150,
 so later diagnostics can replay the same model state without changing the
-training path. The first complete Kaggle training run is still pending. This
+training path. The first complete Kaggle training run was launched as fold-0 kernel v2. This
 anchor implements the observational T0/T1/T2-lite subset and a sparse
 train-only gradient-conflict/noise panel. Full-gradient sketches of every WSI,
 EMA and the counterfactual step-size, SAM, Muon, orthogonal-gradient,
