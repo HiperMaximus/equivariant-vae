@@ -28,11 +28,14 @@ def main() -> None:
     sys.path[:0] = [str(SOURCE_ROOT), str(SOURCE_ROOT / "src")]
     from experiments.spec0054_mil_fold0 import run
 
+    resume_identity = next(Path("/kaggle/input").rglob("normal_vae/identity.json"))
+    resume_root = resume_identity.parent.parent
+
     run(
         repo_root=SOURCE_ROOT,
         latent_root=Path("/kaggle/input"),
         output_root=Path("/kaggle/working/spec0054_mil_fold0"),
-        resume_root=None,
+        resume_root=resume_root,
         effective_batch=1,
     )
 

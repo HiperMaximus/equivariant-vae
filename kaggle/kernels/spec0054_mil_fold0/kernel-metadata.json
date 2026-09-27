@@ -8,7 +8,9 @@
   "enable_gpu": "true",
   "enable_internet": "true",
   "machine_shape": "NvidiaTeslaT4",
-  "dataset_sources": [],
+  "dataset_sources": [
+    "maximshtefan/eqvae-spec0054-fold0-resume"
+  ],
   "competition_sources": [],
   "kernel_sources": [
     "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
