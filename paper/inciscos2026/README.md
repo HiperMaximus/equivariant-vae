@@ -1,5 +1,12 @@
 # INCISCOS 2026 paper
 
+The former SIPAIM Overleaf project now contains a curated copy of this
+manuscript at https://www.overleaf.com/project/69c614433cbc9e46cf226d24.
+The export includes `main.tex`, `references.bib`, the manuscript figures,
+the bundled IEEE class/style, `.latexmkrc`, and `inciscos2026.pdf`. It excludes
+the personal EPUB, rendering scripts and issue-preview images. The local
+`paper/sipaim2026` scaffold remains available separately.
+
 This directory is the anonymous INCISCOS 2026 adaptation of the earlier SIPAIM
 paper scaffold. It uses the standard IEEE conference A4 format requested by
 INCISCOS; the conference does not provide a separate LaTeX class.

@@ -106,7 +106,8 @@ exact state and evidence.
 ## Boundaries
 
 - SIPAIM 2026 was not submitted; do not present it as an active venue.
-- `paper/sipaim2026` remains the working manuscript.
+- `paper/sipaim2026` is the retained SIPAIM scaffold; `paper/inciscos2026` is
+  the current review manuscript and source of the Overleaf project.
 - The thesis repository is separate.
 - Paper, thesis, Overleaf, GitHub mutations, commits/pushes, public derived-data
   release and new inference require explicit scope.

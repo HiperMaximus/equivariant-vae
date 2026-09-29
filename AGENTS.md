@@ -47,8 +47,9 @@ that workflow.
    before launch.
 9. Long Kaggle jobs are checked only when useful; after confirming `RUNNING`,
    record when to inspect the result and stop polling.
-10. `paper/sipaim2026` is the working-paper subtree. Sync it to Overleaf only
-   with `scripts/sipaim_overleaf_sync.sh`; never push the whole repository.
+10. `paper/inciscos2026` is the current review-paper source. The former SIPAIM
+   Overleaf project now contains a curated INCISCOS export; never push the whole
+   repository to Overleaf. Preserve `paper/sipaim2026` as the local SIPAIM copy.
 11. The separate thesis repository is changed only for a thesis task.
 12. Professor-facing GitHub updates are written in Spanish. Do not close an
     issue unless the user asks.

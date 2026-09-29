@@ -1,8 +1,8 @@
 # Spec 0004: Working Paper Contract
 
-Status: scaffold implemented; result integration not authorized
+Status: archived SIPAIM scaffold; Overleaf project migrated to INCISCOS
 Owner/workstream: working manuscript
-Last updated: 2026-09-08
+Last updated: 2026-09-29
 
 ## Purpose
 
@@ -12,8 +12,9 @@ advisor-facing PDF together under `paper/sipaim2026`.
 ## Current State
 
 - SIPAIM 2026 was not submitted and is not an active venue.
-- The existing IEEE manuscript is a working scaffold, not the final professor
-  report.
+- `paper/sipaim2026` remains the local historical scaffold.
+- The former SIPAIM Overleaf project was replaced by the curated
+  `paper/inciscos2026` review manuscript on 2026-09-29.
 - Accepted experiment results are complete in
   `reports/professor/informe_final_experimento_eqvae.{docx,pdf}` but have not
   been transferred into the manuscript.
@@ -21,10 +22,10 @@ advisor-facing PDF together under `paper/sipaim2026`.
 
 ## Contract
 
-- Source of record: `paper/sipaim2026`.
-- Tracked compiled artifact: `paper/sipaim2026/sipaim2026.pdf`.
-- Overleaf receives only this subtree through
-  `scripts/sipaim_overleaf_sync.sh`.
+- Historical SIPAIM source: `paper/sipaim2026`.
+- Current review source and tracked PDF: `paper/inciscos2026`.
+- Overleaf receives only the selected INCISCOS paper files; the old SIPAIM
+  subtree pull/push commands are disabled for the migrated project.
 - Paper claims must match `CURRENT.md`, Spec 0048 and accepted evidence.
 - Validation, sealed-test and exploratory evidence remain explicitly separated.
 - No universal superiority claim is permitted.
@@ -43,5 +44,5 @@ Remote Overleaf reads, pulls and pushes require explicit permission and
 
 ## Current Boundary
 
-No paper or Overleaf mutation is authorized. The professor-facing report is the
-current presentation artifact.
+This SIPAIM scaffold is archived. The INCISCOS manuscript is the current
+professor-review paper.

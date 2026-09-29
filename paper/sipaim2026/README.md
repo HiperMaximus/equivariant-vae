@@ -1,5 +1,10 @@
 # SIPAIM 2026 Full Paper Template
 
+This is the retained local SIPAIM scaffold. Its former Overleaf project was
+replaced by the INCISCOS review manuscript on 2026-09-29. The historical
+instructions below describe the original SIPAIM setup and are not the current
+Overleaf sync procedure.
+
 This folder contains the LaTeX template base for a SIPAIM 2026 full paper.
 SIPAIM 2026 points authors to the IEEE Manuscript Template for Conference
 Proceedings; there is no separate SIPAIM-specific LaTeX class in this repo.

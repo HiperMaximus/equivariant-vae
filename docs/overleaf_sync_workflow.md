@@ -1,12 +1,25 @@
 # Overleaf Sync Workflow
 
-This repo keeps the SIPAIM paper in `paper/sipaim2026` so the current text and
-PDF can be visible in GitHub. The same folder is synced to Overleaf for advisor
-review.
+## Current project: INCISCOS
 
-The active manuscript should not be moved to a separate local folder. The source
-of record is `paper/sipaim2026`, and the professor-facing Overleaf project is a
-synced copy of that subtree.
+On 2026-09-29, the former SIPAIM Overleaf project was replaced by a curated
+export of the committed `paper/inciscos2026` manuscript. Overleaf `master`
+advanced from `b4a8954` to `6df08e8` as a normal fast-forward commit, so its
+former SIPAIM content remains in Git history. The local `paper/sipaim2026`
+scaffold is retained. The project is
+https://www.overleaf.com/project/69c614433cbc9e46cf226d24.
+
+The export contains 22 files: `main.tex`, `references.bib`, `.latexmkrc`,
+`inciscos2026.pdf`, manuscript figures and the bundled IEEE class/style. It
+does not include the personal EPUB, figure-generation scripts or issue-preview
+images. The committed INCISCOS source in this repo remains the source of
+record. Before a later sync, fetch and inspect Overleaf edits, then prepare a
+fast-forward export of only the paper files; never force-push or push the whole
+research repository. The one-time `replace-inciscos` command cannot repeat
+after the remote advances. The old SIPAIM `pull` and `push` commands refuse to
+operate on the migrated project.
+
+## Archived SIPAIM procedure (historical; do not run against the current project)
 
 ## Repositories
 

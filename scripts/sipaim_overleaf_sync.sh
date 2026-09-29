@@ -17,8 +17,9 @@ Commands:
   setup       Add or repair the local Overleaf remote.
   ls-remote   Check the Overleaf remote refs.
   compile     Build main.tex and refresh paper/sipaim2026/sipaim2026.pdf.
-  pull        Pull Overleaf edits into paper/sipaim2026 with git subtree.
-  push        Push committed paper/sipaim2026 changes to Overleaf with git subtree.
+  pull        Historical SIPAIM pull; refuses the migrated INCISCOS project.
+  push        Historical SIPAIM push; refuses the migrated INCISCOS project.
+  replace-inciscos  One-time replacement of the former SIPAIM project.
 
 Rules:
   - Never run plain `git push overleaf` from this repo.
@@ -160,6 +161,15 @@ require_clean_paper_subtree() {
   fi
 }
 
+require_legacy_sipaim_project() {
+  local remote_oid
+  remote_oid="$(git ls-remote "$REMOTE_NAME" "refs/heads/$REMOTE_BRANCH" | cut -f1)"
+  if [[ "$remote_oid" != "b4a8954fc4fcaa969757ac20adf84fa0fdbac6db" ]]; then
+    echo "The Overleaf project now contains INCISCOS; SIPAIM subtree sync is disabled." >&2
+    exit 1
+  fi
+}
+
 cmd_check() {
   validate_remote_safety
   echo "Repo root: $(repo_root)"
@@ -214,6 +224,7 @@ cmd_compile() {
 
 cmd_pull() {
   ensure_overleaf_remote
+  require_legacy_sipaim_project
   require_clean_worktree
   git status --short
   git subtree pull --prefix "$PREFIX" "$REMOTE_NAME" "$REMOTE_BRANCH" --squash
@@ -281,6 +292,7 @@ cmd_push() {
   local subtree_tree
 
   ensure_overleaf_remote
+  require_legacy_sipaim_project
   cmd_compile
   require_clean_paper_subtree
   git status --short
@@ -311,6 +323,51 @@ EOF
   exit 1
 }
 
+cmd_replace_inciscos() {
+  local remote_oid
+  local export_tree
+  local export_commit
+  local temporary_index
+  local source_ref="HEAD:paper/inciscos2026"
+
+  if [[ "${OVERLEAF_SYNC_CONFIRMED:-}" != "1" ]]; then
+    echo "Set OVERLEAF_SYNC_CONFIRMED=1 after confirming the project replacement." >&2
+    exit 1
+  fi
+
+  validate_remote_safety
+  require_overleaf_remote_exact
+  git cat-file -e "$source_ref"
+  git cat-file -e HEAD:paper/inciscos2026/main.tex
+  git cat-file -e HEAD:paper/inciscos2026/inciscos2026.pdf
+
+  git fetch --no-tags "$REMOTE_NAME" "$REMOTE_BRANCH" >&2
+  remote_oid="$(git rev-parse FETCH_HEAD)"
+  if [[ "$remote_oid" != "b4a8954fc4fcaa969757ac20adf84fa0fdbac6db" ]]; then
+    echo "Overleaf changed after the reviewed June SIPAIM snapshot; review it before replacement." >&2
+    exit 1
+  fi
+
+  temporary_index="$(mktemp)"
+  GIT_INDEX_FILE="$temporary_index" git read-tree --empty
+  git ls-tree -r "$source_ref" | python3 -c '
+import sys
+for line in sys.stdin:
+    meta, path = line.rstrip("\n").split("\t", 1)
+    if path in {".latexmkrc", "main.tex", "references.bib", "inciscos2026.pdf"} or path.startswith("figures/") or path in {"template/IEEEtran/IEEEtran.cls", "template/IEEEtran/bibtex/IEEEtran.bst"}:
+        mode, _, oid = meta.split()
+        print(f"{mode} {oid}\t{path}")
+' | GIT_INDEX_FILE="$temporary_index" git update-index --index-info
+  export_tree="$(GIT_INDEX_FILE="$temporary_index" git write-tree)"
+  rm -f "$temporary_index"
+  export_commit="$(printf '%s\n' 'Replace SIPAIM draft with INCISCOS review manuscript' | git commit-tree "$export_tree" -p "$remote_oid")"
+
+  echo "Overleaf replacement commit: $export_commit"
+  echo "Exported files:"
+  git ls-tree -r --name-only "$export_commit"
+  git push "$REMOTE_NAME" "${export_commit}:refs/heads/${REMOTE_BRANCH}"
+}
+
 main() {
   if [[ $# -ne 1 ]]; then
     usage
@@ -326,6 +383,7 @@ main() {
     compile) cmd_compile ;;
     pull) cmd_pull ;;
     push) cmd_push ;;
+    replace-inciscos) cmd_replace_inciscos ;;
     help|-h|--help) usage ;;
     *)
       usage
