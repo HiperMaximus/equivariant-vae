@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-09-26
+Last updated: 2026-09-29
 
 ## Active frontier
 
@@ -59,34 +59,39 @@ The dataset account in the INCISCOS manuscript now separates VAE, complete-bag
 MIL and tissue-patch inputs by split. It reports VAE diagnosis composition in
 both WSI and sampled-patch units, MIL WSI labels and full-foreground bag sizes,
 and tissue patch distributions and balanced training budgets. The current professor-review draft is `paper/inciscos2026/inciscos2026.pdf`
-(eleven A4 pages). It now introduces the 538-image source (513 non-TMA WSIs,
-25 TMAs) and 152 supplemental masks before the split discussion; explains
-reconstruction separately from MIL and tissue classification; adds a VAE
-encoder/posterior/decoder diagram, denoising objective and accessible SO(2),
-steerable-kernel and F0/F1 definitions. Figure 1 shows two real patches
-from the same WSI with arrows from source centers matched directly against
-the official Kaggle thumbnail. A CSV-dimension projection proved inaccurate;
-the corrected marker coordinates and source hash are in the paper README. Figure 2 now shows a real paired WSI thumbnail, partial
-supplemental mask and aligned overlay obtained from Kaggle. Figure 3
-compares that WSI with an actual TMA, including original dimensions and patch
-counts. Figure 6 shows the separate two-convolution residual paths of the
-conventional and continuous-SO(2) VAEs, including normalization, gates and
-identity skips. Figure 7 details the full encoder and decoder stages.
-Image provenance and reduction steps are recorded in the paper README.
-The illustrative WSI, mask overlay and TMA rasters were reduced to 600–800 px
-wide (JPEG quality 75; categorical mask as 600 × 632 PNG). The 256 × 256
-patches and quantitative plots remain lossless. The illustrative-image compression reduced the PDF from 10,399,856 to about
-2.7 MB; after the vector residual diagrams, the eleven-page build is about
-2.7 MB, with no unresolved references or overfull boxes.
-The architecture section also gives the scalar/radial-gate and field-norm
-equations, checked against the frozen model code. AGENTS.md requires active
-prevention of conversational-context leakage in standalone artifacts.
-Cross-references use whole-phrase autoref links, and tables mark metric
-direction. The PDF compiles without overfull boxes or unresolved references.
-Text, page geometry, image alignment, internal PDF links and build were
-checked. The local image-view surface did not provide a page preview for
-manual visual inspection in this session.
-The existing SIPAIM paper subtree remains unchanged.
+(ten A4 pages, about 4.6 MB). The title, concise abstract, introduction,
+two research questions and contribution statement now state the lack of a
+fixed microscopic image orientation directly and distinguish reconstruction,
+tissue recognition and WSI diagnosis in that order. A copy edit also removed
+avoidable jargon from the introduction, task descriptions and discussion. Materials precede experimental design. The
+manuscript attributes steerable and field-aware operations to prior work,
+describes their implementation in the VAE, cites prior equivariant VAEs
+for object pose and cell morphology, and explains the 7x7 steerable
+support through the outer radial envelope, angular sampling and reduced
+aliasing risk. The methods compare a representative layer's 7,680 learned
+basis coefficients with 25,600 free weights in its 5x5 conventional
+counterpart, and retain the full-model parameter and computation counts. It reports the SO2
+model's 29.8% parameter ratio and notes that published histology comparisons
+have matched parameter counts, whereas this pair was not matched. The kernel-support paragraph now distinguishes spatial support, parameter count and computational cost; it cites Weiler and Cesa for larger steerable kernels that mitigate discretization artifacts while preserving total parameter count through width adjustment, and Worrall for a larger harmonic kernel with a reported parameter mismatch. Three dataset figures became one multi-panel
+figure retaining the real WSI crops, arrows, partial mask, overlay and TMA;
+the split diagram names unsupervised VAE learning and downstream
+classification. The VAE workflow no longer uses a long return arrow, the
+two residual blocks are horizontal and stacked, and the input table groups
+tasks. Reconstruction now shows the first nine fixed validation examples as
+three matched 3x3 mosaics and descriptive boxplots of 23 accepted WSI-level
+means. The tissue-first classification figure uses the accepted test results
+with clearer labels and its single adjusted-interval marker. The two result
+plots now use a consistent muted palette, distinct markers and a dot comparison
+for WSI scores. A separate training-curve preview shows binned training loss
+and validation mean with the logged one-SD band; it is not in the manuscript
+because it summarizes within-run variation rather than repeated runs. The PDF
+compiles without unresolved references or overfull boxes; all rendered
+pages and the revised scientific plots were visually reviewed. No model,
+dataset split, metric or checkpoint changed. Earlier `issue_figures/`
+previews document the previously posted draft. A personal reflowable
+Kindle EPUB is generated by `paper/inciscos2026/make_epub.py` using a
+local Pandoc installation and images of the compiled PDF diagrams. The
+existing SIPAIM paper subtree remains unchanged.
 
 The INCISCOS manuscript, PDF and nine lightweight issue figure previews were
 pushed in commit `b9da0ba`. Issue #7 now contains the PDF link, all nine

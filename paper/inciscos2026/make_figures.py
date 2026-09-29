@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 from matplotlib.ticker import FixedFormatter, FixedLocator, NullFormatter, NullLocator
 
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = Path(__file__).resolve().parent / "figures"
-BLUE = "#1f77b4"
-ORANGE = "#ff7f0e"
-GRAY = "#6b7280"
+BLUE = "#216b80"
+ORANGE = "#b45143"
+GRAY = "#64717b"
+GRID = "#dfe5e8"
 
 
 def load_json(path: Path) -> dict:
@@ -34,9 +37,103 @@ def style() -> None:
             "ytick.labelsize": 8,
             "axes.spines.top": False,
             "axes.spines.right": False,
+            "axes.edgecolor": "#a9b5bb",
+            "axes.labelcolor": "#26343c",
+            "text.color": "#26343c",
+            "xtick.color": "#4c5c65",
+            "ytick.color": "#4c5c65",
             "figure.dpi": 160,
         }
     )
+
+
+def reconstruction_mosaic() -> None:
+    originals = torch.load(
+        ROOT / "docs/data/fixed25/originals.pt",
+        map_location="cpu",
+        weights_only=True,
+    )["images_uint8"][:9]
+    normal = torch.load(
+        ROOT
+        / "runs/kaggle/selected_runtime_full_v4_session3/artifacts/fixed25"
+        / "boundary_060000/reconstruction_progress.pt",
+        map_location="cpu",
+        weights_only=True,
+    )["reconstruction"][:9]
+    so2 = torch.load(
+        ROOT
+        / "runs/kaggle/so2_selected_runtime_full_session7_fresh_v1_retry1"
+        / "artifacts/fixed25/boundary_060000/reconstruction_progress.pt",
+        map_location="cpu",
+        weights_only=True,
+    )["reconstruction"][:9]
+
+    fig, axes = plt.subplots(3, 9, figsize=(7.15, 2.8))
+    groups = [originals, normal, so2]
+    for group_index, group in enumerate(groups):
+        for patch_index in range(9):
+            row, column = divmod(patch_index, 3)
+            ax = axes[row, 3 * group_index + column]
+            image = group[patch_index].permute(1, 2, 0).numpy()
+            if group_index:
+                image = (np.clip(image, -1, 1) + 1) / 2
+            else:
+                image = image / 255
+            ax.imshow(image)
+            ax.axis("off")
+    fig.subplots_adjust(left=0.005, right=0.995, top=0.87, bottom=0.005,
+                        wspace=0.025, hspace=0.025)
+    for x, title in zip((1 / 6, 1 / 2, 5 / 6),
+                        ("Original", "Conventional VAE", r"$\mathrm{SO}(2)$ VAE")):
+        fig.text(x, 0.94, title, ha="center", va="center", fontsize=10)
+    fig.savefig(OUT / "reconstructions_fixed9.png", dpi=300)
+    plt.close(fig)
+
+
+def reconstruction_boxplots() -> None:
+    path = ROOT / "runs/local/vae_test_reconstruction_scored_v1/metrics/per_wsi_metrics.csv"
+    with path.open("r", encoding="utf-8", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+
+    fig, axes = plt.subplots(2, 2, figsize=(7.15, 3.8), constrained_layout=True)
+    metrics = [
+        ("mae_norm", "MAE", "Normalized RGB"),
+        ("mse_norm", "MSE", "Normalized RGB"),
+        ("psnr_img", "PSNR", "dB"),
+        ("ssim_img", "SSIM", "Image domain"),
+    ]
+    for ax, (key, title, unit) in zip(axes.flat, metrics):
+        datasets = [
+            np.array([float(row[f"{branch}_{key}"]) for row in rows])
+            for branch in ("normal", "so2")
+        ]
+        box = ax.boxplot(
+            datasets,
+            positions=[1, 2],
+            widths=0.36,
+            patch_artist=True,
+            showfliers=False,
+            medianprops={"color": "#26343c", "linewidth": 1.4},
+            whiskerprops={"color": GRAY, "linewidth": 0.9},
+            capprops={"color": GRAY, "linewidth": 0.9},
+        )
+        for patch, color in zip(box["boxes"], (BLUE, ORANGE)):
+            patch.set_facecolor(color)
+            patch.set_edgecolor(color)
+            patch.set_alpha(0.24)
+        jitter = np.linspace(-0.12, 0.12, len(rows))
+        for position, values, color in zip((1, 2), datasets, (BLUE, ORANGE)):
+            ax.scatter(position + jitter, values, s=10, color=color,
+                       alpha=0.72, linewidths=0, zorder=3)
+        ax.set_xticks([1, 2], ["Conventional", r"$\mathrm{SO}(2)$"])
+        ax.set_xlim(0.62, 2.38)
+        ax.set_title(title, loc="left")
+        ax.set_ylabel(unit)
+        ax.grid(axis="y", color=GRID, linewidth=0.6, zorder=0)
+        ax.spines["left"].set_visible(False)
+        ax.tick_params(axis="both", length=0)
+    fig.savefig(OUT / "reconstruction_boxplots.png", dpi=300, bbox_inches="tight")
+    plt.close(fig)
 
 
 def downstream() -> None:
@@ -50,49 +147,137 @@ def downstream() -> None:
     )["metrics"]
     tissue = load_json(ROOT / "runs/local/tissue_test_scored_v1/label_efficiency_table.json")
 
-    fig, axes = plt.subplots(1, 2, figsize=(7.15, 2.65), constrained_layout=True)
-
-    names = ["Macro-F1", "Balanced\naccuracy", "Accuracy"]
-    normal_values = [normal["macro_f1"], normal["balanced_accuracy"], normal["accuracy"]]
-    so2_values = [so2["macro_f1"], so2["balanced_accuracy"], so2["accuracy"]]
-    x = np.arange(len(names))
-    width = 0.34
-    axes[0].bar(x - width / 2, normal_values, width, color=BLUE, label="Normal VAE")
-    axes[0].bar(x + width / 2, so2_values, width, color=ORANGE, label=r"$\mathrm{SO}(2)$ VAE")
-    axes[0].set_xticks(x, names)
-    axes[0].set_ylim(0, 0.72)
-    axes[0].set_ylabel("Sealed-test score")
-    axes[0].set_title("(a) WSI diagnosis, 23 slides")
-    axes[0].grid(axis="y", color="#e5e7eb", linewidth=0.6)
-    axes[0].legend(frameon=False, loc="upper left")
+    fig, axes = plt.subplots(2, 1, figsize=(7.15, 4.7), constrained_layout=True)
 
     rows = tissue["rows"]
     budgets = np.array([row["labels_per_class"] for row in rows])
     normal_f1 = np.array([row["normal_vae"]["metrics"]["macro_f1"] for row in rows])
     so2_f1 = np.array([row["so2_vae"]["metrics"]["macro_f1"] for row in rows])
-    axes[1].plot(budgets, normal_f1, "o-", color=BLUE, linewidth=1.8, label="Normal VAE")
-    axes[1].plot(budgets, so2_f1, "o-", color=ORANGE, linewidth=1.8, label=r"$\mathrm{SO}(2)$ VAE")
-    axes[1].set_xscale("log")
-    axes[1].xaxis.set_major_locator(FixedLocator(budgets))
-    axes[1].xaxis.set_major_formatter(FixedFormatter(["250", "500", "1k", "2.5k", "5.7k"]))
-    axes[1].xaxis.set_minor_locator(NullLocator())
-    axes[1].xaxis.set_minor_formatter(NullFormatter())
-    axes[1].set_ylim(0.47, 0.80)
-    axes[1].set_xlabel("Training labels per class (log scale)")
-    axes[1].set_ylabel("Sealed-test macro-F1")
-    axes[1].set_title("(b) Tissue label efficiency, 31,572 patches")
-    axes[1].grid(color="#e5e7eb", linewidth=0.6)
-    axes[1].legend(frameon=False, loc="lower right")
-    axes[1].annotate(
-        "simultaneous CI\nexcludes 0",
-        xy=(500, so2_f1[1]),
-        xytext=(760, 0.545),
-        arrowprops={"arrowstyle": "->", "color": GRAY, "lw": 0.8},
-        color=GRAY,
-        fontsize=7.5,
+    axes[0].plot(budgets, normal_f1, "o-", color=BLUE, linewidth=2.0,
+                 markersize=5, label="Conventional VAE", zorder=3)
+    axes[0].plot(budgets, so2_f1, "s--", color=ORANGE, linewidth=2.0,
+                 markersize=5, label=r"$\mathrm{SO}(2)$ VAE", zorder=3)
+    axes[0].set_xscale("log")
+    axes[0].xaxis.set_major_locator(FixedLocator(budgets))
+    axes[0].xaxis.set_major_formatter(
+        FixedFormatter(["250", "500", "1,000", "2,500", "5,671"])
     )
+    axes[0].xaxis.set_minor_locator(NullLocator())
+    axes[0].xaxis.set_minor_formatter(NullFormatter())
+    axes[0].set_ylim(0.46, 0.80)
+    axes[0].set_xlabel("Training labels per tissue class")
+    axes[0].set_ylabel("Test macro-F1")
+    axes[0].set_title("(a) Tissue recognition, 31,572 test patches", loc="left")
+    axes[0].grid(axis="y", color=GRID, linewidth=0.65, zorder=0)
+    axes[0].legend(frameon=False, loc="upper left", ncol=2)
+    axes[0].text(500, so2_f1[1] + 0.010, "*", ha="center", va="bottom",
+                 color=ORANGE, fontsize=12, fontweight="bold")
+    axes[0].spines["left"].set_visible(False)
+    axes[0].tick_params(axis="both", length=0)
+
+    names = ["Macro-F1", "Balanced accuracy", "Accuracy"]
+    normal_values = [normal["macro_f1"], normal["balanced_accuracy"], normal["accuracy"]]
+    so2_values = [so2["macro_f1"], so2["balanced_accuracy"], so2["accuracy"]]
+    y = np.arange(len(names))[::-1]
+    for position, left, right in zip(y, normal_values, so2_values, strict=True):
+        axes[1].plot([left, right], [position, position], color="#aab7bd",
+                     linewidth=1.6, zorder=2)
+    axes[1].scatter(normal_values, y + 0.075, s=57, color=BLUE, marker="o", zorder=3)
+    axes[1].scatter(so2_values, y - 0.075, s=57, color=ORANGE, marker="s", zorder=3)
+    axes[1].set_yticks(y, names)
+    axes[1].set_xlim(0, 0.70)
+    axes[1].set_xticks(np.arange(0, 0.71, 0.1))
+    axes[1].set_ylim(-0.45, 2.45)
+    axes[1].set_xlabel("Test score")
+    axes[1].set_title("(b) Five-class WSI diagnosis, 23 test slides", loc="left")
+    axes[1].grid(axis="x", color=GRID, linewidth=0.65, zorder=0)
+    axes[1].spines["left"].set_visible(False)
+    axes[1].tick_params(axis="both", length=0)
 
     fig.savefig(OUT / "downstream_results.png", dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+
+def training_curves() -> None:
+    # Each directory is a successive segment of the accepted 60,000-step run.
+    branches = [
+        (
+            "Conventional VAE",
+            BLUE,
+            [
+                "selected_runtime_full_v2",
+                "selected_runtime_full_v3_session2",
+                "selected_runtime_full_v4_session3",
+            ],
+        ),
+        (
+            r"$\mathrm{SO}(2)$ VAE",
+            ORANGE,
+            [
+                "so2_selected_runtime_full_v1_session1",
+                "so2_selected_runtime_full_v2_session2",
+                "so2_selected_runtime_full_v3_session3",
+                "so2_selected_runtime_full_v4_session4",
+                "so2_selected_runtime_full_v5_session5",
+                "so2_selected_runtime_full_session6_fresh_v1",
+                "so2_selected_runtime_full_session7_fresh_v1_retry1",
+            ],
+        ),
+    ]
+    fig, axes = plt.subplots(1, 2, figsize=(7.15, 2.75), sharey=True,
+                             constrained_layout=True)
+    for ax, (title, color, segments) in zip(axes, branches, strict=True):
+        train_bins: dict[int, list[float]] = {}
+        validation: dict[int, list[tuple[float, float, int]]] = {}
+        for segment in segments:
+            metrics = ROOT / "runs/kaggle" / segment / "metrics"
+            with (metrics / "train_steps.csv").open(newline="", encoding="utf-8") as stream:
+                for row in csv.DictReader(stream):
+                    step = int(row["optimizer_step"])
+                    boundary = (step - 1) // 3000 * 3000 + 3000
+                    train_bins.setdefault(boundary, []).append(float(row["recon_loss"]))
+            with (metrics / "validation_metrics.csv").open(newline="", encoding="utf-8") as stream:
+                for row in csv.DictReader(stream):
+                    if row["view"] == "deterministic_denoising":
+                        step = int(row["optimizer_step"])
+                        validation.setdefault(step, []).append((
+                            float(row["recon_loss"]),
+                            float(row["recon_loss_std"]),
+                            int(row["sample_count"]),
+                        ))
+        steps = np.array(sorted(validation))
+        train = np.array([np.mean(train_bins[int(step)]) for step in steps])
+        means = []
+        spreads = []
+        for step in steps:
+            records = validation[int(step)]
+            weights = np.array([count for _, _, count in records])
+            mu = np.average([mean for mean, _, _ in records], weights=weights)
+            second = np.average([std**2 + mean**2 for mean, std, _ in records],
+                                weights=weights)
+            means.append(mu)
+            spreads.append(np.sqrt(max(0.0, second - mu**2)))
+        means = np.array(means)
+        spreads = np.array(spreads)
+        ax.fill_between(steps / 1000, means - spreads, means + spreads,
+                        color=color, alpha=0.14, linewidth=0,
+                        label="Validation ±1 recorded SD")
+        ax.plot(steps / 1000, train, ":", color=GRAY, linewidth=1.7,
+                label="Train, 3k-step mean")
+        ax.plot(steps / 1000, means, "o-", color=color, linewidth=1.8,
+                markersize=3.3, label="Validation mean")
+        ax.set_title(title, loc="left")
+        ax.set_xlabel("Optimizer updates (thousands)")
+        ax.set_xlim(0, 61)
+        ax.set_xticks([0, 15, 30, 45, 60])
+        ax.set_ylim(0.07, 0.15)
+        ax.grid(axis="y", color=GRID, linewidth=0.6)
+        ax.spines["left"].set_visible(False)
+        ax.tick_params(axis="both", length=0)
+    axes[0].set_ylabel("Reconstruction loss")
+    axes[0].legend(frameon=False, fontsize=7, loc="upper right")
+    fig.savefig(OUT / "vae_training_curves.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -188,5 +373,8 @@ def decoder_geometry() -> None:
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     style()
+    reconstruction_mosaic()
+    reconstruction_boxplots()
     downstream()
+    training_curves()
     decoder_geometry()

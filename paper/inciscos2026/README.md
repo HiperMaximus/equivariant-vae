@@ -6,8 +6,8 @@ INCISCOS; the conference does not provide a separate LaTeX class.
 
 The current build is the complete professor-review draft; no venue-length cuts
 have been applied. It is organized as a direct experimental report of the
-conventional and continuous-`SO(2)` VAEs, reconstruction, WSI diagnosis, and
-tissue recognition. Later geometry experiments are deliberately excluded.
+conventional and continuous-`SO(2)` VAEs, reconstruction, tissue
+recognition, and WSI diagnosis. Later geometry experiments are deliberately excluded.
 Content can be shortened for submission after academic review.
 
 Submission constraints checked on 2026-09-16:
@@ -27,17 +27,41 @@ latexmk -pdf -jobname=inciscos2026 main.tex
 Regenerate the English-language result figures from the accepted local evidence:
 
 ```bash
-MPLCONFIGDIR=/tmp/mplconfig PYTHONPATH=/tmp/inciscos-fig-deps \
-  python make_figures.py
+MPLCONFIGDIR=/tmp/mplconfig ../../.venv/bin/python make_figures.py
 ```
 
-The figure script does not recompute metrics or access sealed labels. It only
-renders values already present in the accepted, hash-bound result artifacts.
+The figure script requires NumPy, Matplotlib, PyTorch, and Pillow. It does not
+recompute metrics or access sealed labels. It renders accepted, hash-bound
+results and the first nine fixed validation reconstructions in selector order.
+The reconstruction boxplots describe the 23 accepted per-WSI mean metrics;
+they are not confidence intervals. The script also creates
+`figures/vae_training_curves.png` as a separate review preview. Its shaded
+validation band is the recorded mean ± one standard deviation within each
+validation evaluation, not variation across independent training runs. This
+preview is not included in the manuscript.
+
 The bundled `IEEEtran.cls` and `IEEEtran.bst` are the same standard IEEE files
 used by the earlier paper subtree.
 
 The review PDF is `inciscos2026.pdf`. Restore author names, affiliations and
 acknowledgments only after acceptance.
+
+
+## Personal Kindle EPUB
+
+The local Pandoc 3.1.3 installation lives in the ignored
+`../../.venv/pandoc-local` directory. From the repository root, after
+building the PDF, run:
+
+```bash
+.venv/bin/python paper/inciscos2026/make_epub.py
+```
+
+The output is `inciscos2026_kindle.epub`. The script keeps text
+reflowable, converts equations to MathML and embeds the five LaTeX diagrams as
+images cropped from the compiled PDF. Its crop coordinates match this
+ten-page review layout; update them if pagination changes. This EPUB is a
+personal reading copy, not the conference submission file.
 
 ## Dataset figure provenance
 
@@ -57,7 +81,7 @@ The thumbnail is an illustration and was not a model input. The official
 thumbnail SHA-256 is
 `069d98a56c6fb4269f7b53c2e62e1c86bb0c1756d35e836d72faed87b5f314b7`.
 
-Figure 2 uses the official UBC-OCEAN `train_thumbnails/10143_thumbnail.png`
+The mask panels in Figure 1 use the official UBC-OCEAN `train_thumbnails/10143_thumbnail.png`
 and the matching `10143.png` from the public supplemental-mask dataset. Both
 correspond to a training-cohort WSI of `40063 × 42207` pixels. The original
 thumbnail (`3000 × 3160`) was resized to `600 × 632` and saved as JPEG
@@ -68,7 +92,7 @@ nearest-neighbor resampling. The overlay was reduced to the same size and saved
 as JPEG (quality 75); it retains the thumbnail beneath the painted mask
 regions. The mask is partial; black pixels are unannotated.
 
-Figure 3 compares that WSI with the official UBC-OCEAN `train_images/13568.png`,
+The TMA panel in Figure 1 compares that WSI with the official UBC-OCEAN `train_images/13568.png`,
 a training TMA of `2964 × 2964` pixels. Its full-resolution source was resized
 to `600 × 600` and saved as JPEG (quality 75) for display. The panels are
 shown at similar heights, not a shared physical scale. The TMA source SHA-256 is
@@ -78,10 +102,10 @@ Illustrative thumbnails use reduced JPEG rasters to keep PDF navigation responsi
 The diagnostic patch crops and quantitative result figures retain their original
 resolution and lossless format.
 
-Figure 6 shows the same-resolution residual building block of each VAE,
+The residual-block figure shows the same-resolution building block of each VAE,
 including its two convolutions, normalization, gate, identity skip and
 post-addition gate. The caption describes the branch-local stage transitions.
-Figure 7 is drawn from the frozen model implementations in
+The architecture figure is drawn from the frozen model implementations in
 `src/eqvae/models/non_equivariant_vae.py` and `src/eqvae/models/so2_vae.py`,
 with the continuous-field mechanics in `so2_architecture_probe.py` and the
 locked layer map in Spec 0014. Each diagram row contains the stem, four
@@ -98,8 +122,8 @@ Source SHA-256: `train.csv`
 ## Issue #7 figure previews
 
 `issue_figures/fig01` through `fig09` are lightweight crops of the nine figures
-in the eleven-page review PDF. They include the figure captions, were rendered
-at 180 dpi, and are 1288 pixels wide. Histology and reconstruction previews
+in the earlier eleven-page review PDF linked in issue #7. They include the
+figure captions, were rendered at 180 dpi, and are 1288 pixels wide. Histology and reconstruction previews
 use optimized JPEG (quality 82); diagrams and plots use optimized PNG. The nine
-files together occupy about 1.24 MB. The PDF and LaTeX sources remain the
-manuscript source of truth; these crops are for the GitHub issue comment.
+files together occupy about 1.24 MB. The current PDF and LaTeX sources remain the manuscript source of truth;
+these crops document the earlier GitHub issue comment.
