@@ -179,17 +179,22 @@ def downstream() -> None:
     normal_values = [normal["macro_f1"], normal["balanced_accuracy"], normal["accuracy"]]
     so2_values = [so2["macro_f1"], so2["balanced_accuracy"], so2["accuracy"]]
     y = np.arange(len(names))[::-1]
-    for position, left, right in zip(y, normal_values, so2_values, strict=True):
-        axes[1].plot([left, right], [position, position], color="#aab7bd",
-                     linewidth=1.6, zorder=2)
-    axes[1].scatter(normal_values, y + 0.075, s=57, color=BLUE, marker="o", zorder=3)
-    axes[1].scatter(so2_values, y - 0.075, s=57, color=ORANGE, marker="s", zorder=3)
+    offset = 0.17
+    axes[1].barh(y + offset, normal_values, height=0.28, color=BLUE,
+                 label="Conventional VAE", zorder=3)
+    axes[1].barh(y - offset, so2_values, height=0.28, color=ORANGE,
+                 label=r"$\mathrm{SO}(2)$ VAE", zorder=3)
+    for values, positions in ((normal_values, y + offset), (so2_values, y - offset)):
+        for value, position in zip(values, positions, strict=True):
+            axes[1].text(value + 0.012, position, f"{value:.3f}",
+                         va="center", fontsize=8, fontweight="bold")
     axes[1].set_yticks(y, names)
     axes[1].set_xlim(0, 0.70)
     axes[1].set_xticks(np.arange(0, 0.71, 0.1))
-    axes[1].set_ylim(-0.45, 2.45)
-    axes[1].set_xlabel("Test score")
+    axes[1].set_ylim(-0.55, 2.55)
+    axes[1].set_xlabel("Test score (higher is better)")
     axes[1].set_title("(b) Five-class WSI diagnosis, 23 test slides", loc="left")
+    axes[1].legend(frameon=False, loc="lower right", bbox_to_anchor=(1, 1.01), ncol=2)
     axes[1].grid(axis="x", color=GRID, linewidth=0.65, zorder=0)
     axes[1].spines["left"].set_visible(False)
     axes[1].tick_params(axis="both", length=0)

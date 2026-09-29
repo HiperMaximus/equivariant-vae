@@ -80,9 +80,10 @@ two residual blocks are horizontal and stacked, and the input table groups
 tasks. Reconstruction now shows the first nine fixed validation examples as
 three matched 3x3 mosaics and descriptive boxplots of 23 accepted WSI-level
 means. The tissue-first classification figure uses the accepted test results
-with clearer labels and its single adjusted-interval marker. The two result
-plots now use a consistent muted palette, distinct markers and a dot comparison
-for WSI scores. A separate training-curve preview shows binned training loss
+with clearer labels and its single adjusted-interval marker. Its WSI panel
+now uses paired horizontal bars, exact value labels and a separate model legend.
+Both result plots use a consistent muted palette. A separate training-curve
+preview shows binned training loss
 and validation mean with the logged one-SD band; it is not in the manuscript
 because it summarizes within-run variation rather than repeated runs. The PDF
 compiles without unresolved references or overfull boxes; all rendered
