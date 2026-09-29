@@ -85,8 +85,10 @@ now uses paired horizontal bars, exact value labels and a separate model legend.
 Both result plots use a consistent muted palette. A separate training-curve
 preview shows binned training loss
 and validation mean with the logged one-SD band; it is not in the manuscript
-because it summarizes within-run variation rather than repeated runs. The PDF
-compiles without unresolved references or overfull boxes; all rendered
+because it summarizes within-run variation rather than repeated runs. The statistical methods now state that a difference interval containing
+zero establishes neither significance at the 5% level nor equivalence. The
+IEEE bibliography prints both Cohen--Welling author names in reference [5].
+The PDF compiles without unresolved references or overfull boxes; all rendered
 pages and the revised scientific plots were visually reviewed. No model,
 dataset split, metric or checkpoint changed. Earlier `issue_figures/`
 previews document the previously posted draft. A personal reflowable
