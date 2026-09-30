@@ -12,7 +12,7 @@ SOURCE_COMMIT = "e634fe5f1390a2fd8ade9ff9245c00e74efe2a65"
 SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
 OUTPUT_ROOT = Path("/kaggle/working/spec0054_abmil_fold0")
 RESUME_ROOT = None  # Fresh architecture: old local-global weights are incompatible.
-SMOKE = True  # Two complete WSIs per GPU before the full fold.
+SMOKE = False  # Full fold from initialization; the two-GPU smoke completed.
 EFFECTIVE_BATCH = 1
 
 
