@@ -41,7 +41,7 @@ def test_complete_wsi_reads_preserve_index_order_and_paired_offsets(tmp_path: Pa
                                  "wsi_id": wsi_id, "x": x, "y": y,
                                  "diagnosis_index": diagnosis, "fold": fold})
                 atlas_index += 1
-        files = {"index": {"sha256": hashlib.sha256(index.read_bytes()).hexdigest()}}
+        files: dict[str, dict[str, str | int]] = {"index": {"sha256": hashlib.sha256(index.read_bytes()).hexdigest()}}
         for branch, offset in (("normal_vae", 0), ("so2_vae", 100)):
             values = np.stack([np.full((16, 32, 32), offset + atlas_index - len(entries) + row,
                                        dtype="<f2") for row in range(len(entries))])
@@ -57,9 +57,13 @@ def test_complete_wsi_reads_preserve_index_order_and_paired_offsets(tmp_path: Pa
     assert bags.locations[8].first_record == 2
     assert bags.locations[12].first_record == 0
     assert bags.read("normal_vae", 4).dtype == np.dtype("float16")
+    descriptor = bags.descriptors[("normal_vae", 1)]
     assert bags.read("normal_vae", 4)[:, 0, 0, 0].tolist() == [0, 1]
+    assert bags.descriptors[("normal_vae", 1)] == descriptor
     assert bags.read("so2_vae", 8)[:, 0, 0, 0].tolist() == [102]
     assert bags.read("normal_vae", 12)[:, 0, 0, 0].tolist() == [3, 4]
+    bags.close()
+    assert bags.descriptors == {}
 
 
 def test_exposure_schedule_and_table_resume(tmp_path: Path) -> None:
@@ -98,6 +102,7 @@ def test_fixed_boundary_head_gradient_matches_autograd() -> None:
     logits = head(embedding)
     functional.cross_entropy(logits.unsqueeze(0), torch.tensor([2])).backward()
     bias_norm, weight_norm = _head_gradient_norms(logits, 2, embedding)
+    assert head.bias.grad is not None and head.weight.grad is not None
     assert bias_norm == pytest.approx(float(head.bias.grad.norm()))
     assert weight_norm == pytest.approx(float(head.weight.grad.norm()))
 

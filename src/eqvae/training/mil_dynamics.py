@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-"""Non-invasive learning-dynamics telemetry for the local-global MIL model.
+"""Non-invasive learning-dynamics telemetry for the experimental MIL models.
 
 The hot-path helpers reduce tensors on device and transfer one compact vector.
 Detailed activation/activation-gradient probes are deliberately eager and are
@@ -192,41 +192,50 @@ class T0ForwardWrapper(nn.Module):
         logits, representations = self.model.forward_with_representations(
             latents, graph
         )
-        rows: list[Tensor] = []
-        for representation in representations:
-            values = representation.detach().float().reshape(-1)
-            finite = torch.isfinite(values)
-            safe = torch.where(finite, values, torch.zeros_like(values))
-            rows.append(
-                torch.stack(
-                    (
-                        torch.scalar_tensor(
-                            values.numel(), device=values.device, dtype=torch.float32
-                        ),
-                        safe.sum(),
-                        safe.square().sum(),
-                        safe.abs().amax(),
-                        ((safe.abs() <= self.near_zero) & finite).sum(
-                            dtype=torch.float32
-                        ),
-                        (~finite).sum(dtype=torch.float32),
-                    )
+        return logits, t0_forward_summary(representations, near_zero=self.near_zero)
+
+
+def t0_forward_summary(
+    representations: Sequence[Tensor], *, near_zero: float = 1e-8,
+) -> Tensor:
+    """Reduce actual model terminals with the same compile-friendly statistics."""
+    rows: list[Tensor] = []
+    for representation in representations:
+        values = representation.detach().float().reshape(-1)
+        finite = torch.isfinite(values)
+        safe = torch.where(finite, values, torch.zeros_like(values))
+        rows.append(
+            torch.stack(
+                (
+                    torch.scalar_tensor(
+                        values.numel(), device=values.device, dtype=torch.float32
+                    ),
+                    safe.sum(),
+                    safe.square().sum(),
+                    safe.abs().amax(),
+                    ((safe.abs() <= near_zero) & finite).sum(
+                        dtype=torch.float32
+                    ),
+                    (~finite).sum(dtype=torch.float32),
                 )
             )
-        return logits, torch.stack(rows)
+        )
+    return torch.stack(rows)
 
 
-def t0_forward_records(summary: Tensor) -> dict[str, dict[str, float]]:
+def t0_forward_records(
+    summary: Tensor, *, capture_names: tuple[str, ...] = T0ForwardWrapper.capture_names,
+) -> dict[str, dict[str, float]]:
     """Materialize one fixed T0 wrapper tensor with a single host transfer."""
     expected = (
-        len(T0ForwardWrapper.capture_names),
+        len(capture_names),
         len(T0ForwardWrapper.statistic_names),
     )
     if tuple(summary.shape) != expected:
         raise ValueError("T0 forward summary shape differs")
     values = cast("list[list[float]]", summary.detach().double().cpu().tolist())
     result: dict[str, dict[str, float]] = {}
-    for capture_name, row in zip(T0ForwardWrapper.capture_names, values, strict=True):
+    for capture_name, row in zip(capture_names, values, strict=True):
         raw = dict(zip(T0ForwardWrapper.statistic_names, row, strict=True))
         count = max(raw["count"], 1.0)
         finite_count = max(count - raw["nonfinite_count"], 1.0)
@@ -341,9 +350,11 @@ def detailed_tensor_summary(
 
 
 def semantic_parameter_group(parameter_name: str) -> str:
-    """Map a parameter to the six stable Spec 0026 semantic subsystems."""
+    """Map a parameter to its actual MIL semantic subsystem."""
     if parameter_name.startswith("patch_encoder."):
         return "patch_encoder"
+    if parameter_name.startswith("attention."):
+        return "gated_attention"
     if parameter_name.startswith("local_blocks.0."):
         return "local_block_0"
     if parameter_name.startswith("local_blocks.1."):
@@ -439,12 +450,15 @@ class AdamWTelemetry:
         group_names = (
             "global",
             "patch_encoder",
+            "gated_attention",
             "local_block_0",
             "local_block_1",
             "global_summary",
             "cls_block",
             "classifier_head",
         )
+        present_groups = {semantic_parameter_group(name) for name in named}
+        group_names = tuple(name for name in group_names if name == "global" or name in present_groups)
         groups = {name: _zero_group(device) for name in group_names}
         current_updates: dict[str, Tensor] = {}
         previous_gradient_dot = torch.zeros((), device=device, dtype=torch.float64)
@@ -1120,11 +1134,11 @@ def attention_distribution_summary(weights: Tensor) -> dict[str, float]:
     if weights.ndim < 1 or weights.shape[-1] < 1:
         raise ValueError("Attention weights require a nonempty instance axis")
     values = weights.detach().float()
-    if not torch.isfinite(values).all() or (values < 0).any():
-        raise ValueError("Attention weights must be finite and nonnegative")
     raw_mass = values.sum(dim=-1)
-    valid = raw_mass > EPSILON
-    probability = values / raw_mass[..., None].clamp_min(EPSILON)
+    valid = torch.isfinite(values).all(dim=-1) & (values >= 0).all(dim=-1) & (raw_mass > EPSILON)
+    safe = torch.where(valid[..., None], values, torch.zeros_like(values))
+    safe_mass = safe.sum(dim=-1)
+    probability = safe / safe_mass[..., None].clamp_min(EPSILON)
     entropy = -(probability * probability.clamp_min(EPSILON).log()).sum(dim=-1)
     effective_count = entropy.exp()
     sorted_probability = probability.sort(dim=-1, descending=True).values
@@ -1170,4 +1184,5 @@ __all__ = [
     "semantic_capture_modules",
     "semantic_parameter_group",
     "t0_forward_records",
+    "t0_forward_summary",
 ]

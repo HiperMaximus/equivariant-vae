@@ -1,9 +1,9 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: simplified A0 v4 complete; fold-0 v2 checkpointed, v3 running
+Status: simplified A0 v4 complete; fold-0 v3 checkpointed then CUDA error, v4 canceled, v5/v6 failed before training, v7 smoke complete, v8 session-limited with checkpoints; resume dataset v4 verified, gated ABMIL implemented and locally verified; fresh GPU smoke/full fold not launched
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-09-27
+Last updated: 2026-09-29
 
 ## Purpose
 
@@ -35,7 +35,7 @@ support complete T0 on every committed update in the first anchor and
 T1/T2-lite only at precommitted boundaries. Cold compilation timings are
 retained as runtime observations but are not used to compare the paths.
 
-## Local Implementation Boundary
+## Historical local-global Implementation Boundary
 
 The accepted Spec 0026 classifier and whole-bag fixed-25 attention backend have
 been restored from the historical executed source and extended without adding
@@ -98,7 +98,7 @@ families remain future work: iterative line search, SAM, Hessian/Lanczos,
 per-example full gradients, perturbation sweeps, Muon counterfactuals and
 PANTHER fitting.
 
-## Frozen first-fold execution
+## Historical local-global first-fold execution
 
 The local first-fold contract is `docs/data/spec0054_fold0_run.json`. It pins
 the twelve audited Kaggle producer versions and result hashes. All twelve
@@ -169,11 +169,77 @@ only the first outer-validation partition: across all five folds each of the
 After comparing and freezing the recipe, the final refit uses all 361 WSI for
 training, with duration fixed independently of the external 152 WSI.
 
+## Active gated-ABMIL restart
+
+The observed training-only local-global scale/rank/gradient trajectories motivate
+restarting the paired fold with direct gated ABMIL. The historical classifiers
+and observations remain separate. This is an architectural pilot with a fixed
+training recipe; its advantage or stability has not yet been measured.
+
+`src/eqvae/models/gated_abmil.py` keeps the original patch CNN: three
+convolutions (16→64, 64→128, 128→192; kernels 5/3/3 and stride 2), each followed
+by GroupNorm and GELU, then adaptive spatial average pooling to a patch vector
+`h_i` in R^192. Parallel linear maps produce `tanh(V h_i + b_V)` and
+`sigmoid(U h_i + b_U)`. Their elementwise product is mapped to one scalar
+score `s_i`. With `a_i = softmax_i(s)`, the bag embedding is
+`z = sum_i a_i h_i`; a single linear 192→5 head produces logits. The hidden
+attention width and optimizer parameters are in the existing first-fold JSON
+contract. There are seven convolution/linear layers and three GroupNorm layers,
+with 371,782 learned scalar parameters at the frozen width. Local graph blocks,
+registers, CLS, final LayerNorm and positional encoding are absent. Coordinates
+serve only measurement/atlas identification. No additional regularizer or
+alternative optimizer is activated.
+
+CUDA FP16 autocast covers the CNN and the two hidden projections. Attention
+score computation, softmax, weighted reduction, head/logits and cross-entropy
+use FP32, with FP32 parameters and GradScaler. The same twelve audited FP16
+shards supply complete historical Otsu-selected WSI bags through one reader;
+no latent or coordinate population changes. Separate concurrent GPU processes
+train the normal and continuous-SO(2) branches with identical initialization,
+WSI order, folds, loss and exposure schedule. Fold 0 remains 288 train/73 holdout
+with effective batch 1 first; batch 4/8 accumulates consecutive full-WSI losses
+without changing the 43,200-exposure horizon.
+
+T0 retains per-WSI prediction/loss/margin/entropy, timing/memory/AMP and compact
+forward summaries for patch vectors, tanh, sigmoid, gated features, attention
+scores/probabilities, bag embedding and logits. Actual unscaled gradients and
+AdamW deltas are grouped into patch encoder, gated attention, head and total;
+energy shares, update/weight ratios, temporal cosines/sign flips and
+counterfactual clip coefficients are unchanged. T1 uses the actual named CNN,
+normalization, activation, projection, gate, softmax, multiplication, pooling
+and head layers, with all existing parameter/moment/update measurements.
+T2-lite replaces the graph/register-specific quantities with normalized
+attention entropy, effective patch count, maximum/top-k mass, gate/tanh
+saturation, representation spectra and sparse ranked patches/coordinates.
+The fixed prediction boundaries, learning/forgetting, full bag embeddings,
+head-gradient reconstruction and train-only gradient conflict/noise panel retain
+the historical cadence. The observational anchor does not run SAM, Muon,
+StableMax, Hessian/Lanczos, EMA or other heavy counterfactual families.
+
+The resumable runner buffers scalar tables in memory, keeps shard descriptors
+open, compiles forward plus loss and T0 reductions, and marks only latent axis 0
+as potentially dynamic. Backward kernels are generated through Inductor;
+GradScaler, optimizer control and detailed telemetry remain outside that
+compiled closure. Flushed logs identify reads, transfers, forward/backward,
+optimizer attempts, epochs, evaluations and checkpoints. Training saves every
+144 exposures, at epoch/boundary points and at the session guard. Saving before
+and after a long assessment preserves all committed training if the session
+ends there. The scheduler's assessment marker lets continuation rerun the
+unfinished boundary from its pre-assessment checkpoint, discarding incomplete
+boundary rows and restoring the corresponding learning/forgetting state.
+
+The new `abmil.py` thin entry is configured for a two-full-WSI smoke per GPU,
+then a fresh fold. Its source commit must be published and pinned before
+submission. Offline build/validation and focused local mathematics/resume tests
+are complete; CPU Inductor ran forward/loss/backward for two bag sizes. CUDA
+AMP, T4 memory, compile behavior and throughput await the smoke. No new Kaggle
+run has been launched.
+
 ## Scientific Boundary
 
 - The statistical unit is one WSI. Patches are not independent observations.
 - The normal and continuous-`SO(2)` VAE checkpoints remain frozen. Only the
-  Spec 0026 classifier is trained.
+  selected MIL classifier is trained.
 - The candidate development population contains 361 WSI: the 322 VAE-training
   WSI and 39 VAE-validation WSI. Their VAE source role is retained as a
   covariate and fold-balancing variable.
@@ -442,12 +508,23 @@ Only measured evidence can activate these arms:
 Muon, SAM, PEGR, `perp`-gradient and architectural replacements remain outside
 this plan's first execution.
 
-### C -- curated architecture screen after a stable recipe
+### C -- selected architectural pilot and later curated screen
 
-Architecture comparison begins only after A/B1 has frozen a defensible
-effective batch, LR/schedule convention and training horizon. Otherwise an
-architecture can appear weak merely because it was evaluated under a noisy or
-mis-scaled optimizer regime.
+The selected next classifier is gated ABMIL (Ilse et al., 2018) on the existing
+trainable patch-encoder tokens. Its gated scores are softmax-normalized over
+every patch of a complete WSI. This simple variant omits the two local graph
+blocks, global registers, global patch summary and CLS block. It must train
+from initialization for both frozen VAE branches; existing Spec 0026
+checkpoints remain observational records. Reuse the audited FP16 shards,
+five-fold WSI assignments and paired WSI-exposure budget. Mean pooling remains
+the inexpensive control. A later local-graph-plus-gated-pooling ablation can
+test whether spatial context justifies its cost. No new run has been launched.
+
+The direct gated-ABMIL pilot uses the frozen first-fold batch-1 LR/schedule and
+WSI-exposure horizon. The training-only local-global diagnostics justify this
+restart before completing its batch sweep. Broader architecture comparison
+still requires a defensible frozen recipe; optimizer and architecture effects
+must be reported separately.
 
 The historical Spec 0023 gated-attention result does not eliminate simple
 ABMIL. It used 106 training WSI, quarter-coverage bags, one trajectory and a

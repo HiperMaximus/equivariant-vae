@@ -140,5 +140,8 @@
     30868,
     3084
   ],
-  "checkpoint_every_exposures": 144
+  "checkpoint_every_exposures": 144,
+  "architecture": "gated_abmil",
+  "attention_hidden_width": 128,
+  "weight_decay": 0.005
 }

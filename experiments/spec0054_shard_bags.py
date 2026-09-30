@@ -36,6 +36,7 @@ class ShardBags:
             cohort = {int(row["wsi_id"]): row for row in csv.DictReader(handle)}
         self.locations: dict[int, BagLocation] = {}
         self.files: dict[str, dict[int, Path]] = {"normal_vae": {}, "so2_vae": {}}
+        self.descriptors: dict[tuple[str, int], int] = {}
         previous_atlas_row = -1
         previous_wsi = -1
         for shard in contract["shards"]:
@@ -114,14 +115,19 @@ class ShardBags:
 
     def read(self, branch: str, wsi_id: int) -> np.ndarray:
         location = self.locations[wsi_id]
-        descriptor = os.open(self.files[branch][location.shard], os.O_RDONLY)
-        try:
-            payload = os.pread(
-                descriptor, location.count * RECORD_BYTES,
-                location.first_record * RECORD_BYTES,
-            )
-        finally:
-            os.close(descriptor)
+        key = (branch, location.shard)
+        if key not in self.descriptors:
+            self.descriptors[key] = os.open(self.files[branch][location.shard], os.O_RDONLY)
+            print(json.dumps({"event": "shard_open", "branch": branch, "shard": location.shard}), flush=True)
+        payload = os.pread(
+            self.descriptors[key], location.count * RECORD_BYTES,
+            location.first_record * RECORD_BYTES,
+        )
         if len(payload) != location.count * RECORD_BYTES:
             raise OSError(f"Incomplete FP16 bag read for WSI {wsi_id}")
         return np.frombuffer(payload, dtype="<f2").reshape((location.count, *RECORD_SHAPE))
+
+    def close(self) -> None:
+        for descriptor in self.descriptors.values():
+            os.close(descriptor)
+        self.descriptors.clear()

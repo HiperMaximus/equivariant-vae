@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-"""Direct, inference-only T2 diagnostics for the accepted local-global MIL."""
+"""Direct, inference-only T2 diagnostics for the experimental MIL models."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import torch
 from torch import Tensor
 from torch.nn import functional
 
+from eqvae.models.gated_abmil import GatedABMILClassifier
 from eqvae.models.local_global_mil import (
     ATTENTION_HEADS,
     GLOBAL_TOKENS,
@@ -44,6 +45,48 @@ class T2LiteResult:
     global_patch_top_indices: tuple[int, ...]
     global_patch_top_scores: tuple[float, ...]
     global_patch_top_lattice_coordinates: tuple[tuple[int, int], ...]
+
+
+def run_abmil_t2_lite(
+    model: GatedABMILClassifier, latents: Tensor,
+    coordinates: tuple[tuple[int, int], ...], *, top_k_patches: int = 100,
+) -> T2LiteResult:
+    """Attention concentration, gate saturation and patch-rank diagnostics."""
+    diagnostic = copy.deepcopy(model).eval()
+    with torch.inference_mode():
+        logits, terminals = diagnostic.forward_with_representations(latents)
+        patches, features, gates, gated, scores, weights, embedding, _ = terminals
+        records = {}
+        for name, values in (("patch_tokens", patches), ("attention_features", gated)):
+            records[name] = compact_tensor_summary(values).record()
+            defined = bool(torch.isfinite(values).all())
+            records[name]["spectrum_input_finite"] = float(defined)
+            if defined:
+                records[name].update({
+                    f"spectrum.{key}": value
+                    for key, value in representation_spectrum_summary(values).items()
+                })
+        for name, values in (("attention_scores", scores), ("bag_embedding", embedding)):
+            records[name] = compact_tensor_summary(values).record()
+        records["attention"] = attention_distribution_summary(weights)
+        records["attention_gate"] = {
+            **compact_tensor_summary(gates).record(),
+            "below_0_01_fraction": float((gates < 0.01).float().mean().item()),
+            "above_0_99_fraction": float((gates > 0.99).float().mean().item()),
+            "tanh_saturated_fraction": float((features.abs() > 0.99).float().mean().item()),
+        }
+        top = weights.topk(min(top_k_patches, len(weights)))
+        indices = tuple(int(value) for value in top.indices.cpu().tolist())
+        return T2LiteResult(
+            logits=tuple(float(value) for value in logits.cpu().tolist()),
+            records=records,
+            global_patch_top_indices=indices,
+            global_patch_top_scores=tuple(float(value) for value in top.values.cpu().tolist()),
+            global_patch_top_lattice_coordinates=tuple(
+                (coordinates[index][0] // 256, coordinates[index][1] // 256)
+                for index in indices
+            ),
+        )
 
 
 def run_t2_lite(
@@ -345,6 +388,8 @@ def flatten_t2_records(
     result: T2LiteResult,
     *,
     identity: Mapping[str, int | float | bool],
+    attention_capture: str = "global_summary.attention",
+    attention_metric: str = "mean_sigmoid_gate_score",
 ) -> list[dict[str, TelemetryScalar]]:
     """Flatten T2 while retaining self-describing capture and metric identities.
 
@@ -395,9 +440,9 @@ def flatten_t2_records(
         rows.append(
             {
                 **identity,
-                "record_kind": "global_gate_top_patch",
-                "capture_name": "global_summary.attention",
-                "metric_name": "mean_sigmoid_gate_score",
+                "record_kind": "global_gate_top_patch" if attention_capture == "global_summary.attention" else "attention_top_patch",
+                "capture_name": attention_capture,
+                "metric_name": attention_metric,
                 "rank": rank,
                 "patch_index": patch_index,
                 "lattice_x": coordinates[0],
