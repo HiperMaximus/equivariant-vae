@@ -1,16 +1,14 @@
 {
-  "id": "maximshtefan/eqvae-spec0054-mil-fold0",
+  "id": "maximusshtefan/eqvae-spec0054-mil-fold0",
   "title": "eqvae spec0054 mil fold0",
-  "code_file": "main.py",
+  "code_file": "abmil.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": "true",
   "enable_gpu": "true",
   "enable_internet": "true",
   "machine_shape": "NvidiaTeslaT4",
-  "dataset_sources": [
-    "maximshtefan/eqvae-spec0054-fold0-resume"
-  ],
+  "dataset_sources": [],
   "competition_sources": [],
   "kernel_sources": [
     "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
