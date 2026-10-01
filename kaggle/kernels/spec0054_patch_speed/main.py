@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "646ec5eeb26e5cd6e96e3e305b829a889f0695bd"
+SOURCE_COMMIT = "dc539b6b8e1f1b03682b038f75b8424dc5fbd102"
 SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
 OUTPUT_ROOT = Path("/kaggle/working/spec0054_patch_speed")
 
