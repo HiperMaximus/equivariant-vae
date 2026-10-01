@@ -9,7 +9,7 @@
 \usepackage{xcolor}
 \usepackage{url}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,calc}
+\usetikzlibrary{arrows.meta,positioning,calc,shapes.geometric}
 \usepackage[hidelinks]{hyperref}
 \def\figureautorefname{Figure}
 \def\tableautorefname{Table}
@@ -23,18 +23,20 @@ Learning and Downstream Classification in Histopathology}
 \author{\IEEEauthorblockN{Anonymous Authors}}
 
 \begin{document}
+\raggedbottom
 \bstctlcite{bst:full-author-names}
 
 \maketitle
 
 \begin{abstract}
-Cellular patterns in histopathology have no fixed orientation in the
-image, making rotation a relevant local symmetry for representation
+At high magnification, cellular patterns in histopathology have no fixed
+orientation in the image, making rotation a relevant local symmetry for representation
 learning. This work compares conventional and continuous-$\SOtwo$-equivariant
 denoising variational autoencoders (VAEs) trained on the same unlabeled
 patches. With both models frozen, reconstruction was evaluated on test patches,
-followed by tissue classification from individual latent maps and five-class
-whole-slide image (WSI) diagnosis through multiple-instance learning. Mean reconstruction MAE was 0.0629 versus 0.0642 (conventional versus
+followed by two downstream tasks: three-class tissue recognition at patch
+level and five-class whole-slide image (WSI) diagnosis through multiple-instance
+learning. Mean reconstruction MAE was 0.0629 versus 0.0642 (conventional versus
 equivariant), but the paired confidence interval included zero. Tissue
 macro-F1 favored the equivariant representation at four of five label
 budgets; only the comparison at 500 labels per class had an adjusted interval
@@ -56,68 +58,97 @@ specialist review. Representation learning from unlabeled patches offers a way
 to use this image volume before fitting a smaller supervised model
 \cite{litjens_survey_2017,song_artificial_2023,tellez_neural_2021}.
 
-Cellular patterns in histopathological patches have no fixed orientation
-in the image. Rotating a patch leaves its tissue label unchanged, while a
-rotation-equivariant feature map is designed to rotate with it. Ordinary
-convolutions are equivariant to translations: translating an input translates
-its feature map.
-Conventional convolutional networks usually learn rotational responses from
-rotated examples or separate filters. Rotation-equivariant networks extend
-the prescribed transformation of feature maps to rotations
+While orientation can be relevant to tissue architecture at lower
+magnification, cellular patterns at high magnification have no fixed
+orientation in the image. At this scale, a rotation changes the viewing
+orientation of a patch while preserving its tissue identity and diagnostic
+information. This rotational symmetry motivates incorporating rotation into
+the model's architectural constraints. Ordinary convolutional neural networks
+(CNNs) use convolutions that are equivariant to translations: translating an
+input translates its feature map. Conventional CNNs usually learn rotational
+responses from rotated examples or separate filters. In the $\SOtwo$ VAE,
+steerable convolutions incorporate rotation symmetry through constrained
+filters, introducing a rotational inductive bias into the unsupervised
+representation learning performed by this VAE
 \cite{cohen_group_2016,cohen_steerable_2017,weiler_general_2019}.
 
 Rotation-equivariant classifiers have previously been studied for
-histopathology patch prediction \cite{veeling_rotation_2018}. Equivariant
-VAEs have also modeled object pose and learned orientation-invariant cell
+histopathology patch prediction \cite{veeling_rotation_2018}. VAEs
+incorporating symmetry have also modeled object pose and learned orientation-invariant cell
 representations \cite{nasiri_target_2022,burgess_orientation_2024}.
-The comparison here uses a conventional residual denoising VAE and a VAE
-with steerable kernels constrained for the continuous planar rotation group
-$\SOtwo$ \cite{kingma_auto_encoding_2014,im_denoising_2017}. Both yield a
-spatial Gaussian latent map.
+The comparison here uses patches from the UBC Ovarian Cancer Subtype
+Classification and Outlier Detection (UBC-OCEAN) training resource
+\cite{ubc_ocean_2023}. A conventional residual denoising VAE and a VAE with
+steerable kernels constrained for the continuous planar rotation group
+$\SOtwo$ are trained without supervision
+\cite{kingma_auto_encoding_2014,im_denoising_2017}. Both yield a spatial
+Gaussian latent map.
 
-The experiments in this work address two questions:
+In this work, we aim to address two questions:
 
 \begin{enumerate}
     \item Does the implemented rotation-equivariant VAE yield lower
     reconstruction error on unseen histopathology patches than the
     conventional VAE?
-    \item Does its frozen representation yield higher classification macro-F1
-    under a shared supervised protocol: (a) for three-class tissue recognition
-    from individual latent maps across label budgets, and (b) for five-class
-    WSI diagnosis from bags of latent maps?
+    \item Does the rotation-equivariant VAE representation yield higher
+    classification macro-F1 under a shared supervised protocol: (a) for
+    patch-level three-class tissue recognition from individual latent maps
+    across label budgets, and (b) for WSI-level five-class diagnosis from
+    bags of latent maps?
 \end{enumerate}
 
 In this work, established steerable-kernel and field-aware operations are
 implemented in a continuous-$\SOtwo$ denoising VAE trained on unlabeled
 histopathology patches. Its encoder--decoder is compared with a conventional
 VAE in reconstruction; their frozen spatial latent maps are then compared in
-tissue recognition and WSI diagnosis with a common multiple-instance
-classifier. The two models share image populations, latent dimensions,
-training budget and supervised assignments; uncertainty is assessed at WSI
-level.
+patch-level tissue recognition and WSI diagnosis with a patch classifier and
+an MIL classifier, respectively. The two models share image populations,
+latent dimensions, training budget and supervised assignments; uncertainty is
+assessed at WSI level. Reconstruction point estimates favored the conventional
+VAE, whereas tissue macro-F1 favored the equivariant representation at four of
+five label budgets. WSI diagnosis did not show a statistically significant
+difference between the representations.
 
 \section{Related Work}
 
-\subsection{Representation Learning in Histopathology}
+\subsection{Unsupervised Learning for Histopathology}
+%%
+Unsupervised learning uses unlabeled histopathology patches to learn
+representations that can subsequently support supervised prediction.
+Autoencoders learn these representations through reconstruction, while
+downstream tasks assess whether they retain information relevant to tissue
+recognition and slide-level diagnosis. Tellez \emph{et al.} used neural image
+compression to learn patch representations without supervision before
+predicting gigapixel image labels. Their comparison included reconstruction,
+contrastive training and adversarial feature learning
+\cite{tellez_neural_2021}.
 
-Whole-slide images cannot generally be processed at native resolution in one
-forward pass. A common approach divides each WSI into patches, learns a local
-representation, and aggregates patch features for slide-level prediction.
-Tellez \emph{et al.} used neural image compression to learn patch codes before
-gigapixel prediction \cite{tellez_neural_2021}. Attention-based multiple
-instance learning (MIL) provides a related supervised formulation in which a
-WSI is treated as a bag of instances and only the bag label is required
-\cite{ilse_attention_2018}. CLAM combines attention pooling with instance-level
-clustering \cite{lu_data_2021}. DSMIL combines contrastive patch representation
-learning with dual-stream aggregation \cite{li_dualstream_2021}, whereas
-TransMIL models relations among patch instances during aggregation
-\cite{shao_transmil_2021}. Here, MIL tests the frozen patch representations under the same WSI
-classification protocol.
+VAEs that incorporate image symmetries provide related precedents beyond
+histopathology. Nasiri and Bepler's TARGET-VAE uses a translation- and
+rotation-equivariant encoder and a spatially equivariant generator to separate
+object pose from a semantic representation \cite{nasiri_target_2022}.
+Burgess \emph{et al.} introduced O2-VAE for cell and organelle shape profiling.
+It constructs orientation-invariant latent representations using equivariant
+encoder operations and pooling, and aligns the reconstruction with the input
+\cite{burgess_orientation_2024}.
+
+These studies motivate learning features without supervision and assessing
+their relevance through downstream tasks. Here, the VAEs are trained on
+unlabeled histopathology patches, evaluated in reconstruction, and frozen
+before their representations are used for patch-level tissue recognition and
+WSI-level diagnosis.
 
 \subsection{Rotation Equivariance}
 
-Group-equivariant convolutional networks construct layers that satisfy this
-property for a selected transformation group \cite{cohen_group_2016}.
+Ordinary CNNs build on translation-equivariant convolutions: shifting the
+input shifts the resulting feature map. Group-equivariant convolutional
+networks generalize this construction
+to other transformations, including rotations, by requiring layers to satisfy
+a prescribed transformation law for a selected group \cite{cohen_group_2016}.
+\autoref{fig:rotation-equivariance} illustrates this relation: applying a
+rotation before an equivariant mapping corresponds to applying the prescribed
+rotation to its output. For vector-valued fields, this output transformation
+rotates both spatial locations and vector components.
 Steerable convolutions extend the construction to continuous rotations by
 restricting the kernel space according to the representations carried by the
 input and output fields \cite{cohen_steerable_2017,weiler_general_2019}.
@@ -128,9 +159,117 @@ are reported alongside model performance. Previous histopathology work
 evaluated rotation equivariance in supervised patch classifiers
 \cite{veeling_rotation_2018,graham_dense_2020}.
 
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\sffamily\footnotesize,
+ >={Latex[length=2mm]},flow/.style={->,thick,draw=black!65},
+ tile/.style={draw=black!45,rounded corners=1pt,minimum width=18mm,
+ minimum height=18mm,fill=black!2,inner sep=0}]
+\node[tile] (x) at (0,0) {};
+\node[tile] (fx) at (4.7,0) {};
+\node[tile] (rx) at (0,-2.8) {};
+\node[tile] (rfx) at (4.7,-2.8) {};
+\foreach \n/\a in {x/0,rx/60}{
+ \begin{scope}[shift={(\n.center)},rotate=\a]
+ \fill[teal!65!black] (-.5,-.5) rectangle (-.18,.5);
+ \fill[teal!65!black] (-.18,-.5) rectangle (.5,-.18);
+ \fill[orange!80!black] (.3,.3) circle[radius=.12];
+ \end{scope}
+}
+\foreach \n/\a in {fx/0,rfx/60}{
+ \begin{scope}[shift={(\n.center)},rotate=\a]
+ \foreach \p in {(-.4,-.35),(-.4,.2),(.1,-.35)}{
+ \draw[->,very thick,teal!65!black] \p -- ++(.45,0);
+ }
+ \end{scope}
+}
+\node[above=1mm of x] {Input $x$};
+\node[above=1mm of fx] {Feature field $f(x)$};
+\node[below=1mm of rx] {$T_\theta x$};
+\node[below=1mm of rfx] {$f(T_\theta x)=T'_\theta f(x)$};
+\draw[flow] (x.east) -- node[above] {Mapping $f$} (fx.west);
+\draw[flow] (rx.east) -- node[above] {Same mapping $f$} (rfx.west);
+\draw[flow] (x.south) -- node[left,align=right] {Rotate\\input $T_\theta$} (rx.north);
+\draw[flow] (fx.south) -- node[right,align=left] {Rotate\\field $T'_\theta$} (rfx.north);
+\end{tikzpicture}
+\caption{Rotation equivariance as a transformation law. The two paths from
+$x$ to the lower-right field agree for an equivariant mapping $f$. The input
+rotation $T_\theta$ acts on the image; the corresponding output action
+$T'_\theta$ also rotates vector components when the output contains vector
+fields. Shapes and arrows are schematic rather than measured VAE features.}
+\label{fig:rotation-equivariance}
+\end{figure}
+
+\subsection{Multi-Instance Learning}
+
+Whole-slide images can contain billions of pixels, making processing at
+native resolution in a single forward pass computationally impractical due
+to the high memory and computational requirements. A common approach therefore
+divides each WSI into patches, learns a local representation, and aggregates
+patch features for slide-level prediction. Attention-based multiple
+instance learning (MIL) provides a related supervised formulation in which a
+WSI is treated as a bag of instances and only the bag label is required
+\cite{ilse_attention_2018}. CLAM combines attention pooling with instance-level
+clustering \cite{lu_data_2021}. DSMIL combines contrastive patch representation
+learning with dual-stream aggregation \cite{li_dualstream_2021}, whereas
+TransMIL models relations among patch instances during aggregation
+\cite{shao_transmil_2021}. Here, MIL tests the frozen patch representations under the same WSI
+classification protocol. \autoref{fig:mil-concept} illustrates the slide-to-bag
+formulation.
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[font=\sffamily\footnotesize,
+ >={Latex[length=2.2mm]},flow/.style={->,thick,draw=teal!65!black},
+ box/.style={draw=teal!55!black,rounded corners=3pt,align=center,
+ fill=teal!5,minimum height=16mm,text width=23mm},
+ patch/.style={inner sep=0,draw=violet!55!black,line width=.5pt}]
+\node[anchor=west,inner sep=0] (wsi) at (0,0)
+ {\includegraphics[width=42mm]{figures/mil_11557_thumbnail.jpg}};
+\node[below=2mm of wsi,align=center] {Whole-slide image\\\scriptsize WSI thumbnail};
+\node[ellipse,draw=violet!55!black,fill=violet!3,line width=.8pt,
+ minimum width=52mm,minimum height=49mm,inner sep=0] (bag) at (7.2,0) {};
+\node[align=center,font=\sffamily\bfseries\footnotesize] at (7.2,1.9) {Bag of patches};
+\foreach \i/\x/\y in {1/6.5/1.1,2/7.8/1.1,3/6.5/0,4/7.8/0,5/6.5/-1.1,6/7.8/-1.1}{
+ \node[patch] (p\i) at (\x,\y)
+  {\includegraphics[width=9mm]{figures/mil_11557_region_\i.jpg}};
+}
+\node at (8.65,0) {$\cdots$};
+\node[align=center] at (7.2,-1.9) {Thousands of instances};
+\foreach \i/\fx/\fy/\py in {
+ 1/.515625/0.203327/1.55,
+ 2/.234375/0.277264/.95,
+ 3/.750000/0.369686/.35,
+ 4/.531250/0.554529/-.35,
+ 5/.203125/0.591497/-.95,
+ 6/.765625/0.702403/-1.55}{
+ \coordinate (sx\i) at ($(wsi.north west)!\fx!(wsi.north east)$);
+ \coordinate (sy\i) at ($(wsi.north west)!\fy!(wsi.south west)$);
+ \coordinate (s\i) at (sx\i |- sy\i);
+ \draw[white,line width=1.4pt] ($(s\i)+(-1.5mm,-1.5mm)$) rectangle ++(3mm,3mm);
+ \draw[violet!65!black,line width=.65pt] ($(s\i)+(-1.5mm,-1.5mm)$) rectangle ++(3mm,3mm);
+ \draw[->,draw=violet!65!black,line width=.65pt]
+  (s\i) to[out=0,in=180] (5.25,\py);
+}
+\node[align=center,text width=22mm] at (4.5,2.05) {Patch\\extraction};
+\node[box] (agg) at (12.0,0) {MIL\\aggregation};
+\node[box,fill=orange!8,draw=orange!60!black] (pred) at (15.4,0) {Whole-slide\\diagnosis};
+\draw[flow] (bag.east) -- node[above,align=center,font=\sffamily\scriptsize]
+ {Patch\\features} (agg.west);
+\draw[flow] (agg.east) -- (pred.west);
+\end{tikzpicture}
+\caption{Multiple-instance learning for WSI diagnosis. Many patches extracted
+from one slide form a bag. Their encoded features are aggregated to predict
+one whole-slide diagnosis. The six thumbnail regions illustrate the
+slide-to-bag construction; the ellipsis represents the many remaining
+instances. In this study, patch features are obtained from frozen VAE
+posterior means, and supervision is provided by the WSI diagnosis label.}
+\label{fig:mil-concept}
+\end{figure*}
+
 \section{Materials and Methods}
 
-\subsection{Data Source and Image Units}
+\subsection{UBC-OCEAN dataset}
 
 The UBC-OCEAN ovarian-cancer training resource contains 538 slide images:
 513 conventional whole-slide images (WSIs) and 25 tissue microarray (TMA)
@@ -215,7 +354,7 @@ rather than the full image.
 \footnotesize (f) Aligned overlay &
 \footnotesize (g) TMA
 \end{tabular}
-\caption{Image units and annotations in UBC-OCEAN
+\caption{Images and annotations in UBC-OCEAN
 \cite{ubc_ocean_2023,ubc_ocean_masks_2023}. Panels (a)--(c) show a WSI
 thumbnail and two actual $256\times256$ crops from that WSI; arrows mark their
 source regions. Panels (d)--(f) show a different, paired WSI thumbnail,
@@ -247,16 +386,20 @@ pixel-level segmentation of the complete WSI.
 
 \subsection{Data Populations and Partitions}
 
-The 513 eligible WSIs were separated at WSI level into two non-overlapping
-populations (\autoref{fig:data-split}). VAE development used 322 training and
-39 validation WSIs, contributing 300,000 and 30,000 unlabeled patches. Patch
-sampling supplied 60,000 training and 6,000 validation patches from each WSI
-diagnosis; diagnosis was not a VAE training target. WSI counts were not balanced
-by diagnosis (\autoref{tab:task-populations}). The downstream cohort contained
-106 training, 23 validation and 23 test WSIs and was fixed before VAE or
-classifier outputs on that cohort were inspected. Its assignment was shared by
-both downstream tasks and used diagnosis and annotated-tissue availability,
-but not image pixels, VAE representations or model predictions.
+The 513 eligible WSIs were partitioned at WSI level into three disjoint
+subsets: 361 for unsupervised VAE development, 129 for supervised classifier
+development, and 23 for a shared sealed test (\autoref{fig:data-split}). VAE
+development used 322 training and 39 validation WSIs, contributing 300,000 and
+30,000 unlabeled patches. Patch sampling supplied 60,000 training and 6,000
+validation patches from each WSI diagnosis; diagnosis was not a VAE training
+target. WSI counts were not balanced by diagnosis
+(\autoref{tab:task-populations}). Supervised development used 106 training and
+23 validation WSIs. Together with the shared test, these formed the 152-WSI
+cohort with supplemental masks. These assignments were fixed before VAE or
+classifier outputs on that cohort were inspected. They were shared by both
+downstream tasks and used diagnosis and annotated-tissue availability, but
+not image pixels, VAE representations or model predictions. The same 23 test
+WSIs were also used for reconstruction evaluation.
 
 For WSI diagnosis, each slide was one labeled MIL bag containing all its
 foreground patches selected by Otsu thresholding. Each complete WSI contributed
@@ -270,10 +413,12 @@ separates the inputs and class counts of these three stages.
 \begin{figure*}[t]
 \centering
 \resizebox{0.98\textwidth}{!}{\input{figures/data_split}}
-\caption{Data populations and WSI-level partitions. The VAE-development and
-downstream cohorts are disjoint. All three supervised subsets are fixed at WSI
-level and shared by the conventional and equivariant representations. Numbers
-inside split boxes follow the order CC/EC/HGSC/LGSC/MC.}
+\caption{Data populations and WSI-level partitions. The source cohort is
+split into unsupervised VAE development, supervised classifier development,
+and a separate shared sealed test. The same 23 test WSIs support all three
+final evaluations, with task-specific patch populations. All assignments are
+fixed at WSI level and shared by both representations. Numbers inside split
+boxes follow the order CC/EC/HGSC/LGSC/MC.}
 \label{fig:data-split}
 \end{figure*}
 
@@ -344,8 +489,7 @@ $2\times$ fixed anti-aliased downsampling between stages. Their decoder used
 two residual blocks per stage and reversed the three resolution changes with
 bilinear upsampling followed by convolution. The spatial sequence was
 $256\rightarrow128\rightarrow64\rightarrow32$ pixels per side in the
-encoder and reversed in the decoder. Separate $5\times5$ posterior heads
-produced
+encoder and reversed in the decoder. Separate posterior heads produced
 \begin{equation}
 \boldsymbol{\mu},\log\boldsymbol{\sigma}^{2}
 \in\mathbb{R}^{16\times32\times32}.
@@ -365,23 +509,28 @@ input. \autoref{tab:architectures} compares the two implementations.
     arrow/.style={->,thick}]
 \node[stage] (input) {Clean patch $\mathbf{x}$\\RGB $256\times256$};
 \node[stage,right=of input] (noise) {Corruption $C$\\input $\widetilde{\mathbf{x}}$};
-\node[stage,right=of noise] (encoder) {Encoder\\four residual stages};
+\node[stage,right=of noise] (encoder) {Encoder\\four residual\\stages};
 \node[stage,right=of encoder] (posterior) {Gaussian posterior\\$\boldsymbol{\mu},\log\boldsymbol{\sigma}^2$\\$16\times32\times32$};
-\node[stage,right=of posterior] (decoder) {Decoder\\four residual stages};
+\node[stage,right=of posterior] (decoder) {Decoder\\four residual\\stages\\$\mathbf{z}$ train; $\boldsymbol{\mu}$ test};
 \node[stage,right=of decoder] (output) {Reconstruction\\$\widehat{\mathbf{x}}$\\compared with clean $\mathbf{x}$};
 \draw[arrow] (input)--(noise);
 \draw[arrow] (noise)--(encoder);
 \draw[arrow] (encoder)--(posterior);
-\draw[arrow] (posterior)--node[above,font=\scriptsize] {$\mathbf{z}$ train; $\boldsymbol{\mu}$ test} (decoder);
+\draw[arrow] (posterior)--(decoder);
 \draw[arrow] (decoder)--(output);
 \draw[arrow,blue!65!black] (posterior.north) -- ++(0,0.55) node[above,font=\scriptsize] {frozen $\boldsymbol{\mu}$ to classifiers};
+\coordinate (targetleft) at (input.south |- {$(posterior.south)+(0,-0.30)$});
+\coordinate (targetright) at (output.south |- targetleft);
+\draw[arrow,dashed,draw=black!65] (input.south) -- (targetleft) -- (targetright) -- (output.south);
+\node[below,font=\scriptsize] at ($(targetleft)!0.5!(targetright)$) {clean target for reconstruction loss};
 \end{tikzpicture}%
 }
 \caption{Shared denoising VAE workflow. Both models have the same input,
 posterior shape and encoder--decoder resolution schedule. They differ in the
 type of convolution and the accompanying field normalization and gates.
 Training reconstructs the clean patch from a possibly corrupted input;
-classification uses only the frozen posterior mean.}
+classification uses only the frozen posterior mean. The dashed rectangular
+path supplies the clean input as the reconstruction target.}
 \label{fig:vae-pipeline}
 \end{figure*}
 
@@ -424,26 +573,43 @@ and gates based on the $F_1$ vector magnitude were used so these operations
 respect the field types. The precise nonlinearities and normalizations are
 given below. The posterior heads returned 16 $F_0$ fields and
 no $F_1$ fields, matching the conventional $16\times32\times32$ posterior.
-Comparing conventional and rotation-equivariant CNNs involves distinct
-matching choices for kernel support, learned parameter count and computational
-cost. The conventional VAE uses $5\times5$ residual kernels, whereas the
-$\SOtwo$ VAE uses $7\times7$ steerable kernels. The selected steerable basis
-includes a second angular harmonic (two cycles around the filter center) in
-its $F_1$-to-$F_1$ terms and Gaussian radial envelopes centered at 1.0, 1.90
-and 2.75 pixels. On a $5\times5$ grid, only the four corners lie beyond radius
-2.5 pixels, leaving the outer envelope sparsely sampled in angle. The
-$7\times7$ support samples this envelope at more angles and reduces the risk
-of discretization aliasing. Weiler and Cesa likewise used larger steerable
-kernels to mitigate discretization artifacts while adjusting feature widths
-to preserve the total parameter count \cite{weiler_general_2019}. Worrall
-\emph{et al.} compared $5\times5$ harmonic filters with $3\times3$
-conventional filters and reported their different parameter counts
-\cite{worrall_harmonic_2017}. Despite its larger spatial support, the
-steerable convolution in the first same-resolution residual stage learns
-7,680 basis coefficients, compared with 25,600 free weights in its
-conventional counterpart (30.0\%). Across the complete VAEs, the $\SOtwo$
-model has 29.8\% as many learned parameters, although its estimated
-convolutional work is higher (\autoref{tab:architectures}).
+\subsubsection{Kernel Support and Learned Parameterization}
+\label{sec:kernel-support}
+Comparing conventional and rotation-equivariant CNNs is not straightforward:
+matching kernel support, learned parameter count and computational cost can
+require different architectural choices. The conventional VAE uses
+$5\times5$ residual kernels, whereas the $\SOtwo$ VAE uses $7\times7$
+steerable kernels. This difference follows from the spatial sampling
+requirements of the selected steerable basis.
+
+The basis combines angular harmonics with Gaussian radial profiles, a common
+construction in steerable CNNs \cite{weiler_general_2019}. The radial
+envelopes are centered at approximately 1.00, 1.90 and 2.75 pixels, each with
+a standard deviation of 0.30 pixels. Its $F_1$-to-$F_1$ terms include a second
+angular harmonic, corresponding to two cycles around the filter center.
+A centered $5\times5$ grid extends only two pixels along each coordinate axis;
+only its four corners lie beyond radius 2.5 pixels. Consequently, the outer
+radial envelope is sampled unevenly across angles. The $7\times7$ grid
+extends three pixels along each axis and provides additional samples near
+this envelope, improving its angular coverage and reducing the risk of
+discretization aliasing.
+
+While the larger grid might appear to give the steerable layers an advantage,
+their filters remain constrained to a fixed steerable basis. They learn
+coefficients of this basis rather than an independent weight at every kernel
+location. For example, the steerable convolution in the first same-resolution
+residual stage uses only 30.0\% as many learned parameters as its conventional
+counterpart: 7,680 basis coefficients versus 25,600 free weights. Across the
+complete VAEs, the $\SOtwo$ model has 29.8\% as many learned parameters,
+although its estimated convolutional work is higher
+(\autoref{tab:architectures}).
+
+Larger steerable than conventional kernels have also been used in earlier
+comparisons. Weiler and Cesa used larger steerable kernels to mitigate
+discretization artifacts while adjusting feature widths to preserve the total
+parameter count \cite{weiler_general_2019}. Worrall \emph{et al.} compared
+$5\times5$ harmonic filters with $3\times3$ conventional filters and
+reported their different parameter counts \cite{worrall_harmonic_2017}.
 \autoref{fig:residual-blocks} shows the two residual building blocks before
 \autoref{fig:vae-architectures} assembles them into the full encoder and
 decoder schedules.
@@ -460,7 +626,10 @@ fixed $5\times5$ binomial filter: on the main branch after the first gate and
 on the skip branch before its learned projection and normalization. At decoder
 transitions, both branches are bilinearly upsampled before their first learned
 convolution; the skip branch again uses a projection and normalization. The
-$F_0/F_1$ field types and gate equations are defined in the surrounding text.}
+$F_0/F_1$ field types and gate equations are defined in the surrounding text.
+The $7\times7$ steerable support provides fuller sampling of the selected
+radial and angular basis; Section~\ref{sec:kernel-support} gives the rationale
+and learned-parameter comparison.}
 \label{fig:residual-blocks}
 \end{figure*}
 
@@ -468,28 +637,33 @@ $F_0/F_1$ field types and gate equations are defined in the surrounding text.}
 \centering
 \resizebox{0.98\textwidth}{!}{\input{figures/vae_architectures.tex}}
 \caption{Layer-level architecture of the two frozen VAEs. The residual
-building blocks are detailed in \autoref{fig:residual-blocks}; stage-changing
-blocks additionally resample both branches and project the skip branch. A
+building blocks are detailed in \autoref{fig:residual-blocks}. Each stage A--D
+contains two residual blocks; stage-changing blocks additionally resample both branches and project the skip branch. A
 conventional hidden width is a channel count; in the $\SOtwo$ model, $nF_0+nF_1$ means $n$ scalar fields and $n$
 two-component vector fields. Posterior mean and log-variance use separate
 heads; training samples $\mathbf z$, whereas downstream classifiers use
 $\boldsymbol\mu$. The conventional stem uses a $7\times7$ kernel and its
 other convolutions use $5\times5$ kernels; the $\SOtwo$ stem uses a
 $9\times9$ steerable kernel and its other convolutions use $7\times7$
-kernels.}
+kernels. See Section~\ref{sec:kernel-support} for the kernel-support rationale
+and learned-parameter comparison.}
 \label{fig:vae-architectures}
 \end{figure*}
 
 \subsection{Field Gates and Normalization}
 
 The conventional VAE applies a learned scalar gate to each hidden channel,
-including after residual addition. For a channel value $u_c$,
+including after residual addition. This gate is a parameterized variant of
+the sigmoid-weighted linear unit (SiLU), $u\,\sigma(u)$
+\cite{elfwing_silu_2018}, with a learned slope and offset inside the sigmoid.
+For a channel value $u_c$,
 \begin{equation}
 A_0(u_c)=u_c\,\sigma(a_cu_c+b_c),\qquad
 \sigma(t)=\frac{1}{1+e^{-t}},
 \label{eq:scalar-gate}
 \end{equation}
-where $a_c$ and $b_c$ are learned per-channel parameters. The $F_0$ fields in
+where $a_c$ and $b_c$ are learned per-channel parameters, initialized to
+$a_c=1$ and $b_c=0$, so the initial activation is SiLU. The $F_0$ fields in
 the $\SOtwo$ VAE use the same rule with one parameter pair per scalar field.
 For an $F_1$ field $\mathbf v_j=(v_{j,1},v_{j,2})$, the equivariant VAE gates
 both components by the same factor computed from their rotation-invariant

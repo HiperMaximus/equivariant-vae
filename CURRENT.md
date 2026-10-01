@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-09-29
+Last updated: 2026-09-30
 
 ## Active frontier
 
@@ -59,7 +59,7 @@ The dataset account in the INCISCOS manuscript now separates VAE, complete-bag
 MIL and tissue-patch inputs by split. It reports VAE diagnosis composition in
 both WSI and sampled-patch units, MIL WSI labels and full-foreground bag sizes,
 and tissue patch distributions and balanced training budgets. The current professor-review draft is `paper/inciscos2026/inciscos2026.pdf`
-(ten A4 pages, about 4.6 MB). The title, concise abstract, introduction,
+(twelve A4 pages, about 4.8 MB). The title, concise abstract, introduction,
 two research questions and contribution statement now state the lack of a
 fixed microscopic image orientation directly and distinguish reconstruction,
 tissue recognition and WSI diagnosis in that order. A copy edit also removed
@@ -75,7 +75,7 @@ model's 29.8% parameter ratio and notes that published histology comparisons
 have matched parameter counts, whereas this pair was not matched. The kernel-support paragraph now distinguishes spatial support, parameter count and computational cost; it cites Weiler and Cesa for larger steerable kernels that mitigate discretization artifacts while preserving total parameter count through width adjustment, and Worrall for a larger harmonic kernel with a reported parameter mismatch. Three dataset figures became one multi-panel
 figure retaining the real WSI crops, arrows, partial mask, overlay and TMA;
 the split diagram names unsupervised VAE learning and downstream
-classification. The VAE workflow no longer uses a long return arrow, the
+classification. The VAE workflow uses a compact rectangular reconstruction-target arrow, the
 two residual blocks are horizontal and stacked, and the input table groups
 tasks. Reconstruction now shows the first nine fixed validation examples as
 three matched 3x3 mosaics and descriptive boxplots of 23 accepted WSI-level
@@ -105,6 +105,34 @@ Overleaf Git history provide recovery. The export excludes the personal EPUB,
 figure scripts and issue previews. The legacy SIPAIM subtree pull/push commands
 now refuse to operate on the migrated project; later Overleaf edits must be
 reviewed before a new INCISCOS export.
+
+The accepted Overleaf revision is the source of the 2026-09-30 INCISCOS
+repository update. Live `main.tex` v46, `references.bib` v3 and the two revised
+figure documents match the local sources exactly; all 28 source/style/figure
+files were verified byte-for-byte. The professor's source edits and new
+unsupervised-learning subsection are retained. The subsection now includes
+TARGET-VAE and O2-VAE precedents. The motivation distinguishes high and low
+magnification; Related Work introduces translation before rotation
+equivariance. Methods expand the steerable-kernel rationale, with caption
+pointers to Section III-F1, and identify the learned gate as a SiLU variant.
+The shared 23-WSI test branches from the 513-WSI source. The separate
+architecture diagrams and compact reconstruction-target arrow are retained.
+New rotation-equivariance and MIL schematics accompany the text; the latter
+uses seven lightweight WSI-11557 JPEGs with provenance in the paper README.
+The current local PDF is the verified twelve-page build; the uploaded PDF
+in Overleaf is the older export. No model, split, checkpoint or metric changed.
+
+All nine individually approved professor-comment replies were posted and
+verified. Our reviewed tracked corrections were then accepted with the user's
+authorization. The four edited documents have no pending change ranges;
+text, versions, comment anchors and all ten thread histories are unchanged.
+Nine threads remain open and the one previously resolved thread stays resolved.
+Only the professor may close comments. The audited local integration and
+read-only snapshots live outside the research repository at
+`../.agent-tools/overleaf-review/`; current preservation evidence is in
+`review-data/accepted-changes-2026-09-30/`. Publishing this accepted copy to
+GitHub requires no writes to Overleaf. Scientific work in progress and the
+personal EPUB are excluded from this paper update.
 
 The INCISCOS manuscript, PDF and nine lightweight issue figure previews were
 pushed in commit `b9da0ba`. Issue #7 now contains the PDF link, all nine

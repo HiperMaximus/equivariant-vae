@@ -134,3 +134,16 @@ figure captions, were rendered at 180 dpi, and are 1288 pixels wide. Histology a
 use optimized JPEG (quality 82); diagrams and plots use optimized PNG. The nine
 files together occupy about 1.24 MB. The current PDF and LaTeX sources remain the manuscript source of truth;
 these crops document the earlier GitHub issue comment.
+
+## MIL concept figure provenance
+
+The MIL illustration uses the independently recorded UBC-OCEAN thumbnail
+for WSI `11557`, already reduced to `640 x 541` pixels in the thesis assets.
+Its source PNG SHA-256 is
+`43f5294cd3b019f88a4b154215317c7fab9e8df8b7a6357309dd1fda43be1e00`.
+`mil_11557_thumbnail.jpg` is a quality-82 JPEG export. The six quality-88
+JPEG regions are `48 x 48` thumbnail pixels, centered at `(330,110)`,
+`(150,150)`, `(480,200)`, `(340,300)`, `(130,320)`, and `(490,380)`.
+These are illustrative overview regions, not the full-resolution model
+patches. No new WSI download, inference or metric calculation was performed.
+All seven added JPEGs total 106,825 bytes.
