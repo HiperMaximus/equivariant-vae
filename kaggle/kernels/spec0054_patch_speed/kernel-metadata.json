@@ -1,0 +1,28 @@
+{
+  "id": "maximusshtefan/eqvae-spec0054-patch-speed",
+  "title": "eqvae spec0054 brief patch speed",
+  "code_file": "main.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_internet": "true",
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": [
+    "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
+    "maximshtefan/eqvae-spec0054-fp16-latent-shard-2",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-3",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-4",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-5",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-6",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-7",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-8",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-9",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-10",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-11",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-12"
+  ],
+  "model_sources": []
+}
