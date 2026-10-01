@@ -115,7 +115,8 @@ class ProbeClassifier(nn.Module):
 
 
 def log(event, **values):
-    print(json.dumps({"event": event, **values}), flush=True)
+    print(json.dumps({"event": event, "physical_gpu": os.environ.get("CUDA_VISIBLE_DEVICES"),
+                      **values}), flush=True)
 
 
 def run_case(name, block, width, array, target_index, class_weight, directory):
@@ -173,6 +174,7 @@ def run_case(name, block, width, array, target_index, class_weight, directory):
             ).items() for metric, value in values.items()
         }
         row = {
+            "update": committed_updates,
             "step": index, "timed": index >= 2, "committed": committed,
             "wall_seconds": seconds,
             "forward_gpu_ms": events[0].elapsed_time(events[1]),
