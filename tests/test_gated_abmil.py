@@ -4,7 +4,9 @@ import copy
 import json
 import math
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
+from threading import Event, current_thread
 from types import SimpleNamespace
 from typing import cast
 
@@ -135,6 +137,61 @@ def test_t2_uniform_attention_and_nonfinite_observations():
     assert math.isnan(invalid["entropy_mean"])
 
 
+def test_prefetch_overlaps_training_and_keeps_only_two_future_inputs(tmp_path, monkeypatch):
+    config = json.loads(Path("docs/data/spec0054_fold0_run.json").read_text())
+    config.update(effective_batch=1, t1_train_wsi=0)
+    bags = SimpleNamespace(locations={i: SimpleNamespace(
+        fold=1, diagnosis_index=i % 5, count=6,
+        coordinates=tuple((j * 256, 0) for j in range(6)), shard=1,
+    ) for i in range(10)})
+    generator = np.random.default_rng(43)
+    arrays = {i: generator.standard_normal((6, 16, 32, 32)).astype(np.float32)
+              for i in bags.locations}
+    order = fold.paired_epoch_order(row_count=10, epoch=0, seed=config["seed"])
+    two_ahead = Event()
+    background_reads = []
+    reader_threads = set()
+    main_thread = current_thread()
+
+    def read(branch, wsi_id, indices=None):
+        if current_thread() is not main_thread:
+            reader_threads.add(current_thread())
+            background_reads.append(wsi_id)
+            if len(background_reads) == 3:
+                two_ahead.set()
+        return arrays[wsi_id] if indices is None else arrays[wsi_id][indices]
+
+    bags.read = read
+    forwards = 0
+
+    def closure(model):
+        def forward(x, target, weight, aem):
+            nonlocal forwards
+            if forwards == 0:
+                # Hold actual compute until the reader has filled its lookahead.
+                assert two_ahead.wait(timeout=10)
+                assert background_reads == list(order[:3])
+            wsi_id = order[forwards]
+            indices = fold._sample_indices(6, config["seed"], 0, wsi_id, config["patch_retention"])
+            torch.testing.assert_close(x, torch.from_numpy(arrays[wsi_id][indices]), rtol=0, atol=0)
+            assert x.is_contiguous(memory_format=torch.channels_last)
+            forwards += 1
+            return fold._forward_loss(model, x, target, weight, aem)
+        return forward
+
+    monkeypatch.setattr(fold, "_compiled_closure", closure)
+    monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: False)
+    assert fold.run_branch("normal_vae", cast(ShardBags, bags), config, tmp_path,
+                           None, {}, time.time(), device=torch.device("cpu"),
+                           stop_after_updates=2)
+    assert background_reads == list(order[:4])  # Two consumed, two discarded on stop.
+    assert all(not thread.is_alive() for thread in reader_threads)
+    checkpoint = load_dynamics_checkpoint(tmp_path / "normal_vae/latest.pt")
+    assert checkpoint["exposure_count"] == checkpoint["within_epoch_cursor"] == 2
+    t0 = load_telemetry_table(tmp_path / "normal_vae/t0.npz")
+    assert t0["wsi_id"].tolist() == list(order[:2])
+
+
 @pytest.mark.parametrize("batch", [1, 4, 8])
 def test_runner_resume_matches_uninterrupted_after_interrupted_assessment(tmp_path: Path, monkeypatch, batch):
     config = json.loads(Path("docs/data/spec0054_fold0_run.json").read_text())
@@ -148,22 +205,40 @@ def test_runner_resume_matches_uninterrupted_after_interrupted_assessment(tmp_pa
     ) for i in range(15)})
     generator = np.random.default_rng(32)
     arrays = {i: generator.standard_normal((bag.count, 16, 32, 32)).astype(np.float32) for i, bag in bags.locations.items()}
-    bags.read = lambda branch, wsi_id: arrays[wsi_id]
+    bags.read = lambda branch, wsi_id, indices=None: arrays[wsi_id] if indices is None else arrays[wsi_id][indices]
     monkeypatch.setattr(fold, "_compiled_closure", lambda model: lambda x, y, w, aem=0.0: fold._forward_loss(model, x, y, w, aem))
     monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: False)
     full = tmp_path / "full"
-    assert fold.run_branch("normal_vae", cast(ShardBags, bags), config, full, None, {}, time.time(), device=torch.device("cpu"))
+    class InlineReader(ThreadPoolExecutor):
+        def submit(self, fn, /, *args, **kwargs):
+            future = Future()
+            future.set_result(fn(*args, **kwargs))
+            return future
+    # Synchronous reference versus asynchronous interruption + continuation.
+    with monkeypatch.context() as sync:
+        sync.setattr(fold, "ThreadPoolExecutor", InlineReader)
+        assert fold.run_branch("normal_vae", cast(ShardBags, bags), config, full, None, {}, time.time(), device=torch.device("cpu"))
     # Graceful session guard during evaluation, after the epoch's training save.
-    reads = 0
-    def read(branch, wsi_id):
-        nonlocal reads
-        reads += 1
-        return arrays[wsi_id]
+    part = tmp_path / "part"
+    saved_exposure = -1
+    assessment_reads = 0
+    main_thread = current_thread()
+    original_save = fold.save_dynamics_checkpoint
+    def track_save(path, payload):
+        nonlocal saved_exposure
+        original_save(path, payload)
+        if path.parent.parent == part:
+            saved_exposure = payload["exposure_count"]
+    monkeypatch.setattr(fold, "save_dynamics_checkpoint", track_save)
+    def read(branch, wsi_id, indices=None):
+        nonlocal assessment_reads
+        if current_thread() is main_thread and saved_exposure == 10:
+            assessment_reads += 1
+        return arrays[wsi_id] if indices is None else arrays[wsi_id][indices]
     bags.read = read
     def pause(**kwargs):
-        return reads >= (55 if batch == 1 else 40)  # Two reads into epoch-1 evaluation.
+        return assessment_reads >= 2  # Two full-bag reads into epoch-1 evaluation.
     monkeypatch.setattr(fold, "should_pause_for_session", pause)
-    part = tmp_path / "part"
     assert not fold.run_branch("normal_vae", cast(ShardBags, bags), config, part, None, {}, time.time(), device=torch.device("cpu"))
     saved = load_dynamics_checkpoint(part / "normal_vae/latest.pt")
     assert saved["exposure_count"] == 10

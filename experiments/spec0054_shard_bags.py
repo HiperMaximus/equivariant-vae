@@ -113,12 +113,24 @@ class ShardBags:
             ):
                 raise ValueError(f"WSI {wsi_id} differs from the frozen cohort")
 
-    def read(self, branch: str, wsi_id: int) -> np.ndarray:
+    def read(self, branch: str, wsi_id: int, indices: np.ndarray | None = None) -> np.ndarray:
         location = self.locations[wsi_id]
         key = (branch, location.shard)
         if key not in self.descriptors:
             self.descriptors[key] = os.open(self.files[branch][location.shard], os.O_RDONLY)
             print(json.dumps({"event": "shard_open", "branch": branch, "shard": location.shard}), flush=True)
+        if indices is not None:
+            # Sorted sampling indices: read consecutive retained records together.
+            array = np.empty((len(indices), *RECORD_SHAPE), dtype="<f2")
+            buffer = memoryview(array).cast("B")
+            boundaries = np.r_[0, np.flatnonzero(np.diff(indices) != 1) + 1, len(indices)]
+            for first, end in zip(boundaries[:-1], boundaries[1:], strict=True):
+                target = buffer[first * RECORD_BYTES:end * RECORD_BYTES]
+                read = os.preadv(self.descriptors[key], [target],
+                                (location.first_record + int(indices[first])) * RECORD_BYTES)
+                if read != len(target):
+                    raise OSError(f"Incomplete FP16 bag read for WSI {wsi_id}")
+            return array
         payload = os.pread(
             self.descriptors[key], location.count * RECORD_BYTES,
             location.first_record * RECORD_BYTES,

@@ -12,14 +12,17 @@ import random
 import shutil
 import subprocess
 import time
-from collections import Counter
+from collections import Counter, deque
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
+from threading import Lock
 
 import numpy as np
 import torch
 from torch.nn import functional
 
-from experiments.spec0054_shard_bags import ShardBags
+from experiments.spec0054_shard_bags import RECORD_BYTES, ShardBags
 from eqvae.models.gated_abmil import GatedABMILClassifier
 from eqvae.training.mil_dynamics import (
     AdamWTelemetry, EagerLayerProbe, ExampleDynamicsTracker,
@@ -216,11 +219,13 @@ def run_branch(
     directory = output_root / branch
     directory.mkdir(parents=True, exist_ok=False)
     events = (directory / "events.jsonl").open("a", buffering=1)
+    log_lock = Lock()
 
     def log(event: str, **details) -> None:
         line = json.dumps({"branch": branch, "event": event, **details}, sort_keys=True)
-        print(line, flush=True)
-        print(line, file=events, flush=True)
+        with log_lock:
+            print(line, flush=True)
+            print(line, file=events, flush=True)
 
     def session_ending() -> bool:
         return should_pause_for_session(session_started_unix=session_started, now_unix=time.time())
@@ -299,6 +304,88 @@ def run_branch(
         latents = torch.from_numpy(array).to(device=device, memory_format=torch.channels_last)
         log("bag_load_done", wsi_id=wsi_id)
         return latents
+
+    @contextmanager
+    def training_inputs():
+        # Two ready inputs per VAE worker, across accumulation/epoch boundaries.
+        # Its private cursor is speculative; only the training loop commits it.
+        def requests():
+            read_epoch, read_cursor, read_order = epoch, cursor, order
+            while read_epoch < config["epochs"]:
+                for index in read_order[read_cursor:]:
+                    wsi_id = train_ids[index]
+                    indices = _sample_indices(bags.locations[wsi_id].count,
+                                              config["seed"], read_epoch, wsi_id,
+                                              config["patch_retention"])
+                    yield wsi_id, indices
+                read_epoch += 1
+                read_cursor = 0
+                read_order = paired_epoch_order(row_count=count, epoch=read_epoch,
+                                               seed=config["seed"])
+
+        copy_stream = torch.cuda.Stream(device=device) if device.type == "cuda" else None
+
+        def prepare(request):
+            wsi_id, indices = request
+            started = time.perf_counter()
+            log("bag_read_start", wsi_id=wsi_id, shard=bags.locations[wsi_id].shard,
+                bag_size=bags.locations[wsi_id].count, prefetch=True,
+                requested_bytes=len(indices) * RECORD_BYTES,
+                read_regions=int(np.count_nonzero(np.diff(indices) != 1)) + 1)
+            array = bags.read(branch, wsi_id, indices)
+            source = torch.from_numpy(array)
+            host = torch.empty_like(source, memory_format=torch.channels_last,
+                                    pin_memory=device.type == "cuda")
+            host.copy_(source)
+            read_seconds = time.perf_counter() - started
+            log("bag_transfer_start", wsi_id=wsi_id, sampled_bag_size=len(indices),
+                sample_indices_sha256=hashlib.sha256(indices.tobytes()).hexdigest(),
+                read_prepare_seconds=read_seconds, prefetch=True)
+            transfer_started = time.perf_counter()
+            if copy_stream is not None:
+                with torch.cuda.device(device), torch.cuda.stream(copy_stream):
+                    latents = host.to(device, non_blocking=True)
+                    ready = torch.cuda.Event()
+                    ready.record(copy_stream)
+                # Wait in the reader thread: keep pinned source alive until DMA
+                # completes, while the main stream trains on the previous WSI.
+                ready.synchronize()
+            else:
+                latents = host
+            log("bag_load_done", wsi_id=wsi_id, prefetch=True,
+                transfer_seconds=time.perf_counter() - transfer_started)
+            return wsi_id, indices, latents
+
+        plan = iter(requests())
+        with ThreadPoolExecutor(max_workers=1) as reader:
+            pending = deque()
+            for _ in range(2):
+                request = next(plan, None)
+                if request is not None:
+                    pending.append(reader.submit(prepare, request))
+
+            def consume():
+                while pending:
+                    wait_started = time.perf_counter()
+                    wsi_id, indices, latents = pending.popleft().result()
+                    if device.type == "cuda":
+                        latents.record_stream(torch.cuda.current_stream(device))
+                    request = next(plan, None)
+                    if request is not None:
+                        pending.append(reader.submit(prepare, request))
+                    log("bag_prefetch_consume", wsi_id=wsi_id,
+                        wait_seconds=time.perf_counter() - wait_started)
+                    yield wsi_id, indices, latents
+                    del latents
+
+            prepared = consume()
+            try:
+                yield prepared
+            finally:
+                # Drain before full-bag probes or closing shard descriptors.
+                prepared.close()
+                for future in pending:
+                    future.result()
 
     def evaluate() -> bool:
         log("evaluation_start", exposures=exposure)
@@ -489,126 +576,134 @@ def run_branch(
         if not assess():
             return False
     log("epoch_start", epoch=epoch, cursor=cursor, exposures=exposure)
-    while exposure < horizon:
-        if session_ending():
-            save()
-            log("session_pause", exposures=exposure)
-            return False
-        previous_exposure = exposure
-        selected = order[cursor:cursor + config["effective_batch"]]
-        selected_ids = [train_ids[index] for index in selected]
-        next_exposure = exposure + len(selected_ids)
-        lr = scheduler.set_next(next_exposure)
-        aem = _aem_weight(next_exposure, count, config)
-        aem_tensor = torch.tensor(aem, device=device)
-        indices = {wsi_id: _sample_indices(bags.locations[wsi_id].count, config["seed"], epoch,
-                                         wsi_id, config["patch_retention"])
-                   for wsi_id in selected_ids}
-        if device.type == "cuda":
-            torch.cuda.synchronize(device)
-            torch.cuda.reset_peak_memory_stats(device)
-        step_started = time.perf_counter()
-        skipped = 0
-        while True:
+    with ExitStack() as input_stack:
+        inputs = None
+        while exposure < horizon:
             if session_ending():
                 save()
-                log("session_pause_during_amp_backoff", exposures=exposure)
+                log("session_pause", exposures=exposure)
                 return False
-            optimizer.zero_grad(set_to_none=True)
-            observations = []
-            initial_scale = float(scaler.get_scale())
-            for wsi_id in selected_ids:
-                latents = load(wsi_id, indices[wsi_id])
+            previous_exposure = exposure
+            selected = order[cursor:cursor + config["effective_batch"]]
+            selected_ids = [train_ids[index] for index in selected]
+            next_exposure = exposure + len(selected_ids)
+            lr = scheduler.set_next(next_exposure)
+            aem = _aem_weight(next_exposure, count, config)
+            aem_tensor = torch.tensor(aem, device=device)
+            indices = {}
+            if device.type == "cuda":
+                torch.cuda.current_stream(device).synchronize()
+                torch.cuda.reset_peak_memory_stats(device)
+            step_started = time.perf_counter()
+            skipped = 0
+            while True:
+                if session_ending():
+                    save()
+                    log("session_pause_during_amp_backoff", exposures=exposure)
+                    return False
+                optimizer.zero_grad(set_to_none=True)
+                observations = []
+                initial_scale = float(scaler.get_scale())
+                for wsi_id in selected_ids:
+                    if inputs is None:
+                        inputs = input_stack.enter_context(training_inputs())
+                    _, indices[wsi_id], latents = next(inputs)
+                    target_index = bags.locations[wsi_id].diagnosis_index
+                    target = torch.tensor([target_index], device=device)
+                    weight = torch.tensor(weights[target_index], device=device)
+                    log("forward_start", wsi_id=wsi_id, update=update + 1)
+                    logits, unweighted, weighted, summary = compiled(latents, target, weight, aem_tensor)
+                    log("forward_done_backward_start", wsi_id=wsi_id)
+                    scaler.scale(weighted / len(selected_ids)).backward()
+                    log("backward_done", wsi_id=wsi_id)
+                    observations.append((wsi_id, logits.detach(), unweighted.detach(), weighted.detach(), summary.detach()))
+                    del latents
+                log("optimizer_start", update=update + 1)
+                scaler.unscale_(optimizer)
+                telemetry.begin_step(model, optimizer)
+                scaler.step(optimizer)
+                scaler.update()
+                committed = float(scaler.get_scale()) >= initial_scale
+                optimizer_record = telemetry.finish_step(
+                    model, next_committed_update=update + 1, committed=committed,
+                )
+                if not committed:
+                    affected = [name for name, parameter in model.named_parameters()
+                                if parameter.grad is not None and not bool(torch.isfinite(parameter.grad).all())]
+                    log("amp_backoff", update=update + 1, attempt=skipped + 1,
+                        scale_before=initial_scale, scale_after=float(scaler.get_scale()),
+                        nonfinite_gradient_parameters=affected)
+                optimizer.zero_grad(set_to_none=True)
+                log("optimizer_done", committed=committed, amp_scale=float(scaler.get_scale()))
+                if committed:
+                    break
+                skipped += 1
+                input_stack.close()
+                inputs = None
+            if device.type == "cuda":
+                torch.cuda.current_stream(device).synchronize()
+            step_seconds = time.perf_counter() - step_started
+            peak_memory_bytes = torch.cuda.max_memory_allocated(device) if device.type == "cuda" else 0
+            update += 1
+            exposure = next_exposure
+            cursor += len(selected_ids)
+            scheduler.last_exposure = exposure
+            for wsi_id, logits, unweighted, weighted, summary in observations:
                 target_index = bags.locations[wsi_id].diagnosis_index
-                target = torch.tensor([target_index], device=device)
-                weight = torch.tensor(weights[target_index], device=device)
-                log("forward_start", wsi_id=wsi_id, update=update + 1)
-                logits, unweighted, weighted, summary = compiled(latents, target, weight, aem_tensor)
-                log("forward_done_backward_start", wsi_id=wsi_id)
-                scaler.scale(weighted / len(selected_ids)).backward()
-                log("backward_done", wsi_id=wsi_id)
-                observations.append((wsi_id, logits.detach(), unweighted.detach(), weighted.detach(), summary.detach()))
-                del latents
-            log("optimizer_start", update=update + 1)
-            scaler.unscale_(optimizer)
-            telemetry.begin_step(model, optimizer)
-            scaler.step(optimizer)
-            scaler.update()
-            committed = float(scaler.get_scale()) >= initial_scale
-            optimizer_record = telemetry.finish_step(
-                model, next_committed_update=update + 1, committed=committed,
-            )
-            if not committed:
-                affected = [name for name, parameter in model.named_parameters()
-                            if parameter.grad is not None and not bool(torch.isfinite(parameter.grad).all())]
-                log("amp_backoff", update=update + 1, attempt=skipped + 1,
-                    scale_before=initial_scale, scale_after=float(scaler.get_scale()),
-                    nonfinite_gradient_parameters=affected)
-            optimizer.zero_grad(set_to_none=True)
-            log("optimizer_done", committed=committed, amp_scale=float(scaler.get_scale()))
-            if committed:
-                break
-            skipped += 1
-        if device.type == "cuda":
-            torch.cuda.synchronize(device)
-        step_seconds = time.perf_counter() - step_started
-        peak_memory_bytes = torch.cuda.max_memory_allocated(device) if device.type == "cuda" else 0
-        update += 1
-        exposure = next_exposure
-        cursor += len(selected_ids)
-        scheduler.last_exposure = exposure
-        for wsi_id, logits, unweighted, weighted, summary in observations:
-            target_index = bags.locations[wsi_id].diagnosis_index
-            record = classification_example_record(
-                logits=logits, target=target_index,
-                unweighted_loss=unweighted, weighted_loss=unweighted * weights[target_index],
-            )
-            forward = {
-                f"forward.{capture}.{metric}": value
-                for capture, values in _forward_records(summary).items()
-                for metric, value in values.items()
-            }
-            tables["t0"].append({
-                "update": update, "exposures": exposure, "wsi_id": wsi_id,
-                "effective_batch": len(selected_ids), "lr": lr,
-                "bag_size": bags.locations[wsi_id].count,
-                "sampled_bag_size": len(indices[wsi_id]),
-                "sample_indices_sha256": hashlib.sha256(indices[wsi_id].tobytes()).hexdigest(),
-                "aem_coefficient": aem, "objective_loss": float(weighted.item()),
-                "aem_penalty": float((unweighted * weights[target_index] - weighted).item()),
-                **covariates[wsi_id],
-                "amp_scale_before": initial_scale,
-                "amp_scale_after": float(scaler.get_scale()),
-                "amp_skipped_attempts": skipped,
-                "step_seconds": step_seconds, "peak_allocated_bytes": peak_memory_bytes,
-                **record, **forward,
-                **{f"optimizer.{key}": value for key, value in optimizer_record.items()},
-            })
-        if cursor == count:
-            log("epoch_done", epoch=epoch, exposures=exposure)
-            epoch += 1
-            cursor = 0
-            order = paired_epoch_order(row_count=count, epoch=epoch, seed=config["seed"])
-        log("step_done", update=update, exposures=exposure, step_seconds=step_seconds,
-            peak_allocated_bytes=peak_memory_bytes, amp_scale=float(scaler.get_scale()),
-            amp_skipped_attempts=skipped)
-        if stop_after_updates is not None and update >= stop_after_updates:
-            save()
-            if not diagnostics(force=True):
-                return False
-            scheduler.last_assessment_exposure = exposure
-            save()
-            log("smoke_segment_done", update=update, exposures=exposure)
-            return True
-        if exposure in boundaries:
-            save()
-            if not assess():
-                return False
-        elif (exposure // config["checkpoint_every_exposures"]
-              > previous_exposure // config["checkpoint_every_exposures"] or cursor == 0):
-            save()
-        if cursor == 0 and exposure < horizon:
-            log("epoch_start", epoch=epoch, exposures=exposure)
+                record = classification_example_record(
+                    logits=logits, target=target_index,
+                    unweighted_loss=unweighted, weighted_loss=unweighted * weights[target_index],
+                )
+                forward = {
+                    f"forward.{capture}.{metric}": value
+                    for capture, values in _forward_records(summary).items()
+                    for metric, value in values.items()
+                }
+                tables["t0"].append({
+                    "update": update, "exposures": exposure, "wsi_id": wsi_id,
+                    "effective_batch": len(selected_ids), "lr": lr,
+                    "bag_size": bags.locations[wsi_id].count,
+                    "sampled_bag_size": len(indices[wsi_id]),
+                    "sample_indices_sha256": hashlib.sha256(indices[wsi_id].tobytes()).hexdigest(),
+                    "aem_coefficient": aem, "objective_loss": float(weighted.item()),
+                    "aem_penalty": float((unweighted * weights[target_index] - weighted).item()),
+                    **covariates[wsi_id],
+                    "amp_scale_before": initial_scale,
+                    "amp_scale_after": float(scaler.get_scale()),
+                    "amp_skipped_attempts": skipped,
+                    "step_seconds": step_seconds, "peak_allocated_bytes": peak_memory_bytes,
+                    **record, **forward,
+                    **{f"optimizer.{key}": value for key, value in optimizer_record.items()},
+                })
+            if cursor == count:
+                log("epoch_done", epoch=epoch, exposures=exposure)
+                epoch += 1
+                cursor = 0
+                order = paired_epoch_order(row_count=count, epoch=epoch, seed=config["seed"])
+            log("step_done", update=update, exposures=exposure, step_seconds=step_seconds,
+                peak_allocated_bytes=peak_memory_bytes, amp_scale=float(scaler.get_scale()),
+                amp_skipped_attempts=skipped)
+            if stop_after_updates is not None and update >= stop_after_updates:
+                save()
+                input_stack.close()
+                inputs = None
+                if not diagnostics(force=True):
+                    return False
+                scheduler.last_assessment_exposure = exposure
+                save()
+                log("smoke_segment_done", update=update, exposures=exposure)
+                return True
+            if exposure in boundaries:
+                save()
+                input_stack.close()
+                inputs = None
+                if not assess():
+                    return False
+            elif (exposure // config["checkpoint_every_exposures"]
+                  > previous_exposure // config["checkpoint_every_exposures"] or cursor == 0):
+                save()
+            if cursor == 0 and exposure < horizon:
+                log("epoch_start", epoch=epoch, exposures=exposure)
     save("final.pt")
     return True
 

@@ -3,12 +3,13 @@
 import csv
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from experiments.spec0054_shard_bags import ShardBags
+from experiments.spec0054_shard_bags import BagLocation, RECORD_BYTES, ShardBags
 
 
 def test_complete_wsi_reads_preserve_index_order_and_paired_offsets(tmp_path: Path) -> None:
@@ -64,6 +65,37 @@ def test_complete_wsi_reads_preserve_index_order_and_paired_offsets(tmp_path: Pa
     assert bags.read("normal_vae", 12)[:, 0, 0, 0].tolist() == [3, 4]
     bags.close()
     assert bags.descriptors == {}
+
+
+def test_sampled_read_requests_only_retained_records_in_order(tmp_path, monkeypatch):
+    reader = ShardBags.__new__(ShardBags)
+    reader.locations = {8: BagLocation(1, 2, 10, 0, 1, ())}
+    reader.files = {branch: {1: tmp_path / f"{branch}.bin"}
+                    for branch in ("normal_vae", "so2_vae")}
+    reader.descriptors = {}
+    generator = np.random.default_rng(8)
+    for binary in reader.files.values():
+        generator.standard_normal((12, 16, 32, 32)).astype("<f2").tofile(binary[1])
+    indices = np.array([0, 1, 3, 4, 5, 6, 8, 9])  # 80%, in three contiguous regions.
+    calls = []
+    preadv = os.preadv
+    def observed_read(fd, buffers, offset):
+        calls.append((offset, sum(len(buffer) for buffer in buffers)))
+        return preadv(fd, buffers, offset)
+    monkeypatch.setattr(os, "preadv", observed_read)
+    try:
+        for branch in reader.files:
+            full = reader.read(branch, 8)
+            sampled = reader.read(branch, 8, indices)
+            np.testing.assert_array_equal(sampled, full[indices])
+            assert calls[-3:] == [(2 * RECORD_BYTES, 2 * RECORD_BYTES),
+                                  (5 * RECORD_BYTES, 4 * RECORD_BYTES),
+                                  (10 * RECORD_BYTES, 2 * RECORD_BYTES)]
+            assert sum(size for _, size in calls[-3:]) == 8 * RECORD_BYTES
+        np.testing.assert_array_equal(reader.read("normal_vae", 8, np.array([9])),
+                                      reader.read("normal_vae", 8)[[9]])
+    finally:
+        reader.close()
 
 
 def test_exposure_schedule_and_table_resume(tmp_path: Path) -> None:

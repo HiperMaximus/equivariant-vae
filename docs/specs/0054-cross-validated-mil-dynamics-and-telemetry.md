@@ -585,6 +585,16 @@ runner for eight committed updates, restores after four, and saves/reloads
 T0/T1/T2 and checkpoint state. It does not evaluate an outer holdout or start
 the full fold. Numerical configuration remains in the existing fold contract.
 
+Training prefetch keeps at most two future inputs per VAE process. One reader
+thread reads only the sorted retained FP16 records, grouping adjacent indices,
+prepares pinned channels-last memory and completes H2D on a separate CUDA
+stream while the main stream trains. The speculative queue spans updates and
+epochs; assessments drain it and AMP backoffs rebuild it from the uncommitted
+cursor. It changes neither paired subsets/order nor committed checkpoint state.
+Complete-bag diagnostics remain synchronous. Requested bytes, read-region count,
+read/preparation time, H2D completion time and consumer wait are logged; reduced
+byte requests are not interpreted as a measured speedup.
+
 ## Telemetry Design Principles
 
 “Collect everything” must not mean synchronizing every parameter to CPU after
