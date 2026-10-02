@@ -271,3 +271,11 @@ def test_runner_resume_matches_uninterrupted_after_interrupted_assessment(tmp_pa
         assert before.keys() == after.keys()
         for key in before:
             np.testing.assert_array_equal(before[key], after[key])
+    best = load_dynamics_checkpoint(resumed / "normal_vae/best.pt")
+    exact(load_dynamics_checkpoint(full / "normal_vae/best.pt"), best)
+    predictions = load_telemetry_table(resumed / "normal_vae/predictions.npz")
+    validation = predictions["split"] == "validation"
+    boundaries = np.unique(predictions["exposures"][validation])
+    selected = min(boundaries, key=lambda boundary: float(np.mean(
+        predictions["unweighted_loss"][validation & (predictions["exposures"] == boundary)])))
+    assert best["exposure_count"] == selected

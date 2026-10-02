@@ -573,8 +573,8 @@ is dynamic in the compiled forward/objective/T0 graph.
 Its recipe uses train-only 80% patch retention, sorted seeded subsets paired
 by WSI and epoch across VAE branches; diagnostics/inference use complete bags.
 The objective is inverse-frequency class-weighted CE minus .01 times raw
-ABMIL entropy, with the entropy coefficient cosine-decaying over the unchanged
-WSI-exposure horizon. LR peaks at 1e-4 with the existing five-epoch warmup and
+ABMIL entropy, with the entropy coefficient cosine-decaying over the paired
+50-epoch WSI-exposure horizon. LR peaks at 1e-4 with the existing five-epoch warmup and
 cosine schedule. ABMIL score and class-output weights/biases start at zero;
 encoder blocks remain nonzero initialized. Effective batch 4 accumulates four
 WSI losses before one AdamW step; 1/4/8 remain supported. AMP backoff attempts
@@ -584,6 +584,19 @@ on 16 fixed sentinel patches at T2. The authorized short smoke reuses the real
 runner for eight committed updates, restores after four, and saves/reloads
 T0/T1/T2 and checkpoint state. It does not evaluate an outer holdout or start
 the full fold. Numerical configuration remains in the existing fold contract.
+
+The spatial-CLS/gated-ABMIL paired anchor completes 50 epochs: 14,400 training
+WSI exposures per VAE for fold 0, or 3,600 committed updates at effective
+batch 4. Both LR and AEM finish their decay within this horizon. There is no
+adaptive LR reduction or early stopping. `final.pt` at the shared horizon is
+the primary paired/OOF reference. An additional exploratory `best.pt` retains
+the earliest completed assessment with minimum mean unweighted validation CE,
+without AEM. Assessment boundaries and the selection rule are shared across
+branches; the selected boundary may differ. Its outer-holdout-selected score
+is reported as exploratory. Resume copies `best.pt` and reconstructs prior
+validation losses from the existing prediction table. Checkpointing remains
+every 144 WSI exposures, and later snapshot/probe epochs outside the new
+horizon are removed from the execution contract.
 
 Training prefetch keeps at most two future inputs per VAE process. One reader
 thread reads only the sorted retained FP16 records, grouping adjacent indices,

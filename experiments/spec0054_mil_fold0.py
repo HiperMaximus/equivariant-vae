@@ -236,7 +236,7 @@ def run_branch(
     if prior is not None and prior.exists():
         if json.loads((prior / "identity.json").read_text()) != {**identity, "branch": branch}:
             raise ValueError("Resume identity differs")
-        for name in ("latest.pt", "t0.npz", "t1.npz", "t2.npz", "predictions.npz"):
+        for name in ("latest.pt", "best.pt", "t0.npz", "t1.npz", "t2.npz", "predictions.npz"):
             if (prior / name).exists():
                 shutil.copy2(prior / name, directory / name)
     (directory / "identity.json").write_text(json.dumps({**identity, "branch": branch}, sort_keys=True) + "\n")
@@ -546,7 +546,7 @@ def run_branch(
         log("gradient_panel_done", exposures=exposure)
         return True
 
-    def save(name: str = "latest.pt") -> None:
+    def save(name: str = "latest.pt") -> dict:
         log("checkpoint_start", name=name, update=update, exposures=exposure)
         _write_rows(directory, tables)
         payload = build_dynamics_checkpoint(
@@ -559,6 +559,7 @@ def run_branch(
         if name == "latest.pt" and exposure in snapshots:
             save_dynamics_checkpoint(directory / f"boundary_{exposure:06d}.pt", payload)
         log("checkpoint_done", name=name, update=update, exposures=exposure)
+        return payload
 
     horizon = config["epochs"] * count
     boundaries = _boundaries(count, config)
@@ -568,7 +569,19 @@ def run_branch(
             log("session_pause_during_assessment", exposures=exposure)
             return False
         scheduler.last_assessment_exposure = exposure
-        save()
+        validation = {}
+        for row in tables["predictions"]:
+            if row["split"] == "validation":
+                validation.setdefault(row["exposures"], []).append(row["unweighted_loss"])
+        validation_ce = float(np.mean(validation[exposure]))
+        previous_best = min((float(np.mean(losses)) for boundary, losses in validation.items()
+                             if boundary < exposure), default=math.inf)
+        payload = save()
+        if validation_ce < previous_best:
+            save_dynamics_checkpoint(directory / "best.pt", payload)
+            log("best_checkpoint_done", exposures=exposure, validation_ce=validation_ce,
+                criterion=config["checkpoint_selection"])
+        log("assessment_done", exposures=exposure, validation_ce=validation_ce)
         return True
 
     if stop_after_updates is None and exposure in ({0} | boundaries) and scheduler.last_assessment_exposure < exposure:
