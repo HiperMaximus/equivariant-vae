@@ -8,12 +8,13 @@ import sys
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "b3fb2e12e83b3577e00694fa939b918948b6e1af"
+SOURCE_COMMIT = "b2f5c3a31a11ec755d85e98128b7cc952ff48783"
 SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
 OUTPUT_ROOT = Path("/kaggle/working/spec0054_abmil_fold0")
 RESUME_ROOT = None  # Fresh architecture: old local-global weights are incompatible.
 SMOKE = True  # Eight updates; restore checkpoint after four. No full fold.
 EFFECTIVE_BATCH = 4
+READ_PROBE = True  # Only eight I/O trials per VAE; no training or compilation.
 
 
 def main() -> None:
@@ -41,12 +42,15 @@ def main() -> None:
             "--output-root", str(OUTPUT_ROOT), "--branch", branch,
             "--effective-batch", str(EFFECTIVE_BATCH),
         ]
-        if SMOKE:
+        if READ_PROBE:
+            command.append("--read-probe")
+        elif SMOKE:
             command.append("--smoke")
         if RESUME_ROOT is not None:
             command.extend(["--resume-root", str(RESUME_ROOT)])
         print(json.dumps({"event": "worker_launch", "branch": branch, "physical_gpu": gpu,
-                          "smoke": SMOKE, "effective_batch": EFFECTIVE_BATCH}), flush=True)
+                          "smoke": SMOKE and not READ_PROBE, "read_probe": READ_PROBE,
+                          "effective_batch": EFFECTIVE_BATCH}), flush=True)
         workers.append(subprocess.Popen(command, env=environment))
     statuses = [worker.wait() for worker in workers]
     print(json.dumps({"event": "workers_exit", "statuses": statuses}), flush=True)
