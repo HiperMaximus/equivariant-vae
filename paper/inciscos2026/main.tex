@@ -31,17 +31,15 @@ Learning and Downstream Classification in Histopathology}
 \begin{abstract}
 At high magnification, cellular patterns in histopathology have no fixed
 orientation in the image, making rotation a relevant local symmetry for representation
-learning. This work compares conventional and continuous-$\SOtwo$-equivariant
-denoising variational autoencoders (VAEs) trained on the same unlabeled
-patches. With both models frozen, reconstruction was evaluated on test patches,
-followed by two downstream tasks: three-class tissue recognition at patch
-level and five-class whole-slide image (WSI) diagnosis through multiple-instance
-learning. Mean reconstruction MAE was 0.0629 versus 0.0642 (conventional versus
-equivariant), but the paired confidence interval included zero. Tissue
-macro-F1 favored the equivariant representation at four of five label
-budgets; only the comparison at 500 labels per class had an adjusted interval
-excluding zero. On 23 test WSIs, macro-F1 was 0.389
-versus 0.483, but the paired interval included zero.
+learning. This work compares conventional denoising variational autoencoders (VAEs) and continuous-$\SOtwo$-equivariant
+denoising variational autoencoders trained on the same unlabeled
+patches extracted from ovarian cancer images. With both models frozen, reconstruction was evaluated on test patches. Afterwards, 
+we evaluated the representation capability of both autoencoders in two downstream tasks: three-class tissue recognition at patch
+level, and five-class whole-slide image (WSI) diagnosis via multiple-instance
+learning. Reconstruction mean absolute error for the test patches was $0.0629$ versus $0.0642$ (conventional versus
+equivariant), but the difference was not statistically significant. For three-class tissue recognition at the largest training budget of 5,671 labels per class, macro-F1 was $0.766$ versus $0.710$ (conventional versus equivariant), with no statistically significant difference. Finally, for WSI classification on 23 test slides, macro-F1 was
+$0.389$ versus $0.483$ (conventional versus equivariant),
+with no statistically significant difference.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -68,8 +66,8 @@ the model's architectural constraints. Ordinary convolutional neural networks
 input translates its feature map. Conventional CNNs usually learn rotational
 responses from rotated examples or separate filters. In the $\SOtwo$ VAE,
 steerable convolutions incorporate rotation symmetry through constrained
-filters, introducing a rotational inductive bias into the unsupervised
-representation learning performed by this VAE
+filters, introducing a rotational inductive bias into this VAE's
+unsupervised representation learning
 \cite{cohen_group_2016,cohen_steerable_2017,weiler_general_2019}.
 
 Rotation-equivariant classifiers have previously been studied for
@@ -78,13 +76,13 @@ incorporating symmetry have also modeled object pose and learned orientation-inv
 representations \cite{nasiri_target_2022,burgess_orientation_2024}.
 The comparison here uses patches from the UBC Ovarian Cancer Subtype
 Classification and Outlier Detection (UBC-OCEAN) training resource
-\cite{ubc_ocean_2023}. A conventional residual denoising VAE and a VAE with
+\cite{ubc_ocean_2023}. A conventional residual denoising VAE and a denoising VAE with
 steerable kernels constrained for the continuous planar rotation group
 $\SOtwo$ are trained without supervision
-\cite{kingma_auto_encoding_2014,im_denoising_2017}. Both yield a spatial
-Gaussian latent map.
+\cite{kingma_auto_encoding_2014,im_denoising_2017}. Both yield spatial
+feature maps of size $16\times32\times32$.
 
-In this work, we aim to address two questions:
+This study examines two questions:
 
 \begin{enumerate}
     \item Does the implemented rotation-equivariant VAE yield lower
@@ -97,7 +95,7 @@ In this work, we aim to address two questions:
     bags of latent maps?
 \end{enumerate}
 
-In this work, established steerable-kernel and field-aware operations are
+Established steerable-kernel and field-aware operations are
 implemented in a continuous-$\SOtwo$ denoising VAE trained on unlabeled
 histopathology patches. Its encoder--decoder is compared with a conventional
 VAE in reconstruction; their frozen spatial latent maps are then compared in
@@ -202,9 +200,8 @@ fields. Shapes and arrows are schematic rather than measured VAE features.}
 
 \subsection{Multi-Instance Learning}
 
-Whole-slide images can contain billions of pixels, making processing at
-native resolution in a single forward pass computationally impractical due
-to the high memory and computational requirements. A common approach therefore
+Whole-slide images can contain billions of pixels. Their size makes processing
+at native resolution in a single forward pass computationally impractical. A common approach therefore
 divides each WSI into patches, learns a local representation, and aggregates
 patch features for slide-level prediction. Attention-based multiple
 instance learning (MIL) provides a related supervised formulation in which a
@@ -275,8 +272,8 @@ The UBC-OCEAN ovarian-cancer training resource contains 538 slide images:
 513 conventional whole-slide images (WSIs) and 25 tissue microarray (TMA)
 images \cite{ubc_ocean_2023}. A WSI shows a large tissue section; a TMA shows
 multiple small tissue cores in one image. The resource describes WSIs as
-large, approximately 20$\times$ scans and TMAs as smaller, approximately
-$4000\times4000$-pixel, 40$\times$ images. This scale and layout difference
+large, approximately $20\times$ scans and TMAs as smaller, approximately
+$4000\times4000$-pixel, $40\times$ images. This scale and layout difference
 motivated using only the 513 non-TMA WSIs in the present experiment.
 \autoref{fig:dataset-examples} shows a representative image of each type and their
 original pixel dimensions.
@@ -372,15 +369,15 @@ Foreground selection for reconstruction and WSI diagnosis was derived from
 the image rather than from human masks. Each WSI thumbnail was
 converted to HSV, and Otsu's threshold was applied to the saturation channel
 \cite{otsu_threshold_1979}. A full-resolution grid cell was retained when more
-than 60\% of its projected thumbnail area belonged to foreground. The resulting coordinates were used for VAE development, reconstruction and
+than $60\%$ of its projected thumbnail area belonged to foreground. The resulting coordinates were used for VAE development, reconstruction and
 WSI diagnosis without consulting the supplemental tissue masks.
 
 Supplemental masks were used only to construct the tissue-recognition
 population. Red, green and blue mask regions were interpreted as tumor,
 stroma and necrosis. The masks are not exhaustive; an unpainted region cannot
 be treated as a negative class. A patch was therefore eligible for tissue
-classification only when at least 10\% of its area was annotated and at least
-95\% of that annotated area belonged to one tissue class. The resulting task
+classification only when at least $10\%$ of its area was annotated and at least
+$95\%$ of that annotated area belonged to one tissue class. The resulting task
 classifies high-purity annotated regions and does not constitute dense
 pixel-level segmentation of the complete WSI.
 
@@ -465,8 +462,7 @@ deterministic posterior mean. Both VAEs received the same ordered patches,
 normalization, corruption policy, loss, update count and validation schedule.
 Downstream pairs shared WSI assignments, patch coordinates, classifier
 initialization, epoch order and model-selection rule. The architectures differ
-in parameter count and computational cost (\autoref{tab:architectures}), which
-also matter when interpreting outcomes.
+in parameter count and computational cost (\autoref{tab:architectures}).
 
 \subsection{Variational Autoencoders and Shared Architecture}
 
@@ -584,11 +580,11 @@ requirements of the selected steerable basis.
 
 The basis combines angular harmonics with Gaussian radial profiles, a common
 construction in steerable CNNs \cite{weiler_general_2019}. The radial
-envelopes are centered at approximately 1.00, 1.90 and 2.75 pixels, each with
-a standard deviation of 0.30 pixels. Its $F_1$-to-$F_1$ terms include a second
+envelopes are centered at approximately $1.00$, $1.90$ and $2.75$ pixels, each with
+a standard deviation of $0.30$ pixels. Its $F_1$-to-$F_1$ terms include a second
 angular harmonic, corresponding to two cycles around the filter center.
 A centered $5\times5$ grid extends only two pixels along each coordinate axis;
-only its four corners lie beyond radius 2.5 pixels. Consequently, the outer
+only its four corners lie beyond radius $2.5$ pixels. Consequently, the outer
 radial envelope is sampled unevenly across angles. The $7\times7$ grid
 extends three pixels along each axis and provides additional samples near
 this envelope, improving its angular coverage and reducing the risk of
@@ -598,9 +594,9 @@ While the larger grid might appear to give the steerable layers an advantage,
 their filters remain constrained to a fixed steerable basis. They learn
 coefficients of this basis rather than an independent weight at every kernel
 location. For example, the steerable convolution in the first same-resolution
-residual stage uses only 30.0\% as many learned parameters as its conventional
+residual stage uses only $30.0\%$ as many learned parameters as its conventional
 counterpart: 7,680 basis coefficients versus 25,600 free weights. Across the
-complete VAEs, the $\SOtwo$ model has 29.8\% as many learned parameters,
+complete VAEs, the $\SOtwo$ model has $29.8\%$ as many learned parameters,
 although its estimated convolutional work is higher
 (\autoref{tab:architectures}).
 
@@ -728,7 +724,7 @@ Rotation constraint & None beyond translation-equivariant convolution & Continuo
 Both models used a denoising VAE training criterion: an encoder sees a
 possibly corrupted patch, and the decoder is trained to reconstruct the
 corresponding clean patch \cite{im_denoising_2017}. In the implemented training procedure,
-with probability 0.3 the corruption operator $C$ perturbed
+with probability $0.3$ the corruption operator $C$ perturbed
 hematoxylin/eosin/residual stain coordinates and added image-space Gaussian
 noise
 \cite{ruifrok_color_2001}. The resulting input was clamped to the
@@ -766,7 +762,7 @@ linearly from zero to $0.01$ during the first 6,000 updates and remained fixed
 thereafter.
 
 AdamW \cite{loshchilov_adamw_2019} used coefficients $(0.9,0.999)$,
-$\epsilon=10^{-8}$, weight decay $10^{-5}$ and gradient-norm clipping at 1.0.
+$\epsilon=10^{-8}$, weight decay $10^{-5}$ and gradient-norm clipping at $1.0$.
 The learning rate increased linearly for 600 updates to $10^{-3}$ and then
 decreased with a cosine schedule to $10^{-5}$. Each model was trained for
 60,000 successful updates with a global batch of 50 patches distributed over
@@ -840,13 +836,13 @@ WSI level \cite{field_bootstrapping_2007}. WSI diagnosis used 10,000 paired
 bootstrap replicates stratified by diagnosis. Tissue recognition used a paired
 WSI bootstrap stratified by observed tissue support. The five label-budget
 macro-F1 differences and the area under the log-budget learning curve (AULC)
-difference were considered together as six related comparisons. Their 95\%
+difference were considered together as six related comparisons. Their $95\%$
 intervals were adjusted simultaneously: across the six comparisons, the
-bootstrap procedure targets 95\% coverage for the whole set of differences.
+bootstrap procedure targets $95\%$ coverage for the whole set of differences.
 A difference interval entirely below zero favors the equivariant model when
 higher is better; an interval entirely above zero favors the conventional
 model. An interval containing zero does not establish a statistically
-significant difference at the 5\% level, nor does it establish equivalence.
+significant difference at the $5\%$ level, nor does it establish equivalence.
 Patch standard deviations describe variation among patches, while confidence
 intervals resample WSIs as the biological units.
 
@@ -854,8 +850,8 @@ intervals resample WSIs as the biological units.
 
 \subsection{VAE Reconstruction}
 
-\autoref{fig:reconstructions} displays the first nine examples from the
-fixed 25-patch validation selector, in selector order. Each original is paired
+\autoref{fig:reconstructions} displays the first nine patches from the
+fixed set of 25 validation patches. Each original is paired
 with both frozen models' final reconstruction.
 
 \begin{figure*}[t]
@@ -863,15 +859,15 @@ with both frozen models' final reconstruction.
 \includegraphics[width=0.96\textwidth]{figures/reconstructions_fixed9.png}
 \caption{Three matched $3\times3$ mosaics: original patches, conventional-VAE
 reconstructions and continuous-$\SOtwo$-VAE reconstructions. The nine examples
-are the first nine of the fixed validation selector; quantitative results use
+are the first nine from the fixed set of 25 validation patches; quantitative results use
 67,138 patches from 23 test WSIs.}
 \label{fig:reconstructions}
 \end{figure*}
 
 The conventional VAE had lower pooled MAE and MSE and higher pooled PSNR and
-SSIM (\autoref{tab:reconstruction}). Mean MAE was 0.062872 for the conventional
-model and 0.064230 for the equivariant model. The paired difference was
-$-0.001358$, with a 95\% interval of $[-0.002213,0.000046]$. The interval
+SSIM (\autoref{tab:reconstruction}). Mean MAE was $0.062872$ for the conventional
+model and $0.064230$ for the equivariant model. The paired difference was
+$-0.001358$, with a $95\%$ interval of $[-0.002213,0.000046]$. The interval
 included zero, so the primary analysis did not establish a reconstruction
 difference. The remaining metrics are descriptive secondary summaries.
 
@@ -885,10 +881,10 @@ standard deviation).}
 \toprule
 Metric & Conventional & $\SOtwo$ \\
 \midrule
-MAE $\downarrow$ & 0.0629 (0.0239) & 0.0642 (0.0223) \\
-MSE $\downarrow$ & 0.0080 (0.0074) & 0.0083 (0.0067) \\
-PSNR dB $\uparrow$ & 27.923 (2.721) & 27.658 (2.595) \\
-SSIM $\uparrow$ & 0.7575 (0.0842) & 0.7436 (0.0862) \\
+MAE $\downarrow$ & $0.0629$ ($0.0239$) & $0.0642$ ($0.0223$) \\
+MSE $\downarrow$ & $0.0080$ ($0.0074$) & $0.0083$ ($0.0067$) \\
+PSNR dB $\uparrow$ & $27.923$ ($2.721$) & $27.658$ ($2.595$) \\
+SSIM $\uparrow$ & $0.7575$ ($0.0842$) & $0.7436$ ($0.0862$) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -913,23 +909,23 @@ use normalized RGB; PSNR and SSIM use image-domain values.}
 The tissue results changed with the amount of labeled training data
 (\autoref{fig:downstream} and \autoref{tab:tissue}). The equivariant
 representation had higher macro-F1 at 250, 500, 1,000 and 2,500 labels per
-class. At 500 labels per class, the macro-F1 values were 0.575 and 0.511, and
+class. At 500 labels per class, the macro-F1 values were $0.575$ and $0.511$, and
 the simultaneous interval for conventional-minus-equivariant was
 $[-0.121,-0.008]$. This was the only label budget whose simultaneous interval
 excluded zero.
 
 At 500 labels per class, the classwise F1 values for
-conventional/equivariant representations were 0.769/0.781 for tumor,
-0.485/0.560 for stroma and 0.279/0.384 for necrosis. These values show how the aggregate
+conventional/equivariant representations were $0.769/0.781$ for tumor,
+$0.485/0.560$ for stroma and $0.279/0.384$ for necrosis. These values show how the aggregate
 macro-F1 difference was distributed across the three tissue classes.
 
 At the largest budget, the conventional representation obtained macro-F1
-0.766 compared with 0.710 for the equivariant representation. The simultaneous
+$0.766$ compared with $0.710$ for the equivariant representation. The simultaneous
 interval included zero, with a lower bound of $-0.001$.
-The corresponding classwise F1 values were 0.868/0.871 for tumor,
-0.728/0.711 for stroma and 0.701/0.548 for necrosis. The normalized area under
-the log-budget learning curve was 0.615 for the conventional representation
-and 0.631 for the equivariant representation; its simultaneous difference
+The corresponding classwise F1 values were $0.868/0.871$ for tumor,
+$0.728/0.711$ for stroma and $0.701/0.548$ for necrosis. The normalized area under
+the log-budget learning curve was $0.615$ for the conventional representation
+and $0.631$ for the equivariant representation; its simultaneous difference
 interval included zero.
 
 
@@ -942,13 +938,13 @@ reported for conventional-minus-$\SOtwo$.}
 \footnotesize
 \begin{tabular}{rccc}
 \toprule
-Labels/class & Conventional $\uparrow$ & $\SOtwo$ $\uparrow$ & \shortstack{Simultaneous\\95\% CI} \\
+Labels/class & Conventional $\uparrow$ & $\SOtwo$ $\uparrow$ & \shortstack{Simultaneous\\$95\%$ CI} \\
 \midrule
-250 & 0.508 & 0.523 & $[-0.072,0.041]$ \\
-500 & 0.511 & 0.575 & $[-0.121,-0.008]$ \\
-1,000 & 0.582 & 0.598 & $[-0.072,0.041]$ \\
-2,500 & 0.701 & 0.714 & $[-0.069,0.044]$ \\
-5,671 & 0.766 & 0.710 & $[-0.001,0.112]$ \\
+250 & $0.508$ & $0.523$ & $[-0.072,0.041]$ \\
+500 & $0.511$ & $0.575$ & $[-0.121,-0.008]$ \\
+1,000 & $0.582$ & $0.598$ & $[-0.072,0.041]$ \\
+2,500 & $0.701$ & $0.714$ & $[-0.069,0.044]$ \\
+5,671 & $0.766$ & $0.710$ & $[-0.001,0.112]$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -958,7 +954,7 @@ Labels/class & Conventional $\uparrow$ & $\SOtwo$ $\uparrow$ & \shortstack{Simul
 \includegraphics[width=0.94\textwidth]{figures/downstream_results.png}
 \caption{Frozen-representation classification results. (a) Tissue
 macro-F1 on 31,572 test patches under nested class-balanced training
-budgets; the asterisk marks the 500-label contrast whose simultaneous 95\%
+budgets; the asterisk marks the 500-label contrast whose simultaneous $95\%$
 difference interval excludes zero. (b) Five-class diagnosis on 23 test WSIs.
 The paired WSI macro-F1 interval includes zero.}
 \label{fig:downstream}
@@ -966,12 +962,12 @@ The paired WSI macro-F1 interval includes zero.}
 
 \subsection{Classification B: Five-Class WSI Diagnosis}
 
-Macro-F1 was 0.483 for the equivariant representation and 0.389 for the
+Macro-F1 was $0.483$ for the equivariant representation and $0.389$ for the
 conventional representation (\autoref{tab:wsi-overall}). The
-conventional-minus-equivariant difference was $-0.095$, with a 95\% interval
+conventional-minus-equivariant difference was $-0.095$, with a $95\%$ interval
 of $[-0.207,0.050]$. The interval included zero. Among the secondary metrics,
 the equivariant representation had lower mean cross-entropy, with a
-WSI-resampling interval excluding zero. The macro-F1 interval still crossed zero.
+WSI-resampling interval excluding zero.
 
 \begin{table}[t]
 \caption{Overall WSI diagnosis results on 23 test slides. Difference intervals
@@ -981,12 +977,12 @@ are conventional-minus-$\SOtwo$.}
 \footnotesize
 \begin{tabular}{lccc}
 \toprule
-Metric & Conventional & $\SOtwo$ & Difference 95\% CI \\
+Metric & Conventional & $\SOtwo$ & Difference $95\%$ CI \\
 \midrule
-Macro-F1 $\uparrow$ & 0.389 & 0.483 & $[-0.207,0.050]$ \\
-Balanced accuracy $\uparrow$ & 0.510 & 0.503 & $[-0.167,0.180]$ \\
-Accuracy $\uparrow$ & 0.522 & 0.609 & $[-0.217,0.043]$ \\
-Mean cross-entropy $\downarrow$ & 1.323 & 0.993 & $[0.135,0.524]$ \\
+Macro-F1 $\uparrow$ & $0.389$ & $0.483$ & $[-0.207,0.050]$ \\
+Balanced accuracy $\uparrow$ & $0.510$ & $0.503$ & $[-0.167,0.180]$ \\
+Accuracy $\uparrow$ & $0.522$ & $0.609$ & $[-0.217,0.043]$ \\
+Mean cross-entropy $\downarrow$ & $1.323$ & $0.993$ & $[0.135,0.524]$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1006,11 +1002,11 @@ contrasts are unstable.
 \toprule
 Diagnosis & Support & Conventional F1 $\uparrow$ & $\SOtwo$ F1 $\uparrow$ \\
 \midrule
-CC & 5 & 0.667 & 0.750 \\
-EC & 6 & 0.000 & 0.533 \\
-HGSC & 8 & 0.706 & 0.800 \\
-LGSC & 2 & 0.000 & 0.333 \\
-MC & 2 & 0.571 & 0.000 \\
+CC & 5 & $0.667$ & $0.750$ \\
+EC & 6 & $0.000$ & $0.533$ \\
+HGSC & 8 & $0.706$ & $0.800$ \\
+LGSC & 2 & $0.000$ & $0.333$ \\
+MC & 2 & $0.571$ & $0.000$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1027,8 +1023,8 @@ macro-F1 at the four smaller budgets and a higher WSI macro-F1 point estimate.
 Most confidence intervals for the main comparisons included zero. The
 single tissue-budget interval that excluded zero applies to that contrast only
 and does not establish a monotone or general label-efficiency effect. The
-reconstruction point-estimate ordering was not consistent with the downstream
-point-estimate ordering.
+model with lower reconstruction error did not consistently achieve higher
+classification macro-F1.
 
 Patch-based WSI systems depend on both the instance representation and the bag
 aggregator. Prior MIL work has developed the representation, aggregation or
@@ -1042,7 +1038,7 @@ tissue-classification advantage.
 The models also differ in capacity and computation. Graham \emph{et al.}
 matched parameter counts in comparisons of rotation-equivariant histology
 classifiers \cite{graham_dense_2020}; these two VAEs were not
-parameter-matched. The equivariant VAE uses 29.8\% as many learned parameters
+parameter-matched. The equivariant VAE uses $29.8\%$ as many learned parameters
 but requires more estimated multiply-accumulate operations. Any performance
 difference may reflect equivariance, parameter count, optimization or their
 interaction. The experiment does not separate these mechanisms.
