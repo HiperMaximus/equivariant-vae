@@ -8,12 +8,12 @@ import sys
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "e634fe5f1390a2fd8ade9ff9245c00e74efe2a65"
+SOURCE_COMMIT = "ef39d45f38ad909c36c56caa154824b15524186a"
 SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
 OUTPUT_ROOT = Path("/kaggle/working/spec0054_abmil_fold0")
 RESUME_ROOT = None  # Fresh architecture: old local-global weights are incompatible.
-SMOKE = False  # Full fold from initialization; the two-GPU smoke completed.
-EFFECTIVE_BATCH = 1
+SMOKE = True  # Eight updates; restore checkpoint after four. No full fold.
+EFFECTIVE_BATCH = 4
 
 
 def main() -> None:
@@ -32,6 +32,9 @@ def main() -> None:
         environment["PYTHONPATH"] = f"{SOURCE_ROOT}:{SOURCE_ROOT / 'src'}"
         environment["PYTHONUNBUFFERED"] = "1"
         environment["OMP_NUM_THREADS"] = "1"
+        environment["TORCHINDUCTOR_COMPILE_THREADS"] = "1"
+        environment["TORCHINDUCTOR_CACHE_DIR"] = f"/kaggle/temp/inductor_{branch}"
+        environment["TRITON_CACHE_DIR"] = f"/kaggle/temp/triton_{branch}"
         command = [
             sys.executable, "-m", "experiments.spec0054_mil_fold0",
             "--repo-root", str(SOURCE_ROOT), "--latent-root", "/kaggle/input",
