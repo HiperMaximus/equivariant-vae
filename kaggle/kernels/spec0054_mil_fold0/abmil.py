@@ -8,13 +8,13 @@ import sys
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "68a835c79f9d4120cd83a3f72e9db8314a5b0bce"
+SOURCE_COMMIT = "ec11ab34a8a57e2c0b2dc3498c99864425a1ea85"
 SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
 OUTPUT_ROOT = Path("/kaggle/working/spec0054_abmil_fold0")
 RESUME_ROOT = None  # Fresh architecture: old local-global weights are incompatible.
-SMOKE = True  # Eight updates; restore checkpoint after four. No full fold.
+SMOKE = False  # Paired 50-epoch fold from initialization.
 EFFECTIVE_BATCH = 4
-READ_PROBE = True  # Ten warm-cache reads per VAE; no training or GPU work.
+READ_PROBE = False
 
 
 def main() -> None:
