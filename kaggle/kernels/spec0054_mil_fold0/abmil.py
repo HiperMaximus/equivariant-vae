@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "ef39d45f38ad909c36c56caa154824b15524186a"
+SOURCE_COMMIT = "b3fb2e12e83b3577e00694fa939b918948b6e1af"
 SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
 OUTPUT_ROOT = Path("/kaggle/working/spec0054_abmil_fold0")
 RESUME_ROOT = None  # Fresh architecture: old local-global weights are incompatible.
