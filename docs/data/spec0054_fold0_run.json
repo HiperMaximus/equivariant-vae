@@ -3,7 +3,7 @@
   "epochs": 150,
   "warmup_epochs": 5,
   "seed": 1701,
-  "peak_lr": 0.0002,
+  "peak_lr": 0.0001,
   "effective_batches": [
     1,
     4,
@@ -141,7 +141,9 @@
     3084
   ],
   "checkpoint_every_exposures": 144,
-  "architecture": "gated_abmil",
+  "architecture": "spatial_cls_gated_abmil",
   "attention_hidden_width": 128,
-  "weight_decay": 0.005
+  "weight_decay": 0.005,
+  "patch_retention": 0.8,
+  "aem_weight": 0.01
 }

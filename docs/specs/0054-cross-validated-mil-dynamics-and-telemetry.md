@@ -559,6 +559,32 @@ WSI exposures and paired randomness. Report both its native parameterization
 and a capacity-aware comparison; do not distort a published mechanism merely
 to force an exact parameter match.
 
+The next paired classifier uses a smaller spatial encoder: a nonoverlapping
+4x4 stride-4 convolution maps the frozen 16x32x32 means to 64 spatial tokens
+of width 64. Learned positions are added once before a shared residual pre-LN
+MLP (64->128->64, GELU). A learned CLS then queries itself and the 64 tokens
+through native SDPA with two width-32 heads, followed by a residual CLS MLP
+and final LN. There is no full token self-attention. Gated ABMIL with hidden
+width 128 aggregates the resulting patch vectors into a five-class head.
+Shared positions/CLS, LayerNorm and residual paths retain FP32; convolution,
+linear projections and spatial SDPA use FP16 autocast. Only WSI patch count
+is dynamic in the compiled forward/objective/T0 graph.
+
+Its recipe uses train-only 80% patch retention, sorted seeded subsets paired
+by WSI and epoch across VAE branches; diagnostics/inference use complete bags.
+The objective is inverse-frequency class-weighted CE minus .01 times raw
+ABMIL entropy, with the entropy coefficient cosine-decaying over the unchanged
+WSI-exposure horizon. LR peaks at 1e-4 with the existing five-epoch warmup and
+cosine schedule. ABMIL score and class-output weights/biases start at zero;
+encoder blocks remain nonzero initialized. Effective batch 4 accumulates four
+WSI losses before one AdamW step; 1/4/8 remain supported. AMP backoff attempts
+retain the same WSI subset and advance neither committed updates nor schedule.
+Existing T0/T1/T2-lite are retained, with two spatial-head distributions sampled
+on 16 fixed sentinel patches at T2. The authorized short smoke reuses the real
+runner for eight committed updates, restores after four, and saves/reloads
+T0/T1/T2 and checkpoint state. It does not evaluate an outer holdout or start
+the full fold. Numerical configuration remains in the existing fold contract.
+
 ## Telemetry Design Principles
 
 “Collect everything” must not mean synchronizing every parameter to CPU after

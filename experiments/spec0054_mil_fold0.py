@@ -57,25 +57,37 @@ def _make_optimizer(model, *, peak_lr: float = 2e-4, weight_decay: float = 5e-3)
     )
 
 
-def _forward_loss(model, latents, target, class_weight):
+def _forward_loss(model, latents, target, class_weight, aem_weight: torch.Tensor | float = 0.0):
     with torch.autocast(latents.device.type, dtype=torch.float16, enabled=latents.is_cuda):
         logits, representations = model.forward_with_representations(latents)
         loss = functional.cross_entropy(logits.float().unsqueeze(0), target)
         summary = t0_forward_summary(representations)
-    return logits, loss, loss * class_weight, summary
+        attention = representations[-3].float()
+        entropy = -(attention * attention.clamp_min(1e-12).log()).sum()
+    return logits, loss, loss * class_weight - aem_weight * entropy, summary
 
 
 def _compiled_closure(model):
-    def closure(latents, target, class_weight):
-        return _forward_loss(model, latents, target, class_weight)
+    def closure(latents, target, class_weight, aem_weight):
+        return _forward_loss(model, latents, target, class_weight, aem_weight)
     compiled = torch.compile(
         closure, backend="inductor", fullgraph=True, dynamic=None,
         mode="max-autotune-no-cudagraphs",
     )
-    def forward(latents, target, class_weight):
+    def forward(latents, target, class_weight, aem_weight: torch.Tensor | float = 0.0):
         torch._dynamo.maybe_mark_dynamic(latents, 0)
-        return compiled(latents, target, class_weight)
+        return compiled(latents, target, class_weight, aem_weight)
     return forward
+
+
+def _aem_weight(exposure: int, train_count: int, config: dict) -> float:
+    progress = min(exposure / (config["epochs"] * train_count), 1.0)
+    return config["aem_weight"] * (1 + math.cos(math.pi * progress)) / 2
+
+
+def _sample_indices(count: int, seed: int, epoch: int, wsi_id: int, fraction: float) -> np.ndarray:
+    generator = np.random.default_rng(np.random.SeedSequence([seed, epoch, wsi_id]))
+    return np.sort(generator.choice(count, size=math.ceil(count * fraction), replace=False))
 
 
 def _capture_modules(model):
@@ -198,6 +210,7 @@ def run_branch(
     branch: str, bags: ShardBags, config: dict, output_root: Path,
     resume_root: Path | None, identity: dict, session_started: float,
     device: torch.device = torch.device("cuda:0"),
+    stop_after_updates: int | None = None,
 ) -> bool:
     torch.backends.cudnn.benchmark = True
     directory = output_root / branch
@@ -276,11 +289,13 @@ def run_branch(
         log("resume_done", epoch=epoch, cursor=cursor, update=update, exposures=exposure,
             last_assessment_exposure=scheduler.last_assessment_exposure)
 
-    def load(wsi_id: int) -> torch.Tensor:
+    def load(wsi_id: int, indices: np.ndarray | None = None) -> torch.Tensor:
         log("bag_read_start", wsi_id=wsi_id, shard=bags.locations[wsi_id].shard,
             bag_size=bags.locations[wsi_id].count)
-        array = bags.read(branch, wsi_id).copy()
-        log("bag_transfer_start", wsi_id=wsi_id)
+        source = bags.read(branch, wsi_id)
+        array = source.copy() if indices is None else source[indices]
+        log("bag_transfer_start", wsi_id=wsi_id, sampled_bag_size=len(array),
+            sample_indices_sha256=hashlib.sha256(indices.tobytes()).hexdigest() if indices is not None else "full")
         latents = torch.from_numpy(array).to(device=device, memory_format=torch.channels_last)
         log("bag_load_done", wsi_id=wsi_id)
         return latents
@@ -341,19 +356,18 @@ def run_branch(
         log("evaluation_done", exposures=exposure)
         return True
 
-    def diagnostics() -> bool:
+    def diagnostics(force: bool = False) -> bool:
         log("diagnostics_start", exposures=exposure)
         if session_ending():
             return False
-        if exposure == 0 or _at_epoch(exposure, count, config["t1_early_epochs"], config["t1_every_epochs"]):
+        if force or exposure == 0 or _at_epoch(exposure, count, config["t1_early_epochs"], config["t1_every_epochs"]):
             wsi_id = int(config["t1_train_wsi"])
             latents = load(wsi_id)
             target_index = bags.locations[wsi_id].diagnosis_index
             target = torch.tensor([target_index], device=device)
             def diagnostic_loss(probe: GatedABMILClassifier) -> torch.Tensor:
-                with torch.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"):
-                    logits = probe(latents)
-                    return functional.cross_entropy(logits.float().unsqueeze(0), target) * weights[target_index]
+                return _forward_loss(probe, latents, target, weights[target_index],
+                                     _aem_weight(exposure, count, config))[2]
             log("t1_start", wsi_id=wsi_id)
             probe_model = copy.deepcopy(model).train()
             probe_optimizer = _make_optimizer(probe_model, peak_lr=config["peak_lr"], weight_decay=config["weight_decay"])
@@ -375,8 +389,10 @@ def run_branch(
                         })
             del probe_model, probe_optimizer, latents
             log("t1_done", wsi_id=wsi_id)
-        if exposure == 0 or _at_epoch(exposure, count, config["t2_early_epochs"], config["t2_every_epochs"]):
-            for wsi_id in (int(config["t1_train_wsi"]), int(config["t2_holdout_wsi"])):
+        if force or exposure == 0 or _at_epoch(exposure, count, config["t2_early_epochs"], config["t2_every_epochs"]):
+            sentinel_ids = (int(config["t1_train_wsi"]),) if stop_after_updates is not None else (
+                int(config["t1_train_wsi"]), int(config["t2_holdout_wsi"]))
+            for wsi_id in sentinel_ids:
                 if session_ending():
                     return False
                 log("t2_start", wsi_id=wsi_id)
@@ -410,11 +426,9 @@ def run_branch(
             probe_model.zero_grad(set_to_none=True)
             latents = load(wsi_id)
             target_index = bags.locations[wsi_id].diagnosis_index
-            with torch.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"):
-                logits = probe_model(latents)
-                loss = functional.cross_entropy(
-                    logits.float().unsqueeze(0), torch.tensor([target_index], device=device)
-                ) * weights[target_index]
+            loss = _forward_loss(probe_model, latents,
+                                 torch.tensor([target_index], device=device), weights[target_index],
+                                 _aem_weight(exposure, count, config))[2]
             loss.backward()
             vectors.append(torch.cat([
                 parameter.grad.detach().float().reshape(-1)
@@ -470,7 +484,7 @@ def run_branch(
         save()
         return True
 
-    if exposure in ({0} | boundaries) and scheduler.last_assessment_exposure < exposure:
+    if stop_after_updates is None and exposure in ({0} | boundaries) and scheduler.last_assessment_exposure < exposure:
         save()
         if not assess():
             return False
@@ -485,22 +499,31 @@ def run_branch(
         selected_ids = [train_ids[index] for index in selected]
         next_exposure = exposure + len(selected_ids)
         lr = scheduler.set_next(next_exposure)
+        aem = _aem_weight(next_exposure, count, config)
+        aem_tensor = torch.tensor(aem, device=device)
+        indices = {wsi_id: _sample_indices(bags.locations[wsi_id].count, config["seed"], epoch,
+                                         wsi_id, config["patch_retention"])
+                   for wsi_id in selected_ids}
         if device.type == "cuda":
             torch.cuda.synchronize(device)
             torch.cuda.reset_peak_memory_stats(device)
         step_started = time.perf_counter()
         skipped = 0
         while True:
+            if session_ending():
+                save()
+                log("session_pause_during_amp_backoff", exposures=exposure)
+                return False
             optimizer.zero_grad(set_to_none=True)
             observations = []
             initial_scale = float(scaler.get_scale())
             for wsi_id in selected_ids:
-                latents = load(wsi_id)
+                latents = load(wsi_id, indices[wsi_id])
                 target_index = bags.locations[wsi_id].diagnosis_index
                 target = torch.tensor([target_index], device=device)
                 weight = torch.tensor(weights[target_index], device=device)
                 log("forward_start", wsi_id=wsi_id, update=update + 1)
-                logits, unweighted, weighted, summary = compiled(latents, target, weight)
+                logits, unweighted, weighted, summary = compiled(latents, target, weight, aem_tensor)
                 log("forward_done_backward_start", wsi_id=wsi_id)
                 scaler.scale(weighted / len(selected_ids)).backward()
                 log("backward_done", wsi_id=wsi_id)
@@ -515,6 +538,12 @@ def run_branch(
             optimizer_record = telemetry.finish_step(
                 model, next_committed_update=update + 1, committed=committed,
             )
+            if not committed:
+                affected = [name for name, parameter in model.named_parameters()
+                            if parameter.grad is not None and not bool(torch.isfinite(parameter.grad).all())]
+                log("amp_backoff", update=update + 1, attempt=skipped + 1,
+                    scale_before=initial_scale, scale_after=float(scaler.get_scale()),
+                    nonfinite_gradient_parameters=affected)
             optimizer.zero_grad(set_to_none=True)
             log("optimizer_done", committed=committed, amp_scale=float(scaler.get_scale()))
             if committed:
@@ -532,7 +561,7 @@ def run_branch(
             target_index = bags.locations[wsi_id].diagnosis_index
             record = classification_example_record(
                 logits=logits, target=target_index,
-                unweighted_loss=unweighted, weighted_loss=weighted,
+                unweighted_loss=unweighted, weighted_loss=unweighted * weights[target_index],
             )
             forward = {
                 f"forward.{capture}.{metric}": value
@@ -543,6 +572,10 @@ def run_branch(
                 "update": update, "exposures": exposure, "wsi_id": wsi_id,
                 "effective_batch": len(selected_ids), "lr": lr,
                 "bag_size": bags.locations[wsi_id].count,
+                "sampled_bag_size": len(indices[wsi_id]),
+                "sample_indices_sha256": hashlib.sha256(indices[wsi_id].tobytes()).hexdigest(),
+                "aem_coefficient": aem, "objective_loss": float(weighted.item()),
+                "aem_penalty": float((unweighted * weights[target_index] - weighted).item()),
                 **covariates[wsi_id],
                 "amp_scale_before": initial_scale,
                 "amp_scale_after": float(scaler.get_scale()),
@@ -557,7 +590,16 @@ def run_branch(
             cursor = 0
             order = paired_epoch_order(row_count=count, epoch=epoch, seed=config["seed"])
         log("step_done", update=update, exposures=exposure, step_seconds=step_seconds,
-            peak_allocated_bytes=peak_memory_bytes)
+            peak_allocated_bytes=peak_memory_bytes, amp_scale=float(scaler.get_scale()),
+            amp_skipped_attempts=skipped)
+        if stop_after_updates is not None and update >= stop_after_updates:
+            save()
+            if not diagnostics(force=True):
+                return False
+            scheduler.last_assessment_exposure = exposure
+            save()
+            log("smoke_segment_done", update=update, exposures=exposure)
+            return True
         if exposure in boundaries:
             save()
             if not assess():
@@ -588,7 +630,6 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
         "runner_sha256": _sha256(Path(__file__)),
         "reader_sha256": _sha256(Path(__file__).with_name("spec0054_shard_bags.py")),
         "model_sha256": _sha256(repo_root / "src/eqvae/models/gated_abmil.py"),
-        "patch_encoder_sha256": _sha256(repo_root / "src/eqvae/models/local_global_mil.py"),
         "dynamics_sha256": _sha256(repo_root / "src/eqvae/training/mil_dynamics.py"),
         "t2_sha256": _sha256(repo_root / "src/eqvae/training/mil_t2_lite.py"),
         "config_sha256": _sha256(config_path), "cohort_sha256": _sha256(cohort_path),
@@ -601,205 +642,56 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
         bags.close()
 
 
-def run_smoke(repo_root: Path, latent_root: Path, output_root: Path, branch: str) -> None:
-    """Two complete bags per branch: mounted input, AMP/T0, exact resume, T1/T2-lite."""
-    config_path = repo_root / "docs/data/spec0054_fold0_run.json"
-    config = json.loads(config_path.read_text())
-    config["effective_batch"] = 1
+def run_smoke(repo_root: Path, latent_root: Path, output_root: Path, branch: str, effective_batch: int) -> None:
+    """Eight real optimizer updates, restoring after four; train-only T1/T2."""
+    config = json.loads((repo_root / "docs/data/spec0054_fold0_run.json").read_text())
+    config["effective_batch"] = effective_batch
+    config["t1_train_wsi"] = 26190  # Median-sized fold-train WSI, 7,869 patches.
     contract = json.loads((repo_root / "docs/data/spec0054_fp16_latent_extraction.json").read_text())
     bags = ShardBags(
         latent_root, contract, repo_root / "docs/data/spec0054_cohort_folds.csv",
         {int(item["shard"]): item["result_sha256"] for item in config["sources"]},
     )
-    def log(event, **details):
-        print(json.dumps({"branch": branch, "event": event, **details}), flush=True)
-
-    log("smoke_worker_start", physical_gpu=os.environ.get("CUDA_VISIBLE_DEVICES"))
-    selected_ids = (3672, 61100)
-    train_ids = [wsi_id for wsi_id, bag in bags.locations.items() if bag.fold != config["fold"]]
-    counts = Counter(bags.locations[wsi_id].diagnosis_index for wsi_id in train_ids)
-    weights = [len(train_ids) / (5 * counts[index]) for index in range(5)]
-    output_root.mkdir(parents=True, exist_ok=True)
-    torch.backends.cudnn.benchmark = True
-    device = torch.device("cuda:0")
-    result = {
-        "source_commit": subprocess.check_output(
-            ["git", "-C", str(repo_root), "rev-parse", "HEAD"], text=True,
-        ).strip(),
-        "config_sha256": _sha256(config_path),
-        "indexed_shards": len(contract["shards"]),
-        "indexed_wsi": len(bags.locations),
-        "selected_wsi": list(selected_ids),
-        "branches": {},
-    }
-    random.seed(config["seed"])
-    np.random.seed(config["seed"])
-    torch.manual_seed(config["seed"])
-    torch.cuda.manual_seed_all(config["seed"])
-    initial = {
-        name: value.detach().cpu().clone()
-        for name, value in GatedABMILClassifier(config["attention_hidden_width"]).state_dict().items()
-    }
-    model = _make_classifier(initial, device, hidden_width=config["attention_hidden_width"])
-    optimizer = _make_optimizer(model, peak_lr=config["peak_lr"], weight_decay=config["weight_decay"])
-    scaler = torch.amp.GradScaler(device.type, enabled=device.type == "cuda")
-    scheduler = ExposureSchedule(optimizer, len(train_ids), config)
-    telemetry = AdamWTelemetry()
-    dynamics = ExampleDynamicsTracker(sorted(bags.locations))
-    compiled = _compiled_closure(model)
-    branch_dir = output_root / branch
-    branch_dir.mkdir()
-    records = []
-    tables = {"t0": [], "t1": [], "t2": []}
-    resume_exact = None
-    for step, wsi_id in enumerate(selected_ids, start=1):
-        log("smoke_step_start", step=step, wsi_id=wsi_id)
-        location = bags.locations[wsi_id]
-        latents = torch.from_numpy(bags.read(branch, wsi_id).copy()).to(
-            device=device, memory_format=torch.channels_last,
-        )
-        target = torch.tensor([location.diagnosis_index], device=device)
-        weight = torch.tensor(weights[location.diagnosis_index], device=device)
-        lr = scheduler.set_next(step)
-        torch.cuda.synchronize(device)
-        torch.cuda.reset_peak_memory_stats(device)
-        started = time.perf_counter()
-        skipped = 0
-        while True:
-            optimizer.zero_grad(set_to_none=True)
-            scale_before = float(scaler.get_scale())
-            log("smoke_forward_start", wsi_id=wsi_id)
-            logits, unweighted, weighted, summary = compiled(latents, target, weight)
-            log("smoke_backward_start", wsi_id=wsi_id)
-            scaler.scale(weighted).backward()
-            scaler.unscale_(optimizer)
-            telemetry.begin_step(model, optimizer)
-            scaler.step(optimizer)
-            scaler.update()
-            committed = float(scaler.get_scale()) >= scale_before
-            optimizer_record = telemetry.finish_step(
-                model, next_committed_update=step, committed=committed,
-            )
-            if committed:
-                break
-            skipped += 1
-        torch.cuda.synchronize(device)
-        scheduler.last_exposure = step
-        records.append({
-            "wsi_id": wsi_id,
-            "shard": location.shard,
-            "bag_size": location.count,
-            "lr": lr,
-            "unweighted_loss": float(unweighted.item()),
-            "weighted_loss": float(weighted.item()),
-            "amp_scale_before": scale_before,
-            "amp_scale_after": float(scaler.get_scale()),
-            "amp_skipped_attempts": skipped,
-            "step_seconds": time.perf_counter() - started,
-            "peak_allocated_bytes": torch.cuda.max_memory_allocated(device),
-            "t0_forward_captures": len(_forward_records(summary)),
-            "t0_optimizer_fields": len(optimizer_record),
-        })
-        tables["t0"].append({
-            "update": step, "exposures": step, **records[-1],
-            **classification_example_record(
-                logits=logits, target=location.diagnosis_index,
-                unweighted_loss=unweighted, weighted_loss=weighted,
-            ),
-            **{f"forward.{capture}.{metric}": value
-               for capture, values in _forward_records(summary).items()
-               for metric, value in values.items()},
-            **{f"optimizer.{key}": value for key, value in optimizer_record.items()},
-        })
-        log("smoke_step_done", step=step, wsi_id=wsi_id)
-        if step == 1:
-            log("smoke_checkpoint_start")
-            _write_rows(branch_dir, tables)
-            checkpoint = branch_dir / "latest.pt"
-            save_dynamics_checkpoint(checkpoint, build_dynamics_checkpoint(
-                model=model, optimizer=optimizer, scaler=scaler, scheduler=scheduler,
-                telemetry=telemetry, dynamics=dynamics, committed_update=1,
-                exposure_count=1, epoch=0, within_epoch_cursor=1,
-                current_order=(0, 1), effective_batch_size=1,
-            ))
-            restored_model = _make_classifier(initial, device, hidden_width=config["attention_hidden_width"])
-            restored_optimizer = _make_optimizer(restored_model, peak_lr=config["peak_lr"], weight_decay=config["weight_decay"])
-            restored_scaler = torch.amp.GradScaler("cuda")
-            restored_scheduler = ExposureSchedule(restored_optimizer, len(train_ids), config)
-            restored_telemetry = AdamWTelemetry()
-            restored_dynamics = ExampleDynamicsTracker(sorted(bags.locations))
-            progress = restore_dynamics_checkpoint(
-                load_dynamics_checkpoint(checkpoint), model=restored_model,
-                optimizer=restored_optimizer, scaler=restored_scaler,
-                scheduler=restored_scheduler, telemetry=restored_telemetry,
-                dynamics=restored_dynamics,
-            )
-            resume_exact = (
-                progress.committed_update == 1 and progress.exposure_count == 1
-                and progress.within_epoch_cursor == 1
-                and all(torch.equal(value, restored_model.state_dict()[name])
-                        for name, value in model.state_dict().items())
-            )
-            model, optimizer, scaler = restored_model, restored_optimizer, restored_scaler
-            scheduler, telemetry, dynamics = restored_scheduler, restored_telemetry, restored_dynamics
-            compiled = _compiled_closure(model)
-        del latents
-    log("smoke_t1_start")
-    probe_model = copy.deepcopy(model).train()
-    location = bags.locations[selected_ids[-1]]
-    latents = torch.from_numpy(bags.read(branch, selected_ids[-1]).copy()).to(
-        device=device, memory_format=torch.channels_last,
-    )
-    probe_model.zero_grad(set_to_none=True)
-    with EagerLayerProbe(_capture_modules(probe_model)) as probe:
-        with torch.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"):
-            logits = probe_model(latents)
-            loss = functional.cross_entropy(
-                logits.float().unsqueeze(0),
-                torch.tensor([location.diagnosis_index], device=device),
-            ) * weights[location.diagnosis_index]
-        loss.backward()
-        layer_records = probe.records()
-        t1_captures = len(layer_records)
-    del probe_model
-    for capture, values in layer_records.items():
-        for metric, value in values.items():
-            tables["t1"].append({
-                "update": 2, "exposures": 2, "wsi_id": selected_ids[-1],
-                "kind": "layer", "capture_name": capture,
-                "metric_name": metric, "value": value,
-            })
-    log("smoke_t1_done_t2_start")
-    with torch.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"):
-        t2 = run_abmil_t2_lite(model, latents, location.coordinates)
-    log("smoke_t2_done")
-    tables["t2"] = flatten_t2_records(t2, identity={
-        "update": 2, "exposures": 2, "wsi_id": selected_ids[-1],
-    }, attention_capture="attention", attention_metric="attention_probability")
-    log("smoke_final_save_start")
-    _write_rows(branch_dir, tables)
-    save_dynamics_checkpoint(branch_dir / "latest.pt", build_dynamics_checkpoint(
-        model=model, optimizer=optimizer, scaler=scaler, scheduler=scheduler,
-        telemetry=telemetry, dynamics=dynamics, committed_update=2,
-        exposure_count=2, epoch=0, within_epoch_cursor=2,
-        current_order=(0, 1), effective_batch_size=1,
-    ))
-    saved_rows = {
-        name: len(load_telemetry_table(branch_dir / f"{name}.npz")["update"])
-        for name in tables
-    }
-    log("smoke_final_save_done", telemetry_rows=saved_rows)
-    result["branches"][branch] = {
-        "updates": records,
-        "checkpoint_resume_exact": resume_exact,
-        "t1_layer_captures": t1_captures,
-        "t2_lite_records": len(tables["t2"]),
-        "saved_telemetry_rows": saved_rows,
-    }
-    print(json.dumps({"branch": branch, **result["branches"][branch]}), flush=True)
-    (branch_dir / "smoke.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-
-    bags.close()
+    session_started = time.time()
+    identity = {"smoke": True, "effective_batch": effective_batch,
+                "config": config, "source_commit": subprocess.check_output(
+                    ["git", "-C", str(repo_root), "rev-parse", "HEAD"], text=True).strip()}
+    initial_root = output_root / "smoke_initial"
+    try:
+        run_branch(branch, bags, config, initial_root, None, identity, session_started,
+                   stop_after_updates=4)
+        checkpoint = load_dynamics_checkpoint(initial_root / branch / "latest.pt")
+        print(json.dumps({"branch": branch, "event": "smoke_resume_start",
+                          "update": checkpoint["committed_update"],
+                          "exposures": checkpoint["exposure_count"],
+                          "amp_scale": checkpoint["scaler"]["scale"]}), flush=True)
+        run_branch(branch, bags, config, output_root, initial_root, identity, session_started,
+                   stop_after_updates=8)
+        branch_dir = output_root / branch
+        checkpoint = load_dynamics_checkpoint(branch_dir / "latest.pt")
+        rows = {name: len(load_telemetry_table(branch_dir / f"{name}.npz")["update"])
+                for name in ("t0", "t1", "t2")}
+        result = {"branch": branch, "effective_batch": effective_batch,
+                  "committed_updates": checkpoint["committed_update"],
+                  "exposures": checkpoint["exposure_count"],
+                  "resume_after_update": 4, "amp_scale": checkpoint["scaler"]["scale"],
+                  "saved_telemetry_rows": rows}
+        # One inference-only profile confirms the native CLS attention backend.
+        model = _make_classifier(checkpoint["model"], torch.device("cuda:0"),
+                                 hidden_width=config["attention_hidden_width"])
+        array = bags.read(branch, config["t1_train_wsi"])[:16].copy()
+        latents = torch.from_numpy(array).to("cuda", memory_format=torch.channels_last)
+        with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU,
+                                               torch.profiler.ProfilerActivity.CUDA]) as profile:
+            with torch.inference_mode(), torch.autocast("cuda", dtype=torch.float16):
+                model(latents)
+            torch.cuda.synchronize()
+        result["attention_kernel_names"] = sorted({event.key for event in profile.key_averages()
+                                                     if "attention" in event.key.lower() or "fmha" in event.key.lower()})
+        (branch_dir / "smoke.json").write_text(json.dumps(result, indent=2) + "\n")
+        print(json.dumps({"event": "smoke_done", **result}), flush=True)
+    finally:
+        bags.close()
 
 
 if __name__ == "__main__":
@@ -813,6 +705,6 @@ if __name__ == "__main__":
     parser.add_argument("--smoke", action="store_true")
     args = parser.parse_args()
     if args.smoke:
-        run_smoke(args.repo_root, args.latent_root, args.output_root, args.branch)
+        run_smoke(args.repo_root, args.latent_root, args.output_root, args.branch, args.effective_batch)
     else:
         run(args.repo_root, args.latent_root, args.output_root, args.resume_root, args.effective_batch, args.branch)

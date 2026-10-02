@@ -34,7 +34,7 @@ def test_attention_matches_formula_gradients_and_bag_symmetries():
     torch.manual_seed(7)
     attention = GatedAttention()
     direct = copy.deepcopy(attention)
-    patches = torch.randn(5, 192, requires_grad=True)
+    patches = torch.randn(5, 64, requires_grad=True)
     other = patches.detach().clone().requires_grad_(True)
     embedding, terminals = attention(patches)
     gated = torch.tanh(F.linear(other, direct.tanh_projection.weight, direct.tanh_projection.bias)) * torch.sigmoid(F.linear(other, direct.gate_projection.weight, direct.gate_projection.bias))
@@ -50,6 +50,38 @@ def test_attention_matches_formula_gradients_and_bag_symmetries():
     torch.testing.assert_close(attention(patches.flip(0))[0], embedding)
     torch.testing.assert_close(attention(patches.repeat(2, 1))[0], embedding)
     torch.testing.assert_close(attention(patches[:1])[0], patches[0])
+
+
+def test_spatial_projection_and_aem_match_direct_formulas():
+    torch.manual_seed(19)
+    model = GatedABMILClassifier()
+    latent = torch.randn(5, 16, 32, 32)
+    projection = model.patch_encoder.projection
+    blocks = F.unfold(latent, kernel_size=4, stride=4).transpose(1, 2)
+    expected = F.linear(blocks, projection.weight.flatten(1), projection.bias)
+    torch.testing.assert_close(projection(latent).flatten(2).transpose(1, 2), expected)
+    tokens = model.patch_encoder.tokens(latent)
+    attention_block = model.patch_encoder.cls_attention
+    q, k, v = attention_block.projections(tokens)
+    probability = (q @ k.transpose(-2, -1) / math.sqrt(32)).softmax(-1)
+    pooled = (probability @ v).transpose(1, 2).reshape(5, 1, 64)
+    torch.testing.assert_close(attention_block(tokens), tokens[:, :1] + attention_block.output(pooled))
+    # Make WSI attention nonuniform to check the entropy sign and gradient.
+    with torch.no_grad():
+        model.attention.score.weight.normal_()
+        model.classifier.weight.normal_(std=0.01)
+    direct = copy.deepcopy(model)
+    target = torch.tensor([2])
+    _, _, objective, _ = fold._forward_loss(model, latent, target, torch.tensor(1.7), torch.tensor(0.01))
+    logits, representations = direct.forward_with_representations(latent)
+    attention = representations[-3]
+    entropy = -(attention * attention.log()).sum()
+    expected_loss = F.cross_entropy(logits.unsqueeze(0), target) * 1.7 - 0.01 * entropy
+    objective.backward()
+    expected_loss.backward()
+    torch.testing.assert_close(objective, expected_loss)
+    for measured, expected_parameter in zip(model.parameters(), direct.parameters(), strict=True):
+        torch.testing.assert_close(measured.grad, expected_parameter.grad)
 
 
 def test_t0_compile_and_t1_preserve_loss_gradients():
@@ -111,13 +143,13 @@ def test_runner_resume_matches_uninterrupted_after_interrupted_assessment(tmp_pa
                   gradient_probe_wsi_ids=list(range(10)), gradient_probe_epochs=[0, 1, 2])
     # Ten train bags and five holdouts. A tail batch tests complete epoch coverage.
     bags = SimpleNamespace(locations={i: SimpleNamespace(
-        fold=1 if i < 10 else 0, diagnosis_index=i % 5, count=2 + i % 2,
-        coordinates=tuple((j * 256, 0) for j in range(2 + i % 2)), shard=1,
+        fold=1 if i < 10 else 0, diagnosis_index=i % 5, count=5 + i % 2,
+        coordinates=tuple((j * 256, 0) for j in range(5 + i % 2)), shard=1,
     ) for i in range(15)})
     generator = np.random.default_rng(32)
     arrays = {i: generator.standard_normal((bag.count, 16, 32, 32)).astype(np.float32) for i, bag in bags.locations.items()}
     bags.read = lambda branch, wsi_id: arrays[wsi_id]
-    monkeypatch.setattr(fold, "_compiled_closure", lambda model: lambda x, y, w: fold._forward_loss(model, x, y, w))
+    monkeypatch.setattr(fold, "_compiled_closure", lambda model: lambda x, y, w, aem=0.0: fold._forward_loss(model, x, y, w, aem))
     monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: False)
     full = tmp_path / "full"
     assert fold.run_branch("normal_vae", cast(ShardBags, bags), config, full, None, {}, time.time(), device=torch.device("cpu"))
