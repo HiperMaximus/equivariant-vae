@@ -13,7 +13,7 @@ Usage: kernel_dir is required because no experiment kernel is active.
   ./scripts/kaggle_kernel.sh identity
   ./scripts/kaggle_kernel.sh push kernel_dir
   ./scripts/kaggle_kernel.sh status owner/slug[/version]
-  ./scripts/kaggle_kernel.sh logs owner/slug[/version]
+  ./scripts/kaggle_kernel.sh logs owner/slug[/version] [--follow]
   ./scripts/kaggle_kernel.sh output owner/slug/version new_output_dir
   ./scripts/kaggle_kernel.sh dataset-download owner/slug/version new_output_dir
 EOF
@@ -147,7 +147,7 @@ case "$action" in
   logs)
     require_kaggle_cli
     reference="${2:?missing owner/slug[/version]}"
-    kaggle_api kernels logs "$reference"
+    kaggle_api kernels logs "$reference" "${@:3}"
     ;;
   output)
     require_kaggle_cli

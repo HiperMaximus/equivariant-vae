@@ -739,26 +739,30 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
 
 def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch: str,
                    device: torch.device = torch.device("cuda:0")) -> None:
-    """Two train bags, two repetitions per read mode; no classifier execution."""
+    """One median train bag, one trial per read mode; no classifier execution."""
     config = json.loads((repo_root / "docs/data/spec0054_fold0_run.json").read_text())
     contract = json.loads((repo_root / "docs/data/spec0054_fp16_latent_extraction.json").read_text())
+    print(json.dumps({"event": "read_probe_index_start", "branch": branch}), flush=True)
     bags = ShardBags(latent_root, contract, repo_root / "docs/data/spec0054_cohort_folds.csv",
                      {int(item["shard"]): item["result_sha256"] for item in config["sources"]})
+    print(json.dumps({"event": "read_probe_index_done", "branch": branch}), flush=True)
     directory = output_root / branch
     directory.mkdir(parents=True, exist_ok=False)
     train = sorted((wsi for wsi in bags.locations if bags.locations[wsi].fold != config["fold"]),
                    key=lambda wsi: (bags.locations[wsi].count, wsi))
-    selected = (train[len(train) // 2], train[-1])
+    selected = (train[len(train) // 2],)
     modes = ("full_then_sample", "sampled_only")
-    sequence = (0, 1, 1, 0) if branch == "normal_vae" else (1, 0, 0, 1)
+    sequence = (0, 1) if branch == "normal_vae" else (1, 0)
     print(json.dumps({"event": "read_probe_start", "branch": branch,
                       "physical_gpu": os.environ.get("CUDA_VISIBLE_DEVICES"),
                       "device": str(device), "wsi_ids": selected}), flush=True)
     # Initialize pinned allocator/CUDA outside the timed reads.
+    print(json.dumps({"event": "read_probe_cuda_start", "branch": branch}), flush=True)
     warmup = torch.empty(1, dtype=torch.float16, pin_memory=device.type == "cuda").to(device)
     if device.type == "cuda":
         torch.cuda.synchronize(device)
     del warmup
+    print(json.dumps({"event": "read_probe_cuda_done", "branch": branch}), flush=True)
     rows = []
     try:
         for wsi_id in selected:
@@ -769,20 +773,23 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
                 bags.descriptors[key] = os.open(bags.files[branch][location.shard], os.O_RDONLY)
             for trial, mode_index in enumerate(sequence):
                 mode = modes[mode_index]
-                # Advisory cache eviction of this WSI, identically for both arms.
-                os.posix_fadvise(bags.descriptors[key], location.first_record * RECORD_BYTES,
-                                 location.count * RECORD_BYTES, os.POSIX_FADV_DONTNEED)
                 print(json.dumps({"event": "read_probe_trial_start", "branch": branch,
                                   "wsi_id": wsi_id, "trial": trial, "mode": mode}), flush=True)
                 started = time.perf_counter()
                 array = (bags.read(branch, wsi_id)[indices] if mode_index == 0
                          else bags.read(branch, wsi_id, indices))
                 read_sample_seconds = time.perf_counter() - started
+                print(json.dumps({"event": "read_probe_read_done", "branch": branch,
+                                  "wsi_id": wsi_id, "trial": trial, "mode": mode,
+                                  "read_sample_seconds": read_sample_seconds}), flush=True)
+                host_started = time.perf_counter()
                 source = torch.from_numpy(array)
                 host = torch.empty_like(source, memory_format=torch.channels_last,
                                         pin_memory=device.type == "cuda")
                 host.copy_(source)
-                prepare_seconds = time.perf_counter() - started
+                prepare_seconds = read_sample_seconds + time.perf_counter() - host_started
+                print(json.dumps({"event": "read_probe_host_done", "branch": branch,
+                                  "wsi_id": wsi_id, "trial": trial, "mode": mode}), flush=True)
                 transfer_started = time.perf_counter()
                 latents = host.to(device, non_blocking=True)
                 if device.type == "cuda":
@@ -795,11 +802,13 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
                        "read_sample_seconds": read_sample_seconds, "prepare_seconds": prepare_seconds,
                        "transfer_seconds": time.perf_counter() - transfer_started}
                 rows.append(row)
+                with (directory / "read_probe_rows.jsonl").open("a") as partial:
+                    partial.write(json.dumps(row) + "\n")
                 print(json.dumps({"event": "read_probe_trial_done", **row}), flush=True)
                 del array, source, host, latents
         result = {"branch": branch, "seed": config["seed"], "epoch": 0,
                   "patch_retention": config["patch_retention"], "wsi_ids": selected,
-                  "cache_policy": "POSIX_FADV_DONTNEED_before_each_trial_advisory",
+                  "cache_policy": "natural_cache_no_eviction_opposite_method_order_across_branches",
                   "source_commit": subprocess.check_output(
                       ["git", "-C", str(repo_root), "rev-parse", "HEAD"], text=True).strip(),
                   "rows": rows}
