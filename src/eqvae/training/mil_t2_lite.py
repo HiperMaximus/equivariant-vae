@@ -75,19 +75,6 @@ def run_abmil_t2_lite(
             "above_0_99_fraction": float((gates > 0.99).float().mean().item()),
             "tanh_saturated_fraction": float((features.abs() > 0.99).float().mean().item()),
         }
-        # Two small spatial-head distributions on 16 fixed, evenly spaced patches.
-        selected = torch.linspace(0, len(latents) - 1, min(16, len(latents)),
-                                  device=latents.device).long()
-        tokens = diagnostic.patch_encoder.tokens(latents[selected])
-        q, k, _ = diagnostic.patch_encoder.cls_attention.projections(tokens)
-        spatial = ((q.float() @ k.float().transpose(-2, -1)) / math.sqrt(32)).softmax(-1)[:, :, 0]
-        for head in range(2):
-            records[f"spatial_cls.head_{head}"] = attention_distribution_summary(spatial[:, head])
-        records["spatial_cls"] = {
-            "sampled_patches": float(len(selected)),
-            "head_attention_cosine_mean": float(functional.cosine_similarity(
-                spatial[:, 0], spatial[:, 1], dim=-1).mean().item()),
-        }
         top = weights.topk(min(top_k_patches, len(weights)))
         indices = tuple(int(value) for value in top.indices.cpu().tolist())
         return T2LiteResult(

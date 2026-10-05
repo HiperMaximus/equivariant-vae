@@ -1,71 +1,31 @@
 # Copyright 2026 HiperMaximus
-"""Small spatial CLS encoder and gated ABMIL on the frozen VAE maps."""
+"""Three-convolution patch encoder and gated ABMIL on frozen VAE maps."""
 
 from __future__ import annotations
 
 import torch
 from torch import Tensor, nn
-from torch.nn import functional as F
 
-TOKEN_WIDTH = 64
+TOKEN_WIDTH = 128
 
 
-class ResidualMLP(nn.Module):
+class PatchEncoder(nn.Module):
+    """Historical patch CNN narrowed to a 128-dimensional spatial mean."""
+
     def __init__(self) -> None:
         super().__init__()
-        self.norm = nn.LayerNorm(TOKEN_WIDTH)
-        self.layers = nn.Sequential(nn.Linear(TOKEN_WIDTH, 128), nn.GELU(),
-                                    nn.Linear(128, TOKEN_WIDTH))
-
-    def forward(self, tokens: Tensor) -> Tensor:
-        return tokens + self.layers(self.norm(tokens))
-
-
-class CLSAttention(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.norm = nn.LayerNorm(TOKEN_WIDTH)
-        self.query = nn.Linear(TOKEN_WIDTH, TOKEN_WIDTH)
-        self.kv = nn.Linear(TOKEN_WIDTH, 2 * TOKEN_WIDTH)
-        self.output = nn.Linear(TOKEN_WIDTH, TOKEN_WIDTH)
-
-    def projections(self, tokens: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-        normalized = self.norm(tokens)
-        q = self.query(normalized[:, :1])
-        k, v = self.kv(normalized).chunk(2, dim=-1)
-        return tuple(value.reshape(value.shape[0], value.shape[1], 2, 32).transpose(1, 2)
-                     for value in (q, k, v))
-
-    def forward(self, tokens: Tensor) -> Tensor:
-        q, k, v = self.projections(tokens)
-        attended = F.scaled_dot_product_attention(q, k, v, dropout_p=0.0)
-        attended = attended.transpose(1, 2).reshape(tokens.shape[0], 1, TOKEN_WIDTH)
-        return tokens[:, :1] + self.output(attended)
-
-
-class SpatialPatchEncoder(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.projection = nn.Conv2d(16, TOKEN_WIDTH, kernel_size=4, stride=4)
-        self.position = nn.Parameter(torch.empty(1, 64, TOKEN_WIDTH))
-        self.cls = nn.Parameter(torch.empty(1, 1, TOKEN_WIDTH))
-        nn.init.normal_(self.position, std=0.02)
-        nn.init.normal_(self.cls, std=0.02)
-        self.token_mlp = ResidualMLP()
-        self.cls_attention = CLSAttention()
-        self.cls_mlp = ResidualMLP()
-        self.final_norm = nn.LayerNorm(TOKEN_WIDTH)
-
-    def tokens(self, maps: Tensor) -> Tensor:
-        projected = self.projection(maps).flatten(2).transpose(1, 2)
-        # Shared position/CLS parameters and residual paths stay FP32. AMP still
-        # runs convolution, linear projections and native SDPA in FP16.
-        tokens = self.token_mlp(projected.float() + self.position)
-        return torch.cat((self.cls.expand(maps.shape[0], -1, -1), tokens), dim=1)
+        self.layers = nn.Sequential(
+            nn.Conv2d(16, 64, kernel_size=5, stride=2, padding=2, bias=False),
+            nn.GroupNorm(8, 64), nn.GELU(),
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1, bias=False),
+            nn.GroupNorm(8, 128), nn.GELU(),
+            nn.Conv2d(128, TOKEN_WIDTH, kernel_size=3, stride=2, padding=1, bias=False),
+            nn.GroupNorm(8, TOKEN_WIDTH), nn.GELU(),
+        )
+        self.pool = nn.AdaptiveAvgPool2d(1)
 
     def forward(self, maps: Tensor) -> Tensor:
-        cls = self.cls_attention(self.tokens(maps))
-        return self.final_norm(self.cls_mlp(cls))[:, 0]
+        return self.pool(self.layers(maps)).flatten(1)
 
 
 class GatedAttention(nn.Module):
@@ -96,7 +56,7 @@ class GatedAttention(nn.Module):
 
 
 class GatedABMILClassifier(nn.Module):
-    """One spatial CLS attention, one gated WSI pool and five-class head."""
+    """One patch CNN, one gated WSI pool and a five-class head."""
 
     capture_names = (
         "patch_tokens", "attention_tanh", "attention_gate",
@@ -106,11 +66,10 @@ class GatedABMILClassifier(nn.Module):
 
     def __init__(self, hidden_width: int = 128) -> None:
         super().__init__()
-        self.patch_encoder = SpatialPatchEncoder()
+        self.patch_encoder = PatchEncoder()
         self.attention = GatedAttention(hidden_width)
         self.classifier = nn.Linear(TOKEN_WIDTH, 5)
         self.apply(self._initialize)
-        nn.init.xavier_uniform_(self.patch_encoder.projection.weight.flatten(1))
         nn.init.zeros_(self.attention.score.weight)
         nn.init.zeros_(self.classifier.weight)
 

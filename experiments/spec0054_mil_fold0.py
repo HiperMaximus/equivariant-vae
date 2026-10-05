@@ -16,7 +16,7 @@ from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from threading import Lock
+from threading import Lock, local
 
 import numpy as np
 import torch
@@ -323,7 +323,14 @@ def run_branch(
                 read_order = paired_epoch_order(row_count=count, epoch=read_epoch,
                                                seed=config["seed"])
 
-        copy_stream = torch.cuda.Stream(device=device) if device.type == "cuda" else None
+        # Open on the main thread so two first reads cannot race to open a shard.
+        for shard, binary in bags.files[branch].items():
+            key = (branch, shard)
+            if key not in bags.descriptors:
+                bags.descriptors[key] = os.open(binary, os.O_RDONLY)
+                log("shard_open", shard=shard)
+        log("bag_prefetch_start", reader_workers=2, future_wsi=2)
+        reader_state = local()
 
         def prepare(request):
             wsi_id, indices = request
@@ -342,7 +349,10 @@ def run_branch(
                 sample_indices_sha256=hashlib.sha256(indices.tobytes()).hexdigest(),
                 read_prepare_seconds=read_seconds, prefetch=True)
             transfer_started = time.perf_counter()
-            if copy_stream is not None:
+            if device.type == "cuda":
+                if not hasattr(reader_state, "copy_stream"):
+                    reader_state.copy_stream = torch.cuda.Stream(device=device)
+                copy_stream = reader_state.copy_stream
                 with torch.cuda.device(device), torch.cuda.stream(copy_stream):
                     latents = host.to(device, non_blocking=True)
                     ready = torch.cuda.Event()
@@ -357,7 +367,7 @@ def run_branch(
             return wsi_id, indices, latents
 
         plan = iter(requests())
-        with ThreadPoolExecutor(max_workers=1) as reader:
+        with ThreadPoolExecutor(max_workers=2) as reader:
             pending = deque()
             for _ in range(2):
                 request = next(plan, None)
@@ -706,7 +716,7 @@ def run_branch(
                 save()
                 log("smoke_segment_done", update=update, exposures=exposure)
                 return True
-            if exposure in boundaries:
+            if exposure in boundaries and stop_after_updates is None:
                 save()
                 input_stack.close()
                 inputs = None
@@ -856,12 +866,23 @@ def run_smoke(repo_root: Path, latent_root: Path, output_root: Path, branch: str
     """Eight real optimizer updates, restoring after four; train-only T1/T2."""
     config = json.loads((repo_root / "docs/data/spec0054_fold0_run.json").read_text())
     config["effective_batch"] = effective_batch
-    config["t1_train_wsi"] = 26190  # Median-sized fold-train WSI, 7,869 patches.
+    config["t1_train_wsi"] = 1080  # Shard-1 train sentinel, 4,505 patches.
     contract = json.loads((repo_root / "docs/data/spec0054_fp16_latent_extraction.json").read_text())
+    shard = contract["shards"][0]
+    contract = {**contract, "shards": [shard]}
+    output_root.mkdir(parents=True, exist_ok=True)
+    cohort_lines = (repo_root / "docs/data/spec0054_cohort_folds.csv").read_text().splitlines(keepends=True)
+    cohort_path = output_root / f"smoke_cohort_{branch}.csv"
+    cohort_path.write_text(cohort_lines[0] + "".join(
+        line for line in cohort_lines[1:]
+        if shard["first_wsi"] <= int(line.split(",", 1)[0]) <= shard["last_wsi"]
+    ))
+    print(json.dumps({"event": "smoke_index_start", "branch": branch, "shards": [1]}), flush=True)
     bags = ShardBags(
-        latent_root, contract, repo_root / "docs/data/spec0054_cohort_folds.csv",
-        {int(item["shard"]): item["result_sha256"] for item in config["sources"]},
+        latent_root, contract, cohort_path,
+        {shard["shard"]: config["sources"][0]["result_sha256"]},
     )
+    print(json.dumps({"event": "smoke_index_done", "branch": branch}), flush=True)
     session_started = time.time()
     identity = {"smoke": True, "effective_batch": effective_batch,
                 "config": config, "source_commit": subprocess.check_output(
@@ -885,19 +906,9 @@ def run_smoke(repo_root: Path, latent_root: Path, output_root: Path, branch: str
                   "committed_updates": checkpoint["committed_update"],
                   "exposures": checkpoint["exposure_count"],
                   "resume_after_update": 4, "amp_scale": checkpoint["scaler"]["scale"],
-                  "saved_telemetry_rows": rows}
-        # One inference-only profile confirms the native CLS attention backend.
-        model = _make_classifier(checkpoint["model"], torch.device("cuda:0"),
-                                 hidden_width=config["attention_hidden_width"])
-        array = bags.read(branch, config["t1_train_wsi"])[:16].copy()
-        latents = torch.from_numpy(array).to("cuda", memory_format=torch.channels_last)
-        with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU,
-                                               torch.profiler.ProfilerActivity.CUDA]) as profile:
-            with torch.inference_mode(), torch.autocast("cuda", dtype=torch.float16):
-                model(latents)
-            torch.cuda.synchronize()
-        result["attention_kernel_names"] = sorted({event.key for event in profile.key_averages()
-                                                     if "attention" in event.key.lower() or "fmha" in event.key.lower()})
+                  "saved_telemetry_rows": rows, "mounted_shards": [1],
+                  "architecture": config["architecture"], "weight_decay": config["weight_decay"],
+                  "train_wsi_count": sum(bag.fold != config["fold"] for bag in bags.locations.values())}
         (branch_dir / "smoke.json").write_text(json.dumps(result, indent=2) + "\n")
         print(json.dumps({"event": "smoke_done", **result}), flush=True)
     finally:

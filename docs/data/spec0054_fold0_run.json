@@ -135,9 +135,9 @@
     3084
   ],
   "checkpoint_every_exposures": 144,
-  "architecture": "spatial_cls_gated_abmil",
+  "architecture": "cnn128_gated_abmil",
   "attention_hidden_width": 128,
-  "weight_decay": 0.005,
+  "weight_decay": 0.05,
   "patch_retention": 0.8,
   "aem_weight": 0.01,
   "checkpoint_selection": "minimum_mean_unweighted_validation_ce"

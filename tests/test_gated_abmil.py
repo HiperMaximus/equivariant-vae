@@ -6,7 +6,7 @@ import math
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from threading import Event, current_thread
+from threading import Barrier, Event, current_thread
 from types import SimpleNamespace
 from typing import cast
 
@@ -36,7 +36,7 @@ def test_attention_matches_formula_gradients_and_bag_symmetries():
     torch.manual_seed(7)
     attention = GatedAttention()
     direct = copy.deepcopy(attention)
-    patches = torch.randn(5, 64, requires_grad=True)
+    patches = torch.randn(5, 128, requires_grad=True)
     other = patches.detach().clone().requires_grad_(True)
     embedding, terminals = attention(patches)
     gated = torch.tanh(F.linear(other, direct.tanh_projection.weight, direct.tanh_projection.bias)) * torch.sigmoid(F.linear(other, direct.gate_projection.weight, direct.gate_projection.bias))
@@ -54,20 +54,16 @@ def test_attention_matches_formula_gradients_and_bag_symmetries():
     torch.testing.assert_close(attention(patches[:1])[0], patches[0])
 
 
-def test_spatial_projection_and_aem_match_direct_formulas():
+def test_cnn_spatial_mean_and_aem_match_direct_formulas():
     torch.manual_seed(19)
     model = GatedABMILClassifier()
     latent = torch.randn(5, 16, 32, 32)
-    projection = model.patch_encoder.projection
-    blocks = F.unfold(latent, kernel_size=4, stride=4).transpose(1, 2)
-    expected = F.linear(blocks, projection.weight.flatten(1), projection.bias)
-    torch.testing.assert_close(projection(latent).flatten(2).transpose(1, 2), expected)
-    tokens = model.patch_encoder.tokens(latent)
-    attention_block = model.patch_encoder.cls_attention
-    q, k, v = attention_block.projections(tokens)
-    probability = (q @ k.transpose(-2, -1) / math.sqrt(32)).softmax(-1)
-    pooled = (probability @ v).transpose(1, 2).reshape(5, 1, 64)
-    torch.testing.assert_close(attention_block(tokens), tokens[:, :1] + attention_block.output(pooled))
+    maps = model.patch_encoder.layers(latent)
+    assert maps.shape == (5, 128, 4, 4)
+    torch.testing.assert_close(model.patch_encoder(latent), maps.mean(dim=(-2, -1)))
+    assert torch.count_nonzero(model.attention.score.weight) == 0
+    assert torch.count_nonzero(model.classifier.weight) == 0
+    assert torch.count_nonzero(model.classifier.bias) == 0
     # Make WSI attention nonuniform to check the entropy sign and gradient.
     with torch.no_grad():
         model.attention.score.weight.normal_()
@@ -140,7 +136,7 @@ def test_t2_uniform_attention_and_nonfinite_observations():
 def test_prefetch_overlaps_training_and_keeps_only_two_future_inputs(tmp_path, monkeypatch):
     config = json.loads(Path("docs/data/spec0054_fold0_run.json").read_text())
     config.update(effective_batch=1, t1_train_wsi=0)
-    bags = SimpleNamespace(locations={i: SimpleNamespace(
+    bags = SimpleNamespace(files={"normal_vae": {}}, descriptors={}, locations={i: SimpleNamespace(
         fold=1, diagnosis_index=i % 5, count=6,
         coordinates=tuple((j * 256, 0) for j in range(6)), shard=1,
     ) for i in range(10)})
@@ -149,6 +145,7 @@ def test_prefetch_overlaps_training_and_keeps_only_two_future_inputs(tmp_path, m
               for i in bags.locations}
     order = fold.paired_epoch_order(row_count=10, epoch=0, seed=config["seed"])
     two_ahead = Event()
+    first_pair = Barrier(2)
     background_reads = []
     reader_threads = set()
     main_thread = current_thread()
@@ -159,6 +156,8 @@ def test_prefetch_overlaps_training_and_keeps_only_two_future_inputs(tmp_path, m
             background_reads.append(wsi_id)
             if len(background_reads) == 3:
                 two_ahead.set()
+            if wsi_id in order[:2]:
+                first_pair.wait(timeout=10)
         return arrays[wsi_id] if indices is None else arrays[wsi_id][indices]
 
     bags.read = read
@@ -170,7 +169,7 @@ def test_prefetch_overlaps_training_and_keeps_only_two_future_inputs(tmp_path, m
             if forwards == 0:
                 # Hold actual compute until the reader has filled its lookahead.
                 assert two_ahead.wait(timeout=10)
-                assert background_reads == list(order[:3])
+                assert set(background_reads) == set(order[:3])
             wsi_id = order[forwards]
             indices = fold._sample_indices(6, config["seed"], 0, wsi_id, config["patch_retention"])
             torch.testing.assert_close(x, torch.from_numpy(arrays[wsi_id][indices]), rtol=0, atol=0)
@@ -184,7 +183,9 @@ def test_prefetch_overlaps_training_and_keeps_only_two_future_inputs(tmp_path, m
     assert fold.run_branch("normal_vae", cast(ShardBags, bags), config, tmp_path,
                            None, {}, time.time(), device=torch.device("cpu"),
                            stop_after_updates=2)
-    assert background_reads == list(order[:4])  # Two consumed, two discarded on stop.
+    assert set(background_reads) == set(order[:4])  # Two consumed, two discarded on stop.
+    assert len(background_reads) == 4
+    assert len(reader_threads) == 2
     assert all(not thread.is_alive() for thread in reader_threads)
     checkpoint = load_dynamics_checkpoint(tmp_path / "normal_vae/latest.pt")
     assert checkpoint["exposure_count"] == checkpoint["within_epoch_cursor"] == 2
@@ -199,7 +200,7 @@ def test_runner_resume_matches_uninterrupted_after_interrupted_assessment(tmp_pa
                   checkpoint_every_exposures=4, t1_train_wsi=0, t2_holdout_wsi=10,
                   gradient_probe_wsi_ids=list(range(10)), gradient_probe_epochs=[0, 1, 2])
     # Ten train bags and five holdouts. A tail batch tests complete epoch coverage.
-    bags = SimpleNamespace(locations={i: SimpleNamespace(
+    bags = SimpleNamespace(files={"normal_vae": {}}, descriptors={}, locations={i: SimpleNamespace(
         fold=1 if i < 10 else 0, diagnosis_index=i % 5, count=5 + i % 2,
         coordinates=tuple((j * 256, 0) for j in range(5 + i % 2)), shard=1,
     ) for i in range(15)})
