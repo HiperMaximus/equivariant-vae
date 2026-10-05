@@ -751,7 +751,7 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
 
 
 def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch: str) -> None:
-    """Four median train bags: one versus two reader threads, file reads only."""
+    """Eight first-read train bags: one versus two persistent reader threads."""
     config = json.loads((repo_root / "docs/data/spec0054_fold0_run.json").read_text())
     contract = json.loads((repo_root / "docs/data/spec0054_fp16_latent_extraction.json").read_text())
     shard = contract["shards"][0]
@@ -771,10 +771,14 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
     print(json.dumps({"event": "read_probe_index_done", "branch": branch}), flush=True)
     train = sorted((wsi for wsi in bags.locations if bags.locations[wsi].fold != config["fold"]),
                    key=lambda wsi: (bags.locations[wsi].count, wsi))
-    selected = train[len(train) // 2 - 2:len(train) // 2 + 2]
-    requests = [(wsi_id, _sample_indices(bags.locations[wsi_id].count, config["seed"],
-                                       0, wsi_id, config["patch_retention"]))
-                for wsi_id in selected]
+    # Exclude the v16 warm-cache panel. Each bag is read only once here.
+    train = [wsi for wsi in train if wsi not in (4827, 3191, 2706, 5114)]
+    selected = train[len(train) // 2 - 4:len(train) // 2 + 4]
+    # Pair low/high sizes around the median to balance bytes across trials.
+    panels = [sorted((selected[trial], selected[-1 - trial])) for trial in range(4)]
+    requests = [[(wsi_id, _sample_indices(bags.locations[wsi_id].count, config["seed"],
+                                        0, wsi_id, config["patch_retention"]))
+                 for wsi_id in panel] for panel in panels]
     hardware = {"logical_cpu_count": os.cpu_count(),
                 "cpu_affinity": sorted(os.sched_getaffinity(0))}
     hardware["cpu_layout"] = []
@@ -810,40 +814,35 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
             bags.descriptors[branch, shard] = os.open(binary, os.O_RDONLY)
         print(json.dumps({"event": "read_probe_files_open", "branch": branch,
                           "count": len(bags.descriptors)}), flush=True)
-        warmup = []
-        for request in requests:
-            print(json.dumps({"event": "read_probe_warmup_start", "branch": branch,
-                              "wsi_id": request[0]}), flush=True)
-            row = read(request)
-            warmup.append(row)
-            print(json.dumps({"event": "read_probe_warmup_done", "branch": branch,
-                              **row}), flush=True)
-        for trial, worker_count in enumerate((1, 2, 2, 1)):
-            print(json.dumps({"event": "read_probe_trial_start", "branch": branch,
-                              "trial": trial, "reader_workers": worker_count}), flush=True)
-            # Both embedding-store processes measure the same reader count.
-            (output_root / f"reader_trial_{trial}_{branch}.ready").touch()
-            other_branch = BRANCHES[1] if branch == BRANCHES[0] else BRANCHES[0]
-            while not (output_root / f"reader_trial_{trial}_{other_branch}.ready").exists():
-                time.sleep(0.01)
-            with ThreadPoolExecutor(max_workers=worker_count) as reader:
+        with ThreadPoolExecutor(max_workers=1) as single_reader, ThreadPoolExecutor(max_workers=2) as dual_reader:
+            for trial, worker_count in enumerate((1, 2, 2, 1)):
+                print(json.dumps({"event": "read_probe_trial_start", "branch": branch,
+                                  "trial": trial, "reader_workers": worker_count,
+                                  "wsi_ids": panels[trial], "first_read": True}), flush=True)
+                # Both embedding-store processes measure the same reader count.
+                (output_root / f"reader_trial_{trial}_{branch}.ready").touch()
+                other_branch = BRANCHES[1] if branch == BRANCHES[0] else BRANCHES[0]
+                while not (output_root / f"reader_trial_{trial}_{other_branch}.ready").exists():
+                    time.sleep(0.01)
+                reader = single_reader if worker_count == 1 else dual_reader
                 started_at = time.time()
                 cpu_started = time.process_time()
                 started = time.perf_counter()
-                read_rows = list(reader.map(read, requests))
+                read_rows = list(reader.map(read, requests[trial]))
                 elapsed_seconds = time.perf_counter() - started
                 process_cpu_seconds = time.process_time() - cpu_started
-            row = {"branch": branch, "trial": trial, "reader_workers": worker_count,
-                   "started_at": started_at, "elapsed_seconds": elapsed_seconds,
-                   "process_cpu_seconds": process_cpu_seconds, "bags": read_rows}
-            rows.append(row)
-            with (directory / "read_probe_rows.jsonl").open("a") as partial:
-                partial.write(json.dumps(row) + "\n")
-            print(json.dumps({"event": "read_probe_trial_done", **row}), flush=True)
+                row = {"branch": branch, "trial": trial, "reader_workers": worker_count,
+                       "first_read": True,
+                       "started_at": started_at, "elapsed_seconds": elapsed_seconds,
+                       "process_cpu_seconds": process_cpu_seconds, "bags": read_rows}
+                rows.append(row)
+                with (directory / "read_probe_rows.jsonl").open("a") as partial:
+                    partial.write(json.dumps(row) + "\n")
+                print(json.dumps({"event": "read_probe_trial_done", **row}), flush=True)
         result = {"branch": branch, "seed": config["seed"], "epoch": 0,
                   "patch_retention": config["patch_retention"], "wsi_ids": selected,
-                  "hardware": hardware, "warmup": warmup,
-                  "cache_policy": "sampled_read_warmup_then_1_2_2_1_readers",
+                  "hardware": hardware, "warmup": [], "panels": panels,
+                  "cache_policy": "first_read_disjoint_balanced_pairs_1_2_2_1_readers",
                   "source_commit": subprocess.check_output(
                       ["git", "-C", str(repo_root), "rev-parse", "HEAD"], text=True).strip(),
                   "rows": rows}
