@@ -751,7 +751,7 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
 
 
 def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch: str) -> None:
-    """One median train bag, five warm-cache reads per mode; no GPU work."""
+    """Four median train bags: one versus two readers, pinned CPU prep, no H2D."""
     config = json.loads((repo_root / "docs/data/spec0054_fold0_run.json").read_text())
     contract = json.loads((repo_root / "docs/data/spec0054_fp16_latent_extraction.json").read_text())
     print(json.dumps({"event": "read_probe_index_start", "branch": branch}), flush=True)
@@ -762,51 +762,89 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
     directory.mkdir(parents=True, exist_ok=False)
     train = sorted((wsi for wsi in bags.locations if bags.locations[wsi].fold != config["fold"]),
                    key=lambda wsi: (bags.locations[wsi].count, wsi))
-    selected = (train[len(train) // 2],)
-    modes = ("full_then_sample", "sampled_only")
-    sequence = (0, 1) * 5 if branch == "normal_vae" else (1, 0) * 5
+    selected = train[len(train) // 2 - 2:len(train) // 2 + 2]
+    requests = [(wsi_id, _sample_indices(bags.locations[wsi_id].count, config["seed"],
+                                       0, wsi_id, config["patch_retention"]))
+                for wsi_id in selected]
+    torch.set_num_threads(1)
+    hardware = {"logical_cpu_count": os.cpu_count(),
+                "cpu_affinity": sorted(os.sched_getaffinity(0)),
+                "torch_cpu_threads": torch.get_num_threads()}
+    hardware["cpu_layout"] = []
+    for block in Path("/proc/cpuinfo").read_text().split("\n\n"):
+        fields = {key.strip(): value.strip() for line in block.splitlines() if ":" in line
+                  for key, value in [line.split(":", 1)]}
+        if "processor" in fields and int(fields["processor"]) in hardware["cpu_affinity"]:
+            hardware["cpu_layout"].append({key: fields.get(key) for key in
+                                          ("processor", "physical id", "core id", "cpu cores", "siblings")})
     print(json.dumps({"event": "read_probe_start", "branch": branch,
                       "physical_gpu": os.environ.get("CUDA_VISIBLE_DEVICES"),
-                      "wsi_ids": selected}), flush=True)
+                      "wsi_ids": selected, **hardware}), flush=True)
+
+    def prepare(request):
+        wsi_id, indices = request
+        cpu_started = time.thread_time()
+        started = time.perf_counter()
+        array = bags.read(branch, wsi_id, indices)
+        read_seconds = time.perf_counter() - started
+        read_cpu_seconds = time.thread_time() - cpu_started
+        cpu_started = time.thread_time()
+        started = time.perf_counter()
+        source = torch.from_numpy(array)
+        host = torch.empty_like(source, memory_format=torch.channels_last, pin_memory=True)
+        host.copy_(source)
+        host_prepare_seconds = time.perf_counter() - started
+        host_prepare_cpu_seconds = time.thread_time() - cpu_started
+        return {"wsi_id": wsi_id, "shard": bags.locations[wsi_id].shard,
+                "bag_size": bags.locations[wsi_id].count, "sampled_bag_size": len(indices),
+                "sample_indices_sha256": hashlib.sha256(indices.tobytes()).hexdigest(),
+                "requested_bytes": len(indices) * RECORD_BYTES,
+                "read_regions": int(np.count_nonzero(np.diff(indices) != 1)) + 1,
+                "read_seconds": read_seconds, "read_cpu_seconds": read_cpu_seconds,
+                "host_prepare_seconds": host_prepare_seconds,
+                "host_prepare_cpu_seconds": host_prepare_cpu_seconds}
+
     rows = []
     try:
-        for wsi_id in selected:
-            location = bags.locations[wsi_id]
-            indices = _sample_indices(location.count, config["seed"], 0, wsi_id, config["patch_retention"])
-            key = (branch, location.shard)
-            if key not in bags.descriptors:
-                bags.descriptors[key] = os.open(bags.files[branch][location.shard], os.O_RDONLY)
+        # Open once before concurrent reads: preadv uses independent offsets.
+        for shard, binary in bags.files[branch].items():
+            bags.descriptors[branch, shard] = os.open(binary, os.O_RDONLY)
+        print(json.dumps({"event": "read_probe_files_open", "branch": branch,
+                          "count": len(bags.descriptors)}), flush=True)
+        warmup = []
+        for request in requests:
             print(json.dumps({"event": "read_probe_warmup_start", "branch": branch,
-                              "wsi_id": wsi_id}), flush=True)
-            # Populate the WSI cache and exercise both paths outside the timings.
-            warmup = bags.read(branch, wsi_id)[indices]
-            del warmup
-            warmup = bags.read(branch, wsi_id, indices)
-            del warmup
+                              "wsi_id": request[0]}), flush=True)
+            row = prepare(request)
+            warmup.append(row)
             print(json.dumps({"event": "read_probe_warmup_done", "branch": branch,
-                              "wsi_id": wsi_id}), flush=True)
-            for trial, mode_index in enumerate(sequence):
-                mode = modes[mode_index]
-                print(json.dumps({"event": "read_probe_trial_start", "branch": branch,
-                                  "wsi_id": wsi_id, "trial": trial, "mode": mode}), flush=True)
+                              **row}), flush=True)
+        for trial, worker_count in enumerate((1, 2, 2, 1)):
+            print(json.dumps({"event": "read_probe_trial_start", "branch": branch,
+                              "trial": trial, "reader_workers": worker_count}), flush=True)
+            # Both VAE processes measure the same reader count simultaneously.
+            (output_root / f"reader_trial_{trial}_{branch}.ready").touch()
+            other_branch = BRANCHES[1] if branch == BRANCHES[0] else BRANCHES[0]
+            while not (output_root / f"reader_trial_{trial}_{other_branch}.ready").exists():
+                time.sleep(0.01)
+            with ThreadPoolExecutor(max_workers=worker_count) as reader:
+                started_at = time.time()
+                cpu_started = time.process_time()
                 started = time.perf_counter()
-                array = (bags.read(branch, wsi_id)[indices] if mode_index == 0
-                         else bags.read(branch, wsi_id, indices))
-                read_sample_seconds = time.perf_counter() - started
-                row = {"branch": branch, "wsi_id": wsi_id, "trial": trial, "mode": mode,
-                       "bag_size": location.count, "sampled_bag_size": len(indices),
-                       "sample_indices_sha256": hashlib.sha256(indices.tobytes()).hexdigest(),
-                       "requested_bytes": (location.count if mode_index == 0 else len(indices)) * RECORD_BYTES,
-                       "read_regions": 1 if mode_index == 0 else int(np.count_nonzero(np.diff(indices) != 1)) + 1,
-                       "read_sample_seconds": read_sample_seconds}
-                rows.append(row)
-                with (directory / "read_probe_rows.jsonl").open("a") as partial:
-                    partial.write(json.dumps(row) + "\n")
-                print(json.dumps({"event": "read_probe_trial_done", **row}), flush=True)
-                del array
+                prepared = list(reader.map(prepare, requests))
+                elapsed_seconds = time.perf_counter() - started
+                process_cpu_seconds = time.process_time() - cpu_started
+            row = {"branch": branch, "trial": trial, "reader_workers": worker_count,
+                   "started_at": started_at, "elapsed_seconds": elapsed_seconds,
+                   "process_cpu_seconds": process_cpu_seconds, "bags": prepared}
+            rows.append(row)
+            with (directory / "read_probe_rows.jsonl").open("a") as partial:
+                partial.write(json.dumps(row) + "\n")
+            print(json.dumps({"event": "read_probe_trial_done", **row}), flush=True)
         result = {"branch": branch, "seed": config["seed"], "epoch": 0,
                   "patch_retention": config["patch_retention"], "wsi_ids": selected,
-                  "cache_policy": "full_and_sampled_warmup_then_five_alternating_reads_per_mode",
+                  "hardware": hardware, "warmup": warmup,
+                  "cache_policy": "sampled_read_and_pinned_prep_warmup_then_1_2_2_1_readers",
                   "source_commit": subprocess.check_output(
                       ["git", "-C", str(repo_root), "rev-parse", "HEAD"], text=True).strip(),
                   "rows": rows}
