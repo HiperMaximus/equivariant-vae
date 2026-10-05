@@ -751,7 +751,7 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
 
 
 def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch: str) -> None:
-    """Four median train bags: one versus two readers, pinned CPU prep, no H2D."""
+    """Four median train bags: one versus two reader threads, file reads only."""
     config = json.loads((repo_root / "docs/data/spec0054_fold0_run.json").read_text())
     contract = json.loads((repo_root / "docs/data/spec0054_fp16_latent_extraction.json").read_text())
     print(json.dumps({"event": "read_probe_index_start", "branch": branch}), flush=True)
@@ -766,10 +766,8 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
     requests = [(wsi_id, _sample_indices(bags.locations[wsi_id].count, config["seed"],
                                        0, wsi_id, config["patch_retention"]))
                 for wsi_id in selected]
-    torch.set_num_threads(1)
     hardware = {"logical_cpu_count": os.cpu_count(),
-                "cpu_affinity": sorted(os.sched_getaffinity(0)),
-                "torch_cpu_threads": torch.get_num_threads()}
+                "cpu_affinity": sorted(os.sched_getaffinity(0))}
     hardware["cpu_layout"] = []
     for block in Path("/proc/cpuinfo").read_text().split("\n\n"):
         fields = {key.strip(): value.strip() for line in block.splitlines() if ":" in line
@@ -781,28 +779,20 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
                       "physical_gpu": os.environ.get("CUDA_VISIBLE_DEVICES"),
                       "wsi_ids": selected, **hardware}), flush=True)
 
-    def prepare(request):
+    def read(request):
         wsi_id, indices = request
         cpu_started = time.thread_time()
         started = time.perf_counter()
         array = bags.read(branch, wsi_id, indices)
         read_seconds = time.perf_counter() - started
         read_cpu_seconds = time.thread_time() - cpu_started
-        cpu_started = time.thread_time()
-        started = time.perf_counter()
-        source = torch.from_numpy(array)
-        host = torch.empty_like(source, memory_format=torch.channels_last, pin_memory=True)
-        host.copy_(source)
-        host_prepare_seconds = time.perf_counter() - started
-        host_prepare_cpu_seconds = time.thread_time() - cpu_started
+        del array
         return {"wsi_id": wsi_id, "shard": bags.locations[wsi_id].shard,
                 "bag_size": bags.locations[wsi_id].count, "sampled_bag_size": len(indices),
                 "sample_indices_sha256": hashlib.sha256(indices.tobytes()).hexdigest(),
                 "requested_bytes": len(indices) * RECORD_BYTES,
                 "read_regions": int(np.count_nonzero(np.diff(indices) != 1)) + 1,
-                "read_seconds": read_seconds, "read_cpu_seconds": read_cpu_seconds,
-                "host_prepare_seconds": host_prepare_seconds,
-                "host_prepare_cpu_seconds": host_prepare_cpu_seconds}
+                "read_seconds": read_seconds, "read_cpu_seconds": read_cpu_seconds}
 
     rows = []
     try:
@@ -815,14 +805,14 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         for request in requests:
             print(json.dumps({"event": "read_probe_warmup_start", "branch": branch,
                               "wsi_id": request[0]}), flush=True)
-            row = prepare(request)
+            row = read(request)
             warmup.append(row)
             print(json.dumps({"event": "read_probe_warmup_done", "branch": branch,
                               **row}), flush=True)
         for trial, worker_count in enumerate((1, 2, 2, 1)):
             print(json.dumps({"event": "read_probe_trial_start", "branch": branch,
                               "trial": trial, "reader_workers": worker_count}), flush=True)
-            # Both VAE processes measure the same reader count simultaneously.
+            # Both embedding-store processes measure the same reader count.
             (output_root / f"reader_trial_{trial}_{branch}.ready").touch()
             other_branch = BRANCHES[1] if branch == BRANCHES[0] else BRANCHES[0]
             while not (output_root / f"reader_trial_{trial}_{other_branch}.ready").exists():
@@ -831,12 +821,12 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
                 started_at = time.time()
                 cpu_started = time.process_time()
                 started = time.perf_counter()
-                prepared = list(reader.map(prepare, requests))
+                read_rows = list(reader.map(read, requests))
                 elapsed_seconds = time.perf_counter() - started
                 process_cpu_seconds = time.process_time() - cpu_started
             row = {"branch": branch, "trial": trial, "reader_workers": worker_count,
                    "started_at": started_at, "elapsed_seconds": elapsed_seconds,
-                   "process_cpu_seconds": process_cpu_seconds, "bags": prepared}
+                   "process_cpu_seconds": process_cpu_seconds, "bags": read_rows}
             rows.append(row)
             with (directory / "read_probe_rows.jsonl").open("a") as partial:
                 partial.write(json.dumps(row) + "\n")
@@ -844,7 +834,7 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         result = {"branch": branch, "seed": config["seed"], "epoch": 0,
                   "patch_retention": config["patch_retention"], "wsi_ids": selected,
                   "hardware": hardware, "warmup": warmup,
-                  "cache_policy": "sampled_read_and_pinned_prep_warmup_then_1_2_2_1_readers",
+                  "cache_policy": "sampled_read_warmup_then_1_2_2_1_readers",
                   "source_commit": subprocess.check_output(
                       ["git", "-C", str(repo_root), "rev-parse", "HEAD"], text=True).strip(),
                   "rows": rows}
