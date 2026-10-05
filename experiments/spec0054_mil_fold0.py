@@ -754,12 +754,21 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
     """Four median train bags: one versus two reader threads, file reads only."""
     config = json.loads((repo_root / "docs/data/spec0054_fold0_run.json").read_text())
     contract = json.loads((repo_root / "docs/data/spec0054_fp16_latent_extraction.json").read_text())
-    print(json.dumps({"event": "read_probe_index_start", "branch": branch}), flush=True)
-    bags = ShardBags(latent_root, contract, repo_root / "docs/data/spec0054_cohort_folds.csv",
-                     {int(item["shard"]): item["result_sha256"] for item in config["sources"]})
-    print(json.dumps({"event": "read_probe_index_done", "branch": branch}), flush=True)
+    shard = contract["shards"][0]
+    contract = {**contract, "shards": [shard]}
     directory = output_root / branch
     directory.mkdir(parents=True, exist_ok=False)
+    # Only this shard is mounted; retain its original cohort labels/folds.
+    cohort_lines = (repo_root / "docs/data/spec0054_cohort_folds.csv").read_text().splitlines(keepends=True)
+    cohort_path = directory / "probe_cohort.csv"
+    cohort_path.write_text(cohort_lines[0] + "".join(
+        line for line in cohort_lines[1:]
+        if shard["first_wsi"] <= int(line.split(",", 1)[0]) <= shard["last_wsi"]
+    ))
+    print(json.dumps({"event": "read_probe_index_start", "branch": branch}), flush=True)
+    bags = ShardBags(latent_root, contract, cohort_path,
+                     {shard["shard"]: config["sources"][0]["result_sha256"]})
+    print(json.dumps({"event": "read_probe_index_done", "branch": branch}), flush=True)
     train = sorted((wsi for wsi in bags.locations if bags.locations[wsi].fold != config["fold"]),
                    key=lambda wsi: (bags.locations[wsi].count, wsi))
     selected = train[len(train) // 2 - 2:len(train) // 2 + 2]
