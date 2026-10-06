@@ -84,6 +84,8 @@ def _compiled_closure(model):
 
 
 def _aem_weight(exposure: int, train_count: int, config: dict) -> float:
+    if config.get("run_mode") == "lr_search":
+        return config["aem_weight"]
     progress = min(exposure / (config["epochs"] * train_count), 1.0)
     return config["aem_weight"] * (1 + math.cos(math.pi * progress)) / 2
 
@@ -107,7 +109,7 @@ def _forward_records(summary):
 
 
 class ExposureSchedule:
-    """The historical warmup/cosine curve indexed by WSI exposures."""
+    """Exposure warmup/cosine, or a bounded committed-update LR sweep."""
 
     def __init__(self, optimizer: torch.optim.Optimizer, train_count: int, config: dict) -> None:
         self.optimizer = optimizer
@@ -116,7 +118,17 @@ class ExposureSchedule:
         self.last_exposure = 0
         self.last_assessment_exposure = -1
 
-    def set_next(self, exposure: int) -> float:
+    def set_next(self, exposure: int, *, next_update: int = 1) -> float:
+        if self.config.get("run_mode") == "lr_search":
+            search = self.config["lr_search"]
+            # Index committed updates, so tail batches, AMP retries and
+            # checkpoint restoration retain the same LR.
+            sweep_index = max(next_update - search["preparation_updates"] - 1, 0)
+            progress = min(sweep_index / (search["sweep_updates"] - 1), 1.0)
+            lr = search["min_lr"] * (search["max_lr"] / search["min_lr"]) ** progress
+            for group in self.optimizer.param_groups:
+                group["lr"] = lr
+            return lr
         warmup = self.config["warmup_epochs"] * self.train_count
         horizon = self.config["epochs"] * self.train_count
         peak = self.config["peak_lr"]
@@ -244,6 +256,7 @@ def run_branch(
     train_ids = [wsi_id for wsi_id in ids if bags.locations[wsi_id].fold != config["fold"]]
     validation_ids = [wsi_id for wsi_id in ids if bags.locations[wsi_id].fold == config["fold"]]
     count = len(train_ids)
+    lr_search = config.get("run_mode") == "lr_search"
     counts = Counter(bags.locations[wsi_id].diagnosis_index for wsi_id in train_ids)
     weights = [count / (5 * counts[index]) for index in range(5)]
     covariates = {}
@@ -293,6 +306,11 @@ def run_branch(
                 tables[name] = [row for row in tables[name] if row["exposures"] < exposure]
         log("resume_done", epoch=epoch, cursor=cursor, update=update, exposures=exposure,
             last_assessment_exposure=scheduler.last_assessment_exposure)
+    if lr_search:
+        log("lr_search_start", train_wsi=count, effective_batch=config["effective_batch"],
+            architecture=config["architecture"], weight_decay=config["weight_decay"],
+            parameter_count=sum(parameter.numel() for parameter in model.parameters()),
+            aem_weight=config["aem_weight"], **config["lr_search"])
 
     def load(wsi_id: int, indices: np.ndarray | None = None) -> torch.Tensor:
         log("bag_read_start", wsi_id=wsi_id, shard=bags.locations[wsi_id].shard,
@@ -594,6 +612,24 @@ def run_branch(
         log("assessment_done", exposures=exposure, validation_ce=validation_ce)
         return True
 
+    if lr_search and update == 0 and scheduler.last_assessment_exposure < 0:
+        payload = save()
+        if not resumed:
+            save_dynamics_checkpoint(directory / "initial.pt", payload)
+        if not diagnostics(force=True):
+            return False
+        scheduler.last_assessment_exposure = exposure
+        save()
+    if lr_search and update == config["lr_search"]["preparation_updates"] and scheduler.last_assessment_exposure < exposure:
+        if not diagnostics(force=True):
+            return False
+        scheduler.last_assessment_exposure = exposure
+        save()
+        log("lr_search_sweep_start", update=update, exposures=exposure)
+    if lr_search and stop_after_updates is not None and update >= stop_after_updates:
+        save("final.pt")
+        log("lr_search_done", reason="sweep_complete", update=update, exposures=exposure)
+        return True
     if stop_after_updates is None and exposure in ({0} | boundaries) and scheduler.last_assessment_exposure < exposure:
         save()
         if not assess():
@@ -610,7 +646,7 @@ def run_branch(
             selected = order[cursor:cursor + config["effective_batch"]]
             selected_ids = [train_ids[index] for index in selected]
             next_exposure = exposure + len(selected_ids)
-            lr = scheduler.set_next(next_exposure)
+            lr = scheduler.set_next(next_exposure, next_update=update + 1)
             aem = _aem_weight(next_exposure, count, config)
             aem_tensor = torch.tensor(aem, device=device)
             indices = {}
@@ -636,6 +672,24 @@ def run_branch(
                     weight = torch.tensor(weights[target_index], device=device)
                     log("forward_start", wsi_id=wsi_id, update=update + 1)
                     logits, unweighted, weighted, summary = compiled(latents, target, weight, aem_tensor)
+                    if lr_search and not bool(torch.isfinite(torch.stack((unweighted, weighted))).all()):
+                        # An actual nonfinite loss is a search observation; do
+                        # not backward/step it or retry this forward indefinitely.
+                        log("lr_search_nonfinite_loss", attempted_update=update + 1,
+                            lr=lr, wsi_id=wsi_id, unweighted_loss=float(unweighted.item()),
+                            objective_loss=float(weighted.item()),
+                            weighted_ce=float((unweighted * weight).item()),
+                            aem_coefficient=aem,
+                            aem_penalty=float((unweighted * weight - weighted).item()),
+                            sampled_bag_size=len(indices[wsi_id]),
+                            sample_indices_sha256=hashlib.sha256(indices[wsi_id].tobytes()).hexdigest())
+                        optimizer.zero_grad(set_to_none=True)
+                        input_stack.close()
+                        inputs = None
+                        save()
+                        log("lr_search_done", reason="nonfinite_loss", update=update,
+                            exposures=exposure, attempted_lr=lr)
+                        return True
                     log("forward_done_backward_start", wsi_id=wsi_id)
                     scaler.scale(weighted / len(selected_ids)).backward()
                     log("backward_done", wsi_id=wsi_id)
@@ -697,6 +751,8 @@ def run_branch(
                     "step_seconds": step_seconds, "peak_allocated_bytes": peak_memory_bytes,
                     **record, **forward,
                     **{f"optimizer.{key}": value for key, value in optimizer_record.items()},
+                    **({"lr_search_phase": "preparation" if update <= config["lr_search"]["preparation_updates"] else "sweep",
+                        "lr_search_step": max(update - config["lr_search"]["preparation_updates"], 0)} if lr_search else {}),
                 })
             if cursor == count:
                 log("epoch_done", epoch=epoch, exposures=exposure)
@@ -705,11 +761,30 @@ def run_branch(
                 order = paired_epoch_order(row_count=count, epoch=epoch, seed=config["seed"])
             log("step_done", update=update, exposures=exposure, step_seconds=step_seconds,
                 peak_allocated_bytes=peak_memory_bytes, amp_scale=float(scaler.get_scale()),
-                amp_skipped_attempts=skipped)
+                amp_skipped_attempts=skipped, lr=lr,
+                mean_weighted_ce=float(np.mean([row["weighted_loss"] for row in tables["t0"][-len(selected_ids):]])),
+                mean_aem_contribution=-float(np.mean([row["aem_penalty"] for row in tables["t0"][-len(selected_ids):]])),
+                mean_objective_loss=float(np.mean([row["objective_loss"] for row in tables["t0"][-len(selected_ids):]])))
+            if lr_search and update == config["lr_search"]["preparation_updates"]:
+                payload = save()
+                save_dynamics_checkpoint(directory / "preparation.pt", payload)
+                log("preparation_checkpoint_done", update=update, exposures=exposure)
+                input_stack.close()
+                inputs = None
+                if not diagnostics(force=True):
+                    return False
+                scheduler.last_assessment_exposure = exposure
+                save()
+                log("lr_search_sweep_start", update=update, exposures=exposure)
             if stop_after_updates is not None and update >= stop_after_updates:
                 save()
                 input_stack.close()
                 inputs = None
+                if lr_search:
+                    save("final.pt")
+                    log("lr_search_done", reason="sweep_complete", update=update,
+                        exposures=exposure, lr=lr)
+                    return True
                 if not diagnostics(force=True):
                     return False
                 scheduler.last_assessment_exposure = exposure
@@ -731,11 +806,12 @@ def run_branch(
     return True
 
 
-def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path | None, effective_batch: int, branch: str) -> None:
+def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path | None, effective_batch: int, branch: str, *, lr_search: bool = False) -> None:
     session_started = time.time()
     config_path = repo_root / "docs/data/spec0054_fold0_run.json"
     config = json.loads(config_path.read_text())
     config["effective_batch"] = effective_batch
+    config["run_mode"] = "lr_search" if lr_search else "fold"
     extraction_path = repo_root / "docs/data/spec0054_fp16_latent_extraction.json"
     cohort_path = repo_root / "docs/data/spec0054_cohort_folds.csv"
     contract = json.loads(extraction_path.read_text())
@@ -752,10 +828,14 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
         "t2_sha256": _sha256(repo_root / "src/eqvae/training/mil_t2_lite.py"),
         "config_sha256": _sha256(config_path), "cohort_sha256": _sha256(cohort_path),
         "extraction_sha256": _sha256(extraction_path), "effective_batch": effective_batch,
+        "run_mode": config["run_mode"],
     }
     output_root.mkdir(parents=True, exist_ok=True)
     try:
-        run_branch(branch, bags, config, output_root, resume_root, identity, session_started)
+        search = config["lr_search"]
+        stop = search["preparation_updates"] + search["sweep_updates"] if lr_search else None
+        run_branch(branch, bags, config, output_root, resume_root, identity, session_started,
+                   stop_after_updates=stop)
     finally:
         bags.close()
 
@@ -925,10 +1005,12 @@ if __name__ == "__main__":
     parser.add_argument("--branch", choices=BRANCHES, required=True)
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--read-probe", action="store_true")
+    parser.add_argument("--lr-search", action="store_true")
     args = parser.parse_args()
     if args.read_probe:
         run_read_probe(args.repo_root, args.latent_root, args.output_root, args.branch)
     elif args.smoke:
         run_smoke(args.repo_root, args.latent_root, args.output_root, args.branch, args.effective_batch)
     else:
-        run(args.repo_root, args.latent_root, args.output_root, args.resume_root, args.effective_batch, args.branch)
+        run(args.repo_root, args.latent_root, args.output_root, args.resume_root, args.effective_batch, args.branch,
+            lr_search=args.lr_search)

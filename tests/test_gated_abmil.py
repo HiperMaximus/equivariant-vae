@@ -36,7 +36,7 @@ def test_attention_matches_formula_gradients_and_bag_symmetries():
     torch.manual_seed(7)
     attention = GatedAttention()
     direct = copy.deepcopy(attention)
-    patches = torch.randn(5, 128, requires_grad=True)
+    patches = torch.randn(5, 64, requires_grad=True)
     other = patches.detach().clone().requires_grad_(True)
     embedding, terminals = attention(patches)
     gated = torch.tanh(F.linear(other, direct.tanh_projection.weight, direct.tanh_projection.bias)) * torch.sigmoid(F.linear(other, direct.gate_projection.weight, direct.gate_projection.bias))
@@ -54,16 +54,20 @@ def test_attention_matches_formula_gradients_and_bag_symmetries():
     torch.testing.assert_close(attention(patches[:1])[0], patches[0])
 
 
-def test_cnn_spatial_mean_and_aem_match_direct_formulas():
+def test_spatial_projection_and_aem_match_direct_formulas():
     torch.manual_seed(19)
     model = GatedABMILClassifier()
     latent = torch.randn(5, 16, 32, 32)
-    maps = model.patch_encoder.layers(latent)
-    assert maps.shape == (5, 128, 4, 4)
-    torch.testing.assert_close(model.patch_encoder(latent), maps.mean(dim=(-2, -1)))
-    assert torch.count_nonzero(model.attention.score.weight) == 0
-    assert torch.count_nonzero(model.classifier.weight) == 0
-    assert torch.count_nonzero(model.classifier.bias) == 0
+    projection = model.patch_encoder.projection
+    blocks = F.unfold(latent, kernel_size=4, stride=4).transpose(1, 2)
+    expected = F.linear(blocks, projection.weight.flatten(1), projection.bias)
+    torch.testing.assert_close(projection(latent).flatten(2).transpose(1, 2), expected)
+    tokens = model.patch_encoder.tokens(latent)
+    attention_block = model.patch_encoder.cls_attention
+    q, k, v = attention_block.projections(tokens)
+    probability = (q @ k.transpose(-2, -1) / math.sqrt(32)).softmax(-1)
+    pooled = (probability @ v).transpose(1, 2).reshape(5, 1, 64)
+    torch.testing.assert_close(attention_block(tokens), tokens[:, :1] + attention_block.output(pooled))
     # Make WSI attention nonuniform to check the entropy sign and gradient.
     with torch.no_grad():
         model.attention.score.weight.normal_()
@@ -280,3 +284,75 @@ def test_runner_resume_matches_uninterrupted_after_interrupted_assessment(tmp_pa
     selected = min(boundaries, key=lambda boundary: float(np.mean(
         predictions["unweighted_loss"][validation & (predictions["exposures"] == boundary)])))
     assert best["exposure_count"] == selected
+
+
+def test_lr_search_tail_batch_resume_and_completed_bound(tmp_path, monkeypatch):
+    config = json.loads(Path("docs/data/spec0054_fold0_run.json").read_text())
+    config.update(run_mode="lr_search", effective_batch=4, epochs=2,
+                  checkpoint_every_exposures=4, t1_train_wsi=0, t2_holdout_wsi=10,
+                  lr_search={"preparation_updates": 2, "sweep_updates": 4,
+                             "min_lr": 1e-5, "max_lr": 0.1})
+    # Ten train bags produce tail batches; five holdouts must never be read.
+    bags = SimpleNamespace(files={"normal_vae": {}}, descriptors={}, locations={i: SimpleNamespace(
+        fold=1 if i < 10 else 0, diagnosis_index=i % 5, count=3,
+        coordinates=((0, 0), (256, 0), (512, 0)), shard=1,
+    ) for i in range(15)})
+    generator = np.random.default_rng(74)
+    arrays = {i: generator.standard_normal((3, 16, 32, 32)).astype(np.float32) for i in range(10)}
+    bags.read = lambda branch, wsi_id, indices=None: arrays[wsi_id] if indices is None else arrays[wsi_id][indices]
+    calls = []
+    def closure(model):
+        def forward(x, y, w, aem=0.0):
+            calls.append(1)
+            return fold._forward_loss(model, x, y, w, aem)
+        return forward
+    monkeypatch.setattr(fold, "_compiled_closure", closure)
+    monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: False)
+    full = tmp_path / "full"
+    assert fold.run_branch("normal_vae", cast(ShardBags, bags), config, full, None, {},
+                           time.time(), device=torch.device("cpu"), stop_after_updates=6)
+    part = tmp_path / "part"
+    pause_requested = False
+    original_save = fold.save_dynamics_checkpoint
+    def save(path, payload):
+        nonlocal pause_requested
+        original_save(path, payload)
+        if path == part / "normal_vae/preparation.pt":
+            pause_requested = True
+    monkeypatch.setattr(fold, "save_dynamics_checkpoint", save)
+    monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: pause_requested)
+    assert not fold.run_branch("normal_vae", cast(ShardBags, bags), config, part, None, {},
+                               time.time(), device=torch.device("cpu"), stop_after_updates=6)
+    checkpoint = load_dynamics_checkpoint(part / "normal_vae/latest.pt")
+    assert checkpoint["committed_update"] == 2
+    assert checkpoint["scheduler"]["last_assessment_exposure"] == 0
+    monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: False)
+    resumed = tmp_path / "resumed"
+    assert fold.run_branch("normal_vae", cast(ShardBags, bags), config, resumed, part, {},
+                           time.time(), device=torch.device("cpu"), stop_after_updates=6)
+    for name in ("t0", "t1", "t2"):
+        before = load_telemetry_table(full / f"normal_vae/{name}.npz")
+        after = load_telemetry_table(resumed / f"normal_vae/{name}.npz")
+        # Wall time is observational; order, loss, schedule and all probes match.
+        for key in before:
+            if key != "step_seconds":
+                np.testing.assert_array_equal(before[key], after[key])
+    t0 = load_telemetry_table(resumed / "normal_vae/t0.npz")
+    assert len(t0["update"]) == 20
+    lr = [t0["lr"][t0["update"] == update][0] for update in range(1, 7)]
+    np.testing.assert_allclose(lr, [1e-5, 1e-5, *np.geomspace(1e-5, 0.1, 4)], rtol=1e-14)
+    np.testing.assert_array_equal(t0["aem_coefficient"], np.full(20, 0.01))
+    assert set(t0["lr_search_phase"]) == {"preparation", "sweep"}
+    assert not (resumed / "normal_vae/predictions.npz").exists()
+    a = load_dynamics_checkpoint(full / "normal_vae/final.pt")
+    b = load_dynamics_checkpoint(resumed / "normal_vae/final.pt")
+    for key in a["model"]:
+        assert torch.equal(a["model"][key], b["model"][key])
+    calls.clear()
+    completed = tmp_path / "completed"
+    assert fold.run_branch("normal_vae", cast(ShardBags, bags), config, completed, resumed, {},
+                           time.time(), device=torch.device("cpu"), stop_after_updates=6)
+    assert not calls
+    final = load_dynamics_checkpoint(completed / "normal_vae/final.pt")
+    assert final["committed_update"] == 6
+    assert final["exposure_count"] == 20
