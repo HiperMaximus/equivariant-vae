@@ -4,7 +4,9 @@ import csv
 import hashlib
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
 import numpy as np
 import pytest
@@ -94,6 +96,39 @@ def test_sampled_read_requests_only_retained_records_in_order(tmp_path, monkeypa
             assert sum(size for _, size in calls[-3:]) == 8 * RECORD_BYTES
         np.testing.assert_array_equal(reader.read("normal_vae", 8, np.array([9])),
                                       reader.read("normal_vae", 8)[[9]])
+    finally:
+        reader.close()
+
+
+def test_two_readers_share_descriptor_without_changing_offsets(tmp_path: Path) -> None:
+    reader = ShardBags.__new__(ShardBags)
+    reader.locations = {8: BagLocation(1, 2, 6, 0, 1, ()),
+                        12: BagLocation(1, 8, 6, 0, 1, ())}
+    binary = tmp_path / "latents.bin"
+    values = np.random.default_rng(8).standard_normal((14, 16, 32, 32)).astype("<f2")
+    values.tofile(binary)
+    reader.files = {"normal_vae": {1: binary}}
+    descriptor = os.open(binary, os.O_RDONLY)
+    reader.descriptors = {("normal_vae", 1): descriptor}
+    barrier = Barrier(2)
+
+    def read(request):
+        wsi_id, indices = request
+        barrier.wait()
+        return reader.read("normal_vae", wsi_id, indices)
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as threads:
+            indices = np.array([0, 1, 3, 5])
+            for requests in (((8, indices), (12, indices)), ((8, None), (12, indices))):
+                outputs = list(threads.map(read, requests))
+                for (wsi_id, selected), output in zip(requests, outputs, strict=True):
+                    location = reader.locations[wsi_id]
+                    expected = values[location.first_record:location.first_record + location.count]
+                    np.testing.assert_array_equal(output, expected if selected is None else expected[selected])
+                assert not np.shares_memory(outputs[0], outputs[1])
+                assert os.lseek(descriptor, 0, os.SEEK_CUR) == 0
+                assert reader.descriptors[("normal_vae", 1)] == descriptor
     finally:
         reader.close()
 

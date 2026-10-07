@@ -357,15 +357,23 @@ def run_branch(
                 bag_size=bags.locations[wsi_id].count, prefetch=True,
                 requested_bytes=len(indices) * RECORD_BYTES,
                 read_regions=int(np.count_nonzero(np.diff(indices) != 1)) + 1)
+            read_started, read_cpu_started = time.perf_counter(), time.thread_time()
             array = bags.read(branch, wsi_id, indices)
+            read_seconds = time.perf_counter() - read_started
+            read_cpu_seconds = time.thread_time() - read_cpu_started
+            host_started, host_cpu_started = time.perf_counter(), time.thread_time()
             source = torch.from_numpy(array)
             host = torch.empty_like(source, memory_format=torch.channels_last,
                                     pin_memory=device.type == "cuda")
             host.copy_(source)
-            read_seconds = time.perf_counter() - started
+            host_seconds = time.perf_counter() - host_started
+            host_cpu_seconds = time.thread_time() - host_cpu_started
             log("bag_transfer_start", wsi_id=wsi_id, sampled_bag_size=len(indices),
                 sample_indices_sha256=hashlib.sha256(indices.tobytes()).hexdigest(),
-                read_prepare_seconds=read_seconds, prefetch=True)
+                read_prepare_seconds=time.perf_counter() - started,
+                read_seconds=read_seconds, read_cpu_seconds=read_cpu_seconds,
+                host_prepare_seconds=host_seconds, host_prepare_cpu_seconds=host_cpu_seconds,
+                prefetch=True)
             transfer_started = time.perf_counter()
             if device.type == "cuda":
                 if not hasattr(reader_state, "copy_stream"):
@@ -841,7 +849,7 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
 
 
 def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch: str) -> None:
-    """Eight first-read train bags: one versus two persistent reader threads."""
+    """One shard: first reads and repeated prepared reads with one/two threads."""
     config = json.loads((repo_root / "docs/data/spec0054_fold0_run.json").read_text())
     contract = json.loads((repo_root / "docs/data/spec0054_fp16_latent_extraction.json").read_text())
     shard = contract["shards"][0]
@@ -869,8 +877,14 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
     requests = [[(wsi_id, _sample_indices(bags.locations[wsi_id].count, config["seed"],
                                         0, wsi_id, config["patch_retention"]))
                  for wsi_id in panel] for panel in panels]
+    device = torch.device("cuda:0")
+    torch.cuda.current_stream(device).synchronize()
+    reader_state = local()
     hardware = {"logical_cpu_count": os.cpu_count(),
-                "cpu_affinity": sorted(os.sched_getaffinity(0))}
+                "cpu_affinity": sorted(os.sched_getaffinity(0)),
+                "torch_threads": torch.get_num_threads(),
+                "torch_interop_threads": torch.get_num_interop_threads(),
+                "device_name": torch.cuda.get_device_name(device)}
     hardware["cpu_layout"] = []
     for block in Path("/proc/cpuinfo").read_text().split("\n\n"):
         fields = {key.strip(): value.strip() for line in block.splitlines() if ":" in line
@@ -889,13 +903,30 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         array = bags.read(branch, wsi_id, indices)
         read_seconds = time.perf_counter() - started
         read_cpu_seconds = time.thread_time() - cpu_started
-        del array
+        host_started, host_cpu_started = time.perf_counter(), time.thread_time()
+        source = torch.from_numpy(array)
+        host = torch.empty_like(source, memory_format=torch.channels_last, pin_memory=True)
+        host.copy_(source)
+        host_seconds = time.perf_counter() - host_started
+        host_cpu_seconds = time.thread_time() - host_cpu_started
+        if not hasattr(reader_state, "copy_stream"):
+            reader_state.copy_stream = torch.cuda.Stream(device=device)
+        transfer_started = time.perf_counter()
+        with torch.cuda.device(device), torch.cuda.stream(reader_state.copy_stream):
+            latents = host.to(device, non_blocking=True)
+            ready = torch.cuda.Event()
+            ready.record(reader_state.copy_stream)
+        ready.synchronize()
+        transfer_seconds = time.perf_counter() - transfer_started
+        del latents, host, source, array
         return {"wsi_id": wsi_id, "shard": bags.locations[wsi_id].shard,
                 "bag_size": bags.locations[wsi_id].count, "sampled_bag_size": len(indices),
                 "sample_indices_sha256": hashlib.sha256(indices.tobytes()).hexdigest(),
                 "requested_bytes": len(indices) * RECORD_BYTES,
                 "read_regions": int(np.count_nonzero(np.diff(indices) != 1)) + 1,
-                "read_seconds": read_seconds, "read_cpu_seconds": read_cpu_seconds}
+                "read_seconds": read_seconds, "read_cpu_seconds": read_cpu_seconds,
+                "host_prepare_seconds": host_seconds, "host_prepare_cpu_seconds": host_cpu_seconds,
+                "transfer_seconds": transfer_seconds}
 
     rows = []
     try:
@@ -905,10 +936,12 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         print(json.dumps({"event": "read_probe_files_open", "branch": branch,
                           "count": len(bags.descriptors)}), flush=True)
         with ThreadPoolExecutor(max_workers=1) as single_reader, ThreadPoolExecutor(max_workers=2) as dual_reader:
-            for trial, worker_count in enumerate((1, 2, 2, 1)):
+            trials = [(panel, workers, True) for panel, workers in enumerate((1, 2, 2, 1))]
+            trials += [(0, 2, False), (1, 1, False), (0, 1, False), (1, 2, False)]
+            for trial, (panel, worker_count, first_read) in enumerate(trials):
                 print(json.dumps({"event": "read_probe_trial_start", "branch": branch,
                                   "trial": trial, "reader_workers": worker_count,
-                                  "wsi_ids": panels[trial], "first_read": True}), flush=True)
+                                  "wsi_ids": panels[panel], "first_read": first_read}), flush=True)
                 # Both embedding-store processes measure the same reader count.
                 (output_root / f"reader_trial_{trial}_{branch}.ready").touch()
                 other_branch = BRANCHES[1] if branch == BRANCHES[0] else BRANCHES[0]
@@ -918,11 +951,11 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
                 started_at = time.time()
                 cpu_started = time.process_time()
                 started = time.perf_counter()
-                read_rows = list(reader.map(read, requests[trial]))
+                read_rows = list(reader.map(read, requests[panel]))
                 elapsed_seconds = time.perf_counter() - started
                 process_cpu_seconds = time.process_time() - cpu_started
                 row = {"branch": branch, "trial": trial, "reader_workers": worker_count,
-                       "first_read": True,
+                       "first_read": first_read, "panel": panel,
                        "started_at": started_at, "elapsed_seconds": elapsed_seconds,
                        "process_cpu_seconds": process_cpu_seconds, "bags": read_rows}
                 rows.append(row)
@@ -932,7 +965,7 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         result = {"branch": branch, "seed": config["seed"], "epoch": 0,
                   "patch_retention": config["patch_retention"], "wsi_ids": selected,
                   "hardware": hardware, "warmup": [], "panels": panels,
-                  "cache_policy": "first_read_disjoint_balanced_pairs_1_2_2_1_readers",
+                  "cache_policy": "eight_first_reads_then_two_repeated_pairs_with_both_reader_counts",
                   "source_commit": subprocess.check_output(
                       ["git", "-C", str(repo_root), "rev-parse", "HEAD"], text=True).strip(),
                   "rows": rows}
