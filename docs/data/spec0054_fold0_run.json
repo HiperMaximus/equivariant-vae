@@ -1,6 +1,6 @@
 {
   "fold": 0,
-  "epochs": 50,
+  "epochs": 155,
   "warmup_epochs": 5,
   "seed": 1701,
   "peak_lr": 0.0001,
@@ -141,6 +141,10 @@
   "patch_retention": 0.8,
   "aem_weight": 0.01,
   "checkpoint_selection": "minimum_mean_unweighted_validation_ce",
+  "lr_confirmation": {
+    "epochs": 8,
+    "peak_lrs": [0.0005, 0.001]
+  },
   "lr_search": {
     "preparation_updates": 72,
     "sweep_updates": 200,

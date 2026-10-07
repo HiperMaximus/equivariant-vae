@@ -134,6 +134,8 @@ class ExposureSchedule:
         peak = self.config["peak_lr"]
         if exposure <= warmup:
             lr = peak * (0.1 + 0.9 * (exposure - 1) / (warmup - 1))
+        elif self.config.get("run_mode") == "lr_confirmation":
+            lr = peak
         else:
             progress = (exposure - warmup) / (horizon - warmup)
             lr = peak * (0.01 + 0.99 * (1 + math.cos(math.pi * progress)) / 2)
@@ -234,7 +236,8 @@ def run_branch(
     log_lock = Lock()
 
     def log(event: str, **details) -> None:
-        line = json.dumps({"branch": branch, "event": event, **details}, sort_keys=True)
+        candidate = {"candidate_peak_lr": config["peak_lr"]} if config.get("run_mode") == "lr_confirmation" else {}
+        line = json.dumps({"branch": branch, "event": event, **candidate, **details}, sort_keys=True)
         with log_lock:
             print(line, flush=True)
             print(line, file=events, flush=True)
@@ -257,6 +260,7 @@ def run_branch(
     validation_ids = [wsi_id for wsi_id in ids if bags.locations[wsi_id].fold == config["fold"]]
     count = len(train_ids)
     lr_search = config.get("run_mode") == "lr_search"
+    lr_confirmation = config.get("run_mode") == "lr_confirmation"
     counts = Counter(bags.locations[wsi_id].diagnosis_index for wsi_id in train_ids)
     weights = [count / (5 * counts[index]) for index in range(5)]
     covariates = {}
@@ -311,6 +315,12 @@ def run_branch(
             architecture=config["architecture"], weight_decay=config["weight_decay"],
             parameter_count=sum(parameter.numel() for parameter in model.parameters()),
             aem_weight=config["aem_weight"], **config["lr_search"])
+    if lr_confirmation:
+        log("lr_confirmation_start", train_wsi=count, effective_batch=config["effective_batch"],
+            peak_lr=config["peak_lr"], epochs=config["lr_confirmation"]["epochs"],
+            warmup_epochs=config["warmup_epochs"], aem_horizon_epochs=config["epochs"],
+            architecture=config["architecture"], weight_decay=config["weight_decay"],
+            parameter_count=sum(parameter.numel() for parameter in model.parameters()))
 
     def load(wsi_id: int, indices: np.ndarray | None = None) -> torch.Tensor:
         log("bag_read_start", wsi_id=wsi_id, shard=bags.locations[wsi_id].shard,
@@ -329,7 +339,8 @@ def run_branch(
         # Its private cursor is speculative; only the training loop commits it.
         def requests():
             read_epoch, read_cursor, read_order = epoch, cursor, order
-            while read_epoch < config["epochs"]:
+            read_horizon = config["lr_confirmation"]["epochs"] if lr_confirmation else config["epochs"]
+            while read_epoch < read_horizon:
                 for index in read_order[read_cursor:]:
                     wsi_id = train_ids[index]
                     indices = _sample_indices(bags.locations[wsi_id].count,
@@ -599,6 +610,9 @@ def run_branch(
 
     horizon = config["epochs"] * count
     boundaries = _boundaries(count, config)
+    confirmation_boundaries = {
+        value * count for value in (*config["t1_early_epochs"], config["warmup_epochs"])
+    } if lr_confirmation else set()
     def assess() -> bool:
         # latest.pt is the training state before this potentially long boundary.
         if not (evaluate() and diagnostics() and gradient_probe()):
@@ -620,11 +634,13 @@ def run_branch(
         log("assessment_done", exposures=exposure, validation_ce=validation_ce)
         return True
 
-    if lr_search and update == 0 and scheduler.last_assessment_exposure < 0:
+    if (lr_search or lr_confirmation) and update == 0 and scheduler.last_assessment_exposure < 0:
         payload = save()
         if not resumed:
             save_dynamics_checkpoint(directory / "initial.pt", payload)
         if not diagnostics(force=True):
+            return False
+        if lr_confirmation and not gradient_probe():
             return False
         scheduler.last_assessment_exposure = exposure
         save()
@@ -638,6 +654,20 @@ def run_branch(
         save("final.pt")
         log("lr_search_done", reason="sweep_complete", update=update, exposures=exposure)
         return True
+    if lr_confirmation and stop_after_updates is not None and update >= stop_after_updates:
+        if scheduler.last_assessment_exposure < exposure:
+            if not (diagnostics(force=True) and gradient_probe()):
+                return False
+            scheduler.last_assessment_exposure = exposure
+            save()
+        save("final.pt")
+        log("lr_confirmation_done", peak_lr=config["peak_lr"], update=update, exposures=exposure)
+        return True
+    if lr_confirmation and exposure in confirmation_boundaries and scheduler.last_assessment_exposure < exposure:
+        if not (diagnostics(force=True) and gradient_probe()):
+            return False
+        scheduler.last_assessment_exposure = exposure
+        save()
     if stop_after_updates is None and exposure in ({0} | boundaries) and scheduler.last_assessment_exposure < exposure:
         save()
         if not assess():
@@ -795,11 +825,27 @@ def run_branch(
                     return True
                 if not diagnostics(force=True):
                     return False
+                if lr_confirmation and not gradient_probe():
+                    return False
                 scheduler.last_assessment_exposure = exposure
                 save()
+                if lr_confirmation:
+                    save("final.pt")
+                    log("lr_confirmation_done", peak_lr=config["peak_lr"], update=update,
+                        exposures=exposure, lr=lr)
+                    return True
                 log("smoke_segment_done", update=update, exposures=exposure)
                 return True
-            if exposure in boundaries and stop_after_updates is None:
+            if exposure in confirmation_boundaries and scheduler.last_assessment_exposure < exposure:
+                save()
+                input_stack.close()
+                inputs = None
+                if not (diagnostics(force=True) and gradient_probe()):
+                    return False
+                scheduler.last_assessment_exposure = exposure
+                save()
+                log("lr_confirmation_boundary_done", peak_lr=config["peak_lr"], exposures=exposure)
+            elif exposure in boundaries and stop_after_updates is None:
                 save()
                 input_stack.close()
                 inputs = None
@@ -814,12 +860,12 @@ def run_branch(
     return True
 
 
-def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path | None, effective_batch: int, branch: str, *, lr_search: bool = False) -> None:
+def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path | None, effective_batch: int, branch: str, *, lr_search: bool = False, lr_confirmation: bool = False) -> None:
     session_started = time.time()
     config_path = repo_root / "docs/data/spec0054_fold0_run.json"
     config = json.loads(config_path.read_text())
     config["effective_batch"] = effective_batch
-    config["run_mode"] = "lr_search" if lr_search else "fold"
+    config["run_mode"] = "lr_confirmation" if lr_confirmation else "lr_search" if lr_search else "fold"
     extraction_path = repo_root / "docs/data/spec0054_fp16_latent_extraction.json"
     cohort_path = repo_root / "docs/data/spec0054_cohort_folds.csv"
     contract = json.loads(extraction_path.read_text())
@@ -840,6 +886,20 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
     }
     output_root.mkdir(parents=True, exist_ok=True)
     try:
+        if lr_confirmation:
+            train_count = sum(bag.fold != config["fold"] for bag in bags.locations.values())
+            stop = config["lr_confirmation"]["epochs"] * math.ceil(train_count / effective_batch)
+            for peak in config["lr_confirmation"]["peak_lrs"]:
+                candidate = f"lr_{peak:g}"
+                candidate_config = {**config, "peak_lr": peak}
+                completed = run_branch(
+                    branch, bags, candidate_config, output_root / candidate,
+                    resume_root / candidate if resume_root is not None else None,
+                    {**identity, "peak_lr": peak}, session_started, stop_after_updates=stop,
+                )
+                if not completed:
+                    break
+            return
         search = config["lr_search"]
         stop = search["preparation_updates"] + search["sweep_updates"] if lr_search else None
         run_branch(branch, bags, config, output_root, resume_root, identity, session_started,
@@ -1039,6 +1099,7 @@ if __name__ == "__main__":
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--read-probe", action="store_true")
     parser.add_argument("--lr-search", action="store_true")
+    parser.add_argument("--lr-confirmation", action="store_true")
     args = parser.parse_args()
     if args.read_probe:
         run_read_probe(args.repo_root, args.latent_root, args.output_root, args.branch)
@@ -1046,4 +1107,4 @@ if __name__ == "__main__":
         run_smoke(args.repo_root, args.latent_root, args.output_root, args.branch, args.effective_batch)
     else:
         run(args.repo_root, args.latent_root, args.output_root, args.resume_root, args.effective_batch, args.branch,
-            lr_search=args.lr_search)
+            lr_search=args.lr_search, lr_confirmation=args.lr_confirmation)

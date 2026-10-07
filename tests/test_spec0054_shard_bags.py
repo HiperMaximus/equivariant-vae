@@ -158,6 +158,28 @@ def test_exposure_schedule_and_table_resume(tmp_path: Path) -> None:
     assert _restore_rows(table, 1) == [{"loss": 0.25, "update": 1, "wsi_id": 4}]
 
 
+def test_lr_confirmation_holds_peak_and_keeps_long_aem_schedule() -> None:
+    import math
+    import torch
+
+    from experiments.spec0054_mil_fold0 import ExposureSchedule, _aem_weight
+
+    config = {"epochs": 155, "warmup_epochs": 5, "aem_weight": 0.01,
+              "run_mode": "lr_confirmation"}
+    optimizer = torch.optim.AdamW([torch.nn.Parameter(torch.tensor(1.0))])
+    for peak in (0.0005, 0.001):
+        candidate = {**config, "peak_lr": peak}
+        schedule = ExposureSchedule(optimizer, 288, candidate)
+        assert schedule.set_next(1) == pytest.approx(0.1 * peak)
+        assert schedule.set_next(5 * 288) == pytest.approx(peak)
+        restored = ExposureSchedule(optimizer, 288, candidate)
+        restored.load_state_dict(schedule.state_dict())
+        for exposure in (5 * 288 + 4, 6 * 288, 8 * 288):
+            assert restored.set_next(exposure) == pytest.approx(peak)
+        assert _aem_weight(8 * 288, 288, candidate) == pytest.approx(
+            0.01 * (1 + math.cos(math.pi * 8 / 155)) / 2)
+
+
 def test_fixed_boundary_head_gradient_matches_autograd() -> None:
     import torch
     from torch.nn import functional

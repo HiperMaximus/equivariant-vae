@@ -286,6 +286,56 @@ def test_runner_resume_matches_uninterrupted_after_interrupted_assessment(tmp_pa
     assert best["exposure_count"] == selected
 
 
+def test_lr_confirmation_resume_replays_pending_boundary_and_stops_at_eight_epochs(tmp_path, monkeypatch):
+    config = json.loads(Path("docs/data/spec0054_fold0_run.json").read_text())
+    config.update(run_mode="lr_confirmation", effective_batch=4, peak_lr=0.001,
+                  t1_train_wsi=0, t2_holdout_wsi=10, gradient_probe_epochs=[])
+    bags = SimpleNamespace(files={"normal_vae": {}}, descriptors={}, locations={i: SimpleNamespace(
+        fold=1 if i < 10 else 0, diagnosis_index=i % 5, count=3,
+        coordinates=((0, 0), (256, 0), (512, 0)), shard=1,
+    ) for i in range(15)})
+    generator = np.random.default_rng(74)
+    # Holdouts have no array: accessing one fails naturally.
+    arrays = {i: generator.standard_normal((3, 16, 32, 32)).astype(np.float32) for i in range(10)}
+    bags.read = lambda branch, wsi_id, indices=None: arrays[wsi_id] if indices is None else arrays[wsi_id][indices]
+    monkeypatch.setattr(fold, "_compiled_closure", lambda model: lambda x, y, w, aem: fold._forward_loss(model, x, y, w, aem))
+    monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: False)
+    full, part, resumed = (tmp_path / name for name in ("full", "part", "resumed"))
+    def run(output, prior=None):
+        return fold.run_branch("normal_vae", cast(ShardBags, bags), config, output, prior, {},
+                               time.time(), device=torch.device("cpu"), stop_after_updates=24)
+    assert run(full)
+    paused = False
+    original_save = fold.save_dynamics_checkpoint
+    def save(path, payload):
+        nonlocal paused
+        original_save(path, payload)
+        if path == part / "normal_vae/latest.pt" and payload["exposure_count"] == 50:
+            paused = True
+    monkeypatch.setattr(fold, "save_dynamics_checkpoint", save)
+    monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: paused)
+    assert not run(part)
+    monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: False)
+    assert run(resumed, part)
+    for name in ("t0", "t1", "t2"):
+        before = load_telemetry_table(full / f"normal_vae/{name}.npz")
+        after = load_telemetry_table(resumed / f"normal_vae/{name}.npz")
+        for key in before:
+            if key != "step_seconds":
+                np.testing.assert_array_equal(before[key], after[key])
+    checkpoint = load_dynamics_checkpoint(resumed / "normal_vae/final.pt")
+    assert checkpoint["committed_update"] == 24
+    assert checkpoint["exposure_count"] == 80
+    assert checkpoint["scheduler"]["last_assessment_exposure"] == 80
+    t0 = load_telemetry_table(resumed / "normal_vae/t0.npz")
+    assert set(t0["lr"][t0["exposures"] > 50]) == {0.001}
+    assert not (resumed / "normal_vae/predictions.npz").exists()
+    assert run(tmp_path / "completed", resumed)
+    completed = load_dynamics_checkpoint(tmp_path / "completed/normal_vae/final.pt")
+    for key in checkpoint["model"]:
+        assert torch.equal(checkpoint["model"][key], completed["model"][key])
+
+
 def test_lr_search_tail_batch_resume_and_completed_bound(tmp_path, monkeypatch):
     config = json.loads(Path("docs/data/spec0054_fold0_run.json").read_text())
     config.update(run_mode="lr_search", effective_batch=4, epochs=2,
