@@ -286,6 +286,24 @@ def test_runner_resume_matches_uninterrupted_after_interrupted_assessment(tmp_pa
     assert best["exposure_count"] == selected
 
 
+def test_submission_deadline_saves_before_reading_any_training_bag(tmp_path, monkeypatch):
+    config = json.loads(Path("docs/data/spec0054_fold0_run.json").read_text())
+    config.update(effective_batch=4)
+    bags = SimpleNamespace(files={"normal_vae": {}}, descriptors={}, locations={i: SimpleNamespace(
+        fold=1, diagnosis_index=i % 5, count=3,
+        coordinates=((0, 0), (256, 0), (512, 0)), shard=1,
+    ) for i in range(10)})
+    monkeypatch.setattr(fold, "_compiled_closure", lambda model: None)
+    # The old twelve-hour guard permits work; the submission deadline has expired.
+    monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: False)
+    assert not fold.run_branch("normal_vae", cast(ShardBags, bags), config, tmp_path,
+                               None, {}, time.time(), device=torch.device("cpu"),
+                               stop_after_updates=2, session_deadline_unix=time.time() - 1)
+    checkpoint = load_dynamics_checkpoint(tmp_path / "normal_vae/latest.pt")
+    assert checkpoint["committed_update"] == checkpoint["exposure_count"] == 0
+    assert not (tmp_path / "normal_vae/final.pt").exists()
+
+
 def test_lr_confirmation_resume_replays_pending_boundary_and_stops_at_eight_epochs(tmp_path, monkeypatch):
     config = json.loads(Path("docs/data/spec0054_fold0_run.json").read_text())
     config.update(run_mode="lr_confirmation", effective_batch=4, peak_lr=0.001,

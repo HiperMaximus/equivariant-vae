@@ -3,7 +3,7 @@
   "epochs": 155,
   "warmup_epochs": 5,
   "seed": 1701,
-  "peak_lr": 0.0001,
+  "peak_lr": 0.0005,
   "effective_batches": [
     1,
     4,

@@ -228,6 +228,7 @@ def run_branch(
     resume_root: Path | None, identity: dict, session_started: float,
     device: torch.device = torch.device("cuda:0"),
     stop_after_updates: int | None = None,
+    session_deadline_unix: float | None = None,
 ) -> bool:
     torch.backends.cudnn.benchmark = True
     directory = output_root / branch
@@ -243,10 +244,13 @@ def run_branch(
             print(line, file=events, flush=True)
 
     def session_ending() -> bool:
+        if session_deadline_unix is not None:
+            return time.time() >= session_deadline_unix
         return should_pause_for_session(session_started_unix=session_started, now_unix=time.time())
 
     log("worker_start", physical_gpu=os.environ.get("CUDA_VISIBLE_DEVICES"),
-        device=str(device), device_name=torch.cuda.get_device_name(device) if device.type == "cuda" else "cpu")
+        device=str(device), device_name=torch.cuda.get_device_name(device) if device.type == "cuda" else "cpu",
+        session_deadline_unix=session_deadline_unix)
     prior = resume_root / branch if resume_root is not None else None
     if prior is not None and prior.exists():
         if json.loads((prior / "identity.json").read_text()) != {**identity, "branch": branch}:
@@ -860,7 +864,7 @@ def run_branch(
     return True
 
 
-def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path | None, effective_batch: int, branch: str, *, lr_search: bool = False, lr_confirmation: bool = False) -> None:
+def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path | None, effective_batch: int, branch: str, *, lr_search: bool = False, lr_confirmation: bool = False, session_deadline_unix: float | None = None) -> None:
     session_started = time.time()
     config_path = repo_root / "docs/data/spec0054_fold0_run.json"
     config = json.loads(config_path.read_text())
@@ -896,6 +900,7 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
                     branch, bags, candidate_config, output_root / candidate,
                     resume_root / candidate if resume_root is not None else None,
                     {**identity, "peak_lr": peak}, session_started, stop_after_updates=stop,
+                    session_deadline_unix=session_deadline_unix,
                 )
                 if not completed:
                     break
@@ -903,7 +908,7 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
         search = config["lr_search"]
         stop = search["preparation_updates"] + search["sweep_updates"] if lr_search else None
         run_branch(branch, bags, config, output_root, resume_root, identity, session_started,
-                   stop_after_updates=stop)
+                   stop_after_updates=stop, session_deadline_unix=session_deadline_unix)
     finally:
         bags.close()
 
@@ -1100,6 +1105,7 @@ if __name__ == "__main__":
     parser.add_argument("--read-probe", action="store_true")
     parser.add_argument("--lr-search", action="store_true")
     parser.add_argument("--lr-confirmation", action="store_true")
+    parser.add_argument("--session-deadline-unix", type=float)
     args = parser.parse_args()
     if args.read_probe:
         run_read_probe(args.repo_root, args.latent_root, args.output_root, args.branch)
@@ -1107,4 +1113,5 @@ if __name__ == "__main__":
         run_smoke(args.repo_root, args.latent_root, args.output_root, args.branch, args.effective_batch)
     else:
         run(args.repo_root, args.latent_root, args.output_root, args.resume_root, args.effective_batch, args.branch,
-            lr_search=args.lr_search, lr_confirmation=args.lr_confirmation)
+            lr_search=args.lr_search, lr_confirmation=args.lr_confirmation,
+            session_deadline_unix=args.session_deadline_unix)
