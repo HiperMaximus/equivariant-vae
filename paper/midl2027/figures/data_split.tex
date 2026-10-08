@@ -1,0 +1,32 @@
+\begin{tikzpicture}[
+ font=\sffamily\scriptsize,>=Latex,
+ box/.style={draw=black!65,rounded corners=2pt,align=center,text width=31mm,minimum height=11mm,inner sep=2mm},
+ vae/.style={box,fill=blue!7,draw=blue!65!black},
+ sup/.style={box,fill=orange!8,draw=orange!75!black},
+ test/.style={box,fill=purple!8,draw=purple!65!black},
+ task/.style={box,fill=green!8,draw=green!50!black,text width=32mm},
+ flow/.style={->,thick,draw=black!65}]
+\node[box,fill=black!3] (source) at (0,0.8) {UBC-OCEAN non-TMA cohort\\513 WSIs};
+\node[vae] (vae) at (4.5,3.4) {Unsupervised VAE development\\361 WSIs};
+\node[sup] (sup) at (4.5,0.8) {Supervised development\\129 WSIs};
+\node[test] (test) at (4.5,-2.4) {Shared sealed test\\23 WSIs\\5/6/8/2/2};
+\node[vae] (vtrain) at (8.7,4.3) {VAE training\\322 WSIs; 300,000 patches\\60,000 per diagnosis};
+\node[vae] (vval) at (8.7,2.8) {VAE validation\\39 WSIs; 30,000 patches\\6,000 per diagnosis};
+\node[sup] (strain) at (8.7,1.2) {Classifier training\\106 WSIs\\23/24/40/11/8};
+\node[sup] (sval) at (8.7,-0.2) {Classifier validation\\23 WSIs\\5/6/8/2/2};
+\node[task] (wsi) at (13.0,1.6) {Five-class WSI diagnosis\\261,168 test instances};
+\node[task] (tissue) at (13.0,-0.4) {Three-class tissue\\recognition\\31,572 test patches};
+\node[task] (recon) at (13.0,-2.4) {VAE reconstruction\\67,138 test patches};
+\node[font=\sffamily\scriptsize\bfseries,align=center] at (13.0,2.8) {Final evaluation on the\\same 23 test WSIs};
+\draw[flow] (source.east) -- (vae.west);
+\draw[flow] (source.east) -- (sup.west);
+\draw[flow] (source.south) |- (test.west);
+\draw[flow] (vae.east) -- (vtrain.west);
+\draw[flow] (vae.east) -- (vval.west);
+\draw[flow] (sup.east) -- (strain.west);
+\draw[flow] (sup.east) -- (sval.west);
+\draw[thick,draw=purple!65!black] (test.east) -- (10.75,-2.4) -- (10.75,1.6);
+\foreach \target/\height in {wsi/1.6,tissue/-0.4,recon/-2.4}
+ \draw[flow,draw=purple!65!black] (10.75,\height) -- (\target.west);
+\node[font=\sffamily\tiny,align=center] at (4.5,-3.5) {Class order: CC / EC / HGSC / LGSC / MC.\\Development and test subsets are disjoint by WSI.};
+\end{tikzpicture}

@@ -1,0 +1,38 @@
+\resizebox{0.98\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\sffamily\scriptsize,
+  >=Latex,
+  box/.style={draw,rounded corners=2pt,align=center,
+    minimum height=10mm,text width=20mm,inner sep=1mm},
+  flow/.style={-{Latex[length=2mm]},semithick},
+  add/.style={draw,circle,minimum size=6mm,inner sep=0pt}
+]
+\node[anchor=west,font=\sffamily\footnotesize\bfseries] at (-1.0,1.55)
+  {(a) Conventional VAE};
+\node[box,fill=blue!5,draw=blue!55!black] (a0) at (0,0) {Input\\features};
+\node[box,fill=blue!5,draw=blue!55!black] (a1) at (2.35,0) {$5\times5$ ordinary\\convolution};
+\node[box,fill=blue!5,draw=blue!55!black] (a2) at (4.7,0) {8-group GN\\scalar gate};
+\node[box,fill=blue!5,draw=blue!55!black] (a3) at (7.05,0) {$5\times5$ ordinary\\convolution};
+\node[box,fill=blue!5,draw=blue!55!black] (a4) at (9.4,0) {8-group\\GroupNorm};
+\node[add] (a5) at (11.3,0) {$+$};
+\node[box,fill=blue!5,draw=blue!55!black] (a6) at (13.2,0) {Scalar gate\\output features};
+\foreach \from/\to in {a0/a1,a1/a2,a2/a3,a3/a4,a4/a5,a5/a6}
+  \draw[flow] (\from)--(\to);
+\draw[flow] (a0.north) -- ++(0,0.75) -|
+  node[pos=0.25,above] {identity skip} (a5.north);
+
+\node[anchor=west,font=\sffamily\footnotesize\bfseries] at (-1.0,-1.55)
+  {(b) Continuous-$\SOtwo$ VAE};
+\node[box,fill=orange!7,draw=orange!75!black] (b0) at (0,-3.1) {Input\\$F_0/F_1$ fields};
+\node[box,fill=orange!7,draw=orange!75!black] (b1) at (2.35,-3.1) {$7\times7$ steerable\\convolution};
+\node[box,fill=orange!7,draw=orange!75!black] (b2) at (4.7,-3.1) {$F_0/F_1$ norm\\scalar/radial gate};
+\node[box,fill=orange!7,draw=orange!75!black] (b3) at (7.05,-3.1) {$7\times7$ steerable\\convolution};
+\node[box,fill=orange!7,draw=orange!75!black] (b4) at (9.4,-3.1) {$F_0/F_1$\\normalization};
+\node[add] (b5) at (11.3,-3.1) {$+$};
+\node[box,fill=orange!7,draw=orange!75!black] (b6) at (13.2,-3.1) {Scalar/radial gate\\output fields};
+\foreach \from/\to in {b0/b1,b1/b2,b2/b3,b3/b4,b4/b5,b5/b6}
+  \draw[flow] (\from)--(\to);
+\draw[flow] (b0.north) -- ++(0,0.75) -|
+  node[pos=0.25,above] {identity skip} (b5.north);
+\end{tikzpicture}%
+}

@@ -2,6 +2,27 @@
 
 Last updated: 2026-09-30
 
+MIDL 2027 is the conference target proposed by the professor in
+[issue #1](https://github.com/HiperMaximus/equivariant-vae/issues/1#issuecomment-6022669491).
+Conference requirements and the current manuscript PDF are in
+[issue #8](https://github.com/HiperMaximus/equivariant-vae/issues/8).
+Abstract registration closes on 2026-11-30 and full-paper submission on
+2026-12-04, both at 23:59 AoE.
+On 2026-10-08, the format-only adaptation was applied in the existing
+Overleaf project (`main.tex` v145 -> v146), then its sources and compiled PDF
+were downloaded into `paper/midl2027/`. The 126 format operations remain
+tracked suggestions. All 11 professor comment threads preserve their IDs,
+message histories and resolution states: five open, six resolved.
+`midl2027.pdf` has 22 letter-sized single-column pages (19 body, three
+references); no length cuts or scientific-content changes were made.
+The 28 imported source files match the Overleaf download byte for byte.
+Authors are Maximiliano Garavito Chtefan and David Edmundo Romo Bucheli,
+in that order, with example email addresses and the earlier UIS affiliation.
+The official MIDL/JMLR classes are unmodified. Overleaf compiles without
+errors, undefined references or overfull boxes. The accepted INCISCOS source
+and PDF are retained unchanged. Continue paper edits in Overleaf first,
+then import its current sources and PDF into the research repository.
+
 ## Active frontier
 
 [Spec 0053](docs/specs/0053-functional-riemannian-latent-geometry.md) is the
