@@ -17,7 +17,9 @@ message histories and resolution states: five open, six resolved.
 references); no length cuts or scientific-content changes were made.
 The 28 imported source files match the Overleaf download byte for byte.
 Authors are Maximiliano Garavito Chtefan and David Edmundo Romo Bucheli,
-in that order, with example email addresses and the earlier UIS affiliation.
+in that order, with `hipermaximus@gmail.com` and `deromob@saber.uis.edu.co`,
+respectively, and the earlier UIS affiliation. The email update was made first
+in Overleaf (`main.tex` v147), then its sources and recompiled PDF were imported.
 The official MIDL/JMLR classes are unmodified. Overleaf compiles without
 errors, undefined references or overfull boxes. The accepted INCISCOS source
 and PDF are retained unchanged. Continue paper edits in Overleaf first,

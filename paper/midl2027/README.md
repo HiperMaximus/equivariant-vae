@@ -2,7 +2,8 @@
 
 Format-only adaptation applied in the existing
 [Overleaf project](https://www.overleaf.com/project/69c614433cbc9e46cf226d24)
-on 2026-10-08, then imported from its source download (`main.tex` v146).
+on 2026-10-08, then imported from its source download (`main.tex` v147,
+including the subsequent author-email update).
 The baseline was accepted INCISCOS `main.tex` v145, published in research
 commit `7317813c2151d5c2d8f79d57690aeb068a95365d`.
 The original `../inciscos2026` manuscript remains available separately.
@@ -20,9 +21,9 @@ No page-limit cuts have been applied. The current PDF has 19 body pages and
 three reference pages (22 total).
 
 Authors are Maximiliano Garavito Chtefan and David Edmundo Romo Bucheli, in
-that order. The affiliation follows the earlier SIPAIM scaffold. Both email
-addresses are examples requested for this draft and must be replaced before
-submission. The MIDL class is used without its anonymization option.
+that order, with `hipermaximus@gmail.com` and `deromob@saber.uis.edu.co`,
+respectively. The affiliation follows the earlier SIPAIM scaffold.
+The MIDL class is used without its anonymization option.
 
 ## Build
 
@@ -34,7 +35,7 @@ latexmk -pdf -interaction=nonstopmode -halt-on-error -jobname=midl2027 main.tex
 
 The output is `midl2027.pdf`. The tracked PDF was downloaded from Overleaf
 after compilation; its SHA-256 is
-`6ad761649add32e053ce8a6c0cb6cac108aae2b54e49caf19e91e035bfa5c94a`.
+`724b027720cbecc3d917614206e61549177c27266465ac2ceeea83a1e4ebdfd9`.
 All 28 source, bibliography, figure and class files match the Overleaf source
 download byte for byte. Only the three new class files were uploaded;
 the manuscript text was edited in place. Continue editing in Overleaf first,
