@@ -84,10 +84,8 @@ def _compiled_closure(model):
 
 
 def _aem_weight(exposure: int, train_count: int, config: dict) -> float:
-    if config.get("run_mode") == "lr_search":
-        return config["aem_weight"]
-    progress = min(exposure / (config["epochs"] * train_count), 1.0)
-    return config["aem_weight"] * (1 + math.cos(math.pi * progress)) / 2
+    """Keep entropy regularization constant throughout the selected recipe."""
+    return config["aem_weight"]
 
 
 def _sample_indices(count: int, seed: int, epoch: int, wsi_id: int, fraction: float) -> np.ndarray:
@@ -138,7 +136,8 @@ class ExposureSchedule:
             lr = peak
         else:
             progress = (exposure - warmup) / (horizon - warmup)
-            lr = peak * (0.01 + 0.99 * (1 + math.cos(math.pi * progress)) / 2)
+            minimum = self.config["min_lr"]
+            lr = minimum + (peak - minimum) * (1 + math.cos(math.pi * progress)) / 2
         for group in self.optimizer.param_groups:
             group["lr"] = lr
         return lr
@@ -251,6 +250,13 @@ def run_branch(
     log("worker_start", physical_gpu=os.environ.get("CUDA_VISIBLE_DEVICES"),
         device=str(device), device_name=torch.cuda.get_device_name(device) if device.type == "cuda" else "cpu",
         session_deadline_unix=session_deadline_unix)
+    log("training_recipe", resume=resume_root is not None,
+        epochs=config["epochs"], warmup_epochs=config["warmup_epochs"],
+        peak_lr=config["peak_lr"], min_lr=config["min_lr"],
+        effective_batch=config["effective_batch"], weight_decay=config["weight_decay"],
+        patch_retention=config["patch_retention"], aem_weight=config["aem_weight"],
+        aem_schedule=config["aem_schedule"],
+        checkpoint_every_exposures=config["checkpoint_every_exposures"])
     prior = resume_root / branch if resume_root is not None else None
     if prior is not None and prior.exists():
         if json.loads((prior / "identity.json").read_text()) != {**identity, "branch": branch}:

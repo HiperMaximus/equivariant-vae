@@ -1,6 +1,28 @@
 # Current Repository Status
 
-Last updated: 2026-09-30
+Last updated: 2026-10-08
+
+## Spec 0054: authorized regularized CLS restart (2026-10-08)
+
+The user authorized a fresh fold0 paired classifier run with105 total epochs
+(5 warmup +100 cosine), effective batch4, peakLR0.0005 and minimumLR0.000005
+(the previous1% floor). AdamW decay stays0.05; AEM is0.05 constant and train
+patch retention is60%, resampled per WSI presentation with identical masks
+and order across frozen normal/SO2 branches. Architecture and all twelve
+embedding shards remain unchanged. Full288 train/73 validation bags retain
+complete historical Otsu membership. Horizon30,240 WSI presentations/7,560
+updates per branch; validation uses full bags and selects best by unweighted
+CE. The previous155-epoch v9 results/checkpoints remain a separate reference.
+
+The existing runner now returns constant AEM and exposes the LR floor in the
+contract. Recipe logs print horizon, LR, AEM, retention, batch and checkpoint
+cadence. AMP, compiled forward/loss/backward, dynamic patch count, separate
+GPU0/GPU1 processes, cached descriptors, sorted coalesced selective reads,
+two-reader prefetch and buffered T0/T1/T2/predictions remain. Checkpoints/tables
+flush every144 WSI presentations, at assessments and session shutdown.
+The thin entry disables resume and removes the old v24 checkpoint input.
+Focused local checks cover LR endpoints/midpoint, constant AEM, telemetry
+restore and uninterrupted/resumed batch4 training. Kaggle submission pending.
 
 MIDL 2027 is the conference target proposed by the professor in
 [issue #1](https://github.com/HiperMaximus/equivariant-vae/issues/1#issuecomment-6022669491).

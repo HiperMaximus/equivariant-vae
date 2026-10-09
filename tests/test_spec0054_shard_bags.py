@@ -141,11 +141,12 @@ def test_exposure_schedule_and_table_resume(tmp_path: Path) -> None:
 
     parameter = torch.nn.Parameter(torch.tensor(1.0))
     optimizer = torch.optim.AdamW([parameter], lr=0.0002)
-    config = {"epochs": 150, "warmup_epochs": 5, "peak_lr": 0.0002}
+    config = json.loads(Path("docs/data/spec0054_fold0_run.json").read_text())
     schedule = ExposureSchedule(optimizer, 288, config)
-    assert schedule.set_next(1) == pytest.approx(0.00002)
-    assert schedule.set_next(1440) == pytest.approx(0.0002)
-    assert schedule.set_next(43200) == pytest.approx(0.000002)
+    assert schedule.set_next(1) == pytest.approx(0.00005)
+    assert schedule.set_next(1440) == pytest.approx(0.0005)
+    assert schedule.set_next(55 * 288) == pytest.approx(0.0002525)
+    assert schedule.set_next(105 * 288) == pytest.approx(0.000005)
     schedule.last_exposure = 1440
     restored = ExposureSchedule(optimizer, 288, config)
     restored.load_state_dict(schedule.state_dict())
@@ -158,13 +159,12 @@ def test_exposure_schedule_and_table_resume(tmp_path: Path) -> None:
     assert _restore_rows(table, 1) == [{"loss": 0.25, "update": 1, "wsi_id": 4}]
 
 
-def test_lr_confirmation_holds_peak_and_keeps_long_aem_schedule() -> None:
-    import math
+def test_lr_confirmation_holds_peak_and_constant_aem() -> None:
     import torch
 
     from experiments.spec0054_mil_fold0 import ExposureSchedule, _aem_weight
 
-    config = {"epochs": 155, "warmup_epochs": 5, "aem_weight": 0.01,
+    config = {"epochs": 105, "warmup_epochs": 5, "aem_weight": 0.05,
               "run_mode": "lr_confirmation"}
     optimizer = torch.optim.AdamW([torch.nn.Parameter(torch.tensor(1.0))])
     for peak in (0.0005, 0.001):
@@ -176,8 +176,8 @@ def test_lr_confirmation_holds_peak_and_keeps_long_aem_schedule() -> None:
         restored.load_state_dict(schedule.state_dict())
         for exposure in (5 * 288 + 4, 6 * 288, 8 * 288):
             assert restored.set_next(exposure) == pytest.approx(peak)
-        assert _aem_weight(8 * 288, 288, candidate) == pytest.approx(
-            0.01 * (1 + math.cos(math.pi * 8 / 155)) / 2)
+        for exposure in (0, 8 * 288, 65 * 288, 105 * 288):
+            assert _aem_weight(exposure, 288, candidate) == pytest.approx(0.05)
 
 
 def test_fixed_boundary_head_gradient_matches_autograd() -> None:

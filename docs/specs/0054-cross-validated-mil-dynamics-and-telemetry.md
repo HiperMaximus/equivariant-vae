@@ -3,7 +3,28 @@
 Status: simplified A0 v4 complete; fold-0 v3 checkpointed then CUDA error, v4 canceled, v5/v6 failed before training, v7 smoke complete, v8 session-limited with checkpoints; resume dataset v4 verified, gated ABMIL implemented and locally verified; fresh GPU smoke/full fold not launched
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-09-29
+Last updated: 2026-10-08
+
+## Active regularized spatial-CLS restart (2026-10-08)
+
+The authorized followup restarts the existing CLS classifier from its paired
+initialization on fold0. The frozen VAE encoders, twelve latent shards,
+cohort/folds, class weighting, architecture, batch4 and peakLR0.0005 remain.
+The selected horizon is105 epochs:5 warmup +100 cosine, ending at the original
+1%-of-peak LR floor0.000005. AEM uses raw attention entropy with constant
+coefficient0.05; each training presentation retains a new sorted random60%
+patch subset, identically selected for both VAE branches. Validation uses
+complete frozen historical Otsu bags and selects the checkpoint by unweighted
+mean CE. No representation-rank penalty is added.
+
+Fold0 has288 train/73 validation WSI and30,240 training presentations/7,560
+batch4 updates per branch. Both branches run concurrently in separate physical
+GPU processes with existing AMP/compilation/prefetch/telemetry. Checkpoints and
+buffered tables retain the144-presentation cadence and session guard. This
+combined recipe cannot isolate the individual effects of AEM and sampling;
+comparison with the prior155-epoch recipe also changes the cosine horizon.
+Only fold0 is submitted now. The prior v9 states and learning dynamics stay
+preserved as the reference; new recipe states must never resume those weights.
 
 ## Purpose
 
