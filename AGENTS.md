@@ -47,9 +47,19 @@ that workflow.
    before launch.
 9. Long Kaggle jobs are checked only when useful; after confirming `RUNNING`,
    record when to inspect the result and stop polling.
-10. `paper/inciscos2026` is the current review-paper source. The former SIPAIM
-   Overleaf project now contains a curated INCISCOS export; never push the whole
-   repository to Overleaf. Preserve `paper/sipaim2026` as the local SIPAIM copy.
+10. `paper/midl2027` is the active manuscript, with live Overleaf as its source
+   of truth. Preserve `paper/inciscos2026` and `paper/sipaim2026` as historical
+   copies; never push the whole repository to Overleaf.
+   The user gives standing authorization to import all current
+   Overleaf manuscript sources, bibliography, figures and class/style assets,
+   regenerate the corresponding PDF, commit the paper updates and push to
+   research `origin/main` whenever the paper changes in Overleaf. Complete this
+   synchronization before declaring a correction round finished; verify source
+   parity and the published PDF, and never leave unreported drift. Preserve
+   professor edits and open comments, without accepting tracked changes or
+   resolving threads. Preserve unrelated research work and publish only the
+   paper and relevant handoff/policy updates. No additional permission is needed
+   for this already-authorized synchronization and push.
 11. The separate thesis repository is changed only for a thesis task.
 12. Professor-facing GitHub updates are written in Spanish. Do not close an
     issue unless the user asks.

@@ -23,8 +23,8 @@
 \title[Rotation-Equivariant VAEs for Histopathology]{Rotation-Equivariant Variational Autoencoders for Representation
 Learning and Downstream Classification in Histopathology}
 
-\midlauthor{\Name{Maximiliano Garavito Chtefan} \Email{hipermaximus@gmail.com}\\
-\Name{David Edmundo Romo Bucheli} \Email{deromob@saber.uis.edu.co}\\
+\midlauthor{\Name{Maximiliano Garavito Chtefan} \Email{maximiliano2162094@correo.uis.edu.co}\\
+\Name{David Romo-Bucheli} \Email{deromob@uis.edu.co}\\
 \addr Escuela de Ingenier\'ia de Sistemas e Inform\'atica\\
 Universidad Industrial de Santander, Bucaramanga, Colombia
 }
@@ -34,56 +34,28 @@ Universidad Industrial de Santander, Bucaramanga, Colombia
 \maketitle
 
 \begin{abstract}
-At high magnification, cellular patterns in histopathology have no fixed
-orientation in the image, making rotation a relevant local symmetry for representation
-learning. This work compares conventional denoising variational autoencoders (VAEs) and continuous-$\SOtwo$-equivariant
-denoising variational autoencoders trained on the same unlabeled
-patches extracted from ovarian cancer images. With both models frozen, reconstruction was evaluated on test patches. Afterwards, 
-we evaluated the representation capability of both autoencoders in two downstream tasks: three-class tissue recognition at patch
-level, and five-class whole-slide image (WSI) diagnosis via multiple-instance
-learning. Reconstruction mean absolute error for the test patches was $0.0629$ versus $0.0642$ (conventional versus
-equivariant), but the difference was not statistically significant. For three-class tissue recognition at the largest training budget of 5,671 labels per class, macro-F1 was $0.766$ versus $0.710$ (conventional versus equivariant), with no statistically significant difference. Finally, for WSI classification on 23 test slides, macro-F1 was
-$0.389$ versus $0.483$ (conventional versus equivariant),
+At high magnification, cellular patterns in histopathology have no dominant orientation in the image, making rotation a relevant local symmetry for representation learning. This work investigates whether incorporating this rotation symmetry into unsupervised representation learning improves reconstruction and downstream classification. To this end, it compares conventional denoising variational autoencoders (VAEs) and continuous-$\SOtwo$-equivariant denoising variational autoencoders trained on the same unlabeled patches from ovarian cancer images. With both autoencoder models frozen, reconstruction was evaluated on patches from held-out whole-slide images (WSIs). Afterwards, we evaluated the representation capability of both autoencoders in two downstream tasks: three-class tissue recognition at patch level, and five-class WSI diagnosis via multiple-instance learning. Reconstruction mean absolute error for the test patches was $0.0629$ versus $0.0642$ (conventional versus
+equivariant), but the difference was not statistically significant. For three-class tissue recognition with a small budget of 500 training labels per class, macro-F1 was $0.511$ versus $0.575$ (conventional versus equivariant). The difference was statistically significant after adjustment for multiple comparisons, suggesting greater label efficiency at this budget. No statistically significant differences were observed at the other evaluated label budgets. Finally, for WSI classification on 152 test slides, macro-F1 was
+$XXXX$ versus $YYYY$ (conventional versus equivariant),
 with no statistically significant difference.
+% TODO: Actualizar esta afirmacion de significancia y XXXX/YYYY cuando esten disponibles los nuevos resultados WSI (152 slides).
 \end{abstract}
 
 \begin{keywords}
-histopathology, variational autoencoder, rotation equivariance, $\SOtwo$,
-whole-slide image classification, representation learning
+histopathology, variational autoencoder, rotation equivariance, $\SOtwo$, whole-slide image classification, representation learning
 \end{keywords}
 
 \section{Introduction}
 
-Digital histopathology converts glass slides into whole-slide images whose
-dimensions commonly reach gigapixel scale. These images contain many local
-tissue regions, but their diagnostic labels and detailed annotations require
-specialist review. Representation learning from unlabeled patches offers a way
-to use this image volume before fitting a smaller supervised model
-\cite{litjens_survey_2017,song_artificial_2023,tellez_neural_2021}.
+Digital histopathology allows for digitization of glass slides into whole-slide images whose dimensions commonly reach gigapixel scale. These images contain many local tissue regions, but their diagnostic labels and detailed annotations require specialist review. Representation learning from unlabeled patches offers a way to use this image volume before fitting a smaller supervised model \cite{litjens_survey_2017,song_artificial_2023,tellez_neural_2021}.
 
-While orientation can be relevant to tissue architecture at lower
-magnification, cellular patterns at high magnification have no fixed
-orientation in the image. At this scale, a rotation changes the viewing
-orientation of a patch while preserving its tissue identity and diagnostic
-information. This rotational symmetry motivates incorporating rotation into
-the model's architectural constraints. Ordinary convolutional neural networks
-(CNNs) use convolutions that are equivariant to translations: translating an
-input translates its feature map. Conventional CNNs usually learn rotational
-responses from rotated examples or separate filters. In the $\SOtwo$ VAE,
-steerable convolutions incorporate rotation symmetry through constrained
-filters, introducing a rotational inductive bias into this VAE's
-unsupervised representation learning
+While orientation can be relevant to tissue architecture at lower magnification, cellular patterns at high magnification have no dominant orientation in the image. At this scale, a rotation changes the viewing orientation of a patch while preserving its tissue identity and diagnostic
+information. This rotational symmetry motivates incorporating rotation into the model's architectural constraints. Ordinary convolutional neural networks (CNNs) use convolutions that are equivariant to translations: translating an input translates its computed feature map. Conventional CNNs usually learn rotational responses from rotated examples or separate filters. In contrast, the $\SOtwo$ VAE uses steerable convolutions with constrained filters to incorporate rotation symmetry, introducing a rotational inductive bias into its unsupervised representation learning
 \cite{cohen_group_2016,cohen_steerable_2017,weiler_general_2019}.
 
-Rotation-equivariant classifiers have previously been studied for
-histopathology patch prediction \cite{veeling_rotation_2018}. VAEs
-incorporating symmetry have also modeled object pose and learned orientation-invariant cell
-representations \cite{nasiri_target_2022,burgess_orientation_2024}.
-The comparison here uses patches from the UBC Ovarian Cancer Subtype
-Classification and Outlier Detection (UBC-OCEAN) training resource
-\cite{ubc_ocean_2023}. A conventional residual denoising VAE and a denoising VAE with
-steerable kernels constrained for the continuous planar rotation group
-$\SOtwo$ are trained without supervision
+Rotation-equivariant classifiers have previously been studied for histopathology patch prediction \cite{veeling_rotation_2018}. Using equivariance to $90^{\circ}$ rotations and reflections, Veeling et al. reported $89.8\%$ accuracy and $96.3\%$ ROC-AUC on PatchCamelyon, compared with $87.6\%$ and $95.5\%$, respectively, for a conventional DenseNet. VAEs incorporating symmetry have also modeled object pose and learned orientation-invariant cell representations. On uniformly rotated and translated MNIST images, TARGET-VAE achieved $63.4\%$ clustering accuracy with its $P_{16}$ variant, compared with $12.8\%$ for a conventional VAE \cite{nasiri_target_2022}. On the synthetic PCST cell benchmark, O2-VAE reduced the rate at which an image and its rotated copy were assigned to different clusters from $58\%$ with a conventional VAE to $7.4\%$ \cite{burgess_orientation_2024}. \citet{lafarge_orientation_2020} incorporated rotation-equivariant convolutions into VAEs for orientation-disentangled representation learning in histopathology. However, to our knowledge, no prior study has jointly evaluated spatial representations from continuous-$\SOtwo$ denoising VAEs for reconstruction, tissue recognition, and WSI diagnosis in ovarian histopathology. Our contribution is a comparison of conventional and continuous-$\SOtwo$-equivariant denoising VAEs using shared data, training budgets, and evaluation protocols.
+
+For this study, we use patches from the UBC Ovarian Cancer Subtype Classification and Outlier Detection (UBC-OCEAN) training resource \cite{ubc_ocean_2023}. A conventional residual denoising VAE and a denoising VAE with steerable kernels constrained for the continuous planar rotation group $\SOtwo$ are trained without supervision
 \cite{kingma_auto_encoding_2014,im_denoising_2017}. Both yield spatial
 feature maps of size $16\times32\times32$.
 

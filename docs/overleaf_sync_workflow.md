@@ -1,6 +1,31 @@
 # Overleaf Sync Workflow
 
-## Current project: INCISCOS
+## Current project: MIDL 2027
+
+The active manuscript is `paper/midl2027` in
+https://www.overleaf.com/project/69c614433cbc9e46cf226d24.
+Live Overleaf is the source of truth. On 2026-10-09 the user gave standing
+authorization to import all Overleaf manuscript changes, regenerate the PDF,
+commit the paper updates and push to research `origin/main` before declaring
+any correction round complete. No additional permission is needed for this
+synchronization and push.
+
+Read the current paper handoff first. Import all current manuscript sources,
+bibliography, figures and class/style assets, including new files. Preserve
+professor edits, tracked suggestions and comment histories; only the professor
+closes comments. Verify source parity against the live project, compile the
+matching PDF (locally when no supported Overleaf PDF export is available),
+inspect its rendering and content, then publish only the paper and relevant
+handoff/policy updates. Verify the remote commit and PDF after pushing.
+Preserve unrelated research changes. Never finish a correction round with
+unreported drift or push the whole research repository to Overleaf.
+
+The 2026-10-09 import contains `main.tex` v453 and `references.bib` v4;
+all 28 active source/assets match Overleaf. Fourteen comment threads remain
+preserved (eight open, six resolved). See `paper/midl2027/README.md` for the
+build and PDF verification record.
+
+## Archived INCISCOS migration (historical)
 
 On 2026-09-29, the former SIPAIM Overleaf project was replaced by a curated
 export of the committed `paper/inciscos2026` manuscript. Overleaf `master`

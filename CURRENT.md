@@ -1,6 +1,30 @@
 # Current Repository Status
 
-Last updated: 2026-10-08
+Last updated: 2026-10-09
+
+## MIDL paper: synchronized approved Overleaf corrections (2026-10-09)
+
+Imported live Overleaf `main.tex` v453 and `references.bib` v4 into
+`paper/midl2027`, including all professor edits and approved corrections.
+All 28 active sources/assets match Overleaf byte for byte; only the manuscript
+and bibliography changed from the earlier import. All fourteen comment
+histories/states remain preserved (eight open, six resolved); tracked changes
+remain untouched. The 22-page PDF was rebuilt locally and visually inspected,
+with institutional email `maximiliano2162094@correo.uis.edu.co` present and
+the personal email absent. Compilation has no errors, undefined references or
+overfull boxes. PDF SHA-256:
+`1e908e8dd138ab4988067a107152c57d92f0f6e66bccefce48ee64e2651e1817`.
+The approved 152-WSI abstract placeholders/significance TODO remain pending
+new results; the body retains the historical 23-WSI evaluation.
+
+The user gives standing authorization for every Overleaf paper change to be
+imported, compiled, verified, committed and pushed to research `origin/main`
+before a correction round is declared complete. This paper update supersedes
+the earlier handoff stating that approved corrections had not been imported.
+Preserve unrelated research work and professor comments. See
+`paper/midl2027/README.md`, `AGENTS.md` and `docs/overleaf_sync_workflow.md`.
+Import/parity evidence is in
+`../.agent-tools/overleaf-review/review-data/midl-import-2026-10-09/`.
 
 ## Spec 0054: authorized regularized CLS restart (2026-10-08)
 
