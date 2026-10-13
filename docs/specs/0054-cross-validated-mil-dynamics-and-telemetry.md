@@ -1,11 +1,13 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: simplified A0 v4 complete; fold-0 v3 checkpointed then CUDA error, v4 canceled, v5/v6 failed before training, v7 smoke complete, v8 session-limited with checkpoints; resume dataset v4 verified, gated ABMIL implemented and locally verified; fresh GPU smoke/full fold not launched
+Status: regularized spatial-CLS fold0 checkpointed after v12 at normal72.61/SO(2)71.97 epochs; 105-epoch horizon unfinished; resume dataset v3 ready
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-10-08
+Last updated: 2026-10-13
 
 ## Active regularized spatial-CLS restart (2026-10-08)
+
+Continuation input is the private `maximshtefan/eqvae-spec0054-cls-regularized-fold0-resume/3` dataset, containing the v12 latest/best states and cumulative telemetry. Resume latest at normal5228 updates/20,912 presentations/epoch72 cursor176 and SO25182/20,728/epoch71 cursor280. Both have completed the epoch70 assessment. Source remains `f81ca4c574d07d6a2fedddac21eab22eab924500`. The thin entry retains the expired v12 cutoff as execution provenance; replace it with a fresh submission-based deadline, reserving15min of the next session quota, before any new launch.
 
 The authorized followup restarts the existing CLS classifier from its paired
 initialization on fold0. The frozen VAE encoders, twelve latent shards,
@@ -25,6 +27,70 @@ combined recipe cannot isolate the individual effects of AEM and sampling;
 comparison with the prior155-epoch recipe also changes the cosine horizon.
 Only fold0 is submitted now. The prior v9 states and learning dynamics stay
 preserved as the reference; new recipe states must never resume those weights.
+Submitted as `maximshtefan/eqvae-spec0054-mil-fold0/10` on2026-10-08 around
+19:16 Bogota, source `f81ca4c574d07d6a2fedddac21eab22eab924500`; initial
+API status RUNNING. Shared session cutoff is2026-10-09T07:01:04-05:00.
+
+V10 completed normally with both branches checkpointed at2160 updates/8640
+presentations (30 training epochs). The epoch30 full-bag assessment was
+interrupted by the session guard and remains pending; the last complete and
+best assessment is epoch25. Normal train/validation CE1.25029/1.30101 with
+validation macroF1.45263; SO2 CE1.16975/1.16024 with macroF1.50897.
+At matched epoch25 the reference has CE/F1 1.29800/.45794 normal and
+1.13200/.57203 SO2, so superiority of the new recipe is not observed yet.
+All8640 ordered WSI/subset/LR/AEM records match across branches; checkpoint
+cadence and successful AMP retries are preserved. Input queue waits account
+for about97.2% of recorded step time; mean steps13.38/13.57s exceed the
+reference first2160-update means8.00/8.01s. Full artifacts are retained in
+runs/kaggle/spec0054_cls_fold0_regularized_v10 and the local review summary.
+No continuation or further recipe change accompanied this inspection.
+
+The subsequent authorized continuation was submitted on2026-10-09 around
+13:01--13:04 Bogota as `maximshtefan/eqvae-spec0054-mil-fold0/11`, initial
+status RUNNING. It resumes both epoch30 states from the verified private
+`maximshtefan/eqvae-spec0054-cls-regularized-fold0-resume/1` dataset, including
+optimizer/scaler/telemetry and replaying the pending assessment. Source and
+recipe remain unchanged. With6h55 quota stated, both GPU processes share
+the19:41:02 Bogota cutoff (6h40 from submission preparation,15min margin).
+Checkpoints remain every144 presentations/36 updates and at session shutdown.
+The105-epoch horizon spans further sessions; no horizon reset occurs.
+
+Inspection on2026-10-12 confirms v11 completed normally with both latest
+states at2880 updates/11,520 presentations (40 training epochs). Epoch40
+assessment was interrupted by the deadline; last completed assessment is35.
+Best validation CE selects normal epoch30 (train/validation CE.99107/1.16403,
+validation macroF1.49737) and SO2 epoch35 (1.10371/1.12076, macroF1.46000).
+Normal epoch35 worsens to validation CE1.23687/F1.42595; SO2 epoch30 has
+CE1.19103/F1.51254. These mixed trends do not establish improved generalization.
+Paired inputs and all prior telemetry prefixes are exact; checkpoint cadence
+is preserved, with one successful normal AMP backoff and no committed nonfinite
+loss/gradient rows. Artifacts and local review are retained under the v11 run
+directories.65 epochs remain; continuation must use the new epoch40 states
+and replay the pending assessment.
+
+Authorized v12 continuation was submitted on2026-10-12 around22:22 Bogota
+from the verified private resume dataset version2 (v11 epoch40 states).
+The source f81ca4c574d07d6a2fedddac21eab22eab924500, recipe and reader remain
+unchanged; both VAE branches use separate GPUs and preserve cumulative state.
+The12-hour budget has a shared cutoff2026-10-13T10:06:50-05:00,11h45 from
+submission preparation with15min margin. Checkpoint cadence remains144 WSI
+presentations/36 updates; epoch40 assessment is replayed before new updates.
+
+Inspection on2026-10-13 confirms v12 paused normally during training at the
+deadline, with checkpoints at normal5228 updates/20,912 presentations
+(epoch72/cursor176) and SO25182/20,728 (epoch71/cursor280). Epoch70 assessment
+is complete; no pending assessment. Both best by full-bag validation CE are
+epoch55: normal train/validation CE.71793/.96126, validation macroF1.60816;
+SO2 .67271/.85010, F1.61773. These descriptive fold0 metrics improve over
+the prior recipe's best45 CE/F1 1.01946/.57860 and .97660/.57665. At70 normal
+CE.71368/1.26642/F1.49796 and SO2 .67487/1.02873/F1.56413 show renewed
+validation deterioration after55. The combined recipe has not eliminated
+overfitting; its attribution and single-fold limits remain. All prior telemetry
+is exact, the common20,728 training presentations remain paired, and the
+deadline/checkpoint cadence work. Three AMP backoffs recovered with no committed
+nonfinite loss/gradient rows. Mean steps14.09/14.54s returned near v10 levels
+without code changes.32.389/33.028 epochs remain to105; saved v12 states must
+be used for any subsequent continuation, preserving their within-epoch cursors.
 
 ## Purpose
 
@@ -580,6 +646,18 @@ WSI exposures and paired randomness. Report both its native parameterization
 and a capacity-aware comparison; do not distort a published mechanism merely
 to force an exact parameter match.
 
+A brief train-only throughput probe now compares the existing CNN with two
+spatial patch encoders: lossless 2x2 packing, and 4x4 packing followed by a
+learned projection. Both proposed encoders use one full self-attention block
+and one CLS-query-only block before gated WSI aggregation. The existing thin
+Kaggle mechanism loads the pinned probe module; separate normal/SO(2) workers
+own separate GPUs and use identical sampled patch indices. Common CE, AMP,
+optimizer and T0 measurements isolate encoder execution cost. Cold compilation
+and a profiled warmup are excluded from steady-state timing. This short resource
+measurement does not resume a fold, select from outer holdout or assess
+classification quality; the numerical setup is in
+`experiments/spec0054_patch_speed_probe.py`.
+
 The next paired classifier uses a smaller spatial encoder: a nonoverlapping
 4x4 stride-4 convolution maps the frozen 16x32x32 means to 64 spatial tokens
 of width 64. Learned positions are added once before a shared residual pre-LN
@@ -619,15 +697,392 @@ validation losses from the existing prediction table. Checkpointing remains
 every 144 WSI exposures, and later snapshot/probe epochs outside the new
 horizon are removed from the execution contract.
 
-Training prefetch keeps at most two future inputs per VAE process. One reader
-thread reads only the sorted retained FP16 records, grouping adjacent indices,
-prepares pinned channels-last memory and completes H2D on a separate CUDA
-stream while the main stream trains. The speculative queue spans updates and
+Training prefetch keeps at most two future inputs per VAE process. Two reader
+threads read only the sorted retained FP16 records, grouping adjacent indices,
+prepare pinned channels-last memory and complete H2D on a persistent CUDA
+stream per reader while the main stream trains. Branch files open on the main
+thread before concurrent reads and remain open for the session. Results are
+consumed in submission order. The speculative queue spans updates and
 epochs; assessments drain it and AMP backoffs rebuild it from the uncommitted
 cursor. It changes neither paired subsets/order nor committed checkpoint state.
 Complete-bag diagnostics remain synchronous. Requested bytes, read-region count,
 read/preparation time, H2D completion time and consumer wait are logged; reduced
 byte requests are not interpreted as a measured speedup.
+
+The subsequent bounded reader-thread probe mounts only shard 1 and uses four
+adjacent median-sized fold-training bags within that shard, with identical
+seeded 80% subsets in both VAE branches. A derived cohort CSV retains all
+original shard-1 WSI identities, labels and folds for the existing reader.
+Following notebook-output mounting failures, the probe uses the private copy
+`maximusshtefan/eqvae-spec0054-frozen-latent-shard-1/1`. Its result and index
+retain the frozen hashes, and both binary sizes match the producer. The copy
+changes the Kaggle input type without regenerating embeddings.
+All branch descriptors open before concurrency. After one sampled-read warmup
+per bag, the two embedding-store processes synchronously
+compare one/two/two/one reader workers, four bags per trial. The probe records
+file-read wall/thread-CPU time, complete four-bag elapsed time, process CPU time
+and visible CPU layout. It performs no tensor preparation, VAE inference,
+classifier steps or H2D. Warm-cache observations do not establish full-atlas cold-storage speed.
+The v16 probe completed on two physical CPU cores/four logical threads. Mean
+four-bag warm-cache elapsed time was 0.23444/0.21318 s normal and
+0.23588/0.22492 s SO2 for one/two readers per process. The paired eight-bag
+span fell 7.56%, while summed process CPU time rose 60.91%. There are two
+rounds per reader count. Initial warmup reads took 1.19--3.06 s per bag;
+concurrent cold reads were not compared. The training path retains one reader
+per branch and two future WSI; this bounded result establishes no complete
+training speedup.
+
+The authorized first-read follow-up uses eight other median training bags in
+shard 1, each read exactly once per store with the same paired, sorted 80%
+subset. Four disjoint low/high size pairs run with one/two/two/one readers;
+requested counts differ slightly, so compare bytes per elapsed second as well
+as wall time. Both pools and binary descriptors persist for the entire probe.
+Adjacent retained patches are already grouped into one `preadv` region; no
+extra discarded patches are read. There is no warmup or tensor preparation.
+This measures first reads by the script, not guaranteed empty Kaggle caches.
+The training reader count remains unchanged pending this result.
+V17 completed with both workers exiting zero and all paired subsets/order
+matching. Mean two-bag elapsed time for one/two readers is 3.14455/2.58905 s
+normal and 3.04201/2.60670 s SO2. Two-reader panels request 5.79% fewer bytes;
+normalized throughput improves 14.42%/9.94% per store. Across both stores,
+throughput rises 225.41 to 244.00 MB/s (8.25%), with 16.38% more summed
+process CPU time. This supports a modest first-read concurrency benefit on
+the measured host. Only two disjoint trials per count were observed; actual
+training gain and controlled cold-cache behavior remain unmeasured.
+After v17, two readers per branch were adopted in the local training runner,
+retaining the two-future-WSI bound. Focused CPU verification confirms concurrent
+reads, ordered sampled tensors, queue drain and exact interrupted/resumed
+training agreement for effective batches 1, 4 and 8. The new CUDA path has not
+yet been measured in a training run; v17 measured file reads only.
+
+### CNN-128 comparison
+
+The next encoder comparison uses the historical three-convolution patch CNN
+with widths 64/128/128, spatial mean pooling and gated ABMIL of hidden width
+128. It starts from fresh classifier weights without positional encoding.
+The paired batch-4, 80% sampling, LR/AEM schedules and WSI-exposure horizon
+are retained. The fold contract increases AdamW weight decay to 0.05 for both
+branches; it applies to matrix/convolution weights, excluding biases and
+normalization vectors. The completed spatial-CLS anchor used 0.005, so the
+comparison also changes decay and cannot isolate an encoder-only effect.
+The CNN-128 implementation has 281,222 parameters. T0 retains the eight
+ABMIL terminals; T1 captures every convolution, normalization, activation,
+pooling and attention/head layer, parameter gradients and optimizer state.
+T2 retains WSI-attention participation, gate saturation, patch/attention
+representation spectra and top-patch coordinates; spatial CLS-head diagnostics
+are removed with that encoder. The classifier begins with uniform WSI attention
+and zero class-output weights/biases. Forward/objective/T0 and generated
+backward remain compiled with dynamic patch count; optimizer instrumentation
+remains outside the compiled graph.
+The bounded smoke mounts only the unchanged private shard-1 dataset, derives
+its original 36-WSI cohort (26 fold-training bags) and uses train WSI 1080 as
+the complete-bag diagnostic sentinel. It runs eight committed updates per VAE,
+saves/restores after four and writes T0/T1/T2 plus checkpoint and smoke summary.
+At batch 4 it sees 30 WSI, including the two-WSI epoch-tail update; both branches
+have the same plan. Smoke mode skips population assessments, including at
+epoch boundaries, and does not select a classifier from validation. Its subset
+class weights and exposure schedule are operational diagnostics only. The full
+fold retains all twelve shards, original cohort, sentinels and fixed horizon.
+The v18 CNN128 smoke completed: both workers exit zero, eight committed
+updates/30 exposures each and restoration from update4/exposure16. All paired
+WSI/sample hashes match. Each branch persisted 30 T0, 7,446 T1 and 426 T2
+rows, including every CNN convolution/pooling capture. There were no AMP
+backoffs or reviewed T1 nonfinite fractions; training peak allocated memory
+was 4.441 GiB per GPU. Execution took 251.460 logged seconds including cold
+compilation. These bounded observations verify execution and persistence,
+without estimating full-fold learning or throughput.
+The authorized fresh full-fold v19 pins the same smoke-verified CNN128 source,
+with shard1 mounted as the verified private dataset and shards2--12 as their
+original notebook outputs. It uses the full original cohort and paired
+14,400-WSI horizon, batch4, decay0.05 and the two-reader prefetch. No CLS or
+smoke checkpoint is used to initialize this comparison. Full input mounting
+and execution remain pending confirmation after initial RUNNING acceptance.
+V19 subsequently mounted all twelve inputs and reached epoch40, 11,520 WSI
+exposures/2,880 updates per VAE before the session guard paused during its
+assessment. Both processes exited zero and saved loadable pre-assessment
+checkpoints; the last complete assessment is epoch35. Paired samples/order
+match, AMP backoffs are zero and reviewed T1 nonfinite fractions are zero.
+Epoch35 train/validation CE is 1.47034/1.46062 normal and 1.39274/1.38762
+SO2, with validation macroF1 .22986/.33089. Matched spatial-CLS epoch35
+validation CE was 1.33246/1.24162. This CNN/decay recipe is numerically finite
+but has weaker observed fit; encoder and regularization changes are confounded.
+The fixed horizon still requires ten epochs/720 updates per branch and a
+repeated epoch40 assessment before continuing training.
+The authorized v20 continuation mounts the verified private CNN128 resume
+dataset version1, restores both epoch40 states and retains the exact source,
+recipe and paired horizon. It repeats the pending epoch40 assessment before
+the remaining720 updates per branch; initial RUNNING acceptance is recorded.
+At fixed train sentinel WSI28121, epoch30 centered patch effective rank is
+1.5017/1.2566 with top-four energy96.999%/98.337% for normal/SO2. The matched
+CLS sentinel ranks were7.35/5.84. This within-WSI concentration is descriptive
+and does not establish an encoder/decay cause of the observed weaker fit.
+
+### Paired spatial-CLS LR range search
+
+CNN128 fold0 completed in v20 at50 epochs/14,400 exposures/3,600 updates per
+branch. Final validation CE is1.46037/1.38826 and macroF1.20384/.30817
+normal/SO2, versus spatial-CLS final CE1.35750/1.24873 and macroF1.39103/
+.46538. Architecture and decay differ, so this comparison does not isolate
+the encoder effect.
+
+The next authorized bounded measurement restores the executed88,006-parameter
+spatial-CLS encoder and its spatial-head diagnostics. It reuses the existing
+runner with `--lr-search`, all twelve frozen FP16 shards and only the288 WSI
+of fold0 training. Normal/SO2 run independently and concurrently on GPU0/GPU1
+with the same initial model state, WSI order, 80% sorted patch subsets and
+effective batch4. AMP, compiled objective/backward, dynamic patch count and
+two-reader/two-future-WSI prefetch remain in place.
+
+AdamW retains the most recently agreed decay0.05 (historical CLS used0.005),
+betas(.9,.999), epsilon1e-8 and no decay on scalar/vector parameters. AEM
+remains fixed at0.01 during the measurement. The existing numerical contract
+defines72 preparation updates at LR1e-5, followed by200 updates increasing
+geometrically from1e-5 to an exploratory ceiling0.1, inclusive. Progress is
+indexed by committed update, so AMP retries retain the same WSI batch and LR.
+The maximum budget is272 updates/1,088 training-WSI exposures per branch.
+
+T0 retains CE without/with class weights, positive lambda*entropy magnitude,
+objective=weighted CE minus that magnitude, LR, search phase, sample hashes,
+unscaled gradient and actual AdamW update measurements. Step logs print the
+three loss components. Buffered tables/checkpoints are saved every144 WSI
+exposures; initial and pre-sweep model/optimizer snapshots are retained. T1
+and T2 run on the fixed train sentinel at update0 and72. The outer holdout,
+full-fold assessments and ten-WSI gradient panel are not evaluated in this
+measurement. Actual nonfinite loss ends the branch before backward or optimizer
+step and records the attempted LR/WSI/losses while retaining committed state;
+finite losses have no artificial tolerance gate. An unstable finite portion
+remains a measured part of the curve, not a runtime failure.
+
+This trajectory estimates an initial useful LR interval, not a generalization
+optimum. Both branches' curves will select one common candidate below observed
+deterioration. A separate short fixed-LR confirmation must start from the
+original initialization with fresh AdamW state. The main paired fold likewise
+starts fresh after confirmation; neither starts from unstable sweep weights.
+No automatic LR choice or full fold is launched by this measurement.
+The authorized measurement was submitted as Kaggle v21 on2026-10-06,
+pinning public sourced593e713a5e5592e08a4be5af882d2a8f8c3eafc. Its first
+status is RUNNING; curves and fixed-LR confirmation remain pending.
+
+The next main paired run has a precommitted155-epoch total budget: five
+epochs of warmup, then150 epochs of cosine LR decay to1% of the shared peak.
+For fold0 train288/effective batch4 this is44,640 WSI exposures and11,160
+committed updates, including360 warmup and10,800 cosine updates per branch.
+The same normalized exposure budget applies to both VAE branches. Existing
+AEM annealing spans the155 total epochs from initial coefficient0.01. The
+shared peak LR awaits range-search review and fresh-state confirmation; this
+horizon change does not alter the already submitted bounded LR measurement.
+
+V21 completed the bounded search for both branches at272 updates/1,088
+exposures and LR0.1 with no AMP backoffs or nonfinite loss. WSI order,
+targets, sample hashes and LR match exactly across branches, and retained
+initial/preparation/final checkpoints load at updates0/72/272. The brief
+cold-start sweep identifies no clear learning optimum: class-weight-normalized
+rolling CE stays close to the uniform-prediction baseline ln(5) at low LR,
+then deteriorates at high LR. For updates123-152 (LR1.01e-4--3.87e-4), the
+sum of weighted CE divided by sum of example weights is1.60894/1.60836
+normal/SO2; for updates203-222 (LR.00410--.00988), it is1.69058/1.67767.
+Normalization removes the class-composition scale change for uniform
+predictions but does not make this trajectory an independent LR comparison.
+Attention remains almost uniform during the short sweep, so it establishes
+no need for stronger AEM and does not characterize the learned late-training
+encoder. A common5e-4 fixed-LR confirmation from original initialization with
+fresh AdamW is a provisional proposal below observed deterioration. The
+shared peak remains unselected pending that confirmation. Results:
+`runs/local/spec0054_cls_lr_search_v21_review/summary.json` and
+`lr_curves.png`; no confirmation or main fold was submitted by this review.
+Both branches' minimum20-update rolling window is updates160-179, spanning
+LR0.0005607--0.001351 and80 WSI presentations. Its weight-normalized CE is
+1.58258/1.59779 normal/SO2, a small local improvement over ln(5). The plotted
+x coordinate0.001351 is the last LR of that window, not an independently
+evaluated optimum. Broad-bin averages can obscure this local valley; both
+summaries remain descriptive and do not replace fixed-LR confirmation.
+V21 throughput was slower than the prior CLS run despite identical first
+1,088 ordered WSI/subset rows. Excluding its first compilation update, mean
+step time21.67/21.63s contains21.03/20.97s logged prefetch-input wait;
+remaining timed work.641/.660s includes CPU/GPU/logging/optimizer telemetry,
+not isolated GPU compute. H2D averages.021/.019s per WSI. Prior CLS first272
+updates excluding first10 average8.87/9.20s. The shard reader and model code
+are unchanged, while prefetch reader count increased from one to two per
+branch. This cross-session comparison locates the extra wait but cannot
+attribute it to storage/cache variability or reader contention. A same-session
+reader-count comparison is needed before attributing the slowdown to that
+change. Evidence:`runs/local/spec0054_cls_lr_search_v21_review/timing_comparison.json`.
+The local audit verifies same-descriptor concurrent full/sampled reads preserve
+exact row order and the descriptor cursor. The active pipeline preopens
+descriptors, owns separate per-read buffers and per-thread CUDA copy streams,
+consumes the FIFO on the main thread and joins readers before closing files.
+No race was found in this path. New local transfer-start fields separate
+`read_seconds`/`read_cpu_seconds` from `host_prepare_seconds`/
+`host_prepare_cpu_seconds`, retaining `read_prepare_seconds` and existing
+H2D/wait metrics. The v22 probe below measures these stages on Kaggle
+without changing the data path.
+The authorized brief follow-up reuses the existing single-shard read-probe
+mode from sourceca2d3cc60ea3080302ff63a21f71ac3f1ae10feb. Eight distinct
+fold-train bags per VAE store form four balanced first-read pairs with
+reader counts1/2/2/1. Four repeated-pair trials then compare both counts on
+the same two previously read panels. Both store processes run concurrently,
+one per physical GPU, with paired sorted80% subsets, preopened descriptors,
+persistent pools and per-reader copy streams. It separately measures read,
+pinned channels-last host preparation and completed H2D; no model, training,
+backward or compilation occurs. Total16 requests per store,32 combined,
+mounting only shard1. First-read observations do not prove empty OS/storage
+caches, and repeated-read results are not whole-cohort cold throughput.
+Submitted as Kaggle `maximusshtefan/eqvae-spec0054-mil-fold0/22` on
+2026-10-07 around15:11 Bogota; subsequent inspection confirms COMPLETE,
+both workers exit0 and eight trials per branch. Paired WSI/subset hashes match.
+For identical repeated panels, total paired wall (two WSI per branch,
+read/preparation/H2D) is .308/.305s with one reader and .267/.240s with two:
+13.3%/21.1% reductions,17.2% combined,20.8% more bytes/s. Process CPU cost
+increases42.4% for those same panels. First-read different panels give
+203.8/297.1MB/s with one/two readers, a descriptive46% throughput difference
+confounded by panel and initial allocation costs. First-read raw reads span
+.935--2.193s per WSI versus .057--.255s pinned host preparation and
+.010--.026s H2D. First-read wall greatly exceeds read thread CPU, while
+repeated read/preparation wall is close to thread CPU. V21's large input
+delay is not reproduced; its exact cause remains unresolved. Retain two
+readers per branch; this probe shows no reason to revert them, but measures
+neither whole-cohort cache behavior nor training throughput. Aggregate:
+`runs/local/spec0054_reader_timing_v22_review/summary.json`.
+
+### Fresh spatial-CLS LR confirmation
+
+The authorized follow-up compares shared peaks0.0005 and0.001 for eight
+fold0 training epochs each. Each independent VAE process executes both
+candidates sequentially on its assigned physical GPU; each candidate resets
+the same seed/model initialization and creates fresh AdamW/scaler state.
+The existing runner's `--lr-confirmation` reuses all twelve frozen shards,
+batch4, paired80% sorted subsets, two readers, AMP, compiled objective/backward
+and dynamic patch dimension. The contract retains155 total epochs for AEM's
+cosine schedule; confirmation stops after8 training epochs and holds LR at
+the peak after the5-epoch exposure warmup. There is no LR decay during the
+three fixed-peak epochs. Per candidate/branch budget:2,304 training-WSI
+presentations and576 committed updates (360 warmup,216 fixed-peak).
+
+Existing T0 records separate class-weighted/unweighted CE, AEM magnitude and
+total objective, gradients, AdamW updates, AMP state and step time; reader
+events separate read, pinned preparation, H2D and input wait timings.
+Train-only T1/T2-lite run at initialization and epochs1/2/5/8; the existing
+ten-train-WSI gradient panel runs at initialization and epochs1/2/5. No outer
+holdout or full-fold evaluation is used. Tables and resumable latest state
+flush every144 presentations/36 updates, with initial/final checkpoints in
+separate `lr_0.0005`/`lr_0.001` output directories. Pending diagnostic boundaries
+replay on resume; a completed candidate performs no additional update.
+The last three epochs' matched training CE and gradient/update behavior
+compare early fit and stability, not generalization or a proven LR optimum.
+No automatic peak selection or155-epoch main fold is part of this run.
+Submitted on2026-10-07 around16:05 Bogota as
+`maximusshtefan/eqvae-spec0054-mil-fold0/23`, source
+`7b56af79766fe6f4f9fde87c1d195ce973bb687c`; first status RUNNING.
+Initial status establishes acceptance, not mounting/training or comparative
+results. Next useful inspection after16:50 Bogota.
+Subsequent inspection confirms v23 COMPLETE with both worker exits0 and all
+four candidates at epoch8/576 updates/2,304 exposures. Initial weights and
+ordered WSI/targets/80% subset hashes match across all four; latest/final
+weights match per candidate. Each saves2,304 T0,28,846 T1 and1,165 T2 rows
+and diagnostics at epochs0/1/2/5/8. No AMP backoff, recorded nonfinite loss or
+gradient, or recorded T1 nonfinite fraction occurs. Training allocation peaks
+at3.958--3.996GiB per T4; both physical GPU mappings are verified.
+
+Epochs6--8 mean class-weighted CE is1.49301/1.49821 normal/SO2 with5e-4
+versus1.54778/1.56189 with1e-3. Unweighted CE is1.52996/1.50064 versus
+1.59516/1.58296. Mean AEM magnitude is.08551/.08480 versus.08555/.08504,
+and loss-component accounting residual is exactly0. At epoch8 weighted CE
+is1.46077/1.45475 versus1.53686/1.56270. Median global actual-update/weight
+ratios are.001641/.001502 versus.002933/.003143 over the last216 updates.
+These matched early-fit results favor the common5e-4 candidate for the next
+fresh155-epoch recipe; outer-fold generalization remains unmeasured here.
+Mean update time excluding the first is5.34/5.32s versus6.37/6.36s; candidate
+order/storage state confound any causal LR timing interpretation. V21's
+sustained22-second input delay is not reproduced. Review evidence:
+`runs/local/spec0054_cls_lr_confirmation_v23_review/summary.json` and
+`classification_ce.png`. No main training run is submitted by this inspection.
+
+### Selected spatial-CLS fold0 recipe
+
+Following confirmation, the authorized fresh fold0 run fixes common peak
+LR0.0005,155 total epochs (5 warmup +150 cosine), effective batch4,
+weight decay0.05, AEM initial0.01 annealed over155 epochs, paired80% sorted
+patch sampling and the existing two-reader pipeline. The full288 train/73
+validation cohort and all twelve frozen shards are retained. Each branch's
+complete horizon is44,640 WSI presentations/11,160 committed updates. Both
+VAE branches run concurrently in separate physicalGPU0/GPU1 processes.
+The existing full-fold validation, checkpoint selection, T0/T1/T2 and gradient
+panel cadence resumes; tables/latest state flush every144 presentations.
+
+The first session has a remaining stated GPU budget of6h30. A shared absolute
+deadline, supplied only by the thin entry via `--session-deadline-unix`, stops
+both branches at6h15 after submission, reserving15 minutes for checkpoint and
+process shutdown. Counting from submission includes queue/input preparation
+conservatively. The guard is checked before training updates, AMP retries and
+evaluation/diagnostic bags. It saves committed progress or retains the saved
+pre-assessment state for replay. The session deadline is excluded from the
+scientific checkpoint identity, allowing later continuation with a new runtime
+deadline and the same frozen recipe/source. It does not shorten the155-epoch
+scientific horizon. The current submission authorizes fold0 only; subsequent
+folds use the same recipe on distinct validation partitions, followed by a
+separate final refit on all361 WSI with no validation-dependent stopping.
+Submitted as `maximusshtefan/eqvae-spec0054-mil-fold0/24` on2026-10-07
+around19:56--19:57 Bogota, source
+`0f1868f35a7bffaea0b66189b2dbd8ee47659348`. The shared runtime cutoff is
+2026-10-08T02:11:27-05:00, excluding that deadline from checkpoint identity.
+This is a quota-limited first session of the155-epoch fold, not a shortened
+scientific horizon or a continuation of the eight-epoch confirmation weights.
+Inspection on2026-10-08 confirms v24 COMPLETE with two normal worker exits
+after the planned runtime pause around02:11 Bogota. Latest checkpoints load
+at1712/1707 updates and6848/6828 exposures normal/SO2, both after23 full
+epochs plus224/204 WSI of epoch24. The first6828 ordered WSI/target/subset/LR
+rows match. Latest-save exposure gaps are at most144, including final saves.
+The155-epoch horizon remains incomplete.
+
+The last complete train/validation full-bag assessment is epoch20: normal
+CE1.29440/1.40451 and validation macroF1.31023; SO2 CE1.24604/1.23381 and
+validation macroF1.46110. Normal's best validation-CE state remains epoch10
+(CE1.38685, macroF1.35434); SO2's is epoch20. Normal's train/validation gap
+increases after10, while SO2 has a transient epoch15 regression before its
+epoch20 improvement. These are exploratory fold0 dynamics, not evidence of
+five-fold performance. One SO2 AMP gradient overflow at update1440 lowers
+scale65536 to32768 and the batch is retried successfully; no other backoff or
+recorded nonfinite committed losses/gradients occurs. Per-GPU training peaks
+are4.1124/4.1129GiB; mean noninitial update time8.256/8.264s and last100-update
+means10.52/10.73s. No recipe or scientific horizon is changed by this review.
+Evidence: `runs/local/spec0054_cls_fold0_v24_review/summary.json` and
+`train_validation_ce.png`; full outputs/checkpoints are under
+`runs/kaggle/spec0054_cls_fold0_v24/`. No continuation is submitted yet.
+
+The subsequently authorized exact continuation ran as
+`maximshtefan/eqvae-spec0054-mil-fold0/9` from the shared v24 outputs with
+the same source/recipe and separate physical T4GPU0/GPU1 processes. It
+completed normally at the2026-10-08T15:20:52-05:00 runtime cutoff, retaining
+normal/SO2 latest states at4800/4831 updates and19,200/19,324 presentations
+(66.67/67.10 equivalent epochs);155 epochs remain unfinished. The cumulative
+first19,200 paired T0 order/subset/LR/update rows match, and prior T0 history
+is preserved. Latest-save gaps remain at most144 presentations. Four/three
+AMP backoffs retry successfully; committed losses/gradients remain finite.
+Both best checkpoints by validation CE are epoch45: normal CE1.01946,
+macroF1.57860; SO2 CE.97660, macroF1.57665. At the last complete assessment,
+epoch65, train/validation CE is.44138/1.49621 normal and.47721/1.16734 SO2,
+with validation macroF1.43680/.52680. These exploratory fold0 observations
+show improved learning and a pronounced later generalization gap, without
+changing the fixed recipe or five-fold protocol. Outputs and loadable latest/
+best checkpoints are under `runs/kaggle/spec0054_cls_fold0_original_v9/`;
+review evidence is in `runs/local/spec0054_cls_fold0_original_v9_review/`.
+
+Late T2 measurements add a mechanistic observation to that review. On the
+fixed train sentinel28121 (13,178 full-bag patches), attention effective
+support drops from69.48%/79.93% at epoch20 to1.26%/1.60% at60, normal/SO2;
+maximum patch mass at60 is6.65%/6.86%. On validation sentinel27739
+(11,855 patches), support drops87.55%/90.30% to8.86%/14.56%. Thus late
+concentration is observed on both sentinels, without establishing its
+prevalence or causal role across the cohort. Effective fractions use the
+prediction table's full bag size; patch_tokens.count counts scalar elements.
+The AEM coefficient remains.0062533 at65, versus initial.01. The user's
+proposed constant AEM.01 and70% retention are recorded as an unimplemented
+alternative requiring a separate experiment. Literature context is saved
+in the review summary: [AEM's final paper](https://arxiv.org/html/2406.15303v3)
+uses cosine weight annealing to reduce parameter sensitivity, while
+[random-sampling MIL](https://arxiv.org/abs/2403.05351) finds dataset-dependent
+sampling optima. Neither source establishes an ovarian-subtyping optimum
+of70% or superiority of constant AEM for this frozen-latent setup.
 
 ## Telemetry Design Principles
 

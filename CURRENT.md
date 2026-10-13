@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-10-09
+Last updated: 2026-10-13
 
 ## MIDL paper: synchronized approved Overleaf corrections (2026-10-09)
 
@@ -25,6 +25,62 @@ Preserve unrelated research work and professor comments. See
 `paper/midl2027/README.md`, `AGENTS.md` and `docs/overleaf_sync_workflow.md`.
 Import/parity evidence is in
 `../.agent-tools/overleaf-review/review-data/midl-import-2026-10-09/`.
+
+## Spec 0054: continuation handoff (2026-10-13)
+
+Latest execution: `maximshtefan/eqvae-spec0054-mil-fold0/12`, COMPLETE.
+Both GPU workers paused normally at the shared deadline and saved their state.
+Private continuation input:
+`maximshtefan/eqvae-spec0054-cls-regularized-fold0-resume/3`.
+It contains 14 latest/best/identity/T0/T1/T2/prediction files (36.1 MB), including
+optimizer, GradScaler, RNG and cumulative dynamics/telemetry. Versioned file
+redownloads match the v12 originals by SHA256. Kaggle's aggregate archive
+endpoint returns404 for this version; individual versioned downloads work.
+Full output, logs and sparse snapshots remain in the version12 kernel output.
+
+| Branch | Updates | Training WSI presentations | Epoch / cursor | Updates remaining to105 |
+|---|---:|---:|---|---:|
+| normal_vae | 5228 | 20,912 | 72 /176 | 2332 |
+| so2_vae | 5182 | 20,728 | 71 /280 | 2378 |
+
+Resume from `latest.pt`, preserving each within-epoch cursor. Both branches
+completed epoch70 assessment; neither has a pending assessment. Both `best.pt`
+are epoch55 (3960 updates), selected by minimum unweighted full-bag validation
+CE: normal CE.96126/macroF1.60816; SO2 CE.85010/macroF1.61773. Epoch70
+validation CE/F1 are1.26642/.49796 and1.02873/.56413. Late validation
+regression and increasing prediction confidence remain exploratory fold0 findings.
+
+Scientific source is pinned to
+`f81ca4c574d07d6a2fedddac21eab22eab924500`. Continue the unchanged recipe:
+CLS spatial encoder + gated ABMIL, AMP, effective batch4, AdamW decay.05,
+AEM.05 constant, train retention60%, peakLR.0005/minLR.000005,105 total epochs
+(5 warmup +100 cosine). Cohort361 nonTMA WSI; fold0 train288/validation73;
+full historical Otsu-selected bags for evaluation. Both VAEs and all12 existing
+embedding shards stay frozen. Five-fold evaluation and the final all361-WSI
+training remain pending; the152 external WSI remain reserved for final evaluation.
+Dropout, label smoothing, alternate LR and PANTHER are discussion proposals.
+
+The checked-in thin entry is
+`kaggle/kernels/spec0054_mil_fold0/abmil.py`, with owner/input locators in the
+adjacent metadata. It uses RESUME=True, physicalGPU0 normal/GPU1 SO2, dynamic
+patch count, compiled forward/loss/backward, two-reader prefetch, cached shard
+descriptors and buffered telemetry. Checkpoints/tables save every144 WSI
+presentations/36 updates, at assessments and session shutdown.
+Before the next submission, set a fresh `SESSION_DEADLINE_UNIX` from the
+current session quota, reserving15min and counting from submission. The stored
+v12 cutoff has expired. Confirm CLI identity and use
+`scripts/kaggle_kernel.sh build/push`; keep the scientific source pin unchanged.
+A new launch is the next execution action; no continuation is currently running.
+
+Professor-facing update and three comparison graphs:
+https://github.com/HiperMaximus/equivariant-vae/issues/8#issuecomment-6149719046.
+Plots are published in commit4454f995a2de07b9a7a4984bcd32f4abba186995 under
+`reports/professor/spec0054_cls_fold0_regularized_{ce,f1,attention}.png`.
+Local downloaded evidence is in `runs/kaggle/spec0054_cls_fold0_regularized_v12/`;
+review/receipts/plot data are in
+`runs/local/spec0054_cls_fold0_regularized_v12_review/` (ignored personal files).
+Scientific plan: `docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md`;
+run contract: `docs/data/spec0054_fold0_run.json`.
 
 ## Spec 0054: authorized regularized CLS restart (2026-10-08)
 

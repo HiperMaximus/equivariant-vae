@@ -8,13 +8,16 @@ import sys
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "ec11ab34a8a57e2c0b2dc3498c99864425a1ea85"
+SOURCE_COMMIT = "f81ca4c574d07d6a2fedddac21eab22eab924500"
 SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
-OUTPUT_ROOT = Path("/kaggle/working/spec0054_abmil_fold0")
-RESUME_ROOT = None  # Fresh architecture: old local-global weights are incompatible.
-SMOKE = False  # Paired 50-epoch fold from initialization.
+OUTPUT_ROOT = Path("/kaggle/working/spec0054_cls_fold0")
+SMOKE = False
+RESUME = True
 EFFECTIVE_BATCH = 4
 READ_PROBE = False
+LR_SEARCH = False
+LR_CONFIRMATION = False
+SESSION_DEADLINE_UNIX = 1791904010.866954  # Last v12 cutoff; set a fresh submission-based deadline before the next push.
 
 
 def main() -> None:
@@ -25,6 +28,11 @@ def main() -> None:
     subprocess.run(["git", "-C", str(SOURCE_ROOT), "fetch", "--depth=1", "origin", SOURCE_COMMIT], check=True)
     subprocess.run(["git", "-C", str(SOURCE_ROOT), "checkout", "--detach", "FETCH_HEAD"], check=True)
     print(json.dumps({"event": "source_fetch_done", "commit": SOURCE_COMMIT}), flush=True)
+    resume_root = None
+    if RESUME:
+        resume_identity = next(Path("/kaggle/input").rglob("normal_vae/identity.json"))
+        resume_root = resume_identity.parent.parent.parent if LR_CONFIRMATION else resume_identity.parent.parent
+        print(json.dumps({"event": "resume_found", "root": str(resume_root)}), flush=True)
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=False)
     workers = []
     for branch, gpu in (("normal_vae", "0"), ("so2_vae", "1")):
@@ -42,15 +50,23 @@ def main() -> None:
             "--output-root", str(OUTPUT_ROOT), "--branch", branch,
             "--effective-batch", str(EFFECTIVE_BATCH),
         ]
-        if READ_PROBE:
+        if LR_CONFIRMATION:
+            command.append("--lr-confirmation")
+        elif LR_SEARCH:
+            command.append("--lr-search")
+        elif READ_PROBE:
             command.append("--read-probe")
         elif SMOKE:
             command.append("--smoke")
-        if RESUME_ROOT is not None:
-            command.extend(["--resume-root", str(RESUME_ROOT)])
+        if resume_root is not None:
+            command.extend(["--resume-root", str(resume_root)])
+        if SESSION_DEADLINE_UNIX is not None:
+            command.extend(["--session-deadline-unix", str(SESSION_DEADLINE_UNIX)])
         print(json.dumps({"event": "worker_launch", "branch": branch, "physical_gpu": gpu,
                           "smoke": SMOKE and not READ_PROBE, "read_probe": READ_PROBE,
-                          "effective_batch": EFFECTIVE_BATCH}), flush=True)
+                          "effective_batch": EFFECTIVE_BATCH, "lr_search": LR_SEARCH,
+                          "lr_confirmation": LR_CONFIRMATION,
+                          "session_deadline_unix": SESSION_DEADLINE_UNIX}), flush=True)
         workers.append(subprocess.Popen(command, env=environment))
     statuses = [worker.wait() for worker in workers]
     print(json.dumps({"event": "workers_exit", "statuses": statuses}), flush=True)
