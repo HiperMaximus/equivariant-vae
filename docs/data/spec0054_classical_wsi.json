@@ -1,0 +1,20 @@
+{
+  "branches": ["normal_vae", "so2_vae"],
+  "pool_grids": [4, 8, 16],
+  "patch_cache_grid": 8,
+  "patch_cache_dtype": "<f4",
+  "chunk_patches": 512,
+  "outer_fold": 0,
+  "inner_folds": 3,
+  "seed": 1701,
+  "C_candidates": [0.01, 0.1, 1.0, 10.0, 100.0],
+  "solver": "lbfgs",
+  "max_iter": 3000,
+  "tol": 0.000001,
+  "class_weight": "balanced",
+  "selection": "minimum_paired_mean_inner_unweighted_cross_entropy",
+  "output_datasets": {
+    "normal_vae": "maximshtefan/eqvae-spec0054-classical-normal",
+    "so2_vae": "maximshtefan/eqvae-spec0054-classical-so2"
+  }
+}

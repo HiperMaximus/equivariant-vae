@@ -3,7 +3,29 @@
 Status: regularized spatial-CLS fold0 checkpointed after v12 at normal72.61/SO(2)71.97 epochs; 105-epoch horizon unfinished; resume dataset v3 ready
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-10-13
+Last updated: 2026-10-14
+
+## Accepted classical WSI baseline (2026-10-14)
+
+Extract fixed descriptors from the existing frozen posterior-mu shards, retaining
+the historical Otsu population and the same development WSI/folds. No VAE weights,
+patch coordinates or MIL continuation states change. The CPU extractor applies
+channel-wise spatial block means, flattens each patch in channel/y/x order and
+concatenates the per-WSI mean and population standard deviation. Accumulate WSI
+moments in FP64; store descriptors and summary tables in FP32. Cache the
+intermediate-resolution patch vectors, with physical patch identity and WSI row
+offsets, for later bag-of-features analyses. The numerical choices reside in
+`docs/data/spec0054_classical_wsi.json`.
+
+Run normal and SO2 extraction independently using the same code and operations.
+Outputs are private branch-specific artifacts. Fit standardized multinomial L2
+logistic regression on CPU. Choose a shared spatial resolution and regularization
+strength by minimum mean unweighted inner-fold CE averaged over both branches.
+The inner splits use only outer-training WSI; fit the scaler and class weights
+inside each inner split. Refit both heads on all outer-training WSI and report
+the held-out fold once, including unweighted CE, macro F1, balanced accuracy,
+per-class results, confusion matrices and multiclass Brier score. This is an
+exploratory fold0 comparison; the external cohort supplies no selection evidence.
 
 ## Active regularized spatial-CLS restart (2026-10-08)
 
