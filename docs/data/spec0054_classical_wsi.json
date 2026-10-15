@@ -4,15 +4,38 @@
   "patch_cache_grid": 8,
   "patch_cache_dtype": "<f4",
   "chunk_patches": 512,
-  "outer_fold": 0,
+  "outer_folds": [0, 1, 2, 3, 4],
   "inner_folds": 3,
   "seed": 1701,
-  "C_candidates": [0.01, 0.1, 1.0, 10.0, 100.0],
+  "C_candidates": [0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.1, 1.0, 10.0, 100.0],
   "solver": "lbfgs",
   "max_iter": 3000,
   "tol": 0.000001,
   "class_weight": "balanced",
   "selection": "minimum_paired_mean_inner_unweighted_cross_entropy",
+  "pattern_histogram": {
+    "clusters": 64,
+    "patches_per_wsi": 128,
+    "batch_size": 2048,
+    "max_iter": 100,
+    "n_init": 3,
+    "assignment_batch": 4096,
+    "cpu_threads": 4,
+    "pca_components": 64,
+    "variants": ["mean_std_grid8", "mean_std_pca64", "histogram64"],
+    "sources": {
+      "normal_vae": {
+        "kernel": "maximshtefan/eqvae-spec0054-classical-normal/1",
+        "mount": "/kaggle/input/notebooks/maximshtefan/eqvae-spec0054-classical-normal/normal_vae",
+        "identity_sha256": "67316568a5a7f3de54e55bc3eae73475a45ad7b70118c9febbeb7b2aab87fd56"
+      },
+      "so2_vae": {
+        "kernel": "maximshtefan/eqvae-spec0054-classical-so2/1",
+        "mount": "/kaggle/input/notebooks/maximshtefan/eqvae-spec0054-classical-so2/so2_vae",
+        "identity_sha256": "325f227aa0196b6fe5f00e89f2ee836642d7720b9c4fa69b2e476aa94bf69f62"
+      }
+    }
+  },
   "output_datasets": {
     "normal_vae": "maximshtefan/eqvae-spec0054-classical-normal",
     "so2_vae": "maximshtefan/eqvae-spec0054-classical-so2"

@@ -3,7 +3,7 @@
 Status: regularized spatial-CLS fold0 checkpointed after v12 at normal72.61/SO(2)71.97 epochs; 105-epoch horizon unfinished; resume dataset v3 ready
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-10-14
+Last updated: 2026-10-15
 
 ## Accepted classical WSI baseline (2026-10-14)
 
@@ -26,6 +26,38 @@ inside each inner split. Refit both heads on all outer-training WSI and report
 the held-out fold once, including unweighted CE, macro F1, balanced accuracy,
 per-class results, confusion matrices and multiclass Brier score. This is an
 exploratory fold0 comparison; the external cohort supplies no selection evidence.
+
+The accepted extension evaluates every frozen outer fold and extends the L2
+search toward smaller C. For each outer fold, choose the branch-shared grid/C
+using only the inner partitions of that outer training set, then refit on its
+complete training set before predicting its holdout. Each development WSI
+contributes exactly one out-of-fold prediction per branch. Report per-fold
+metrics, their mean/sample standard deviation and pooled out-of-fold metrics;
+pooled macro F1 is distinct from mean fold macro F1. The fold0 pilot is retained
+separately and remains part of the exploratory history. Reuse the extracted
+summary tables; no latent reread or VAE/MIL training is needed.
+
+## Accepted patch-pattern comparison (2026-10-15)
+
+Use the fixed grid8 patch cache to learn MiniBatchKMeans vocabularies separately
+for normal and SO2. Sample a capped number of patch rows per WSI using a
+WSI-seeded permutation, identically across branches. For every inner training
+partition and outer training partition, fit patch StandardScaler and centers
+only on sampled patches belonging to that partition. Record training WSI and
+sampled row identities. Assign complete bags to each fitted vocabulary and
+normalize counts by bag size. Precomputed holdout transformations never update
+the scaler or centers. Reuse a partition's histograms across all C candidates.
+
+Compare fixed-grid8 WSI mean/std, a WSI PCA control and cluster proportions.
+The PCA control standardizes mean/std on training WSI, fits full-SVD PCA there,
+then uses the same standardized L2 logistic head as the other representations.
+The PCA output and histogram have equal feature dimensions. This controls head
+size but does not isolate every statistical difference between representations.
+Keep the frozen outer folds and inner stratification. Select a branch-shared C
+separately for each representation using mean inner unweighted CE, then refit
+on outer training and report per-fold/pooled OOF metrics for all representations.
+Numerical parameters and exact input identities are in the existing classical
+contract. Frozen VAE checkpoints, foreground population and coordinates remain.
 
 ## Active regularized spatial-CLS restart (2026-10-08)
 
