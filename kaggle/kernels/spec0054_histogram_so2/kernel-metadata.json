@@ -1,0 +1,16 @@
+{
+  "id": "maximshtefan/eqvae-spec0054-histogram-so2",
+  "title": "eqvae spec0054 histogram so2",
+  "code_file": "main.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [],
+  "kernel_sources": [
+    "maximshtefan/eqvae-spec0054-classical-so2/1"
+  ],
+  "competition_sources": [],
+  "model_sources": []
+}
