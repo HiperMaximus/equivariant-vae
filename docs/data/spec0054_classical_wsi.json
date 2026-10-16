@@ -36,6 +36,35 @@
       }
     }
   },
+  "h2t": {
+    "clusters": 16,
+    "patches_per_wsi": 128,
+    "batch_size": 2048,
+    "max_iter": 100,
+    "n_init": 3,
+    "assignment_batch": 4096,
+    "cpu_threads": 4,
+    "patch_normalization": "l2_for_clustering_and_assignment",
+    "center_normalization": "l2_after_minibatch_kmeans_fit",
+    "pooling": "mean_raw_cached_patch_features_per_assigned_pattern",
+    "empty_pattern": "zero_vector",
+    "moment_dtype": "<f8",
+    "table_dtype": "<f4",
+    "head_input_dtype": "<f8",
+    "variants": ["h2t_mean16"],
+    "sources": {
+      "normal_vae": {
+        "kernel": "maximshtefan/eqvae-spec0054-classical-normal/1",
+        "mount": "/kaggle/input/notebooks/maximshtefan/eqvae-spec0054-classical-normal/normal_vae",
+        "identity_sha256": "67316568a5a7f3de54e55bc3eae73475a45ad7b70118c9febbeb7b2aab87fd56"
+      },
+      "so2_vae": {
+        "kernel": "maximshtefan/eqvae-spec0054-classical-so2/1",
+        "mount": "/kaggle/input/notebooks/maximshtefan/eqvae-spec0054-classical-so2/so2_vae",
+        "identity_sha256": "325f227aa0196b6fe5f00e89f2ee836642d7720b9c4fa69b2e476aa94bf69f62"
+      }
+    }
+  },
   "output_datasets": {
     "normal_vae": "maximshtefan/eqvae-spec0054-classical-normal",
     "so2_vae": "maximshtefan/eqvae-spec0054-classical-so2"

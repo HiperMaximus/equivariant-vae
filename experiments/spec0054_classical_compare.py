@@ -224,15 +224,17 @@ def aggregate_pattern_folds(folds, predictions, branches):
     return results
 
 
-def run_pattern_comparison(repo_root, normal_root, so2_root, normal_hist_root, so2_hist_root, output_root):
+def run_pattern_comparison(repo_root, normal_root, so2_root, normal_hist_root, so2_hist_root,
+                           output_root, representation="pattern_histogram"):
     started = time.monotonic()
     config = json.loads((repo_root / "docs/data/spec0054_classical_wsi.json").read_text())
     branches = config["branches"]
-    variants = config["pattern_histogram"]["variants"]
+    variants = config[representation]["variants"]
     roots = dict(zip(branches, (normal_root, so2_root), strict=True))
     hist_roots = dict(zip(branches, (normal_hist_root, so2_hist_root), strict=True))
     data = {b: dict(np.load(p / "wsi_features.npz")) for b, p in roots.items()}
-    hist = {b: dict(np.load(p / "histograms.npz")) for b, p in hist_roots.items()}
+    filename = "h2t_features.npz" if representation == "h2t" else "histograms.npz"
+    hist = {b: dict(np.load(p / filename)) for b, p in hist_roots.items()}
     training_rows = {b: dict(np.load(p / "training_rows.npz")) for b, p in hist_roots.items()}
     with (repo_root / "docs/data/spec0054_cohort_folds.csv").open(newline="") as handle:
         cohort = sorted(csv.DictReader(handle), key=lambda row: int(row["wsi_id"]))
@@ -261,12 +263,18 @@ def run_pattern_comparison(repo_root, normal_root, so2_root, normal_hist_root, s
             for i, (fit, _) in enumerate(inner):
                 key = f"fold{outer_fold}_inner{i}"
                 np.testing.assert_array_equal(training_rows[branch][key], fit)
-                prepared[branch].append(pattern_representations(x, hist[branch], key, fit, config))
+                if representation == "h2t":
+                    prepared[branch].append({"h2t_mean16": hist[branch][key].astype(np.float64)})
+                else:
+                    prepared[branch].append(pattern_representations(x, hist[branch], key, fit, config))
             key = f"fold{outer_fold}_outer"
             np.testing.assert_array_equal(training_rows[branch][key], train)
-            prepared_outer[branch] = pattern_representations(
-                x, hist[branch], key, train, config, fold_root / f"{branch}_pca.npz",
-            )
+            if representation == "h2t":
+                prepared_outer[branch] = {"h2t_mean16": hist[branch][key].astype(np.float64)}
+            else:
+                prepared_outer[branch] = pattern_representations(
+                    x, hist[branch], key, train, config, fold_root / f"{branch}_pca.npz",
+                )
         for variant in variants:
             variant_root = fold_root / variant
             variant_root.mkdir()
@@ -319,7 +327,8 @@ def run_pattern_comparison(repo_root, normal_root, so2_root, normal_hist_root, s
             "selections": [{"outer_fold": f["outer_fold"], **f["selected"]} for f in all_folds[variant]],
             "branches": aggregate_pattern_folds(all_folds[variant], oof[variant], branches),
         }
-    summary = {"config": config, "results": results, "elapsed_seconds": time.monotonic() - started,
+    summary = {"config": config, "representation": representation,
+               "results": results, "elapsed_seconds": time.monotonic() - started,
                "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                "numpy_version": np.__version__, "sklearn_version": sklearn.__version__,
                "histogram_sources": {b: json.loads((p / "identity.json").read_text())
@@ -336,9 +345,10 @@ if __name__ == "__main__":
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--normal-hist-root", type=Path)
     parser.add_argument("--so2-hist-root", type=Path)
+    parser.add_argument("--representation", choices=("pattern_histogram", "h2t"), default="pattern_histogram")
     args = parser.parse_args()
     if args.normal_hist_root is not None:
         run_pattern_comparison(args.repo_root, args.normal_root, args.so2_root,
-                               args.normal_hist_root, args.so2_hist_root, args.output_root)
+                               args.normal_hist_root, args.so2_hist_root, args.output_root, args.representation)
     else:
         run(args.repo_root, args.normal_root, args.so2_root, args.output_root)

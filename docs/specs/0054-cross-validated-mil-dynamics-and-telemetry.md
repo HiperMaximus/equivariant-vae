@@ -59,6 +59,34 @@ on outer training and report per-fold/pooled OOF metrics for all representations
 Numerical parameters and exact input identities are in the existing classical
 contract. Frozen VAE checkpoints, foreground population and coordinates remain.
 
+## Accepted H2T-style conditional means (2026-10-15)
+
+Use the existing1024-dimensional grid8 patch cache without new VAE inference,
+latent-shard rereading or PCA. Learn16 shared reference prototypes per training
+partition and branch. Reuse deterministic WSI-capped paired patch samples and
+the existing MiniBatchKMeans runner; L2-normalize each sampled patch before
+fitting, then L2-normalize the fitted centers for nearest-prototype assignment.
+This is a H2T-inspired VAE adaptation, not a reproduction of the paper's encoder
+or spherical clustering implementation.
+
+For every WSI, assign all cached patch vectors using their unit-normalized
+directions, but average their original unnormalized features separately within
+each assigned pattern. Concatenate the16 means in prototype order to obtain
+16384 WSI features. An absent pattern contributes a zero vector; retain its
+patch count as an occupancy diagnostic, not as an additional classifier input.
+Accumulate sums in FP64, store feature tables in FP32 and fit heads on FP64
+inputs. Zero vectors remain zero under L2 normalization.
+
+Fit vocabularies independently inside all three inner training splits and the
+outer training split for each of the five frozen outer folds. Do not fit or
+update prototypes using validation patches. Select the common C for the two
+branches by the existing paired inner CE criterion, then fit standardized L2
+logistic heads on outer training and report held-out metrics and OOF predictions.
+Keep earlier mean/std and histogram results as references; do not retune those
+arms. Numerical settings and frozen source identities are in the existing
+classical contract's `h2t` section. Execute representation construction in two
+private CPU jobs, reusing the existing versioned-kernel workflow.
+
 ## Active regularized spatial-CLS restart (2026-10-08)
 
 Continuation input is the private `maximshtefan/eqvae-spec0054-cls-regularized-fold0-resume/3` dataset, containing the v12 latest/best states and cumulative telemetry. Resume latest at normal5228 updates/20,912 presentations/epoch72 cursor176 and SO25182/20,728/epoch71 cursor280. Both have completed the epoch70 assessment. Source remains `f81ca4c574d07d6a2fedddac21eab22eab924500`. The thin entry retains the expired v12 cutoff as execution provenance; replace it with a fresh submission-based deadline, reserving15min of the next session quota, before any new launch.
