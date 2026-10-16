@@ -2,6 +2,34 @@
 
 Last updated: 2026-10-16
 
+## MIDL: reorganised Related Work (2026-10-16)
+
+The user approved treating the TARGET-VAE domain comment, O2-VAE microscopy
+comment and broader equivariance comment as one structural revision. Live
+main.texv954 and references.bibv5 are imported with all28 active sources/assets.
+Section2.1 is now Unsupervised Representation Learning for Histopathology,
+with Tellez and a direct Lafarge antecedent. Section2.2 is Equivariance for Deep
+Learning: equivariance/invariance, weight sharing and conditional data-efficiency
+benefits, group/steerable implementations, and TARGET-VAE plus O2-VAE in their
+actual imaging domains. O2-VAE now specifies 2D segmentation masks and greyscale
+fluorescence images, including confocal data, plus the synthetic benchmark.
+MIL, figures and all prose outside the two related-work subsections are unchanged.
+Each prose paragraph remains on one physical source line.
+
+Both edits (681+81 tracked operations;497+58 UI cards) were accepted as our
+own changes. No tracked suggestions remain. All19 comment histories/states
+are preserved (7 open,12 resolved); moving text changed some quoted anchors.
+No reply was posted for threads3/4/5: each exact proposed reply still needs
+individual human approval. The CNN reply is already posted and its prior
+commits `db8517e` and `afad874` were explicitly approved and published.
+
+The final22-page PDF was compiled from inputs byte-identical to all28 imported
+sources/assets; all pages were rendered and visually reviewed, with detailed
+checks of pages3/4. No compiler errors, undefined citations or overfull boxes.
+Only the pre-existing BibTeX volume/number warning for im_denoising_2017 remains.
+PDF SHA256: `6bf02edad4f508adda3c1695d25765f78984cbf0fd4a20cec799507a72ced613`.
+Evidence: `../.agent-tools/overleaf-review/review-data/midl-related-work-2026-10-16/`.
+
 ## MIDL comment 1: CNN references (2026-10-16)
 
 The user approved filling the introduction's empty citation with

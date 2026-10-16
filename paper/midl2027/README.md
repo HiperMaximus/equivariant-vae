@@ -1,46 +1,27 @@
 # MIDL 2027 manuscript
 
-Latest update (2026-10-16): comment1 now has the approved CNN citations,
-LeCun et al. (1998) and Cohen and Welling (2016). main.texv952 and
-references.bibv5 are imported; all28 sources/assets match Overleaf and both
-new suggestions are accepted. All19 comment histories/states are preserved.
-The reply awaits individual human approval. The22-page PDF was rebuilt and
-the affected pages visually checked, with no errors, undefined citations or
-overfull boxes. SHA256: `62d0148f75016c90a35341ab86dc1cbcb220b473026261fab6c292fec242ce50`.
-The earlier snapshot details below are retained as provenance; the empty
-citation warning is fixed. GitHub publication still awaits approval after
-the previous push rejection.
-
 The active manuscript is maintained in the existing
-[Overleaf project](https://www.overleaf.com/project/69c614433cbc9e46cf226d24).
-The current local copy imports the professor's completed 2026-10-16 edits
-from `main.tex` v950, followed by the requested paragraph formatting in v951;
-`references.bib` remains v4. All 28 active sources/assets match live Overleaf.
-The nineteen comment histories and states are preserved: seven open and twelve
-resolved. The professor resolved the tissue-budget abstract comment. Four new
-open threads concern the original CNN reference, the image domains used by
-TARGET-VAE and O2-VAE, and an equivariance-for-deep-learning subsection.
+[Overleaf project](https://www.overleaf.com/project/69c614433cbc9e46cf226d24),
+which is the source of truth. The current import is main.texv954 and
+references.bibv5 (2026-10-16). All28 active sources/assets match Overleaf.
+All tracked edits authored by Maximiliano are accepted. All19 comment
+histories and states are preserved:7 open and12 resolved.
 
-Each prose paragraph, list item and caption now occupies one physical source
-line. Paragraph separators, words, formulas, tables, figures, comments and
-intentional LaTeX line breaks were preserved. The 393 internal line breaks
-were replaced with spaces through one tracked edit; all 783 tracked operations
-were then accepted through Overleaf's UI. No suggestions remain pending.
-Future manuscript edits follow this source-formatting preference and accept
-our own tracked edits after each round, preserving professor suggestions and
-comment states. See `../../CURRENT.md` and `../../AGENTS.md`.
+## Current related-work revision
 
-The current document uses the official MIDL full-paper class and its default
-single-column layout, letter paper, font sizes, line spacing, margins and
-author-year citations. No page-limit cuts have been applied. The PDF has
-19 body pages and three reference pages (22 total). Authors are Maximiliano
-Garavito Chtefan and David Romo-Bucheli, in that order, with their institutional
-emails. The MIDL class is used without its anonymization option.
+Section2.1, Unsupervised Representation Learning for Histopathology, covers
+Tellez and Lafarge. Section2.2, Equivariance for Deep Learning, explains the
+transformation law, equivariance versus invariance, weight sharing and
+conditional data-efficiency benefits, and group/steerable implementations.
+TARGET-VAE and O2-VAE now appear in this general section, with their imaging
+domains stated. O2-VAE specifies 2D segmentation masks and greyscale images
+from fluorescence microscopy, including confocal data, alongside synthetic
+cell-shape/texture data. MIL and the existing figures are preserved.
 
-The abstract anticipates the planned evaluation on 152 WSIs excluded from
-VAE learning. Its `XXXX`/`YYYY` values and provisional significance statement
-remain pending new results, with the existing TODO preserved. The body still
-reports the historical 23-WSI classification evaluation.
+Each prose paragraph occupies one physical source line. Paragraph separators,
+equations, tables, TikZ and deliberate LaTeX line breaks remain structural.
+The three related-work replies await individual human approval; the approved
+CNN reply has already been posted. Only the professor resolves comments.
 
 ## Build and verification
 
@@ -50,36 +31,29 @@ From this directory:
 latexmk -pdf -interaction=nonstopmode -halt-on-error -jobname=midl2027 main.tex
 ```
 
-The output is `midl2027.pdf`, rebuilt on 2026-10-16 with SHA-256
-`63a64dda51cfb09064f244e32efe49ae14794f29c9855ab1cab7a803a2746bd0`.
-All 22 rendered pages were inspected. Both extracted text and every rendered
-page are identical before and after the whitespace-only paragraph formatting.
-Compilation has no errors or overfull boxes. BibTeX retains a warning for the
-professor's empty `\cite{}` placeholder and the existing volume/number warning
-in `im_denoising_2017`. The empty citation, ambiguous macro-F1 value ordering
-in the abstract and wording about supervised learning remain review items;
-the professor's text was preserved.
+The22-page PDF was rebuilt from sources/assets byte-identical to the import.
+All pages were rendered and visually reviewed. Compilation has no errors,
+undefined citations or overfull boxes. BibTeX retains only the existing
+volume/number warning in im_denoising_2017. PDF SHA256:
+`6bf02edad4f508adda3c1695d25765f78984cbf0fd4a20cec799507a72ced613`.
 
-Live Overleaf remains the source of truth. After manuscript changes, import
-all current sources/assets, regenerate and inspect the matching PDF, commit
-only paper and relevant handoff/policy updates, and push to research
-`origin/main` under the user's standing authorization. Never push the research
-repository to Overleaf. The legacy IEEE assets and unused uploaded
-`inciscos2026.pdf` are historical, and the separate INCISCOS repository copy is
-preserved. Import, paragraph-formatting, comment and PDF verification evidence
-is in `../../../.agent-tools/overleaf-review/review-data/` under
-`midl-final-review-2026-10-16` and `midl-final-sync-2026-10-16`.
+The official MIDL full-paper class and its default single-column layout,
+letter paper, typography, margins and author-year citations are preserved.
+Authors are Maximiliano Garavito Chtefan and David Romo-Bucheli. The template
+is used without anonymization; no page-limit cuts have been applied.
 
-## Earlier imports
+The abstract still anticipates evaluation on152 WSIs with XXXX/YYYY and its
+existing TODO; the body retains the historical23-WSI evaluation. These are
+pending scientific results, not compilation failures.
 
-The 2026-10-09 import used `main.tex` v453 and `references.bib` v4, with fourteen
-comment threads (eight open and six resolved). On 2026-10-13 all 195 pending
-change ranges authored by Maximiliano were accepted, preserving fifteen
-threads (nine open and six resolved). The initial MIDL adaptation used accepted
-INCISCOS `main.tex` v145 and research commit
-`7317813c2151d5c2d8f79d57690aeb068a95365d`; the INCISCOS manuscript remains
-separate. The prior PDF hash and detailed historical handoff remain in
-`../../CURRENT.md`.
+After Overleaf changes, import all active sources/assets and build the matching
+PDF, preserving professor edits and comments. Publish only paper and relevant
+handoff/policy changes to research origin/main. Never send the research repo
+to Overleaf. Historical INCISCOS/SIPAIM copies remain separate.
+
+Evidence for this revision is in
+`../../../.agent-tools/overleaf-review/review-data/midl-related-work-2026-10-16/`.
+Previous accepted imports and publication receipts are recorded in CURRENT.md.
 
 ## Official template and dependencies
 
