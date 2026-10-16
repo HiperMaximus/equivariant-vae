@@ -56,8 +56,11 @@ that workflow.
    research `origin/main` whenever the paper changes in Overleaf. Complete this
    synchronization before declaring a correction round finished; verify source
    parity and the published PDF, and never leave unreported drift. Preserve
-   professor edits and open comments, without accepting tracked changes or
-   resolving threads. Preserve unrelated research work and publish only the
+   professor edits and open comments. Per the user's 2026-10-13 instruction,
+   accept our own tracked edits by default at the end of each correction round,
+   so they do not accumulate as pending suggestions. Verify authorship and
+   preserve every professor suggestion and comment; never resolve threads.
+   Preserve unrelated research work and publish only the
    paper and relevant handoff/policy updates. No additional permission is needed
    for this already-authorized synchronization and push.
 11. The separate thesis repository is changed only for a thesis task.
@@ -69,6 +72,11 @@ that workflow.
     caveats, defensive negations, review-process remarks and references to
     decisions the reader cannot see. Explain genuine limitations where the
     study design or results make them relevant, with a clear referent.
+14. In manuscript LaTeX sources, keep each prose paragraph on one physical
+    source line, with blank lines between paragraphs. Do not hard-wrap prose
+    at sentence boundaries or arbitrary column widths. Preserve structural
+    line breaks in equations, tables, TikZ/code and deliberate LaTeX breaks.
+    This follows the professor's editing preference confirmed on 2026-10-16.
 
 ## Scientific Invariants
 

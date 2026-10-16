@@ -1,6 +1,42 @@
 # Current Repository Status
 
-Last updated: 2026-10-13
+Last updated: 2026-10-16
+
+## MIDL: final professor edits and paragraph formatting (2026-10-16)
+
+The user confirmed that human editing ended and requested review of the final
+changes, with no hard-wrapped prose inside paragraphs. Imported all28 active
+Overleaf sources/assets from main.texv950 and references.bibv4. Human changes
+affect the abstract, introduction and related work; preserve the commented-out
+contribution/summary and the professor's continuation marker. The tissue-budget
+comment is resolved by the professor. There are19 threads:7 open and12 resolved.
+Four new open comments request the original CNN reference, natural-image context
+for TARGET-VAE, microscopy context for O2-VAE, and an equivariance-for-deep-learning
+subsection. No reply was posted and no thread state was changed by the agent.
+
+The requested whitespace-only edit produced main.texv951:393 internal line
+breaks removed across prose, list items and captions, preserving paragraph
+separators, all words, equations, tables, TikZ, comments and intentional breaks.
+All783 tracked operations (393 UI cards), authored only by Maximiliano, were
+accepted through the UI. All28 current sources/assets match Overleaf and no
+tracked changes remain. AGENTS.md records one physical source line per prose
+paragraph for future writing. No thesis or experiment was changed.
+
+The22-page PDF was rebuilt and visually inspected. All22 page rasters and the
+extracted text are identical before/after paragraph reflow. Compilation has
+no errors or overfull boxes. PDF SHA256:
+`63a64dda51cfb09064f244e32efe49ae14794f29c9855ab1cab7a803a2746bd0`.
+The professor's empty citation still triggers a BibTeX warning. Further review
+items are the abstract's ambiguous ordering of conventional/equivariant F1
+(.511/.575), its missing explicit adjusted-significance statement at500, and
+the introduction's "supervised learning tasks" wording for an unsupervised VAE.
+These substantive passages were not changed during formatting.
+
+This completed import supersedes the provisional synchronization below. The
+paper, PDF and scoped handoff/policy changes are the authorized publication;
+unrelated dirty research work is preserved. Evidence is in
+`../.agent-tools/overleaf-review/review-data/midl-final-review-2026-10-16/`
+and `midl-final-sync-2026-10-16/` alongside it.
 
 ## MIDL paper: synchronized approved Overleaf corrections (2026-10-09)
 
