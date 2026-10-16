@@ -234,7 +234,7 @@ def run_pattern_comparison(repo_root, normal_root, so2_root, normal_hist_root, s
     hist_roots = dict(zip(branches, (normal_hist_root, so2_hist_root), strict=True))
     data = {b: dict(np.load(p / "wsi_features.npz")) for b, p in roots.items()}
     filename = "h2t_features.npz" if representation == "h2t" else "histograms.npz"
-    hist = {b: dict(np.load(p / filename)) for b, p in hist_roots.items()}
+    hist = {b: np.load(p / filename) for b, p in hist_roots.items()}
     training_rows = {b: dict(np.load(p / "training_rows.npz")) for b, p in hist_roots.items()}
     with (repo_root / "docs/data/spec0054_cohort_folds.csv").open(newline="") as handle:
         cohort = sorted(csv.DictReader(handle), key=lambda row: int(row["wsi_id"]))
