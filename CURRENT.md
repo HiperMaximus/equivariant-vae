@@ -2,6 +2,34 @@
 
 Last updated: 2026-10-16
 
+## MIDL: final spelling import and completed comment review (2026-10-16)
+
+The user confirmed human editing finished. Imported all28 active Overleaf
+sources/assets at main.texv963 and references.bibv5, preserving the final
+human spelling/punctuation changes: parametrized, normalization,
+non-linearities, grayscale. No manuscript edit was made by the agent in this
+round. Zero tracked changes remain; all19 threads retain their states
+(7 open,12 resolved). The professor closes comments.
+
+All seven open comments have now been reviewed with the user. The approved
+CNN, TARGET-VAE, O2-VAE and general-equivariance replies were published once.
+The historical subsection and split-figure comments already had replies and
+were assessed as addressed. The user also explicitly approved replacing our
+old kernel-support reply: edited the existing message6abdb4aaaa87f469191c5fff
+without adding a duplicate or changing the professor's message. The reply now
+uses the subsection title and explains radial sampling, parameters, computation
+and precedents without obsolete IEEE section/page references. All other
+messages and all thread states are unchanged.
+
+The matching22-page PDF compiles without errors, undefined references or
+overfull boxes. All22 pages were raster-compared to the previously reviewed
+v954 PDF: only page3 changed, and it was visually inspected at higher resolution.
+PDF SHA256: `98258412c43cbbb64e55f518ce8e636308acb43fdb69a8251ca12d4befe4f98e`.
+Evidence: `../.agent-tools/overleaf-review/review-data/midl-final-style-2026-10-16/`.
+Prior commit76fd08d was explicitly approved, published and its PDF verified.
+The final spelling import is ready as a new scoped local commit; publication
+needs a new exact approval under the prior automatic-review restriction.
+
 ## MIDL: reorganised Related Work (2026-10-16)
 
 The user approved treating the TARGET-VAE domain comment, O2-VAE microscopy

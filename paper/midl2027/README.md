@@ -2,7 +2,7 @@
 
 The active manuscript is maintained in the existing
 [Overleaf project](https://www.overleaf.com/project/69c614433cbc9e46cf226d24),
-which is the source of truth. The current import is main.texv954 and
+which is the source of truth. The current import is main.texv963 and
 references.bibv5 (2026-10-16). All28 active sources/assets match Overleaf.
 All tracked edits authored by Maximiliano are accepted. All19 comment
 histories and states are preserved:7 open and12 resolved.
@@ -14,14 +14,16 @@ Tellez and Lafarge. Section2.2, Equivariance for Deep Learning, explains the
 transformation law, equivariance versus invariance, weight sharing and
 conditional data-efficiency benefits, and group/steerable implementations.
 TARGET-VAE and O2-VAE now appear in this general section, with their imaging
-domains stated. O2-VAE specifies 2D segmentation masks and greyscale images
+domains stated. O2-VAE specifies 2D segmentation masks and grayscale images
 from fluorescence microscopy, including confocal data, alongside synthetic
 cell-shape/texture data. MIL and the existing figures are preserved.
 
 Each prose paragraph occupies one physical source line. Paragraph separators,
 equations, tables, TikZ and deliberate LaTeX line breaks remain structural.
-The three related-work replies await individual human approval; the approved
-CNN reply has already been posted. Only the professor resolves comments.
+The individually approved CNN, TARGET-VAE, O2-VAE and general-equivariance
+replies are posted. The old kernel-support reply was replaced in place with
+the approved update. All seven open comments have been reviewed; their states
+remain open. Only the professor resolves comments.
 
 ## Build and verification
 
@@ -32,10 +34,11 @@ latexmk -pdf -interaction=nonstopmode -halt-on-error -jobname=midl2027 main.tex
 ```
 
 The22-page PDF was rebuilt from sources/assets byte-identical to the import.
-All pages were rendered and visually reviewed. Compilation has no errors,
+All pages were rendered and compared with the previous reviewed PDF; only
+page3 changed and was visually checked at higher resolution. Compilation has no errors,
 undefined citations or overfull boxes. BibTeX retains only the existing
 volume/number warning in im_denoising_2017. PDF SHA256:
-`6bf02edad4f508adda3c1695d25765f78984cbf0fd4a20cec799507a72ced613`.
+`98258412c43cbbb64e55f518ce8e636308acb43fdb69a8251ca12d4befe4f98e`.
 
 The official MIDL full-paper class and its default single-column layout,
 letter paper, typography, margins and author-year citations are preserved.
@@ -52,7 +55,7 @@ handoff/policy changes to research origin/main. Never send the research repo
 to Overleaf. Historical INCISCOS/SIPAIM copies remain separate.
 
 Evidence for this revision is in
-`../../../.agent-tools/overleaf-review/review-data/midl-related-work-2026-10-16/`.
+`../../../.agent-tools/overleaf-review/review-data/midl-final-style-2026-10-16/`.
 Previous accepted imports and publication receipts are recorded in CURRENT.md.
 
 ## Official template and dependencies
