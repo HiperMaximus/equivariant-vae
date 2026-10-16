@@ -1,5 +1,16 @@
 # MIDL 2027 manuscript
 
+Latest update (2026-10-16): comment1 now has the approved CNN citations,
+LeCun et al. (1998) and Cohen and Welling (2016). main.texv952 and
+references.bibv5 are imported; all28 sources/assets match Overleaf and both
+new suggestions are accepted. All19 comment histories/states are preserved.
+The reply awaits individual human approval. The22-page PDF was rebuilt and
+the affected pages visually checked, with no errors, undefined citations or
+overfull boxes. SHA256: `62d0148f75016c90a35341ab86dc1cbcb220b473026261fab6c292fec242ce50`.
+The earlier snapshot details below are retained as provenance; the empty
+citation warning is fixed. GitHub publication still awaits approval after
+the previous push rejection.
+
 The active manuscript is maintained in the existing
 [Overleaf project](https://www.overleaf.com/project/69c614433cbc9e46cf226d24).
 The current local copy imports the professor's completed 2026-10-16 edits

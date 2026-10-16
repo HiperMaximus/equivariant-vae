@@ -2,6 +2,23 @@
 
 Last updated: 2026-10-16
 
+## MIDL comment 1: CNN references (2026-10-16)
+
+The user approved filling the introduction's empty citation with
+`lecun_gradient_1998,cohen_group_2016`. Added LeCun et al. (1998) to the
+bibliography using the author-hosted metadata. Live main.tex is v952 and
+references.bib is v5. Both tracked insertions were authored by Maximiliano and
+accepted through the UI; no tracked changes remain. All28 active sources and
+assets were freshly imported. The19 comment histories and states remain
+preserved (7 open,12 resolved); thread `6ad258979598cb100c000001` stays open.
+A proposed reply is awaiting individual human approval and has not been posted.
+The22-page PDF compiles without errors, undefined citations or overfull boxes;
+the affected introduction and bibliography pages were visually checked. Its
+SHA256 is `62d0148f75016c90a35341ab86dc1cbcb220b473026261fab6c292fec242ce50`.
+Evidence: `../.agent-tools/overleaf-review/review-data/midl-cnn-citation-2026-10-16/`.
+GitHub publication remains blocked by the previously rejected push; the user
+has not approved that publication. Continue reviewing comments one at a time.
+
 ## MIDL: final professor edits and paragraph formatting (2026-10-16)
 
 The user confirmed that human editing ended and requested review of the final
