@@ -1,0 +1,17 @@
+{
+  "id": "maximshtefan/eqvae-spec0054-panther",
+  "title": "eqvae spec0054 panther",
+  "code_file": "main.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [],
+  "kernel_sources": [
+    "maximshtefan/eqvae-spec0054-classical-normal/1",
+    "maximshtefan/eqvae-spec0054-classical-so2/1"
+  ],
+  "competition_sources": [],
+  "model_sources": []
+}
