@@ -3,7 +3,7 @@
 Status: regularized spatial-CLS fold0 checkpointed after v12 at normal72.61/SO(2)71.97 epochs; 105-epoch horizon unfinished; resume dataset v3 ready
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-10-15
+Last updated: 2026-10-19
 
 ## Accepted classical WSI baseline (2026-10-14)
 
@@ -86,6 +86,52 @@ Keep earlier mean/std and histogram results as references; do not retune those
 arms. Numerical settings and frozen source identities are in the existing
 classical contract's `h2t` section. Execute representation construction in two
 private CPU jobs, reusing the existing versioned-kernel workflow.
+
+## Accepted cached PANTHER comparison (2026-10-16)
+
+The user authorized PANTHER before label smoothing and requested Kaggle for
+both representation construction and classification. Reuse the1024-dimensional
+grid8 caches and16 components. Follow the official reference revision
+`mahmoodlab/PANTHER@e7ffae402e146363fe1ca3813ffe68d248ec570f`, specifically
+`src/scripts/embedding/panther.sh` and the MAP equations in
+`src/mil_models/PANTHER/networks.py`: uniform initial mixture, fixed K-means
+means, initial diagonal covariance1, tau1 and one MAP-EM update per WSI.
+Use raw features without PCA or L2 normalization. The single update uses all
+cached patches in a WSI and the same shared training-fitted priors for all WSI.
+Priors regularize component masses, first moments and second moments; do not
+replace this MAP update with an unregularized GMM fitted to convergence.
+
+Use the CPU KMeans/Lloyd option for prototype construction on the existing
+deterministic, paired WSI-capped sample. Retaining128 patches per WSI differs
+from the original paper's sampling budget; the extractor remains the frozen
+VAE rather than UNI. Explicit numerical settings are in the existing classical
+contract's `panther` section. Compute moments in FP64 about a numerical origin
+and store final statistics in FP32; this is mathematically the same MAP update
+as the FP32 reference. Reference parity is checked on synthetic examples.
+
+Concatenate all16 proportions, then all16x1024 means and all16x1024 diagonal
+variances in the official `allcat` order:32784 features per WSI. A second head
+uses only the mean slice,16384 features, from the same fitted mixture. Keep
+the existing standardized multinomial L2 heads, five outer/three inner folds
+and paired inner-CE selection of C, independently for the two representations.
+This preserves the earlier classifier comparison rather than adopting the
+reference paper's AdamW head training. No label smoothing is added.
+
+Before encoding complete bags, record training/held-out sampled-patch mixture
+likelihood, nearest-center and responsibility-weighted residuals, component
+mass and assignment entropy for every fitted vocabulary. Then retain per-WSI
+component masses, assignment entropy, effective components, variance extrema
+and diagonal condition numbers alongside the full-bag statistics. Diagnostics
+are observations, not pass/fail gates or parameters selected from validation.
+The broader prototype audit below concerns replacing the local-global MIL
+aggregator; this authorized classical comparison keeps that model frozen and
+uses only the fixed16-component diagnostic scope above.
+
+Run both frozen VAE branches sequentially in one private CPU Kaggle kernel,
+then run both paired nested classifier comparisons in that kernel. The two
+branches share the CPU allocation; GPU is disabled. Mount the exact classical
+version1 outputs. No raw WSI access, latent re-extraction or external-cohort
+evaluation is involved.
 
 ## Active regularized spatial-CLS restart (2026-10-08)
 
@@ -1721,7 +1767,8 @@ mixture prototypes and concatenates per-slide component prevalence, means and
 covariances. Its prototypes and all preprocessing must be fitted only on the
 training portion of each fold.
 
-Before implementing a PANTHER arm, perform an offline T2 prototype audit on
+Before replacing the local-global MIL aggregator with PANTHER, perform the
+broader offline T2 prototype audit on
 deterministic patch samples from fold-train and untouched fold-validation WSI:
 
 - held-out patch log likelihood, quantization/responsibility-weighted residual

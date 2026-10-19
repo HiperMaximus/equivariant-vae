@@ -233,7 +233,8 @@ def run_pattern_comparison(repo_root, normal_root, so2_root, normal_hist_root, s
     roots = dict(zip(branches, (normal_root, so2_root), strict=True))
     hist_roots = dict(zip(branches, (normal_hist_root, so2_hist_root), strict=True))
     data = {b: dict(np.load(p / "wsi_features.npz")) for b, p in roots.items()}
-    filename = "h2t_features.npz" if representation == "h2t" else "histograms.npz"
+    filename = {"panther": "panther_features.npz", "h2t": "h2t_features.npz",
+                "pattern_histogram": "histograms.npz"}[representation]
     hist = {b: np.load(p / filename) for b, p in hist_roots.items()}
     training_rows = {b: dict(np.load(p / "training_rows.npz")) for b, p in hist_roots.items()}
     with (repo_root / "docs/data/spec0054_cohort_folds.csv").open(newline="") as handle:
@@ -263,13 +264,19 @@ def run_pattern_comparison(repo_root, normal_root, so2_root, normal_hist_root, s
             for i, (fit, _) in enumerate(inner):
                 key = f"fold{outer_fold}_inner{i}"
                 np.testing.assert_array_equal(training_rows[branch][key], fit)
-                if representation == "h2t":
+                if representation == "panther":
+                    from experiments.spec0054_panther import panther_representations
+                    prepared[branch].append(panther_representations(hist[branch][key], config))
+                elif representation == "h2t":
                     prepared[branch].append({"h2t_mean16": hist[branch][key].astype(np.float64)})
                 else:
                     prepared[branch].append(pattern_representations(x, hist[branch], key, fit, config))
             key = f"fold{outer_fold}_outer"
             np.testing.assert_array_equal(training_rows[branch][key], train)
-            if representation == "h2t":
+            if representation == "panther":
+                from experiments.spec0054_panther import panther_representations
+                prepared_outer[branch] = panther_representations(hist[branch][key], config)
+            elif representation == "h2t":
                 prepared_outer[branch] = {"h2t_mean16": hist[branch][key].astype(np.float64)}
             else:
                 prepared_outer[branch] = pattern_representations(
@@ -292,6 +299,8 @@ def run_pattern_comparison(repo_root, normal_root, so2_root, normal_hist_root, s
                                        "unweighted_ce": ce, "converged": converged,
                                        "iterations": int(model[-1].n_iter_.max())})
                 candidates.append({"C": c, "paired_inner_ce": float(np.mean(losses))})
+                print(json.dumps({"event": "pattern_candidate_done", "outer_fold": outer_fold,
+                                  "variant": variant, **candidates[-1]}), flush=True)
             selected = min(candidates, key=lambda r: r["paired_inner_ce"])
             write_csv(variant_root / "inner_scores.csv", scores)
             write_csv(variant_root / "candidate_scores.csv", candidates)
@@ -345,7 +354,7 @@ if __name__ == "__main__":
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--normal-hist-root", type=Path)
     parser.add_argument("--so2-hist-root", type=Path)
-    parser.add_argument("--representation", choices=("pattern_histogram", "h2t"), default="pattern_histogram")
+    parser.add_argument("--representation", choices=("pattern_histogram", "h2t", "panther"), default="pattern_histogram")
     args = parser.parse_args()
     if args.normal_hist_root is not None:
         run_pattern_comparison(args.repo_root, args.normal_root, args.so2_root,

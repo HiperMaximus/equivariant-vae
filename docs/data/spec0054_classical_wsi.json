@@ -65,6 +65,38 @@
       }
     }
   },
+  "panther": {
+    "reference_repository": "https://github.com/mahmoodlab/PANTHER",
+    "reference_commit": "e7ffae402e146363fe1ca3813ffe68d248ec570f",
+    "clusters": 16,
+    "patches_per_wsi": 128,
+    "max_iter": 50,
+    "n_init": 1,
+    "assignment_batch": 4096,
+    "cpu_threads": 4,
+    "patch_preprocessing": "raw_cached_grid8_features",
+    "clustering": "sklearn_KMeans_Lloyd",
+    "map_update": "one_reference_MAP_EM_step",
+    "tau": 1.0,
+    "initial_variance": 1.0,
+    "output_order": "all_pi_then_all_mu_then_all_diagonal_variances",
+    "moment_dtype": "<f8",
+    "table_dtype": "<f4",
+    "head_input_dtype": "<f8",
+    "variants": ["panther_all16", "panther_mean16"],
+    "sources": {
+      "normal_vae": {
+        "kernel": "maximshtefan/eqvae-spec0054-classical-normal/1",
+        "mount": "/kaggle/input/notebooks/maximshtefan/eqvae-spec0054-classical-normal/normal_vae",
+        "identity_sha256": "67316568a5a7f3de54e55bc3eae73475a45ad7b70118c9febbeb7b2aab87fd56"
+      },
+      "so2_vae": {
+        "kernel": "maximshtefan/eqvae-spec0054-classical-so2/1",
+        "mount": "/kaggle/input/notebooks/maximshtefan/eqvae-spec0054-classical-so2/so2_vae",
+        "identity_sha256": "325f227aa0196b6fe5f00e89f2ee836642d7720b9c4fa69b2e476aa94bf69f62"
+      }
+    }
+  },
   "output_datasets": {
     "normal_vae": "maximshtefan/eqvae-spec0054-classical-normal",
     "so2_vae": "maximshtefan/eqvae-spec0054-classical-so2"

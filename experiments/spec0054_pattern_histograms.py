@@ -12,8 +12,8 @@ from pathlib import Path
 
 import numpy as np
 import sklearn
-from sklearn.cluster import MiniBatchKMeans
-from sklearn.preprocessing import Normalizer, StandardScaler
+from sklearn.cluster import KMeans, MiniBatchKMeans
+from sklearn.preprocessing import FunctionTransformer, Normalizer, StandardScaler
 from threadpoolctl import threadpool_limits
 
 from experiments.spec0054_classical_compare import nested_partitions
@@ -37,13 +37,20 @@ def sampled_patch_rows(data, config, representation="pattern_histogram"):
 def fit_vocabulary(samples, owners, training_rows, config, representation="pattern_histogram"):
     """Only the indicated WSI contribute to scaling and centroid estimation."""
     values = samples[np.isin(owners, training_rows)]
-    scaler = Normalizer(norm="l2") if representation == "h2t" else StandardScaler()
+    if representation == "panther":
+        scaler = FunctionTransformer()
+    else:
+        scaler = Normalizer(norm="l2") if representation == "h2t" else StandardScaler()
     normalized = scaler.fit_transform(values)
     recipe = config[representation]
-    model = MiniBatchKMeans(
-        n_clusters=recipe["clusters"], batch_size=recipe["batch_size"],
-        max_iter=recipe["max_iter"], n_init=recipe["n_init"], random_state=config["seed"],
-    ).fit(normalized)
+    if representation == "panther":
+        model = KMeans(n_clusters=recipe["clusters"], max_iter=recipe["max_iter"],
+                       n_init=recipe["n_init"], random_state=config["seed"]).fit(normalized)
+    else:
+        model = MiniBatchKMeans(
+            n_clusters=recipe["clusters"], batch_size=recipe["batch_size"],
+            max_iter=recipe["max_iter"], n_init=recipe["n_init"], random_state=config["seed"],
+        ).fit(normalized)
     if representation == "h2t":
         model.cluster_centers_ = scaler.transform(model.cluster_centers_)
     return scaler, model
@@ -124,6 +131,7 @@ def run(repo_root: Path, cache_root: Path, output_root: Path, branch: str,
              wsi_row=owners, wsi_id=data["wsi_id"])
     vocabularies = {}
     training = {}
+    sample_audit = {}
     with threadpool_limits(limits=recipe["cpu_threads"]):
         for outer_fold, train, _, inner in nested_partitions(data["fold"], data["diagnosis_index"], config):
             splits = [(f"fold{outer_fold}_inner{i}", fit) for i, (fit, _) in enumerate(inner)]
@@ -139,14 +147,24 @@ def run(repo_root: Path, cache_root: Path, output_root: Path, branch: str,
                 np.savez(output_root / f"{key}_vocabulary.npz", **parameters)
                 print(json.dumps({"event": "vocabulary_fitted", "branch": branch, "key": key,
                                   "training_wsi": len(fit), "iterations": int(model.n_iter_),
-                                  "steps": int(model.n_steps_), "kmeans_fit_inertia": float(model.inertia_),
+                                  "kmeans_fit_inertia": float(model.inertia_),
                                   "seconds": time.monotonic() - fit_started}), flush=True)
-        if representation == "h2t":
+                if representation == "panther":
+                    from experiments.spec0054_panther import sample_diagnostics
+                    sample_audit[key] = sample_diagnostics(samples, owners, fit, model.cluster_centers_, config)
+        if representation == "panther":
+            from experiments.spec0054_panther import bag_panther_features
+            (output_root / "prototype_sample_audit.json").write_text(json.dumps(sample_audit, indent=2) + "\n")
+            tables, masses, diagnostics = bag_panther_features(cache, data, vocabularies, config)
+            np.savez(output_root / "panther_masses.npz", wsi_id=data["wsi_id"], **masses)
+            (output_root / "panther_diagnostics.json").write_text(json.dumps(diagnostics, indent=2) + "\n")
+        elif representation == "h2t":
             tables, counts = bag_h2t_features(cache, data, vocabularies, config)
             np.savez(output_root / "h2t_counts.npz", wsi_id=data["wsi_id"], **counts)
         else:
             tables = bag_histograms(cache, data, vocabularies, config)
-    filename = "h2t_features.npz" if representation == "h2t" else "histograms.npz"
+    filename = {"panther": "panther_features.npz", "h2t": "h2t_features.npz",
+                "pattern_histogram": "histograms.npz"}[representation]
     np.savez(output_root / filename, wsi_id=data["wsi_id"], **tables)
     np.savez(output_root / "training_rows.npz", **training)
     identity = {
@@ -172,6 +190,6 @@ if __name__ == "__main__":
     parser.add_argument("--cache-root", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--branch", choices=("normal_vae", "so2_vae"), required=True)
-    parser.add_argument("--representation", choices=("pattern_histogram", "h2t"), default="pattern_histogram")
+    parser.add_argument("--representation", choices=("pattern_histogram", "h2t", "panther"), default="pattern_histogram")
     args = parser.parse_args()
     run(args.repo_root, args.cache_root, args.output_root, args.branch, args.representation)
