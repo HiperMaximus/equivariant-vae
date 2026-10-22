@@ -1,6 +1,22 @@
 # Current Repository Status
 
-Last updated: 2026-10-16
+Last updated: 2026-10-22
+
+## PANTHER: published experiment summary (2026-10-22)
+
+The completed paired CPU Kaggle run `maximshtefan/eqvae-spec0054-panther/1`
+evaluates full32784-feature PANTHER and its16384-feature mean-only control
+with16 components and1024 cached features per patch. Five outer/three inner
+folds cover361 development WSI; the152 external WSI remain reserved.
+Full PANTHER mean validation F1 is0.5545 normal /0.5587 SO(2). Mean-only
+SO(2) gives CE1.0206. All540 inner fits and20 final heads converged; both
+variants select C0.001 in every fold. Training F1 remains0.9907 /0.9542 for
+the full representation, so the generalization gap persists.
+
+Spanish report and comparison with the four earlier representations:
+[spec0054_panther_20261022.md](reports/professor/spec0054_panther_20261022.md).
+Adjacent CSV/JSON files contain fold metrics, candidate scores, aggregate
+comparisons and the audit. Source commits are `45f64fe` and `48b8667`.
 
 ## MIDL: final spelling import and completed comment review (2026-10-16)
 

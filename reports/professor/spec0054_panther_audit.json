@@ -1,0 +1,150 @@
+{
+  "kernel": "maximshtefan/eqvae-spec0054-panther/1",
+  "checked_date": "2026-10-20",
+  "training_or_tuning_run_locally": false,
+  "external_cohort_used": false,
+  "branches": {
+    "normal_vae": {
+      "identities_match": true,
+      "training_partitions_match": true,
+      "sampled_patches": 46208,
+      "sampled_rows_sha256": "b2be7c05ac6cb9026d95e1205586a1cfce756e7a112c10bb15648c90c6b0e1ba",
+      "vocabularies": 20,
+      "wsi_per_table": 361,
+      "features_per_wsi": 32784,
+      "nonfinite_features": 0,
+      "nonpositive_variances": 0,
+      "maximum_pi_sum_error": 4.150206223130226e-08,
+      "maximum_pi_mass_formula_error": 2.9679603996690673e-08,
+      "maximum_responsibility_mass_sum_error": 2.9103830456733704e-11,
+      "variance_min": 6.748391751898453e-05,
+      "variance_max": 6.141836643218994,
+      "diagnostic_quantiles": {
+        "responsibility_entropy": {
+          "min": 0.1675724254040939,
+          "median": 1.5585833637532183,
+          "max": 2.0090932003472104
+        },
+        "effective_components": {
+          "min": 1.7396116767002079,
+          "median": 9.011500490676038,
+          "max": 13.621641404604498
+        },
+        "minimum_component_mass": {
+          "min": 1.1708329327296407e-13,
+          "median": 2.355124382726851,
+          "max": 309.2164004371124
+        },
+        "variance_min": {
+          "min": 6.74839185269287e-05,
+          "median": 0.0005368540463298107,
+          "max": 0.028336243580705116
+        },
+        "variance_max": {
+          "min": 0.22797983226129334,
+          "median": 1.4256357058170797,
+          "max": 6.1418366686677075
+        },
+        "max_diagonal_condition": {
+          "min": 10.348674174228151,
+          "median": 282.22364787811205,
+          "max": 2221.201505735457
+        }
+      },
+      "elapsed_seconds": 1078.834799799
+    },
+    "so2_vae": {
+      "identities_match": true,
+      "training_partitions_match": true,
+      "sampled_patches": 46208,
+      "sampled_rows_sha256": "b2be7c05ac6cb9026d95e1205586a1cfce756e7a112c10bb15648c90c6b0e1ba",
+      "vocabularies": 20,
+      "wsi_per_table": 361,
+      "features_per_wsi": 32784,
+      "nonfinite_features": 0,
+      "nonpositive_variances": 0,
+      "maximum_pi_sum_error": 3.9639417082071304e-08,
+      "maximum_pi_mass_formula_error": 2.979008706383013e-08,
+      "maximum_responsibility_mass_sum_error": 2.1827872842550278e-11,
+      "variance_min": 6.354330253088847e-05,
+      "variance_max": 5.6256537437438965,
+      "diagnostic_quantiles": {
+        "responsibility_entropy": {
+          "min": 0.1884676731394556,
+          "median": 1.700914187208764,
+          "max": 2.1122656175086045
+        },
+        "effective_components": {
+          "min": 1.5539803878563803,
+          "median": 9.37382209367048,
+          "max": 14.074851255778286
+        },
+        "minimum_component_mass": {
+          "min": 6.811942509376979e-09,
+          "median": 2.8541029740736636,
+          "max": 263.1314717683443
+        },
+        "variance_min": {
+          "min": 6.354330186652097e-05,
+          "median": 0.0005155841671601238,
+          "max": 0.03229096152909047
+        },
+        "variance_max": {
+          "min": 0.17270714859906444,
+          "median": 1.0556876516178235,
+          "max": 5.625653662630618
+        },
+        "max_diagonal_condition": {
+          "min": 8.48452770165221,
+          "median": 261.52358717928337,
+          "max": 2820.7663662844875
+        }
+      },
+      "elapsed_seconds": 1092.99154873
+    }
+  },
+  "classifiers": {
+    "panther_all16": {
+      "inner_fits": 270,
+      "inner_converged": 270,
+      "final_fits": 10,
+      "final_converged": 10,
+      "final_iteration_range": [
+        486,
+        1138
+      ],
+      "one_oof_prediction_per_wsi_branch": true,
+      "oof_metrics_recomputed_match": true,
+      "C_selection_recomputed_match": true,
+      "C": [
+        0.001,
+        0.001,
+        0.001,
+        0.001,
+        0.001
+      ]
+    },
+    "panther_mean16": {
+      "inner_fits": 270,
+      "inner_converged": 270,
+      "final_fits": 10,
+      "final_converged": 10,
+      "final_iteration_range": [
+        325,
+        860
+      ],
+      "one_oof_prediction_per_wsi_branch": true,
+      "oof_metrics_recomputed_match": true,
+      "C_selection_recomputed_match": true,
+      "C": [
+        0.001,
+        0.001,
+        0.001,
+        0.001,
+        0.001
+      ]
+    }
+  },
+  "classification_elapsed_seconds": 26320.303529061002,
+  "total_stage_elapsed_seconds": 28492.129877590003
+}
