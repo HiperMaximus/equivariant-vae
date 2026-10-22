@@ -4,7 +4,7 @@ The former SIPAIM Overleaf project now contains a curated copy of this
 manuscript at https://www.overleaf.com/project/69c614433cbc9e46cf226d24.
 The export includes `main.tex`, `references.bib`, the manuscript figures,
 the bundled IEEE class/style, `.latexmkrc`, and `inciscos2026.pdf`. It excludes
-the personal EPUB, rendering scripts and issue-preview images. The local
+rendering scripts and issue-preview images. The local
 `paper/sipaim2026` scaffold remains available separately.
 
 This directory is the anonymous INCISCOS 2026 adaptation of the earlier SIPAIM
@@ -52,23 +52,6 @@ used by the earlier paper subtree.
 
 The review PDF is `inciscos2026.pdf`. Restore author names, affiliations and
 acknowledgments only after acceptance.
-
-
-## Personal Kindle EPUB
-
-The local Pandoc 3.1.3 installation lives in the ignored
-`../../.venv/pandoc-local` directory. From the repository root, after
-building the PDF, run:
-
-```bash
-.venv/bin/python paper/inciscos2026/make_epub.py
-```
-
-The output is `inciscos2026_kindle.epub`. The script keeps text
-reflowable, converts equations to MathML and embeds the five LaTeX diagrams as
-images cropped from the compiled PDF. Its crop coordinates match this
-ten-page review layout; update them if pagination changes. This EPUB is a
-personal reading copy, not the conference submission file.
 
 ## Dataset figure provenance
 

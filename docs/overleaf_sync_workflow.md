@@ -36,7 +36,7 @@ https://www.overleaf.com/project/69c614433cbc9e46cf226d24.
 
 The export contains 22 files: `main.tex`, `references.bib`, `.latexmkrc`,
 `inciscos2026.pdf`, manuscript figures and the bundled IEEE class/style. It
-does not include the personal EPUB, figure-generation scripts or issue-preview
+does not include figure-generation scripts or issue-preview
 images. The committed INCISCOS source in this repo remains the source of
 record. Before a later sync, fetch and inspect Overleaf edits, then prepare a
 fast-forward export of only the paper files; never force-push or push the whole
