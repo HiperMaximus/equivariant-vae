@@ -8,16 +8,16 @@ import sys
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "f81ca4c574d07d6a2fedddac21eab22eab924500"
+SOURCE_COMMIT = "7ad06010416a789a6b96e612919203c162adc23e"
 SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
 OUTPUT_ROOT = Path("/kaggle/working/spec0054_cls_fold0")
 SMOKE = False
-RESUME = True
+RESUME = False
 EFFECTIVE_BATCH = 4
 READ_PROBE = False
 LR_SEARCH = False
 LR_CONFIRMATION = False
-SESSION_DEADLINE_UNIX = 1791904010.866954  # Last v12 cutoff; set a fresh submission-based deadline before the next push.
+SESSION_DEADLINE_UNIX = 1792746003  # Submission cutoff; reserve 15 minutes of the 12-hour session.
 
 
 def main() -> None:

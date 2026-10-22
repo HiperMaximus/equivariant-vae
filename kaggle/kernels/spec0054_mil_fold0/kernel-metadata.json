@@ -9,8 +9,7 @@
   "enable_internet": "true",
   "machine_shape": "NvidiaTeslaT4",
   "dataset_sources": [
-    "maximusshtefan/eqvae-spec0054-frozen-latent-shard-1",
-    "maximshtefan/eqvae-spec0054-cls-regularized-fold0-resume"
+    "maximusshtefan/eqvae-spec0054-frozen-latent-shard-1"
   ],
   "competition_sources": [],
   "kernel_sources": [
