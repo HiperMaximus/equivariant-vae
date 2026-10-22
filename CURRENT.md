@@ -25,9 +25,20 @@ Source `45f64fe`; entry `48b8667`. Downloaded outputs:
 `runs/kaggle/spec0054_panther_v1_outputs/`; inspection tables:
 `runs/kaggle/spec0054_panther_v1_review/`. Both construction and classification
 ran on Kaggle CPU. Use Kaggle for subsequent experiments, including CPU work.
-No follow-up regularization recipe has been selected.
+No follow-up classical-head regularization recipe has been selected.
 
-The separate CLS + gated-ABMIL fold0 run is paused after
+A new CLS + gated-ABMIL dropout/smoothing/C4 recipe is implemented locally
+in the existing model, runner and fold0 contract. It requires fresh classifier
+initialization; the prior v12 states below remain the reference. Numeric values
+are in `docs/data/spec0054_fold0_run.json`; the scientific definition and
+comparison limits are in the Spec0054 candidate section. No new Kaggle run
+has been submitted. D4 remains deferred. CPU verification covers all14 affected
+tests, including direct smoothing gradients, exact C4 permutations, dropout
+evaluation behavior and bitwise continuation after interrupted assessment.
+Ruff, targeted BasedPyright, compilation and existing kernel build/validation
+pass. GPU throughput and compiled-CUDA behavior remain to be measured on Kaggle.
+
+The previous CLS + gated-ABMIL fold0 run is paused after
 `maximshtefan/eqvae-spec0054-mil-fold0/12`. Resume input is
 `maximshtefan/eqvae-spec0054-cls-regularized-fold0-resume/3`.
 
@@ -42,12 +53,14 @@ These are exploratory fold0 results, distinct from the five-fold fixed-head
 comparison. Review evidence: `runs/local/spec0054_cls_fold0_regularized_v12_review/`;
 [professor update](https://github.com/HiperMaximus/equivariant-vae/issues/8#issuecomment-6149719046).
 
-The active entry is `kaggle/kernels/spec0054_mil_fold0/abmil.py`, pinned to
-`f81ca4c574d07d6a2fedddac21eab22eab924500`, with one branch per GPU.
-Before any continuation, replace its expired `SESSION_DEADLINE_UNIX` with a
-fresh submission-based cutoff reserving 15 minutes; restore latest states and
-within-epoch cursors. The 105-epoch horizon and five-fold MIL evaluation remain
-unfinished. Follow the existing contract; do not restart completed sessions.
+The existing `kaggle/kernels/spec0054_mil_fold0/abmil.py` still points to the
+previous source `f81ca4c574d07d6a2fedddac21eab22eab924500` and resume dataset.
+Before submitting the new candidate, publish/pin its source, set `RESUME=False`,
+remove the old resume mount, and replace the expired `SESSION_DEADLINE_UNIX`
+with a fresh submission-based cutoff reserving15 minutes. Keep one branch per
+GPU. Do not resume v12 weights under the new recipe. Previous-recipe continuation
+must use its pinned source/contract and restore latest state/cursors instead.
+The105-epoch horizon and five-fold MIL evaluation remain unfinished.
 
 ## Functional geometry — Spec 0053
 

@@ -1,9 +1,46 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: regularized spatial-CLS fold0 checkpointed after v12 at normal72.61/SO(2)71.97 epochs; 105-epoch horizon unfinished; resume dataset v3 ready
+Status: dropout/smoothing/C4 fold0 recipe implemented locally; fresh initialization required; v12 retained separately
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-10-19
+Last updated: 2026-10-22
+
+## Accepted dropout, smoothing and C4 candidate (2026-10-22)
+
+Train a new paired fold0 candidate from the original classifier initialization.
+Preserve v12 latest/best checkpoints, telemetry and its version3 resume dataset
+as the previous recipe. The VAE weights, frozen historical Otsu bags, folds,
+patch retention, AEM, effective batch, LR schedule and horizon remain unchanged.
+Exact numerical settings reside in `docs/data/spec0054_fold0_run.json`.
+
+Apply channel dropout immediately after the spatial encoder's convolution,
+activation dropout inside both residual MLPs, and feature dropout on the WSI
+embedding before its linear classifier. Keep parameter names and initialization
+unchanged so the initial learned tensors match the prior recipe. Evaluation
+disables all dropout and retains full untransformed bags.
+
+The training objective for original diagnosis y is
+`w_y * CE((1-epsilon)*one_hot(y) + epsilon/5, p) - lambda_AEM*H(attention)`.
+The original class weight multiplies the whole smoothed CE. Retain ordinary CE
+and its class-weighted value as distinct telemetry; record smoothed CE and AEM
+separately. Select checkpoints by minimum ordinary unweighted validation CE.
+
+For each training presentation, first retain the existing paired patch subset,
+then rotate each retained posterior-mu map independently by a uniformly sampled
+element of C4 on its last two spatial axes, identically across all16 channels.
+Use a separate deterministic RNG stream keyed by seed/epoch/WSI so branches
+and resumed sessions share rotations without changing subset selection or the
+model RNG. Record the sampled rotation-code hash. Rotate owned input buffers
+in the reader before the existing host preparation and transfer; cached shards
+and coordinates stay unchanged. Exact quarter turns introduce no interpolation.
+
+This is exploratory latent-input regularization, not evidence that rotating
+stored mu equals encoding rotated RGB. The fixed25 evaluation population and
+its outcomes do not select augmentation settings. D4/reflections remain a
+separate future comparison. The combined candidate cannot identify individual
+regularizer effects. Preserve the exploratory status of fold0 and the external
+152-WSI boundary. Before submission, publish and pin the new source, disable
+old-state resume, remove the old resume mount and set a fresh session deadline.
 
 ## Accepted classical WSI baseline (2026-10-14)
 
@@ -133,7 +170,7 @@ branches share the CPU allocation; GPU is disabled. Mount the exact classical
 version1 outputs. No raw WSI access, latent re-extraction or external-cohort
 evaluation is involved.
 
-## Active regularized spatial-CLS restart (2026-10-08)
+## Previous regularized spatial-CLS run (2026-10-08)
 
 Continuation input is the private `maximshtefan/eqvae-spec0054-cls-regularized-fold0-resume/3` dataset, containing the v12 latest/best states and cumulative telemetry. Resume latest at normal5228 updates/20,912 presentations/epoch72 cursor176 and SO25182/20,728/epoch71 cursor280. Both have completed the epoch70 assessment. Source remains `f81ca4c574d07d6a2fedddac21eab22eab924500`. The thin entry retains the expired v12 cutoff as execution provenance; replace it with a fresh submission-based deadline, reserving15min of the next session quota, before any new launch.
 

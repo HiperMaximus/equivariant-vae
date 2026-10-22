@@ -41,8 +41,11 @@ from eqvae.training.supervised_pairing import paired_epoch_order
 BRANCHES = ("normal_vae", "so2_vae")
 
 
-def _make_classifier(state: dict, device: torch.device, *, hidden_width: int = 128):
-    model = GatedABMILClassifier(hidden_width)
+def _make_classifier(state: dict, device: torch.device, *, hidden_width: int = 128,
+                     cnn_dropout: float = 0.0, mlp_dropout: float = 0.0,
+                     bag_dropout: float = 0.0):
+    model = GatedABMILClassifier(hidden_width, cnn_dropout=cnn_dropout,
+                                 mlp_dropout=mlp_dropout, bag_dropout=bag_dropout)
     model.load_state_dict(state)
     model.to(device)
     # PyTorch supports memory_format here; its Module.to overload omits it.
@@ -60,19 +63,22 @@ def _make_optimizer(model, *, peak_lr: float = 2e-4, weight_decay: float = 5e-3)
     )
 
 
-def _forward_loss(model, latents, target, class_weight, aem_weight: torch.Tensor | float = 0.0):
+def _forward_loss(model, latents, target, class_weight, aem_weight: torch.Tensor | float = 0.0,
+                  label_smoothing: float = 0.0):
     with torch.autocast(latents.device.type, dtype=torch.float16, enabled=latents.is_cuda):
         logits, representations = model.forward_with_representations(latents)
         loss = functional.cross_entropy(logits.float().unsqueeze(0), target)
+        training_ce = functional.cross_entropy(
+            logits.float().unsqueeze(0), target, label_smoothing=label_smoothing)
         summary = t0_forward_summary(representations)
         attention = representations[-3].float()
         entropy = -(attention * attention.clamp_min(1e-12).log()).sum()
-    return logits, loss, loss * class_weight - aem_weight * entropy, summary
+    return logits, loss, training_ce * class_weight - aem_weight * entropy, summary
 
 
-def _compiled_closure(model):
+def _compiled_closure(model, *, label_smoothing: float = 0.0):
     def closure(latents, target, class_weight, aem_weight):
-        return _forward_loss(model, latents, target, class_weight, aem_weight)
+        return _forward_loss(model, latents, target, class_weight, aem_weight, label_smoothing)
     compiled = torch.compile(
         closure, backend="inductor", fullgraph=True, dynamic=None,
         mode="max-autotune-no-cudagraphs",
@@ -91,6 +97,19 @@ def _aem_weight(exposure: int, train_count: int, config: dict) -> float:
 def _sample_indices(count: int, seed: int, epoch: int, wsi_id: int, fraction: float) -> np.ndarray:
     generator = np.random.default_rng(np.random.SeedSequence([seed, epoch, wsi_id]))
     return np.sort(generator.choice(count, size=math.ceil(count * fraction), replace=False))
+
+
+def _sample_c4(count: int, seed: int, epoch: int, wsi_id: int) -> np.ndarray:
+    # Independent stream: augmentation never changes the paired patch subset.
+    generator = np.random.default_rng(np.random.SeedSequence([seed, epoch, wsi_id, 0xC4]))
+    return generator.integers(0, 4, size=count, dtype=np.uint8)
+
+
+def _apply_c4(array: np.ndarray, rotations: np.ndarray) -> None:
+    """Rotate owned patch buffers exactly on their last two spatial axes."""
+    for quarter_turns in (1, 2, 3):
+        selected = np.flatnonzero(rotations == quarter_turns)
+        array[selected] = np.rot90(array[selected], quarter_turns, axes=(-2, -1))
 
 
 def _capture_modules(model):
@@ -256,6 +275,9 @@ def run_branch(
         effective_batch=config["effective_batch"], weight_decay=config["weight_decay"],
         patch_retention=config["patch_retention"], aem_weight=config["aem_weight"],
         aem_schedule=config["aem_schedule"],
+        cnn_dropout=config["cnn_dropout"], mlp_dropout=config["mlp_dropout"],
+        bag_dropout=config["bag_dropout"], label_smoothing=config["label_smoothing"],
+        c4_augmentation=config["c4_augmentation"],
         checkpoint_every_exposures=config["checkpoint_every_exposures"])
     prior = resume_root / branch if resume_root is not None else None
     if prior is not None and prior.exists():
@@ -285,13 +307,15 @@ def run_branch(
     torch.manual_seed(config["seed"])
     torch.cuda.manual_seed_all(config["seed"])
     initial_state = {name: value.detach().cpu().clone() for name, value in GatedABMILClassifier(config["attention_hidden_width"]).state_dict().items()}
-    model = _make_classifier(initial_state, device, hidden_width=config["attention_hidden_width"])
+    model = _make_classifier(initial_state, device, hidden_width=config["attention_hidden_width"],
+                             cnn_dropout=config["cnn_dropout"], mlp_dropout=config["mlp_dropout"],
+                             bag_dropout=config["bag_dropout"])
     optimizer = _make_optimizer(model, peak_lr=config["peak_lr"], weight_decay=config["weight_decay"])
     scaler = torch.amp.GradScaler(device.type, enabled=device.type == "cuda")
     telemetry = AdamWTelemetry()
     dynamics = ExampleDynamicsTracker(ids)
     scheduler = ExposureSchedule(optimizer, count, config)
-    compiled = _compiled_closure(model)
+    compiled = _compiled_closure(model, label_smoothing=config["label_smoothing"])
     tables = {name: [] for name in ("t0", "t1", "t2", "predictions")}
     epoch = 0
     cursor = 0
@@ -356,7 +380,7 @@ def run_branch(
                     indices = _sample_indices(bags.locations[wsi_id].count,
                                               config["seed"], read_epoch, wsi_id,
                                               config["patch_retention"])
-                    yield wsi_id, indices
+                    yield read_epoch, wsi_id, indices
                 read_epoch += 1
                 read_cursor = 0
                 read_order = paired_epoch_order(row_count=count, epoch=read_epoch,
@@ -372,7 +396,7 @@ def run_branch(
         reader_state = local()
 
         def prepare(request):
-            wsi_id, indices = request
+            read_epoch, wsi_id, indices = request
             started = time.perf_counter()
             log("bag_read_start", wsi_id=wsi_id, shard=bags.locations[wsi_id].shard,
                 bag_size=bags.locations[wsi_id].count, prefetch=True,
@@ -383,6 +407,9 @@ def run_branch(
             read_seconds = time.perf_counter() - read_started
             read_cpu_seconds = time.thread_time() - read_cpu_started
             host_started, host_cpu_started = time.perf_counter(), time.thread_time()
+            rotations = _sample_c4(len(indices), config["seed"], read_epoch, wsi_id)
+            if config["c4_augmentation"]:
+                _apply_c4(array, rotations)
             source = torch.from_numpy(array)
             host = torch.empty_like(source, memory_format=torch.channels_last,
                                     pin_memory=device.type == "cuda")
@@ -394,7 +421,8 @@ def run_branch(
                 read_prepare_seconds=time.perf_counter() - started,
                 read_seconds=read_seconds, read_cpu_seconds=read_cpu_seconds,
                 host_prepare_seconds=host_seconds, host_prepare_cpu_seconds=host_cpu_seconds,
-                prefetch=True)
+                c4_rotations_sha256=hashlib.sha256(rotations.tobytes()).hexdigest()
+                if config["c4_augmentation"] else "identity", prefetch=True)
             transfer_started = time.perf_counter()
             if device.type == "cuda":
                 if not hasattr(reader_state, "copy_stream"):
@@ -511,7 +539,7 @@ def run_branch(
             target = torch.tensor([target_index], device=device)
             def diagnostic_loss(probe: GatedABMILClassifier) -> torch.Tensor:
                 return _forward_loss(probe, latents, target, weights[target_index],
-                                     _aem_weight(exposure, count, config))[2]
+                                     _aem_weight(exposure, count, config), config["label_smoothing"])[2]
             log("t1_start", wsi_id=wsi_id)
             probe_model = copy.deepcopy(model).train()
             probe_optimizer = _make_optimizer(probe_model, peak_lr=config["peak_lr"], weight_decay=config["weight_decay"])
@@ -572,7 +600,7 @@ def run_branch(
             target_index = bags.locations[wsi_id].diagnosis_index
             loss = _forward_loss(probe_model, latents,
                                  torch.tensor([target_index], device=device), weights[target_index],
-                                 _aem_weight(exposure, count, config))[2]
+                                 _aem_weight(exposure, count, config), config["label_smoothing"])[2]
             loss.backward()
             vectors.append(torch.cat([
                 parameter.grad.detach().float().reshape(-1)
@@ -720,6 +748,9 @@ def run_branch(
                     weight = torch.tensor(weights[target_index], device=device)
                     log("forward_start", wsi_id=wsi_id, update=update + 1)
                     logits, unweighted, weighted, summary = compiled(latents, target, weight, aem_tensor)
+                    training_ce = functional.cross_entropy(
+                        logits.detach().float().unsqueeze(0), target,
+                        label_smoothing=config["label_smoothing"])
                     if lr_search and not bool(torch.isfinite(torch.stack((unweighted, weighted))).all()):
                         # An actual nonfinite loss is a search observation; do
                         # not backward/step it or retry this forward indefinitely.
@@ -728,7 +759,7 @@ def run_branch(
                             objective_loss=float(weighted.item()),
                             weighted_ce=float((unweighted * weight).item()),
                             aem_coefficient=aem,
-                            aem_penalty=float((unweighted * weight - weighted).item()),
+                            aem_penalty=float((training_ce * weight - weighted).item()),
                             sampled_bag_size=len(indices[wsi_id]),
                             sample_indices_sha256=hashlib.sha256(indices[wsi_id].tobytes()).hexdigest())
                         optimizer.zero_grad(set_to_none=True)
@@ -741,7 +772,8 @@ def run_branch(
                     log("forward_done_backward_start", wsi_id=wsi_id)
                     scaler.scale(weighted / len(selected_ids)).backward()
                     log("backward_done", wsi_id=wsi_id)
-                    observations.append((wsi_id, logits.detach(), unweighted.detach(), weighted.detach(), summary.detach()))
+                    observations.append((wsi_id, logits.detach(), unweighted.detach(),
+                                         weighted.detach(), training_ce, summary.detach()))
                     del latents
                 log("optimizer_start", update=update + 1)
                 scaler.unscale_(optimizer)
@@ -773,7 +805,7 @@ def run_branch(
             exposure = next_exposure
             cursor += len(selected_ids)
             scheduler.last_exposure = exposure
-            for wsi_id, logits, unweighted, weighted, summary in observations:
+            for wsi_id, logits, unweighted, weighted, training_ce, summary in observations:
                 target_index = bags.locations[wsi_id].diagnosis_index
                 record = classification_example_record(
                     logits=logits, target=target_index,
@@ -791,7 +823,14 @@ def run_branch(
                     "sampled_bag_size": len(indices[wsi_id]),
                     "sample_indices_sha256": hashlib.sha256(indices[wsi_id].tobytes()).hexdigest(),
                     "aem_coefficient": aem, "objective_loss": float(weighted.item()),
-                    "aem_penalty": float((unweighted * weights[target_index] - weighted).item()),
+                    "class_weight": weights[target_index],
+                    "smoothed_ce": float(training_ce.item()),
+                    "weighted_smoothed_ce": float((training_ce * weights[target_index]).item()),
+                    "label_smoothing": config["label_smoothing"],
+                    "c4_rotations_sha256": hashlib.sha256(
+                        _sample_c4(len(indices[wsi_id]), config["seed"], epoch, wsi_id).tobytes()
+                    ).hexdigest() if config["c4_augmentation"] else "identity",
+                    "aem_penalty": float((training_ce * weights[target_index] - weighted).item()),
                     **covariates[wsi_id],
                     "amp_scale_before": initial_scale,
                     "amp_scale_after": float(scaler.get_scale()),

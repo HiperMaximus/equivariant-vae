@@ -114,6 +114,75 @@ def test_t0_compile_and_t1_preserve_loss_gradients():
         torch.testing.assert_close(a.grad, b.grad)
 
 
+def test_smoothing_preserves_ordinary_ce_and_matches_soft_target_gradients():
+    torch.manual_seed(28)
+    model = GatedABMILClassifier().eval()
+    with torch.no_grad():
+        model.classifier.weight.normal_(std=0.1)
+    direct = copy.deepcopy(model)
+    latents = torch.randn(4, 16, 32, 32)
+    target = torch.tensor([2])
+    logits, ordinary, objective, _ = fold._forward_loss(model, latents, target, 1.7, 0.05, 0.1)
+    expected_logits, representations = direct.forward_with_representations(latents)
+    soft_target = torch.full((5,), 0.02)
+    soft_target[2] += 0.9
+    entropy = -(representations[-3] * representations[-3].log()).sum()
+    expected = -(soft_target * expected_logits.log_softmax(0)).sum() * 1.7 - 0.05 * entropy
+    torch.testing.assert_close(ordinary, -logits.log_softmax(0)[2])
+    torch.testing.assert_close(objective, expected)
+    objective.backward()
+    expected.backward()
+    for measured, reference in zip(model.parameters(), direct.parameters(), strict=True):
+        torch.testing.assert_close(measured.grad, reference.grad)
+
+
+def test_c4_is_exact_spatial_permutation_with_paired_independent_schedule():
+    array = np.arange(8 * 16 * 32 * 32).reshape(8, 16, 32, 32)
+    original = array.copy()
+    rotations = np.tile(np.arange(4, dtype=np.uint8), 2)
+    fold._apply_c4(array, rotations)
+    expected = np.stack([np.rot90(patch, int(k), axes=(-2, -1))
+                         for patch, k in zip(original, rotations, strict=True)])
+    np.testing.assert_array_equal(array, expected)
+    fold._apply_c4(array, (-rotations.astype(np.int16) % 4).astype(np.uint8))
+    np.testing.assert_array_equal(array, original)
+    indices = fold._sample_indices(100, 1701, 4, 123, 0.6)
+    a = fold._sample_c4(len(indices), 1701, 4, 123)
+    np.testing.assert_array_equal(a, fold._sample_c4(len(indices), 1701, 4, 123))
+    assert not np.array_equal(a, fold._sample_c4(len(indices), 1701, 5, 123))
+    np.testing.assert_array_equal(indices, fold._sample_indices(100, 1701, 4, 123, 0.6))
+
+
+def test_dropout_preserves_initial_weights_eval_and_channel_masks():
+    torch.manual_seed(17)
+    baseline = GatedABMILClassifier().eval()
+    torch.manual_seed(17)
+    model = GatedABMILClassifier(cnn_dropout=0.1, mlp_dropout=0.2, bag_dropout=0.2)
+    for name, value in baseline.state_dict().items():
+        torch.testing.assert_close(value, model.state_dict()[name], rtol=0, atol=0)
+    latents = torch.randn(6, 16, 32, 32)
+    torch.testing.assert_close(model.eval()(latents), baseline(latents), rtol=0, atol=0)
+    mask = model.train().patch_encoder.projection_dropout(torch.ones(64, 64, 8, 8))
+    torch.testing.assert_close(mask, mask[:, :, :1, :1].expand_as(mask))
+    assert (mask == 0).any() and (mask != 0).any()
+    assert not torch.equal(model.patch_encoder(latents), model.patch_encoder(latents))
+    with torch.no_grad():
+        model.classifier.weight.normal_(std=0.1)
+    target = torch.tensor([1])
+    compiled = torch.compile(lambda x: fold._forward_loss(model, x, target, 1.2, 0.05, 0.1),
+                             backend="eager", fullgraph=True)
+    reference = copy.deepcopy(model)
+    rng = torch.get_rng_state()
+    measured = compiled(latents)[2]
+    measured.backward()
+    torch.set_rng_state(rng)
+    expected = fold._forward_loss(reference, latents, target, 1.2, 0.05, 0.1)[2]
+    expected.backward()
+    torch.testing.assert_close(measured, expected)
+    for actual, other in zip(model.parameters(), reference.parameters(), strict=True):
+        torch.testing.assert_close(actual.grad, other.grad)
+
+
 def test_t2_uniform_attention_and_nonfinite_observations():
     model = GatedABMILClassifier()
     with torch.no_grad():
@@ -167,7 +236,7 @@ def test_prefetch_overlaps_training_and_keeps_only_two_future_inputs(tmp_path, m
     bags.read = read
     forwards = 0
 
-    def closure(model):
+    def closure(model, *, label_smoothing=0.0):
         def forward(x, target, weight, aem):
             nonlocal forwards
             if forwards == 0:
@@ -176,10 +245,12 @@ def test_prefetch_overlaps_training_and_keeps_only_two_future_inputs(tmp_path, m
                 assert set(background_reads) == set(order[:3])
             wsi_id = order[forwards]
             indices = fold._sample_indices(6, config["seed"], 0, wsi_id, config["patch_retention"])
-            torch.testing.assert_close(x, torch.from_numpy(arrays[wsi_id][indices]), rtol=0, atol=0)
+            expected = arrays[wsi_id][indices].copy()
+            fold._apply_c4(expected, fold._sample_c4(len(indices), config["seed"], 0, wsi_id))
+            torch.testing.assert_close(x, torch.from_numpy(expected), rtol=0, atol=0)
             assert x.is_contiguous(memory_format=torch.channels_last)
             forwards += 1
-            return fold._forward_loss(model, x, target, weight, aem)
+            return fold._forward_loss(model, x, target, weight, aem, label_smoothing)
         return forward
 
     monkeypatch.setattr(fold, "_compiled_closure", closure)
@@ -195,6 +266,8 @@ def test_prefetch_overlaps_training_and_keeps_only_two_future_inputs(tmp_path, m
     assert checkpoint["exposure_count"] == checkpoint["within_epoch_cursor"] == 2
     t0 = load_telemetry_table(tmp_path / "normal_vae/t0.npz")
     assert t0["wsi_id"].tolist() == list(order[:2])
+    np.testing.assert_allclose(t0["objective_loss"], t0["weighted_smoothed_ce"] - t0["aem_penalty"], atol=1e-7)
+    np.testing.assert_allclose(t0["weighted_loss"], t0["unweighted_loss"] * t0["class_weight"], rtol=1e-6)
 
 
 @pytest.mark.parametrize("batch", [1, 4, 8])
@@ -211,7 +284,7 @@ def test_runner_resume_matches_uninterrupted_after_interrupted_assessment(tmp_pa
     generator = np.random.default_rng(32)
     arrays = {i: generator.standard_normal((bag.count, 16, 32, 32)).astype(np.float32) for i, bag in bags.locations.items()}
     bags.read = lambda branch, wsi_id, indices=None: arrays[wsi_id] if indices is None else arrays[wsi_id][indices]
-    monkeypatch.setattr(fold, "_compiled_closure", lambda model: lambda x, y, w, aem=0.0: fold._forward_loss(model, x, y, w, aem))
+    monkeypatch.setattr(fold, "_compiled_closure", lambda model, *, label_smoothing=0.0: lambda x, y, w, aem=0.0: fold._forward_loss(model, x, y, w, aem, label_smoothing))
     monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: False)
     full = tmp_path / "full"
     class InlineReader(ThreadPoolExecutor):
@@ -293,7 +366,7 @@ def test_submission_deadline_saves_before_reading_any_training_bag(tmp_path, mon
         fold=1, diagnosis_index=i % 5, count=3,
         coordinates=((0, 0), (256, 0), (512, 0)), shard=1,
     ) for i in range(10)})
-    monkeypatch.setattr(fold, "_compiled_closure", lambda model: None)
+    monkeypatch.setattr(fold, "_compiled_closure", lambda model, **kwargs: None)
     # The old twelve-hour guard permits work; the submission deadline has expired.
     monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: False)
     assert not fold.run_branch("normal_vae", cast(ShardBags, bags), config, tmp_path,
@@ -316,7 +389,7 @@ def test_lr_confirmation_resume_replays_pending_boundary_and_stops_at_eight_epoc
     # Holdouts have no array: accessing one fails naturally.
     arrays = {i: generator.standard_normal((3, 16, 32, 32)).astype(np.float32) for i in range(10)}
     bags.read = lambda branch, wsi_id, indices=None: arrays[wsi_id] if indices is None else arrays[wsi_id][indices]
-    monkeypatch.setattr(fold, "_compiled_closure", lambda model: lambda x, y, w, aem: fold._forward_loss(model, x, y, w, aem))
+    monkeypatch.setattr(fold, "_compiled_closure", lambda model, *, label_smoothing=0.0: lambda x, y, w, aem: fold._forward_loss(model, x, y, w, aem, label_smoothing))
     monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: False)
     full, part, resumed = (tmp_path / name for name in ("full", "part", "resumed"))
     def run(output, prior=None):
@@ -369,10 +442,10 @@ def test_lr_search_tail_batch_resume_and_completed_bound(tmp_path, monkeypatch):
     arrays = {i: generator.standard_normal((3, 16, 32, 32)).astype(np.float32) for i in range(10)}
     bags.read = lambda branch, wsi_id, indices=None: arrays[wsi_id] if indices is None else arrays[wsi_id][indices]
     calls = []
-    def closure(model):
+    def closure(model, *, label_smoothing=0.0):
         def forward(x, y, w, aem=0.0):
             calls.append(1)
-            return fold._forward_loss(model, x, y, w, aem)
+            return fold._forward_loss(model, x, y, w, aem, label_smoothing)
         return forward
     monkeypatch.setattr(fold, "_compiled_closure", closure)
     monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: False)
@@ -409,7 +482,7 @@ def test_lr_search_tail_batch_resume_and_completed_bound(tmp_path, monkeypatch):
     assert len(t0["update"]) == 20
     lr = [t0["lr"][t0["update"] == update][0] for update in range(1, 7)]
     np.testing.assert_allclose(lr, [1e-5, 1e-5, *np.geomspace(1e-5, 0.1, 4)], rtol=1e-14)
-    np.testing.assert_array_equal(t0["aem_coefficient"], np.full(20, 0.01))
+    np.testing.assert_array_equal(t0["aem_coefficient"], np.full(20, config["aem_weight"]))
     assert set(t0["lr_search_phase"]) == {"preparation", "sweep"}
     assert not (resumed / "normal_vae/predictions.npz").exists()
     a = load_dynamics_checkpoint(full / "normal_vae/final.pt")

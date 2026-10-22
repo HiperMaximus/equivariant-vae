@@ -11,14 +11,16 @@ TOKEN_WIDTH = 64
 
 
 class ResidualMLP(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, dropout: float = 0.0) -> None:
         super().__init__()
         self.norm = nn.LayerNorm(TOKEN_WIDTH)
         self.layers = nn.Sequential(nn.Linear(TOKEN_WIDTH, 128), nn.GELU(),
                                     nn.Linear(128, TOKEN_WIDTH))
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, tokens: Tensor) -> Tensor:
-        return tokens + self.layers(self.norm(tokens))
+        hidden = self.layers[1](self.layers[0](self.norm(tokens)))
+        return tokens + self.layers[2](self.dropout(hidden))
 
 
 class CLSAttention(nn.Module):
@@ -44,20 +46,21 @@ class CLSAttention(nn.Module):
 
 
 class SpatialPatchEncoder(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, cnn_dropout: float = 0.0, mlp_dropout: float = 0.0) -> None:
         super().__init__()
         self.projection = nn.Conv2d(16, TOKEN_WIDTH, kernel_size=4, stride=4)
+        self.projection_dropout = nn.Dropout2d(cnn_dropout)
         self.position = nn.Parameter(torch.empty(1, 64, TOKEN_WIDTH))
         self.cls = nn.Parameter(torch.empty(1, 1, TOKEN_WIDTH))
         nn.init.normal_(self.position, std=0.02)
         nn.init.normal_(self.cls, std=0.02)
-        self.token_mlp = ResidualMLP()
+        self.token_mlp = ResidualMLP(mlp_dropout)
         self.cls_attention = CLSAttention()
-        self.cls_mlp = ResidualMLP()
+        self.cls_mlp = ResidualMLP(mlp_dropout)
         self.final_norm = nn.LayerNorm(TOKEN_WIDTH)
 
     def tokens(self, maps: Tensor) -> Tensor:
-        projected = self.projection(maps).flatten(2).transpose(1, 2)
+        projected = self.projection_dropout(self.projection(maps)).flatten(2).transpose(1, 2)
         # Shared position/CLS parameters and residual paths stay FP32. AMP still
         # runs convolution, linear projections and native SDPA in FP16.
         tokens = self.token_mlp(projected.float() + self.position)
@@ -104,9 +107,11 @@ class GatedABMILClassifier(nn.Module):
         "bag_embedding", "logits",
     )
 
-    def __init__(self, hidden_width: int = 128) -> None:
+    def __init__(self, hidden_width: int = 128, *, cnn_dropout: float = 0.0,
+                 mlp_dropout: float = 0.0, bag_dropout: float = 0.0) -> None:
         super().__init__()
-        self.patch_encoder = SpatialPatchEncoder()
+        self.patch_encoder = SpatialPatchEncoder(cnn_dropout, mlp_dropout)
+        self.bag_dropout = nn.Dropout(bag_dropout)
         self.attention = GatedAttention(hidden_width)
         self.classifier = nn.Linear(TOKEN_WIDTH, 5)
         self.apply(self._initialize)
@@ -131,7 +136,7 @@ class GatedABMILClassifier(nn.Module):
         patches = self.patch_encoder(latents)
         embedding, attention = self.attention(patches)
         with torch.autocast(device_type=latents.device.type, enabled=False):
-            logits = self.classifier(embedding.float())
+            logits = self.classifier(self.bag_dropout(embedding.float()))
         return logits, (patches, *attention, embedding, logits)
 
     def forward(self, latents: Tensor) -> Tensor:
