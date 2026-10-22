@@ -28,15 +28,16 @@ ran on Kaggle CPU. Use Kaggle for subsequent experiments, including CPU work.
 No follow-up classical-head regularization recipe has been selected.
 
 A new CLS + gated-ABMIL dropout/smoothing/C4 recipe is committed as `7ad0601`
-in the existing model, runner and fold0 contract. It requires fresh classifier
+in the existing model, runner and fold0 contract. It uses fresh classifier
 initialization; the prior v12 states below remain the reference. Numeric values
 are in `docs/data/spec0054_fold0_run.json`; the scientific definition and
-comparison limits are in the Spec0054 candidate section. No new Kaggle run
-has been submitted. D4 remains deferred. CPU verification covers all14 affected
+comparison limits are in the Spec0054 candidate section. Submitted as
+`maximshtefan/eqvae-spec0054-mil-fold0/13` on2026-10-22 at16:15 Bogota;
+initial API status is RUNNING. D4 remains deferred. CPU verification covers all14 affected
 tests, including direct smoothing gradients, exact C4 permutations, dropout
 evaluation behavior and bitwise continuation after interrupted assessment.
 Ruff, targeted BasedPyright, compilation and existing kernel build/validation
-pass. GPU throughput and compiled-CUDA behavior remain to be measured on Kaggle.
+pass. GPU throughput and compiled-CUDA behavior remain to be inspected in v13 outputs.
 
 The previous CLS + gated-ABMIL fold0 run is paused after
 `maximshtefan/eqvae-spec0054-mil-fold0/12`. Resume input is
@@ -53,14 +54,16 @@ These are exploratory fold0 results, distinct from the five-fold fixed-head
 comparison. Review evidence: `runs/local/spec0054_cls_fold0_regularized_v12_review/`;
 [professor update](https://github.com/HiperMaximus/equivariant-vae/issues/8#issuecomment-6149719046).
 
-The existing `kaggle/kernels/spec0054_mil_fold0/abmil.py` is prepared for a
+The submitted `kaggle/kernels/spec0054_mil_fold0/abmil.py` starts a
 fresh run pinned to `7ad06010416a789a6b96e612919203c162adc23e` with `RESUME=False`.
 Only the twelve original latent inputs remain mounted; the old resume dataset
-is removed. One branch uses each GPU. Prepared session cutoff is
-2026-10-23T09:00:03+00:00, reserving15 minutes;
-refresh it if submission is delayed. Publication and Kaggle submission are
-pending. Previous-recipe continuation must use its original pinned source and
-contract. The105-epoch horizon and five-fold MIL evaluation remain unfinished.
+is removed. Entry commit is `ac196da`; normal/SO2 are assigned physical GPU0/1.
+The shared session cutoff is2026-10-23T04:00:03-05:00, reserving15 minutes.
+Inspect around2026-10-22T17:00-05:00 for startup/first-update evidence; do not
+keep polling the confirmed running job. Latest states are saved every144 WSI
+presentations and at the deadline;105 epochs will likely require continuation.
+Previous-recipe continuation must use its original pinned source and contract.
+The105-epoch horizon and five-fold MIL evaluation remain unfinished.
 
 ## Functional geometry — Spec 0053
 

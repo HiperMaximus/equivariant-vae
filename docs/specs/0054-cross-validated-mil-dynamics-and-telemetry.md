@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 fold0 recipe implemented locally; fresh initialization required; v12 retained separately
+Status: fresh dropout/smoothing/C4 fold0 submitted as Kaggle v13, initial RUNNING; v12 retained separately
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-22
@@ -39,8 +39,15 @@ stored mu equals encoding rotated RGB. The fixed25 evaluation population and
 its outcomes do not select augmentation settings. D4/reflections remain a
 separate future comparison. The combined candidate cannot identify individual
 regularizer effects. Preserve the exploratory status of fold0 and the external
-152-WSI boundary. Before submission, publish and pin the new source, disable
-old-state resume, remove the old resume mount and set a fresh session deadline.
+152-WSI boundary.
+
+Submitted on2026-10-22 at16:15 Bogota as
+`maximshtefan/eqvae-spec0054-mil-fold0/13`, initial API status RUNNING.
+Source `7ad06010416a789a6b96e612919203c162adc23e`, entry `ac196da`.
+Both branches start fresh on separate GPUs, without the prior resume mount.
+Shared cutoff2026-10-23T04:00:03-05:00 reserves15min of the session budget.
+Inspect initial GPU/throughput evidence around17:00 Bogota; subsequent sessions
+must restore this candidate's own saved state rather than any v12 checkpoint.
 
 ## Accepted classical WSI baseline (2026-10-14)
 
