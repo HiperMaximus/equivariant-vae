@@ -1,9 +1,9 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: fresh dropout/smoothing/C4 fold0 submitted as Kaggle v13, initial RUNNING; v12 retained separately
+Status: dropout/smoothing/C4 v13 inspected COMPLETE at1.7778 epochs; I/O-dominated; latest states retained
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-10-22
+Last updated: 2026-10-23
 
 ## Accepted dropout, smoothing and C4 candidate (2026-10-22)
 
@@ -48,6 +48,45 @@ Both branches start fresh on separate GPUs, without the prior resume mount.
 Shared cutoff2026-10-23T04:00:03-05:00 reserves15min of the session budget.
 Inspect initial GPU/throughput evidence around17:00 Bogota; subsequent sessions
 must restore this candidate's own saved state rather than any v12 checkpoint.
+
+Inspection on2026-10-23 confirms both workers exit0 and pause at128 updates,
+512 presentations, epoch1/cursor224. Last complete and best assessment is epoch1:
+normal validation CE/F1 1.60605/.14074; SO2 1.60574/.11461. Initialization equals
+the prior recipe and all512 ordered WSI/subset/C4 records match across branches.
+No AMP backoffs or committed nonfinite loss/gradient observations were found.
+Mean updates cost143.96/144.64s versus14.94/14.71s for the matched first128 v10
+updates. Queue waits consume97.7% of training-step time; mean reads are56.05/56.29s
+per bag while host preparation including C4 is0.20/0.23s. The three full-bag
+assessments consume~4.96h of the10.33h kernel. The reader is unchanged; the
+storage-side cause of the slowdown has not been measured. These warmup-only
+results cannot establish the candidate's generalization. Downloaded artifacts:
+`runs/kaggle/spec0054_cls_fold0_c4_v13/`; review and matched comparisons:
+`runs/local/spec0054_cls_fold0_c4_v13_review/summary.json`. No further launch,
+upload or recipe change accompanied this inspection.
+
+## Bounded I/O followup (2026-10-23)
+
+Reuse the existing read-probe mode in a private Kaggle CPU session, mounting
+only the unchanged shard1 dataset and shard2 notebook output as a control.
+The numerical contract fixes two near-median fold-training WSI per shard,
+two reader threads per branch and two repetitions per method. Both VAE store
+processes run concurrently. No classifier, augmentation, H2D or GPU is used.
+
+Compare the existing full contiguous bag read followed by the identical60%
+subset selection against the existing sampled-region preadv read. In each
+shard the two WSI reverse the order of these methods; repeat each method
+before switching. Record bytes, request regions, wall/thread-CPU read time,
+subset time, timestamps, physical input paths and hashes of selected values.
+Save each completed read immediately. This entails16 reads per branch,32
+combined, and leaves all training states untouched. A fixed session cutoff
+bounds subsequent reads; a system call already in progress finishes naturally.
+
+First read by this script does not guarantee cold Kaggle/OS/backend caches.
+Repeated reads describe small-panel cache behavior, not complete-atlas training
+throughput. Identical selected-value hashes establish content parity across
+methods; differences in timing remain observations rather than acceptance gates.
+The earlier v22 probe already used the shard1 dataset successfully, so its
+input type alone is not an established cause of v13's slowdown.
 
 ## Accepted classical WSI baseline (2026-10-14)
 

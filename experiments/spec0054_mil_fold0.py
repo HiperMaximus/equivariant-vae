@@ -958,131 +958,105 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
         bags.close()
 
 
-def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch: str) -> None:
-    """One shard: first reads and repeated prepared reads with one/two threads."""
-    config = json.loads((repo_root / "docs/data/spec0054_fold0_run.json").read_text())
-    contract = json.loads((repo_root / "docs/data/spec0054_fp16_latent_extraction.json").read_text())
-    shard = contract["shards"][0]
-    contract = {**contract, "shards": [shard]}
+def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch: str,
+                   session_deadline_unix: float | None = None) -> None:
+    """CPU-only paired full-versus-fragmented reads on shard1 and a control."""
+    config_path = repo_root / "docs/data/spec0054_fold0_run.json"
+    config = json.loads(config_path.read_text())
+    probe = config["read_probe"]
+    extraction = json.loads((repo_root / "docs/data/spec0054_fp16_latent_extraction.json").read_text())
+    shards = [shard for shard in extraction["shards"] if shard["shard"] in probe["shards"]]
+    contract = {**extraction, "shards": shards}
     directory = output_root / branch
     directory.mkdir(parents=True, exist_ok=False)
-    # Only this shard is mounted; retain its original cohort labels/folds.
-    cohort_lines = (repo_root / "docs/data/spec0054_cohort_folds.csv").read_text().splitlines(keepends=True)
+    lines = (repo_root / "docs/data/spec0054_cohort_folds.csv").read_text().splitlines(keepends=True)
     cohort_path = directory / "probe_cohort.csv"
-    cohort_path.write_text(cohort_lines[0] + "".join(
-        line for line in cohort_lines[1:]
-        if shard["first_wsi"] <= int(line.split(",", 1)[0]) <= shard["last_wsi"]
+    cohort_path.write_text(lines[0] + "".join(
+        line for line in lines[1:]
+        if any(shard["first_wsi"] <= int(line.split(",", 1)[0]) <= shard["last_wsi"] for shard in shards)
     ))
     print(json.dumps({"event": "read_probe_index_start", "branch": branch}), flush=True)
     bags = ShardBags(latent_root, contract, cohort_path,
-                     {shard["shard"]: config["sources"][0]["result_sha256"]})
-    print(json.dumps({"event": "read_probe_index_done", "branch": branch}), flush=True)
-    train = sorted((wsi for wsi in bags.locations if bags.locations[wsi].fold != config["fold"]),
-                   key=lambda wsi: (bags.locations[wsi].count, wsi))
-    # Exclude the v16 warm-cache panel. Each bag is read only once here.
-    train = [wsi for wsi in train if wsi not in (4827, 3191, 2706, 5114)]
-    selected = train[len(train) // 2 - 4:len(train) // 2 + 4]
-    # Pair low/high sizes around the median to balance bytes across trials.
-    panels = [sorted((selected[trial], selected[-1 - trial])) for trial in range(4)]
-    requests = [[(wsi_id, _sample_indices(bags.locations[wsi_id].count, config["seed"],
-                                        0, wsi_id, config["patch_retention"]))
-                 for wsi_id in panel] for panel in panels]
-    device = torch.device("cuda:0")
-    torch.cuda.current_stream(device).synchronize()
-    reader_state = local()
-    hardware = {"logical_cpu_count": os.cpu_count(),
-                "cpu_affinity": sorted(os.sched_getaffinity(0)),
-                "torch_threads": torch.get_num_threads(),
-                "torch_interop_threads": torch.get_num_interop_threads(),
-                "device_name": torch.cuda.get_device_name(device)}
-    hardware["cpu_layout"] = []
-    for block in Path("/proc/cpuinfo").read_text().split("\n\n"):
-        fields = {key.strip(): value.strip() for line in block.splitlines() if ":" in line
-                  for key, value in [line.split(":", 1)]}
-        if "processor" in fields and int(fields["processor"]) in hardware["cpu_affinity"]:
-            hardware["cpu_layout"].append({key: fields.get(key) for key in
-                                          ("processor", "physical id", "core id", "cpu cores", "siblings")})
-    print(json.dumps({"event": "read_probe_start", "branch": branch,
-                      "physical_gpu": os.environ.get("CUDA_VISIBLE_DEVICES"),
-                      "wsi_ids": selected, **hardware}), flush=True)
-
-    def read(request):
-        wsi_id, indices = request
-        cpu_started = time.thread_time()
-        started = time.perf_counter()
-        array = bags.read(branch, wsi_id, indices)
-        read_seconds = time.perf_counter() - started
-        read_cpu_seconds = time.thread_time() - cpu_started
-        host_started, host_cpu_started = time.perf_counter(), time.thread_time()
-        source = torch.from_numpy(array)
-        host = torch.empty_like(source, memory_format=torch.channels_last, pin_memory=True)
-        host.copy_(source)
-        host_seconds = time.perf_counter() - host_started
-        host_cpu_seconds = time.thread_time() - host_cpu_started
-        if not hasattr(reader_state, "copy_stream"):
-            reader_state.copy_stream = torch.cuda.Stream(device=device)
-        transfer_started = time.perf_counter()
-        with torch.cuda.device(device), torch.cuda.stream(reader_state.copy_stream):
-            latents = host.to(device, non_blocking=True)
-            ready = torch.cuda.Event()
-            ready.record(reader_state.copy_stream)
-        ready.synchronize()
-        transfer_seconds = time.perf_counter() - transfer_started
-        del latents, host, source, array
-        return {"wsi_id": wsi_id, "shard": bags.locations[wsi_id].shard,
-                "bag_size": bags.locations[wsi_id].count, "sampled_bag_size": len(indices),
-                "sample_indices_sha256": hashlib.sha256(indices.tobytes()).hexdigest(),
-                "requested_bytes": len(indices) * RECORD_BYTES,
-                "read_regions": int(np.count_nonzero(np.diff(indices) != 1)) + 1,
-                "read_seconds": read_seconds, "read_cpu_seconds": read_cpu_seconds,
-                "host_prepare_seconds": host_seconds, "host_prepare_cpu_seconds": host_cpu_seconds,
-                "transfer_seconds": transfer_seconds}
-
+                     {item["shard"]: item["result_sha256"] for item in config["sources"]
+                      if item["shard"] in probe["shards"]})
     rows = []
+    lock = Lock()
+    hardware = {"logical_cpu_count": os.cpu_count(), "cpu_affinity": sorted(os.sched_getaffinity(0)),
+                "torch_threads": torch.get_num_threads(), "gpu_used": False}
+    source = subprocess.check_output(["git", "-C", str(repo_root), "rev-parse", "HEAD"], text=True).strip()
+
+    def record(row):
+        with lock:
+            rows.append(row)
+            with (directory / "read_probe_rows.jsonl").open("a") as partial:
+                partial.write(json.dumps(row, sort_keys=True) + "\n")
+            print(json.dumps({"event": "read_probe_read_done", **row}, sort_keys=True), flush=True)
+
+    def read_bag(request):
+        position, wsi_id = request
+        location = bags.locations[wsi_id]
+        indices = _sample_indices(location.count, config["seed"], 0, wsi_id, config["patch_retention"])
+        methods = ("full_then_subset", "sampled_regions") if position == 0 else ("sampled_regions", "full_then_subset")
+        read_index = 0
+        for method in methods:
+            for repeat in range(probe["repeats"]):
+                if session_deadline_unix is not None and time.time() >= session_deadline_unix:
+                    return False
+                full = method == "full_then_subset"
+                print(json.dumps({"event": "read_probe_read_start", "branch": branch,
+                                  "shard": location.shard, "wsi_id": wsi_id, "method": method,
+                                  "repeat": repeat, "read_index": read_index}), flush=True)
+                started_unix = time.time()
+                cpu_started, started = time.thread_time(), time.perf_counter()
+                array = bags.read(branch, wsi_id, None if full else indices)
+                read_seconds = time.perf_counter() - started
+                read_cpu_seconds = time.thread_time() - cpu_started
+                subset_started = time.perf_counter()
+                selected = array[indices] if full else array
+                subset_seconds = time.perf_counter() - subset_started
+                hash_started = time.perf_counter()
+                selected_hash = hashlib.sha256(memoryview(selected).cast("B")).hexdigest()
+                hash_seconds = time.perf_counter() - hash_started
+                record({"branch": branch, "shard": location.shard, "wsi_id": wsi_id,
+                        "method": method, "repeat": repeat, "read_index": read_index,
+                        "first_script_read": read_index == 0, "started_at": started_unix,
+                        "bag_size": location.count, "sampled_bag_size": len(indices),
+                        "requested_bytes": (location.count if full else len(indices)) * RECORD_BYTES,
+                        "read_regions": 1 if full else int(np.count_nonzero(np.diff(indices) != 1)) + 1,
+                        "sample_indices_sha256": hashlib.sha256(indices.tobytes()).hexdigest(),
+                        "selected_values_sha256": selected_hash,
+                        "read_seconds": read_seconds, "read_cpu_seconds": read_cpu_seconds,
+                        "subset_seconds": subset_seconds, "hash_seconds": hash_seconds})
+                del selected, array
+                read_index += 1
+        return True
+
     try:
-        # Open once before concurrent reads: preadv uses independent offsets.
+        files = {}
         for shard, binary in bags.files[branch].items():
             bags.descriptors[branch, shard] = os.open(binary, os.O_RDONLY)
-        print(json.dumps({"event": "read_probe_files_open", "branch": branch,
-                          "count": len(bags.descriptors)}), flush=True)
-        with ThreadPoolExecutor(max_workers=1) as single_reader, ThreadPoolExecutor(max_workers=2) as dual_reader:
-            trials = [(panel, workers, True) for panel, workers in enumerate((1, 2, 2, 1))]
-            trials += [(0, 2, False), (1, 1, False), (0, 1, False), (1, 2, False)]
-            for trial, (panel, worker_count, first_read) in enumerate(trials):
-                print(json.dumps({"event": "read_probe_trial_start", "branch": branch,
-                                  "trial": trial, "reader_workers": worker_count,
-                                  "wsi_ids": panels[panel], "first_read": first_read}), flush=True)
-                # Both embedding-store processes measure the same reader count.
-                (output_root / f"reader_trial_{trial}_{branch}.ready").touch()
-                other_branch = BRANCHES[1] if branch == BRANCHES[0] else BRANCHES[0]
-                while not (output_root / f"reader_trial_{trial}_{other_branch}.ready").exists():
-                    time.sleep(0.01)
-                reader = single_reader if worker_count == 1 else dual_reader
-                started_at = time.time()
-                cpu_started = time.process_time()
-                started = time.perf_counter()
-                read_rows = list(reader.map(read, requests[panel]))
-                elapsed_seconds = time.perf_counter() - started
-                process_cpu_seconds = time.process_time() - cpu_started
-                row = {"branch": branch, "trial": trial, "reader_workers": worker_count,
-                       "first_read": first_read, "panel": panel,
-                       "started_at": started_at, "elapsed_seconds": elapsed_seconds,
-                       "process_cpu_seconds": process_cpu_seconds, "bags": read_rows}
-                rows.append(row)
-                with (directory / "read_probe_rows.jsonl").open("a") as partial:
-                    partial.write(json.dumps(row) + "\n")
-                print(json.dumps({"event": "read_probe_trial_done", **row}), flush=True)
-        result = {"branch": branch, "seed": config["seed"], "epoch": 0,
-                  "patch_retention": config["patch_retention"], "wsi_ids": selected,
-                  "hardware": hardware, "warmup": [], "panels": panels,
-                  "cache_policy": "eight_first_reads_then_two_repeated_pairs_with_both_reader_counts",
-                  "source_commit": subprocess.check_output(
-                      ["git", "-C", str(repo_root), "rev-parse", "HEAD"], text=True).strip(),
+            stat = os.fstat(bags.descriptors[branch, shard])
+            files[str(shard)] = {"path": str(binary), "resolved_path": str(binary.resolve()),
+                                 "bytes": stat.st_size, "device": stat.st_dev}
+        print(json.dumps({"event": "read_probe_start", "branch": branch, "hardware": hardware,
+                          "files": files, "probe": probe, "session_deadline_unix": session_deadline_unix}), flush=True)
+        completed = True
+        with ThreadPoolExecutor(max_workers=probe["reader_workers"]) as reader:
+            for shard in probe["shards"]:
+                outcomes = list(reader.map(read_bag, enumerate(probe["wsi_ids"][str(shard)])))
+                completed = completed and all(outcomes)
+        result = {"branch": branch, "source_commit": source, "config_sha256": _sha256(config_path),
+                  "reader_sha256": _sha256(Path(__file__).with_name("spec0054_shard_bags.py")),
+                  "seed": config["seed"], "patch_retention": config["patch_retention"],
+                  "probe": probe, "hardware": hardware, "files": files, "completed": completed,
+                  "cache_policy": "counterbalanced_first_script_method_then_repeats_no_cache_eviction",
                   "rows": rows}
         (directory / "read_probe.json").write_text(json.dumps(result, indent=2) + "\n")
-        print(json.dumps({"event": "read_probe_done", "branch": branch, "trials": len(rows)}), flush=True)
+        print(json.dumps({"event": "read_probe_done", "branch": branch,
+                          "completed": completed, "reads": len(rows)}), flush=True)
     finally:
         bags.close()
+
 
 
 def run_smoke(repo_root: Path, latent_root: Path, output_root: Path, branch: str, effective_batch: int) -> None:
@@ -1153,7 +1127,7 @@ if __name__ == "__main__":
     parser.add_argument("--session-deadline-unix", type=float)
     args = parser.parse_args()
     if args.read_probe:
-        run_read_probe(args.repo_root, args.latent_root, args.output_root, args.branch)
+        run_read_probe(args.repo_root, args.latent_root, args.output_root, args.branch, args.session_deadline_unix)
     elif args.smoke:
         run_smoke(args.repo_root, args.latent_root, args.output_root, args.branch, args.effective_batch)
     else:

@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-10-22
+Last updated: 2026-10-23
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -27,17 +27,42 @@ Source `45f64fe`; entry `48b8667`. Downloaded outputs:
 ran on Kaggle CPU. Use Kaggle for subsequent experiments, including CPU work.
 No follow-up classical-head regularization recipe has been selected.
 
-A new CLS + gated-ABMIL dropout/smoothing/C4 recipe is committed as `7ad0601`
-in the existing model, runner and fold0 contract. It uses fresh classifier
-initialization; the prior v12 states below remain the reference. Numeric values
-are in `docs/data/spec0054_fold0_run.json`; the scientific definition and
-comparison limits are in the Spec0054 candidate section. Submitted as
-`maximshtefan/eqvae-spec0054-mil-fold0/13` on2026-10-22 at16:15 Bogota;
-initial API status is RUNNING. D4 remains deferred. CPU verification covers all14 affected
-tests, including direct smoothing gradients, exact C4 permutations, dropout
-evaluation behavior and bitwise continuation after interrupted assessment.
-Ruff, targeted BasedPyright, compilation and existing kernel build/validation
-pass. GPU throughput and compiled-CUDA behavior remain to be inspected in v13 outputs.
+The CLS + gated-ABMIL dropout/smoothing/C4 candidate (`7ad0601`) started from
+the original classifier initialization in Kaggle v13 on2026-10-22 at16:15 Bogota.
+Inspection on2026-10-23 confirms `maximshtefan/eqvae-spec0054-mil-fold0/13`
+COMPLETE, both workers exit0 and pause normally at the deadline. Both latest
+states have128 updates/512 presentations, epoch1 cursor224 (1.7778 epochs).
+Last complete and best-by-CE assessment is epoch1: normal validation
+CE/F1 1.60605/.14074; SO2 1.60574/.11461. Both remain in warmup; later
+generalization and benefits of the combined recipe are unmeasured. D4 is deferred.
+
+All512 WSI/subset/C4 records match across branches; initial parameters and reader
+match the prior recipe. No AMP backoffs or nonfinite losses/gradients. Mean steps
+143.96/144.64s versus14.94/14.71s over the matched first128 v10 updates. Input
+queue waits consume97.7% of training-step time; mean reads56.05/56.29s per WSI
+versus0.20/0.23s host preparation including C4. Three complete assessments take
+another~4.96h of the10.33h kernel. Storage-side cause remains unmeasured; inspect
+I/O before another full session. Outputs: `runs/kaggle/spec0054_cls_fold0_c4_v13/`;
+review: `runs/local/spec0054_cls_fold0_c4_v13_review/summary.json`.
+
+Matched-read followup identifies shard1 as the largest hotspot:318.38/320.90s
+per training read in v13 versus4.29/4.61s in v10; other shards average25--36s
+in v13 versus4--7s previously. The inherited v12 and submitted v13 launchers
+both mount shard1 as the same private dataset; this launch only removed the old
+resume mount. A historical notebook-to-dataset change exists, but actual v10
+input metadata could not be retrieved, so it cannot yet explain the difference.
+Reader code, matched512 subset hashes/sizes, two-reader/two-future prefetch and
+latent extraction/cohort identities agree. C4 runs after the measured read.
+Detailed evidence: `runs/local/spec0054_cls_fold0_c4_v13_review/read_comparison.json`.
+
+A bounded CPU-only I/O followup is prepared in the existing read-probe mode.
+It mounts only shards1/2 and compares complete contiguous reads plus the same
+60% subset against the unchanged sampled-region reader, counterbalancing method
+order on two fixed training WSI per shard and repeating each method twice.
+Each completed read is persisted with timing, physical path and value hash;
+no GPU, classifier or training state is used. Seven reader tests, a synthetic
+32-read content-parity check, compilation, Ruff and targeted BasedPyright pass.
+Submission is pending; v13 training remains paused with its own source pin.
 
 The previous CLS + gated-ABMIL fold0 run is paused after
 `maximshtefan/eqvae-spec0054-mil-fold0/12`. Resume input is
@@ -54,16 +79,14 @@ These are exploratory fold0 results, distinct from the five-fold fixed-head
 comparison. Review evidence: `runs/local/spec0054_cls_fold0_regularized_v12_review/`;
 [professor update](https://github.com/HiperMaximus/equivariant-vae/issues/8#issuecomment-6149719046).
 
-The submitted `kaggle/kernels/spec0054_mil_fold0/abmil.py` starts a
-fresh run pinned to `7ad06010416a789a6b96e612919203c162adc23e` with `RESUME=False`.
-Only the twelve original latent inputs remain mounted; the old resume dataset
-is removed. Entry commit is `ac196da`; normal/SO2 are assigned physical GPU0/1.
-The shared session cutoff is2026-10-23T04:00:03-05:00, reserving15 minutes.
-Inspect around2026-10-22T17:00-05:00 for startup/first-update evidence; do not
-keep polling the confirmed running job. Latest states are saved every144 WSI
-presentations and at the deadline;105 epochs will likely require continuation.
-Previous-recipe continuation must use its original pinned source and contract.
-The105-epoch horizon and five-fold MIL evaluation remain unfinished.
+The submitted entry `kaggle/kernels/spec0054_mil_fold0/abmil.py` is pinned to
+`7ad06010416a789a6b96e612919203c162adc23e` (entry `ac196da`, `RESUME=False`),
+with normal/SO2 on physical GPU0/1, confirmed in logs. Its cutoff is now expired.
+Any candidate continuation must restore the v13 latest states and cursor from
+a candidate-specific resume input, enable resume and set a fresh deadline;
+never resume the previous-recipe v12 weights. No new run or upload was launched
+by this review. Numeric recipe: `docs/data/spec0054_fold0_run.json`; scientific
+definition: Spec0054. The105-epoch horizon and five-fold evaluation remain unfinished.
 
 ## Functional geometry — Spec 0053
 

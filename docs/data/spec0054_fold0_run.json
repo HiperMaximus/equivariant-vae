@@ -157,5 +157,23 @@
     "sweep_updates": 200,
     "min_lr": 1e-05,
     "max_lr": 0.1
+  },
+  "read_probe": {
+    "shards": [
+      1,
+      2
+    ],
+    "wsi_ids": {
+      "1": [
+        5264,
+        4877
+      ],
+      "2": [
+        8130,
+        6363
+      ]
+    },
+    "reader_workers": 2,
+    "repeats": 2
   }
 }
