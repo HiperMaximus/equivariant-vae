@@ -160,20 +160,16 @@
   },
   "read_probe": {
     "shards": [
-      1,
-      2
+      1
     ],
     "wsi_ids": {
       "1": [
         5264,
         4877
-      ],
-      "2": [
-        8130,
-        6363
       ]
     },
     "reader_workers": 2,
-    "repeats": 2
+    "repeats": 2,
+    "local_copy_root": "/kaggle/working/spec0054_io_cache"
   }
 }

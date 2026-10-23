@@ -95,6 +95,41 @@ physical input paths. Both full and sampled reads started; no timing result
 was yet available in the initial log window. Shared submission-based cutoff
 is2026-10-23T10:40:48-05:00; inspect around10:20 or once complete.
 
+Inspection around10:25 Bogota confirms COMPLETE, both workers exit0 and all32
+reads complete. All8 branch/WSI groups have identical selected indices and value
+hashes across both methods and repetitions. First-script full reads cost
+366.19--367.59s on shard1 and274.25--275.08s on shard2; first sampled reads cost
+374.41--376.23s and278.25--279.32s. Thread CPU for these reads is0.33--0.61s.
+Same-method second reads cost0.0466--0.2282s. Full reads after sampled reads
+still cost24.44--25.23s before falling to0.16--0.23s on their second repetition.
+These observations implicate storage/cache behavior for both input types and
+even contiguous reads. They do not isolate the backend mechanism or explain
+the earlier v10/v13 difference. First-method orders use different WSI, so their
+initial timings are not a paired cold-cache method comparison. The probe's
+small repeated working set does not predict whole-atlas training throughput.
+No reader change or further launch accompanied this inspection. Outputs:
+`runs/kaggle/spec0054_io_probe_v14/`; local numerical summary:
+`runs/local/spec0054_io_probe_v14_review/summary.json`.
+
+The authorized local-copy followup reuses the same probe on shard1 only and
+its two fixed training WSI. Per branch, measure the8 input reads first, stream
+the full8,340,340,736-byte binary to the contract's Kaggle working directory,
+then repeat the8 reads against the copied file using the unchanged reader.
+Record full-copy wall/thread-CPU time including SHA256 computation and fsync,
+bytes, source/destination paths, destination device and free space. Retain the
+streamed digest and the authoritative frozen binary digest as observations.
+Both branches copy and probe concurrently, yielding32 reads and two copies.
+Persist copy progress and completed records; delete temporary binaries on exit.
+
+After fsync and before local reads, issue POSIX_FADV_DONTNEED for the copied
+file. This is advisory rather than proof of a cold cache or physical-disk read.
+The input phase warms the selected source regions before the full copy, so
+copy timing includes this order effect. The one-hour submission-based cutoff
+is checked between reads and16MiB copy chunks; in-flight calls finish naturally.
+Copy amortization and local performance on this panel do not establish whether
+all12 paired shards fit or sustain the same performance. Classifier training,
+frozen inputs and model states remain untouched.
+
 ## Accepted classical WSI baseline (2026-10-14)
 
 Extract fixed descriptors from the existing frozen posterior-mu shards, retaining

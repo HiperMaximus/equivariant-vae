@@ -55,7 +55,7 @@ Reader code, matched512 subset hashes/sizes, two-reader/two-future prefetch and
 latent extraction/cohort identities agree. C4 runs after the measured read.
 Detailed evidence: `runs/local/spec0054_cls_fold0_c4_v13_review/read_comparison.json`.
 
-A bounded CPU-only I/O followup is running in the existing read-probe mode.
+A bounded CPU-only I/O followup completed in the existing read-probe mode.
 It mounts only shards1/2 and compares complete contiguous reads plus the same
 60% subset against the unchanged sampled-region reader, counterbalancing method
 order on two fixed training WSI per shard and repeating each method twice.
@@ -64,13 +64,36 @@ no GPU, classifier or training state is used. Seven reader tests, a synthetic
 32-read content-parity check, compilation, Ruff and targeted BasedPyright pass.
 Published source `338ff7d`, entry `0b3ee59`; submitted as
 `maximshtefan/eqvae-spec0054-mil-fold0/14` on2026-10-23 at10:11 Bogota.
-API confirms RUNNING; logs confirm both CPU workers, four logical CPUs,
-no GPU and the expected shard1 dataset/shard2 notebook paths (devices54/53).
-Both methods started; no completed read was yet observed in the initial log
-window. Inspect around10:20 Bogota or after completion. The30-minute cutoff
-is2026-10-23T10:40:48-05:00; an in-flight read may finish later. V13 training
-remains paused; continuation must restore its own states from source7ad0601
-and use full training metadata rather than this probe entry.
+Inspection around10:25 Bogota confirms COMPLETE, worker exits[0,0], all32
+reads and exact within-branch selected-value/subset hashes across methods and
+repeats for all8 branch/WSI groups. Four logical CPUs, no GPU; expected shard1
+dataset/shard2 notebook paths (devices54/53). First-script full reads cost
+366.19--367.59s on shard1 and274.25--275.08s on shard2; first sampled reads cost
+374.41--376.23s and278.25--279.32s, respectively. Same-method second reads cost
+0.0466--0.2282s. Reading a full bag after its sampled regions still costs
+24.44--25.23s, then0.16--0.23s on repeat. First-read thread CPU is only
+0.33--0.61s. Storage/cache behavior is implicated even for contiguous reads and
+both input types; its exact backend cause and the v10/v13 difference remain
+unidentified. Different WSI supply the two first-method orders, and the small
+panel does not establish full-atlas throughput. Outputs:
+`runs/kaggle/spec0054_io_probe_v14/`; review:
+`runs/local/spec0054_io_probe_v14_review/summary.json`. No further launch or
+training-reader change. V13 remains paused; continuation must restore its own
+states from source7ad0601 and use full training metadata rather than this probe.
+
+The authorized next CPU probe keeps only shard1 and its same two training WSI.
+Each branch first runs the existing8 input reads, then streams its entire
+8,340,340,736-byte binary to `/kaggle/working/spec0054_io_cache/<branch>/`,
+records copy wall/CPU time, bytes, free space, destination device and the
+streamed SHA256 against the frozen result hash. After fsync it issues advisory
+POSIX_FADV_DONTNEED on that copy before the same8 local reads. Both branches
+run concurrently:32 reads total plus two full copies. Incremental logs persist
+progress; temporary binaries are removed on exit. The planned one-hour shared
+cutoff applies between reads/copy chunks; in-flight I/O may finish later.
+This measures copy cost and local access on a small panel; it does not guarantee
+a cold cache or establish capacity/throughput for all12 paired shards.
+Seven reader tests, a32-read synthetic independent-value/copy-hash/cleanup
+check, compilation, Ruff and targeted BasedPyright pass. Submission pending.
 
 The previous CLS + gated-ABMIL fold0 run is paused after
 `maximshtefan/eqvae-spec0054-mil-fold0/12`. Resume input is

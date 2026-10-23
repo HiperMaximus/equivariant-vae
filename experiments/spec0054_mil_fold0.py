@@ -960,7 +960,7 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
 
 def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch: str,
                    session_deadline_unix: float | None = None) -> None:
-    """CPU-only paired full-versus-fragmented reads on shard1 and a control."""
+    """CPU-only full-versus-fragmented reads before and after a local copy."""
     config_path = repo_root / "docs/data/spec0054_fold0_run.json"
     config = json.loads(config_path.read_text())
     probe = config["read_probe"]
@@ -980,6 +980,9 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
                      {item["shard"]: item["result_sha256"] for item in config["sources"]
                       if item["shard"] in probe["shards"]})
     rows = []
+    copies = []
+    local_paths = []
+    storage = "input"
     lock = Lock()
     hardware = {"logical_cpu_count": os.cpu_count(), "cpu_affinity": sorted(os.sched_getaffinity(0)),
                 "torch_threads": torch.get_num_threads(), "gpu_used": False}
@@ -1003,7 +1006,7 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
                 if session_deadline_unix is not None and time.time() >= session_deadline_unix:
                     return False
                 full = method == "full_then_subset"
-                print(json.dumps({"event": "read_probe_read_start", "branch": branch,
+                print(json.dumps({"event": "read_probe_read_start", "branch": branch, "storage": storage,
                                   "shard": location.shard, "wsi_id": wsi_id, "method": method,
                                   "repeat": repeat, "read_index": read_index}), flush=True)
                 started_unix = time.time()
@@ -1017,9 +1020,10 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
                 hash_started = time.perf_counter()
                 selected_hash = hashlib.sha256(memoryview(selected).cast("B")).hexdigest()
                 hash_seconds = time.perf_counter() - hash_started
-                record({"branch": branch, "shard": location.shard, "wsi_id": wsi_id,
+                record({"branch": branch, "shard": location.shard, "wsi_id": wsi_id, "storage": storage,
                         "method": method, "repeat": repeat, "read_index": read_index,
-                        "first_script_read": read_index == 0, "started_at": started_unix,
+                        "first_script_read": storage == "input" and read_index == 0,
+                        "first_storage_read": read_index == 0, "started_at": started_unix,
                         "bag_size": location.count, "sampled_bag_size": len(indices),
                         "requested_bytes": (location.count if full else len(indices)) * RECORD_BYTES,
                         "read_regions": 1 if full else int(np.count_nonzero(np.diff(indices) != 1)) + 1,
@@ -1045,17 +1049,75 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
             for shard in probe["shards"]:
                 outcomes = list(reader.map(read_bag, enumerate(probe["wsi_ids"][str(shard)])))
                 completed = completed and all(outcomes)
+
+        local_directory = Path(probe["local_copy_root"]) / branch
+        local_directory.mkdir(parents=True, exist_ok=False)
+        for shard, binary in bags.files[branch].items():
+            if session_deadline_unix is not None and time.time() >= session_deadline_unix:
+                completed = False
+                break
+            target = local_directory / binary.name
+            local_paths.append(target)
+            expected = json.loads((binary.parent / f"result_shard_{shard:02d}_of_12.json").read_text())
+            info = {"branch": branch, "shard": shard, "source": str(binary), "target": str(target),
+                    "expected_bytes": binary.stat().st_size,
+                    "expected_sha256": expected["files"][branch]["sha256"],
+                    "free_bytes_before": shutil.disk_usage(local_directory).free,
+                    "started_at": time.time()}
+            print(json.dumps({"event": "read_probe_copy_start", **info}), flush=True)
+            digest, copied = hashlib.sha256(), 0
+            cpu_started, started = time.thread_time(), time.perf_counter()
+            last_progress = started
+            with binary.open("rb") as source_file, target.open("wb") as target_file:
+                while session_deadline_unix is None or time.time() < session_deadline_unix:
+                    chunk = source_file.read(16 * 1024 * 1024)
+                    if not chunk:
+                        break
+                    target_file.write(chunk)
+                    digest.update(chunk)
+                    copied += len(chunk)
+                    if time.perf_counter() - last_progress >= 30:
+                        print(json.dumps({"event": "read_probe_copy_progress", "branch": branch,
+                                          "shard": shard, "bytes": copied,
+                                          "seconds": time.perf_counter() - started}), flush=True)
+                        last_progress = time.perf_counter()
+                target_file.flush()
+                os.fsync(target_file.fileno())
+                copy_seconds = time.perf_counter() - started
+                copy_cpu_seconds = time.thread_time() - cpu_started
+                os.posix_fadvise(target_file.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+            copy_complete = copied == info["expected_bytes"]
+            copy_row = {**info, "copied_bytes": copied, "copy_seconds": copy_seconds,
+                        "copy_cpu_seconds": copy_cpu_seconds, "observed_sha256": digest.hexdigest(),
+                        "completed": copy_complete, "target_device": target.stat().st_dev,
+                        "free_bytes_after": shutil.disk_usage(local_directory).free,
+                        "cache_advice": "POSIX_FADV_DONTNEED_after_fsync_advisory_only"}
+            copies.append(copy_row)
+            with (directory / "read_probe_copies.jsonl").open("a") as partial:
+                partial.write(json.dumps(copy_row, sort_keys=True) + "\n")
+            print(json.dumps({"event": "read_probe_copy_done", **copy_row}), flush=True)
+            completed = completed and copy_complete
+            if copy_complete:
+                os.close(bags.descriptors[branch, shard])
+                bags.descriptors[branch, shard] = os.open(target, os.O_RDONLY)
+                storage = "working_copy"
+                with ThreadPoolExecutor(max_workers=probe["reader_workers"]) as reader:
+                    outcomes = list(reader.map(read_bag, enumerate(probe["wsi_ids"][str(shard)])))
+                    completed = completed and all(outcomes)
         result = {"branch": branch, "source_commit": source, "config_sha256": _sha256(config_path),
                   "reader_sha256": _sha256(Path(__file__).with_name("spec0054_shard_bags.py")),
                   "seed": config["seed"], "patch_retention": config["patch_retention"],
-                  "probe": probe, "hardware": hardware, "files": files, "completed": completed,
-                  "cache_policy": "counterbalanced_first_script_method_then_repeats_no_cache_eviction",
+                  "probe": probe, "hardware": hardware, "files": files, "copies": copies,
+                  "completed": completed,
+                  "cache_policy": "input_no_eviction_then_copy_fsync_dontneed_advice_then_local_repeats",
                   "rows": rows}
         (directory / "read_probe.json").write_text(json.dumps(result, indent=2) + "\n")
         print(json.dumps({"event": "read_probe_done", "branch": branch,
                           "completed": completed, "reads": len(rows)}), flush=True)
     finally:
         bags.close()
+        for path in local_paths:
+            path.unlink()
 
 
 
