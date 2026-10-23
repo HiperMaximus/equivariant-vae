@@ -130,6 +130,13 @@ Copy amortization and local performance on this panel do not establish whether
 all12 paired shards fit or sustain the same performance. Classifier training,
 frozen inputs and model states remain untouched.
 
+Submitted as `maximshtefan/eqvae-spec0054-mil-fold0/15` on2026-10-23 at10:32
+Bogota, source `f4c29f49c4f20f8bb7963e1a5f224d432d642ceb`, entry `dfc0f7d`.
+API confirms RUNNING; logs confirm the pinned source, both CPU branches,
+four logical CPUs, GPU unused and the expected shard1 paths. Both initial
+input methods started; copy timing remains pending. Shared cutoff is
+2026-10-23T11:32:01-05:00. Inspect around10:45 Bogota or after completion.
+
 ## Accepted classical WSI baseline (2026-10-14)
 
 Extract fixed descriptors from the existing frozen posterior-mu shards, retaining

@@ -95,10 +95,13 @@ a cold cache or establish capacity/throughput for all12 paired shards.
 Seven reader tests, a32-read synthetic independent-value/copy-hash/cleanup
 check, compilation, Ruff and targeted BasedPyright pass. Source `f4c29f4`;
 the CPU entry mounts only the unchanged shard1 dataset and uses the shared
-cutoff2026-10-23T11:32:01-05:00. Build and kernel validation pass. The user explicitly
-authorized publication and Kaggle submission after the automatic review
-requested confirmation. Submission pending; inspect around10:45 Bogota
-for copy progress or after completion.
+cutoff2026-10-23T11:32:01-05:00. Build and kernel validation pass. Published entry
+`dfc0f7d`; submitted as `maximshtefan/eqvae-spec0054-mil-fold0/15` on2026-10-23
+at10:32 Bogota after explicit publication/launch authorization. API confirms
+RUNNING; live logs confirm sourcef4c29f4, both CPU workers, four logical CPUs,
+GPU unused and only the expected shard1 dataset paths. Both input-read methods
+have started; no copy measurement is available yet. Inspect around10:45 Bogota
+for copy progress or after completion. V13 classifier states remain paused.
 
 
 The previous CLS + gated-ABMIL fold0 run is paused after
