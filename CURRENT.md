@@ -62,7 +62,11 @@ order on two fixed training WSI per shard and repeating each method twice.
 Each completed read is persisted with timing, physical path and value hash;
 no GPU, classifier or training state is used. Seven reader tests, a synthetic
 32-read content-parity check, compilation, Ruff and targeted BasedPyright pass.
-Submission is pending; v13 training remains paused with its own source pin.
+Probe source is committed as `338ff7d`. The local existing entry is prepared
+with READ_PROBE=True, GPU disabled and only shards1/2 mounted. Publication and
+submission are pending; refresh its30-minute submission-based cutoff before
+sending. V13 training remains paused; its continuation must retain source7ad0601,
+restore its own states and use the full training input metadata, not this probe.
 
 The previous CLS + gated-ABMIL fold0 run is paused after
 `maximshtefan/eqvae-spec0054-mil-fold0/12`. Resume input is
