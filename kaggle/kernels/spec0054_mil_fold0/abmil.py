@@ -17,7 +17,7 @@ EFFECTIVE_BATCH = 4
 READ_PROBE = True
 LR_SEARCH = False
 LR_CONFIRMATION = False
-SESSION_DEADLINE_UNIX = 1792773040  # One-hour CPU local-copy probe cutoff.
+SESSION_DEADLINE_UNIX = 1792773121  # One-hour CPU local-copy probe cutoff.
 
 
 def main() -> None:
