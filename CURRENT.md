@@ -55,18 +55,22 @@ Reader code, matched512 subset hashes/sizes, two-reader/two-future prefetch and
 latent extraction/cohort identities agree. C4 runs after the measured read.
 Detailed evidence: `runs/local/spec0054_cls_fold0_c4_v13_review/read_comparison.json`.
 
-A bounded CPU-only I/O followup is prepared in the existing read-probe mode.
+A bounded CPU-only I/O followup is running in the existing read-probe mode.
 It mounts only shards1/2 and compares complete contiguous reads plus the same
 60% subset against the unchanged sampled-region reader, counterbalancing method
 order on two fixed training WSI per shard and repeating each method twice.
 Each completed read is persisted with timing, physical path and value hash;
 no GPU, classifier or training state is used. Seven reader tests, a synthetic
 32-read content-parity check, compilation, Ruff and targeted BasedPyright pass.
-Probe source is committed as `338ff7d`. The local existing entry is prepared
-with READ_PROBE=True, GPU disabled and only shards1/2 mounted. Publication and
-submission are pending; refresh its30-minute submission-based cutoff before
-sending. V13 training remains paused; its continuation must retain source7ad0601,
-restore its own states and use the full training input metadata, not this probe.
+Published source `338ff7d`, entry `0b3ee59`; submitted as
+`maximshtefan/eqvae-spec0054-mil-fold0/14` on2026-10-23 at10:11 Bogota.
+API confirms RUNNING; logs confirm both CPU workers, four logical CPUs,
+no GPU and the expected shard1 dataset/shard2 notebook paths (devices54/53).
+Both methods started; no completed read was yet observed in the initial log
+window. Inspect around10:20 Bogota or after completion. The30-minute cutoff
+is2026-10-23T10:40:48-05:00; an in-flight read may finish later. V13 training
+remains paused; continuation must restore its own states from source7ad0601
+and use full training metadata rather than this probe entry.
 
 The previous CLS + gated-ABMIL fold0 run is paused after
 `maximshtefan/eqvae-spec0054-mil-fold0/12`. Resume input is
@@ -83,13 +87,13 @@ These are exploratory fold0 results, distinct from the five-fold fixed-head
 comparison. Review evidence: `runs/local/spec0054_cls_fold0_regularized_v12_review/`;
 [professor update](https://github.com/HiperMaximus/equivariant-vae/issues/8#issuecomment-6149719046).
 
-The submitted entry `kaggle/kernels/spec0054_mil_fold0/abmil.py` is pinned to
+The v13 submitted entry (retained in commitac196da) was pinned to
 `7ad06010416a789a6b96e612919203c162adc23e` (entry `ac196da`, `RESUME=False`),
 with normal/SO2 on physical GPU0/1, confirmed in logs. Its cutoff is now expired.
 Any candidate continuation must restore the v13 latest states and cursor from
 a candidate-specific resume input, enable resume and set a fresh deadline;
-never resume the previous-recipe v12 weights. No new run or upload was launched
-by this review. Numeric recipe: `docs/data/spec0054_fold0_run.json`; scientific
+never resume the previous-recipe v12 weights. The separate CPU probe v14 does
+not advance training. Numeric recipe: `docs/data/spec0054_fold0_run.json`; scientific
 definition: Spec0054. The105-epoch horizon and five-fold evaluation remain unfinished.
 
 ## Functional geometry — Spec 0053

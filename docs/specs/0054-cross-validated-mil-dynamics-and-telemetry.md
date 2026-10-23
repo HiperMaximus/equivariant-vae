@@ -88,6 +88,13 @@ methods; differences in timing remain observations rather than acceptance gates.
 The earlier v22 probe already used the shard1 dataset successfully, so its
 input type alone is not an established cause of v13's slowdown.
 
+Submitted as `maximshtefan/eqvae-spec0054-mil-fold0/14` on2026-10-23 at10:11
+Bogota, source338ff7d and entry0b3ee59. Initial API status RUNNING. Live logs
+confirm both CPU workers, GPU unused, four logical CPUs and the expected two
+physical input paths. Both full and sampled reads started; no timing result
+was yet available in the initial log window. Shared submission-based cutoff
+is2026-10-23T10:40:48-05:00; inspect around10:20 or once complete.
+
 ## Accepted classical WSI baseline (2026-10-14)
 
 Extract fixed descriptors from the existing frozen posterior-mu shards, retaining
