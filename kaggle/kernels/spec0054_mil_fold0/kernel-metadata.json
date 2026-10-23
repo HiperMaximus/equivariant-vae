@@ -11,8 +11,6 @@
     "maximusshtefan/eqvae-spec0054-frozen-latent-shard-1"
   ],
   "competition_sources": [],
-  "kernel_sources": [
-    "maximshtefan/eqvae-spec0054-fp16-latent-shard-2"
-  ],
+  "kernel_sources": [],
   "model_sources": []
 }

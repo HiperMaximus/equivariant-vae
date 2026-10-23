@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "338ff7dd6a7c5a06d4d6fc72e7792a3f33ac23d4"
+SOURCE_COMMIT = "f4c29f49c4f20f8bb7963e1a5f224d432d642ceb"
 SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
 OUTPUT_ROOT = Path("/kaggle/working/spec0054_io_probe")
 SMOKE = False
@@ -17,7 +17,7 @@ EFFECTIVE_BATCH = 4
 READ_PROBE = True
 LR_SEARCH = False
 LR_CONFIRMATION = False
-SESSION_DEADLINE_UNIX = 1792770048  # CPU probe cutoff; refresh before submission.
+SESSION_DEADLINE_UNIX = 1792773040  # One-hour CPU local-copy probe cutoff.
 
 
 def main() -> None:

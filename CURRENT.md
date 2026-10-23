@@ -93,7 +93,10 @@ cutoff applies between reads/copy chunks; in-flight I/O may finish later.
 This measures copy cost and local access on a small panel; it does not guarantee
 a cold cache or establish capacity/throughput for all12 paired shards.
 Seven reader tests, a32-read synthetic independent-value/copy-hash/cleanup
-check, compilation, Ruff and targeted BasedPyright pass. Submission pending.
+check, compilation, Ruff and targeted BasedPyright pass. Source `f4c29f4`;
+the CPU entry mounts only the unchanged shard1 dataset and uses the shared
+cutoff2026-10-23T11:30:40-05:00. Build and kernel validation pass. Submission
+pending; inspect around10:45 Bogota for copy progress or after completion.
 
 The previous CLS + gated-ABMIL fold0 run is paused after
 `maximshtefan/eqvae-spec0054-mil-fold0/12`. Resume input is
