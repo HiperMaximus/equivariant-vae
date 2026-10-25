@@ -225,6 +225,12 @@ naturally. This small-panel check can measure random revisits with intervening
 bags but cannot establish behavior after traversing the entire200GB atlas.
 Historical probe variants remain pinned to their original published commits.
 
+Submitted as `maximshtefan/eqvae-spec0054-mil-fold0/17` on2026-10-25 around
+14:44 Bogota after explicit publication/launch authorization. Source
+`03dfbb2bcf6b5bafa75b71698d448b3d70c5bafd`, entry `0bdc98a`; API confirms
+RUNNING. Shared cutoff2026-10-25T15:14:01-05:00. Inspect around15:00 Bogota
+for subsequent-read timings or after completion. Classifier training is paused.
+
 ## Accepted classical WSI baseline (2026-10-14)
 
 Extract fixed descriptors from the existing frozen posterior-mu shards, retaining

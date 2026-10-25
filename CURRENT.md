@@ -169,8 +169,10 @@ remain reproducible from their original source pins. Seven reader tests,
 targeted BasedPyright pass. Source `03dfbb2`; build and kernel validation pass.
 The refreshed shared cutoff is2026-10-25T15:14:01-05:00. The user explicitly authorized
 publishing commits03dfbb2/c057bb3 and launching the probe after automatic
-review requested confirmation. Submission pending; inspect around15:00 Bogota
-for subsequent-read timings or after completion.
+review requested confirmation. Published entry `0bdc98a`; submitted as
+`maximshtefan/eqvae-spec0054-mil-fold0/17` on2026-10-25 around14:44 Bogota.
+API confirms RUNNING. Inspect around15:00 Bogota for subsequent-read timings
+or after completion. V13 classifier states remain paused.
 
 
 The previous CLS + gated-ABMIL fold0 run is paused after
