@@ -3,7 +3,7 @@
 Status: dropout/smoothing/C4 v13 inspected COMPLETE at1.7778 epochs; I/O-dominated; latest states retained
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-10-23
+Last updated: 2026-10-25
 
 ## Accepted dropout, smoothing and C4 candidate (2026-10-22)
 
@@ -136,6 +136,94 @@ API confirms RUNNING; logs confirm the pinned source, both CPU branches,
 four logical CPUs, GPU unused and the expected shard1 paths. Both initial
 input methods started; copy timing remains pending. Shared cutoff is
 2026-10-23T11:32:01-05:00. Inspect around10:45 Bogota or after completion.
+
+Inspection on2026-10-25 confirms COMPLETE, worker exits[0,0] and all32 reads.
+The two8,340,340,736-byte copies have exact authoritative SHA256 matches. All4
+branch/WSI groups retain identical selected-value and subset hashes across
+input/local methods and repetitions; selected values also match v14. Copy wall
+times including hashing and fsync are141.90s normal/133.41s SO2, concurrent,
+with141.90s total phase elapsed and45.21/45.40s thread CPU. Input first reads
+cost759.27--784.45s, while all local reads cost0.0746--0.5020s and first local
+reads per WSI cost0.2237--0.5020s. Source device53 and destination1794 differ.
+Input repetitions are also fast; the comparison does not isolate physical
+disk performance or remove the advisory-cache limitation. Full copy follows
+the initial input reads and therefore is not a cold-start staging estimate.
+
+Observed initial free working space is20,940,505,088 bytes, falling to about
+4.26GB after both copies. Shard1 paired binaries occupy16,680,681,472 bytes;
+all12 pairs require200,332,607,488 bytes and cannot be staged together in this
+measured session. The result supports investigating a shard1 local cache, with
+unchanged sample order, but neither total training speed nor a whole-atlas
+cache is established. No further execution or training-reader change accompanies
+this review. Outputs: `runs/kaggle/spec0054_io_local_copy_v15/`; numerical
+summary: `runs/local/spec0054_io_local_copy_v15_review/summary.json`.
+
+On2026-10-25 the user authorized repeating the original direct-input CPU probe
+to measure persistence of the slowdown. Reuse the already-published v14 source
+`338ff7dd6a7c5a06d4d6fc72e7792a3f33ac23d4` and its original input metadata.
+The two WSI per shard1/2, paired subsets, method order, reader count and repeats
+remain identical:32 reads and no local copying/cache preparation, GPU or model.
+Only the30-minute submission cutoff changes to2026-10-25T14:22:00-05:00.
+Record physical paths, hardware, times and value hashes as before. Compare
+first accesses and repeated accesses separately against v14 and the input
+phase of v15. Session variation does not identify an actual backend incident
+and cannot predict whole-atlas training throughput. Inspect around14:05 Bogota
+or after completion.
+
+Submitted as `maximshtefan/eqvae-spec0054-mil-fold0/16` on2026-10-25 around
+13:53 Bogota. API confirms RUNNING. Initial logs confirm source338ff7d, both
+CPU processes, four logical CPUs, GPU unused, the v14 panel and the expected
+dataset/notebook input paths (devices54/53). Both initial shard1 methods have
+started; completed read timings are pending. This entry requires no new source
+publication and uses the old published contract, not the checkout's local-copy
+probe configuration. Shared cutoff remains2026-10-25T14:22:00-05:00.
+
+Inspection around14:22 Bogota confirms COMPLETE, worker exits[0,0] and all32
+reads. Source/reader/contract hashes match v14, and all32 paired request records
+retain identical bag sizes, retained subsets, bytes, region counts and selected
+value hashes. First accesses on shard1 cost163.40--167.53s versus366.19--376.23s
+in v14 and759.27--784.45s in v15; the mean is55.4% lower than v14. Shard2 costs
+269.13--274.99s versus274.25--279.32s in v14, mean1.7% lower. Same-method second
+reads cost0.0471--0.2285s; first-access thread CPU is0.33--0.57s. Thus shard1
+varies substantially between sessions while multi-minute direct access remains
+for both shards. These observations do not identify a Kaggle backend incident
+or establish full-atlas training throughput. No new run, local copy or reader
+change accompanies the review. Outputs: `runs/kaggle/spec0054_io_direct_repeat_v16/`;
+summary: `runs/local/spec0054_io_direct_repeat_v16_review/summary.json`.
+
+First-access delays alone do not establish a steady-state training issue or
+justify local staging. The immediate repetitions in v16 are fast, while the
+small panel does not measure cache behavior after traversing the working set.
+A separate inspection of v13's512 consumed training presentations excludes6
+unused drained-prefetch reads and identifies224 WSI revisited in epoch2. Second
+training-read medians are32.55s normal/32.42s SO2 versus4.45/4.58s for matching
+WSI/subset requests in v10. Shard1 contributes20 revisits with medians203.02/
+200.72s versus4.11/3.70s; the other204 take29.86/29.78s versus4.54/4.68s.
+Each epoch changes the60% subset and full-bag assessments intervene. This is
+evidence of slow subsequent reads in historical v13, not evidence that the new
+session retains that behavior. A current throughput measurement must include
+revisits after interleaving representative other bags rather than infer them
+from first accesses or immediate repeats. No new execution accompanies this
+interpretation correction. Numerical review:
+`runs/local/spec0054_cls_fold0_c4_v13_review/subsequent_training_reads.json`.
+
+The authorized small followup uses six fixed fold-training WSI across shards1/2.
+First read their full bags once to separate initial access from subsequent
+sampled requests. Then perform three seeded random permutations of the panel,
+one read per WSI per pass, using the existing60% sorted patch sampler with
+epoch keys0/1/2. Both branches have identical orders and subsets and two reader
+threads. Rotate a pass order if its first WSI equals the preceding pass's last
+WSI, avoiding an immediate boundary repeat in the planned request sequence.
+Log round, planned request index/previous index/gap, bytes, region count, read
+wall/thread-CPU time and selected-index/value hashes. Keep initial and subsequent
+timings separate. There are6 initial and18 subsequent reads per branch,48 total.
+
+Reuse the existing probe function and original two input mounts, without local
+copying, forced cache eviction, augmentation, H2D or model execution. A30-minute
+submission-based cutoff applies before each request; in-flight I/O finishes
+naturally. This small-panel check can measure random revisits with intervening
+bags but cannot establish behavior after traversing the entire200GB atlas.
+Historical probe variants remain pinned to their original published commits.
 
 ## Accepted classical WSI baseline (2026-10-14)
 

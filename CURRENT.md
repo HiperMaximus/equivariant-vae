@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-10-23
+Last updated: 2026-10-25
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -97,11 +97,76 @@ check, compilation, Ruff and targeted BasedPyright pass. Source `f4c29f4`;
 the CPU entry mounts only the unchanged shard1 dataset and uses the shared
 cutoff2026-10-23T11:32:01-05:00. Build and kernel validation pass. Published entry
 `dfc0f7d`; submitted as `maximshtefan/eqvae-spec0054-mil-fold0/15` on2026-10-23
-at10:32 Bogota after explicit publication/launch authorization. API confirms
-RUNNING; live logs confirm sourcef4c29f4, both CPU workers, four logical CPUs,
-GPU unused and only the expected shard1 dataset paths. Both input-read methods
-have started; no copy measurement is available yet. Inspect around10:45 Bogota
-for copy progress or after completion. V13 classifier states remain paused.
+at10:32 Bogota after explicit publication/launch authorization. Inspection
+on2026-10-25 confirms COMPLETE, worker exits[0,0], all32 reads, and both full
+binary hashes equal their frozen authoritative hashes. All4 branch/WSI groups
+retain the same selected values across input/local methods/repeats and v14.
+Sourcef4c29f4, four logical CPUs, GPU unused and expected shard1 paths agree.
+
+The concurrent8.34GB copies cost141.90s normal/133.41s SO2, including SHA256
+and fsync (141.90s elapsed across both). First input reads cost759.27--784.45s;
+all local reads cost0.0746--0.5020s after advisory cache discard. Copy destination
+device1794 differs from input53. Copies follow initial input reads, so their
+cost is not a cold-start preparation estimate. Observed free space before
+copying was20.94GB and after both copies4.26GB; the paired shard1 uses16.68GB,
+while all12 pairs total200.33GB and do not fit in this session. Local staging
+of shard1 is promising; full-atlas/GPU training throughput and cold-copy cost
+remain unmeasured. No further launch, reader change or training continuation.
+Outputs: `runs/kaggle/spec0054_io_local_copy_v15/`; numerical review:
+`runs/local/spec0054_io_local_copy_v15_review/summary.json`.
+V13 classifier states remain paused.
+
+The user requested a new direct-input measurement on2026-10-25 to check whether
+the earlier slowdown persists. Reuse published source `338ff7d` and the v14
+CPU entry/input metadata, changing only the submission-based30-minute cutoff
+to2026-10-25T14:22:00-05:00. This preserves the exact two WSI per shard1/2,
+two readers per branch, two repetitions, full/sampled method orders and32-read
+budget. No local copy/cache step, GPU or classifier training. Build, validation
+and entry Ruff checks pass. Submitted as
+`maximshtefan/eqvae-spec0054-mil-fold0/16` on2026-10-25 around13:53 Bogota.
+Inspection around14:22 Bogota confirms COMPLETE, worker exits[0,0] and all32
+reads. Source, reader and contract hashes equal v14; all32 request/content
+records match v14 exactly. Both CPU branches, four logical CPUs, GPU unused
+and original input paths/devices54/53 agree. First accesses on shard1 take
+163.40--167.53s versus366.19--376.23s in v14 and759.27--784.45s in v15; the
+mean drops55.4% relative to v14. Shard2 stays near v14:269.13--274.99s versus
+274.25--279.32s, mean down1.7%. Same-method second reads take0.0471--0.2285s;
+first-read thread CPU is0.33--0.57s. Session variation is observed, but slow
+direct access persists; no specific backend incident or full training speed
+is established. No further launch or reader change. Outputs:
+`runs/kaggle/spec0054_io_direct_repeat_v16/`; review:
+`runs/local/spec0054_io_direct_repeat_v16_review/summary.json`.
+No new source publication was required; the entry loads the published v14
+contract rather than the local-copy contract at the research checkout's HEAD.
+
+Interpretation correction: first-access cost alone does not diagnose persistent
+training slowdown or justify local staging. Immediate repeats in v16 are fast.
+Historical v13 telemetry, restricted to512 consumed presentations (excluding
+6 drained unused prefetch reads), contains224 WSI revisited in epoch2. Their
+second training-read median is32.55s normal/32.42s SO2 versus4.45/4.58s for
+the matching WSI/subset requests in v10. On the20 shard1 revisits, medians are
+203.02/200.72s versus4.11/3.70s; the other204 revisits take29.86/29.78s versus
+4.54/4.68s. Subsets change between epochs and full-bag assessments intervene;
+these are realistic training revisits rather than identical immediate rereads.
+This confirms the historical subsequent-read issue, not its persistence in the
+new session. V16 does not measure revisits after cycling through the full
+working set. Review: `runs/local/spec0054_cls_fold0_c4_v13_review/subsequent_training_reads.json`.
+No further run was launched.
+
+The next authorized CPU probe is deliberately small: six training WSI across
+shards1/2, one full-bag warmup pass followed by three random passes using the
+unchanged60% sampled-region reader, with a new epoch-keyed subset each pass.
+Both branches share deterministic orders/subsets and two reader threads each.
+Each pass visits every panel WSI once; round-boundary order avoids an immediate
+same-WSI repeat. This is24 reads per branch (6 initial/18 subsequent),48 total,
+with no local copies, forced eviction, augmentation, GPU or classifier training.
+Per-read logs retain round, planned request index/gap, bytes, wall/thread-CPU
+time and hashes. The30-minute cutoff bounds new reads. This small working set
+addresses interleaved revisits only and cannot establish full-atlas behavior.
+The existing probe function/contract are updated; v14--16 and the copy probe
+remain reproducible from their original source pins. Seven reader tests,
+48-read independent synthetic value/order/subset checks, compilation, Ruff and
+targeted BasedPyright pass. Submission pending.
 
 
 The previous CLS + gated-ABMIL fold0 run is paused after

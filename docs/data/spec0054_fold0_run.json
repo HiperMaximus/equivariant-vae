@@ -4,7 +4,7 @@
   "warmup_epochs": 5,
   "seed": 1701,
   "peak_lr": 0.0005,
-  "min_lr": 0.000005,
+  "min_lr": 5e-06,
   "effective_batches": [
     1,
     4,
@@ -150,7 +150,10 @@
   "checkpoint_selection": "minimum_mean_unweighted_validation_ce",
   "lr_confirmation": {
     "epochs": 8,
-    "peak_lrs": [0.0005, 0.001]
+    "peak_lrs": [
+      0.0005,
+      0.001
+    ]
   },
   "lr_search": {
     "preparation_updates": 72,
@@ -160,16 +163,22 @@
   },
   "read_probe": {
     "shards": [
-      1
+      1,
+      2
     ],
     "wsi_ids": {
       "1": [
         5264,
+        4827,
         4877
+      ],
+      "2": [
+        6359,
+        8130,
+        6363
       ]
     },
     "reader_workers": 2,
-    "repeats": 2,
-    "local_copy_root": "/kaggle/working/spec0054_io_cache"
+    "random_passes": 3
   }
 }
