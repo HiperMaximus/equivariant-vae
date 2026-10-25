@@ -166,7 +166,11 @@ addresses interleaved revisits only and cannot establish full-atlas behavior.
 The existing probe function/contract are updated; v14--16 and the copy probe
 remain reproducible from their original source pins. Seven reader tests,
 48-read independent synthetic value/order/subset checks, compilation, Ruff and
-targeted BasedPyright pass. Submission pending.
+targeted BasedPyright pass. Source `03dfbb2`; build and kernel validation pass.
+The refreshed shared cutoff is2026-10-25T15:14:01-05:00. The user explicitly authorized
+publishing commits03dfbb2/c057bb3 and launching the probe after automatic
+review requested confirmation. Submission pending; inspect around15:00 Bogota
+for subsequent-read timings or after completion.
 
 
 The previous CLS + gated-ABMIL fold0 run is paused after

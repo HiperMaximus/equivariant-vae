@@ -17,7 +17,7 @@ EFFECTIVE_BATCH = 4
 READ_PROBE = True
 LR_SEARCH = False
 LR_CONFIRMATION = False
-SESSION_DEADLINE_UNIX = 1792958434  # Small interleaved-read CPU probe; 30-minute cutoff.
+SESSION_DEADLINE_UNIX = 1792959241  # Small interleaved-read CPU probe; 30-minute cutoff.
 
 
 def main() -> None:
