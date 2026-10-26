@@ -1,9 +1,9 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v13 inspected COMPLETE at1.7778 epochs; I/O-dominated; latest states retained
+Status: dropout/smoothing/C4 v18 RUNNING; live progress4.8333 epochs; full-atlas I/O remains limiting
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-10-25
+Last updated: 2026-10-26
 
 ## Accepted dropout, smoothing and C4 candidate (2026-10-22)
 
@@ -89,6 +89,78 @@ messages confirm update128/exposures512, epoch1/cursor224 and last assessment288
 The first completed paired WSI40079 subset/C4 hashes agree. No new training source or
 configuration publication is needed because this session uses the original
 published v13 commit. Inspect around00:20 Bogota on2026-10-26.
+
+Live inspection around09:38 Bogota on2026-10-26 confirms RUNNING, last visible
+update348/exposures1392 (epoch4 cursor240) on both branches. This session adds
+220 updates/880 presentations; latest visible saved checkpoint is update324/
+exposures1296. Last complete assessment is epoch3 with validation CE1.60842
+normal/1.57188 SO2; best-CE events select normal epoch2 (1.57755) and SO2 epoch3
+(1.57188). Live events do not provide macro-F1. The model remains before the
+end of five-epoch warmup, and these metrics do not establish recipe benefit.
+
+All880 consumed WSI/subset/C4 records agree across branches, with no visible
+AMP skips/backoffs. Training read medians are22.15/21.88s and means39.14/39.07s,
+versus4.46/4.55s and5.16/5.19s on matching v10 WSI/subset requests. All have prior
+v13 training presentations, so the delay is not limited to initial access.
+Step means are89.66/89.46s versus12.66/12.81s on matched v10 updates; queue
+waits consume97.6--97.7% of step time. Shard1 median reads are37.94/39.78s,
+means95.13/96.08s. The small six-WSI probe cannot predict performance over the
+full working set; exact cache/storage cause remains unidentified. This is a
+partial live snapshot, not the final exported checkpoint/metric state. No
+intervention or additional execution accompanies the inspection. Cutoff remains
+11:31:37 Bogota; inspect completed artifacts after11:45. Numerical review:
+`runs/local/spec0054_cls_fold0_c4_v18_live_review_20261026/summary.json`.
+
+External context reviewed2026-10-26: an older
+[Kaggle report](https://www.kaggle.com/discussions/product-feedback/443920)
+has staff reproduction of fast2GB and slow30GB reads, but concerns `/kaggle/tmp`
+and explicitly distinguishes `/kaggle/input`. A first-hand
+[PyTorch forum report](https://discuss.pytorch.org/t/data-loading-time-becomes-unstable-jumping-to-high-values-when-dataset-is-large/218042)
+also describes random binary-file access becoming variable on a larger dataset;
+it is not a confirmed Kaggle diagnosis.
+
+[Kaggle documentation](https://www.kaggle.com/docs/notebooks) lists29GB RAM
+for T4x2. V17's full paired panel totals3,170,172,928 bytes versus200,332,607,488
+bytes for the atlas. The [Linux memory-management documentation](https://docs.kernel.org/admin-guide/mm/concepts.html)
+explains that file reads populate the page cache and cached pages can be
+reclaimed. Cache residency is therefore a plausible explanation for fast small
+panels and slower later reads after traversing more data. This remains an
+inference; it does not explain the change from v10 under the same data/reader.
+Filesystem type, actual cache pressure and backend behavior are unmeasured;
+neither NFS nor GCS FUSE is established for these mounts. No matching current
+Kaggle incident or corrective setting was confirmed. No session mutation follows
+from this literature check.
+
+The authorized cache/read-method followup remains a CPU-only change to the
+existing probe function and contract. On the same six fixed training WSI,
+compare the unchanged sampled-region reader with one full-bag read followed
+by the identical seed/epoch0 sorted60% subset. Each WSI runs both methods in
+counterbalanced order. Before each method request POSIX_FADV_DONTNEED for only
+its bag range, measure actual mincore residency, read, then repeat immediately.
+There are24 reads per branch,48 total, using two readers and a30-minute cutoff.
+Selected-value hashes must be reported for direct content-equivalence inspection;
+no classifier, augmentation, input rewrite or local-copy mitigation is applied.
+
+Record mount type/device/owner UID, process UID, free working/scratch space and
+whether their devices differ. Each read retains bag-page residency before advice,
+before reading and afterward; memory availability/cache, process I/O and host
+reclaim/refault counters are recorded as snapshots. mincore records errors as
+undefined residency observations. Kernel visibility may be restricted, pages can
+change after sampling, and backend caches are not measured. POSIX_FADV_DONTNEED
+is nonbinding and can discard only part of a region; use observed residency
+rather than labeling the first read cold. Process counters include both reader
+threads and host counters may include unrelated work, so their differences are
+not exclusive per-request I/O. No global drop_caches or memory-pressure workload
+is used. Compare read-plus-subset time: the full-read candidate transfers about
+1/0.6 times the bytes but reduces region calls to one without changing tensors.
+Cache capacity alone does not explain the v10 regression; this controlled panel
+tests a potential mitigation rather than establishing whole-atlas throughput.
+
+V18 was confirmed COMPLETE before preparing the CPU entry, with both workers
+exit0 and latest states at360 updates/1440 presentations/epoch5 cursor0. Its
+epoch5 assessment was interrupted by the cutoff and remains pending. Outputs
+are saved in `runs/kaggle/spec0054_cls_fold0_c4_v18/`; future continuation must
+use these states rather than the v13 states in private resume dataset version1.
 
 ## Bounded I/O followup (2026-10-23)
 

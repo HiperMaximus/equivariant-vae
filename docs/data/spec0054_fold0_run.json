@@ -179,6 +179,6 @@
       ]
     },
     "reader_workers": 2,
-    "random_passes": 3
+    "repeats": 2
   }
 }

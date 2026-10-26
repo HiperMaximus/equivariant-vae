@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import copy
+import ctypes
 import hashlib
 import json
 import math
+import mmap
 import os
 import random
 import shutil
@@ -960,7 +962,7 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
 
 def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch: str,
                    session_deadline_unix: float | None = None) -> None:
-    """Warm a small WSI panel once, then measure interleaved random revisits."""
+    """Measure page-cache residency and two content-equivalent read methods."""
     config_path = repo_root / "docs/data/spec0054_fold0_run.json"
     config = json.loads(config_path.read_text())
     probe = config["read_probe"]
@@ -982,79 +984,126 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
     rows = []
     lock = Lock()
     hardware = {"logical_cpu_count": os.cpu_count(), "cpu_affinity": sorted(os.sched_getaffinity(0)),
-                "torch_threads": torch.get_num_threads(), "gpu_used": False}
+                "torch_threads": torch.get_num_threads(), "gpu_used": False, "euid": os.geteuid(),
+                "working_free_bytes": shutil.disk_usage(output_root.parent).free,
+                "working_device": output_root.parent.stat().st_dev,
+                "scratch_free_bytes": shutil.disk_usage(repo_root.parent).free,
+                "scratch_device": repo_root.parent.stat().st_dev}
     source = subprocess.check_output(["git", "-C", str(repo_root), "rev-parse", "HEAD"], text=True).strip()
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.mincore.argtypes = (ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_ubyte))
+    libc.mincore.restype = ctypes.c_int
+
+    def snapshot(wsi_id):
+        location = bags.locations[wsi_id]
+        offset = location.first_record * RECORD_BYTES
+        aligned = offset - offset % mmap.PAGESIZE
+        length = location.count * RECORD_BYTES + offset - aligned
+        page_count = (length + mmap.PAGESIZE - 1) // mmap.PAGESIZE
+        vector = (ctypes.c_ubyte * page_count)()
+        with mmap.mmap(bags.descriptors[branch, location.shard], length,
+                       access=mmap.ACCESS_COPY, offset=aligned) as mapping:
+            pointer = ctypes.c_char.from_buffer(mapping)
+            status = libc.mincore(ctypes.addressof(pointer), length, vector)
+            error = ctypes.get_errno() if status != 0 else None
+            del pointer
+        resident = sum(value & 1 for value in vector) if status == 0 else None
+        memory = {key: int(value.split()[0]) for key, value in
+                  (line.split(":", 1) for line in Path("/proc/meminfo").read_text().splitlines())
+                  if key in ("MemTotal", "MemAvailable", "Cached", "Shmem", "SReclaimable", "Dirty", "Writeback")}
+        process_io = {key: int(value) for key, value in
+                      (line.split(":", 1) for line in Path("/proc/self/io").read_text().splitlines())}
+        vmstat = {key: int(value) for key, value in
+                  (line.split() for line in Path("/proc/vmstat").read_text().splitlines())
+                  if key.startswith(("workingset_refault", "pgscan", "pgsteal")) or key == "pgmajfault"}
+        return {"at_unix": time.time(), "pages": page_count, "resident_pages": resident,
+                "resident_fraction": resident / page_count if resident is not None else None,
+                "mincore_status": status, "mincore_errno": error,
+                "meminfo_kib": memory, "process_io": process_io, "host_vmstat": vmstat}
 
     def read_bag(request):
-        round_number, request_index, wsi_id, previous_index = request
-        if session_deadline_unix is not None and time.time() >= session_deadline_unix:
-            return False
+        position, wsi_id = request
         location = bags.locations[wsi_id]
-        full = round_number == 0
-        indices = None if full else _sample_indices(
-            location.count, config["seed"], round_number - 1, wsi_id, config["patch_retention"])
-        info = {"branch": branch, "shard": location.shard, "wsi_id": wsi_id,
-                "phase": "warmup_full" if full else "random_revisit", "round": round_number,
-                "request_index": request_index, "previous_request_index": previous_index,
-                "intervening_requests": None if previous_index is None else request_index - previous_index - 1}
-        print(json.dumps({"event": "read_probe_read_start", **info}), flush=True)
-        started_unix = time.time()
-        cpu_started, started = time.thread_time(), time.perf_counter()
-        array = bags.read(branch, wsi_id, indices)
-        read_seconds = time.perf_counter() - started
-        read_cpu_seconds = time.thread_time() - cpu_started
-        hash_started = time.perf_counter()
-        values_hash = hashlib.sha256(memoryview(array).cast("B")).hexdigest()
-        row = {**info, "started_at": started_unix, "bag_size": location.count,
-               "sampled_bag_size": len(array), "requested_bytes": len(array) * RECORD_BYTES,
-               "read_regions": 1 if indices is None else int(np.count_nonzero(np.diff(indices) != 1)) + 1,
-               "sample_indices_sha256": None if indices is None else hashlib.sha256(indices.tobytes()).hexdigest(),
-               "selected_values_sha256": values_hash, "read_seconds": read_seconds,
-               "read_cpu_seconds": read_cpu_seconds, "hash_seconds": time.perf_counter() - hash_started}
-        del array
-        with lock:
-            rows.append(row)
-            with (directory / "read_probe_rows.jsonl").open("a") as partial:
-                partial.write(json.dumps(row, sort_keys=True) + "\n")
-            print(json.dumps({"event": "read_probe_read_done", **row}, sort_keys=True), flush=True)
+        indices = _sample_indices(location.count, config["seed"], 0, wsi_id, config["patch_retention"])
+        methods = ("sampled_regions", "full_then_subset") if position % 2 == 0 else ("full_then_subset", "sampled_regions")
+        for method in methods:
+            for repeat in range(probe["repeats"]):
+                if session_deadline_unix is not None and time.time() >= session_deadline_unix:
+                    return False
+                before_advice = None
+                if repeat == 0:
+                    before_advice = snapshot(wsi_id)
+                    os.posix_fadvise(bags.descriptors[branch, location.shard],
+                                    location.first_record * RECORD_BYTES,
+                                    location.count * RECORD_BYTES, os.POSIX_FADV_DONTNEED)
+                before = snapshot(wsi_id)
+                info = {"branch": branch, "shard": location.shard, "wsi_id": wsi_id,
+                        "method": method, "repeat": repeat,
+                        "cache_condition": "after_dontneed_advice" if repeat == 0 else "immediate_repeat"}
+                print(json.dumps({"event": "read_probe_read_start", **info,
+                                  "resident_fraction": before["resident_fraction"]}), flush=True)
+                full = method == "full_then_subset"
+                cpu_started, started = time.thread_time(), time.perf_counter()
+                array = bags.read(branch, wsi_id, None if full else indices)
+                read_seconds = time.perf_counter() - started
+                read_cpu_seconds = time.thread_time() - cpu_started
+                after = snapshot(wsi_id)
+                subset_started = time.perf_counter()
+                selected = array[indices] if full else array
+                subset_seconds = time.perf_counter() - subset_started
+                hash_started = time.perf_counter()
+                digest = hashlib.sha256(memoryview(selected).cast("B")).hexdigest()
+                row = {**info, "bag_size": location.count, "sampled_bag_size": len(indices),
+                       "requested_bytes": (location.count if full else len(indices)) * RECORD_BYTES,
+                       "read_regions": 1 if full else int(np.count_nonzero(np.diff(indices) != 1)) + 1,
+                       "sample_indices_sha256": hashlib.sha256(indices.tobytes()).hexdigest(),
+                       "selected_values_sha256": digest, "read_seconds": read_seconds,
+                       "read_cpu_seconds": read_cpu_seconds, "subset_seconds": subset_seconds,
+                       "read_plus_subset_seconds": read_seconds + subset_seconds,
+                       "hash_seconds": time.perf_counter() - hash_started,
+                       "before_advice": before_advice, "before_read": before, "after_read": after}
+                del selected, array
+                with lock:
+                    rows.append(row)
+                    with (directory / "read_probe_rows.jsonl").open("a") as partial:
+                        partial.write(json.dumps(row, sort_keys=True) + "\n")
+                    print(json.dumps({"event": "read_probe_read_done", **info,
+                                      "read_plus_subset_seconds": row["read_plus_subset_seconds"],
+                                      "resident_before": before["resident_fraction"],
+                                      "resident_after": after["resident_fraction"],
+                                      "selected_values_sha256": digest}), flush=True)
         return True
 
     try:
         files = {}
+        mounts = []
+        for line in Path("/proc/self/mountinfo").read_text().splitlines():
+            left, right = line.split(" - ", 1)
+            point = left.split()[4].replace("\\040", " ")
+            mounts.append({"mount_point": point, "filesystem_type": right.split()[0],
+                           "device": left.split()[2]})
         for shard, binary in bags.files[branch].items():
             bags.descriptors[branch, shard] = os.open(binary, os.O_RDONLY)
             stat = os.fstat(bags.descriptors[branch, shard])
+            mount = max((m for m in mounts if binary.resolve().is_relative_to(m["mount_point"])),
+                        key=lambda m: len(m["mount_point"]))
             files[str(shard)] = {"path": str(binary), "resolved_path": str(binary.resolve()),
-                                 "bytes": stat.st_size, "device": stat.st_dev}
+                                 "bytes": stat.st_size, "device": stat.st_dev,
+                                 "owner_uid": stat.st_uid, "mount": mount}
         print(json.dumps({"event": "read_probe_start", "branch": branch, "hardware": hardware,
                           "files": files, "probe": probe, "session_deadline_unix": session_deadline_unix}), flush=True)
         panel = [wsi for shard in probe["shards"] for wsi in probe["wsi_ids"][str(shard)]]
-        previous = {}
-        previous_last = None
-        completed = True
+        rng = np.random.default_rng(np.random.SeedSequence([config["seed"], 0x10]))
+        order = rng.permutation(panel).tolist()
+        print(json.dumps({"event": "read_probe_order", "branch": branch, "wsi_order": order}), flush=True)
         with ThreadPoolExecutor(max_workers=probe["reader_workers"]) as reader:
-            for round_number in range(probe["random_passes"] + 1):
-                rng = np.random.default_rng(np.random.SeedSequence([config["seed"], 0x10, round_number]))
-                order = rng.permutation(panel).tolist()
-                if order[0] == previous_last:
-                    order = order[1:] + order[:1]
-                requests = []
-                for position, wsi_id in enumerate(order):
-                    request_index = round_number * len(panel) + position
-                    requests.append((round_number, request_index, wsi_id, previous.get(wsi_id)))
-                    previous[wsi_id] = request_index
-                previous_last = order[-1]
-                print(json.dumps({"event": "read_probe_round_start", "branch": branch,
-                                  "round": round_number, "wsi_order": order}), flush=True)
-                outcomes = list(reader.map(read_bag, requests))
-                completed = completed and all(outcomes)
-                if not completed:
-                    break
+            completed = all(list(reader.map(read_bag, enumerate(order))))
         result = {"branch": branch, "source_commit": source, "config_sha256": _sha256(config_path),
                   "reader_sha256": _sha256(Path(__file__).with_name("spec0054_shard_bags.py")),
                   "seed": config["seed"], "patch_retention": config["patch_retention"],
                   "probe": probe, "hardware": hardware, "files": files, "completed": completed,
-                  "cache_policy": "one_full_panel_pass_then_random_sampled_passes_no_copy_or_eviction",
+                  "cache_policy": "bag_range_dontneed_advice_before_each_method_then_repeat",
+                  "counter_scope": "mincore_bag_snapshot; process_io_shared_by_threads; vmstat_host_wide",
                   "rows": rows}
         (directory / "read_probe.json").write_text(json.dumps(result, indent=2) + "\n")
         print(json.dumps({"event": "read_probe_done", "branch": branch,

@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-10-25
+Last updated: 2026-10-26
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -55,9 +55,60 @@ API confirms RUNNING. Initial logs confirm source7ad0601, the new private
 resume root and independent normal/SO2 Tesla T4 workers on physical GPUs0/1,
 with all probes disabled. Both `resume_done` logs confirm update128,
 exposures512, epoch1/cursor224 and last assessment288. Initial paired WSI40079
-subset/C4 hashes agree. Inspect around2026-10-26T00:20-05:00 for paired progress and
-training read/queue-wait timings. No new source publication was required:
+subset/C4 hashes agree. No new source publication was required:
 the unchanged training code/config are already published at the v13 pin.
+
+Live inspection on2026-10-26 around09:38 Bogota confirms v18 still RUNNING.
+Latest visible progress is update348/exposures1392 for both branches, epoch4
+cursor240 (4.8333 epochs);220 updates/880 presentations have advanced in this
+session. Latest visible saved checkpoint is update324/exposures1296. Last
+complete assessment is epoch3: validation CE1.60842 normal/1.57188 SO2. Best
+CE events select normal epoch2 (1.57755) and SO2 epoch3 (1.57188); macro-F1
+is unavailable from the live event stream. Both are still before the end of
+the five-epoch warmup. All880 consumed WSI/subset/C4 records agree across
+branches; no AMP skipped attempts/backoffs are visible.
+
+Full-atlas subsequent reads remain slow: median22.15/21.88s, mean39.14/39.07s,
+versus matched v10 medians4.46/4.55s and means5.16/5.19s. All880 WSI requests
+have prior v13 training history; these are not initial dataset accesses.
+Mean step89.66/89.46s versus matched v10 12.66/12.81s; input waits consume
+97.6--97.7% of step time. Shard1 median37.94/39.78s and mean95.13/96.08s,
+with slow reads also on the other shards. The fast six-WSI probe did not
+establish full-working-set performance. Exact storage/cache cause is unmeasured.
+Live snapshot only, not final checkpoints/metrics. Review:
+`runs/local/spec0054_cls_fold0_c4_v18_live_review_20261026/summary.json`.
+The session is unchanged and retains cutoff11:31:37 Bogota; inspect after11:45
+for completed artifacts rather than repeatedly polling unchanged live state.
+
+Followup after the deadline confirms v18 COMPLETE, worker exits[0,0]; both
+latest states are update360/exposures1440/epoch5 cursor0. The epoch5 assessment
+paused at the session deadline and must replay on continuation. Saved outputs:
+`runs/kaggle/spec0054_cls_fold0_c4_v18/`. A future training session must package
+these new latest states; private C4 resume dataset version1 still contains v13.
+
+External I/O context reviewed2026-10-26: a Kaggle staff member reproduced
+fast2GB/slow30GB reads in an older `/kaggle/tmp` report, a different mount from
+this experiment ([thread](https://www.kaggle.com/discussions/product-feedback/443920)).
+Kaggle documents29GB RAM for T4x2; the v17 panel touches3.17GB paired versus
+200.33GB for the atlas. Linux page-cache reclamation provides a plausible
+small-panel/full-atlas mechanism, not proof of this session's cause or the
+v10 regression. Actual input filesystem/cache counters are unmeasured.
+No matching current incident was confirmed; no running-session change.
+
+The authorized CPU followup measures the same six training WSI with the
+unchanged region reader versus full-bag reading followed by the identical60%
+subset. For each WSI/method it requests bag-range POSIX_FADV_DONTNEED, measures
+actual page residency before/after via mincore, then immediately repeats the
+read. Two readers per branch and counterbalanced method order give48 reads.
+Record actual mount type, UID, working/scratch space/device, memory availability,
+process I/O and host reclaim/refault snapshots alongside timing and value hashes.
+The advice may only partially discard pages; no global cache drop, local file
+copy, forced memory allocation or training change is involved. Process/host
+counters are shared and mincore is only an advisory-time kernel-cache snapshot,
+not a measurement of backend caching. The30-minute probe does not reproduce
+the entire atlas working set. A48-read synthetic check confirms independent
+content parity, page counts/residency and mount metadata; seven reader tests,
+compilation, Ruff and targeted BasedPyright pass. Submission pending.
 
 All512 WSI/subset/C4 records match across branches; initial parameters and reader
 match the prior recipe. No AMP backoffs or nonfinite losses/gradients. Mean steps
