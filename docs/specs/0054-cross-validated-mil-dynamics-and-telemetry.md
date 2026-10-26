@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v18 paused at5 epochs; cache/read-method CPU probe v19 RUNNING
+Status: dropout/smoothing/C4 v18 paused at5 epochs; CPU cache probe v20 complete; full-atlas slowdown unresolved
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-26
@@ -162,6 +162,30 @@ epoch5 assessment was interrupted by the cutoff and remains pending. Outputs
 are saved in `runs/kaggle/spec0054_cls_fold0_c4_v18/`; future continuation must
 use these states rather than the v13 states in private resume dataset version1.
 
+The final v18 artifact review confirms all1440 cumulative pairing records and
+exact v13 telemetry prefixes, with no AMP skips or recorded nonfinite training
+loss/gradient values. Best-by-CE validation results are normal epoch2 CE1.57755/
+macroF1.17354 and SO2 epoch3 CE1.57188/F1.25139. Latest complete assessment is
+epoch3: normal CE1.60842/F1.12982, SO2 CE1.57188/F1.25139. The epoch5 assessment
+must replay and100 training epochs remain. Session step means90.12/90.01s,
+read medians22.17/21.95s and input-wait fractions97.7--97.8% confirm continued
+full-working-set I/O cost. Numerical review:
+`runs/local/spec0054_cls_fold0_c4_v18_review/summary.json`.
+
+Matched early assessments against v10 use the same full train/validation bags
+and ordinary unsmoothed, unweighted CE. At epoch2 old/new validation CE is
+1.58450/1.57755 normal and1.57120/1.57496 SO2; macroF1 is.15385/.17354 and
+.21462/.19487. At epoch3 CE is1.59161/1.60842 normal and1.57693/1.57188 SO2;
+macroF1 is.19500/.12982 and.21244/.25139. Thus early changes are mixed rather
+than a uniform degradation. New epoch3 train CE1.61276/1.58331 is also high;
+these observations do not establish overfitting or excessive LR. Both latest
+states only reach the end of warmup, with no completed post-warmup epoch.
+Historical v23 fresh confirmation favored5e-4 over1e-3 under an older recipe;
+its result is a useful starting point, not a new-recipe optimum. Assessment5
+and post-warmup behavior should precede a decision on another narrow LR
+comparison. No search or training launch follows from this interpretation.
+Evidence: `runs/local/spec0054_cls_fold0_c4_v18_review/matched_early_assessments.json`.
+
 The cache/read-method probe was submitted as
 `maximshtefan/eqvae-spec0054-mil-fold0/19` on2026-10-26 around12:20 Bogota.
 Published source `4e3c6fc075d032c6dc39c83fd6317a8088163c94`, entry `d7afccb`;
@@ -169,6 +193,118 @@ initial API status RUNNING. Shared cutoff2026-10-26T12:49:52-05:00. Inspect
 around12:35 Bogota or after completion. It mounts only the original shard1
 dataset and shard2 notebook output, runs both CPU branches without GPU and
 does not mount or alter training continuation states.
+
+Inspection around13:25 Bogota on2026-10-26 still reports RUNNING after the
+12:49:52 cutoff, with no output in a45-second live-stream window. Authenticated
+metadata confirms latest version19 and the intended source/GPU setting; a
+numeric-version stream request returns404 and does not establish session phase.
+No per-read timing, mount or residency observations are available, so neither
+cache behavior nor mitigation efficacy can be assessed. The internal deadline
+is checked before reads and cannot interrupt platform startup or blocked I/O.
+No cancellation, relaunch or source change accompanies this inspection. Status:
+`runs/local/spec0054_io_cache_v19_review/status_20261026.json`. Next useful
+inspection is after14:00 Bogota or when logs/artifacts become available.
+
+At15:35 Bogota, status remains RUNNING roughly3h15 after submission. Both static
+logs and a30-second live stream provide no diagnostic events. The files API
+lists prior CLS training outputs dated04:47UTC rather than v19 measurements.
+This cannot establish code-start, session phase or any cache/read result. No
+cancellation, relaunch or source edit was performed. A subsequent controlled
+attempt should compute the diagnostic read budget at code startup rather than
+before platform preparation. Status receipt:
+`runs/local/spec0054_io_cache_v19_review/status_1535_20261026.json`.
+
+At17:17 Bogota v19 is COMPLETE with worker exits[0,0], but both results report
+completed=false and0 reads. The expired absolute cutoff prevented measurements;
+the source's only early read return is the deadline condition. Environment
+metadata identifies both inputs as NFS/device0:52, file owner UID65534 and
+process euid0. Free working space is20.94GB/device1794; scratch reports1125.98GB/
+device53. The latter's filesystem type, quota and performance are not established,
+so this is not evidence of usable fast local capacity. There is no read-method
+or cache-efficacy comparison from v19. Outputs: `runs/kaggle/spec0054_io_cache_v19/`;
+review: `runs/local/spec0054_io_cache_v19_review/summary.json`.
+
+A single controlled repeat v20 was submitted around17:23 Bogota on2026-10-26,
+reusing published source4e3c6fc and the same48-read CPU-only experiment. Only
+the thin entry changes (local commitad1f43d): compute the30-minute deadline at
+code startup so platform preparation cannot consume the read budget. The budget
+is still checked between calls, not an interrupt for blocked I/O. API status
+RUNNING; no GPU or classifier continuation. Inspect around18:00 Bogota or when
+measurements become available. No new experiment-source publication is needed.
+
+Inspection around18:14 Bogota confirms v20 COMPLETE, both branch results
+completed=true and24 rows each. All48 requests preserve branch-paired
+WSI/subset/method/repeat keys. Per branch/WSI, selected-value hashes agree
+across both methods and repeats; JSONL rows equal the final result rows.
+Mincore succeeds throughout and reports0--0.128% client-cache residency
+after bag-range DONTNEED. Pooled read-plus-subset medians are3.8387s sampled
+regions and1.6797s full-bag then identical subset; means3.8228/2.3036s.
+Immediate-repeat medians are.05250/.16635s, showing the opposite method
+ranking once cached. After the fragmented read, about60--62% of bag pages
+are resident; after full read,100%. Thread read CPU medians are.1645/.1583s
+after advice, much smaller than elapsed read time. These observations locate
+the panel's extra delay outside thread CPU execution and show a client-cache
+effect, not the state of NFS/backend caches.
+
+Both dataset shard1 and notebook shard2 are NFS/device0:52. Branch shard1
+sampled-read medians after advice are3.486/3.718s versus3.988/4.036s on
+shard2; shard1 is not the hotspot in this session. The six-WSI panel's read
+window spans23.23s and MemAvailable remains30.59--32.30GB, with recorded
+reclaim/refault counters unchanged at0. This does not reproduce the200.33GB
+training working set, new subsets across epochs or the T4 training allocation.
+Backend caching and per-WSI method order remain possible influences despite
+counterbalancing. The training slowdown and earlier-session regression remain
+unexplained; the cold-client-cache panel does not reproduce22s training-read
+medians. Full reads are a candidate mitigation to measure on representative
+training access, not an established replacement. Scratch free space is still
+only a capacity report; filesystem type, practical quota and throughput need
+measurement before full-atlas staging. No new run or reader change accompanies
+this review. Outputs: `runs/kaggle/spec0054_io_cache_v20/`; numerical review:
+`runs/local/spec0054_io_cache_v20_review/summary.json`.
+
+## Average-throughput scratch mitigation probe (2026-10-26)
+
+The authorized followup reuses the existing read-probe entry and the two
+unchanged mounted shards. All49 fold0-training WSI in these shards form the
+measurement population. Actual frozen bag lengths give27.633GB paired full
+contents; historical cohort patch counts are not the storage byte counts.
+The contract defines two random passes with epoch-dependent paired60% subsets,
+two readers per branch and four conditions: input/scratch crossed with sampled
+regions/full-bag then subset. Both branches run the same condition together.
+Condition order reverses on the second pass; WSI order and subsets are shared
+across conditions within each pass. Total planned reads are784, CPU-only with
+a90-minute runtime budget. No classifier or frozen representation changes.
+
+Before measurement, each branch copies both complete binaries to scratch:
+33.474GB paired. Record filesystem metadata, copy+fsync time, separate full
+destination SHA verification against frozen result checksums, stage timestamps
+and free space afterward. Shared readiness markers synchronize the branches
+after staging and before every condition, with waits recorded separately and
+bounded by the same deadline. Copying and checksum verification may warm both
+client/backend caches; this is a natural post-staging replay, with no forced
+eviction. Capture residency before/after each read to describe the observed
+cache mixture. Record condition/pass wall time and persist every completed
+read, including read+subset time, CPU time, bytes and value/subset hashes.
+Wall time includes snapshots, verification hashes and output overhead; keep
+these distinct from read+subset measurements. An in-flight copy/read can
+overrun the deadline.
+
+Review arithmetic means, p95 and concurrent elapsed per condition/pass. Compare
+the observed paired stage cost S plus R scratch passes against R direct
+passes, rather than quoting a ratio of medians. Where direct elapsed D exceeds
+scratch elapsed L, report the descriptive amortization point S/(D-L), retaining
+the measured pass/cache context. Two shards on CPU do not establish the
+training cache mixture or throughput on all12 shards/T4. Input and scratch
+touch distinct file pages, with paired full contents totaling about55GB across
+the two locations. Scratch filesystem type, practical capacity and performance
+are observations of this experiment, not prerequisites assumed from free space.
+
+Focused verification exercises both actual branch probes concurrently on two
+synthetic shards:48 reads total and eight blocks per branch preserve exact values
+against independent source arrays and exclude the held-out fold. The seven
+existing shard-reader tests, compilation, Ruff, targeted BasedPyright and
+kernel build/validation pass. Independent subagent review found no substantive
+runner/config issue. Publication/submission remain pending.
 
 ## Bounded I/O followup (2026-10-23)
 

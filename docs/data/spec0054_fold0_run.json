@@ -166,19 +166,27 @@
       1,
       2
     ],
-    "wsi_ids": {
-      "1": [
-        5264,
-        4827,
-        4877
-      ],
-      "2": [
-        6359,
-        8130,
-        6363
-      ]
-    },
+    "population": "fold_train_in_mounted_shards",
     "reader_workers": 2,
-    "repeats": 2
+    "passes": 2,
+    "scratch_directory": "/kaggle/temp/spec0054_io_cache",
+    "conditions": [
+      {
+        "storage": "input",
+        "method": "sampled_regions"
+      },
+      {
+        "storage": "input",
+        "method": "full_then_subset"
+      },
+      {
+        "storage": "scratch",
+        "method": "sampled_regions"
+      },
+      {
+        "storage": "scratch",
+        "method": "full_then_subset"
+      }
+    ]
   }
 }

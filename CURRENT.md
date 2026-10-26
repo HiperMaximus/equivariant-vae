@@ -86,6 +86,26 @@ paused at the session deadline and must replay on continuation. Saved outputs:
 `runs/kaggle/spec0054_cls_fold0_c4_v18/`. A future training session must package
 these new latest states; private C4 resume dataset version1 still contains v13.
 
+Final v18 review confirms both latest states at360 updates/1440 presentations,
+with all1440 cumulative WSI/subset/C4/LR records paired and the v13 telemetry
+prefix unchanged. No AMP skips, nonfinite losses or nonfinite-gradient counters.
+Best-by-CE checkpoints: normal epoch2, validation CE1.57755/macroF1.17354;
+SO2 epoch3, CE1.57188/macroF1.25139. Latest complete assessment is epoch3
+(normal CE1.60842/F1.12982; SO2 CE1.57188/F1.25139). Epoch5 assessment remains
+pending, with100 of105 training epochs left. This session added232 updates;
+mean step90.12/90.01s, median read22.17/21.95s and queue waits97.7--97.8%.
+Numerical review: `runs/local/spec0054_cls_fold0_c4_v18_review/summary.json`.
+
+Matched early-epoch comparison on2026-10-26 is mixed: at epoch3, old/new
+validation CE is1.59161/1.60842 normal and1.57693/1.57188 SO2; macroF1
+is.19500/.12982 and.21244/.25139 respectively. Epoch2 normal favored the
+new recipe. Both have completed only warmup, with the new epoch5 assessment
+pending; no post-warmup evidence yet. Prior fresh LR confirmation favored
+5e-4 over1e-3 under the older recipe. Recommendation is to assess epoch5 and
+observe post-warmup training before deciding on a narrow LR comparison;
+no LR search or further training session was launched by this review.
+Evidence: `runs/local/spec0054_cls_fold0_c4_v18_review/matched_early_assessments.json`.
+
 External I/O context reviewed2026-10-26: a Kaggle staff member reproduced
 fast2GB/slow30GB reads in an older `/kaggle/tmp` report, a different mount from
 this experiment ([thread](https://www.kaggle.com/discussions/product-feedback/443920)).
@@ -111,8 +131,75 @@ content parity, page counts/residency and mount metadata; seven reader tests,
 compilation, Ruff and targeted BasedPyright pass. Published source `4e3c6fc`,
 entry `d7afccb`; submitted as `maximshtefan/eqvae-spec0054-mil-fold0/19`
 on2026-10-26 around12:20 Bogota, API status RUNNING. Shared cutoff is
-2026-10-26T12:49:52-05:00. Inspect around12:35 Bogota or after completion;
-initial measurements are pending. V18 outputs remain preserved separately.
+2026-10-26T12:49:52-05:00. Inspection around13:25 Bogota still reports RUNNING,
+but a45-second live stream returns no bytes; no cache or timing measurement is
+available. Authenticated metadata confirms latest version19, source4e3c6fc and
+GPU disabled. The explicit numeric-version stream returns404, which does not
+by itself diagnose the session phase. Platform setup, in-flight I/O and log
+delivery cannot be distinguished from this evidence. The cutoff is checked
+inside the code between reads; it cannot force setup or a blocked call to end.
+No cancellation, relaunch or source change. Status receipt:
+`runs/local/spec0054_io_cache_v19_review/status_20261026.json`. Inspect after
+14:00 Bogota or once logs/artifacts become available. V18 is preserved separately.
+
+Reinspection around15:35 Bogota still reports v19 RUNNING, about3h15 after
+submission, with no data in a30-second stream or static logs. The file listing
+exposes only previous CLS training outputs dated04:47UTC, not v19 probe results.
+No code-start, mount, cache or timing result is available. Treat this as an
+unusable pending session rather than measured I/O. A controlled relaunch should
+calculate its read budget from actual code startup so platform preparation does
+not consume the entire absolute deadline. No cancellation, rerun or edit has
+been performed. Receipt: `runs/local/spec0054_io_cache_v19_review/status_1535_20261026.json`.
+
+At17:17 Bogota v19 is COMPLETE, workers[0,0], but both probe results have
+completed=false and0 reads: the absolute deadline had expired before any
+read could start. The outputs do identify both inputs as NFS, device0:52,
+owner UID65534 with process euid0. Working free space is20.94GB/device1794;
+scratch reports1125.98GB/device53, a different filesystem. Scratch type,
+quota and actual performance remain unmeasured; reported free space alone
+does not establish a fast local cache. Outputs: `runs/kaggle/spec0054_io_cache_v19/`;
+review: `runs/local/spec0054_io_cache_v19_review/summary.json`.
+
+To complete the authorized measurement, one controlled repeat was submitted as
+`maximshtefan/eqvae-spec0054-mil-fold0/20` around17:23 Bogota on2026-10-26.
+The source4e3c6fc and48-read comparison are unchanged. Entry `ad1f43d` computes
+the30-minute read budget when the code starts, rather than before Kaggle setup;
+in-flight I/O can still overrun it. Build, validation and entry Ruff pass.
+API confirms RUNNING. No GPU, training change or new source publication.
+Inspect around18:00 Bogota, or once measurements are available.
+
+Inspection around18:14 Bogota confirms v20 COMPLETE and both branches
+completed=true,24 reads each. All request/subset keys pair across branches;
+all four method/repeat value hashes agree within each branch/WSI. After
+DONTNEED, measured client-cache residency is0--0.128%; pooled median
+read-plus-subset is3.839s for sampled regions versus1.680s for full-bag then
+the identical subset (means3.823/2.304s). Immediate-repeat medians are.0525s
+and.1664s respectively. Both shards show the effect; neither reproduces the
+training median22s or historical shard1 extremes. Both input types are NFS.
+Backend cache is uncontrolled, and full-read is slower for cached bags; do
+not assume the panel speedup transfers to training. No measured reclaim in
+the short panel; this does not establish full-atlas cache behavior.
+Outputs: `runs/kaggle/spec0054_io_cache_v20/`; review:
+`runs/local/spec0054_io_cache_v20_review/summary.json`.
+The slowdown remains input-bound with an unresolved full-working-set cause.
+Next useful mitigation measurement is scratch filesystem/write/read behavior
+and a small content-identical input-versus-scratch comparison, before staging
+the full atlas or changing the training reader. No new run was launched.
+
+The next authorized average-throughput measurement is prepared in the existing
+read-probe runner. An independent subagent recommended all49 fold-training
+WSI from shards1/2, natural cache replay and staging-cost amortization. The
+probe copies33.474GB paired to scratch with fsync/frozen SHA verification,
+then compares input/scratch × sampled/full reads over two random passes with
+new paired subsets:784 reads, two readers per branch, CPU-only and90-minute
+runtime budget. Branches synchronize after staging and before each condition;
+condition order reverses on pass2. Actual bag contents are27.633GB paired
+for the train population; this remains smaller than the full atlas. Record
+per-read cache residency, arithmetic mean/p95, per-condition elapsed and copy
+cost before estimating amortization. No forced eviction or classifier change.
+The concurrent synthetic48-read check against independent arrays, seven
+reader tests, compilation/static checks and kernel build/validation pass;
+subagent review found no substantive issue. Publication/submission pending.
 
 All512 WSI/subset/C4 records match across branches; initial parameters and reader
 match the prior recipe. No AMP backoffs or nonfinite losses/gradients. Mean steps
