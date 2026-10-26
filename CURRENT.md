@@ -104,11 +104,15 @@ Record actual mount type, UID, working/scratch space/device, memory availability
 process I/O and host reclaim/refault snapshots alongside timing and value hashes.
 The advice may only partially discard pages; no global cache drop, local file
 copy, forced memory allocation or training change is involved. Process/host
-counters are shared and mincore is only an advisory-time kernel-cache snapshot,
+counters are shared and mincore is only a point-in-time kernel-cache snapshot,
 not a measurement of backend caching. The30-minute probe does not reproduce
 the entire atlas working set. A48-read synthetic check confirms independent
 content parity, page counts/residency and mount metadata; seven reader tests,
-compilation, Ruff and targeted BasedPyright pass. Submission pending.
+compilation, Ruff and targeted BasedPyright pass. Published source `4e3c6fc`,
+entry `d7afccb`; submitted as `maximshtefan/eqvae-spec0054-mil-fold0/19`
+on2026-10-26 around12:20 Bogota, API status RUNNING. Shared cutoff is
+2026-10-26T12:49:52-05:00. Inspect around12:35 Bogota or after completion;
+initial measurements are pending. V18 outputs remain preserved separately.
 
 All512 WSI/subset/C4 records match across branches; initial parameters and reader
 match the prior recipe. No AMP backoffs or nonfinite losses/gradients. Mean steps

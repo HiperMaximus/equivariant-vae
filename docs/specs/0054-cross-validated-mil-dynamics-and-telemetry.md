@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v18 RUNNING; live progress4.8333 epochs; full-atlas I/O remains limiting
+Status: dropout/smoothing/C4 v18 paused at5 epochs; cache/read-method CPU probe v19 RUNNING
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-26
@@ -161,6 +161,14 @@ exit0 and latest states at360 updates/1440 presentations/epoch5 cursor0. Its
 epoch5 assessment was interrupted by the cutoff and remains pending. Outputs
 are saved in `runs/kaggle/spec0054_cls_fold0_c4_v18/`; future continuation must
 use these states rather than the v13 states in private resume dataset version1.
+
+The cache/read-method probe was submitted as
+`maximshtefan/eqvae-spec0054-mil-fold0/19` on2026-10-26 around12:20 Bogota.
+Published source `4e3c6fc075d032c6dc39c83fd6317a8088163c94`, entry `d7afccb`;
+initial API status RUNNING. Shared cutoff2026-10-26T12:49:52-05:00. Inspect
+around12:35 Bogota or after completion. It mounts only the original shard1
+dataset and shard2 notebook output, runs both CPU branches without GPU and
+does not mount or alter training continuation states.
 
 ## Bounded I/O followup (2026-10-23)
 
