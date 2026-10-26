@@ -49,8 +49,15 @@ Normal/SO2 use separate physical GPUs0/1 on the original T4 allocation. Recipe,
 105-epoch horizon and144-presentation checkpoint cadence remain unchanged.
 Submission cutoff2026-10-26T11:31:37-05:00 reserves15min of the12-hour session.
 Pinned runner compilation, recipe parse, kernel build/validation and entry Ruff
-pass. Submission pending. Inspect around2026-10-26T00:20-05:00 for actual resume,
-paired progress and training read/queue-wait timings.
+pass. Local entry commit `c0d7e8a`; submitted as
+`maximshtefan/eqvae-spec0054-mil-fold0/18` on2026-10-25 around23:47 Bogota.
+API confirms RUNNING. Initial logs confirm source7ad0601, the new private
+resume root and independent normal/SO2 Tesla T4 workers on physical GPUs0/1,
+with all probes disabled. Both `resume_done` logs confirm update128,
+exposures512, epoch1/cursor224 and last assessment288. Initial paired WSI40079
+subset/C4 hashes agree. Inspect around2026-10-26T00:20-05:00 for paired progress and
+training read/queue-wait timings. No new source publication was required:
+the unchanged training code/config are already published at the v13 pin.
 
 All512 WSI/subset/C4 records match across branches; initial parameters and reader
 match the prior recipe. No AMP backoffs or nonfinite losses/gradients. Mean steps
@@ -94,7 +101,7 @@ unidentified. Different WSI supply the two first-method orders, and the small
 panel does not establish full-atlas throughput. Outputs:
 `runs/kaggle/spec0054_io_probe_v14/`; review:
 `runs/local/spec0054_io_probe_v14_review/summary.json`. No further launch or
-training-reader change. V13 remains paused; continuation must restore its own
+training-reader change. This inspection preserved v13; continuation must restore its own
 states from source7ad0601 and use full training metadata rather than this probe.
 
 The authorized next CPU probe keeps only shard1 and its same two training WSI.
@@ -130,7 +137,7 @@ of shard1 is promising; full-atlas/GPU training throughput and cold-copy cost
 remain unmeasured. No further launch, reader change or training continuation.
 Outputs: `runs/kaggle/spec0054_io_local_copy_v15/`; numerical review:
 `runs/local/spec0054_io_local_copy_v15_review/summary.json`.
-V13 classifier states remain paused.
+The v13 saved artifacts remain preserved; active continuation is v18 above.
 
 The user requested a new direct-input measurement on2026-10-25 to check whether
 the earlier slowdown persists. Reuse published source `338ff7d` and the v14
@@ -198,7 +205,7 @@ without copying files. This supports a direct-input continuation measurement;
 full-atlas/GPU training throughput remains unmeasured. No further launch or
 training-reader change. Outputs: `runs/kaggle/spec0054_io_random_revisit_v17/`;
 review: `runs/local/spec0054_io_random_revisit_v17_review/summary.json`.
-V13 classifier states remain paused.
+The training continuation launched after this probe is v18 above.
 
 
 The previous CLS + gated-ABMIL fold0 run is paused after

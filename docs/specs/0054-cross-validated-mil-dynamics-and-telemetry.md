@@ -81,6 +81,15 @@ Keep the105-epoch horizon, unchanged C4/dropout/smoothing/decay recipe and
 reserves15min of the12-hour submission budget. Inspect around00:20 Bogota on
 2026-10-26 for restored progress and actual full-atlas read/queue-wait timing.
 
+Submitted as `maximshtefan/eqvae-spec0054-mil-fold0/18` on2026-10-25 around
+23:47 Bogota, local entry `c0d7e8a`. API confirms RUNNING; initial logs confirm
+the original source7ad0601, private C4 continuation input and independent Tesla
+T4 workers on physical GPU0/1 with all probes disabled. Both `resume_done`
+messages confirm update128/exposures512, epoch1/cursor224 and last assessment288.
+The first completed paired WSI40079 subset/C4 hashes agree. No new training source or
+configuration publication is needed because this session uses the original
+published v13 commit. Inspect around00:20 Bogota on2026-10-26.
+
 ## Bounded I/O followup (2026-10-23)
 
 Reuse the existing read-probe mode in a private Kaggle CPU session, mounting
