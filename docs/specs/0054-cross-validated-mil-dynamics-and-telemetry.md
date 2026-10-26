@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v18 paused at5 epochs; CPU cache probe v20 complete; full-atlas slowdown unresolved
+Status: dropout/smoothing/C4 v18 paused at5 epochs; CPU scratch-average probe v21 RUNNING
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-26
@@ -304,7 +304,17 @@ synthetic shards:48 reads total and eight blocks per branch preserve exact value
 against independent source arrays and exclude the held-out fold. The seven
 existing shard-reader tests, compilation, Ruff, targeted BasedPyright and
 kernel build/validation pass. Independent subagent review found no substantive
-runner/config issue. Publication/submission remain pending.
+runner/config issue. Source `242cf6f0afc25d44cd6a90453a606eddb2b06382`
+and thin entry `a4a46cf` are published. Submitted as
+`maximshtefan/eqvae-spec0054-mil-fold0/21` on2026-10-26 around18:28 Bogota;
+API confirms RUNNING. Next useful inspection is around20:15 Bogota, allowing
+for platform preparation, or when completed artifacts become available.
+No training continuation or additional poll follows from this launch.
+Initial logs confirm the intended source,49 train WSI per branch, CPU-only
+workers, NFS inputs/device0:51 and scratch on root overlay/device0:53. Both
+branches begin copying shard1. Overlay alone does not identify the physical
+storage medium, quota or speed. Initial stream:
+`runs/local/spec0054_io_scratch_v21_review/initial_stream.txt`.
 
 ## Bounded I/O followup (2026-10-23)
 

@@ -199,7 +199,18 @@ per-read cache residency, arithmetic mean/p95, per-condition elapsed and copy
 cost before estimating amortization. No forced eviction or classifier change.
 The concurrent synthetic48-read check against independent arrays, seven
 reader tests, compilation/static checks and kernel build/validation pass;
-subagent review found no substantive issue. Publication/submission pending.
+subagent review found no substantive issue. Source `242cf6f` and thin entry
+`a4a46cf` are published. Submitted as
+`maximshtefan/eqvae-spec0054-mil-fold0/21` around18:28 Bogota on2026-10-26;
+API confirms RUNNING. Budget begins at actual entry startup, not submission;
+blocked I/O/copy may overrun it. Next useful result inspection around20:15
+Bogota, allowing for platform preparation, or when artifacts become available.
+No further polling or classifier continuation accompanies the launch.
+Initial logs confirm source242cf6f,49 train WSI per branch, GPU disabled,
+input NFS/device0:51 and scratch on the root overlay/device0:53. Both branches
+have begun copying shard1. Overlay identifies the filesystem layer, not the
+underlying medium or achieved throughput. Initial stream:
+`runs/local/spec0054_io_scratch_v21_review/initial_stream.txt`.
 
 All512 WSI/subset/C4 records match across branches; initial parameters and reader
 match the prior recipe. No AMP backoffs or nonfinite losses/gradients. Mean steps
