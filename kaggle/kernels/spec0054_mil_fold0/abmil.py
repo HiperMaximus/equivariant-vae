@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
@@ -17,7 +18,7 @@ EFFECTIVE_BATCH = 4
 READ_PROBE = True
 LR_SEARCH = False
 LR_CONFIRMATION = False
-SESSION_DEADLINE_UNIX = 1793036992  # CPU cache/read-method probe;30-minute cutoff.
+SESSION_DEADLINE_UNIX = int(time.time()) + 30 * 60  # Read budget starts when Kaggle executes this entry.
 
 
 def main() -> None:
