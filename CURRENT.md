@@ -36,6 +36,22 @@ Last complete and best-by-CE assessment is epoch1: normal validation
 CE/F1 1.60605/.14074; SO2 1.60574/.11461. Both remain in warmup; later
 generalization and benefits of the combined recipe are unmeasured. D4 is deferred.
 
+The authorized next training session resumes these same v13 states via the new
+private `maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/1` dataset, status ready.
+Both latest checkpoints retain128 updates/512 presentations/epoch1 cursor224,
+optimizer/scaler/RNG and last completed assessment288. All14 uploaded resume
+files were downloaded individually and match v13 byte-for-byte; the whole ZIP
+endpoint returned404. Receipt:
+`runs/local/spec0054_cls_fold0_c4_v13_review/resume_dataset_v1.json`.
+The entry restores source `7ad06010416a789a6b96e612919203c162adc23e`, RESUME=True,
+READ_PROBE=False, full original12-shard metadata and direct input reads.
+Normal/SO2 use separate physical GPUs0/1 on the original T4 allocation. Recipe,
+105-epoch horizon and144-presentation checkpoint cadence remain unchanged.
+Submission cutoff2026-10-26T11:31:37-05:00 reserves15min of the12-hour session.
+Pinned runner compilation, recipe parse, kernel build/validation and entry Ruff
+pass. Submission pending. Inspect around2026-10-26T00:20-05:00 for actual resume,
+paired progress and training read/queue-wait timings.
+
 All512 WSI/subset/C4 records match across branches; initial parameters and reader
 match the prior recipe. No AMP backoffs or nonfinite losses/gradients. Mean steps
 143.96/144.64s versus14.94/14.71s over the matched first128 v10 updates. Input
@@ -171,8 +187,18 @@ The refreshed shared cutoff is2026-10-25T15:14:01-05:00. The user explicitly aut
 publishing commits03dfbb2/c057bb3 and launching the probe after automatic
 review requested confirmation. Published entry `0bdc98a`; submitted as
 `maximshtefan/eqvae-spec0054-mil-fold0/17` on2026-10-25 around14:44 Bogota.
-API confirms RUNNING. Inspect around15:00 Bogota for subsequent-read timings
-or after completion. V13 classifier states remain paused.
+Inspection on2026-10-25 confirms COMPLETE, both workers exit0 and all48 reads
+finish. The12 initial full reads take1.76--6.65s. The36 random subsequent
+sampled reads take0.0532--0.2404s, pooled median0.0975s and mean0.1098s;
+per-pass means are0.1082/0.1061/0.1054s normal and0.1389/0.0948/0.1052s SO2.
+All planned paired orders/request/subset records agree, with2--9 intervening
+requests and three distinct subsets per WSI; all8 overlapping value checks
+agree with v16. No slow subsequent read is observed in this current small panel,
+without copying files. This supports a direct-input continuation measurement;
+full-atlas/GPU training throughput remains unmeasured. No further launch or
+training-reader change. Outputs: `runs/kaggle/spec0054_io_random_revisit_v17/`;
+review: `runs/local/spec0054_io_random_revisit_v17_review/summary.json`.
+V13 classifier states remain paused.
 
 
 The previous CLS + gated-ABMIL fold0 run is paused after

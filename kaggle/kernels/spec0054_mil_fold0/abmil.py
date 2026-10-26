@@ -8,16 +8,16 @@ import sys
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "03dfbb2bcf6b5bafa75b71698d448b3d70c5bafd"
+SOURCE_COMMIT = "7ad06010416a789a6b96e612919203c162adc23e"
 SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
-OUTPUT_ROOT = Path("/kaggle/working/spec0054_io_probe")
+OUTPUT_ROOT = Path("/kaggle/working/spec0054_cls_fold0")
 SMOKE = False
-RESUME = False
+RESUME = True
 EFFECTIVE_BATCH = 4
-READ_PROBE = True
+READ_PROBE = False
 LR_SEARCH = False
 LR_CONFIRMATION = False
-SESSION_DEADLINE_UNIX = 1792959241  # Small interleaved-read CPU probe; 30-minute cutoff.
+SESSION_DEADLINE_UNIX = 1793032297  # Resume v13; reserve15min of the12-hour session.
 
 
 def main() -> None:
@@ -37,7 +37,7 @@ def main() -> None:
     workers = []
     for branch, gpu in (("normal_vae", "0"), ("so2_vae", "1")):
         environment = os.environ.copy()
-        environment["CUDA_VISIBLE_DEVICES"] = "" if READ_PROBE else gpu
+        environment["CUDA_VISIBLE_DEVICES"] = gpu
         environment["PYTHONPATH"] = f"{SOURCE_ROOT}:{SOURCE_ROOT / 'src'}"
         environment["PYTHONUNBUFFERED"] = "1"
         environment["OMP_NUM_THREADS"] = "1"
@@ -62,7 +62,7 @@ def main() -> None:
             command.extend(["--resume-root", str(resume_root)])
         if SESSION_DEADLINE_UNIX is not None:
             command.extend(["--session-deadline-unix", str(SESSION_DEADLINE_UNIX)])
-        print(json.dumps({"event": "worker_launch", "branch": branch, "physical_gpu": None if READ_PROBE else gpu,
+        print(json.dumps({"event": "worker_launch", "branch": branch, "physical_gpu": gpu,
                           "smoke": SMOKE and not READ_PROBE, "read_probe": READ_PROBE,
                           "effective_batch": EFFECTIVE_BATCH, "lr_search": LR_SEARCH,
                           "lr_confirmation": LR_CONFIRMATION,

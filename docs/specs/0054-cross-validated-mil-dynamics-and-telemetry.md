@@ -64,6 +64,23 @@ results cannot establish the candidate's generalization. Downloaded artifacts:
 `runs/local/spec0054_cls_fold0_c4_v13_review/summary.json`. No further launch,
 upload or recipe change accompanied this inspection.
 
+The authorized next training session restores the v13 candidate rather than
+the previous-recipe v12 run. The private continuation dataset is
+`maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/1`, status ready. All14 files
+(latest/best, identities and cumulative tables for both branches) were downloaded
+individually and match their source bytes; the whole-archive endpoint returned404.
+Both latest states preserve128 updates/512 presentations, epoch1 cursor224,
+last completed assessment288 and optimizer/scaler/RNG. Use the original published
+source7ad06010416a789a6b96e612919203c162adc23e to preserve exact resume identity;
+the current checkout's probe/config changes do not enter this run.
+
+Restore full original12-shard metadata and direct input reading, enable resume,
+disable all smoke/read/LR probes and assign normal/SO2 to physical GPUs0/1.
+Keep the105-epoch horizon, unchanged C4/dropout/smoothing/decay recipe and
+144-presentation checkpoint cadence. Shared cutoff2026-10-26T11:31:37-05:00
+reserves15min of the12-hour submission budget. Inspect around00:20 Bogota on
+2026-10-26 for restored progress and actual full-atlas read/queue-wait timing.
+
 ## Bounded I/O followup (2026-10-23)
 
 Reuse the existing read-probe mode in a private Kaggle CPU session, mounting
@@ -230,6 +247,20 @@ Submitted as `maximshtefan/eqvae-spec0054-mil-fold0/17` on2026-10-25 around
 `03dfbb2bcf6b5bafa75b71698d448b3d70c5bafd`, entry `0bdc98a`; API confirms
 RUNNING. Shared cutoff2026-10-25T15:14:01-05:00. Inspect around15:00 Bogota
 for subsequent-read timings or after completion. Classifier training is paused.
+
+Inspection on2026-10-25 confirms COMPLETE, both worker exits0 and all48 reads.
+The12 initial full reads take1.76--6.65s; the36 random subsequent sampled reads
+take0.0532--0.2404s, pooled median0.0975s and mean0.1098s. Pass1/2/3 means are
+0.1082/0.1061/0.1054s normal and0.1389/0.0948/0.1052s SO2. Paired orders,
+request sizes/regions and subset hashes agree. There are2--9 intervening planned
+requests, three distinct subsets per WSI, and all8 overlapping selected-value
+checks match v16. The small panel does not reproduce slow subsequent access
+in this session and does not require local staging to achieve these timings.
+The result is compatible with session-dependent storage/cache behavior; it
+does not establish a specific backend incident or whole-atlas training speed.
+No classifier continuation or new execution accompanies this review. Outputs:
+`runs/kaggle/spec0054_io_random_revisit_v17/`; numerical summary:
+`runs/local/spec0054_io_random_revisit_v17_review/summary.json`.
 
 ## Accepted classical WSI baseline (2026-10-14)
 
