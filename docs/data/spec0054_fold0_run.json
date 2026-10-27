@@ -182,13 +182,14 @@
     "first_epoch": 5,
     "wsi_block_size": 72,
     "methods": [
-      "sampled_regions",
       "coalesced_gap1",
-      "coalesced_gap2"
+      "coalesced_gap1_queue8",
+      "coalesced_gap1_discard_prefetch"
     ],
     "coalesced_gap_records": {
       "coalesced_gap1": 1,
-      "coalesced_gap2": 2
+      "coalesced_gap1_queue8": 1,
+      "coalesced_gap1_discard_prefetch": 1
     },
     "lookahead_wsi": 4,
     "prefetch_bytes_per_wsi": 16777216,
@@ -211,9 +212,9 @@
     ],
     "mmap_advice": "MADV_SEQUENTIAL",
     "future_wsi": {
-      "sampled_regions": 2,
       "coalesced_gap1": 2,
-      "coalesced_gap2": 2
+      "coalesced_gap1_queue8": 8,
+      "coalesced_gap1_discard_prefetch": 8
     },
     "max_ready_bytes_per_branch": 3221225472
   }

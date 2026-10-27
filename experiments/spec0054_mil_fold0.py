@@ -966,6 +966,8 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
     config_path = repo_root / "docs/data/spec0054_fold0_run.json"
     config = json.loads(config_path.read_text())
     probe = config["read_probe"]
+    cache_policy_methods = ("sampled_discard_prefetch", "mmap_discard_prefetch",
+                            "coalesced_gap1_discard_prefetch")
     extraction = json.loads((repo_root / "docs/data/spec0054_fp16_latent_extraction.json").read_text())
     shards = [shard for shard in extraction["shards"] if shard["shard"] in probe["shards"]]
     contract = {**extraction, "shards": shards}
@@ -1086,7 +1088,7 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         indices = _sample_indices(location.count, config["seed"], epoch, wsi_id,
                                   config["patch_retention"])
         hint_seconds = 0.0
-        if method in ("sampled_discard_prefetch", "mmap_discard_prefetch") and position + probe["lookahead_wsi"] < len(window):
+        if method in cache_policy_methods and position + probe["lookahead_wsi"] < len(window):
             hint_seconds = advise_future(window[position + probe["lookahead_wsi"]], epoch, block_index, method)
         info = {"branch": branch, "shard": location.shard, "wsi_id": wsi_id,
                 "method": method, "storage": "input", "epoch": epoch,
@@ -1097,7 +1099,7 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         requested_bytes = len(indices) * RECORD_BYTES
         read_regions = None if method == "mmap_discard_prefetch" else int(np.count_nonzero(np.diff(indices) != 1)) + 1
         cpu_started, started = time.thread_time(), time.perf_counter()
-        if method in ("coalesced_gap1", "coalesced_gap2"):
+        if method in probe["coalesced_gap_records"]:
             selected, requested_bytes, read_regions = _read_coalesced(
                 bags.descriptors[branch, location.shard], location.first_record,
                 indices, probe["coalesced_gap_records"][method])
@@ -1114,7 +1116,7 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         read_cpu_seconds = time.thread_time() - cpu_started
         after = snapshot(bags, wsi_id)
         started = time.perf_counter()
-        if method in ("sampled_discard_prefetch", "mmap_discard_prefetch"):
+        if method in cache_policy_methods:
             os.posix_fadvise(bags.descriptors[branch, location.shard],
                             location.first_record * RECORD_BYTES, location.count * RECORD_BYTES,
                             os.POSIX_FADV_DONTNEED)
@@ -1248,7 +1250,7 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
                     block["started_unix"] = time.time()
                     started = time.perf_counter()
                     block["nfs_read_before"] = nfs_read_counters()
-                    if method in ("sampled_discard_prefetch", "mmap_discard_prefetch"):
+                    if method in cache_policy_methods:
                         for wsi in window[:probe["lookahead_wsi"]]:
                             if session_deadline_unix is not None and time.time() >= session_deadline_unix:
                                 break
