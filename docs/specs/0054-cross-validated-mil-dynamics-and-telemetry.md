@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v18 paused at5 epochs; CPU probe v22 at deadline; no full-read average improvement
+Status: dropout/smoothing/C4 v18 paused at5 epochs; CPU cache-policy/mmap probe v23 RUNNING
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-26
@@ -517,7 +517,30 @@ position once per method and cover all12 directed predecessor pairs once.
 Seven existing reader tests, compilation, Ruff and targeted BasedPyright pass.
 Subagent review found the initial cyclic ordering's predecessor confound; the
 contract Williams design corrects it. No mmap lifetime/FIFO issue remained.
-Publication/submission pending.
+Source `3716b489a2ee1bae548aec302ee6386d7c3caba6` and thin entry `adb0c7b`
+are published. Submitted as `maximshtefan/eqvae-spec0054-mil-fold0/23`
+around22:57 Bogota on2026-10-26; API RUNNING. Initial logs confirm288 train
+WSI per branch, all12 inputs, kernel6.18.55+ and GPU/host pinning/H2D disabled.
+Runtime cutoff is around01:57:12 Bogota on2026-10-27; next useful inspection
+around02:15 or when artifacts become available. Initial stream:
+`runs/local/spec0054_io_os_v23_review/initial_stream.txt`.
+
+The original training path opens input descriptors with O_RDONLY and reads
+retained bytes into owned NumPy storage. torch.from_numpy shares this buffer;
+the explicit host.copy_ then packs it into channels-last pinned storage before
+nonblocking H2D on a reader stream. Reinspection of928 consumed WSI per branch
+in v18 gives mean read39.19086/39.14295s, host preparation.40559/.34863s
+and completed transfer.01505/.01502s normal/SO2. The measured dominant delay
+precedes H2D. File-backed mmap changes the host-access mechanism; it does not
+establish storage-to-GPU bypass. NVIDIA GPUDirect Storage offers such a path
+on compatible deployments, but Kaggle support is unverified. A direct-to-pinned
+read could remove one host allocation/copy, with layout/C4 placement and actual
+transfer performance requiring a separately authorized GPU measurement. No
+such change or measurement is included in this CPU experiment. Evidence:
+`runs/local/spec0054_io_os_v23_review/transfer_audit_v18.json`;
+[PyTorch shared NumPy storage](https://docs.pytorch.org/docs/2.14/generated/torch.from_numpy.html),
+[pinned/nonblocking transfers](https://docs.pytorch.org/tutorials/intermediate/pinmem_nonblock.html),
+[NVIDIA GDS](https://docs.nvidia.com/gpudirect-storage/overview-guide/index.html).
 
 ## Bounded I/O followup (2026-10-23)
 

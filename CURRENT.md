@@ -296,7 +296,24 @@ Synthetic48-read verification confirms independent raw/prepared values, exact
 training order, populated memory fields and unchanged source files. Seven
 reader tests/static checks pass. Subagent review prompted Williams ordering
 and clarified shared NFS counters; no buffer-lifetime/scheduling issue remained.
-Publication/submission pending.
+Source `3716b48` and thin entry `adb0c7b` are published. Submitted as
+`maximshtefan/eqvae-spec0054-mil-fold0/23` around22:57 Bogota on2026-10-26;
+API confirms RUNNING. Initial logs confirm both CPU-only workers, all12
+shards/288 train WSI, kernel6.18.55+, host_pinning=false and h2d_measured=false.
+Runtime cutoff is around01:57:12 Bogota on2026-10-27; inspect around02:15
+or when artifacts are available. No repeated polling or training continuation.
+Initial stream: `runs/local/spec0054_io_os_v23_review/initial_stream.txt`.
+
+Read-only/transfer audit confirms original training uses O_RDONLY/preadv,
+owned sampled NumPy data, a zero-copy torch.from_numpy view, then an explicit
+copy to a channels-last pinned host tensor and async H2D on a reader stream.
+Over928 consumed WSI/branch in v18, mean read time39.191/39.143s, host
+preparation.406/.349s and completed H2D.01505/.01502s normal/SO2. File-backed
+mmap still uses host page cache; GDS direct storage-to-GPU support is unverified
+on Kaggle and cannot be established from this CPU probe. Direct reading into
+pinned storage is a future allocation/copy candidate, not an implemented or
+measured transfer improvement. Audit:
+`runs/local/spec0054_io_os_v23_review/transfer_audit_v18.json`.
 
 All512 WSI/subset/C4 records match across branches; initial parameters and reader
 match the prior recipe. No AMP backoffs or nonfinite losses/gradients. Mean steps
