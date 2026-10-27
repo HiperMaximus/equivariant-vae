@@ -449,13 +449,37 @@ pending; holonomy interpretation requires the relevant validated structure.
 
 ## Paper handoff
 
-Latest published manuscript sync: `bbe8fa0`, imported main.tex v963 and
-references.bib v5 on 2026-10-16. Source/PDF and current writing handoff:
+Latest manuscript sync: live main.tex imported on 2026-10-26 after the
+approved Materials and Methods introduction; references.bib remains v5.
+Source/PDF and current writing handoff:
 [manuscript README](paper/midl2027/README.md).
-The 22-page PDF compiled successfully; all 19 professor threads retain their
-states (7 open, 12 resolved). Only the professor closes comments.
+The 23-page PDF compiled successfully and all pages were visually checked.
+All22 professor threads retain their states (5 open, 17 resolved). Only the
+professor closes comments. The sole own tracked replacement was verified
+as Maximiliano's and accepted; no comment replies were posted.
 
 Read live Overleaf before further manuscript changes, preserving professor
 edits. Import/build/publication procedure:
 [Overleaf handoff](docs/overleaf_sync_workflow.md). The manuscript still has
 pending 152-WSI results; the historical 23-WSI evaluation remains separate.
+
+Read-only live review on 2026-10-26: the professor resolved five previous
+threads on 2026-10-23; there are now 22 threads (5 open, 17 resolved).
+The five open topics are updating the cohort partition, rewriting the MIL-bag
+sentence, updating the split figure values, explaining class-order abbreviations
+in the body, and the existing 5x5/7x7 kernel-support rationale. The latter
+already has a dedicated subsection and an earlier reply. A new source TODO
+requests an introductory paragraph for Materials and Methods; the professor's
+review marker is immediately before Patch Selection and Tissue Annotations.
+The downloaded live sources match 27 of the 28 active local sources/assets;
+only main.tex differs (review markers, section TODO and math formatting of
+152/361). No manuscript edits, comment replies/state changes or source/PDF
+synchronization accompanied this review. Local publication remains bbe8fa0.
+The abstract's pending 152-WSI results and the historical 23-WSI methods,
+tables and split figure still require a coherent scientific update.
+
+The subsequent individually approved introduction replaces the inline
+Materials and Methods TODO. The live main.tex and27 unchanged active assets
+are synchronized locally with the rebuilt PDF; professor source edits and all
+comment states are preserved. The next item for individual review is the
+cohort-partition comment anchored to361/129/23 WSIs.

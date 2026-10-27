@@ -2,10 +2,13 @@
 
 The active manuscript is maintained in the existing
 [Overleaf project](https://www.overleaf.com/project/69c614433cbc9e46cf226d24),
-which is the source of truth. The current import is main.texv963 and
-references.bibv5 (2026-10-16). All28 active sources/assets match Overleaf.
-All tracked edits authored by Maximiliano are accepted. All19 comment
-histories and states are preserved:7 open and12 resolved.
+which is the source of truth. The current import is the live main.tex text
+captured on 2026-10-26 after accepting the individually approved Materials
+and Methods introductory paragraph. The other27 active sources/assets match
+the project source export reviewed that day, including references.bibv5.
+All tracked edits authored by Maximiliano are accepted. All22 comment
+histories and states are preserved:5 open and17 resolved; the professor
+resolved five previous threads on2026-10-23.
 
 ## Current related-work revision
 
@@ -22,8 +25,14 @@ Each prose paragraph occupies one physical source line. Paragraph separators,
 equations, tables, TikZ and deliberate LaTeX line breaks remain structural.
 The individually approved CNN, TARGET-VAE, O2-VAE and general-equivariance
 replies are posted. The old kernel-support reply was replaced in place with
-the approved update. All seven open comments have been reviewed; their states
+the approved update. All five open comments have been reviewed; their states
 remain open. Only the professor resolves comments.
+
+The Materials and Methods section now introduces the dataset, patch selection,
+WSI partitions, matched VAEs and the three evaluation tasks. The professor's
+latest review marker and mathematical formatting of152/361 are preserved.
+The partition update, MIL-bag wording, split figure and class-order explanation
+remain pending individual review. No comment replies accompanied this change.
 
 ## Build and verification
 
@@ -33,12 +42,12 @@ From this directory:
 latexmk -pdf -interaction=nonstopmode -halt-on-error -jobname=midl2027 main.tex
 ```
 
-The22-page PDF was rebuilt from sources/assets byte-identical to the import.
-All pages were rendered and compared with the previous reviewed PDF; only
-page3 changed and was visually checked at higher resolution. Compilation has no errors,
+The23-page PDF was rebuilt from the imported sources/assets.
+All pages were rendered and visually checked, including the introductory
+paragraph on page4. Compilation has no errors,
 undefined citations or overfull boxes. BibTeX retains only the existing
 volume/number warning in im_denoising_2017. PDF SHA256:
-`98258412c43cbbb64e55f518ce8e636308acb43fdb69a8251ca12d4befe4f98e`.
+`0124a3d254493c0a437829543bc5d51b8b4af4d0fd0a8bf3e3cbbd02574cdc35`.
 
 The official MIDL full-paper class and its default single-column layout,
 letter paper, typography, margins and author-year citations are preserved.

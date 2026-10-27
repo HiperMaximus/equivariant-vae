@@ -172,15 +172,12 @@ Whole-slide images can contain billions of pixels. Their size makes processing a
 \end{figure}
 
 
-%% DR: Voy acá - Nos falta revisar equivariance for deep learning (nueva seccion)
-
 \section{Materials and Methods}
-
-
+This section describes the UBC-OCEAN dataset, patch selection criteria, and WSI-level data partitions. It then presents the conventional and continuous-$\SOtwo$ denoising VAEs and their training procedure. Finally, it details the evaluation protocols for image reconstruction, patch-level tissue recognition, and WSI-level diagnosis.
 
 \subsection{UBC-OCEAN dataset}
 
-The UBC-OCEAN ovarian-cancer training resource contains 538 slide images: 513 conventional whole-slide images (WSIs) and 25 tissue microarray (TMA) images \cite{ubc_ocean_2023}. A WSI shows a large tissue section; a TMA shows multiple small tissue cores in one image. The resource describes WSIs as large, approximately $20\times$ scans and TMAs as smaller, approximately $4000\times4000$-pixel, $40\times$ images. This scale and layout difference motivated using only the 513 non-TMA WSIs in the present experiment. \autoref{fig:dataset-examples} shows a representative image of each type and their original pixel dimensions. For an image of width $W$ and height $H$, a non-overlapping $256$-pixel grid contains approximately $\lfloor W/256\rfloor\lfloor H/256\rfloor$ full patches before foreground filtering. At the dimensions quoted by the resource, a $4000\times4000$ image yields about 225 full patches, whereas a $100000\times50000$ image yields about 76,000; the latter is an illustrative large-WSI scale, not a count for an individual study slide. The resource also provides 152 supplemental color masks paired with a subset of those WSIs. These masks mark selected tumor, stroma and necrosis regions; they do not annotate every tissue pixel. The other 361 WSIs have no supplemental mask. The diagnostic label of each image is one of clear cell carcinoma (CC), endometrioid carcinoma (EC), high-grade serous carcinoma (HGSC), low-grade serous carcinoma (LGSC), or mucinous carcinoma (MC).
+The UBC-OCEAN ovarian-cancer training resource contains 538 slide images: 513 conventional whole-slide images (WSIs) and 25 tissue microarray (TMA) images \cite{ubc_ocean_2023}. A WSI shows a large tissue section; a TMA shows multiple small tissue cores in one image. The resource describes WSIs as large, approximately $20\times$ scans and TMAs as smaller, approximately $4000\times4000$-pixel, $40\times$ images. This scale and layout difference motivated using only the 513 non-TMA WSIs in the present experiment. \autoref{fig:dataset-examples} shows a representative image of each type and their original pixel dimensions. For an image of width $W$ and height $H$, a non-overlapping $256$-pixel grid contains approximately $\lfloor W/256\rfloor\lfloor H/256\rfloor$ full patches before foreground filtering. At the dimensions quoted by the resource, a $4000\times4000$ image yields about 225 full patches, whereas a $100000\times50000$ image yields about 76,000; the latter is an illustrative large-WSI scale, not a count for an individual study slide. The resource also provides $152$ supplemental color masks paired with a subset of those WSIs. These masks mark selected tumor, stroma and necrosis regions; they do not annotate every tissue pixel. The other $361$ WSIs have no supplemental mask. The diagnostic label of each image is one of clear cell carcinoma (CC), endometrioid carcinoma (EC), high-grade serous carcinoma (HGSC), low-grade serous carcinoma (LGSC), or mucinous carcinoma (MC).
 
 Each WSI was divided into non-overlapping RGB $256\times256$-pixel patches. A full WSI has one diagnosis label, so thousands of patches extracted from that slide share the same slide-level label. Local tissue labels, in contrast, come only from eligible regions of the supplemental masks. Splits were made by WSI: no patches from one slide crossed train, validation or test boundaries.
 
@@ -238,6 +235,8 @@ Each WSI was divided into non-overlapping RGB $256\times256$-pixel patches. A fu
 \label{fig:dataset-examples}
 \end{figure}
 
+
+% DERB: Revisado hasta acá.  23.10.2026
 \subsection{Patch Selection and Tissue Annotations}
 
 Foreground selection for reconstruction and WSI diagnosis was derived from the image rather than from human masks. Each WSI thumbnail was converted to HSV, and Otsu's threshold was applied to the saturation channel \cite{otsu_threshold_1979}. A full-resolution grid cell was retained when more than $60\%$ of its projected thumbnail area belonged to foreground. The resulting coordinates were used for VAE development, reconstruction and WSI diagnosis without consulting the supplemental tissue masks.
