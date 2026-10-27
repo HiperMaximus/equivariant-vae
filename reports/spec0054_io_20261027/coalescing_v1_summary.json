@@ -1,0 +1,365 @@
+{
+  "run": "maximshtefan/eqvae-spec0054-io-coalescing/1",
+  "platform_status": "COMPLETE",
+  "source_commit": "e902d26fece5bd1b7f1df7fd7ab114c573d25aa1",
+  "worker_exit_codes": [
+    0,
+    0
+  ],
+  "completed": true,
+  "total_reads": 1296,
+  "branches": {
+    "normal_vae": {
+      "completed": true,
+      "row_count": 648,
+      "block_count": 9,
+      "all_blocks_complete": true,
+      "all_wsi_hashes_identical_across_methods_and_repetitions": true,
+      "rows_jsonl_equal_to_final_json": true,
+      "gpu_used": false,
+      "host_pinning": false,
+      "h2d_measured": false,
+      "first_timed_block_utc": "2026-10-27T18:04:16.321309+00:00",
+      "last_timed_block_utc": "2026-10-27T18:36:14.812251+00:00",
+      "process_hwm_bytes": 2019717120,
+      "result_sha256": "01089123be7ee28d60bb168c1038f5008fcce5aab141fe1942551069d34a29d3"
+    },
+    "so2_vae": {
+      "completed": true,
+      "row_count": 648,
+      "block_count": 9,
+      "all_blocks_complete": true,
+      "all_wsi_hashes_identical_across_methods_and_repetitions": true,
+      "rows_jsonl_equal_to_final_json": true,
+      "gpu_used": false,
+      "host_pinning": false,
+      "h2d_measured": false,
+      "first_timed_block_utc": "2026-10-27T18:04:16.321626+00:00",
+      "last_timed_block_utc": "2026-10-27T18:36:14.959270+00:00",
+      "process_hwm_bytes": 1931481088,
+      "result_sha256": "065769dde969afa6c3e888a3701dcc16ce485ad9c0f157034378ffaa788a2041"
+    }
+  },
+  "methods": {
+    "sampled_regions": {
+      "read_seconds": {
+        "n": 432,
+        "mean": 4.527537906164347,
+        "median": 4.174932081000009,
+        "p95": 10.48338722659978,
+        "maximum": 17.45938726600002
+      },
+      "pipeline_seconds": {
+        "n": 432,
+        "mean": 4.872203576386571,
+        "median": 4.477631192999979,
+        "p95": 11.212328251499809,
+        "maximum": 18.278865459000144
+      },
+      "read_cpu_seconds": {
+        "n": 432,
+        "mean": 0.20064022662499978,
+        "median": 0.18384560599999844,
+        "p95": 0.4806221391500088,
+        "maximum": 0.6022170460000211
+      },
+      "host_prepare_seconds": {
+        "n": 432,
+        "mean": 0.34466406710878944,
+        "median": 0.2898086970000122,
+        "p95": 0.8283016577499323,
+        "maximum": 1.37368492600001
+      },
+      "selected_bytes_per_repeat": 23528865792.0,
+      "requested_bytes_per_repeat": 23528865792.0,
+      "application_intervals_per_repeat": 287792.0,
+      "joint_window_wall_seconds_by_repeat": [
+        260.06599473953247,
+        279.42103838920593,
+        263.0022940635681
+      ],
+      "sum_joint_window_wall_seconds": 802.4893271923065,
+      "mean_joint_window_wall_seconds": 267.4964423974355,
+      "residency_before_read": {
+        "n": 432,
+        "mean": 0.0008727395109817944,
+        "median": 3.895597974289053e-05,
+        "p95": 0.003495554968404151,
+        "maximum": 0.015904572564612324
+      },
+      "reset_residency_maximum": 0.015904572564612324,
+      "max_pending_wsi": 2,
+      "max_ready_wsi_observed": 1,
+      "max_reserved_host_bytes": 632913920,
+      "cache_reset_seconds_sum_both_branches": 7.171650780000107,
+      "nfs_read_counters_exposed": true,
+      "joint_wall_ratio_to_baseline": 1.0,
+      "joint_wall_ratio_by_repeat": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "shared_nfs_read_by_repeat": [
+        {
+          "repeat": 0,
+          "mount_view_count": 12,
+          "identical_counter_views": true,
+          "operations": 278582,
+          "transmissions": 278582,
+          "major_timeouts": 0,
+          "bytes_sent": 50144760,
+          "reply_bytes_received": 24294398720,
+          "errors": 0,
+          "mean_queue_ms": 0.021799685550394497,
+          "mean_rtt_ms": 2.09655325900453,
+          "mean_execution_ms": 2.1564566267741636
+        },
+        {
+          "repeat": 1,
+          "mount_view_count": 12,
+          "identical_counter_views": true,
+          "operations": 281935,
+          "transmissions": 281935,
+          "major_timeouts": 0,
+          "bytes_sent": 50748300,
+          "reply_bytes_received": 24003520384,
+          "errors": 0,
+          "mean_queue_ms": 0.020788479614095447,
+          "mean_rtt_ms": 2.265554117083725,
+          "mean_execution_ms": 2.315292531966588
+        },
+        {
+          "repeat": 2,
+          "mount_view_count": 12,
+          "identical_counter_views": true,
+          "operations": 281955,
+          "transmissions": 281955,
+          "major_timeouts": 0,
+          "bytes_sent": 50751900,
+          "reply_bytes_received": 24006308224,
+          "errors": 0,
+          "mean_queue_ms": 0.02055292511216329,
+          "mean_rtt_ms": 2.1165469667145467,
+          "mean_execution_ms": 2.1692858789523153
+        }
+      ]
+    },
+    "coalesced_gap1": {
+      "read_seconds": {
+        "n": 432,
+        "mean": 2.532943221493059,
+        "median": 2.317817100999946,
+        "p95": 5.308154852450081,
+        "maximum": 7.218641268000056
+      },
+      "pipeline_seconds": {
+        "n": 432,
+        "mean": 2.877502738300931,
+        "median": 2.642059224499917,
+        "p95": 5.926718729999992,
+        "maximum": 7.991396104999922
+      },
+      "read_cpu_seconds": {
+        "n": 432,
+        "mean": 0.1271044015208315,
+        "median": 0.10969631100000754,
+        "p95": 0.3065667174500084,
+        "maximum": 0.47405462200003967
+      },
+      "host_prepare_seconds": {
+        "n": 432,
+        "mean": 0.34455771490277776,
+        "median": 0.28926626949993306,
+        "p95": 0.7391397751000056,
+        "maximum": 1.6652561739999783
+      },
+      "selected_bytes_per_repeat": 23528865792.0,
+      "requested_bytes_per_repeat": 29197991936.0,
+      "application_intervals_per_repeat": 114784.0,
+      "joint_window_wall_seconds_by_repeat": [
+        164.2512686252594,
+        203.44099140167236,
+        171.13780522346497
+      ],
+      "sum_joint_window_wall_seconds": 538.8300652503967,
+      "mean_joint_window_wall_seconds": 179.61002175013223,
+      "residency_before_read": {
+        "n": 432,
+        "mean": 0.0007573841258785484,
+        "median": 0.0,
+        "p95": 0.003299049097613041,
+        "maximum": 0.015904572564612324
+      },
+      "reset_residency_maximum": 0.015904572564612324,
+      "max_pending_wsi": 2,
+      "max_ready_wsi_observed": 1,
+      "max_reserved_host_bytes": 632913920,
+      "cache_reset_seconds_sum_both_branches": 11.577422024999692,
+      "nfs_read_counters_exposed": true,
+      "joint_wall_ratio_to_baseline": 0.6714482635371832,
+      "joint_wall_ratio_by_repeat": [
+        0.6315753383665722,
+        0.7280804357984639,
+        0.6507084123840405
+      ],
+      "shared_nfs_read_by_repeat": [
+        {
+          "repeat": 0,
+          "mount_view_count": 12,
+          "identical_counter_views": true,
+          "operations": 78115,
+          "transmissions": 78115,
+          "major_timeouts": 0,
+          "bytes_sent": 14060700,
+          "reply_bytes_received": 38917386624,
+          "errors": 0,
+          "mean_queue_ms": 0.03242655059847661,
+          "mean_rtt_ms": 6.145016962171158,
+          "mean_execution_ms": 6.219202457914613
+        },
+        {
+          "repeat": 1,
+          "mount_view_count": 12,
+          "identical_counter_views": true,
+          "operations": 77860,
+          "transmissions": 77860,
+          "major_timeouts": 0,
+          "bytes_sent": 14014800,
+          "reply_bytes_received": 38906597888,
+          "errors": 0,
+          "mean_queue_ms": 0.08646288209606987,
+          "mean_rtt_ms": 8.607102491651682,
+          "mean_execution_ms": 8.788222450552274
+        },
+        {
+          "repeat": 2,
+          "mount_view_count": 12,
+          "identical_counter_views": true,
+          "operations": 77975,
+          "transmissions": 77975,
+          "major_timeouts": 0,
+          "bytes_sent": 14035500,
+          "reply_bytes_received": 38839516032,
+          "errors": 0,
+          "mean_queue_ms": 0.042834241744148766,
+          "mean_rtt_ms": 6.5416736133376086,
+          "mean_execution_ms": 6.648053863417762
+        }
+      ]
+    },
+    "coalesced_gap2": {
+      "read_seconds": {
+        "n": 432,
+        "mean": 2.70529340749305,
+        "median": 2.384891362000019,
+        "p95": 5.60029118760009,
+        "maximum": 7.938246979000041
+      },
+      "pipeline_seconds": {
+        "n": 432,
+        "mean": 3.0558231651828653,
+        "median": 2.7484067870001354,
+        "p95": 6.370850667049919,
+        "maximum": 9.00339890600003
+      },
+      "read_cpu_seconds": {
+        "n": 432,
+        "mean": 0.13186204235879317,
+        "median": 0.10967117899998868,
+        "p95": 0.3232188616000258,
+        "maximum": 1.0149713749999592
+      },
+      "host_prepare_seconds": {
+        "n": 432,
+        "mean": 0.35052786194444224,
+        "median": 0.2826568185000724,
+        "p95": 0.7656202437999923,
+        "maximum": 2.5640648589999273
+      },
+      "selected_bytes_per_repeat": 23528865792.0,
+      "requested_bytes_per_repeat": 33721417728.0,
+      "application_intervals_per_repeat": 45762.0,
+      "joint_window_wall_seconds_by_repeat": [
+        179.13740754127502,
+        204.1593418121338,
+        179.96466946601868
+      ],
+      "sum_joint_window_wall_seconds": 563.2614188194275,
+      "mean_joint_window_wall_seconds": 187.7538062731425,
+      "residency_before_read": {
+        "n": 432,
+        "mean": 0.0008259308600484445,
+        "median": 0.00012578616352201257,
+        "p95": 0.003299049097613041,
+        "maximum": 0.004243281471004243
+      },
+      "reset_residency_maximum": 0.004243281471004243,
+      "max_pending_wsi": 2,
+      "max_ready_wsi_observed": 1,
+      "max_reserved_host_bytes": 632913920,
+      "cache_reset_seconds_sum_both_branches": 9.738109350999821,
+      "nfs_read_counters_exposed": true,
+      "joint_wall_ratio_to_baseline": 0.7018927227233378,
+      "joint_wall_ratio_by_repeat": [
+        0.6888151898547483,
+        0.7306512887829154,
+        0.6842703410888153
+      ],
+      "shared_nfs_read_by_repeat": [
+        {
+          "repeat": 0,
+          "mount_view_count": 12,
+          "identical_counter_views": true,
+          "operations": 75558,
+          "transmissions": 75558,
+          "major_timeouts": 0,
+          "bytes_sent": 13600440,
+          "reply_bytes_received": 39186203392,
+          "errors": 0,
+          "mean_queue_ms": 0.03626353265041425,
+          "mean_rtt_ms": 7.6010349665157895,
+          "mean_execution_ms": 7.680364752905053
+        },
+        {
+          "repeat": 1,
+          "mount_view_count": 12,
+          "identical_counter_views": true,
+          "operations": 75513,
+          "transmissions": 75513,
+          "major_timeouts": 0,
+          "bytes_sent": 13592340,
+          "reply_bytes_received": 39185972352,
+          "errors": 0,
+          "mean_queue_ms": 0.03594083138002728,
+          "mean_rtt_ms": 9.15177519102671,
+          "mean_execution_ms": 9.238687378332207
+        },
+        {
+          "repeat": 2,
+          "mount_view_count": 12,
+          "identical_counter_views": true,
+          "operations": 75441,
+          "transmissions": 75441,
+          "major_timeouts": 0,
+          "bytes_sent": 13579380,
+          "reply_bytes_received": 39152081024,
+          "errors": 0,
+          "mean_queue_ms": 0.09819594119908273,
+          "mean_rtt_ms": 7.10638777322676,
+          "mean_execution_ms": 7.366750175633939
+        }
+      ]
+    }
+  },
+  "paired_request_keys": true,
+  "paired_epoch_plans": true,
+  "limitations": [
+    "All arms have identical policy, reader count and future depth; coalescing gap size differs.",
+    "ABC/BCA/CAB balances execution position, not all carryover or nonlinear backend load.",
+    "mincore observes client residency, not backend cache.",
+    "This 72-WSI CPU window is not an entire training epoch or a GPU throughput measurement.",
+    "Combined-policy kernel v24 overlaps part of this run; inter-session interference is unmeasured."
+  ],
+  "nfs_counter_scope": "normal branch snapshot; one identical mount view; shared RPC-client scope, not per WSI/branch; reply bytes include protocol overhead",
+  "nfs_counter_field_source": "https://github.com/torvalds/linux/blob/v6.18/net/sunrpc/stats.c"
+}

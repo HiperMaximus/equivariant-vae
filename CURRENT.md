@@ -13,31 +13,62 @@ The 152 external WSI remain reserved for final evaluation.
 
 ### Continuation snapshot — CPU I/O, 2026-10-27
 
-The active task is to measure read-throughput mitigations before continuing
-ABMIL. The two CPU probes below have already been submitted; switching chats
-does not require resubmitting them. RUNNING is their last observed API state,
-not a newly checked status or evidence that worker measurements have started.
+The two CPU I/O probes have now completed and their final outputs were reviewed
+on2026-10-27 around13:40 Bogota. Both workers exit0 in each run; all planned
+blocks and864/1296 combined reads complete. No new job or training continuation
+was submitted by this review. The next task is to select a narrow combination
+confirmation before modifying the training reader.
 
-| Probe | Exact Kaggle reference | Source / entry commits | Next useful check, Bogota |
+| Probe | Exact Kaggle reference | Source / entry commits | Final state |
 | --- | --- | --- | --- |
-| mmap/discard/prefetch and deeper queues | `maximshtefan/eqvae-spec0054-mil-fold0/24` | `f032095` / `faa3e97` | 2026-10-27 around16:30 |
-| sampled versus scatter-coalescing gaps1/2 | `maximshtefan/eqvae-spec0054-io-coalescing/1` | `e902d26` / `6d64577` | 2026-10-27 around19:30 |
+| mmap/discard/prefetch and deeper queues | `maximshtefan/eqvae-spec0054-mil-fold0/24` | `f032095` / `faa3e97` | COMPLETE,864 reads |
+| sampled versus scatter-coalescing gaps1/2 | `maximshtefan/eqvae-spec0054-io-coalescing/1` | `e902d26` / `6d64577` | COMPLETE,1296 reads |
 
 Both disable GPU/pinning/H2D and preserve the frozen inputs. Independent CPU
 probes may run concurrently; inter-session storage interference is unmeasured
 and is not a launch blocker. Compare matched methods within each session and
 retain the cache/order/external-load limitations; absolute timings across
-different sessions do not isolate the reader change. No winner or measured
-speedup is available from either new probe at this handoff.
+different sessions do not isolate the reader change. Timed blocks actually
+overlapped for about9min35s; interference was not isolated.
 
-Use the existing CLI wrapper when the useful check time has arrived:
+V24 mean joint72-WSI window wall is285.84s baseline,228.30s preadv+discard+
+prefetch/queue8 (-20.13%),227.45s mmap with that policy/queue (-20.43%). Both
+repetitions favor both packages; mmap saves only0.37% versus the preadv package.
+Per-WSI mean read is4.963/4.787/4.726s, so package scheduling contributes beyond
+the small read-time change. All raw/prepared/subset/C4 hashes match within
+branch across methods/repetitions, and branch request plans pair exactly.
+Prepared queues reach eight pending/four observed ready WSI; peak HWM is
+2.27/2.37GiB. The current baseline itself is much faster than v23's47.79s mean,
+so the change across sessions is not evidence for a mitigation's causal effect.
+
+Coalescing v1 mean joint window wall is267.50s baseline,179.61s gap1 (-32.86%),
+187.75s gap2 (-29.81%). Gap1 is faster in all three repetitions (27.2--36.8%
+wall savings); mean per-WSI read falls4.528 to2.533s. All raw/prepared/subset/C4
+hashes match within branch, JSONL matches final JSON and paired requests/plans
+agree. No GPU/pinning/H2D; peak HWM1.88/1.80GiB. Requested application bytes
+rise23.529 to29.198GB per paired window (+24.09%), but observed shared-client
+NFS reply bytes rise about24.10 to38.89GB (+61%). READ operations fall about
+280,824 to77,983 (-72.23%). Deduplicate the twelve identical mount-stat views
+and do not sum branch snapshots. These are RPC-client counters, including
+reply overhead and any other work in that scope, not per-WSI payload counts.
+Mmap in v24 also has greater NFS reply traffic (~33.66 vs24.09GB for preadv)
+despite nearly tied wall. No measured retransmissions, major timeouts or READ
+errors in these intervals. A useful next comparison is gap1 plus the deeper
+queue/cache policy versus gap1 alone; the33% and20% savings cannot be added.
+Training impact and behavior in the previously slow backend regime remain
+unmeasured. Full summaries/one-shot analysis:
+[v24](reports/spec0054_io_20261027/v24_combined_summary.json),
+[coalescing v1](reports/spec0054_io_20261027/coalescing_v1_summary.json).
+
+The versions are complete. A fresh checkout can verify their remote state:
 
 ```bash
 ./scripts/kaggle_kernel.sh status maximshtefan/eqvae-spec0054-mil-fold0/24
 ./scripts/kaggle_kernel.sh status maximshtefan/eqvae-spec0054-io-coalescing/1
 ```
 
-Once the corresponding version is complete, download to a new directory:
+Their outputs are already downloaded locally. In a fresh checkout, download
+to these new directories; the wrapper does not overwrite existing directories:
 
 ```bash
 ./scripts/kaggle_kernel.sh output maximshtefan/eqvae-spec0054-mil-fold0/24 runs/kaggle/spec0054_io_combined_v24_handoff
@@ -53,9 +84,11 @@ not mix unmatched conditions into a pooled comparison.
 
 Portable evidence is now tracked in [reports/spec0054_io_20261027](reports/spec0054_io_20261027/):
 v18 training and v21/v22/v23 I/O summaries, exact epoch-byte accounting,
-synthetic verification/script, virtual-mapping example/result and the separate
-coalescing kernel metadata/launch receipt. These are byte-identical copies of
-the cited local artifacts, with historical timestamps and source commits.
+synthetic verification/script, virtual-mapping example/result, the separate
+coalescing kernel metadata/launch receipt, and the final v24/coalescing v1
+summaries and analysis scripts. These are byte-identical copies of the cited
+local artifacts, with historical timestamps and source commits. The launch
+receipt's RUNNING status predates this final review.
 The launch entry itself is already tracked at
 `kaggle/kernels/spec0054_mil_fold0/abmil.py` in commit `6d64577`; its original
 metadata still names the mil-fold0 kernel. The archived coalescing metadata
@@ -73,8 +106,8 @@ v18 before a training continuation. Preserve original training source
 `7ad06010416a789a6b96e612919203c162adc23e` and recipe; the HEAD entry is a CPU
 probe, not the training continuation. Full200GB scratch staging, lossless
 compression, io_uring, FUSE and userfaultfd remain proposals. The virtual-view
-example establishes synthetic correctness only. No new sessions or status
-polling accompany this archival handoff.
+example establishes synthetic correctness only. Neither the classifier states
+nor the shared training reader were changed by the completed CPU measurements.
 
 The five-fold comparison of six fixed representations is complete. PANTHER
 full16 has mean validation macro-F1 0.5545 normal / 0.5587 SO(2); mean-only

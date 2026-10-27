@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v18 paused at5 epochs; combined CPU v24 and independent coalescing CPU v1 RUNNING
+Status: dropout/smoothing/C4 v18 paused at5 epochs; combined CPU v24 and coalescing CPU v1 complete and reviewed
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-26
@@ -779,6 +779,78 @@ entry code is already tracked in the existing kernel directory; only id/title
 differ in the archived metadata. Raw outputs and classifier checkpoints remain
 recoverable from their exact Kaggle versions. `CURRENT.md` gives the active
 continuation snapshot and status/output commands for a fresh checkout.
+
+## Completed CPU policy and coalescing results (2026-10-27)
+
+Both sessions complete all planned reads/blocks and both workers exit0:
+v24 has864 reads, coalescing v1 has1296. All raw/prepared/subset/C4 hashes agree
+within branch across methods/repetitions; branch request keys and epoch plans
+pair exactly, and partial-row JSONL agrees with final JSON. GPU, pinning and
+H2D remain disabled. These are input-pipeline CPU measurements, not training
+step throughput or evidence from the whole288-WSI training epoch.
+
+The unit below is joint wall for the same72 WSI per branch, running both
+branches concurrently; average over each run's repetitions. It includes input
+pipeline verification but excludes initial cache reset and synchronization.
+Ratios compare methods within the same session only.
+
+| Session / method | Mean joint window wall, s | Saving versus its baseline |
+| --- | ---: | ---: |
+| v24 sampled baseline, queue2 | 285.842 | — |
+| v24 preadv + discard/prefetch, queue8 | 228.301 | 20.13% |
+| v24 mmap + discard/prefetch, queue8 | 227.448 | 20.43% |
+| Coalescing v1 sampled baseline, queue2 | 267.496 | — |
+| Coalescing v1 gap1, queue2 | 179.610 | 32.86% |
+| Coalescing v1 gap2, queue2 | 187.754 | 29.81% |
+
+V24 package savings are19.0/21.3% for preadv and19.6/21.2% for mmap across
+the two repetitions. Mmap saves only0.37% compared with the preadv package.
+Per-WSI read means are4.963/4.787/4.726s, much closer than the window-wall
+differences; deeper preparation/scheduling is part of the package and has not
+been isolated from the cache policy. Queues reach eight pending/four observed
+ready WSI with maximum reserved selected buffers1.963GB; process HWM is
+2.27/2.37GiB. Reset maximum observed residency is0.33%; mean residency before
+candidate reads is about0.32%, rather than the large v23 carryover. Backend
+caching remains unobserved. The original baseline is also much faster than
+v23's47.794s mean read, so cross-session improvement cannot establish a reader
+effect or resolution of the earlier storage cause.
+
+Gap1 reduces window wall in all three repetitions by36.8/27.2/34.9%; gap2 by
+31.1/26.9/31.6%. Gap1 beats gap2 in all three repetitions. Per-WSI mean reads
+are4.528/2.533/2.705s. Paired application intervals per window fall287,792 to
+114,784/45,762, with requested bytes23.529/29.198/33.721GB. Retained tensors
+are unchanged. Peak HWM is1.88/1.80GiB; before-read residency remains low
+(maximum1.59%), so a complete cached-WSI population is not supported by the
+client snapshots.
+
+NFS READ counters are exposed in both new sessions, unlike v23. All twelve
+mount views repeat identical counters; analysis retains one normal-branch
+view, without summing aliases or branches. The scope is the shared RPC client,
+not an individual bag or branch. Field order and millisecond conversion follow
+[Linux6.18 `_print_rpc_iostats`](https://github.com/torvalds/linux/blob/v6.18/net/sunrpc/stats.c).
+Coalescing baseline/gap1/gap2 average about280,824/77,983/75,504 READ operations
+and24.10/38.89/39.17GB of reply bytes per window. Gap1 therefore reduces
+observed RPC operations72.2% while increasing reply traffic61.4%, beyond its
+24.1% logical over-read. Reply bytes include protocol overhead and any other
+work in that client scope; increased read-ahead is a plausible contributor,
+not an isolated measurement. V24 mmap similarly receives about33.66GB versus
+24.09GB for the matching preadv package. No observed retransmissions, major
+timeouts or READ errors occur in these intervals. Larger requests can improve
+this session's wall while increasing traffic; performance under a bandwidth-
+limited backend remains uncertain.
+
+V24 timed blocks run12:49:01--13:13:51 Bogota; coalescing runs
+13:04:16--13:36:14, so actual overlap is about9min35s. Position balancing does
+not remove unknown backend load/carryover. A next narrow comparison could
+combine gap1 with the deeper queue/cache policy versus gap1 alone; the two
+separate savings are not additive evidence. No training reader was promoted
+or classifier resumed. Results and one-shot numerical analysis are tracked in
+`reports/spec0054_io_20261027/{v24_combined_summary.json,analyze_v24.py,coalescing_v1_summary.json,analyze_coalescing_v1.py}`.
+Raw outputs:
+`runs/kaggle/spec0054_io_combined_v24_handoff/` and
+`runs/kaggle/spec0054_io_coalescing_v1_handoff/`, recoverable from the exact
+Kaggle versions above. Historical launch statuses and scheduled check times
+earlier in this spec predate this completed review.
 
 ## Bounded I/O followup (2026-10-23)
 
