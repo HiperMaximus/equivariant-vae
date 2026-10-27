@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v18 paused at5 epochs; CPU scratch-average probe v21 RUNNING
+Status: dropout/smoothing/C4 v18 paused at5 epochs; scratch probe v21 complete; contiguous input reads promising
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-26
@@ -315,6 +315,85 @@ workers, NFS inputs/device0:51 and scratch on root overlay/device0:53. Both
 branches begin copying shard1. Overlay alone does not identify the physical
 storage medium, quota or speed. Initial stream:
 `runs/local/spec0054_io_scratch_v21_review/initial_stream.txt`.
+
+V21 inspection around19:51 Bogota confirms COMPLETE, workers[0,0], both
+branches completed=true and392 rows each, with all eight blocks per branch
+complete. All four copied binaries match frozen SHA256; all196
+branch/epoch/WSI groups preserve subset and selected-value hashes across the
+four conditions. Branch request/subset keys agree; JSONL matches final rows
+and mincore succeeds throughout. Outputs:
+`runs/kaggle/spec0054_io_scratch_v21/`; reproducible numerical review:
+`runs/local/spec0054_io_scratch_v21_review/{analyze_v21.py,summary.json}`.
+
+Pooled mean read+subset seconds (196 reads/condition) are7.92231 input-sampled,
+3.32629 input-full,4.46680 scratch-sampled and2.61320 scratch-full. The p95
+values are20.24684/8.06062/12.11370/6.32702s. Corresponding mean concurrent
+pass wall is219.89295/107.50579/141.25929/91.55712s. Input-full reduces
+observed average read time58.0% and pass wall51.1% relative to input-sampled.
+It improves both passes: paired wall143.82 to91.81s on pass1,295.97 to123.20s
+on pass2. Pooled read means improve on both shards:9.15054 to4.04632s on
+shard1 and6.53388 to2.51235s on shard2.
+
+Paired staging costs628.22574s including fsync and destination SHA verification;
+free scratch afterward is~1092.51GB. This demonstrates33.474GB usable here,
+not full-atlas capacity or physical SSD identity. Using measured mean pass
+walls, scratch-sampled amortizes after7.99 passes relative to input-sampled;
+scratch-full after4.90. Relative to the faster input-full alternative,
+scratch-full saves only15.94867s/pass and amortizes after39.39 passes.
+Scratch-sampled is slower than input-full before adding stage cost. These
+are descriptive extrapolations of two nonstationary passes, not predictions
+of later epochs or an end-to-end training speedup.
+
+Natural cache turnover is directly observed without DONTNEED. During pass2,
+per-branch mean residency after input-full is.98893/.98951; before later
+input-sampled reads it is.05869/.05692, with all49 WSI per branch losing
+over half their bag residency. Pooled input-sampled mean read time rises
+from4.73525 to11.10936s between passes while mean pre-read residency falls
+from.51285 to.05780. Host reclaim/refault counters also increase, but are
+host-wide and cannot be exclusively attributed to the probe. These data
+support cache turnover as a subsequent-access slowdown mechanism within
+this session, without explaining the original v10-to-v13 backend regression.
+Stage warming, condition order, two-shard population and CPU allocation limit
+transfer. Evaluate contiguous input reads on a representative training working
+set before choosing full-atlas scratch staging. No reader modification,
+classifier continuation or new run accompanies this review.
+
+## Full-atlas direct-read comparison, CPU only (2026-10-26)
+
+The authorized next probe compares sampled regions and full-bag then the same
+retained subset directly from the original12 frozen mounts. GPU is disabled
+in metadata and CUDA is hidden from both workers; no model, augmentation,
+optimizer or continuation checkpoint is loaded. There is no scratch staging
+or forced cache eviction. The existing runner/probe/contract and thin entry
+remain the execution path.
+
+The288 fold-training WSI use exactly the training `paired_epoch_order` and
+`_sample_indices` functions for the next two epoch indices5/6, seed and60%
+retention. Split each order into72-WSI windows, compare both methods on that
+same window, and invert method order on alternating windows and passes.
+This provides completed paired windows before another whole-epoch scan can
+consume the90-minute runtime budget. Both branches synchronize before every
+condition and use two readers each. The maximum is2304 combined reads; only
+completed paired requests/windows support comparisons if the cutoff intervenes.
+An active filesystem call can outlast the deadline. WSI/subset hashes and
+selected-value hashes retain direct content-equivalence evidence.
+
+Record average/p95 read+subset time, completed-window concurrent wall and
+residency/memory snapshots. Add `/proc/self/status` VmRSS/VmHWM in bytes before
+and after reads and after subset selection while full+selected arrays are
+alive. VmHWM is a cumulative process high-water mark shared by the two reader
+threads; it is not an isolated method-specific or whole-host peak. Method
+order/backend warming and finite windows remain confounders, and CPU does
+not replicate the T4 model/host-transfer memory allocation. Preserve natural
+cache observations and evaluate full-read throughput/memory before changing
+the training reader.
+
+Focused verification runs both branch functions concurrently on synthetic
+shards:24 reads across eight blocks per branch reproduce independent source
+arrays, exact training orders and matching subsets, exclude the held-out fold,
+and populate memory fields. Seven existing reader tests, compilation, Ruff,
+targeted BasedPyright and kernel build/validation pass. Publication/submission
+are pending.
 
 ## Bounded I/O followup (2026-10-23)
 

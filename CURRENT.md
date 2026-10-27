@@ -212,6 +212,40 @@ have begun copying shard1. Overlay identifies the filesystem layer, not the
 underlying medium or achieved throughput. Initial stream:
 `runs/local/spec0054_io_scratch_v21_review/initial_stream.txt`.
 
+Inspection around19:51 Bogota confirms v21 COMPLETE, workers[0,0] and all784
+reads (392 per branch). All four frozen file SHA checks match; requests/subsets
+pair across branches, and all196 branch/epoch/WSI groups preserve identical
+selected values across the four paths. Pooled mean read+subset seconds are
+7.922 input-sampled,3.326 input-full,4.467 scratch-sampled,2.613 scratch-full;
+p95 is20.247/8.061/12.114/6.327s. Mean paired pass wall is219.89/107.51/
+141.26/91.56s respectively. Full input reduces observed pass wall51.1%
+without staging; full scratch saves another15.95s/pass on this panel but
+costs628.23s upfront including fsync/SHA, a descriptive39.4-pass amortization
+against input-full. Scratch is usable for33.474GB, not established as fast
+SSD or sufficient for the full atlas. Natural cache turnover is observed:
+on pass2, mean input residency falls from~98.9% after full reads to~5.8%
+before later sampled reads; all49 WSI per branch lose over half residency.
+CPU/two shards/two passes and order/backend warming limit transfer to full
+training. Recommend evaluating full contiguous reads on the training working
+set before full-atlas staging; no reader change or new session launched.
+Outputs: `runs/kaggle/spec0054_io_scratch_v21/`; numerical review:
+`runs/local/spec0054_io_scratch_v21_review/summary.json`.
+
+The authorized next CPU-only probe restores all12 original input mounts and
+compares only direct sampled-region versus full-bag-then-subset reads. It uses
+the288 fold-training WSI, exact next-training epoch orders/subsets (indices5/6),
+two readers per branch and counterbalanced72-WSI windows. Both branches run
+the same method together; partial output retains paired comparisons from
+finished windows if the90-minute runtime budget is reached. No scratch copies,
+cache eviction, classifier, GPU or resume states. Record read+subset means/p95,
+window wall, cache residency and process RSS/high-water mark before/after reads
+and with full+selected arrays alive. Peak RSS is cumulative per process and
+includes both readers, rather than an isolated per-method allocation peak.
+All24 synthetic reads preserve independent array values and exact paired
+training order; memory fields are populated. Seven reader tests, compilation,
+Ruff, targeted BasedPyright and kernel build/validation pass. Publication and
+submission are pending.
+
 All512 WSI/subset/C4 records match across branches; initial parameters and reader
 match the prior recipe. No AMP backoffs or nonfinite losses/gradients. Mean steps
 143.96/144.64s versus14.94/14.71s over the matched first128 v10 updates. Input

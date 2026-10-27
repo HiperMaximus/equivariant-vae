@@ -962,7 +962,7 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
 
 def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch: str,
                    session_deadline_unix: float | None = None) -> None:
-    """Compare average direct and scratch I/O, including staging cost."""
+    """Compare direct sampled/full reads in training order across the full atlas."""
     config_path = repo_root / "docs/data/spec0054_fold0_run.json"
     config = json.loads(config_path.read_text())
     probe = config["read_probe"]
@@ -981,7 +981,7 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
     bags = ShardBags(latent_root, contract, cohort_path,
                      {item["shard"]: item["result_sha256"] for item in config["sources"]
                       if item["shard"] in probe["shards"]})
-    rows, blocks, staging = [], [], []
+    rows, blocks = [], []
     lock = Lock()
     hardware = {"logical_cpu_count": os.cpu_count(), "cpu_affinity": sorted(os.sched_getaffinity(0)),
                 "torch_threads": torch.get_num_threads(), "gpu_used": False, "euid": os.geteuid(),
@@ -1011,6 +1011,9 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         memory = {key: int(value.split()[0]) for key, value in
                   (line.split(":", 1) for line in Path("/proc/meminfo").read_text().splitlines())
                   if key in ("MemTotal", "MemAvailable", "Cached", "Shmem", "SReclaimable", "Dirty", "Writeback")}
+        process_memory = {key: int(value.split()[0]) * 1024 for key, value in
+                          (line.split(":", 1) for line in Path("/proc/self/status").read_text().splitlines()
+                           if ":" in line) if key in ("VmRSS", "VmHWM")}
         process_io = {key: int(value) for key, value in
                       (line.split(":", 1) for line in Path("/proc/self/io").read_text().splitlines())}
         vmstat = {key: int(value) for key, value in
@@ -1019,23 +1022,17 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         return {"at_unix": time.time(), "pages": page_count, "resident_pages": resident,
                 "resident_fraction": resident / page_count if resident is not None else None,
                 "mincore_status": status, "mincore_errno": error,
-                "meminfo_kib": memory, "process_io": process_io, "host_vmstat": vmstat}
+                "meminfo_kib": memory, "process_memory_bytes": process_memory,
+                "process_io": process_io, "host_vmstat": vmstat}
 
-    scratch_root = Path(probe["scratch_directory"])
-    scratch_directory = scratch_root / branch
-    scratch_directory.mkdir(parents=True, exist_ok=False)
-    scratch_bags = copy.copy(bags)
-    scratch_bags.files = {branch: {}}
-    scratch_bags.descriptors = {}
-    readers = {"input": bags, "scratch": scratch_bags}
     result = {"branch": branch, "source_commit": source,
               "config_sha256": _sha256(config_path),
               "reader_sha256": _sha256(Path(__file__).with_name("spec0054_shard_bags.py")),
               "seed": config["seed"], "patch_retention": config["patch_retention"],
               "probe": probe, "hardware": hardware, "completed": False,
-              "cache_policy": "natural_post_staging_replay_no_cache_eviction",
-              "counter_scope": "mincore_bag_snapshot; process_io_shared_by_threads; vmstat_host_wide",
-              "staging": staging, "blocks": blocks, "rows": rows}
+              "cache_policy": "natural_input_replay_no_staging_or_eviction",
+              "counter_scope": "mincore_bag_snapshot; process_rss_peak_shared_by_threads; vmstat_host_wide",
+              "blocks": blocks, "rows": rows}
 
     def save_result():
         (directory / "read_probe.json").write_text(json.dumps(result, indent=2) + "\n")
@@ -1043,24 +1040,25 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
     def synchronize(phase):
         # Both branches exercise the same condition together; waiting is not timed I/O.
         other = next(item for item in BRANCHES if item != branch)
-        (scratch_root / f"{branch}.{phase}.ready").write_text(str(time.time()))
+        (output_root / f"{branch}.{phase}.ready").write_text(str(time.time()))
         waiting = time.perf_counter()
-        while not (scratch_root / f"{other}.{phase}.ready").exists():
+        while not (output_root / f"{other}.{phase}.ready").exists():
             if session_deadline_unix is not None and time.time() >= session_deadline_unix:
                 return None
             time.sleep(0.1)
         return time.perf_counter() - waiting
 
     def read_bag(request):
-        wsi_id, epoch, storage, method = request
+        wsi_id, epoch, block_index, method = request
         if session_deadline_unix is not None and time.time() >= session_deadline_unix:
             return False
-        reader = readers[storage]
+        reader = bags
         location = reader.locations[wsi_id]
         indices = _sample_indices(location.count, config["seed"], epoch, wsi_id,
                                   config["patch_retention"])
         info = {"branch": branch, "shard": location.shard, "wsi_id": wsi_id,
-                "method": method, "storage": storage, "epoch": epoch}
+                "method": method, "storage": "input", "epoch": epoch,
+                "block_index": block_index}
         before = snapshot(reader, wsi_id)
         print(json.dumps({"event": "read_probe_read_start", **info,
                           "resident_fraction": before["resident_fraction"]}), flush=True)
@@ -1073,6 +1071,7 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         subset_started = time.perf_counter()
         selected = array[indices] if full else array
         subset_seconds = time.perf_counter() - subset_started
+        after_subset = snapshot(reader, wsi_id)
         hash_started = time.perf_counter()
         digest = hashlib.sha256(memoryview(selected).cast("B")).hexdigest()
         row = {**info, "bag_size": location.count, "sampled_bag_size": len(indices),
@@ -1083,7 +1082,7 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
                "read_cpu_seconds": read_cpu_seconds, "subset_seconds": subset_seconds,
                "read_plus_subset_seconds": read_seconds + subset_seconds,
                "hash_seconds": time.perf_counter() - hash_started,
-               "before_read": before, "after_read": after}
+               "before_read": before, "after_read": after, "after_subset": after_subset}
         del selected, array
         with lock:
             rows.append(row)
@@ -1113,7 +1112,8 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
 
         result["files"] = {str(shard): file_metadata(binary)
                            for shard, binary in bags.files[branch].items()}
-        result["scratch_filesystem"] = file_metadata(scratch_directory)
+        for shard, binary in bags.files[branch].items():
+            bags.descriptors[branch, shard] = os.open(binary, os.O_RDONLY)
         panel = sorted(wsi for wsi, location in bags.locations.items()
                        if location.fold != config["fold"])
         result["wsi_ids"] = panel
@@ -1122,68 +1122,37 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         save_result()
         print(json.dumps({"event": "read_probe_start", "branch": branch,
                           "hardware": hardware, "files": result["files"],
-                          "scratch_filesystem": result["scratch_filesystem"],
                           "wsi_count": len(panel), "probe": probe}), flush=True)
-        result["staging_started_unix"] = time.time()
-        staging_started = time.perf_counter()
-        for shard, binary in bags.files[branch].items():
-            if session_deadline_unix is not None and time.time() >= session_deadline_unix:
-                return
-            destination = scratch_directory / binary.name
-            at_unix, started = time.time(), time.perf_counter()
-            print(json.dumps({"event": "read_probe_copy_start", "branch": branch,
-                              "shard": shard, "bytes": binary.stat().st_size}), flush=True)
-            shutil.copyfile(binary, destination)
-            with destination.open("rb+") as handle:
-                os.fsync(handle.fileno())
-            copy_seconds = time.perf_counter() - started
-            verified = time.perf_counter()
-            with destination.open("rb") as handle:
-                observed = hashlib.file_digest(handle, "sha256").hexdigest()
-            expected = json.loads((binary.parent / f"result_shard_{shard:02d}_of_12.json").read_text())["files"][branch]["sha256"]
-            item = {"shard": shard, "started_unix": at_unix, "ended_unix": time.time(),
-                    "copy_fsync_seconds": copy_seconds,
-                    "verification_seconds": time.perf_counter() - verified,
-                    "observed_sha256": observed, "expected_sha256": expected,
-                    "sha256_matches": observed == expected, **file_metadata(destination)}
-            staging.append(item)
-            save_result()
-            if observed != expected:
-                raise ValueError(f"Copied shard {shard} differs from its frozen checksum")
-            scratch_bags.files[branch][shard] = destination
-            for reader in readers.values():
-                reader.descriptors[branch, shard] = os.open(reader.files[branch][shard], os.O_RDONLY)
-            print(json.dumps({"event": "read_probe_copy_done", "branch": branch, **item}), flush=True)
-        result["staging_seconds"] = time.perf_counter() - staging_started
-        result["staging_ended_unix"] = time.time()
-        result["scratch_free_bytes_after_staging"] = shutil.disk_usage(scratch_directory).free
-        save_result()
         with ThreadPoolExecutor(max_workers=probe["reader_workers"]) as pool:
-            for epoch in range(probe["passes"]):
-                order = np.random.default_rng(np.random.SeedSequence([config["seed"], epoch, 0x10])).permutation(panel).tolist()
-                conditions = probe["conditions"] if epoch % 2 == 0 else probe["conditions"][::-1]
-                for position, condition in enumerate(conditions):
-                    wait = synchronize(f"pass{epoch}_condition{position}")
-                    if wait is None:
-                        return
-                    storage, method = condition["storage"], condition["method"]
-                    block = {"epoch": epoch, "storage": storage, "method": method,
-                             "barrier_wait_seconds": wait, "started_unix": time.time(),
-                             "wsi_order": order}
-                    started = time.perf_counter()
-                    completed = all(list(pool.map(read_bag, ((wsi, epoch, storage, method) for wsi in order))))
-                    block.update(ended_unix=time.time(), wall_seconds=time.perf_counter() - started,
-                                 completed=completed)
-                    blocks.append(block)
-                    save_result()
-                    print(json.dumps({"event": "read_probe_block_done", "branch": branch, **block}), flush=True)
-                    if not completed:
-                        return
+            for pass_index in range(probe["passes"]):
+                epoch = probe["first_epoch"] + pass_index
+                order = [panel[i] for i in paired_epoch_order(row_count=len(panel), epoch=epoch,
+                                                             seed=config["seed"])]
+                for block_index, first in enumerate(range(0, len(order), probe["wsi_block_size"])):
+                    window = order[first:first + probe["wsi_block_size"]]
+                    methods = probe["methods"] if (pass_index + block_index) % 2 == 0 else probe["methods"][::-1]
+                    for position, method in enumerate(methods):
+                        wait = synchronize(f"pass{pass_index}_block{block_index}_condition{position}")
+                        if wait is None:
+                            return
+                        block = {"epoch": epoch, "block_index": block_index,
+                                 "storage": "input", "method": method,
+                                 "barrier_wait_seconds": wait, "started_unix": time.time(),
+                                 "wsi_order": window}
+                        started = time.perf_counter()
+                        completed = all(list(pool.map(read_bag, ((wsi, epoch, block_index, method)
+                                                                 for wsi in window))))
+                        block.update(ended_unix=time.time(), wall_seconds=time.perf_counter() - started,
+                                     completed=completed)
+                        blocks.append(block)
+                        save_result()
+                        print(json.dumps({"event": "read_probe_block_done", "branch": branch, **block}), flush=True)
+                        if not completed:
+                            return
         result["completed"] = True
     finally:
         save_result()
-        for reader in readers.values():
-            reader.close()
+        bags.close()
         print(json.dumps({"event": "read_probe_done", "branch": branch,
                           "completed": result["completed"], "reads": len(rows)}), flush=True)
 
