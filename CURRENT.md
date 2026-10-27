@@ -11,6 +11,71 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
+### Continuation snapshot — CPU I/O, 2026-10-27
+
+The active task is to measure read-throughput mitigations before continuing
+ABMIL. The two CPU probes below have already been submitted; switching chats
+does not require resubmitting them. RUNNING is their last observed API state,
+not a newly checked status or evidence that worker measurements have started.
+
+| Probe | Exact Kaggle reference | Source / entry commits | Next useful check, Bogota |
+| --- | --- | --- | --- |
+| mmap/discard/prefetch and deeper queues | `maximshtefan/eqvae-spec0054-mil-fold0/24` | `f032095` / `faa3e97` | 2026-10-27 around16:30 |
+| sampled versus scatter-coalescing gaps1/2 | `maximshtefan/eqvae-spec0054-io-coalescing/1` | `e902d26` / `6d64577` | 2026-10-27 around19:30 |
+
+Both disable GPU/pinning/H2D and preserve the frozen inputs. Independent CPU
+probes may run concurrently; inter-session storage interference is unmeasured
+and is not a launch blocker. Compare matched methods within each session and
+retain the cache/order/external-load limitations; absolute timings across
+different sessions do not isolate the reader change. No winner or measured
+speedup is available from either new probe at this handoff.
+
+Use the existing CLI wrapper when the useful check time has arrived:
+
+```bash
+./scripts/kaggle_kernel.sh status maximshtefan/eqvae-spec0054-mil-fold0/24
+./scripts/kaggle_kernel.sh status maximshtefan/eqvae-spec0054-io-coalescing/1
+```
+
+Once the corresponding version is complete, download to a new directory:
+
+```bash
+./scripts/kaggle_kernel.sh output maximshtefan/eqvae-spec0054-mil-fold0/24 runs/kaggle/spec0054_io_combined_v24_handoff
+./scripts/kaggle_kernel.sh output maximshtefan/eqvae-spec0054-io-coalescing/1 runs/kaggle/spec0054_io_coalescing_v1_handoff
+```
+
+Inspect each branch's `read_probe.json` and partial row logs: compare only
+matched completed blocks, raw/prepared/subset/C4 hashes, joint window wall,
+actual requested versus selected bytes, client residency and RSS/queue bounds.
+V24 tests three policy/queue packages; coalescing v1 holds workers/futures fixed
+and balances execution positions across three repetitions. Partial runs must
+not mix unmatched conditions into a pooled comparison.
+
+Portable evidence is now tracked in [reports/spec0054_io_20261027](reports/spec0054_io_20261027/):
+v18 training and v21/v22/v23 I/O summaries, exact epoch-byte accounting,
+synthetic verification/script, virtual-mapping example/result and the separate
+coalescing kernel metadata/launch receipt. These are byte-identical copies of
+the cited local artifacts, with historical timestamps and source commits.
+The launch entry itself is already tracked at
+`kaggle/kernels/spec0054_mil_fold0/abmil.py` in commit `6d64577`; its original
+metadata still names the mil-fold0 kernel. The archived coalescing metadata
+changes only id/title. The complete synthetic checker uses generated data;
+the epoch-accounting script additionally requires the downloaded v18 telemetry.
+Historical `runs/local/` references below are caches; these tracked snapshots
+and the exact Kaggle versions provide the portable evidence.
+
+Classifier training remains paused at v18: both branches update360,
+exposures1440, epoch5/cursor0, with epoch5 assessment pending. Saved states are
+already remote in `maximshtefan/eqvae-spec0054-mil-fold0/18`; retrieve that
+version with the same output command if the local cache is absent. The current
+private C4 resume dataset version1 still contains v13 and must be updated from
+v18 before a training continuation. Preserve original training source
+`7ad06010416a789a6b96e612919203c162adc23e` and recipe; the HEAD entry is a CPU
+probe, not the training continuation. Full200GB scratch staging, lossless
+compression, io_uring, FUSE and userfaultfd remain proposals. The virtual-view
+example establishes synthetic correctness only. No new sessions or status
+polling accompany this archival handoff.
+
 The five-fold comparison of six fixed representations is complete. PANTHER
 full16 has mean validation macro-F1 0.5545 normal / 0.5587 SO(2); mean-only
 SO(2) has CE 1.0206. Normal mean/std retains its highest mean F1, 0.5612.

@@ -1,0 +1,21 @@
+{
+  "kernel": "maximshtefan/eqvae-spec0054-io-coalescing",
+  "source_commit": "e902d26fece5bd1b7f1df7fd7ab114c573d25aa1",
+  "entry_repository_commit": "6d64577",
+  "entry_sha256": "1c8c3d1912889863779afb9d88a0308ab2174cec6ab8526d2d60e9854a85f7c2",
+  "entry_bytes_equal_to_tracked_file": true,
+  "enable_gpu": "false",
+  "overlap_authorized": true,
+  "other_kernel": "maximshtefan/eqvae-spec0054-mil-fold0/24",
+  "inter_session_storage_contention": "unmeasured; not a launch blocker",
+  "submitted": true,
+  "version": 1,
+  "reference": "maximshtefan/eqvae-spec0054-io-coalescing/1",
+  "submitted_at_utc": "2026-10-27T18:04:00Z",
+  "submission_time_precision": "approximately_one_minute",
+  "api_status": "RUNNING",
+  "status_checked_at_utc": "2026-10-27T18:04:00Z",
+  "next_useful_check_bogota": "2026-10-27T19:30:00-05:00",
+  "worker_start_confirmed": false,
+  "measurements_available": false
+}

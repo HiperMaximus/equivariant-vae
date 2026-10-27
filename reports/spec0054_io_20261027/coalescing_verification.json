@@ -1,0 +1,19 @@
+{
+  "scope": "local synthetic correctness only; not throughput",
+  "synthetic_reads": 396,
+  "branches": 2,
+  "budget_cases": 2,
+  "methods": 3,
+  "passes": 3,
+  "matched_training_wsi": 11,
+  "verified": [
+    "VERIFIED queue2 normal_vae 99 reads, all raw/prepared values and FIFO order; queue count/byte bounds; source files unchanged",
+    "VERIFIED queue2 so2_vae 99 reads, all raw/prepared values and FIFO order; queue count/byte bounds; source files unchanged",
+    "VERIFIED byte_cap normal_vae 99 reads, all raw/prepared values and FIFO order; queue count/byte bounds; source files unchanged",
+    "VERIFIED byte_cap so2_vae 99 reads, all raw/prepared values and FIFO order; queue count/byte bounds; source files unchanged"
+  ],
+  "unit_tests": 10,
+  "original_shared_reader_changed": false,
+  "kaggle_submitted": false,
+  "gpu_used": false
+}

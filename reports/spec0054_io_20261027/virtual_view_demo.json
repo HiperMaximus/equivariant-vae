@@ -1,0 +1,11 @@
+{
+  "virtual_contiguous": true,
+  "synthetic_bytes_equal": true,
+  "mapped_payload_bytes": 20480,
+  "mapped_regions": 3,
+  "source_open_read_only": true,
+  "payload_copy_before_access": false,
+  "performance_measured": false,
+  "source_files_unchanged": true,
+  "scope": "Synthetic local correctness check, not a throughput result or Kaggle capability check."
+}

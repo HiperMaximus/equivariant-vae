@@ -768,6 +768,18 @@ may vary within a session. The original v24 job remains unchanged. Next useful
 inspection is around19:30 Bogota, allowing for the runtime budget and setup.
 Platform RUNNING alone does not establish worker start or measured throughput.
 
+Portable copies of the small supporting artifacts are tracked in
+`reports/spec0054_io_20261027/`: training v18 and I/O v21/v22/v23 numerical
+summaries, exact epoch coalescing accounting/script, the virtual-mapping
+example/result, synthetic coalescing checker/verification and launch
+metadata/receipt. They preserve the original bytes and historical observation
+times; no new measurement is implied by archiving them. The receipt identifies
+source `e902d26`, entry `6d64577` and the separate kernel's exact version. The
+entry code is already tracked in the existing kernel directory; only id/title
+differ in the archived metadata. Raw outputs and classifier checkpoints remain
+recoverable from their exact Kaggle versions. `CURRENT.md` gives the active
+continuation snapshot and status/output commands for a fresh checkout.
+
 ## Bounded I/O followup (2026-10-23)
 
 Reuse the existing read-probe mode in a private Kaggle CPU session, mounting

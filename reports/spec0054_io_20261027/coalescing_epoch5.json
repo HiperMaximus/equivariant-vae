@@ -1,0 +1,73 @@
+{
+  "scope": "offline exact read-plan accounting; not throughput measurement",
+  "source_table": "runs/kaggle/spec0054_cls_fold0_c4_v18/spec0054_cls_fold0/normal_vae/t0.npz",
+  "size_source": "actual frozen bag_size from cumulative t0, one count per WSI",
+  "branch_sizes_paired": true,
+  "wsi_count": 288,
+  "seed": 1701,
+  "epoch_index": 5,
+  "patch_retention": 0.6,
+  "record_bytes": 32768,
+  "full_records_per_branch": 2448609,
+  "selected_records_per_branch": 1469274,
+  "full_training_paired_bytes": 160472039424,
+  "selected_training_paired_bytes": 96290340864,
+  "maximum_selected_bag_bytes": 546570240,
+  "coalescing": [
+    {
+      "maximum_missing_gap_records": 0,
+      "contiguous_reads_per_branch": 587674,
+      "records_read_per_branch": 1469274,
+      "paired_bytes_read": 96290340864,
+      "byte_ratio_vs_selected": 1.0,
+      "read_count_ratio_vs_baseline": 1.0
+    },
+    {
+      "maximum_missing_gap_records": 1,
+      "contiguous_reads_per_branch": 234929,
+      "records_read_per_branch": 1822019,
+      "paired_bytes_read": 119407837184,
+      "byte_ratio_vs_selected": 1.2400811557272504,
+      "read_count_ratio_vs_baseline": 0.399760751709281
+    },
+    {
+      "maximum_missing_gap_records": 2,
+      "contiguous_reads_per_branch": 94074,
+      "records_read_per_branch": 2103729,
+      "paired_bytes_read": 137869983744,
+      "byte_ratio_vs_selected": 1.4318153047015056,
+      "read_count_ratio_vs_baseline": 0.16007854694949922
+    },
+    {
+      "maximum_missing_gap_records": 3,
+      "contiguous_reads_per_branch": 38187,
+      "records_read_per_branch": 2271390,
+      "paired_bytes_read": 148857815040,
+      "byte_ratio_vs_selected": 1.5459267638302998,
+      "read_count_ratio_vs_baseline": 0.06497990382422908
+    },
+    {
+      "maximum_missing_gap_records": 7,
+      "contiguous_reads_per_branch": 1219,
+      "records_read_per_branch": 2440148,
+      "paired_bytes_read": 159917539328,
+      "byte_ratio_vs_selected": 1.6607848502049312,
+      "read_count_ratio_vs_baseline": 0.0020742792772863866
+    },
+    {
+      "maximum_missing_gap_records": 31,
+      "contiguous_reads_per_branch": 288,
+      "records_read_per_branch": 2448250,
+      "paired_bytes_read": 160448512000,
+      "byte_ratio_vs_selected": 1.666299138213839,
+      "read_count_ratio_vs_baseline": 0.0004900676225254138
+    }
+  ],
+  "interpretation": "Merge every gap of at most threshold missing records; retain identical selected values after over-read. Read intervals do not extend outside first/last selected rows.",
+  "limitations": [
+    "No new NFS reads, timing, scratch capacity, or RPC count is measured.",
+    "Contiguous read count means application read intervals, not necessarily NFS RPC count.",
+    "Bytes are paired normal/SO2; call counts are per branch.",
+    "Historical cohort patch_count is not used."
+  ]
+}
