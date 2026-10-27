@@ -511,43 +511,36 @@ pending; holonomy interpretation requires the relevant validated structure.
 
 ## Paper handoff
 
-Latest manuscript sync: live main.tex imported on 2026-10-26 after the
-approved Materials and Methods introduction; references.bib remains v5.
-Source/PDF and current writing handoff:
+Latest manuscript sync: complete live Overleaf source export on2026-10-26
+following the approved MIL cohort/CV/final-training update. All28 active
+sources/assets match the export byte-for-byte. Only main.tex and
+figures/data_split.tex changed remotely. Source/PDF and writing details:
 [manuscript README](paper/midl2027/README.md).
-The 23-page PDF compiled successfully and all pages were visually checked.
-All22 professor threads retain their states (5 open, 17 resolved). Only the
-professor closes comments. The sole own tracked replacement was verified
-as Maximiliano's and accepted; no comment replies were posted.
 
-Read live Overleaf before further manuscript changes, preserving professor
-edits. Import/build/publication procedure:
-[Overleaf handoff](docs/overleaf_sync_workflow.md). The manuscript still has
-pending 152-WSI results; the historical 23-WSI evaluation remains separate.
+MIL development reuses all361 VAE-development WSI (322 VAE train +39 VAE
+validation): fold0 has288/73 train/validation, folds1--4 have289/72. The
+manuscript describes final training from scratch on all361 WSI, with a fixed
+CV-derived duration, no validation split and no validation-based early stopping,
+followed by evaluation on the separate152 WSI. Encoders remain frozen.
+This is the approved protocol wording in present tense, not evidence that
+neural five-fold training, final refitting or152-WSI evaluation is complete.
+Final recipe/duration and152-WSI metrics remain pending; XXXX/YYYY placeholders
+replace the incompatible23-WSI MIL summaries. The tissue106/23/23 and
+reconstruction23-WSI protocols/results remain unchanged. The paper omits the
+previous-experiment narrative per the user's editorial instruction; the
+scientific exposure record remains in Spec0054.
 
-Read-only live review on 2026-10-26: the professor resolved five previous
-threads on 2026-10-23; there are now 22 threads (5 open, 17 resolved).
-The five open topics are updating the cohort partition, rewriting the MIL-bag
-sentence, updating the split figure values, explaining class-order abbreviations
-in the body, and the existing 5x5/7x7 kernel-support rationale. The latter
-already has a dedicated subsection and an earlier reply. A new source TODO
-requests an introductory paragraph for Materials and Methods; the professor's
-review marker is immediately before Patch Selection and Tissue Annotations.
-The downloaded live sources match 27 of the 28 active local sources/assets;
-only main.tex differs (review markers, section TODO and math formatting of
-152/361). No manuscript edits, comment replies/state changes or source/PDF
-synchronization accompanied this review. Local publication remains bbe8fa0.
-The abstract's pending 152-WSI results and the historical 23-WSI methods,
-tables and split figure still require a coherent scientific update.
+The abstract, data table, MIL methods/statistics, results placeholders,
+discussion, limitations and conclusion are consistent with the updated cohort.
+Figure4 shows separate VAE/MIL and tissue/reconstruction paths. Figure10 now
+shows the unchanged tissue values as a vector plot. The23-page PDF compiled
+without errors, undefined citations or overfull boxes; all pages were rendered
+and checked, including detailed diagram/table checks on pages8/9.
 
-The subsequent individually approved introduction replaces the inline
-Materials and Methods TODO. The live main.tex and27 unchanged active assets
-are synchronized locally with the rebuilt PDF; professor source edits and all
-comment states are preserved. The cohort-partition comment anchored
-to361/129/23 WSIs is under individual review. The user confirmed reuse of VAE
-development WSIs for MIL. The actual Spec0054 manifest contains all361 WSI
-(322 VAE train +39 VAE validation), repartitioned into five MIL folds:
-fold0 has288/73 train/validation and folds1--4 have289/72. A replacement
-paragraph is proposed, not yet applied. The separate tissue-classification
-protocol is unchanged; the152-WSI MIL evaluation cohort has historical
-supervised exposure as documented in Spec0054.
+All own tracked suggestions are accepted. All22 professor comment histories
+remain, with5 open and17 resolved; no replies were posted. Two threads
+inadvertently resolved during own-change acceptance were immediately reopened
+to restore their original state. Only the professor closes comments.
+Read live Overleaf before further edits and preserve those states and edits.
+Import/build/publication procedure:
+[Overleaf handoff](docs/overleaf_sync_workflow.md).

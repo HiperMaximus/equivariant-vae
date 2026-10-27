@@ -8,6 +8,8 @@
 \usepackage{xcolor}
 \usepackage{url}
 \usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
 \usetikzlibrary{arrows.meta,positioning,calc,shapes.geometric}
 \def\figureautorefname{Figure}
 \def\tableautorefname{Table}
@@ -34,8 +36,8 @@ Universidad Industrial de Santander, Bucaramanga, Colombia
 \maketitle
 
 \begin{abstract}
-At high magnification, cellular patterns in histopathology have no dominant orientation in the image, making rotation a relevant local symmetry for representation learning. This work investigates whether incorporating this rotation symmetry into unsupervised representation learning improves reconstruction and performance in downstream classification tasks. We first train a conventional denoising variational autoencoder (VAE) and a continuous-$\SOtwo$-equivariant denoising VAE trained on the same unlabeled patches from ovarian cancer images. With both autoencoders models' weights frozen, reconstruction was evaluated on patches from held-out whole-slide images (WSIs). Afterwards, we evaluated the representation capability of both autoencoders in two downstream tasks: three-class tissue recognition at patch level, and five-class WSI diagnosis via multiple-instance learning. Reconstruction mean absolute error for the test patches was $0.0629$ versus $0.0642$ (conventional versus equivariant), but the difference was not statistically significant. For three-class tissue recognition with a small budget of 500 training labels per class, the equivariant VAE outperforms the conventional VAE with a macro-F1 of $0.511$ versus $0.575$. For other budgets tested (250, 1000, 2500 and 5671) no statistical difference was found, although the equivariant VAE perfomed better in all the budgets except for the largest one. Finally, for WSI classification on 152 test slides, macro-F1 was $XXXX$ versus $YYYY$ (conventional versus equivariant), with no statistically significant difference.
-% TODO: Actualizar esta afirmacion de significancia y XXXX/YYYY cuando esten disponibles los nuevos resultados WSI (152 slides).
+At high magnification, cellular patterns in histopathology have no dominant orientation in the image, making rotation a relevant local symmetry for representation learning. This work investigates whether incorporating this rotation symmetry into unsupervised representation learning improves reconstruction and performance in downstream classification tasks. We first train a conventional denoising variational autoencoder (VAE) and a continuous-$\SOtwo$-equivariant denoising VAE trained on the same unlabeled patches from ovarian cancer images. With both autoencoders models' weights frozen, reconstruction was evaluated on patches from held-out whole-slide images (WSIs). Afterwards, we evaluated the representation capability of both autoencoders in two downstream tasks: three-class tissue recognition at patch level, and five-class WSI diagnosis via multiple-instance learning. Reconstruction mean absolute error for the test patches was $0.0629$ versus $0.0642$ (conventional versus equivariant), but the difference was not statistically significant. For three-class tissue recognition with a small budget of 500 training labels per class, the equivariant VAE outperforms the conventional VAE with a macro-F1 of $0.511$ versus $0.575$. For other budgets tested (250, 1000, 2500 and 5671) no statistical difference was found, although the equivariant VAE perfomed better in all the budgets except for the largest one. For WSI diagnosis, five-fold cross-validation uses the 361-slide VAE-development cohort. Final classifiers are trained on all 361 development WSIs and evaluated on a separate cohort of 152 WSIs, with macro-F1 values of $XXXX$ versus $YYYY$ (conventional versus equivariant).
+% TODO: Completar XXXX/YYYY y la interpretacion estadistica con la evaluacion MIL final de las 152 WSIs.
 \end{abstract}
 
 \begin{keywords}
@@ -245,22 +247,26 @@ Supplemental masks were used only to construct the tissue-recognition population
 
 \subsection{Data Populations and Partitions}
 
-The 513 eligible WSIs were partitioned at WSI level into three disjoint subsets: 361 for unsupervised VAE development, 129 for supervised classifier development, and 23 for a shared sealed test (\autoref{fig:data-split}). VAE development used 322 training and 39 validation WSIs, contributing 300,000 and 30,000 unlabeled patches. Patch sampling supplied 60,000 training and 6,000 validation patches from each WSI diagnosis; diagnosis was not a VAE training target. WSI counts were not balanced by diagnosis (\autoref{tab:task-populations}). Supervised development used 106 training and 23 validation WSIs. Together with the shared test, these formed the 152-WSI cohort with supplemental masks. These assignments were fixed before VAE or classifier outputs on that cohort were inspected. They were shared by both downstream tasks and used diagnosis and annotated-tissue availability, but not image pixels, VAE representations or model predictions. The same 23 test WSIs were also used for reconstruction evaluation.
+The 513 eligible WSIs comprise 361 slides for VAE development and a separate cohort of 152 slides with supplemental tissue annotations (\autoref{fig:data-split}). VAE development uses 322 training and 39 validation WSIs, contributing 300,000 and 30,000 unlabeled patches, respectively. Patch sampling supplies 60,000 training and 6,000 validation patches from each WSI diagnosis; diagnosis is not a VAE training target. WSI counts are not balanced by diagnosis (\autoref{tab:task-populations}).
 
-For WSI diagnosis, each slide was one labeled MIL bag containing all its foreground patches selected by Otsu thresholding. Each complete WSI contributed one diagnosis label shared by all patches in its bag. The patch-level tissue classifier instead used high-purity annotated tumor, stroma and necrosis patches. Its training subsets were balanced at the five nested label budgets introduced above, whereas validation and test used fixed, unbalanced patch sets. \autoref{tab:task-populations} separates the inputs and class counts of these three stages.
+For WSI diagnosis, the same 361-slide development cohort is reused for MIL training and validation through five-fold cross-validation stratified by diagnosis at the WSI level. Fold~0 contains 288 training and 73 validation slides; the remaining four folds contain 289 training and 72 validation slides each. Fold construction also balances the original VAE training or validation role. After cross-validation, a final MIL classifier is trained from scratch for each frozen VAE representation using all 361 development WSIs. The configuration and training duration are fixed based on cross-validation. Final training uses no validation split or validation-based early stopping. Both VAE encoders remain frozen, and the separate 152-WSI cohort is excluded from MIL development and reserved for final evaluation.
 
-\begin{figure}[t]
+For tissue recognition, the 152 annotated WSIs are partitioned into 106 training, 23 validation and 23 test WSIs. Reconstruction evaluation uses the same 23 WSIs as the tissue-recognition test. Assignments are fixed at WSI level and shared by both VAE representations within each task. Diagnosis counts follow the order CC, EC, HGSC, LGSC and MC; tissue counts follow tumor, stroma and necrosis.
+
+For WSI diagnosis, each WSI forms a bag of Otsu-selected foreground patches. Frozen VAE posterior means provide the patch representations, and one diagnosis label supervises the complete bag. The patch-level tissue classifier instead used high-purity annotated tumor, stroma and necrosis patches. Its training subsets were balanced at the five nested label budgets introduced above, whereas validation and test used fixed, unbalanced patch sets. \autoref{tab:task-populations} separates the inputs and class counts of these three stages.
+
+\begin{figure}[p]
 \centering
 \resizebox{0.98\textwidth}{!}{\input{figures/data_split}}
-\caption{Data populations and WSI-level partitions. The source cohort is split into unsupervised VAE development, supervised classifier development, and a separate shared sealed test. The same 23 test WSIs support all three final evaluations, with task-specific patch populations. All assignments are fixed at WSI level and shared by both representations. Numbers inside split boxes follow the order CC/EC/HGSC/LGSC/MC.}
+\caption{Data populations and task-specific WSI-level partitions. The 361-slide VAE-development cohort also supplies five-fold MIL cross-validation and final MIL training on all 361 WSIs with no validation split. The separate 152-slide cohort supplies the final MIL evaluation. Within that annotated cohort, tissue recognition uses 106/23/23 training/validation/test WSIs; reconstruction uses the same 23 test WSIs as tissue recognition. The VAE weights remain frozen throughout classifier development.}
 \label{fig:data-split}
 \end{figure}
 
 \begin{table}[t]
-\caption{Inputs by task and split. Diagnosis order is CC/EC/HGSC/LGSC/MC; tissue order is tumor/stroma/necrosis. VAE patch diagnosis is inherited from the source WSI, not a local tissue label. MIL class counts refer to WSIs; tissue class counts refer to patches.}
+\caption{Inputs by task and split. Diagnosis order is CC/EC/HGSC/LGSC/MC; tissue order is tumor/stroma/necrosis. VAE patch diagnosis is inherited from the source WSI, not a local tissue label. MIL class counts refer to WSIs; tissue class counts refer to patches. MIL bags contain Otsu-selected foreground instances. Dashes indicate patch totals that depend on the fold or are pending for the 152-slide evaluation.}
 \label{tab:task-populations}
 \centering
-\begin{tabular}{@{}llrr>{\raggedright\arraybackslash}p{0.42\textwidth}@{}}
+\begin{tabular}{@{}llrr>{\raggedright\arraybackslash}p{0.35\textwidth}@{}}
 \toprule
 Task & Split & WSIs & Patches & Class composition \\
 \midrule
@@ -273,16 +279,17 @@ Tissue & Train & 106 & 750--17,013 & 250--5,671 selected patches per tissue clas
  & Validation & 23 & 31,339 & 22,255/7,809/1,275 patches. \\
  & Test & 23 & 31,572 & 21,796/8,500/1,276 patches. \\
 \midrule
-WSI MIL & Train & 106 & 1,224,875 & 23/24/40/11/8 WSI labels; complete foreground bags. \\
- & Validation & 23 & 264,178 & 5/6/8/2/2 WSI labels; complete foreground bags. \\
- & Test & 23 & 261,168 & 5/6/8/2/2 WSI labels; complete foreground bags. \\
+WSI MIL & CV train & 288--289 & \textemdash & Four folds; class counts depend on the held-out fold. \\
+ & CV validation & 72--73 & \textemdash & One fold; each development WSI is held out once. \\
+ & Final train & 361 & 3,056,833 & 61/83/161/27/29 WSI labels; no validation split. \\
+ & Final test & 152 & \textemdash & 33/36/56/15/12 WSI labels; separate evaluation cohort. \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsection{Experimental Design}
 
-The same frozen VAE pair was evaluated in three tasks. First, reconstruction measured whether each encoder--decoder recovered clean, unseen patches. Second, a patch classifier used frozen latent maps to predict local tissue type. It was trained at five nested label budgets, with the same validation and test sets at every budget. Third, a multiple-instance learning (MIL) classifier aggregated patch embeddings to predict one diagnosis per WSI.
+The same frozen VAE pair is evaluated in three tasks. First, reconstruction measures whether each encoder--decoder recovers clean, unseen patches. Second, a patch classifier uses frozen latent maps to predict local tissue type at five nested label budgets with fixed validation and test sets. Third, an MIL classifier aggregates patch embeddings to predict one diagnosis per WSI. Its development uses five-fold cross-validation on the 361 VAE-development WSIs, followed by final training on all 361 slides and evaluation on the separate 152-slide cohort.
 
 The VAEs were trained on unlabeled patches and frozen before classification. Reconstruction used each encoder and decoder; classification used only the deterministic posterior mean. Both VAEs received the same ordered patches, normalization, corruption policy, loss, update count and validation schedule. Downstream pairs shared WSI assignments, patch coordinates, classifier initialization, epoch order and model-selection rule. The architectures differ in parameter count and computational cost (\autoref{tab:architectures}).
 
@@ -454,13 +461,16 @@ Training subsets contained 250, 500, 1,000, 2,500 and 5,671 labeled patches per 
 
 \subsection{Classification B: Five-Class WSI Diagnosis}
 
-The diagnostic task predicted the five ovarian-cancer subtypes. Every selected foreground patch was represented by its frozen posterior mean. A trainable convolutional patch encoder compressed the $16\times32\times32$ latent map. Two local attention blocks exchanged information within a radius-two spatial neighborhood, and a global stream summarized the complete WSI through learned sigmoid attention. A final classification layer produced five logits. The supervised model contained approximately 1.51 million parameters.
+The diagnostic task predicts the five ovarian-cancer subtypes. Each Otsu-selected foreground patch is represented by its frozen posterior mean. A trainable patch encoder maps the $16\times32\times32$ latent map to $8\times8$ spatial tokens of width 64 through a $4\times4$, stride-four convolution. Learned spatial embeddings and a residual MLP encode the tokens, and a learned classification token attends to them to produce one patch embedding. Gated attention-based MIL aggregates the patch embeddings through a softmax-weighted sum, followed by a linear five-class prediction layer \cite{ilse_attention_2018}.
 
-Training used one complete WSI bag per optimizer step, AdamW and class-weighted cross-entropy computed from the 106 training WSIs. Each representation branch started from the same classifier weights and received the same WSI order. The maximum was 150 epochs, validation was performed twice per epoch, and each branch independently retained its highest validation macro-F1 checkpoint. The primary test metric was macro-F1; balanced accuracy, accuracy, mean cross-entropy, classwise F1 and confusion matrices were secondary summaries.
+The two representation branches share the five WSI-level folds, classifier initialization and WSI order. Training uses AdamW with a class-weighted classification loss; class weights are computed from the training portion of the relevant fold. The current training recipe uses a paired $60\%$ patch subset per WSI presentation, while validation uses complete bags. Each fold checkpoint is selected by minimum mean unweighted validation cross-entropy. Out-of-fold predictions cover all 361 development WSIs once per paired trajectory. Architecture, hyperparameters and the fixed training duration are determined within the development cohort.
+
+Final training starts from a new classifier initialization and uses all 361 development WSIs for each frozen VAE representation. The duration is fixed from cross-validation, with no validation split or validation-based early stopping. Class weights are recomputed from the 361-slide final training cohort. Final evaluation uses complete bags from the separate 152-WSI cohort after all configuration and model-selection decisions are fixed. Macro-F1 is the primary evaluation metric; balanced accuracy, accuracy, mean cross-entropy, classwise F1 and confusion matrices provide secondary summaries.
+% TODO: Completar los hiperparametros de la receta MIL final una vez fijados mediante validacion cruzada.
 
 \subsection{Statistical Analysis}
 
-All difference intervals are reported as conventional-minus-equivariant. Reconstruction differences used 10,000 paired cluster-bootstrap replicates at WSI level \cite{field_bootstrapping_2007}. WSI diagnosis used 10,000 paired bootstrap replicates stratified by diagnosis. Tissue recognition used a paired WSI bootstrap stratified by observed tissue support. The five label-budget macro-F1 differences and the area under the log-budget learning curve (AULC) difference were considered together as six related comparisons. Their $95\%$ intervals were adjusted simultaneously: across the six comparisons, the bootstrap procedure targets $95\%$ coverage for the whole set of differences. A difference interval entirely below zero favors the equivariant model when higher is better; an interval entirely above zero favors the conventional model. An interval containing zero does not establish a statistically significant difference at the $5\%$ level, nor does it establish equivalence. Patch standard deviations describe variation among patches, while confidence intervals resample WSIs as the biological units.
+All difference intervals are reported as conventional-minus-equivariant. Reconstruction differences used 10,000 paired cluster-bootstrap replicates at WSI level \cite{field_bootstrapping_2007}. For WSI diagnosis, the primary development summary is macro-F1 computed from the concatenated out-of-fold predictions over the 361 development WSIs. Final-cohort differences use 10,000 paired bootstrap replicates stratified by diagnosis over the 152 evaluation WSIs. Tissue recognition used a paired WSI bootstrap stratified by observed tissue support. The five label-budget macro-F1 differences and the area under the log-budget learning curve (AULC) difference were considered together as six related comparisons. Their $95\%$ intervals were adjusted simultaneously: across the six comparisons, the bootstrap procedure targets $95\%$ coverage for the whole set of differences. A difference interval entirely below zero favors the equivariant model when higher is better; an interval entirely above zero favors the conventional model. An interval containing zero does not establish a statistically significant difference at the $5\%$ level, nor does it establish equivalence. Patch standard deviations describe variation among patches, while confidence intervals resample WSIs as the biological units.
 
 \section{Results}
 
@@ -531,46 +541,64 @@ Labels/class & Conventional $\uparrow$ & $\SOtwo$ $\uparrow$ & \shortstack{Simul
 
 \begin{figure}[!t]
 \centering
-\includegraphics[width=0.94\textwidth]{figures/downstream_results.png}
-\caption{Frozen-representation classification results. (a) Tissue macro-F1 on 31,572 test patches under nested class-balanced training budgets; the asterisk marks the 500-label contrast whose simultaneous $95\%$ difference interval excludes zero. (b) Five-class diagnosis on 23 test WSIs. The paired WSI macro-F1 interval includes zero.}
+\begin{tikzpicture}
+\begin{axis}[
+ width=0.94\textwidth,height=5.8cm,
+ xmode=log,log basis x=10,xmin=220,xmax=6500,ymin=0.46,ymax=0.82,
+ xtick={250,500,1000,2500,5671},xticklabels={250,500,{1,000},{2,500},{5,671}},
+ ytick={0.50,0.55,0.60,0.65,0.70,0.75,0.80},
+ xlabel={Training labels per tissue class},ylabel={Test macro-F1},
+ axis x line*=bottom,axis y line*=left,ymajorgrids=true,
+ grid style={draw=black!12},tick align=outside,
+ legend style={at={(0.02,0.98)},anchor=north west,draw=none,font=\footnotesize},
+ legend columns=2,label style={font=\footnotesize},tick label style={font=\footnotesize}]
+\addplot[color=teal!75!black,mark=*,thick] coordinates {(250,0.508) (500,0.511) (1000,0.582) (2500,0.701) (5671,0.766)};
+\addlegendentry{Conventional VAE}
+\addplot[color=red!65!brown,mark=square*,dashed,thick] coordinates {(250,0.523) (500,0.575) (1000,0.598) (2500,0.714) (5671,0.710)};
+\addlegendentry{$\SOtwo$ VAE}
+\node[text=red!65!brown,font=\bfseries] at (axis cs:500,0.606) {*};
+\end{axis}
+\end{tikzpicture}
+\caption{Tissue-recognition macro-F1 on 31,572 test patches under nested class-balanced training budgets. The asterisk marks the 500-label contrast whose simultaneous $95\%$ difference interval excludes zero.}
 \label{fig:downstream}
 \end{figure}
 
 \subsection{Classification B: Five-Class WSI Diagnosis}
 
-Macro-F1 was $0.483$ for the equivariant representation and $0.389$ for the conventional representation (\autoref{tab:wsi-overall}). The conventional-minus-equivariant difference was $-0.095$, with a $95\%$ interval of $[-0.207,0.050]$. The interval included zero. Among the secondary metrics, the equivariant representation had lower mean cross-entropy, with a WSI-resampling interval excluding zero.
+The final WSI diagnosis comparison uses the separate cohort of 152 WSIs after five-fold classifier development and final training on all 361 development slides (\autoref{tab:wsi-overall}).
+% TODO: Completar las metricas, intervalos y analisis de la evaluacion MIL final de152 WSIs; no trasladar las cifras de23 WSIs.
 
 \begin{table}[t]
-\caption{Overall WSI diagnosis results on 23 test slides. Difference intervals are conventional-minus-$\SOtwo$.}
+\caption{Overall WSI diagnosis results on the separate 152-slide evaluation cohort. Difference intervals are conventional-minus-$\SOtwo$. XXXX/YYYY denote pending final-evaluation values.}
 \label{tab:wsi-overall}
 \centering
 \begin{tabular}{lccc}
 \toprule
 Metric & Conventional & $\SOtwo$ & Difference $95\%$ CI \\
 \midrule
-Macro-F1 $\uparrow$ & $0.389$ & $0.483$ & $[-0.207,0.050]$ \\
-Balanced accuracy $\uparrow$ & $0.510$ & $0.503$ & $[-0.167,0.180]$ \\
-Accuracy $\uparrow$ & $0.522$ & $0.609$ & $[-0.217,0.043]$ \\
-Mean cross-entropy $\downarrow$ & $1.323$ & $0.993$ & $[0.135,0.524]$ \\
+Macro-F1 $\uparrow$ & XXXX & YYYY & \textemdash \\
+Balanced accuracy $\uparrow$ & XXXX & YYYY & \textemdash \\
+Accuracy $\uparrow$ & XXXX & YYYY & \textemdash \\
+Mean cross-entropy $\downarrow$ & XXXX & YYYY & \textemdash \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Classwise point estimates varied (\autoref{tab:wsi-class}). The conventional representation had zero F1 for EC and LGSC and correctly classified both MC slides; the equivariant representation had higher EC and LGSC F1 and no correct MC prediction. With only two test WSIs in each of LGSC and MC, these contrasts are unstable.
+The 152-slide evaluation cohort contains 33 CC, 36 EC, 56 HGSC, 15 LGSC and 12 MC WSIs (\autoref{tab:wsi-class}).
 
 \begin{table}[t]
-\caption{Classwise WSI F1 and test support.}
+\caption{Classwise WSI F1 and support in the 152-slide evaluation cohort. XXXX/YYYY denote pending final-evaluation values.}
 \label{tab:wsi-class}
 \centering
 \begin{tabular}{lrrr}
 \toprule
 Diagnosis & Support & Conventional F1 $\uparrow$ & $\SOtwo$ F1 $\uparrow$ \\
 \midrule
-CC & 5 & $0.667$ & $0.750$ \\
-EC & 6 & $0.000$ & $0.533$ \\
-HGSC & 8 & $0.706$ & $0.800$ \\
-LGSC & 2 & $0.000$ & $0.333$ \\
-MC & 2 & $0.571$ & $0.000$ \\
+CC & 33 & XXXX & YYYY \\
+EC & 36 & XXXX & YYYY \\
+HGSC & 56 & XXXX & YYYY \\
+LGSC & 15 & XXXX & YYYY \\
+MC & 12 & XXXX & YYYY \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -580,21 +608,24 @@ MC & 2 & $0.571$ & $0.000$ \\
 
 \section{Discussion}
 
-Which representation scored higher depended on the task and the number of labeled tissue patches. The conventional VAE had lower pooled MAE/MSE and higher pooled PSNR/SSIM point estimates. The equivariant representation had higher tissue macro-F1 at the four smaller budgets and a higher WSI macro-F1 point estimate. Most confidence intervals for the main comparisons included zero. The single tissue-budget interval that excluded zero applies to that contrast only and does not establish a monotone or general label-efficiency effect. The model with lower reconstruction error did not consistently achieve higher classification macro-F1.
+Which representation scored higher depended on the task and the number of labeled tissue patches. The conventional VAE had lower pooled MAE/MSE and higher pooled PSNR/SSIM point estimates. The equivariant representation had higher tissue macro-F1 at the four smaller budgets. Most confidence intervals for the main comparisons included zero. The single tissue-budget interval that excluded zero applies to that contrast only and does not establish a monotone or general label-efficiency effect. The model with lower reconstruction error did not consistently achieve higher tissue-classification macro-F1.
 
-Patch-based WSI systems depend on both the instance representation and the bag aggregator. Prior MIL work has developed the representation, aggregation or both \cite{ilse_attention_2018,lu_data_2021,li_dualstream_2021,shao_transmil_2021}. This experiment held the downstream protocol fixed while changing the frozen representation. The WSI interval remained wide, and classwise estimates were unstable for diagnoses with two test slides. The results characterize the two implemented representation branches but do not establish a general WSI or tissue-classification advantage.
+Patch-based WSI systems depend on both the instance representation and the bag aggregator. Prior MIL work has developed the representation, aggregation or both \cite{ilse_attention_2018,lu_data_2021,li_dualstream_2021,shao_transmil_2021}. The WSI protocol compares the two frozen representations using matched development folds, followed by final training on all 361 development WSIs and evaluation on the separate 152-slide cohort. This design separates classifier development from final evaluation.
+% TODO: Completar la discusion WSI con los resultados finales de152 WSIs.
 
 The models also differ in capacity and computation. Graham \emph{et al.} matched parameter counts in comparisons of rotation-equivariant histology classifiers \cite{graham_dense_2020}; these two VAEs were not parameter-matched. The equivariant VAE uses $29.8\%$ as many learned parameters but requires more estimated multiply-accumulate operations. Any performance difference may reflect equivariance, parameter count, optimization or their interaction. The experiment does not separate these mechanisms.
 
 \section{Limitations}
 
-Each VAE and downstream configuration was trained once. The bootstrap intervals quantify variation across the observed WSIs, not variation across new initializations, data orders or optimization runs. The WSI test contains 23 slides, including two each for LGSC and MC. Tissue recognition contains many patches but only 23 WSIs, and necrosis is present in five of them.
+
+Each VAE and tissue-classification configuration is trained once. The bootstrap intervals quantify variation across the observed WSIs rather than variation across independent VAE training runs. MIL cross-validation estimates classifier performance conditional on fixed representations learned from the same development cohort. The final WSI evaluation contains 152 slides from the same data source. Tissue recognition contains many test patches but only 23 test WSIs, and necrosis is present in five of them.
 
 Supplemental tissue masks are incomplete. The tissue experiment evaluates selected high-purity annotated regions and cannot be interpreted as exhaustive segmentation of complete WSIs. The study uses one ovarian-cancer data source.
 
 \section{Conclusion}
 
-This study compared conventional and continuous-$\SOtwo$ VAEs as frozen histopathology representations under a common experimental protocol. With one training run per configuration and intervals limited to WSI resampling, the results varied by task and label budget. The experiment did not establish a general advantage for either implemented representation; repeated training runs and models with matched parameter counts are needed to isolate the contribution of continuous rotation equivariance.
+This study compares conventional and continuous-$\SOtwo$ VAEs as frozen histopathology representations under matched task-specific protocols. Reconstruction and tissue-recognition results vary by task and label budget. WSI diagnosis uses five-fold classifier development followed by final training on all 361 development WSIs and evaluation on a separate 152-slide cohort.
+% TODO: Completar la conclusion global con la evaluacion MIL final de152 WSIs.
 
 \clearpage
 \bibliography{references}

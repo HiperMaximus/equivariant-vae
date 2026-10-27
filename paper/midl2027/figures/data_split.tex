@@ -1,32 +1,39 @@
 \begin{tikzpicture}[
  font=\sffamily\scriptsize,>=Latex,
- box/.style={draw=black!65,rounded corners=2pt,align=center,text width=31mm,minimum height=11mm,inner sep=2mm},
+ box/.style={draw=black!60,rounded corners=2pt,align=center,text width=36mm,minimum height=12mm,inner sep=2mm},
  vae/.style={box,fill=blue!7,draw=blue!65!black},
- sup/.style={box,fill=orange!8,draw=orange!75!black},
- test/.style={box,fill=purple!8,draw=purple!65!black},
- task/.style={box,fill=green!8,draw=green!50!black,text width=32mm},
- flow/.style={->,thick,draw=black!65}]
-\node[box,fill=black!3] (source) at (0,0.8) {UBC-OCEAN non-TMA cohort\\513 WSIs};
-\node[vae] (vae) at (4.5,3.4) {Unsupervised VAE development\\361 WSIs};
-\node[sup] (sup) at (4.5,0.8) {Supervised development\\129 WSIs};
-\node[test] (test) at (4.5,-2.4) {Shared sealed test\\23 WSIs\\5/6/8/2/2};
-\node[vae] (vtrain) at (8.7,4.3) {VAE training\\322 WSIs; 300,000 patches\\60,000 per diagnosis};
-\node[vae] (vval) at (8.7,2.8) {VAE validation\\39 WSIs; 30,000 patches\\6,000 per diagnosis};
-\node[sup] (strain) at (8.7,1.2) {Classifier training\\106 WSIs\\23/24/40/11/8};
-\node[sup] (sval) at (8.7,-0.2) {Classifier validation\\23 WSIs\\5/6/8/2/2};
-\node[task] (wsi) at (13.0,1.6) {Five-class WSI diagnosis\\261,168 test instances};
-\node[task] (tissue) at (13.0,-0.4) {Three-class tissue\\recognition\\31,572 test patches};
-\node[task] (recon) at (13.0,-2.4) {VAE reconstruction\\67,138 test patches};
-\node[font=\sffamily\scriptsize\bfseries,align=center] at (13.0,2.8) {Final evaluation on the\\same 23 test WSIs};
-\draw[flow] (source.east) -- (vae.west);
-\draw[flow] (source.east) -- (sup.west);
-\draw[flow] (source.south) |- (test.west);
-\draw[flow] (vae.east) -- (vtrain.west);
-\draw[flow] (vae.east) -- (vval.west);
-\draw[flow] (sup.east) -- (strain.west);
-\draw[flow] (sup.east) -- (sval.west);
-\draw[thick,draw=purple!65!black] (test.east) -- (10.75,-2.4) -- (10.75,1.6);
-\foreach \target/\height in {wsi/1.6,tissue/-0.4,recon/-2.4}
- \draw[flow,draw=purple!65!black] (10.75,\height) -- (\target.west);
-\node[font=\sffamily\tiny,align=center] at (4.5,-3.5) {Class order: CC / EC / HGSC / LGSC / MC.\\Development and test subsets are disjoint by WSI.};
+ mil/.style={box,fill=orange!8,draw=orange!75!black},
+ eval/.style={box,fill=purple!8,draw=purple!65!black},
+ task/.style={box,fill=green!8,draw=green!50!black},
+ flow/.style={->,thick,draw=black!65},
+ milflow/.style={flow,draw=orange!75!black},
+ evalflow/.style={flow,draw=purple!65!black}]
+\node[box,fill=black!3,text width=65mm] (source) at (4.8,8.0) {UBC-OCEAN non-TMA cohort: 513 WSIs};
+\node[vae] (dev) at (2.3,6.4) {Development cohort\\361 WSIs};
+\node[eval] (external) at (9.0,6.4) {Separate annotated cohort\\152 WSIs};
+\node[vae] (vtrain) at (0,4.5) {VAE training\\322 WSIs; 300,000 patches};
+\node[vae] (vval) at (4.6,4.5) {VAE validation\\39 WSIs; 30,000 patches};
+\node[mil,text width=57mm] (cv) at (2.3,2.5) {MIL: five-fold cross-validation\\Fold 0: 288 train / 73 validation\\Folds 1--4: 289 train / 72 validation};
+\node[mil,text width=57mm] (refit) at (2.3,0.5) {Final MIL training from scratch\\All 361 development WSIs\\Fixed duration; no validation split};
+\node[task,text width=45mm] (miltest) at (9.0,0.5) {Final MIL evaluation\\All 152 separate WSIs};
+\node[font=\sffamily\bfseries\small,anchor=west] at (-2.3,9.2) {(a) VAE and MIL populations};
+\node[font=\sffamily\bfseries\small,anchor=west] at (-2.3,-2.2) {(b) Tissue recognition and reconstruction};
+\node[eval,text width=57mm] (annotated) at (5.4,-3.3) {Same annotated cohort: 152 WSIs};
+\node[eval] (ttrain) at (0.5,-5.0) {Tissue training\\106 WSIs};
+\node[eval] (tval) at (5.4,-5.0) {Tissue validation\\23 WSIs};
+\node[task] (ttest) at (10.3,-5.0) {Tissue test\\23 WSIs; 31,572 patches};
+\node[task] (recon) at (10.3,-7.0) {Reconstruction test\\Same 23 tissue-test WSIs\\67,138 patches};
+\draw[flow] (source.south) -- ++(0,-0.35) -| (dev.north);
+\draw[evalflow] (source.south) -- ++(0,-0.35) -| (external.north);
+\draw[flow] (dev.south) -- ++(0,-0.3) -| (vtrain.north);
+\draw[flow] (dev.south) -- ++(0,-0.3) -| (vval.north);
+\draw[milflow] (dev.west) -- ++(-2.7,0) |- (cv.west);
+\draw[milflow] (cv.south) -- node[right,font=\sffamily\tiny,align=left] {Fix configuration\\and duration} (refit.north);
+\draw[milflow] (refit.east) -- (miltest.west);
+\draw[evalflow] (external.east) -- ++(1.3,0) |- (miltest.east);
+\draw[evalflow] (annotated.south) -- ++(0,-0.3) -| (ttrain.north);
+\draw[evalflow] (annotated.south) -- (tval.north);
+\draw[evalflow] (annotated.south) -- ++(0,-0.3) -| (ttest.north);
+\draw[evalflow] (ttest.south) -- (recon.north);
+\node[font=\sffamily\scriptsize,align=center,text width=110mm] at (4.8,-0.9) {VAE weights remain frozen throughout MIL development and final training.\\WSI assignments are shared between representations within each task.};
 \end{tikzpicture}
