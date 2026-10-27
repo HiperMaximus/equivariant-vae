@@ -903,6 +903,15 @@ fast-session runtime; a slow session may need the360-minute budget plus setup,
 with a later check around23:30. Receipt:
 `reports/spec0054_io_20261027/gap1_queue_launch_receipt.json`.
 
+Reinspection around18:36 Bogota confirms API RUNNING. A30-second live stream
+returns0 bytes, leaving worker start and numerical/timing progress unconfirmed.
+This cannot distinguish platform setup, active execution or delayed log
+delivery and does not establish a storage failure. The session is unchanged;
+next useful inspection is around23:30 or once logs become available. The
+360-minute runtime budget begins at actual entry execution; platform setup and
+in-flight reads may extend elapsed time after submission. Snapshot:
+`reports/spec0054_io_20261027/gap1_queue_v2_live_1836.json`.
+
 ## Bounded I/O followup (2026-10-23)
 
 Reuse the existing read-probe mode in a private Kaggle CPU session, mounting

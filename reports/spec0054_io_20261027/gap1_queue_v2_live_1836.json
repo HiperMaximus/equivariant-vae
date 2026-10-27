@@ -1,0 +1,19 @@
+{
+  "reference": "maximshtefan/eqvae-spec0054-io-coalescing/2",
+  "checked_at_utc": "2026-10-27T23:36:00Z",
+  "checked_at_bogota": "2026-10-27T18:36:00-05:00",
+  "time_precision": "approximately_one_minute",
+  "platform_status": "RUNNING",
+  "source_commit_submitted": "1126d6a68bd006f26af4a420acd9185c0ff32d0e",
+  "entry_commit_submitted": "d35a152",
+  "gpu_enabled_in_submitted_metadata": false,
+  "live_log_window_seconds": 30,
+  "live_log_received_bytes": 0,
+  "stream_exit_code": 124,
+  "worker_start_confirmed": false,
+  "measurements_available": false,
+  "diagnosis": "Platform setup, code execution and log-delivery delay cannot be distinguished from this snapshot.",
+  "session_modified": false,
+  "next_useful_check_bogota": "2026-10-27T23:30:00-05:00",
+  "deadline_scope": "360 minutes from actual entry execution; setup and in-flight I/O may extend time after submission"
+}

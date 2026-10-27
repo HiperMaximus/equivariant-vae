@@ -31,15 +31,20 @@ hint/discard call counts. Portable evidence:
 No measured outcome exists for the new combination yet.
 Source is `1126d6a68bd006f26af4a420acd9185c0ff32d0e`, entry `d35a152`;
 the360-minute runtime budget starts at entry execution. The separate kernel
-metadata keeps GPU disabled and all original inputs. API RUNNING is confirmed,
-but worker start/timing measurements have not been inspected. First useful
-check around18:30 Bogota on2026-10-27; if it remains active in the slow regime,
-inspect later around23:30 allowing for the runtime budget and platform setup.
+metadata keeps GPU disabled and all original inputs. Reinspection around18:36
+Bogota on2026-10-27 confirms API RUNNING; a30-second live log stream returns
+0 bytes. Worker start and timing measurements remain unconfirmed. Platform
+setup, active code and delayed log delivery cannot be distinguished; no
+storage failure or completed comparison is established. No cancellation,
+relaunch or session change. Next useful check around23:30 Bogota, or when logs
+become available; the360-minute budget starts at actual entry execution, so
+platform setup and in-flight I/O may extend the time since submission.
+Live receipt: `reports/spec0054_io_20261027/gap1_queue_v2_live_1836.json`.
 Receipt: `reports/spec0054_io_20261027/gap1_queue_launch_receipt.json`.
 
 | Probe | Exact Kaggle reference | Source / entry commits | Last observed state |
 | --- | --- | --- | --- |
-| gap1 queue/cache combination | `maximshtefan/eqvae-spec0054-io-coalescing/2` | `1126d6a` / `d35a152` | RUNNING,17:08 Bogota |
+| gap1 queue/cache combination | `maximshtefan/eqvae-spec0054-io-coalescing/2` | `1126d6a` / `d35a152` | RUNNING,18:36 Bogota; no logs |
 | mmap/discard/prefetch and deeper queues | `maximshtefan/eqvae-spec0054-mil-fold0/24` | `f032095` / `faa3e97` | COMPLETE,864 reads |
 | sampled versus scatter-coalescing gaps1/2 | `maximshtefan/eqvae-spec0054-io-coalescing/1` | `e902d26` / `6d64577` | COMPLETE,1296 reads |
 
