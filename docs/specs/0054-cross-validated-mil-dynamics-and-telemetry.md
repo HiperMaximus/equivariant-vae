@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v18 paused at5 epochs; combined CPU v24 and coalescing CPU v1 complete and reviewed
+Status: dropout/smoothing/C4 v18 paused at5 epochs; CPU v24/v1 reviewed; gap1 queue/cache CPU v2 RUNNING
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-26
@@ -892,6 +892,16 @@ diff review found no blocking issue. Archived checker and verification:
 Source `1126d6a68bd006f26af4a420acd9185c0ff32d0e` is pinned by the prepared
 thin entry. The separate coalescing kernel retains its original CPU-only
 metadata and all frozen input locators.
+
+Submitted as `maximshtefan/eqvae-spec0054-io-coalescing/2` around17:08 Bogota
+on2026-10-27, API RUNNING. Entry `d35a152` pins the source above; metadata is
+byte-identical to the archived coalescing metadata, including GPU-off and all
+original12 inputs. No classifier continuation or shared-reader change.
+RUNNING establishes platform state; worker start and timing measurements have
+not been inspected. First useful check around18:30 Bogota based on the previous
+fast-session runtime; a slow session may need the360-minute budget plus setup,
+with a later check around23:30. Receipt:
+`reports/spec0054_io_20261027/gap1_queue_launch_receipt.json`.
 
 ## Bounded I/O followup (2026-10-23)
 

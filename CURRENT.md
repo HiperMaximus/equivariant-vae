@@ -16,7 +16,8 @@ The 152 external WSI remain reserved for final evaluation.
 The two CPU I/O probes have now completed and their final outputs were reviewed
 on2026-10-27 around13:40 Bogota. Both workers exit0 in each run; all planned
 blocks and864/1296 combined reads complete. No new job or training continuation
-was submitted by that review. The authorized next comparison is now prepared:
+was submitted by that review. The authorized followup is now RUNNING as
+`maximshtefan/eqvae-spec0054-io-coalescing/2`, submitted around17:08 Bogota:
 gap1 scatter coalescing with queue2; gap1 with queue8 only; gap1 with queue8
 plus bounded WILLNEED/post-copy DONTNEED. This measures queue depth separately
 from the incremental joint cache policy. Same72 epoch-index5 WSI, three Latin
@@ -28,21 +29,26 @@ cover values/C4, requested bytes/intervals, queue budgets/FIFO and explicit
 hint/discard call counts. Portable evidence:
 `reports/spec0054_io_20261027/{check_gap1_queue_probe.py,gap1_queue_verification.json}`.
 No measured outcome exists for the new combination yet.
-Prepared source is `1126d6a68bd006f26af4a420acd9185c0ff32d0e`; the thin
-entry pins it and retains the360-minute runtime budget. The separate
-coalescing kernel metadata keeps GPU disabled and all original inputs.
+Source is `1126d6a68bd006f26af4a420acd9185c0ff32d0e`, entry `d35a152`;
+the360-minute runtime budget starts at entry execution. The separate kernel
+metadata keeps GPU disabled and all original inputs. API RUNNING is confirmed,
+but worker start/timing measurements have not been inspected. First useful
+check around18:30 Bogota on2026-10-27; if it remains active in the slow regime,
+inspect later around23:30 allowing for the runtime budget and platform setup.
+Receipt: `reports/spec0054_io_20261027/gap1_queue_launch_receipt.json`.
 
-| Probe | Exact Kaggle reference | Source / entry commits | Final state |
+| Probe | Exact Kaggle reference | Source / entry commits | Last observed state |
 | --- | --- | --- | --- |
+| gap1 queue/cache combination | `maximshtefan/eqvae-spec0054-io-coalescing/2` | `1126d6a` / `d35a152` | RUNNING,17:08 Bogota |
 | mmap/discard/prefetch and deeper queues | `maximshtefan/eqvae-spec0054-mil-fold0/24` | `f032095` / `faa3e97` | COMPLETE,864 reads |
 | sampled versus scatter-coalescing gaps1/2 | `maximshtefan/eqvae-spec0054-io-coalescing/1` | `e902d26` / `6d64577` | COMPLETE,1296 reads |
 
-Both disable GPU/pinning/H2D and preserve the frozen inputs. Independent CPU
+All disable GPU/pinning/H2D and preserve the frozen inputs. Independent CPU
 probes may run concurrently; inter-session storage interference is unmeasured
 and is not a launch blocker. Compare matched methods within each session and
 retain the cache/order/external-load limitations; absolute timings across
-different sessions do not isolate the reader change. Timed blocks actually
-overlapped for about9min35s; interference was not isolated.
+different sessions do not isolate the reader change. Completed v24/v1 timed
+blocks actually overlapped for about9min35s; interference was not isolated.
 
 V24 mean joint72-WSI window wall is285.84s baseline,228.30s preadv+discard+
 prefetch/queue8 (-20.13%),227.45s mmap with that policy/queue (-20.43%). Both
@@ -66,16 +72,18 @@ and do not sum branch snapshots. These are RPC-client counters, including
 reply overhead and any other work in that scope, not per-WSI payload counts.
 Mmap in v24 also has greater NFS reply traffic (~33.66 vs24.09GB for preadv)
 despite nearly tied wall. No measured retransmissions, major timeouts or READ
-errors in these intervals. A useful next comparison is gap1 plus the deeper
-queue/cache policy versus gap1 alone; the33% and20% savings cannot be added.
+errors in these intervals. Active v2 measures the deeper queue/cache additions
+to gap1; the separate33% and20% savings cannot be added.
 Training impact and behavior in the previously slow backend regime remain
 unmeasured. Full summaries/one-shot analysis:
 [v24](reports/spec0054_io_20261027/v24_combined_summary.json),
 [coalescing v1](reports/spec0054_io_20261027/coalescing_v1_summary.json).
 
-The versions are complete. A fresh checkout can verify their remote state:
+The earlier versions are complete; the new v2 is running. A fresh checkout
+can verify their remote state without resubmitting them:
 
 ```bash
+./scripts/kaggle_kernel.sh status maximshtefan/eqvae-spec0054-io-coalescing/2
 ./scripts/kaggle_kernel.sh status maximshtefan/eqvae-spec0054-mil-fold0/24
 ./scripts/kaggle_kernel.sh status maximshtefan/eqvae-spec0054-io-coalescing/1
 ```
@@ -87,6 +95,10 @@ to these new directories; the wrapper does not overwrite existing directories:
 ./scripts/kaggle_kernel.sh output maximshtefan/eqvae-spec0054-mil-fold0/24 runs/kaggle/spec0054_io_combined_v24_handoff
 ./scripts/kaggle_kernel.sh output maximshtefan/eqvae-spec0054-io-coalescing/1 runs/kaggle/spec0054_io_coalescing_v1_handoff
 ```
+
+After v2 completes, its fresh output destination can be
+`runs/kaggle/spec0054_io_gap1_queue_v2_handoff` using the same wrapper and
+reference `maximshtefan/eqvae-spec0054-io-coalescing/2`.
 
 Inspect each branch's `read_probe.json` and partial row logs: compare only
 matched completed blocks, raw/prepared/subset/C4 hashes, joint window wall,
@@ -100,10 +112,12 @@ v18 training and v21/v22/v23 I/O summaries, exact epoch-byte accounting,
 synthetic verification/script, virtual-mapping example/result, the separate
 coalescing kernel metadata/launch receipt, and the final v24/coalescing v1
 summaries and analysis scripts. These are byte-identical copies of the cited
-local artifacts, with historical timestamps and source commits. The launch
-receipt's RUNNING status predates this final review.
-The launch entry itself is already tracked at
-`kaggle/kernels/spec0054_mil_fold0/abmil.py` in commit `6d64577`; its original
+local artifacts, with historical timestamps and source commits. The old
+`coalescing_launch_receipt.json` RUNNING state predates the v1 final review;
+`gap1_queue_launch_receipt.json` identifies the active v2. The new synthetic
+checker/verification are also tracked. The entry itself is already tracked at
+`kaggle/kernels/spec0054_mil_fold0/abmil.py` in commits `6d64577` for v1 and
+`d35a152` for v2; its original
 metadata still names the mil-fold0 kernel. The archived coalescing metadata
 changes only id/title. The complete synthetic checker uses generated data;
 the epoch-accounting script additionally requires the downloaded v18 telemetry.
