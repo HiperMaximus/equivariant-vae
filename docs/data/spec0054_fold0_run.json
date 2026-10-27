@@ -176,16 +176,15 @@
       11,
       12
     ],
-    "population": "fold_train_in_mounted_shards",
+    "population": "first_training_window_replayed_at_same_epoch",
     "reader_workers": 2,
     "passes": 2,
     "first_epoch": 5,
     "wsi_block_size": 72,
     "methods": [
       "sampled_regions",
-      "sampled_discard",
       "sampled_discard_prefetch",
-      "mmap_sampled"
+      "mmap_discard_prefetch"
     ],
     "lookahead_wsi": 4,
     "prefetch_bytes_per_wsi": 16777216,
@@ -193,27 +192,20 @@
       [
         0,
         1,
-        3,
         2
       ],
       [
-        1,
         2,
-        0,
-        3
-      ],
-      [
-        2,
-        3,
         1,
         0
-      ],
-      [
-        3,
-        0,
-        2,
-        1
       ]
-    ]
+    ],
+    "mmap_advice": "MADV_SEQUENTIAL",
+    "future_wsi": {
+      "sampled_regions": 2,
+      "sampled_discard_prefetch": 8,
+      "mmap_discard_prefetch": 8
+    },
+    "max_ready_bytes_per_branch": 3221225472
   }
 }

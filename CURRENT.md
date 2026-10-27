@@ -315,6 +315,45 @@ pinned storage is a future allocation/copy candidate, not an implemented or
 measured transfer improvement. Audit:
 `runs/local/spec0054_io_os_v23_review/transfer_audit_v18.json`.
 
+Inspection on2026-10-27 around11:38 Bogota confirms v23 COMPLETE, workers[0,0],
+CPU-only; both results stop normally at the180min deadline with357 rows each
+(714 combined). Only window0 has all four methods complete:72 matched WSI
+per branch, all12 shards. Exclude the69 discard-only reads per branch in
+window1. Raw/prepared/subset/C4 hashes agree across all four paths and branches
+pair exactly. Pooled mean read seconds are47.794 baseline,37.844 discard,
+39.957 mmap and26.589 discard+prefetch. Joint window wall is2400.38/1968.59/
+2094.87/1498.18s respectively: descriptive savings18.0% discard,12.7% mmap,
+37.6% combined. These are one-window observations, not completed Williams
+counterbalancing: combined ran after mmap and21/72 WSI per branch were >90%
+resident before reading. Baseline/mmap both started every read <1% resident,
+but backend warming remains uncontrolled. Discard reduced measured residency
+to0; NFS READ counters were not exposed. Peak process HWM1.95/1.97GiB;
+p95 read delays remain~200--207s, and mmap uses more read CPU (.821 vs.400s).
+No policy/reader selected or training resumed. Recommended narrow confirmation:
+baseline versus discard+prefetch, replicate in reversed order before combining
+mmap with that policy. Outputs: `runs/kaggle/spec0054_io_os_v23/`; review:
+`runs/local/spec0054_io_os_v23_review/summary.json`.
+
+The accepted combined CPU probe is prepared: baseline preadv with two data
+futures, preadv+discard+WILLNEED, and read-only mmap+MADV_SEQUENTIAL+discard+
+WILLNEED. Candidate queues retain up to eight prepared CPU WSI per branch,
+with3GiB reserved selected-buffer budget per branch and two reader threads.
+The budget excludes active working copies, C4 temporaries, index and OS cache;
+RSS/HWM and observed ready counts are measured separately. Prepared tensors
+stay owned by futures until FIFO consumption; file data/order/C4 stay frozen.
+Replay the exact same first72 epoch-index5 training WSI twice, ABC then CBA.
+Before each arm, discard only these bag ranges and record actual residency,
+then synchronize; report this control cost separately from timed pipeline wall.
+This controls client carryover, not remote caching or all nonlinear order effects.
+Runtime budget240min, maximum864 combined reads. GPU/pinning/H2D disabled.
+The output includes the complete288-WSI training-epoch byte-range plan and
+subset hashes; assessment reads are explicitly outside that plan. Forward
+prefetch uses only the bounded comparison window, not a full-epoch preload.
+Synthetic264-read checks cover depth8 and a tighter byte cap, frozen file
+hashes, exact raw/prepared arrays, epoch-plan blob offsets and FIFO order.
+Seven reader tests/static checks and independent subagent review pass.
+Publication/submission pending.
+
 All512 WSI/subset/C4 records match across branches; initial parameters and reader
 match the prior recipe. No AMP backoffs or nonfinite losses/gradients. Mean steps
 143.96/144.64s versus14.94/14.71s over the matched first128 v10 updates. Input

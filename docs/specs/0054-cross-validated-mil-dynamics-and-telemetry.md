@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v18 paused at5 epochs; CPU cache-policy/mmap probe v23 RUNNING
+Status: dropout/smoothing/C4 v18 paused at5 epochs; v23 complete with preliminary mmap/cache-policy gains
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-26
@@ -541,6 +541,108 @@ such change or measurement is included in this CPU experiment. Evidence:
 [PyTorch shared NumPy storage](https://docs.pytorch.org/docs/2.14/generated/torch.from_numpy.html),
 [pinned/nonblocking transfers](https://docs.pytorch.org/tutorials/intermediate/pinmem_nonblock.html),
 [NVIDIA GDS](https://docs.nvidia.com/gpudirect-storage/overview-guide/index.html).
+
+V23 inspection on2026-10-27 around11:38 Bogota confirms COMPLETE and worker
+exits[0,0]. Both results completed=false at the180-minute budget, with357
+reads each/714 combined. Window0 completes all four policies on72 WSI per
+branch; window1 contains only69 discard reads per branch. No full training
+epoch or second pass is complete. Comparisons below exclude unmatched window1.
+All144 branch/WSI groups preserve selected-value, prepared-value, subset and
+C4 hashes across all four methods. Branch request/subset/C4 keys agree;
+raw/hint JSONL matches final rows and mincore succeeds. No GPU or OOM occurs.
+
+Pooled matched read means are47.79373s baseline,37.84359s discard,39.95694s
+mmap and26.58897s discard+prefetch. Pipeline means (read, hint calls, discard
+and CPU host preparation; excluding snapshots/hashes) are48.20771/38.24346/
+40.60400/27.07969s. Concurrent window wall including initial hints and all
+instrumentation is2400.37805/1968.59100/2094.86510/1498.17998s. Descriptive
+wall reductions against baseline are18.0% discard,12.7% mmap and37.6% combined.
+Baseline/mmap read CPU means are.40027/.82101s; host preparation.41397/
+.64706s. The observed mmap wall improvement does not indicate less CPU work.
+All methods retain long tails: p95 reads205.80139/204.45876/207.43684/
+200.51904s in the same order. Peak cumulative process HWM is1.94830/1.96875GiB
+normal/SO2, covering both readers and instrumentation, not GPU training peaks.
+
+Policy order in the only complete window is baseline, discard, mmap, then
+discard+prefetch. Thus the Williams position/predecessor balance was not
+completed. Mean pre-read residency is~.000016 baseline, .17975 discard,
+.000035 mmap and.31597 combined. All baseline/mmap reads start below1%
+resident, but their backend access history still differs. Combined has21/72
+WSI per branch above90% residency, consistent with carryover after mmap.
+Each hint requests only16MiB (512 patch records), so large preexisting
+residencies cannot be uniquely assigned to that advice. DONTNEED actually
+reduces measured bag residency to0 in every discard row. These observations
+establish cache-state changes, not their causal contribution to throughput.
+
+Each branch issues72 hints to72 unique measured targets, requesting1.20766GB
+in total. Hint-call totals are4.48347/4.30010s normal/SO2 and are included in
+window wall. Per-input-mount NFS READ counters are empty; no remote-delay
+mechanism can be inferred from them. A narrow baseline-versus-discard+prefetch
+confirmation with reversed ordering is the next candidate before selecting a
+policy; mmap plus discard/prefetch remains an unmeasured combination. No new
+run, training-reader change or classifier continuation accompanies this review.
+Outputs: `runs/kaggle/spec0054_io_os_v23/`; numerical review and one-shot script:
+`runs/local/spec0054_io_os_v23_review/{summary.json,analyze_v23.py}`.
+
+## Combined-policy confirmation with deeper CPU prefetch (2026-10-27)
+
+The authorized next comparison narrows to three packages: baseline sampled
+preadv, sampled preadv with post-copy discard and bounded WILLNEED, and native
+read-only mmap with MADV_SEQUENTIAL plus that same discard/WILLNEED policy.
+Within a WSI the retained patch indices are sorted, so the mapping's sequential
+hint describes the local range. It does not label the globally random blob
+traversal sequential. No NOREUSE, global sysctl, remount or full-atlas staging
+change is included. The shared training reader/checkpoints remain unchanged.
+
+Use the exact first72 WSI of the epoch-index5 training permutation for both
+repetitions, with the same60% subsets and C4 codes. This prefix spans all12
+shards and39.212GB paired full contents. Execute ABC then CBA. Reversal balances
+average position/linear trend; the middle package remains second, so nonlinear
+backend warming is not fully counterbalanced. Before every package, request
+DONTNEED for only these72 page-aligned bag ranges, record observed residency
+without a pass/fail threshold, and synchronize both branches afterward. Keep
+reset timestamps/cost and waits distinct from timed input-pipeline wall. The
+reset is an experimental control, not a proposed per-epoch training operation.
+It does not invalidate remote NFS/backend caches.
+
+Two readers remain active per branch. Baseline retains two data futures;
+both candidate packages allow eight submitted/prepared CPU WSI in FIFO order.
+Reserve each expected selected-buffer size before submission and release that
+reservation only on consumption. Limit reserved prepared storage to3GiB per
+branch; every individual frozen selected buffer is smaller than this budget.
+Return owned prepared host tensors from the reader so ready futures actually
+retain their data. Record maximum pending count, sampled ready count and
+reserved bytes; ready counts are sampled lower bounds. This is not a3GiB RSS
+cap: source buffers, active C4 work, Torch/index allocations and file-page cache
+are additional. RSS/HWM remain separate observations. The candidates test the
+complete package including deeper prefetch, rather than isolating each trick.
+
+The epoch plan records all288 training WSI in exact order, blob/byte ranges,
+retained byte counts, contiguous-run counts and subset hashes. Actual ranges
+come from the frozen physical shard index, not historical cohort patch counts.
+Sampling seed/epoch/count reconstruct the selected regions compactly. The plan
+excludes full-fold assessment reads and is not a single OS-provided virtual
+epoch address space or swap device. Only its bounded prefix is exercised in
+this experiment; no full epoch is loaded into RAM. Existing file-backed mmap,
+read-ahead hints, owned CPU buffers and explicit discard implement the window.
+
+GPU, pinning and H2D stay disabled. Same C4 and channels-last CPU preparation,
+raw/prepared hashes and per-stage timings apply to all packages. Actual policy
+wall includes read-ahead calls, discard, CPU preparation and verification;
+initial client-cache reset is reported separately. The maximum is864 combined
+reads within a240-minute runtime budget, retaining partial outputs when active
+I/O outlasts the cutoff. The whole-epoch plan does not change training order
+or model updates. [MADV_SEQUENTIAL](https://man7.org/linux/man-pages/man2/madvise.2.html)
+is a read-ahead/replacement hint, not a guaranteed acceleration.
+
+Focused synthetic verification performs264 reads across both branches using
+depth8 and tighter byte-budget configurations. It checks raw/prepared values
+against independent arrays, exact FIFO/subsets/C4, source-file SHA preservation,
+physical epoch-plan offsets and both count/byte reservation limits. Seven
+existing reader tests, compilation, Ruff, targeted BasedPyright and kernel
+build/validation pass. Subagent review found no buffer ownership, reservation
+or scheduling issue; nonlinear backend order effects remain a limitation.
+Publication/submission pending.
 
 ## Bounded I/O followup (2026-10-23)
 
