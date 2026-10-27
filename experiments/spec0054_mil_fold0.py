@@ -962,7 +962,7 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
 
 def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch: str,
                    session_deadline_unix: float | None = None) -> None:
-    """Compare combined I/O policies on the same training window with controlled client cache."""
+    """Compare read shapes on the same training window with controlled client cache."""
     config_path = repo_root / "docs/data/spec0054_fold0_run.json"
     config = json.loads(config_path.read_text())
     probe = config["read_probe"]
@@ -1032,7 +1032,7 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
               "seed": config["seed"], "patch_retention": config["patch_retention"],
               "probe": probe, "hardware": hardware, "completed": False,
               "prepared_hash_order": "NHWC_physical_channels_last",
-              "cache_policy": "window_reset_before_each_arm_then_method_specific_discard_and_willneed",
+              "cache_policy": "window_reset_before_each_arm; per_method_actions_recorded_in_probe_and_rows",
               "counter_scope": "mincore_bag_snapshot; process_rss_peak_shared_by_threads; vmstat_host_wide; NFS_mount_shared_between_branches",
               "blocks": blocks, "rows": rows, "prefetch_hints": hints}
 
@@ -1094,8 +1094,14 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         before = snapshot(bags, wsi_id)
         print(json.dumps({"event": "read_probe_read_start", **info,
                           "resident_fraction": before["resident_fraction"]}), flush=True)
+        requested_bytes = len(indices) * RECORD_BYTES
+        read_regions = None if method == "mmap_discard_prefetch" else int(np.count_nonzero(np.diff(indices) != 1)) + 1
         cpu_started, started = time.thread_time(), time.perf_counter()
-        if method == "mmap_discard_prefetch":
+        if method in ("coalesced_gap1", "coalesced_gap2"):
+            selected, requested_bytes, read_regions = _read_coalesced(
+                bags.descriptors[branch, location.shard], location.first_record,
+                indices, probe["coalesced_gap_records"][method])
+        elif method == "mmap_discard_prefetch":
             with mmap.mmap(bags.descriptors[branch, location.shard], location.count * RECORD_BYTES,
                            access=mmap.ACCESS_READ, offset=location.first_record * RECORD_BYTES) as mapping:
                 mapping.madvise(getattr(mmap, probe["mmap_advice"]))
@@ -1131,8 +1137,8 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         prepared_digest = hashlib.sha256(memoryview(host.permute(0, 2, 3, 1).numpy()).cast("B")).hexdigest()
         prepared_hash_seconds = time.perf_counter() - prepared_hash_started
         row = {**info, "bag_size": location.count, "sampled_bag_size": len(indices),
-               "requested_bytes": len(indices) * RECORD_BYTES,
-               "read_regions": None if method == "mmap_discard_prefetch" else int(np.count_nonzero(np.diff(indices) != 1)) + 1,
+               "sampled_bytes": len(indices) * RECORD_BYTES,
+               "requested_bytes": requested_bytes, "read_regions": read_regions,
                "sample_indices_sha256": hashlib.sha256(indices.tobytes()).hexdigest(),
                "selected_values_sha256": digest, "prepared_values_sha256": prepared_digest,
                "c4_rotations_sha256": hashlib.sha256(rotations.tobytes()).hexdigest(),
@@ -1286,6 +1292,49 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         bags.close()
         print(json.dumps({"event": "read_probe_done", "branch": branch,
                           "completed": result["completed"], "reads": len(rows)}), flush=True)
+
+
+def _read_coalesced(descriptor: int, first_record: int, indices: np.ndarray,
+                    maximum_gap: int) -> tuple[np.ndarray, int, int]:
+    """Read through small holes, scattering retained bytes directly to the output.
+
+    Each preadv consumes one continuous source interval. Gap bytes go to a
+    bounded scratch buffer, while selected runs go to their final array slices.
+    Split groups at SC_IOV_MAX so long alternating patterns remain valid.
+    This reader is used only by the CPU probe; ShardBags.read stays unchanged.
+    """
+    array = np.empty((len(indices), 16, 32, 32), dtype="<f2")
+    output = memoryview(array).cast("B")
+    boundaries = np.r_[0, np.flatnonzero(np.diff(indices) != 1) + 1, len(indices)]
+    starts, ends = boundaries[:-1], boundaries[1:]
+    holes = indices[starts[1:]] - indices[ends[:-1] - 1] - 1
+    iov_max = os.sysconf("SC_IOV_MAX")
+    groups = []
+    first = 0
+    for run in range(1, len(starts)):
+        if holes[run - 1] > maximum_gap or 2 * (run - first) + 1 > iov_max:
+            groups.append((first, run))
+            first = run
+    groups.append((first, len(starts)))
+    gap_storage = bytearray(max(int(holes[first:end - 1].sum())
+                                for first, end in groups) * RECORD_BYTES)
+    gaps = memoryview(gap_storage)
+    requested_bytes = 0
+    for first, end in groups:
+        buffers = []
+        gap_cursor = 0
+        for run in range(first, end):
+            if run > first:
+                size = int(holes[run - 1]) * RECORD_BYTES
+                buffers.append(gaps[gap_cursor:gap_cursor + size])
+                gap_cursor += size
+            buffers.append(output[starts[run] * RECORD_BYTES:ends[run] * RECORD_BYTES])
+        expected = (int(indices[ends[end - 1] - 1]) - int(indices[starts[first]]) + 1) * RECORD_BYTES
+        read = os.preadv(descriptor, buffers, (first_record + int(indices[starts[first]])) * RECORD_BYTES)
+        if read != expected:
+            raise OSError("Incomplete coalesced FP16 bag read")
+        requested_bytes += read
+    return array, requested_bytes, len(groups)
 
 
 

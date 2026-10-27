@@ -133,6 +133,56 @@ def test_two_readers_share_descriptor_without_changing_offsets(tmp_path: Path) -
         reader.close()
 
 
+@pytest.mark.parametrize("maximum_gap,expected_records,expected_intervals", [(0, 7, 4), (1, 8, 3), (2, 10, 2)])
+def test_probe_coalescing_scatter_preserves_bits_and_physical_ranges(
+    tmp_path, monkeypatch, maximum_gap, expected_records, expected_intervals,
+):
+    from experiments.spec0054_mil_fold0 import _read_coalesced
+
+    # Raw uint16 patterns also cover signed zero, infinities and NaN payloads.
+    bits = np.random.default_rng(19).integers(0, 65536, (19, 16, 32, 32), dtype=np.uint16)
+    binary = tmp_path / "latents.bin"
+    bits.tofile(binary)
+    original = hashlib.sha256(binary.read_bytes()).hexdigest()
+    descriptor = os.open(binary, os.O_RDONLY)
+    indices = np.array([0, 1, 3, 4, 7, 8, 12])
+    preadv = os.preadv
+    calls = []
+
+    def observed(fd, buffers, offset):
+        calls.append((offset, sum(len(buffer) for buffer in buffers), len(buffers)))
+        return preadv(fd, buffers, offset)
+
+    monkeypatch.setattr(os, "preadv", observed)
+    try:
+        actual, requested, regions = _read_coalesced(descriptor, 2, indices, maximum_gap)
+        np.testing.assert_array_equal(actual.view(np.uint16), bits[indices + 2])
+        assert requested == expected_records * RECORD_BYTES
+        assert regions == len(calls) == expected_intervals
+        assert calls[0][0] == 2 * RECORD_BYTES
+        assert all(2 * RECORD_BYTES <= offset and offset + size <= 15 * RECORD_BYTES
+                   for offset, size, _ in calls)
+        assert os.lseek(descriptor, 0, os.SEEK_CUR) == 0
+        # A small kernel iovec limit must split groups without changing output.
+        monkeypatch.setattr(os, "sysconf", lambda name: 3)
+        calls.clear()
+        limited, requested_limited, regions_limited = _read_coalesced(descriptor, 2, indices, maximum_gap)
+        np.testing.assert_array_equal(limited.view(np.uint16), bits[indices + 2])
+        assert all(vector_count <= 3 for _, _, vector_count in calls)
+        assert requested_limited == sum(size for _, size, _ in calls)
+        assert regions_limited == len(calls)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outputs = list(pool.map(lambda offset: _read_coalesced(
+                descriptor, offset, indices, maximum_gap)[0], (0, 4)))
+        for offset, output in zip((0, 4), outputs, strict=True):
+            np.testing.assert_array_equal(output.view(np.uint16), bits[indices + offset])
+        assert not np.shares_memory(outputs[0], outputs[1])
+        assert os.lseek(descriptor, 0, os.SEEK_CUR) == 0
+        assert hashlib.sha256(binary.read_bytes()).hexdigest() == original
+    finally:
+        os.close(descriptor)
+
+
 def test_exposure_schedule_and_table_resume(tmp_path: Path) -> None:
     import torch
 

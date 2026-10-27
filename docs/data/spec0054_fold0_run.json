@@ -178,14 +178,18 @@
     ],
     "population": "first_training_window_replayed_at_same_epoch",
     "reader_workers": 2,
-    "passes": 2,
+    "passes": 3,
     "first_epoch": 5,
     "wsi_block_size": 72,
     "methods": [
       "sampled_regions",
-      "sampled_discard_prefetch",
-      "mmap_discard_prefetch"
+      "coalesced_gap1",
+      "coalesced_gap2"
     ],
+    "coalesced_gap_records": {
+      "coalesced_gap1": 1,
+      "coalesced_gap2": 2
+    },
     "lookahead_wsi": 4,
     "prefetch_bytes_per_wsi": 16777216,
     "method_order_indices": [
@@ -195,16 +199,21 @@
         2
       ],
       [
-        2,
         1,
+        2,
         0
+      ],
+      [
+        2,
+        0,
+        1
       ]
     ],
     "mmap_advice": "MADV_SEQUENTIAL",
     "future_wsi": {
       "sampled_regions": 2,
-      "sampled_discard_prefetch": 8,
-      "mmap_discard_prefetch": 8
+      "coalesced_gap1": 2,
+      "coalesced_gap2": 2
     },
     "max_ready_bytes_per_branch": 3221225472
   }
