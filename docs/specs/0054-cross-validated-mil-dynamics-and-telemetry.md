@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v18 paused at5 epochs; scratch probe v21 complete; contiguous input reads promising
+Status: dropout/smoothing/C4 v18 paused at5 epochs; full-atlas CPU read probe v22 RUNNING
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-26
@@ -392,8 +392,16 @@ Focused verification runs both branch functions concurrently on synthetic
 shards:24 reads across eight blocks per branch reproduce independent source
 arrays, exact training orders and matching subsets, exclude the held-out fold,
 and populate memory fields. Seven existing reader tests, compilation, Ruff,
-targeted BasedPyright and kernel build/validation pass. Publication/submission
-are pending.
+targeted BasedPyright and kernel build/validation pass. The first72 ordered
+WSI cover all12 shards and39.212GB paired full contents. Source
+`ceb96369af9dc89bae1b01b5fbc3cd88382a2629` and entry/metadata `59399e4`
+are published. Submitted as `maximshtefan/eqvae-spec0054-mil-fold0/22`
+around20:45 Bogota on2026-10-26, API RUNNING.
+Next useful inspection around22:30 Bogota or when artifacts become available.
+No training continuation accompanies this CPU measurement.
+Initial logs confirm the exact source,288 training WSI and all12 input files
+per branch, with both workers reporting gpu_used=false. Initial stream:
+`runs/local/spec0054_io_full_atlas_v22_review/initial_stream.txt`.
 
 ## Bounded I/O followup (2026-10-23)
 

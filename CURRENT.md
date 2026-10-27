@@ -243,8 +243,15 @@ and with full+selected arrays alive. Peak RSS is cumulative per process and
 includes both readers, rather than an isolated per-method allocation peak.
 All24 synthetic reads preserve independent array values and exact paired
 training order; memory fields are populated. Seven reader tests, compilation,
-Ruff, targeted BasedPyright and kernel build/validation pass. Publication and
-submission are pending.
+Ruff, targeted BasedPyright and kernel build/validation pass. The first72 WSI
+include all12 shards and39.212GB paired full contents. Source `ceb9636` and
+entry/metadata `59399e4` are published. Submitted as
+`maximshtefan/eqvae-spec0054-mil-fold0/22` around20:45 Bogota on2026-10-26;
+API confirms RUNNING. Next useful inspection around22:30 Bogota, allowing for runtime
+budget and platform preparation. No classifier continuation or GPU execution.
+Initial logs confirm the intended source, both CPU-only workers with
+gpu_used=false,288 training WSI and all12 input files per branch. Initial stream:
+`runs/local/spec0054_io_full_atlas_v22_review/initial_stream.txt`.
 
 All512 WSI/subset/C4 records match across branches; initial parameters and reader
 match the prior recipe. No AMP backoffs or nonfinite losses/gradients. Mean steps
