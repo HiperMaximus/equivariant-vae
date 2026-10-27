@@ -962,7 +962,7 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
 
 def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch: str,
                    session_deadline_unix: float | None = None) -> None:
-    """Compare direct sampled/full reads in training order across the full atlas."""
+    """Measure cache advice, native mmap and CPU input preparation in training order."""
     config_path = repo_root / "docs/data/spec0054_fold0_run.json"
     config = json.loads(config_path.read_text())
     probe = config["read_probe"]
@@ -981,10 +981,11 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
     bags = ShardBags(latent_root, contract, cohort_path,
                      {item["shard"]: item["result_sha256"] for item in config["sources"]
                       if item["shard"] in probe["shards"]})
-    rows, blocks = [], []
+    rows, blocks, hints = [], [], []
     lock = Lock()
     hardware = {"logical_cpu_count": os.cpu_count(), "cpu_affinity": sorted(os.sched_getaffinity(0)),
                 "torch_threads": torch.get_num_threads(), "gpu_used": False, "euid": os.geteuid(),
+                "kernel_release": os.uname().release, "host_pinning": False, "h2d_measured": False,
                 "working_free_bytes": shutil.disk_usage(output_root.parent).free,
                 "working_device": output_root.parent.stat().st_dev,
                 "scratch_free_bytes": shutil.disk_usage(repo_root.parent).free,
@@ -1030,9 +1031,10 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
               "reader_sha256": _sha256(Path(__file__).with_name("spec0054_shard_bags.py")),
               "seed": config["seed"], "patch_retention": config["patch_retention"],
               "probe": probe, "hardware": hardware, "completed": False,
-              "cache_policy": "natural_input_replay_no_staging_or_eviction",
-              "counter_scope": "mincore_bag_snapshot; process_rss_peak_shared_by_threads; vmstat_host_wide",
-              "blocks": blocks, "rows": rows}
+              "prepared_hash_order": "NHWC_physical_channels_last",
+              "cache_policy": "method_specific_post_copy_discard_and_bounded_willneed",
+              "counter_scope": "mincore_bag_snapshot; process_rss_peak_shared_by_threads; vmstat_host_wide; NFS_mount_shared_between_branches",
+              "blocks": blocks, "rows": rows, "prefetch_hints": hints}
 
     def save_result():
         (directory / "read_probe.json").write_text(json.dumps(result, indent=2) + "\n")
@@ -1048,49 +1050,109 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
             time.sleep(0.1)
         return time.perf_counter() - waiting
 
+    def nfs_read_counters():
+        # Only retain counters for the mounted inputs, never server addresses.
+        points = {item["mount"]["mount_point"] for item in result["files"].values()}
+        observed, active = {}, None
+        for line in Path("/proc/self/mountstats").read_text().splitlines():
+            if line.startswith("device "):
+                point = line.split(" mounted on ", 1)[1].split(" with fstype ", 1)[0]
+                active = point if point in points and " with fstype nfs" in line else None
+            elif active is not None and line.lstrip().startswith("READ:"):
+                observed[active] = [int(value) for value in line.split()[1:]]
+        return observed
+
+    def advise_future(wsi_id, epoch, block_index):
+        location = bags.locations[wsi_id]
+        length = min(location.count * RECORD_BYTES, probe["prefetch_bytes_per_wsi"])
+        at_unix, started = time.time(), time.perf_counter()
+        os.posix_fadvise(bags.descriptors[branch, location.shard],
+                        location.first_record * RECORD_BYTES, length, os.POSIX_FADV_WILLNEED)
+        hint = {"epoch": epoch, "block_index": block_index, "wsi_id": wsi_id,
+                "requested_bytes": length, "started_unix": at_unix,
+                "ended_unix": time.time(), "seconds": time.perf_counter() - started}
+        with lock:
+            hints.append(hint)
+            with (directory / "read_probe_hints.jsonl").open("a") as handle:
+                handle.write(json.dumps(hint) + "\n")
+        return hint["seconds"]
+
     def read_bag(request):
-        wsi_id, epoch, block_index, method = request
+        position, window, epoch, block_index, method = request
         if session_deadline_unix is not None and time.time() >= session_deadline_unix:
             return False
-        reader = bags
-        location = reader.locations[wsi_id]
+        wsi_id = window[position]
+        location = bags.locations[wsi_id]
         indices = _sample_indices(location.count, config["seed"], epoch, wsi_id,
                                   config["patch_retention"])
+        hint_seconds = 0.0
+        if method == "sampled_discard_prefetch" and position + probe["lookahead_wsi"] < len(window):
+            hint_seconds = advise_future(window[position + probe["lookahead_wsi"]], epoch, block_index)
         info = {"branch": branch, "shard": location.shard, "wsi_id": wsi_id,
                 "method": method, "storage": "input", "epoch": epoch,
                 "block_index": block_index}
-        before = snapshot(reader, wsi_id)
+        before = snapshot(bags, wsi_id)
         print(json.dumps({"event": "read_probe_read_start", **info,
                           "resident_fraction": before["resident_fraction"]}), flush=True)
-        full = method == "full_then_subset"
         cpu_started, started = time.thread_time(), time.perf_counter()
-        array = reader.read(branch, wsi_id, None if full else indices)
+        if method == "mmap_sampled":
+            with mmap.mmap(bags.descriptors[branch, location.shard], location.count * RECORD_BYTES,
+                           access=mmap.ACCESS_READ, offset=location.first_record * RECORD_BYTES) as mapping:
+                view = np.ndarray((location.count, 16, 32, 32), dtype="<f2", buffer=mapping)
+                selected = view[indices]  # Integer indexing copies into an owned, writable buffer.
+                del view
+        else:
+            selected = bags.read(branch, wsi_id, indices)
         read_seconds = time.perf_counter() - started
         read_cpu_seconds = time.thread_time() - cpu_started
-        after = snapshot(reader, wsi_id)
-        subset_started = time.perf_counter()
-        selected = array[indices] if full else array
-        subset_seconds = time.perf_counter() - subset_started
-        after_subset = snapshot(reader, wsi_id)
+        after = snapshot(bags, wsi_id)
+        started = time.perf_counter()
+        if method in ("sampled_discard", "sampled_discard_prefetch"):
+            os.posix_fadvise(bags.descriptors[branch, location.shard],
+                            location.first_record * RECORD_BYTES, location.count * RECORD_BYTES,
+                            os.POSIX_FADV_DONTNEED)
+        discard_seconds = time.perf_counter() - started
+        after_discard = snapshot(bags, wsi_id)
         hash_started = time.perf_counter()
         digest = hashlib.sha256(memoryview(selected).cast("B")).hexdigest()
+        hash_seconds = time.perf_counter() - hash_started
+        host_started, host_cpu_started = time.perf_counter(), time.thread_time()
+        rotations = _sample_c4(len(indices), config["seed"], epoch, wsi_id)
+        if config["c4_augmentation"]:
+            _apply_c4(selected, rotations)
+        source = torch.from_numpy(selected)
+        host = torch.empty_like(source, memory_format=torch.channels_last, pin_memory=False)
+        host.copy_(source)
+        host_seconds = time.perf_counter() - host_started
+        host_cpu_seconds = time.thread_time() - host_cpu_started
+        after_prepare = snapshot(bags, wsi_id)
+        prepared_hash_started = time.perf_counter()
+        prepared_digest = hashlib.sha256(memoryview(host.permute(0, 2, 3, 1).numpy()).cast("B")).hexdigest()
+        prepared_hash_seconds = time.perf_counter() - prepared_hash_started
         row = {**info, "bag_size": location.count, "sampled_bag_size": len(indices),
-               "requested_bytes": (location.count if full else len(indices)) * RECORD_BYTES,
-               "read_regions": 1 if full else int(np.count_nonzero(np.diff(indices) != 1)) + 1,
+               "requested_bytes": len(indices) * RECORD_BYTES,
+               "read_regions": None if method == "mmap_sampled" else int(np.count_nonzero(np.diff(indices) != 1)) + 1,
                "sample_indices_sha256": hashlib.sha256(indices.tobytes()).hexdigest(),
-               "selected_values_sha256": digest, "read_seconds": read_seconds,
-               "read_cpu_seconds": read_cpu_seconds, "subset_seconds": subset_seconds,
-               "read_plus_subset_seconds": read_seconds + subset_seconds,
-               "hash_seconds": time.perf_counter() - hash_started,
-               "before_read": before, "after_read": after, "after_subset": after_subset}
-        del selected, array
+               "selected_values_sha256": digest, "prepared_values_sha256": prepared_digest,
+               "c4_rotations_sha256": hashlib.sha256(rotations.tobytes()).hexdigest(),
+               "read_seconds": read_seconds, "read_cpu_seconds": read_cpu_seconds,
+               "read_plus_subset_seconds": read_seconds,
+               "discard_seconds": discard_seconds, "future_hint_seconds": hint_seconds,
+               "host_prepare_seconds": host_seconds, "host_prepare_cpu_seconds": host_cpu_seconds,
+               "pipeline_seconds": hint_seconds + read_seconds + discard_seconds + host_seconds,
+               "hash_seconds": hash_seconds, "prepared_hash_seconds": prepared_hash_seconds,
+               "host_channels_last": host.is_contiguous(memory_format=torch.channels_last),
+               "before_read": before, "after_read": after,
+               "after_discard": after_discard, "after_prepare": after_prepare}
+        del host, source, selected
         with lock:
             rows.append(row)
             with (directory / "read_probe_rows.jsonl").open("a") as partial:
                 partial.write(json.dumps(row, sort_keys=True) + "\n")
             print(json.dumps({"event": "read_probe_read_done", **info,
-                              "read_plus_subset_seconds": row["read_plus_subset_seconds"],
+                              "read_seconds": read_seconds, "pipeline_seconds": row["pipeline_seconds"],
                               "resident_before": before["resident_fraction"],
+                              "resident_after_discard": after_discard["resident_fraction"],
                               "selected_values_sha256": digest}), flush=True)
         return True
 
@@ -1130,7 +1192,8 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
                                                              seed=config["seed"])]
                 for block_index, first in enumerate(range(0, len(order), probe["wsi_block_size"])):
                     window = order[first:first + probe["wsi_block_size"]]
-                    methods = probe["methods"] if (pass_index + block_index) % 2 == 0 else probe["methods"][::-1]
+                    method_order = probe["method_order_indices"][(pass_index + block_index) % len(probe["method_order_indices"])]
+                    methods = [probe["methods"][i] for i in method_order]
                     for position, method in enumerate(methods):
                         wait = synchronize(f"pass{pass_index}_block{block_index}_condition{position}")
                         if wait is None:
@@ -1140,8 +1203,24 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
                                  "barrier_wait_seconds": wait, "started_unix": time.time(),
                                  "wsi_order": window}
                         started = time.perf_counter()
-                        completed = all(list(pool.map(read_bag, ((wsi, epoch, block_index, method)
-                                                                 for wsi in window))))
+                        block["nfs_read_before"] = nfs_read_counters()
+                        if method == "sampled_discard_prefetch":
+                            for wsi in window[:probe["lookahead_wsi"]]:
+                                if session_deadline_unix is not None and time.time() >= session_deadline_unix:
+                                    break
+                                advise_future(wsi, epoch, block_index)
+                        # Match training: only two submitted data futures, consumed FIFO.
+                        plan = iter((i, window, epoch, block_index, method) for i in range(len(window)))
+                        pending = deque()
+                        for _ in range(min(probe["reader_workers"], len(window))):
+                            pending.append(pool.submit(read_bag, next(plan)))
+                        completed = True
+                        while pending:
+                            completed = pending.popleft().result() and completed
+                            request = next(plan, None)
+                            if request is not None:
+                                pending.append(pool.submit(read_bag, request))
+                        block["nfs_read_after"] = nfs_read_counters()
                         block.update(ended_unix=time.time(), wall_seconds=time.perf_counter() - started,
                                      completed=completed)
                         blocks.append(block)

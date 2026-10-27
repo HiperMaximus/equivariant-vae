@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v18 paused at5 epochs; full-atlas CPU read probe v22 RUNNING
+Status: dropout/smoothing/C4 v18 paused at5 epochs; CPU probe v22 at deadline; no full-read average improvement
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-26
@@ -402,6 +402,122 @@ No training continuation accompanies this CPU measurement.
 Initial logs confirm the exact source,288 training WSI and all12 input files
 per branch, with both workers reporting gpu_used=false. Initial stream:
 `runs/local/spec0054_io_full_atlas_v22_review/initial_stream.txt`.
+
+V22 inspection around22:30 Bogota confirms platform COMPLETE and worker
+exits[0,0]. Both branch results completed=false at the runtime cutoff, with
+246 reads each (492 total); in-flight calls finish normally. Epoch index5
+window0 completes72 requests per method/branch. Window1 completes72 full
+reads and30 sampled reads per branch. Neither full epoch nor epoch6 is
+complete. The paired analysis uses only102 WSI per branch with both methods;
+the other42 full reads per branch do not enter method comparisons.
+
+All204 branch/epoch/WSI comparisons retain identical subset and selected-value
+hashes. Ordered request/subset keys agree between branches, final rows match
+JSONL and mincore succeeds throughout. All12 shards are represented. Pooled
+matched read+subset means are41.63821s sampled/42.20478s full (full +1.36%);
+medians22.72452/24.67909s and p95183.71557/172.22919s. Normal means are
+41.12041/40.95470s; SO2 means42.15602/43.45486s. Window0 concurrent wall
+is1312.24022/1248.98873s, only4.82% lower with full. In the30 matched WSI
+from reversed-order window1, normal means59.05494/67.28858s and SO2
+57.95865/66.65760s favor sampled. Full-window1 wall cannot be compared with
+the truncated sampled-window1 wall. These data do not establish a repeatable
+average gain from selecting full input reads on the larger working set.
+
+Mean pre-read residency on matched rows is.00634 sampled/.00996 full,
+substantially lower than the earlier small-panel mixture. The measured
+sampled-read mean/median reproduce the scale of v18 training I/O delays;
+this session does not reproduce v21's full-read speedup. Largest matched
+sampled means occur on shard8 (~71.65s), shard3 (~60.31s) and shard2
+(~58.74s), rather than a unique shard1 hotspot. No backend cause is established.
+Peak cumulative VmHWM is2.26469/2.25580GiB normal/SO2; largest sampled
+RSS snapshots are1.35366/1.34724GiB and full-read snapshots2.23841/2.23380GiB.
+RSS/HWM cover both reader threads and retained allocator memory, not isolated
+method allocations or a GPU training peak. Minimum observed MemAvailable is
+11.156GB host-wide. No OOM or GPU use occurs.
+
+Keep the training reader unchanged pending a measured larger-set mitigation;
+scratch staging at full-atlas scale is not measured by this direct-read probe.
+Deadline censoring, method order, backend/cache state, only one complete
+paired window and CPU allocation limit inference. No classifier continuation,
+reader change or new run accompanies the review. Outputs:
+`runs/kaggle/spec0054_io_full_atlas_v22/`; reproducible numerical review:
+`runs/local/spec0054_io_full_atlas_v22_review/{analyze_v22.py,summary.json}`.
+
+OS cache-management candidates remain unmeasured. The current sampled reader
+copies file bytes into owned numpy buffers; its file-page cache can therefore
+be advised DONTNEED after consumption without discarding the owned inputs.
+Target only the page-aligned bag range, retaining bags needed soon by scheduled
+assessments. V20's pre-read eviction experiment does not estimate this
+post-consumption policy's throughput. A bounded lookahead using WILLNEED or
+readahead could warm upcoming ranges while other work proceeds; the existing
+two-WSI data prefetch already overlaps I/O, and extra requests can contend for
+the same NFS bandwidth. Measure total elapsed including advice/lookahead cost,
+not only the apparent latency of a read issued after prefetch. A proposed narrow
+comparison is baseline, post-consumption discard, and discard plus bounded
+lookahead, with identical inputs/orders and no GPU. This is a proposal, not
+a submitted run. NOREUSE's replacement-policy effect requires Linux6.3+;
+record the actual Kaggle kernel before considering it. Where accessible,
+per-mount NFS RPC statistics can inform whether transport/server delay dominates.
+These per-file hints do not control backend caching. Global drop_caches is
+not proposed as a runtime cache policy. Sources:
+[fadvise](https://man7.org/linux/man-pages/man2/posix_fadvise.2.html),
+[readahead](https://man7.org/linux/man-pages/man2/readahead.2.html),
+[kernel VM documentation](https://docs.kernel.org/admin-guide/sysctl/vm.html#drop-caches),
+[mountstats](https://man7.org/linux/man-pages/man8/mountstats.8.html).
+
+## CPU cache-policy and native-mmap experiment (2026-10-26)
+
+The existing read-probe compares four input policies: sampled `preadv`
+baseline, sampled plus post-copy DONTNEED, discard plus bounded WILLNEED,
+and native read-only mmap followed by an owned sampled gather. The shared
+training reader and accepted training checkpoints remain unchanged. Use all12
+frozen input mounts, the training seed/order/subsets for epoch indices5/6,
+72-WSI windows and two readers per branch. Submit only two data futures and
+consume FIFO, matching the training prefetch/backpressure pattern. Both branches
+run the same policy together. Contract-specified Williams sequences balance
+each position and each directed predecessor pair across four complete windows;
+partial deadline results cannot assume completed counterbalancing. The maximum
+is4608 combined reads within a180-minute runtime budget. Active filesystem
+calls may overrun the cutoff.
+
+DONTNEED targets only the page-aligned consumed bag after owned selected
+bytes exist. Future hints issue WILLNEED for at most16MiB per WSI, four WSI
+ahead; seed the first four hints inside the timed window and issue one new
+future hint as each bounded read starts. Persist every hint's target/range
+length/timestamps/call duration, including hints whose target was not reached
+before cutoff. Request length is not guaranteed actual readahead. No global
+cache flush, scratch staging or NFS remount is used.
+
+The mmap arm uses Python's native `mmap(..., ACCESS_READ)` on the bag range
+and a NumPy typed view without copying the full bag. Integer-index gathering
+creates the owned writable sampled array; release the view before closing
+the mapping. C4 acts only on that owned array. All four arms perform identical
+C4 and channels-last host preparation using pin_memory=False, with stage wall/
+CPU time and raw/prepared value hashes. The prepared digest visits physical
+NHWC bytes through a contiguous view, avoiding an extra verification copy.
+GPU pinning and H2D are not measured or claimed optimized by this CPU run.
+[Python mmap](https://docs.python.org/3.12/library/mmap.html) documents read-only
+mapping semantics; file mapping and typed NumPy views are complementary here.
+
+Capture cache residency before/after reading, after discard and after host
+preparation, together with process RSS/HWM and the actual kernel release.
+Record per-input-mount raw NFS READ counters before/after each window condition,
+excluding server addresses. Absence of exposed NFS counters remains an empty
+observation. Counters are shared by both branches and potentially shared
+bind mounts; do not sum duplicate observations. Compare completed paired
+windows using total wall including advice/initial hints, and retain separate
+read/host/discard/hint timings and verification overhead. Backend warming,
+carryover and CPU allocation remain limitations.
+
+Independent synthetic verification runs both branch functions through48 reads
+and16 blocks each: all four policies match independent raw arrays and C4/NHWC
+prepared values, preserve frozen-file SHA, training order and held-out-fold
+exclusion, and populate memory fields. Contract Williams sequences occupy each
+position once per method and cover all12 directed predecessor pairs once.
+Seven existing reader tests, compilation, Ruff and targeted BasedPyright pass.
+Subagent review found the initial cyclic ordering's predecessor confound; the
+contract Williams design corrects it. No mmap lifetime/FIFO issue remained.
+Publication/submission pending.
 
 ## Bounded I/O followup (2026-10-23)
 

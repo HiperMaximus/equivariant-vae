@@ -253,6 +253,51 @@ Initial logs confirm the intended source, both CPU-only workers with
 gpu_used=false,288 training WSI and all12 input files per branch. Initial stream:
 `runs/local/spec0054_io_full_atlas_v22_review/initial_stream.txt`.
 
+Inspection around22:30 Bogota confirms v22 COMPLETE, workers[0,0], CPU-only.
+Both measurements pause normally at the90-minute deadline (completed=false),
+246 rows each/492 combined. First72-WSI window has both methods complete;
+next window has72 full reads but only30 sampled reads per branch. Compare
+only102 matched WSI per branch, covering all12 shards: pooled mean read+subset
+is41.638s sampled versus42.205s full (+1.36%); p95 is183.716/172.229s.
+First complete window joint wall1312.24/1248.99s improves only4.82% with full,
+and the matched30 WSI in reversed-order window favor sampled. All204
+branch/WSI matched comparisons preserve subset/value hashes; branch request
+keys and JSONL/final rows agree. Peak process VmHWM2.265/2.256GiB normal/SO2;
+no OOM, no GPU. Natural pre-read residency averages0.63% sampled/1.00% full
+on matched reads. This reproduces the scale of training I/O delays but not
+the small-panel full-read improvement. Keep the training reader unchanged;
+larger scratch staging remains untested. No new run or classifier continuation.
+Outputs: `runs/kaggle/spec0054_io_full_atlas_v22/`; numerical review:
+`runs/local/spec0054_io_full_atlas_v22_review/summary.json`.
+
+OS-level followup considered: targeted DONTNEED after a bag has been copied
+to owned buffers, optionally paired with bounded future-Wsi WILLNEED/read-ahead.
+V20 tested eviction before measurement, not post-consumption cache management;
+no throughput result exists for this proposed policy. Existing training already
+prefetches two WSI per branch. NOREUSE depends on the Kaggle kernel version
+(effective Linux6.3+); NFS mountstats could separate RPC delay/retransmissions
+from client-cache behavior if exposed. No global drop_caches/sysctl mutation,
+new run, reader change or training continuation follows from this discussion.
+
+The accepted next CPU experiment compares sampled baseline, sampled plus
+post-copy DONTNEED, discard plus bounded WILLNEED, and native read-only mmap
+with an owned sampled gather. It retains all12 shards, training orders and
+subsets for epoch indices5/6,72-WSI windows, two readers and exactly two FIFO
+data futures per branch. Four Williams method orders balance positions and
+predecessors across complete windows; incomplete runs cannot claim that balance.
+Lookahead is four WSI with at most16MiB advised per WSI. All arms additionally
+measure identical C4 and non-pinned channels-last CPU preparation, preserving
+both raw selected-value and prepared NHWC hashes. GPU, pinning and H2D are
+disabled; actual transfer optimization remains unmeasured. Per-mount NFS READ
+counters, kernel version, residency/RSS and advice cost accompany total window
+wall, including initial prefetch calls. The runtime budget is180min; partial
+rows are retained. Native mmap does not map writable input or rotate file pages.
+Synthetic48-read verification confirms independent raw/prepared values, exact
+training order, populated memory fields and unchanged source files. Seven
+reader tests/static checks pass. Subagent review prompted Williams ordering
+and clarified shared NFS counters; no buffer-lifetime/scheduling issue remained.
+Publication/submission pending.
+
 All512 WSI/subset/C4 records match across branches; initial parameters and reader
 match the prior recipe. No AMP backoffs or nonfinite losses/gradients. Mean steps
 143.96/144.64s versus14.94/14.71s over the matched first128 v10 updates. Input
@@ -481,5 +526,11 @@ tables and split figure still require a coherent scientific update.
 The subsequent individually approved introduction replaces the inline
 Materials and Methods TODO. The live main.tex and27 unchanged active assets
 are synchronized locally with the rebuilt PDF; professor source edits and all
-comment states are preserved. The next item for individual review is the
-cohort-partition comment anchored to361/129/23 WSIs.
+comment states are preserved. The cohort-partition comment anchored
+to361/129/23 WSIs is under individual review. The user confirmed reuse of VAE
+development WSIs for MIL. The actual Spec0054 manifest contains all361 WSI
+(322 VAE train +39 VAE validation), repartitioned into five MIL folds:
+fold0 has288/73 train/validation and folds1--4 have289/72. A replacement
+paragraph is proposed, not yet applied. The separate tissue-classification
+protocol is unchanged; the152-WSI MIL evaluation cohort has historical
+supervised exposure as documented in Spec0054.
