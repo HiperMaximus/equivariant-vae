@@ -1,5 +1,5 @@
 # Copyright 2026 HiperMaximus
-"""Thin gated-ABMIL entry: one independent frozen-VAE comparison per GPU."""
+"""Thin gated-ABMIL entry for paired training or CPU-only read probes."""
 
 import json
 import os
@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "242cf6f0afc25d44cd6a90453a606eddb2b06382"
+SOURCE_COMMIT = "ceb96369af9dc89bae1b01b5fbc3cd88382a2629"
 SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
 OUTPUT_ROOT = Path("/kaggle/working/spec0054_io_probe")
 SMOKE = False
