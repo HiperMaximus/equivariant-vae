@@ -398,7 +398,23 @@ hashes, FIFO order, requested bytes/intervals, source immutability, iovec splits
 shared-descriptor concurrency and normal/tight queue budgets. Evidence:
 `runs/local/spec0054_io_coalescing_preparation/{check_probe.py,synthetic_check.log,verification.json}`.
 Entry remains CPU-only/READ_PROBE=True/RESUME=False with all original inputs.
-This is prepared source, not a submitted v25 or a measured speedup.
+No throughput result is available for this source yet.
+
+The coalescing comparison was submitted as the separate CPU kernel
+`maximshtefan/eqvae-spec0054-io-coalescing/1` around13:04 Bogota on2026-10-27;
+API confirms RUNNING. Source `e902d26`, thin entry from `6d64577`, unchanged
+byte-for-byte. Launch metadata differs only in kernel id/title; GPU remains
+disabled, all original inputs remain mounted, READ_PROBE=True/RESUME=False.
+Submission used `scripts/kaggle_kernel.sh` and the ignored launch snapshot
+`runs/local/spec0054_io_coalescing_launch/`; receipt:
+`runs/local/spec0054_io_coalescing_launch/launch_receipt.json`.
+This independent session may overlap v24; the original kernel/session is
+unchanged. Inter-session storage interference has not been measured. Internal
+method comparisons use identical requests and balanced execution positions;
+time-varying external load remains uncontrolled. API RUNNING establishes
+platform state, not worker start or timing measurements. Next useful inspection
+around19:30 Bogota, allowing for360min runtime plus platform setup; inspect
+later if setup delays execution. V24's inspection remains around16:30 Bogota.
 
 All512 WSI/subset/C4 records match across branches; initial parameters and reader
 match the prior recipe. No AMP backoffs or nonfinite losses/gradients. Mean steps

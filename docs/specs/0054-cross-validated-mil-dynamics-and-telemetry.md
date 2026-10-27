@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v18 paused at5 epochs; combined CPU policy/queue probe v24 RUNNING
+Status: dropout/smoothing/C4 v18 paused at5 epochs; combined CPU v24 and independent coalescing CPU v1 RUNNING
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-26
@@ -723,7 +723,7 @@ direct I/O and GPU-direct storage require separate capability evidence and
 cannot be presumed available. No additional Kaggle job, training modification
 or v24 status inspection was performed during this offline review.
 
-## Prepared CPU coalescing comparison (2026-10-27)
+## CPU coalescing comparison (2026-10-27)
 
 The existing read-probe contract now compares the original sampled reader with
 two gap-coalescing readers, retaining the exact first72 epoch-index5 WSI,
@@ -747,9 +747,9 @@ Focused local checks compare arbitrary FP16 bit patterns, including special
 values, with independently indexed source uint16 arrays at nonzero bag offsets.
 They observe exact requested lengths and range bounds, force a small iovec
 limit, check concurrent reads sharing a descriptor and source immutability.
-These establish content/offset correctness, not remote throughput. The prepared
-entry allows360 minutes from execution start and no GPU use. No new Kaggle
-version was submitted while v24 remained RUNNING, to avoid competing I/O.
+These establish content/offset correctness, not remote throughput. The entry
+allows360 minutes from execution start and no GPU use. The initial preparation
+left v24 unchanged; the coalescing comparison now runs in an independent session.
 Source `e902d26fece5bd1b7f1df7fd7ab114c573d25aa1` is pinned by the prepared
 thin entry. Ten focused tests and396 local synthetic pipeline reads pass,
 including both branches, all three methods/repetitions and normal/tight queue
@@ -757,6 +757,16 @@ budgets. Raw/prepared hashes, FIFO, requested bytes/intervals, immutable inputs
 and reservation/count bounds agree. Compilation, Ruff and targeted
 BasedPyright pass. Evidence:
 `runs/local/spec0054_io_coalescing_preparation/{check_probe.py,synthetic_check.log,verification.json}`.
+
+Submitted as `maximshtefan/eqvae-spec0054-io-coalescing/1` around13:04 Bogota
+on2026-10-27, API RUNNING. The entry is byte-identical to commit `6d64577`;
+only kernel id/title differ in the launch metadata, retaining GPU-off and all
+original input locators. Launch snapshot/receipt:
+`runs/local/spec0054_io_coalescing_launch/`. Possible overlap with v24 is
+recorded; inter-session storage interference is unmeasured and external load
+may vary within a session. The original v24 job remains unchanged. Next useful
+inspection is around19:30 Bogota, allowing for the runtime budget and setup.
+Platform RUNNING alone does not establish worker start or measured throughput.
 
 ## Bounded I/O followup (2026-10-23)
 
