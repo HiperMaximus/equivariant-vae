@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "ceb96369af9dc89bae1b01b5fbc3cd88382a2629"
+SOURCE_COMMIT = "3716b489a2ee1bae548aec302ee6386d7c3caba6"
 SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
 OUTPUT_ROOT = Path("/kaggle/working/spec0054_io_probe")
 SMOKE = False
@@ -18,7 +18,7 @@ EFFECTIVE_BATCH = 4
 READ_PROBE = True
 LR_SEARCH = False
 LR_CONFIRMATION = False
-SESSION_DEADLINE_UNIX = int(time.time()) + 90 * 60  # Read budget starts when Kaggle executes this entry.
+SESSION_DEADLINE_UNIX = int(time.time()) + 180 * 60  # Read budget starts when Kaggle executes this entry.
 
 
 def main() -> None:
