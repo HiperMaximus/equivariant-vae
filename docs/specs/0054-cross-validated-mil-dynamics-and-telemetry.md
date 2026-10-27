@@ -852,6 +852,47 @@ Raw outputs:
 Kaggle versions above. Historical launch statuses and scheduled check times
 earlier in this spec predate this completed review.
 
+## Gap1 queue/cache combination confirmation (2026-10-27)
+
+The next CPU-only comparison fixes scatter coalescing at one missing record
+for every arm. A retains two submitted/prepared WSI; B retains eight with no
+forward hints or post-read discard; C uses the same eight-WSI limit plus the
+existing bounded WILLNEED and post-copy DONTNEED policy. B/A measures the
+queue-depth change, C/B measures the joint cache-policy increment, and C/A
+measures the complete combination. This does not separate discard from hints.
+The shared training reader and all classifier/checkpoint states remain unchanged.
+
+Replay the same first72 epoch-index5 training WSI, exact60% subsets, C4 codes,
+CPU channels-last preparation and FIFO order in ABC/BCA/CAB order. All arms
+use two reader threads per branch and a3GiB selected-buffer reservation cap;
+active buffers, scatter gap storage, C4 temporaries and OS cache are additional
+and RSS/HWM remain separate observations. C hints four WSI ahead, at most16MiB
+per future WSI, with initial four hints inside timed wall. The same client-cache
+range reset/residency observation and branch barriers precede every arm;
+reset/barrier time remains separate. Remote caching, nonlinear load and
+carryover remain uncontrolled by position balancing.
+
+Maximum1296 combined reads and360 minutes from entry execution; no GPU,
+pinning, H2D or model training. Requested application bytes include hole bytes;
+retained bytes, read intervals and raw/prepared/subset/C4 hashes remain recorded.
+NFS counters must be deduplicated across identical mount views and branch
+snapshots when assessing reply traffic and RPC counts. The earlier33% and20%
+gains are not combined estimates; this experiment measures the actual package.
+Numerical parameters modify the existing read-probe contract only.
+
+Ten focused reader tests, compilation, Ruff and targeted BasedPyright pass.
+The adapted existing synthetic checker verifies396 reads across both branches,
+all arms/repetitions and normal/tight reservation budgets. It checks exact
+raw/prepared values, requested bytes/intervals, FIFO, unchanged source files,
+queue bounds, and66 WILLNEED/264 DONTNEED calls per budget case across both
+branches. Only C generates33 hints per branch;99 reset calls plus33 post-read
+discard calls per branch account for DONTNEED. Independent subagent design and
+diff review found no blocking issue. Archived checker and verification:
+`reports/spec0054_io_20261027/{check_gap1_queue_probe.py,gap1_queue_verification.json}`.
+Source `1126d6a68bd006f26af4a420acd9185c0ff32d0e` is pinned by the prepared
+thin entry. The separate coalescing kernel retains its original CPU-only
+metadata and all frozen input locators.
+
 ## Bounded I/O followup (2026-10-23)
 
 Reuse the existing read-probe mode in a private Kaggle CPU session, mounting

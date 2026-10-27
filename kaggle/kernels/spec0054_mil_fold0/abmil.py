@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "e902d26fece5bd1b7f1df7fd7ab114c573d25aa1"
+SOURCE_COMMIT = "1126d6a68bd006f26af4a420acd9185c0ff32d0e"
 SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
 OUTPUT_ROOT = Path("/kaggle/working/spec0054_io_probe")
 SMOKE = False

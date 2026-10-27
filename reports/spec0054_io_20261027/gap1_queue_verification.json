@@ -1,0 +1,26 @@
+{
+  "scope": "local synthetic correctness only; not throughput",
+  "synthetic_reads": 396,
+  "branches": 2,
+  "budget_cases": 2,
+  "methods": 3,
+  "passes": 3,
+  "matched_training_wsi": 11,
+  "verified": [
+    "VERIFIED queue8 normal_vae 99 reads, all raw/prepared values and FIFO order; queue count/byte bounds; source files unchanged; prefetch and discard counts correct",
+    "VERIFIED queue8 so2_vae 99 reads, all raw/prepared values and FIFO order; queue count/byte bounds; source files unchanged; prefetch and discard counts correct",
+    "VERIFIED byte_cap normal_vae 99 reads, all raw/prepared values and FIFO order; queue count/byte bounds; source files unchanged; prefetch and discard counts correct",
+    "VERIFIED byte_cap so2_vae 99 reads, all raw/prepared values and FIFO order; queue count/byte bounds; source files unchanged; prefetch and discard counts correct"
+  ],
+  "unit_tests": 10,
+  "original_shared_reader_changed": false,
+  "willneed_calls_per_budget_case_both_branches": 66,
+  "dontneed_calls_per_budget_case_both_branches": 264,
+  "hint_methods": [
+    "coalesced_gap1_discard_prefetch"
+  ],
+  "review": "Independent subagent delivered design and diff review with no blocking findings; C/B measures joint discard+WILLNEED effect.",
+  "kaggle_submitted": false,
+  "gpu_used": false,
+  "shared_reader_sha256": "3226c9f4064e54580b510521dada699f8eaa044605b05388dc5e0e5df7c751b3"
+}

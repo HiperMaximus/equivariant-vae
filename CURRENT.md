@@ -16,8 +16,21 @@ The 152 external WSI remain reserved for final evaluation.
 The two CPU I/O probes have now completed and their final outputs were reviewed
 on2026-10-27 around13:40 Bogota. Both workers exit0 in each run; all planned
 blocks and864/1296 combined reads complete. No new job or training continuation
-was submitted by this review. The next task is to select a narrow combination
-confirmation before modifying the training reader.
+was submitted by that review. The authorized next comparison is now prepared:
+gap1 scatter coalescing with queue2; gap1 with queue8 only; gap1 with queue8
+plus bounded WILLNEED/post-copy DONTNEED. This measures queue depth separately
+from the incremental joint cache policy. Same72 epoch-index5 WSI, three Latin
+repetitions, two readers per branch,3GiB selected-buffer reservation, at most
+1296 reads within360 minutes. GPU/pinning/H2D and training remain disabled.
+Ten reader tests,396 synthetic reads, compilation/static checks and independent
+subagent design/diff review complete without a blocking issue. Synthetic checks
+cover values/C4, requested bytes/intervals, queue budgets/FIFO and explicit
+hint/discard call counts. Portable evidence:
+`reports/spec0054_io_20261027/{check_gap1_queue_probe.py,gap1_queue_verification.json}`.
+No measured outcome exists for the new combination yet.
+Prepared source is `1126d6a68bd006f26af4a420acd9185c0ff32d0e`; the thin
+entry pins it and retains the360-minute runtime budget. The separate
+coalescing kernel metadata keeps GPU disabled and all original inputs.
 
 | Probe | Exact Kaggle reference | Source / entry commits | Final state |
 | --- | --- | --- | --- |
