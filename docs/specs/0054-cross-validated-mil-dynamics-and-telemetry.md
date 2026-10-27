@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v18 paused at5 epochs; v23 complete with preliminary mmap/cache-policy gains
+Status: dropout/smoothing/C4 v18 paused at5 epochs; combined CPU policy/queue probe v24 RUNNING
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-26
@@ -642,7 +642,15 @@ physical epoch-plan offsets and both count/byte reservation limits. Seven
 existing reader tests, compilation, Ruff, targeted BasedPyright and kernel
 build/validation pass. Subagent review found no buffer ownership, reservation
 or scheduling issue; nonlinear backend order effects remain a limitation.
-Publication/submission pending.
+Source `f032095bb07b5a2351e8481bf0162b9a90e112b0` and thin entry `faa3e97`
+are published. Submitted as `maximshtefan/eqvae-spec0054-mil-fold0/24`
+around12:06 Bogota on2026-10-27; API RUNNING. Next useful inspection is
+around16:30 Bogota, allowing for the240-minute runtime budget and platform
+preparation. No GPU use or classifier continuation. Initial stream:
+`runs/local/spec0054_io_combined_v24_review/initial_stream.txt`.
+The initial30-second stream contains no events. API RUNNING confirms platform
+state, not worker/code-start or any timing measurement; GPU-off metadata is
+verified locally. No additional polling accompanies the launch.
 
 ## Bounded I/O followup (2026-10-23)
 

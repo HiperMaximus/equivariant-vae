@@ -352,7 +352,14 @@ prefetch uses only the bounded comparison window, not a full-epoch preload.
 Synthetic264-read checks cover depth8 and a tighter byte cap, frozen file
 hashes, exact raw/prepared arrays, epoch-plan blob offsets and FIFO order.
 Seven reader tests/static checks and independent subagent review pass.
-Publication/submission pending.
+Source `f032095` and thin entry `faa3e97` are published. Submitted as
+`maximshtefan/eqvae-spec0054-mil-fold0/24` around12:06 Bogota on2026-10-27;
+API confirms RUNNING. Next useful inspection around16:30 Bogota, allowing
+for240min runtime budget and platform preparation. No GPU or classifier
+continuation. Initial stream:
+`runs/local/spec0054_io_combined_v24_review/initial_stream.txt`.
+The initial30-second stream is empty, so worker/code-start and measurements
+are not yet established by logs; GPU-off metadata is verified locally.
 
 All512 WSI/subset/C4 records match across branches; initial parameters and reader
 match the prior recipe. No AMP backoffs or nonfinite losses/gradients. Mean steps
