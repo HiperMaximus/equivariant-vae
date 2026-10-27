@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-10-26
+Last updated: 2026-10-27
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -360,6 +360,45 @@ continuation. Initial stream:
 `runs/local/spec0054_io_combined_v24_review/initial_stream.txt`.
 The initial30-second stream is empty, so worker/code-start and measurements
 are not yet established by logs; GPU-off metadata is verified locally.
+
+Offline I/O strategy review on2026-10-27, with two subagents, identifies an
+untested middle ground between sampled and full-bag reads: merge gaps of one
+unselected32KiB patch. For the exact epoch-index5 train plan, application read
+intervals fall from587,674 to234,929 per branch while paired requested bytes
+rise from96.290 to119.408GB; the retained subset is unchanged. These are plan
+counts, not throughput or NFS RPC measurements. Two-patch gaps give94,074
+intervals/137.870GB. A local synthetic C prototype also verifies a contiguous
+read-only virtual view assembled from different file offsets without prior
+payload copying; no performance or Kaggle capability is established. Evidence:
+`runs/local/spec0054_io_strategy_review/{analyze_coalescing_epoch5.py,coalescing_epoch5.json,virtual_view_demo.c,virtual_view_demo.json}`.
+Prioritize measured coalescing and larger-than-RAM scratch reuse after v24;
+full canonical train data are160.472GB paired, versus96.290GB for each distinct
+60% epoch. Scratch amortization must include staging and assessments within
+each ephemeral session. Virtual mappings alone retain source-file readahead;
+an explicit future-aware physical I/O schedule can exploit the epoch plan.
+FUSE/userfaultfd/io_uring and lossless compression remain conditional research
+options. No training/reader change, new Kaggle run or v24 polling accompanies
+this review; its next useful inspection remains around16:30 Bogota.
+
+The next CPU comparison is prepared locally in the existing probe/contract:
+sampled baseline versus coalescing gaps of one/two records, using the same72
+WSI/epoch-index5 three times in Latin-square orders ABC/BCA/CAB. All arms have
+two readers/two futures, identical3GiB selected-buffer reservation, no WILLNEED
+or post-read discard, and the existing observed client-cache reset before each
+arm. Maximum1296 combined reads within a360-minute runtime budget. Scatter
+preadv writes selected runs directly to their final output and hole bytes to
+separate scratch slices; groups split at the kernel iovec limit. Requested
+bytes include holes and are distinct from selected bytes. The training
+ShardBags reader and classifier checkpoints stay unchanged. V24 still reports
+RUNNING on the one status check; no competing NFS benchmark was submitted.
+Source `e902d26` and the local thin entry pin identify this prepared comparison.
+Ten focused tests,396 synthetic full-pipeline reads, compilation, Ruff and
+targeted BasedPyright pass. Synthetic verification covers exact raw/prepared
+hashes, FIFO order, requested bytes/intervals, source immutability, iovec splits,
+shared-descriptor concurrency and normal/tight queue budgets. Evidence:
+`runs/local/spec0054_io_coalescing_preparation/{check_probe.py,synthetic_check.log,verification.json}`.
+Entry remains CPU-only/READ_PROBE=True/RESUME=False with all original inputs.
+This is prepared source, not a submitted v25 or a measured speedup.
 
 All512 WSI/subset/C4 records match across branches; initial parameters and reader
 match the prior recipe. No AMP backoffs or nonfinite losses/gradients. Mean steps

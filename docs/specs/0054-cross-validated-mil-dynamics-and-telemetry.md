@@ -652,6 +652,112 @@ The initial30-second stream contains no events. API RUNNING confirms platform
 state, not worker/code-start or any timing measurement; GPU-off metadata is
 verified locally. No additional polling accompanies the launch.
 
+## Offline I/O strategy review (2026-10-27)
+
+The exact epoch-index5 read plan, reconstructed with the existing sampler and
+actual frozen bag sizes from v18 telemetry, contains288 training WSI and
+1,469,274 selected32KiB records per branch. Both branches request96.290GB
+paired from160.472GB of full training contents. Historical cohort patch counts
+are not physical storage sizes and are excluded from this accounting.
+
+Coalescing adjacent selected runs across small unselected gaps preserves every
+selected value while trading extra bytes for fewer application read intervals:
+
+| Largest missing gap read through | Intervals per branch | Paired requested GB |
+| --- | ---: | ---: |
+| 0 records, current plan | 587,674 | 96.290 |
+| 1 record | 234,929 | 119.408 |
+| 2 records | 94,074 | 137.870 |
+| 3 records | 38,187 | 148.858 |
+
+These are exact offline plan counts, not measured throughput or NFS RPC counts.
+The negative full-bag comparison on the larger working set does not establish
+the performance of intermediate coalescing. Bytes and run counts both grow
+with bag size under fixed60% sampling, so latency-size correlation alone cannot
+distinguish bandwidth limits from per-request costs. Coalescing varies those
+quantities in opposite directions. Reproducible calculation:
+`runs/local/spec0054_io_strategy_review/{analyze_coalescing_epoch5.py,coalescing_epoch5.json}`.
+
+A20KiB local synthetic C example assembles a contiguous virtual address range
+from three read-only mappings of two source files, with no payload copy before
+access and unchanged source bytes. This establishes address-view correctness,
+not acceleration or Kaggle capability. Linux mmap readahead uses the source
+VMA's file and file offset, so concatenated addresses do not automatically
+prefetch across original-file boundaries
+([Linux6.18 filemap.c](https://raw.githubusercontent.com/torvalds/linux/v6.18/mm/filemap.c)).
+Mapping each selected run separately would require roughly588,000 regions per
+branch for this epoch, with unmeasured mapping overhead and Kaggle limits.
+Mapping whole bags avoids that region count but retains subset extraction.
+Prototype: `runs/local/spec0054_io_strategy_review/virtual_view_demo.{c,json}`.
+
+The highest potential reduction in repeated remote reads is a verified
+canonical scratch copy:160.472GB for train,200.333GB including validation.
+Only33.474GB staging has been tested; full capacity/performance remain
+unmeasured. Compare staging plus local training/assessment time against direct
+reads within one Kaggle session, since scratch is ephemeral. A96.290GB packed
+epoch file needs rebuilding when its subset changes; two such files already
+exceed the full canonical training footprint. Preserving the original files
+and relocating their root could reuse the unchanged training reader; changing
+the reader/format requires resolving the recorded resume identity explicitly.
+
+An explicit bounded scheduler can read future requests in source-file/offset
+order while consuming the original training FIFO, prioritizing the blocking
+WSI and retaining data under a measured RAM budget. Larger lookahead, actual
+reader concurrency and per-reader file-descriptor readahead state are distinct
+factors. An offline sequential source scan that gathers selected data into a
+local epoch file is another hypothesis; include all extra reads and writes.
+Lossless chunk compression could reduce source traffic after a verified
+repack, but its real FP16 ratio and decoding cost are unknown. If whole bags
+must be decoded, compression must exceed approximately1.667 times merely to
+match the logical bytes of a raw60% subset, before cache/readahead effects.
+
+FUSE could expose one logical file with kernel readahead, while a userspace
+pager via userfaultfd could translate faults and prefetch from the epoch plan.
+Both retain underlying source I/O and introduce additional machinery; their
+Kaggle permissions are untested. Cached FUSE supports readahead whereas its
+direct mode bypasses it
+([kernel documentation](https://docs.kernel.org/filesystems/fuse/fuse-io.html)).
+io_uring could batch/asynchronously overlap requests within bags; availability
+and any gain over bounded threads remain unmeasured. NFS remount controls,
+direct I/O and GPU-direct storage require separate capability evidence and
+cannot be presumed available. No additional Kaggle job, training modification
+or v24 status inspection was performed during this offline review.
+
+## Prepared CPU coalescing comparison (2026-10-27)
+
+The existing read-probe contract now compares the original sampled reader with
+two gap-coalescing readers, retaining the exact first72 epoch-index5 WSI,
+patch subsets, C4 codes, CPU layout preparation and FIFO consumption. All arms
+use identical two-reader/two-future limits and selected-buffer reservations.
+No forward hints or post-read discard are active in these arms. The existing
+per-arm client-cache reset and observed mincore residency apply equally;
+remote caching remains uncontrolled. Three Latin-square repetitions balance
+each method across execution positions; carryover effects are not fully
+counterbalanced. Numerical settings are in `docs/data/spec0054_fold0_run.json`.
+
+The probe-only reader uses a single continuous source interval per preadv and
+scatters retained runs directly into the selected output array. Intervening
+unselected bytes go to distinct slices of an expendable gap buffer. Groups
+split before exceeding SC_IOV_MAX. Row telemetry distinguishes selected bytes
+from requested bytes, counts the actual application read intervals and retains
+raw/prepared/subset/C4 hashes. This avoids an extra gather of selected data
+after over-reading. The original shared ShardBags reader is unchanged.
+
+Focused local checks compare arbitrary FP16 bit patterns, including special
+values, with independently indexed source uint16 arrays at nonzero bag offsets.
+They observe exact requested lengths and range bounds, force a small iovec
+limit, check concurrent reads sharing a descriptor and source immutability.
+These establish content/offset correctness, not remote throughput. The prepared
+entry allows360 minutes from execution start and no GPU use. No new Kaggle
+version was submitted while v24 remained RUNNING, to avoid competing I/O.
+Source `e902d26fece5bd1b7f1df7fd7ab114c573d25aa1` is pinned by the prepared
+thin entry. Ten focused tests and396 local synthetic pipeline reads pass,
+including both branches, all three methods/repetitions and normal/tight queue
+budgets. Raw/prepared hashes, FIFO, requested bytes/intervals, immutable inputs
+and reservation/count bounds agree. Compilation, Ruff and targeted
+BasedPyright pass. Evidence:
+`runs/local/spec0054_io_coalescing_preparation/{check_probe.py,synthetic_check.log,verification.json}`.
+
 ## Bounded I/O followup (2026-10-23)
 
 Reuse the existing read-probe mode in a private Kaggle CPU session, mounting
