@@ -1047,6 +1047,16 @@ Receipt: `reports/spec0054_io_20261028/full_epoch_launch_receipt.json`.
 Final outputs can be downloaded from the exact v3 reference to the fresh path
 `runs/kaggle/spec0054_io_full_epoch_v3_handoff`.
 
+Live inspection around01:14 Bogota confirms v3 RUNNING with source69ba695 and
+both physical GPU ids null. Logged deadlines minus the660-minute budget place
+entry start at00:58:15 and cutoff at11:58:15. The snapshot has263 normal and
+262 SO2 completed reads, all in repetition0's original sampled-reader training
+phase; no649-request cycle or candidate-arm comparison is complete. No
+traceback is visible. These partial counts establish code/data-read progress,
+not a method result or final output audit. Session unchanged; next useful
+inspection remains around05:00. Snapshot:
+`reports/spec0054_io_20261028/full_epoch_v3_live_0114.json`.
+
 ## Bounded I/O followup (2026-10-23)
 
 Reuse the existing read-probe mode in a private Kaggle CPU session, mounting

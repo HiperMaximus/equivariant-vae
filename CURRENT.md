@@ -41,10 +41,15 @@ Source is `69ba6951b44f395481a88a624ae5877bdaee963c`, entry `352f8d1`.
 Submitted as `maximshtefan/eqvae-spec0054-io-coalescing/3` around00:47 Bogota
 on2026-10-28, API RUNNING. Entry/metadata build, validation and Ruff pass;
 metadata is identical to the earlier separate coalescing kernel, GPU-off with
-all original12 inputs. Worker start and measurements have not been inspected.
-First useful check around05:00 Bogota, with later inspection if still active;
-the660-minute budget starts at actual entry execution, so preparation can
-extend time after submission. Receipt:
+all original12 inputs. Inspection around01:14 Bogota confirms source69ba695,
+both CPU workers and code start00:58:15; the actual deadline is11:58:15.
+The live snapshot contains263 normal/262 SO2 completed reads, all in the first
+sampled-training phase of the original reader (of288). No completed649-request
+cycle or candidate-arm comparison yet, and no traceback is visible. This is
+progress evidence, not a method result. Session unchanged; next useful check
+remains around05:00 Bogota. Live receipt:
+`reports/spec0054_io_20261028/full_epoch_v3_live_0114.json`.
+Launch receipt:
 `reports/spec0054_io_20261028/full_epoch_launch_receipt.json`.
 When complete, download v3 to a new destination such as
 `runs/kaggle/spec0054_io_full_epoch_v3_handoff` using the existing wrapper.
@@ -57,7 +62,7 @@ analysis scripts do not implement this new phase grouping.
 
 | Probe | Exact Kaggle reference | Source / entry commits | Last observed state |
 | --- | --- | --- | --- |
-| full epoch plus evaluate-I/O | `maximshtefan/eqvae-spec0054-io-coalescing/3` | `69ba695` / `352f8d1` | RUNNING,00:47 Bogota |
+| full epoch plus evaluate-I/O | `maximshtefan/eqvae-spec0054-io-coalescing/3` | `69ba695` / `352f8d1` | RUNNING,01:14 Bogota; first training phase |
 | gap1 queue/cache combination | `maximshtefan/eqvae-spec0054-io-coalescing/2` | `1126d6a` / `d35a152` | COMPLETE,1296 reads |
 | mmap/discard/prefetch and deeper queues | `maximshtefan/eqvae-spec0054-mil-fold0/24` | `f032095` / `faa3e97` | COMPLETE,864 reads |
 | sampled versus scatter-coalescing gaps1/2 | `maximshtefan/eqvae-spec0054-io-coalescing/1` | `e902d26` / `6d64577` | COMPLETE,1296 reads |

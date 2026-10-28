@@ -1,0 +1,42 @@
+{
+  "reference": "maximshtefan/eqvae-spec0054-io-coalescing/3",
+  "checked_at_bogota": "2026-10-28T01:14:00-05:00",
+  "time_precision": "approximately_one_minute",
+  "platform_status": "RUNNING",
+  "source_commit_confirmed": "69ba6951b44f395481a88a624ae5877bdaee963c",
+  "entry_started_bogota": "2026-10-28T00:58:15-05:00",
+  "deadline_bogota": "2026-10-28T11:58:15-05:00",
+  "gpu_physical_ids": [
+    null,
+    null
+  ],
+  "undecoded_log_fragments": 0,
+  "branches": {
+    "normal_vae": {
+      "visible_completed_reads": 263,
+      "completed_by_phase": {
+        "train_sampled": 263
+      },
+      "completed_whole_cycles": 0,
+      "mean_read_seconds_partial": 4.379569454737641,
+      "max_read_seconds_partial": 13.233432125000036,
+      "current_method": "sampled_regions",
+      "current_phase": "train_sampled"
+    },
+    "so2_vae": {
+      "visible_completed_reads": 262,
+      "completed_by_phase": {
+        "train_sampled": 262
+      },
+      "completed_whole_cycles": 0,
+      "mean_read_seconds_partial": 4.363887930767179,
+      "max_read_seconds_partial": 13.476095316999817,
+      "current_method": "sampled_regions",
+      "current_phase": "train_sampled"
+    }
+  },
+  "traceback_count": 0,
+  "comparison_available": false,
+  "session_modified": false,
+  "next_useful_check_bogota": "2026-10-28T05:00:00-05:00"
+}
