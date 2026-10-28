@@ -176,18 +176,18 @@
       11,
       12
     ],
-    "population": "first_training_window_replayed_at_same_epoch",
+    "population": "full_training_epoch_then_full_train_and_validation_evaluate_io",
     "reader_workers": 2,
     "passes": 3,
     "first_epoch": 5,
-    "wsi_block_size": 72,
+    "wsi_block_size": 288,
+    "assessment_future_wsi": 1,
     "methods": [
-      "coalesced_gap1",
+      "sampled_regions",
       "coalesced_gap1_queue8",
       "coalesced_gap1_discard_prefetch"
     ],
     "coalesced_gap_records": {
-      "coalesced_gap1": 1,
       "coalesced_gap1_queue8": 1,
       "coalesced_gap1_discard_prefetch": 1
     },
@@ -212,7 +212,7 @@
     ],
     "mmap_advice": "MADV_SEQUENTIAL",
     "future_wsi": {
-      "coalesced_gap1": 2,
+      "sampled_regions": 2,
       "coalesced_gap1_queue8": 8,
       "coalesced_gap1_discard_prefetch": 8
     },

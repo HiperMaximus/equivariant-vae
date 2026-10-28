@@ -962,7 +962,7 @@ def run(repo_root: Path, latent_root: Path, output_root: Path, resume_root: Path
 
 def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch: str,
                    session_deadline_unix: float | None = None) -> None:
-    """Compare read shapes on the same training window with controlled client cache."""
+    """Compare full-epoch input pipelines, including sequential evaluate() I/O."""
     config_path = repo_root / "docs/data/spec0054_fold0_run.json"
     config = json.loads(config_path.read_text())
     probe = config["read_probe"]
@@ -1034,7 +1034,7 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
               "seed": config["seed"], "patch_retention": config["patch_retention"],
               "probe": probe, "hardware": hardware, "completed": False,
               "prepared_hash_order": "NHWC_physical_channels_last",
-              "cache_policy": "window_reset_before_each_arm; per_method_actions_recorded_in_probe_and_rows",
+              "cache_policy": "unique_bag_reset_before_each_arm; training_policy_only; natural_cache_carryover_into_evaluation",
               "counter_scope": "mincore_bag_snapshot; process_rss_peak_shared_by_threads; vmstat_host_wide; NFS_mount_shared_between_branches",
               "blocks": blocks, "rows": rows, "prefetch_hints": hints}
 
@@ -1064,13 +1064,13 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
                 observed[active] = [int(value) for value in line.split()[1:]]
         return observed
 
-    def advise_future(wsi_id, epoch, block_index, method):
+    def advise_future(wsi_id, epoch, block_index, method, phase):
         location = bags.locations[wsi_id]
         length = min(location.count * RECORD_BYTES, probe["prefetch_bytes_per_wsi"])
         at_unix, started = time.time(), time.perf_counter()
         os.posix_fadvise(bags.descriptors[branch, location.shard],
                         location.first_record * RECORD_BYTES, length, os.POSIX_FADV_WILLNEED)
-        hint = {"epoch": epoch, "block_index": block_index, "method": method, "wsi_id": wsi_id,
+        hint = {"epoch": epoch, "block_index": block_index, "method": method, "phase": phase, "wsi_id": wsi_id,
                 "requested_bytes": length, "started_unix": at_unix,
                 "ended_unix": time.time(), "seconds": time.perf_counter() - started}
         with lock:
@@ -1080,30 +1080,40 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         return hint["seconds"]
 
     def read_bag(request):
-        position, window, epoch, block_index, method = request
+        position, window, epoch, block_index, method, phase = request
         if session_deadline_unix is not None and time.time() >= session_deadline_unix:
             return None
         wsi_id = window[position]
         location = bags.locations[wsi_id]
-        indices = _sample_indices(location.count, config["seed"], epoch, wsi_id,
-                                  config["patch_retention"])
+        training = phase == "train_sampled"
+        indices = (_sample_indices(location.count, config["seed"], epoch, wsi_id,
+                                   config["patch_retention"]) if training else None)
+        selected_count = len(indices) if indices is not None else location.count
         hint_seconds = 0.0
-        if method in cache_policy_methods and position + probe["lookahead_wsi"] < len(window):
-            hint_seconds = advise_future(window[position + probe["lookahead_wsi"]], epoch, block_index, method)
+        if training and method in cache_policy_methods and position + probe["lookahead_wsi"] < len(window):
+            hint_seconds = advise_future(window[position + probe["lookahead_wsi"]], epoch, block_index, method, phase)
         info = {"branch": branch, "shard": location.shard, "wsi_id": wsi_id,
                 "method": method, "storage": "input", "epoch": epoch,
-                "block_index": block_index}
+                "block_index": block_index, "phase": phase, "position": position,
+                "split": "validation" if phase == "assessment_validation" else "train"}
         before = snapshot(bags, wsi_id)
         print(json.dumps({"event": "read_probe_read_start", **info,
                           "resident_fraction": before["resident_fraction"]}), flush=True)
-        requested_bytes = len(indices) * RECORD_BYTES
-        read_regions = None if method == "mmap_discard_prefetch" else int(np.count_nonzero(np.diff(indices) != 1)) + 1
+        requested_bytes = selected_count * RECORD_BYTES
+        read_regions: int | None = (int(np.count_nonzero(np.diff(indices) != 1)) + 1
+                                    if indices is not None else 1)
+        full_source = None
         cpu_started, started = time.thread_time(), time.perf_counter()
-        if method in probe["coalesced_gap_records"]:
+        if indices is None:
+            # evaluate().load(): full read, owned copy, no sampling or augmentation.
+            full_source = bags.read(branch, wsi_id)
+            selected = full_source.copy()
+        elif method in probe["coalesced_gap_records"]:
             selected, requested_bytes, read_regions = _read_coalesced(
                 bags.descriptors[branch, location.shard], location.first_record,
                 indices, probe["coalesced_gap_records"][method])
         elif method == "mmap_discard_prefetch":
+            read_regions = None
             with mmap.mmap(bags.descriptors[branch, location.shard], location.count * RECORD_BYTES,
                            access=mmap.ACCESS_READ, offset=location.first_record * RECORD_BYTES) as mapping:
                 mapping.madvise(getattr(mmap, probe["mmap_advice"]))
@@ -1116,7 +1126,7 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         read_cpu_seconds = time.thread_time() - cpu_started
         after = snapshot(bags, wsi_id)
         started = time.perf_counter()
-        if method in cache_policy_methods:
+        if training and method in cache_policy_methods:
             os.posix_fadvise(bags.descriptors[branch, location.shard],
                             location.first_record * RECORD_BYTES, location.count * RECORD_BYTES,
                             os.POSIX_FADV_DONTNEED)
@@ -1126,24 +1136,28 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         digest = hashlib.sha256(memoryview(selected).cast("B")).hexdigest()
         hash_seconds = time.perf_counter() - hash_started
         host_started, host_cpu_started = time.perf_counter(), time.thread_time()
-        rotations = _sample_c4(len(indices), config["seed"], epoch, wsi_id)
-        if config["c4_augmentation"]:
-            _apply_c4(selected, rotations)
+        rotation_digest = "identity"
+        if training:
+            rotations = _sample_c4(selected_count, config["seed"], epoch, wsi_id)
+            if config["c4_augmentation"]:
+                _apply_c4(selected, rotations)
+            rotation_digest = hashlib.sha256(rotations.tobytes()).hexdigest()
         source = torch.from_numpy(selected)
         host = torch.empty_like(source, memory_format=torch.channels_last, pin_memory=False)
         host.copy_(source)
         host_seconds = time.perf_counter() - host_started
         host_cpu_seconds = time.thread_time() - host_cpu_started
+        del full_source  # Match load(): keep the immutable full read through conversion.
         after_prepare = snapshot(bags, wsi_id)
         prepared_hash_started = time.perf_counter()
         prepared_digest = hashlib.sha256(memoryview(host.permute(0, 2, 3, 1).numpy()).cast("B")).hexdigest()
         prepared_hash_seconds = time.perf_counter() - prepared_hash_started
-        row = {**info, "bag_size": location.count, "sampled_bag_size": len(indices),
-               "sampled_bytes": len(indices) * RECORD_BYTES,
+        row = {**info, "bag_size": location.count, "sampled_bag_size": selected_count,
+               "sampled_bytes": selected_count * RECORD_BYTES,
                "requested_bytes": requested_bytes, "read_regions": read_regions,
-               "sample_indices_sha256": hashlib.sha256(indices.tobytes()).hexdigest(),
+               "sample_indices_sha256": hashlib.sha256(indices.tobytes()).hexdigest() if indices is not None else "full",
                "selected_values_sha256": digest, "prepared_values_sha256": prepared_digest,
-               "c4_rotations_sha256": hashlib.sha256(rotations.tobytes()).hexdigest(),
+               "c4_rotations_sha256": rotation_digest,
                "read_seconds": read_seconds, "read_cpu_seconds": read_cpu_seconds,
                "read_plus_subset_seconds": read_seconds,
                "discard_seconds": discard_seconds, "future_hint_seconds": hint_seconds,
@@ -1191,29 +1205,42 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
         epoch = probe["first_epoch"]
         epoch_order = [panel[i] for i in paired_epoch_order(row_count=len(panel), epoch=epoch,
                                                            seed=config["seed"])]
+        validation = sorted(wsi for wsi, location in bags.locations.items()
+                            if location.fold == config["fold"])
+        phases = [("train_sampled", epoch_order[:probe["wsi_block_size"]]),
+                  ("assessment_train", panel), ("assessment_validation", validation)]
+        cycle_order = [wsi for _, window in phases for wsi in window]
+        reset_ids = sorted(set(cycle_order))
         epoch_plan = []
-        for position, wsi in enumerate(epoch_order):
-            location = bags.locations[wsi]
-            indices = _sample_indices(location.count, config["seed"], epoch, wsi,
-                                      config["patch_retention"])
-            epoch_plan.append({"position": position, "wsi_id": wsi, "shard": location.shard,
-                               "byte_offset": location.first_record * RECORD_BYTES,
-                               "bag_bytes": location.count * RECORD_BYTES,
-                               "sampled_bytes": len(indices) * RECORD_BYTES,
-                               "sample_indices_sha256": hashlib.sha256(indices.tobytes()).hexdigest(),
-                               "contiguous_regions": int(np.count_nonzero(np.diff(indices) != 1)) + 1})
+        for phase, window in phases:
+            for position, wsi in enumerate(window):
+                location = bags.locations[wsi]
+                indices = (_sample_indices(location.count, config["seed"], epoch, wsi,
+                                           config["patch_retention"]) if phase == "train_sampled" else None)
+                selected_count = len(indices) if indices is not None else location.count
+                epoch_plan.append({"phase": phase, "position": position, "wsi_id": wsi, "shard": location.shard,
+                                   "byte_offset": location.first_record * RECORD_BYTES,
+                                   "bag_bytes": location.count * RECORD_BYTES,
+                                   "sampled_bytes": selected_count * RECORD_BYTES,
+                                   "sample_indices_sha256": hashlib.sha256(indices.tobytes()).hexdigest() if indices is not None else "full",
+                                   "contiguous_regions": int(np.count_nonzero(np.diff(indices) != 1)) + 1 if indices is not None else 1})
         result["epoch_read_plan"] = epoch_plan
-        result["epoch_plan_scope"] = "training_only; assessments excluded; subsets reconstructed from seed/epoch/count"
+        result["epoch_plan_scope"] = "sampled_training_then_full_sorted_train_and_validation_evaluate_io; model_compute_diagnostics_and_speculative_next_epoch_reads_excluded"
         result["largest_planned_selected_bytes"] = max(item["sampled_bytes"] for item in epoch_plan)
-        window = epoch_order[:probe["wsi_block_size"]]
-        result["candidate_wsi_count"] = len(panel)
-        result["wsi_ids"] = window
+        result["phase_plan"] = [{"phase": phase, "wsi_ids": window} for phase, window in phases]
+        result["training_wsi_count"] = len(panel)
+        result["validation_wsi_count"] = len(validation)
+        result["candidate_wsi_count"] = len(reset_ids)
+        result["wsi_ids"] = cycle_order
+        result["requests_per_arm"] = len(cycle_order)
+        result["paired_cycle_retained_bytes"] = 2 * sum(item["sampled_bytes"] for item in epoch_plan)
         result["paired_panel_full_bytes"] = 2 * sum(bags.locations[wsi].count * RECORD_BYTES
-                                                   for wsi in window)
+                                                   for wsi in reset_ids)
         save_result()
         print(json.dumps({"event": "read_probe_start", "branch": branch,
                           "hardware": hardware, "files": result["files"],
-                          "wsi_count": len(window), "candidate_wsi_count": len(panel),
+                          "requests_per_arm": len(cycle_order), "phase_plan": result["phase_plan"],
+                          "candidate_wsi_count": len(reset_ids),
                           "probe": probe}), flush=True)
         with ThreadPoolExecutor(max_workers=probe["reader_workers"]) as pool:
             for block_index in range(probe["passes"]):
@@ -1224,19 +1251,20 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
                     if wait is None:
                         return
                     reset_at, reset_started = time.time(), time.perf_counter()
-                    for wsi in window:
+                    for wsi in reset_ids:
                         location = bags.locations[wsi]
                         os.posix_fadvise(bags.descriptors[branch, location.shard],
                                         location.first_record * RECORD_BYTES,
                                         location.count * RECORD_BYTES, os.POSIX_FADV_DONTNEED)
                     residency = []
-                    for wsi in window:
+                    for wsi in reset_ids:
                         observed = snapshot(bags, wsi)
                         residency.append({"wsi_id": wsi, **{k: observed[k] for k in
                                           ("resident_fraction", "pages", "mincore_status", "mincore_errno")}})
                     block = {"epoch": epoch, "block_index": block_index,
                              "storage": "input", "method": method, "completed": False,
-                             "barrier_wait_seconds": wait, "wsi_order": window,
+                             "barrier_wait_seconds": wait, "wsi_order": cycle_order,
+                             "phase_blocks": [],
                              "cache_reset_started_unix": reset_at,
                              "cache_reset_ended_unix": time.time(),
                              "cache_reset_seconds": time.perf_counter() - reset_started,
@@ -1250,37 +1278,57 @@ def run_read_probe(repo_root: Path, latent_root: Path, output_root: Path, branch
                     block["started_unix"] = time.time()
                     started = time.perf_counter()
                     block["nfs_read_before"] = nfs_read_counters()
-                    if method in cache_policy_methods:
-                        for wsi in window[:probe["lookahead_wsi"]]:
-                            if session_deadline_unix is not None and time.time() >= session_deadline_unix:
-                                break
-                            advise_future(wsi, epoch, block_index, method)
-                    # Keep prepared CPU buffers alive in a bounded FIFO, without changing WSI order.
-                    plan = iter((i, window, epoch, block_index, method) for i in range(len(window)))
-                    request = next(plan, None)
-                    pending = deque()
                     completed = True
-                    reserved = max_reserved = max_pending = max_ready = 0
-                    future_limit = probe["future_wsi"][method]
-                    while request is not None or pending:
-                        while request is not None and len(pending) < future_limit:
-                            wsi = window[request[0]]
-                            size = math.ceil(bags.locations[wsi].count * config["patch_retention"]) * RECORD_BYTES
-                            if reserved + size > probe["max_ready_bytes_per_branch"]:
-                                break
-                            pending.append((pool.submit(read_bag, request), size))
-                            reserved += size
-                            max_reserved = max(max_reserved, reserved)
-                            max_pending = max(max_pending, len(pending))
-                            request = next(plan, None)
-                        max_ready = max(max_ready, sum(f.done() and f.result() is not None for f, _ in pending))
-                        future, size = pending.popleft()
-                        prepared = future.result()
-                        completed = (prepared is not None) and completed
-                        reserved -= size
-                        del prepared, future
-                    block.update(future_wsi_limit=future_limit, max_reserved_host_bytes=max_reserved,
-                                 max_pending_wsi=max_pending, max_ready_wsi_observed=max_ready)
+                    for phase, window in phases:
+                        training = phase == "train_sampled"
+                        phase_started = time.perf_counter()
+                        phase_block = {"phase": phase, "wsi_order": window,
+                                       "started_unix": time.time(), "completed": False,
+                                       "nfs_read_before": nfs_read_counters()}
+                        block["phase_blocks"].append(phase_block)
+                        if training and method in cache_policy_methods:
+                            for wsi in window[:probe["lookahead_wsi"]]:
+                                if session_deadline_unix is not None and time.time() >= session_deadline_unix:
+                                    break
+                                advise_future(wsi, epoch, block_index, method, phase)
+                        # Drain each phase before the next: no speculative assessment reads.
+                        plan = iter((i, window, epoch, block_index, method, phase) for i in range(len(window)))
+                        request = next(plan, None)
+                        pending = deque()
+                        reserved = max_reserved = max_pending = max_ready = consumed = 0
+                        future_limit = (probe["future_wsi"][method] if training
+                                        else probe["assessment_future_wsi"])
+                        while request is not None or pending:
+                            while request is not None and len(pending) < future_limit:
+                                wsi = window[request[0]]
+                                count = bags.locations[wsi].count
+                                size = (math.ceil(count * config["patch_retention"])
+                                        if training else count) * RECORD_BYTES
+                                if reserved + size > probe["max_ready_bytes_per_branch"]:
+                                    break
+                                pending.append((pool.submit(read_bag, request), size))
+                                reserved += size
+                                max_reserved = max(max_reserved, reserved)
+                                max_pending = max(max_pending, len(pending))
+                                request = next(plan, None)
+                            max_ready = max(max_ready, sum(f.done() and f.result() is not None for f, _ in pending))
+                            future, size = pending.popleft()
+                            prepared = future.result()
+                            completed = (prepared is not None) and completed
+                            consumed += prepared is not None
+                            reserved -= size
+                            del prepared, future
+                        phase_block.update(future_wsi_limit=future_limit, max_reserved_host_bytes=max_reserved,
+                                           max_pending_wsi=max_pending, max_ready_wsi_observed=max_ready,
+                                           consumed_wsi=consumed, ended_unix=time.time(),
+                                           wall_seconds=time.perf_counter() - phase_started,
+                                           completed=completed, nfs_read_after=nfs_read_counters())
+                        save_result()
+                        if not completed:
+                            break
+                    block.update(max_reserved_host_bytes=max(p["max_reserved_host_bytes"] for p in block["phase_blocks"]),
+                                 max_pending_wsi=max(p["max_pending_wsi"] for p in block["phase_blocks"]),
+                                 max_ready_wsi_observed=max(p["max_ready_wsi_observed"] for p in block["phase_blocks"]))
                     block["nfs_read_after"] = nfs_read_counters()
                     block.update(ended_unix=time.time(), wall_seconds=time.perf_counter() - started,
                                  completed=completed)
