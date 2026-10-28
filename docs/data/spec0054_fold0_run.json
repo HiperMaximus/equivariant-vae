@@ -161,6 +161,14 @@
     "min_lr": 1e-05,
     "max_lr": 0.1
   },
+  "training_io": {
+    "reader_workers": 2,
+    "future_wsi": 8,
+    "max_ready_bytes_per_branch": 3221225472,
+    "coalesced_gap_records": 1,
+    "lookahead_wsi": 4,
+    "prefetch_bytes_per_wsi": 16777216
+  },
   "read_probe": {
     "shards": [
       1,

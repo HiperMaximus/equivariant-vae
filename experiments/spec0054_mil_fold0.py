@@ -243,6 +243,153 @@ def _boundaries(train_count: int, config: dict) -> set[int]:
     return schedule
 
 
+@contextmanager
+def _prefetch_training_inputs(bags, branch, device, config, requests, log):
+    """Bound FIFO prepared inputs by selected bytes, through completed H2D."""
+    policy = config["training_io"]
+    # Open on the main thread so first reads cannot race to open a shard.
+    for shard, binary in bags.files[branch].items():
+        key = (branch, shard)
+        if key not in bags.descriptors:
+            bags.descriptors[key] = os.open(binary, os.O_RDONLY)
+            log("shard_open", shard=shard)
+    log("bag_prefetch_start", **policy, reader="coalesced_scatter",
+        cache_policy="bounded_willneed_postcopy_dontneed")
+    reader_state = local()
+
+    def advise_future(request):
+        _, wsi_id, _ = request
+        location = bags.locations[wsi_id]
+        length = min(location.count * RECORD_BYTES, policy["prefetch_bytes_per_wsi"])
+        started = time.perf_counter()
+        os.posix_fadvise(bags.descriptors[branch, location.shard],
+                        location.first_record * RECORD_BYTES, length, os.POSIX_FADV_WILLNEED)
+        log("bag_prefetch_hint", wsi_id=wsi_id, requested_bytes=length,
+            hint_seconds=time.perf_counter() - started)
+
+    def prepare(request, future_request):
+        read_epoch, wsi_id, indices = request
+        if future_request is not None:
+            advise_future(future_request)
+        location = bags.locations[wsi_id]
+        started = time.perf_counter()
+        log("bag_read_start", wsi_id=wsi_id, shard=location.shard,
+            bag_size=location.count, prefetch=True, selected_bytes=len(indices) * RECORD_BYTES)
+        read_started, read_cpu_started = time.perf_counter(), time.thread_time()
+        array, requested_bytes, read_regions = _read_coalesced(
+            bags.descriptors[branch, location.shard], location.first_record,
+            indices, policy["coalesced_gap_records"])
+        read_seconds = time.perf_counter() - read_started
+        read_cpu_seconds = time.thread_time() - read_cpu_started
+        # Scatter has copied retained values into independent owned storage.
+        discard_started = time.perf_counter()
+        os.posix_fadvise(bags.descriptors[branch, location.shard],
+                        location.first_record * RECORD_BYTES, location.count * RECORD_BYTES,
+                        os.POSIX_FADV_DONTNEED)
+        discard_seconds = time.perf_counter() - discard_started
+        host_started, host_cpu_started = time.perf_counter(), time.thread_time()
+        rotations = _sample_c4(len(indices), config["seed"], read_epoch, wsi_id)
+        if config["c4_augmentation"]:
+            _apply_c4(array, rotations)
+        source = torch.from_numpy(array)
+        host = torch.empty_like(source, memory_format=torch.channels_last,
+                                pin_memory=device.type == "cuda")
+        host.copy_(source)
+        host_seconds = time.perf_counter() - host_started
+        host_cpu_seconds = time.thread_time() - host_cpu_started
+        del source, array
+        log("bag_transfer_start", wsi_id=wsi_id, sampled_bag_size=len(indices),
+            selected_bytes=len(indices) * RECORD_BYTES,
+            requested_bytes=requested_bytes, read_regions=read_regions,
+            sample_indices_sha256=hashlib.sha256(indices.tobytes()).hexdigest(),
+            read_prepare_seconds=time.perf_counter() - started,
+            read_seconds=read_seconds, read_cpu_seconds=read_cpu_seconds,
+            host_prepare_seconds=host_seconds, host_prepare_cpu_seconds=host_cpu_seconds,
+            discard_seconds=discard_seconds,
+            c4_rotations_sha256=hashlib.sha256(rotations.tobytes()).hexdigest()
+            if config["c4_augmentation"] else "identity", prefetch=True)
+        transfer_started = time.perf_counter()
+        if device.type == "cuda":
+            if not hasattr(reader_state, "copy_stream"):
+                reader_state.copy_stream = torch.cuda.Stream(device=device)
+            copy_stream = reader_state.copy_stream
+            with torch.cuda.device(device), torch.cuda.stream(copy_stream):
+                latents = host.to(device, non_blocking=True)
+                ready = torch.cuda.Event()
+                ready.record(copy_stream)
+            # The pinned source must remain alive until DMA completes. Results
+            # stay reserved even after completion, until FIFO consumption.
+            ready.synchronize()
+        else:
+            latents = host
+        log("bag_load_done", wsi_id=wsi_id, prefetch=True,
+            transfer_seconds=time.perf_counter() - transfer_started)
+        return wsi_id, indices, latents
+
+    plan = iter(requests)
+    lookahead = deque()
+    for _ in range(policy["lookahead_wsi"] + 1):
+        request = next(plan, None)
+        if request is not None:
+            lookahead.append(request)
+    with ThreadPoolExecutor(max_workers=policy["reader_workers"]) as reader:
+        pending = deque()
+        reserved = 0
+
+        def fill():
+            nonlocal reserved
+            while lookahead and len(pending) < policy["future_wsi"]:
+                request = lookahead[0]
+                size = len(request[2]) * RECORD_BYTES
+                if reserved + size > policy["max_ready_bytes_per_branch"]:
+                    break
+                future_request = (lookahead[policy["lookahead_wsi"]]
+                                  if len(lookahead) > policy["lookahead_wsi"] else None)
+                # Reserve before submission, including queued and completed
+                # prepared/GPU results; completion alone never frees capacity.
+                reserved += size
+                pending.append((reader.submit(prepare, request, future_request), size))
+                log("bag_prefetch_submit", wsi_id=request[1], selected_bytes=size,
+                    reserved_selected_bytes=reserved, pending_wsi=len(pending))
+                lookahead.popleft()
+                request = next(plan, None)
+                if request is not None:
+                    lookahead.append(request)
+
+        def consume():
+            nonlocal reserved
+            while pending or lookahead:
+                wait_started = time.perf_counter()
+                future, size = pending.popleft()
+                wsi_id, indices, latents = future.result()
+                del future
+                if device.type == "cuda":
+                    latents.record_stream(torch.cuda.current_stream(device))
+                reserved -= size
+                log("bag_prefetch_consume", wsi_id=wsi_id,
+                    wait_seconds=time.perf_counter() - wait_started,
+                    reserved_selected_bytes=reserved, pending_wsi=len(pending))
+                fill()
+                yield wsi_id, indices, latents
+                del latents
+
+        # Prime only this input context; its request iterator ends at assessment.
+        for request in list(lookahead)[:policy["lookahead_wsi"]]:
+            advise_future(request)
+        fill()
+        prepared = consume()
+        try:
+            yield prepared
+        finally:
+            # Drain before assessment/probes or closing shard descriptors.
+            prepared.close()
+            while pending:
+                future, size = pending.popleft()
+                future.result()
+                reserved -= size
+                del future
+
+
 def run_branch(
     branch: str, bags: ShardBags, config: dict, output_root: Path,
     resume_root: Path | None, identity: dict, session_started: float,
@@ -280,7 +427,8 @@ def run_branch(
         cnn_dropout=config["cnn_dropout"], mlp_dropout=config["mlp_dropout"],
         bag_dropout=config["bag_dropout"], label_smoothing=config["label_smoothing"],
         c4_augmentation=config["c4_augmentation"],
-        checkpoint_every_exposures=config["checkpoint_every_exposures"])
+        checkpoint_every_exposures=config["checkpoint_every_exposures"],
+        training_io=config["training_io"])
     prior = resume_root / branch if resume_root is not None else None
     if prior is not None and prior.exists():
         if json.loads((prior / "identity.json").read_text()) != {**identity, "branch": branch}:
@@ -369,110 +517,33 @@ def run_branch(
         log("bag_load_done", wsi_id=wsi_id)
         return latents
 
-    @contextmanager
     def training_inputs():
-        # Two ready inputs per VAE worker, across accumulation/epoch boundaries.
-        # Its private cursor is speculative; only the training loop commits it.
+        # The cursor is speculative; only the training loop commits it. Stop
+        # before the next assessment so neither reads nor hints cross it.
         def requests():
             read_epoch, read_cursor, read_order = epoch, cursor, order
+            read_exposure = exposure
+            assessment_boundaries = boundaries if stop_after_updates is None else set()
+            assessment_boundaries = assessment_boundaries | confirmation_boundaries
+            read_limit = min((value for value in assessment_boundaries if value > exposure),
+                             default=horizon)
             read_horizon = config["lr_confirmation"]["epochs"] if lr_confirmation else config["epochs"]
             while read_epoch < read_horizon:
                 for index in read_order[read_cursor:]:
+                    if read_exposure >= read_limit:
+                        return
                     wsi_id = train_ids[index]
                     indices = _sample_indices(bags.locations[wsi_id].count,
                                               config["seed"], read_epoch, wsi_id,
                                               config["patch_retention"])
                     yield read_epoch, wsi_id, indices
+                    read_exposure += 1
                 read_epoch += 1
                 read_cursor = 0
                 read_order = paired_epoch_order(row_count=count, epoch=read_epoch,
                                                seed=config["seed"])
 
-        # Open on the main thread so two first reads cannot race to open a shard.
-        for shard, binary in bags.files[branch].items():
-            key = (branch, shard)
-            if key not in bags.descriptors:
-                bags.descriptors[key] = os.open(binary, os.O_RDONLY)
-                log("shard_open", shard=shard)
-        log("bag_prefetch_start", reader_workers=2, future_wsi=2)
-        reader_state = local()
-
-        def prepare(request):
-            read_epoch, wsi_id, indices = request
-            started = time.perf_counter()
-            log("bag_read_start", wsi_id=wsi_id, shard=bags.locations[wsi_id].shard,
-                bag_size=bags.locations[wsi_id].count, prefetch=True,
-                requested_bytes=len(indices) * RECORD_BYTES,
-                read_regions=int(np.count_nonzero(np.diff(indices) != 1)) + 1)
-            read_started, read_cpu_started = time.perf_counter(), time.thread_time()
-            array = bags.read(branch, wsi_id, indices)
-            read_seconds = time.perf_counter() - read_started
-            read_cpu_seconds = time.thread_time() - read_cpu_started
-            host_started, host_cpu_started = time.perf_counter(), time.thread_time()
-            rotations = _sample_c4(len(indices), config["seed"], read_epoch, wsi_id)
-            if config["c4_augmentation"]:
-                _apply_c4(array, rotations)
-            source = torch.from_numpy(array)
-            host = torch.empty_like(source, memory_format=torch.channels_last,
-                                    pin_memory=device.type == "cuda")
-            host.copy_(source)
-            host_seconds = time.perf_counter() - host_started
-            host_cpu_seconds = time.thread_time() - host_cpu_started
-            log("bag_transfer_start", wsi_id=wsi_id, sampled_bag_size=len(indices),
-                sample_indices_sha256=hashlib.sha256(indices.tobytes()).hexdigest(),
-                read_prepare_seconds=time.perf_counter() - started,
-                read_seconds=read_seconds, read_cpu_seconds=read_cpu_seconds,
-                host_prepare_seconds=host_seconds, host_prepare_cpu_seconds=host_cpu_seconds,
-                c4_rotations_sha256=hashlib.sha256(rotations.tobytes()).hexdigest()
-                if config["c4_augmentation"] else "identity", prefetch=True)
-            transfer_started = time.perf_counter()
-            if device.type == "cuda":
-                if not hasattr(reader_state, "copy_stream"):
-                    reader_state.copy_stream = torch.cuda.Stream(device=device)
-                copy_stream = reader_state.copy_stream
-                with torch.cuda.device(device), torch.cuda.stream(copy_stream):
-                    latents = host.to(device, non_blocking=True)
-                    ready = torch.cuda.Event()
-                    ready.record(copy_stream)
-                # Wait in the reader thread: keep pinned source alive until DMA
-                # completes, while the main stream trains on the previous WSI.
-                ready.synchronize()
-            else:
-                latents = host
-            log("bag_load_done", wsi_id=wsi_id, prefetch=True,
-                transfer_seconds=time.perf_counter() - transfer_started)
-            return wsi_id, indices, latents
-
-        plan = iter(requests())
-        with ThreadPoolExecutor(max_workers=2) as reader:
-            pending = deque()
-            for _ in range(2):
-                request = next(plan, None)
-                if request is not None:
-                    pending.append(reader.submit(prepare, request))
-
-            def consume():
-                while pending:
-                    wait_started = time.perf_counter()
-                    wsi_id, indices, latents = pending.popleft().result()
-                    if device.type == "cuda":
-                        latents.record_stream(torch.cuda.current_stream(device))
-                    request = next(plan, None)
-                    if request is not None:
-                        pending.append(reader.submit(prepare, request))
-                    log("bag_prefetch_consume", wsi_id=wsi_id,
-                        wait_seconds=time.perf_counter() - wait_started)
-                    yield wsi_id, indices, latents
-                    del latents
-
-            prepared = consume()
-            try:
-                yield prepared
-            finally:
-                # Drain before full-bag probes or closing shard descriptors.
-                prepared.close()
-                for future in pending:
-                    future.result()
+        return _prefetch_training_inputs(bags, branch, device, config, requests(), log)
 
     def evaluate() -> bool:
         log("evaluation_start", exposures=exposure)
@@ -1351,7 +1422,7 @@ def _read_coalesced(descriptor: int, first_record: int, indices: np.ndarray,
     Each preadv consumes one continuous source interval. Gap bytes go to a
     bounded scratch buffer, while selected runs go to their final array slices.
     Split groups at SC_IOV_MAX so long alternating patterns remain valid.
-    This reader is used only by the CPU probe; ShardBags.read stays unchanged.
+    Training and the CPU probe share this path; ShardBags.read stays unchanged.
     """
     array = np.empty((len(indices), 16, 32, 32), dtype="<f2")
     output = memoryview(array).cast("B")

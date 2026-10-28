@@ -262,3 +262,218 @@ def test_gradient_noise_panel_matches_direct_two_wsi_case() -> None:
     assert opposite["noise_scale_defined"] == 0
     assert np.isnan(opposite["gradient_noise_scale"])
     assert opposite["pairwise_conflict_fraction"] == 1
+
+
+@pytest.mark.parametrize("budget_records", [48, 11])
+def test_training_prefetch_fifo_bytes_policy_and_rng(tmp_path, monkeypatch, budget_records):
+    from threading import Condition, Event
+
+    import torch
+
+    from experiments import spec0054_mil_fold0 as runner
+    from experiments.spec0054_mil_fold0 import (
+        _prefetch_training_inputs, _sample_c4, _sample_indices,
+    )
+
+    reader = ShardBags.__new__(ShardBags)
+    counts = [9, 7, 8, 6, 9, 8, 7, 6, 9, 8, 7]
+    reader.locations = {}
+    first = 2
+    for wsi, count in enumerate(counts):
+        reader.locations[wsi] = BagLocation(1, first, count, 0, 1, ())
+        first += count
+    values = np.random.default_rng(91).standard_normal((first, 16, 32, 32)).astype("<f2")
+    binary = tmp_path / "latents.bin"
+    values.tofile(binary)
+    digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+    reader.files = {"normal_vae": {1: binary}}
+    reader.descriptors = {}
+    config = {"seed": 19, "c4_augmentation": True,
+              "training_io": {"reader_workers": 2, "future_wsi": 8,
+                              "max_ready_bytes_per_branch": budget_records * RECORD_BYTES,
+                              "coalesced_gap_records": 1, "lookahead_wsi": 4,
+                              "prefetch_bytes_per_wsi": 5 * RECORD_BYTES}}
+    requests = [(3, wsi, _sample_indices(count, 19, 3, wsi, 0.6))
+                for wsi, count in enumerate(counts)]
+    observations = []
+    hints = []
+    changed = Condition()
+    second_ready = Event()
+    read_coalesced = runner._read_coalesced
+
+    def observed_read(fd, first_record, indices, maximum_gap):
+        if first_record == reader.locations[0].first_record:
+            assert second_ready.wait(timeout=10)
+        return read_coalesced(fd, first_record, indices, maximum_gap)
+
+    monkeypatch.setattr(runner, "_read_coalesced", observed_read)
+
+    def log(event, **details):
+        with changed:
+            observations.append((event, details))
+            if event == "bag_load_done" and details["wsi_id"] == 1:
+                second_ready.set()
+            changed.notify_all()
+
+    def advise(fd, offset, length, advice):
+        hints.append((fd, offset, length, advice))
+
+    monkeypatch.setattr(os, "posix_fadvise", advise)
+    numpy_rng = np.random.get_state()
+    torch_rng = torch.get_rng_state().clone()
+    actual = []
+    try:
+        with _prefetch_training_inputs(reader, "normal_vae", torch.device("cpu"),
+                                       config, iter(requests), log) as prepared:
+            submitted = [row for event, row in observations if event == "bag_prefetch_submit"]
+            initial_count = len(submitted)
+            assert initial_count == (8 if budget_records == 48 else 2)
+            # Completed futures retain all their reservations until consumed.
+            with changed:
+                assert changed.wait_for(lambda: sum(event == "bag_load_done"
+                                                     for event, _ in observations) == initial_count,
+                                        timeout=10)
+            assert sum(event == "bag_prefetch_submit" for event, _ in observations) == initial_count
+            assert next(row["wsi_id"] for event, row in observations if event == "bag_load_done") == 1
+            for wsi, indices, host in prepared:
+                location = reader.locations[wsi]
+                expected = values[location.first_record + indices].copy()
+                expected = np.stack([np.rot90(patch, int(turns), axes=(-2, -1))
+                                     for patch, turns in zip(expected, _sample_c4(len(indices), 19, 3, wsi), strict=True)])
+                np.testing.assert_array_equal(host.numpy().view(np.uint16), expected.view(np.uint16))
+                assert host.is_contiguous(memory_format=torch.channels_last)
+                actual.append(wsi)
+        assert actual == list(range(len(counts)))
+        reserved = pending = 0
+        for event, row in observations:
+            if event == "bag_prefetch_submit":
+                reserved += row["selected_bytes"]
+                pending += 1
+            elif event == "bag_prefetch_consume":
+                reserved -= len(requests[row["wsi_id"]][2]) * RECORD_BYTES
+                pending -= 1
+            else:
+                continue
+            assert reserved == row["reserved_selected_bytes"]
+            assert pending == row["pending_wsi"]
+            assert 0 <= reserved <= budget_records * RECORD_BYTES
+            assert 0 <= pending <= 8
+        assert reserved == pending == 0
+        transfers = [row for event, row in observations if event == "bag_transfer_start"]
+        for row in transfers:
+            indices = requests[row["wsi_id"]][2]
+            assert row["selected_bytes"] == len(indices) * RECORD_BYTES
+            assert row["requested_bytes"] >= row["selected_bytes"]
+            assert row["read_regions"] >= 1
+        descriptor = reader.descriptors["normal_vae", 1]
+        willneed = [(offset, length) for fd, offset, length, advice in hints
+                    if advice == os.POSIX_FADV_WILLNEED and fd == descriptor]
+        assert sorted(willneed) == sorted((location.first_record * RECORD_BYTES,
+                                          min(location.count, 5) * RECORD_BYTES)
+                                         for location in reader.locations.values())
+        discarded = [(offset, length) for fd, offset, length, advice in hints
+                     if advice == os.POSIX_FADV_DONTNEED and fd == descriptor]
+        assert sorted(discarded) == sorted((location.first_record * RECORD_BYTES,
+                                           location.count * RECORD_BYTES)
+                                          for location in reader.locations.values())
+        assert hashlib.sha256(binary.read_bytes()).hexdigest() == digest
+        np.testing.assert_equal(np.random.get_state(), numpy_rng)
+        assert torch.equal(torch_rng, torch.get_rng_state())
+    finally:
+        reader.close()
+
+
+def test_training_prefetch_keeps_pinned_source_through_h2d(tmp_path, monkeypatch):
+    import weakref
+    from contextlib import nullcontext
+    from threading import Event
+
+    import torch
+
+    from experiments import spec0054_mil_fold0 as runner
+    from experiments.spec0054_mil_fold0 import _prefetch_training_inputs
+
+    reader = ShardBags.__new__(ShardBags)
+    reader.locations = {8: BagLocation(1, 0, 2, 0, 1, ())}
+    binary = tmp_path / "latents.bin"
+    values = np.arange(2 * 16 * 32 * 32, dtype=np.uint16).reshape(2, 16, 32, 32)
+    values.tofile(binary)
+    reader.files = {"normal_vae": {1: binary}}
+    reader.descriptors = {}
+    config = {"seed": 7, "c4_augmentation": False,
+              "training_io": {"reader_workers": 2, "future_wsi": 8,
+                              "max_ready_bytes_per_branch": 2 * RECORD_BYTES,
+                              "coalesced_gap_records": 1, "lookahead_wsi": 4,
+                              "prefetch_bytes_per_wsi": RECORD_BYTES}}
+    synchronizing, release_dma = Event(), Event()
+    calls, hosts = [], []
+    copy_stream, main_stream = object(), object()
+    read_coalesced = runner._read_coalesced
+
+    def owned_read(*args):
+        output = read_coalesced(*args)
+        assert output[0].flags.owndata
+        calls.append("owned_read")
+        return output
+
+    monkeypatch.setattr(runner, "_read_coalesced", owned_read)
+
+    class GPUResult:
+        def record_stream(self, stream):
+            assert stream is main_stream
+            assert "synchronized" in calls
+            calls.append("record_stream")
+
+    class Host:
+        def copy_(self, source):
+            np.testing.assert_array_equal(source.numpy().view(np.uint16), values)
+            calls.append("host_copy")
+
+        def to(self, device, non_blocking):
+            assert device.type == "cuda" and non_blocking
+            calls.append("async_h2d")
+            return GPUResult()
+
+    def empty_like(source, memory_format, pin_memory):
+        assert memory_format is torch.channels_last and pin_memory
+        host = Host()
+        hosts.append(weakref.ref(host))
+        return host
+
+    class Ready:
+        def record(self, stream):
+            assert stream is copy_stream
+            calls.append("event_record")
+
+        def synchronize(self):
+            synchronizing.set()
+            assert release_dma.wait(timeout=10)
+            assert hosts[0]() is not None
+            calls.append("synchronized")
+
+    def advise(fd, offset, length, advice):
+        if advice == os.POSIX_FADV_DONTNEED:
+            assert "owned_read" in calls and "host_copy" not in calls
+            calls.append("discard_after_copy")
+
+    monkeypatch.setattr(torch, "empty_like", empty_like)
+    monkeypatch.setattr(torch.cuda, "Stream", lambda **kwargs: copy_stream)
+    monkeypatch.setattr(torch.cuda, "stream", lambda stream: nullcontext())
+    monkeypatch.setattr(torch.cuda, "device", lambda device: nullcontext())
+    monkeypatch.setattr(torch.cuda, "Event", Ready)
+    monkeypatch.setattr(torch.cuda, "current_stream", lambda device: main_stream)
+    monkeypatch.setattr(os, "posix_fadvise", advise)
+    try:
+        with _prefetch_training_inputs(reader, "normal_vae", torch.device("cuda:0"), config,
+                                       iter([(0, 8, np.array([0, 1]))]),
+                                       lambda *args, **kwargs: None) as prepared:
+            assert synchronizing.wait(timeout=10)
+            assert hosts[0]() is not None and "synchronized" not in calls
+            release_dma.set()
+            assert next(prepared)[0] == 8
+            assert calls == ["owned_read", "discard_after_copy", "host_copy", "async_h2d", "event_record",
+                             "synchronized", "record_stream"]
+            assert hosts[0]() is None
+    finally:
+        release_dma.set()
+        reader.close()
