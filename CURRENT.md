@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-10-27
+Last updated: 2026-10-28
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -11,42 +11,51 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
-### Continuation snapshot — CPU I/O, 2026-10-27
+### Continuation snapshot — CPU I/O, 2026-10-28
 
-The two CPU I/O probes have now completed and their final outputs were reviewed
-on2026-10-27 around13:40 Bogota. Both workers exit0 in each run; all planned
-blocks and864/1296 combined reads complete. No new job or training continuation
-was submitted by that review. The authorized followup is now RUNNING as
-`maximshtefan/eqvae-spec0054-io-coalescing/2`, submitted around17:08 Bogota:
-gap1 scatter coalescing with queue2; gap1 with queue8 only; gap1 with queue8
-plus bounded WILLNEED/post-copy DONTNEED. This measures queue depth separately
-from the incremental joint cache policy. Same72 epoch-index5 WSI, three Latin
-repetitions, two readers per branch,3GiB selected-buffer reservation, at most
-1296 reads within360 minutes. GPU/pinning/H2D and training remain disabled.
-Ten reader tests,396 synthetic reads, compilation/static checks and independent
-subagent design/diff review complete without a blocking issue. Synthetic checks
-cover values/C4, requested bytes/intervals, queue budgets/FIFO and explicit
-hint/discard call counts. Portable evidence:
-`reports/spec0054_io_20261027/{check_gap1_queue_probe.py,gap1_queue_verification.json}`.
-No measured outcome exists for the new combination yet.
-Source is `1126d6a68bd006f26af4a420acd9185c0ff32d0e`, entry `d35a152`;
-the360-minute runtime budget starts at entry execution. The separate kernel
-metadata keeps GPU disabled and all original inputs. Reinspection around18:36
-Bogota on2026-10-27 confirms API RUNNING; a30-second live log stream returns
-0 bytes. Worker start and timing measurements remain unconfirmed. Platform
-setup, active code and delayed log delivery cannot be distinguished; no
-storage failure or completed comparison is established. No cancellation,
-relaunch or session change. Next useful check around23:30 Bogota, or when logs
-become available; the360-minute budget starts at actual entry execution, so
-platform setup and in-flight I/O may extend the time since submission.
-Live receipt: `reports/spec0054_io_20261027/gap1_queue_v2_live_1836.json`.
-Receipt: `reports/spec0054_io_20261027/gap1_queue_launch_receipt.json`.
+All three CPU I/O probes below are COMPLETE. Latest review on2026-10-28
+confirms coalescing v2 completed1296 reads and all18 branch/arm blocks, with
+worker exits[0,0]. No GPU/pinning/H2D or model training. No new session or
+training continuation was launched by this review. Source `1126d6a`, entry
+`d35a152`; ten focused tests,396 synthetic reads and independent subagent
+design/diff review preceded submission. Preparation evidence and historical
+launch/live receipts remain in `reports/spec0054_io_20261027/`.
 
 | Probe | Exact Kaggle reference | Source / entry commits | Last observed state |
 | --- | --- | --- | --- |
-| gap1 queue/cache combination | `maximshtefan/eqvae-spec0054-io-coalescing/2` | `1126d6a` / `d35a152` | RUNNING,18:36 Bogota; no logs |
+| gap1 queue/cache combination | `maximshtefan/eqvae-spec0054-io-coalescing/2` | `1126d6a` / `d35a152` | COMPLETE,1296 reads |
 | mmap/discard/prefetch and deeper queues | `maximshtefan/eqvae-spec0054-mil-fold0/24` | `f032095` / `faa3e97` | COMPLETE,864 reads |
 | sampled versus scatter-coalescing gaps1/2 | `maximshtefan/eqvae-spec0054-io-coalescing/1` | `e902d26` / `6d64577` | COMPLETE,1296 reads |
+
+V2 mean joint72-WSI window wall is236.377s for gap1/queue2,195.971s for
+gap1/queue8 (-17.09%),188.590s for gap1/queue8+discard/WILLNEED (-20.22%).
+Queue8 improves in all three repetitions, though one saving is only0.76%.
+The cache-policy increment over queue8 averages3.77% but wins only one of
+three repetitions:1.18% slower,12.50% faster,1.54% slower. This supports a
+gap1+queue8 candidate; stable additional benefit from hints/discard is not yet
+established. The earlier33% gap1 gain and these percentages are not additive
+cross-session estimates. Training/shared-reader behavior remains unchanged.
+
+All raw/prepared/subset/C4 hashes match within branch across arms/repetitions;
+branch request keys/epoch plans pair and JSONL matches final JSON. Queue8
+reaches eight pending/four observed ready WSI, with1.963GB reserved selected
+buffers. Peak HWM2.20/2.18GiB; before-arm reset residency at most0.48%.
+Comparable shared-client NFS snapshots remain around39GB reply traffic per
+paired window across all arms; one queue8/repetition2 counter snapshot has
+nonidentical mount views and is excluded from counter aggregation. Do not add
+aliases or branch snapshots. Source/hash/timing audits and contrasts:
+[v2 result](reports/spec0054_io_20261027/gap1_queue_v2_summary.json),
+[analysis](reports/spec0054_io_20261027/analyze_gap1_queue_v2.py).
+
+The entry's logged deadline minus its360-minute budget places actual entry
+execution at20:38:19 Bogota on2026-10-27, about3h30 after submission. Timed
+blocks run20:38:50--21:10:04. Thus the earlier18:36 RUNNING/empty-stream
+observation preceded entry execution; it does not measure a slow reader.
+Raw final outputs: `runs/kaggle/spec0054_io_gap1_queue_v2_handoff/`, recoverable
+from the exact v2 reference. No polling or resubmission is needed for these
+completed versions. The next step is to decide how to validate gap1+queue8 at
+training scale while explicitly preserving resume identity and input order;
+no checkpoint migration or GPU session has been performed.
 
 All disable GPU/pinning/H2D and preserve the frozen inputs. Independent CPU
 probes may run concurrently; inter-session storage interference is unmeasured
@@ -77,14 +86,14 @@ and do not sum branch snapshots. These are RPC-client counters, including
 reply overhead and any other work in that scope, not per-WSI payload counts.
 Mmap in v24 also has greater NFS reply traffic (~33.66 vs24.09GB for preadv)
 despite nearly tied wall. No measured retransmissions, major timeouts or READ
-errors in these intervals. Active v2 measures the deeper queue/cache additions
+errors in these intervals. Completed v2 measures the deeper queue/cache additions
 to gap1; the separate33% and20% savings cannot be added.
 Training impact and behavior in the previously slow backend regime remain
 unmeasured. Full summaries/one-shot analysis:
 [v24](reports/spec0054_io_20261027/v24_combined_summary.json),
 [coalescing v1](reports/spec0054_io_20261027/coalescing_v1_summary.json).
 
-The earlier versions are complete; the new v2 is running. A fresh checkout
+All three versions are complete. A fresh checkout
 can verify their remote state without resubmitting them:
 
 ```bash
@@ -101,7 +110,7 @@ to these new directories; the wrapper does not overwrite existing directories:
 ./scripts/kaggle_kernel.sh output maximshtefan/eqvae-spec0054-io-coalescing/1 runs/kaggle/spec0054_io_coalescing_v1_handoff
 ```
 
-After v2 completes, its fresh output destination can be
+V2 is downloaded locally; in a fresh checkout its output destination can be
 `runs/kaggle/spec0054_io_gap1_queue_v2_handoff` using the same wrapper and
 reference `maximshtefan/eqvae-spec0054-io-coalescing/2`.
 

@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v18 paused at5 epochs; CPU v24/v1 reviewed; gap1 queue/cache CPU v2 RUNNING
+Status: dropout/smoothing/C4 v18 paused at5 epochs; CPU v24/v1/v2 complete and reviewed; training reader unchanged
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-26
@@ -911,6 +911,64 @@ next useful inspection is around23:30 or once logs become available. The
 360-minute runtime budget begins at actual entry execution; platform setup and
 in-flight reads may extend elapsed time after submission. Snapshot:
 `reports/spec0054_io_20261027/gap1_queue_v2_live_1836.json`.
+
+## Completed gap1 queue/cache results (reviewed2026-10-28)
+
+Coalescing v2 is COMPLETE, both workers exit0. All1296 reads and18 branch/arm
+blocks complete. Raw/prepared/subset/C4 hashes agree within each branch across
+all arms/repetitions; branch request keys and epoch plans pair exactly, and
+JSONL rows equal final JSON. Source `1126d6a`, entry `d35a152`, no GPU/pinning/
+H2D or classifier training. Mean joint wall below covers the same72 WSI per
+branch, including pipeline verification and excluding reset/barrier controls.
+
+| Gap1 arm | Mean joint window wall, s | Saving versus queue2 |
+| --- | ---: | ---: |
+| A: queue2 | 236.377 | — |
+| B: queue8 | 195.971 | 17.09% |
+| C: queue8 + discard/WILLNEED | 188.590 | 20.22% |
+
+B/A ratios are0.7523/0.9924/0.7600: queue8 is faster in all three repetitions,
+with one nearly flat result. C/B ratios are1.0118/0.8750/1.0154: the cache-policy
+increment is slower by1.18/1.54% in two repetitions and faster by12.50% in one.
+Its pooled3.77% saving over queue8 is not a consistent incremental effect.
+C/A improves in all three repetitions by23.9/13.2/22.8%. The provisional
+candidate supported by the isolated queue comparison is gap1+queue8; further
+evidence is needed for the incremental hint/discard policy. These gains do not
+combine arithmetically with the earlier gap1-versus-sampled experiment.
+
+Per-WSI mean read seconds are3.145/2.964/2.806 for A/B/C; mean host preparation
+is0.440/0.449/0.404s. Queue8 reaches eight pending/four observed ready WSI with
+maximum reserved selected storage1.963GB. Peak process HWM is2.20/2.18GiB.
+Reset maximum measured residency is0.48%; before-read maxima are0.48/0.64/3.18%
+for A/B/C. Every arm requests29.198GB per paired window and returns the same
+23.529GB selected values in114,784 application intervals. Only C emits216
+bounded hints per branch across three repetitions, requesting3.623GB of hints;
+these requests are not a measurement of additional network bytes.
+
+Comparable deduplicated RPC-client READ snapshots show about39GB of reply
+traffic per window for all arms. One B/repetition2 snapshot has nonidentical
+mount-counter views and is excluded from counter aggregation rather than
+summed or imputed. Timing/value comparisons remain complete. Counter scope
+includes shared-client work and reply overhead; no inference about a stable
+traffic reduction follows. Position balancing and mincore controls do not
+isolate nonlinear backend load or remote-cache effects. This is a72-WSI CPU
+window, not a full training-epoch or GPU-step measurement.
+
+Logged worker deadlines minus the pinned360-minute entry budget establish
+entry execution at20:38:19 Bogota on2026-10-27, about3h30 after submission.
+Timed blocks run20:38:50--21:10:04. The18:36 API RUNNING/empty-stream snapshot
+therefore predates entry execution and does not measure an I/O stall. The
+pre-entry platform delay is distinct from the approximately32-minute execution;
+the responsible preparation stage is unobserved.
+
+No training reader/checkpoint or resume identity was changed. Any promotion
+to training must preserve the exact FIFO/subset/C4 and explicitly resolve the
+resume identity; the current training state remains the v18 checkpoint.
+Portable analysis and results:
+`reports/spec0054_io_20261027/{analyze_gap1_queue_v2.py,gap1_queue_v2_summary.json}`.
+Raw outputs are in `runs/kaggle/spec0054_io_gap1_queue_v2_handoff/`, recoverable
+from `maximshtefan/eqvae-spec0054-io-coalescing/2`. Historical RUNNING states
+and scheduled checks above predate this final review.
 
 ## Bounded I/O followup (2026-10-23)
 
