@@ -9,16 +9,16 @@ import time
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "69ba6951b44f395481a88a624ae5877bdaee963c"
+SOURCE_COMMIT = "d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e"
 SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
-OUTPUT_ROOT = Path("/kaggle/working/spec0054_io_probe")
+OUTPUT_ROOT = Path("/kaggle/working/spec0054_cls_fold0")
 SMOKE = False
-RESUME = False
+RESUME = True
 EFFECTIVE_BATCH = 4
-READ_PROBE = True
+READ_PROBE = False
 LR_SEARCH = False
 LR_CONFIRMATION = False
-SESSION_DEADLINE_UNIX = int(time.time()) + 660 * 60  # Read budget starts when Kaggle executes this entry.
+SESSION_DEADLINE_UNIX = int(time.time()) + 705 * 60  # Reserve 15 minutes of the training session for shutdown.
 
 
 def main() -> None:

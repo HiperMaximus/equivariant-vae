@@ -1,9 +1,47 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v18 paused at5 epochs; CPU full-cycle v3 complete and reviewed; training reader unchanged
+Status: v18 continuation with selected training I/O prepared; CPU full-cycle v3 complete and reviewed
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-10-26
+Last updated: 2026-10-28
+
+## Training I/O integration and v18 continuation (2026-10-28)
+
+The full-cycle CPU comparison selects gap1 scatter-coalesced reads with two
+reader threads, eight FIFO futures and a3GiB selected-byte reservation per
+branch, plus bounded WILLNEED four WSI ahead (16MiB each) and DONTNEED after
+selected values enter owned storage. The reservation includes queued and
+completed futures until consumption; transient read/host buffers, page cache
+and the active training input are additional. Numeric settings are in the
+existing fold0 contract. Read-only descriptors and owned scatter outputs keep
+the frozen shard bytes intact. Pinned channels-last host tensors remain alive
+through asynchronous H2D completion, and CUDA record_stream protects tensors
+consumed on the training stream. Speculative reads and hints end before the
+next assessment. Evaluation and diagnostics retain their original full,
+unaugmented, serialized reads. No global cache reset enters training.
+
+Source `d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e` integrates this reader.
+All legacy scientific config values, cohort/extraction/reader/model/dynamics/T2
+files and scientific ASTs match source7ad0601. The outer training/control AST
+matches after removing only the nested input generator and its new recipe-log
+field. Thirteen focused tests cover bit-identical values/C4, FIFO order under
+out-of-order completion, byte/slot bounds, RNG preservation, hint/discard ranges
+and H2D source lifetime. Compilation, Ruff and targeted BasedPyright pass.
+Audit: `reports/spec0054_io_20261028/training_io_audit.json`.
+
+Both v18 latest states contain360 updates,1440 presentations, epoch5/cursor0,
+last completed assessment864 and the complete optimizer/scaler/RNG state.
+The private resume dataset version2 preserves all12 binary/NPZ files byte for
+byte. Only the two branch identity files change source/runner/config hashes;
+all other identity fields retain their original values. Strict runtime identity
+comparison remains active. The original v18 artifacts and resume dataset
+version1 remain preserved. Version2 is ready and verified private; all14
+files round-trip byte-identically against the staged payloads. Migration receipt:
+`reports/spec0054_io_20261028/resume_v18_migration.json`.
+The next session completes the pending epoch5 assessment before advancing
+training, with normal/SO2 on physical GPUs0/1 and a705-minute execution budget.
+The CPU benchmark establishes input-preparation improvement; actual GPU
+throughput and memory must be measured in this continuation.
 
 ## Accepted dropout, smoothing and C4 candidate (2026-10-22)
 

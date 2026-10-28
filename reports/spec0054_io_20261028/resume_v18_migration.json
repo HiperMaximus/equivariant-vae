@@ -1,0 +1,213 @@
+{
+  "source_kernel": "maximshtefan/eqvae-spec0054-mil-fold0/18",
+  "resume_dataset": "maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/2",
+  "source_commit": "d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e",
+  "visibility": "private",
+  "migration": "Only branch identity metadata rewritten for audited operational I/O change. Binary checkpoints and cumulative telemetry copied byte-for-byte. Runtime strict identity comparison unchanged.",
+  "audit": "reports/spec0054_io_20261028/training_io_audit.json",
+  "branches": {
+    "normal_vae": {
+      "identity_changes": {
+        "config_sha256": {
+          "old": "e0ae7f9f2e0260f4ce146ecdc7acaadb8a6a8f05786d68905b992bd1fefddf40",
+          "new": "9ce28868adab96941caa7496ed9d3b5e8b6814e1b3144ae06eb611d7eafd1c7c"
+        },
+        "runner_sha256": {
+          "old": "4ea3e1dc32208e6d85069f3e4de958ace1017abb7e3ab882edfdcbdbd94eaf29",
+          "new": "69ace71ffa3c2b55d117f50bb99f62f35e52576ca6ec34810ac12de815a04082"
+        },
+        "source_commit": {
+          "old": "7ad06010416a789a6b96e612919203c162adc23e",
+          "new": "d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e"
+        }
+      },
+      "progress": {
+        "committed_update": 360,
+        "exposure_count": 1440,
+        "epoch": 5,
+        "within_epoch_cursor": 0,
+        "effective_batch_size": 4
+      },
+      "scheduler": {
+        "last_exposure": 1440,
+        "last_assessment_exposure": 864
+      },
+      "current_order_length": 288,
+      "new_identity": {
+        "runner_sha256": "69ace71ffa3c2b55d117f50bb99f62f35e52576ca6ec34810ac12de815a04082",
+        "reader_sha256": "3226c9f4064e54580b510521dada699f8eaa044605b05388dc5e0e5df7c751b3",
+        "model_sha256": "0c0356ea38aab5ffa60fad846fbf2a4acf428128bf9a41078a36f3018e66bff9",
+        "dynamics_sha256": "863989c8a7cb20c540a189808d129095a6e7b16aebf93eb0c6658667d147d95e",
+        "t2_sha256": "2969a647244c277ded6be4dd5a815f58feed723264beee9f984827a5416829f5",
+        "config_sha256": "9ce28868adab96941caa7496ed9d3b5e8b6814e1b3144ae06eb611d7eafd1c7c",
+        "cohort_sha256": "777b1a3f6ec72c40c7b96a914f9e59f6bc6d57df13636a99dfdcb478e2e9397e",
+        "extraction_sha256": "56eda2a6f6358677a62002d7092358470efff1f2db83f59d097c50317c03946e",
+        "source_commit": "d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e",
+        "effective_batch": 4,
+        "run_mode": "fold",
+        "branch": "normal_vae"
+      }
+    },
+    "so2_vae": {
+      "identity_changes": {
+        "config_sha256": {
+          "old": "e0ae7f9f2e0260f4ce146ecdc7acaadb8a6a8f05786d68905b992bd1fefddf40",
+          "new": "9ce28868adab96941caa7496ed9d3b5e8b6814e1b3144ae06eb611d7eafd1c7c"
+        },
+        "runner_sha256": {
+          "old": "4ea3e1dc32208e6d85069f3e4de958ace1017abb7e3ab882edfdcbdbd94eaf29",
+          "new": "69ace71ffa3c2b55d117f50bb99f62f35e52576ca6ec34810ac12de815a04082"
+        },
+        "source_commit": {
+          "old": "7ad06010416a789a6b96e612919203c162adc23e",
+          "new": "d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e"
+        }
+      },
+      "progress": {
+        "committed_update": 360,
+        "exposure_count": 1440,
+        "epoch": 5,
+        "within_epoch_cursor": 0,
+        "effective_batch_size": 4
+      },
+      "scheduler": {
+        "last_exposure": 1440,
+        "last_assessment_exposure": 864
+      },
+      "current_order_length": 288,
+      "new_identity": {
+        "runner_sha256": "69ace71ffa3c2b55d117f50bb99f62f35e52576ca6ec34810ac12de815a04082",
+        "reader_sha256": "3226c9f4064e54580b510521dada699f8eaa044605b05388dc5e0e5df7c751b3",
+        "model_sha256": "0c0356ea38aab5ffa60fad846fbf2a4acf428128bf9a41078a36f3018e66bff9",
+        "dynamics_sha256": "863989c8a7cb20c540a189808d129095a6e7b16aebf93eb0c6658667d147d95e",
+        "t2_sha256": "2969a647244c277ded6be4dd5a815f58feed723264beee9f984827a5416829f5",
+        "config_sha256": "9ce28868adab96941caa7496ed9d3b5e8b6814e1b3144ae06eb611d7eafd1c7c",
+        "cohort_sha256": "777b1a3f6ec72c40c7b96a914f9e59f6bc6d57df13636a99dfdcb478e2e9397e",
+        "extraction_sha256": "56eda2a6f6358677a62002d7092358470efff1f2db83f59d097c50317c03946e",
+        "source_commit": "d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e",
+        "effective_batch": 4,
+        "run_mode": "fold",
+        "branch": "so2_vae"
+      }
+    }
+  },
+  "files": [
+    {
+      "path": "normal_vae/latest.pt",
+      "bytes": 1857385,
+      "sha256": "3cdfad2dc84fc1d9bd54edd053f0a21791c3ace968369d3c54ce0c8f28b3d118",
+      "identical_to_v18": true,
+      "download_sha256": "3cdfad2dc84fc1d9bd54edd053f0a21791c3ace968369d3c54ce0c8f28b3d118",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/best.pt",
+      "bytes": 1856941,
+      "sha256": "e5f2707314e957336120ff1777176835148fd428a90ebba0d6469d7e154e4586",
+      "identical_to_v18": true,
+      "download_sha256": "e5f2707314e957336120ff1777176835148fd428a90ebba0d6469d7e154e4586",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/t0.npz",
+      "bytes": 895034,
+      "sha256": "9cd8a7aa445158b8163fc81ff11bcf37e3b0025950b1590f7a33e4205f131f9b",
+      "identical_to_v18": true,
+      "download_sha256": "9cd8a7aa445158b8163fc81ff11bcf37e3b0025950b1590f7a33e4205f131f9b",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/t1.npz",
+      "bytes": 107170,
+      "sha256": "a41d70b4af95fb8cc39ecf439491478ce786c26be529dbc74d0337cb9f4c98c7",
+      "identical_to_v18": true,
+      "download_sha256": "a41d70b4af95fb8cc39ecf439491478ce786c26be529dbc74d0337cb9f4c98c7",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/t2.npz",
+      "bytes": 13504,
+      "sha256": "68e624ccd2207c8d334ee39c63f6dbef080abd41eecedb1b086a1e52825c9e2f",
+      "identical_to_v18": true,
+      "download_sha256": "68e624ccd2207c8d334ee39c63f6dbef080abd41eecedb1b086a1e52825c9e2f",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/predictions.npz",
+      "bytes": 644828,
+      "sha256": "dd4ef9a9482a639f3e160a041722a8e209f261cd530bdec808895623b94cc6b7",
+      "identical_to_v18": true,
+      "download_sha256": "dd4ef9a9482a639f3e160a041722a8e209f261cd530bdec808895623b94cc6b7",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/identity.json",
+      "bytes": 809,
+      "sha256": "42facaafe25bc21473cd2d55c84971d571c2a6cc9bcf581ef04946dee6a32512",
+      "identical_to_v18": false,
+      "download_sha256": "42facaafe25bc21473cd2d55c84971d571c2a6cc9bcf581ef04946dee6a32512",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/latest.pt",
+      "bytes": 1857385,
+      "sha256": "e2b276570c4c75a85b6d2ba4b445b4d4a71dd377203727f8a32c0d3e733832bf",
+      "identical_to_v18": true,
+      "download_sha256": "e2b276570c4c75a85b6d2ba4b445b4d4a71dd377203727f8a32c0d3e733832bf",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/best.pt",
+      "bytes": 1856941,
+      "sha256": "7fa64919cb75f61b32fd8a82111585690bbbaa12ead065bedadca3eeb0345ddb",
+      "identical_to_v18": true,
+      "download_sha256": "7fa64919cb75f61b32fd8a82111585690bbbaa12ead065bedadca3eeb0345ddb",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/t0.npz",
+      "bytes": 897705,
+      "sha256": "ae820099242e3d202b15bd3b3493b955ef15c9ea0d82c38a9b0ccf2a17d59a63",
+      "identical_to_v18": true,
+      "download_sha256": "ae820099242e3d202b15bd3b3493b955ef15c9ea0d82c38a9b0ccf2a17d59a63",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/t1.npz",
+      "bytes": 107803,
+      "sha256": "7067aab0745340d7606f7cbd6054244ada9343338c0a33a71440942bd4d0e4cd",
+      "identical_to_v18": true,
+      "download_sha256": "7067aab0745340d7606f7cbd6054244ada9343338c0a33a71440942bd4d0e4cd",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/t2.npz",
+      "bytes": 13561,
+      "sha256": "44e023a56113b0993a97239e5241f53e040cf0b7efa02a9bc296168e7fdd596e",
+      "identical_to_v18": true,
+      "download_sha256": "44e023a56113b0993a97239e5241f53e040cf0b7efa02a9bc296168e7fdd596e",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/predictions.npz",
+      "bytes": 656328,
+      "sha256": "9867b956a10c15d61253f0e53c15f8dbe5260e0d5c52aa95d9540d36f45db070",
+      "identical_to_v18": true,
+      "download_sha256": "9867b956a10c15d61253f0e53c15f8dbe5260e0d5c52aa95d9540d36f45db070",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/identity.json",
+      "bytes": 806,
+      "sha256": "805827a9efd19717e0bb2af97e99885e9a205b38c568a793febc440ec6a1ced1",
+      "identical_to_v18": false,
+      "download_sha256": "805827a9efd19717e0bb2af97e99885e9a205b38c568a793febc440ec6a1ced1",
+      "roundtrip_identical": true
+    }
+  ],
+  "dataset_status": "ready",
+  "dataset_version": 2,
+  "all_roundtrip_identical": true,
+  "verified_download": "runs/kaggle/spec0054_cls_c4_fold0_resume_v2_verified_files",
+  "verified_private": true
+}

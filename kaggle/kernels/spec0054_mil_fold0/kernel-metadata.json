@@ -5,10 +5,12 @@
   "language": "python",
   "kernel_type": "script",
   "is_private": "true",
-  "enable_gpu": "false",
+  "enable_gpu": "true",
   "enable_internet": "true",
+  "machine_shape": "NvidiaTeslaT4",
   "dataset_sources": [
-    "maximusshtefan/eqvae-spec0054-frozen-latent-shard-1"
+    "maximusshtefan/eqvae-spec0054-frozen-latent-shard-1",
+    "maximshtefan/eqvae-spec0054-cls-c4-fold0-resume"
   ],
   "competition_sources": [],
   "kernel_sources": [
