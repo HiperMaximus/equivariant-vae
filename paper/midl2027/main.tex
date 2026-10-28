@@ -253,7 +253,24 @@ For WSI diagnosis, the same 361-slide development cohort is reused for MIL train
 
 For tissue recognition, the 152 annotated WSIs are partitioned into 106 training, 23 validation and 23 test WSIs. Reconstruction evaluation uses the same 23 WSIs as the tissue-recognition test. Assignments are fixed at WSI level and shared by both VAE representations within each task. Diagnosis counts follow the order CC, EC, HGSC, LGSC and MC; tissue counts follow tumor, stroma and necrosis.
 
-For WSI diagnosis, each WSI forms a bag of Otsu-selected foreground patches. Frozen VAE posterior means provide the patch representations, and one diagnosis label supervises the complete bag. The patch-level tissue classifier instead used high-purity annotated tumor, stroma and necrosis patches. Its training subsets were balanced at the five nested label budgets introduced above, whereas validation and test used fixed, unbalanced patch sets. \autoref{tab:task-populations} separates the inputs and class counts of these three stages.
+For WSI-level diagnosis, tissue patches are selected from each slide using the procedure described above. Each RGB patch $\mathbf{x}_i$ is processed by the trained VAE encoder to obtain its representation $\mathbf{h}_i$, defined as
+\begin{equation}
+\begin{aligned}
+q_\phi(\mathbf{z}\mid\mathbf{x}_i)
+&=\mathcal{N}\!\left(
+\boldsymbol{\mu}_\phi(\mathbf{x}_i),
+\operatorname{diag}\boldsymbol{\sigma}_\phi^2(\mathbf{x}_i)
+\right),\\
+\mathbf{h}_i
+&=\boldsymbol{\mu}_\phi(\mathbf{x}_i)
+\in\mathbb{R}^{16\times32\times32}.
+\end{aligned}
+\label{eq:mil-patch-representation}
+\end{equation}
+
+The representations of the $N$ selected patches from one slide form the bag $\mathcal{B}=\{\mathbf{h}_i\}_{i=1}^{N}$. The MIL classifier aggregates information from these instances to predict one diagnosis for the entire slide. Training uses the slide-level diagnosis as supervision, while the VAE encoder remains frozen.
+
+The patch-level tissue classifier instead used high-purity annotated tumor, stroma and necrosis patches. Its training subsets were balanced at the five nested label budgets introduced above, whereas validation and test used fixed, unbalanced patch sets. \autoref{tab:task-populations} separates the inputs and class counts of these three stages.
 
 \begin{figure}[p]
 \centering

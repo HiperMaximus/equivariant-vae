@@ -843,10 +843,10 @@ pending; holonomy interpretation requires the relevant validated structure.
 
 ## Paper handoff
 
-Latest manuscript sync: complete live Overleaf source export on2026-10-26
-following the approved MIL cohort/CV/final-training update. All28 active
-sources/assets match the export byte-for-byte. Only main.tex and
-figures/data_split.tex changed remotely. Source/PDF and writing details:
+Latest manuscript sync: complete live Overleaf source export on2026-10-28
+following the approved MIL patch-representation explanation and equation. All28
+active sources/assets match the export byte-for-byte. Only main.tex changed
+in this correction round. Source/PDF and writing details:
 [manuscript README](paper/midl2027/README.md).
 
 MIL development reuses all361 VAE-development WSI (322 VAE train +39 VAE
@@ -865,9 +865,12 @@ scientific exposure record remains in Spec0054.
 The abstract, data table, MIL methods/statistics, results placeholders,
 discussion, limitations and conclusion are consistent with the updated cohort.
 Figure4 shows separate VAE/MIL and tissue/reconstruction paths. Figure10 now
-shows the unchanged tissue values as a vector plot. The23-page PDF compiled
+shows the unchanged tissue values as a vector plot. The24-page PDF compiled
 without errors, undefined citations or overfull boxes; all pages were rendered
-and checked, including detailed diagram/table checks on pages8/9.
+and checked. The expanded RGB-patch-to-VAE-encoder explanation, diagonal
+Gaussian posterior and deterministic16x32x32 mean representation are defined
+in Equation1 on page7, followed by the MIL bag definition. "Large" is omitted,
+and foreground selection is referenced through the preceding procedure.
 
 All own tracked suggestions are accepted. All22 professor comment histories
 remain, with5 open and17 resolved; no replies were posted. Two threads

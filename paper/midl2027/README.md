@@ -3,9 +3,9 @@
 The active manuscript is maintained in the existing
 [Overleaf project](https://www.overleaf.com/project/69c614433cbc9e46cf226d24),
 which is the source of truth. The current import is the complete project source
-export reviewed on2026-10-26 after the approved MIL protocol update. All28 active
-sources/assets match that export byte-for-byte; only main.tex and
-figures/data_split.tex changed. All own tracked suggestions are accepted.
+export reviewed on2026-10-28 after the approved MIL representation equation. All28 active
+sources/assets match that export byte-for-byte; only main.tex changed in
+this correction round. All own tracked suggestions are accepted.
 All22 professor comment histories are retained, with5 open and17 resolved.
 Only the professor closes comments.
 
@@ -59,12 +59,14 @@ From this directory:
 latexmk -pdf -interaction=nonstopmode -halt-on-error -jobname=midl2027 main.tex
 ```
 
-The23-page PDF was rebuilt from the imported sources/assets. All pages were
-rendered and visually checked, with detailed checks of the partition diagram
-on page8, population table on page9 and updated tissue plot/results placeholders
-on page19. Compilation has no errors, undefined citations or overfull boxes.
-PDF SHA256:
-`b5f5fca7fc7aae22c08fb5331d542a6b12a442fdb211db26ca70d79d373c516b`.
+The24-page PDF was rebuilt from the imported sources/assets. All pages were
+rendered and visually checked. The approved patch-to-encoder explanation,
+diagonal Gaussian posterior and deterministic mean representation appear in
+Equation1 on page7, followed by the definition of the MIL bag. The prose omits
+"large" and refers back to the existing foreground-selection description.
+Each prose paragraph remains on one physical source line. Compilation has no
+errors, undefined citations or overfull boxes. PDF SHA256:
+`491c26c197e85334d3ffdc6710d968f6e9bd5520c414597d43ca9164ba53d230`.
 
 The official MIDL full-paper class and its default single-column layout,
 letter paper, typography, margins and author-year citations are preserved.
