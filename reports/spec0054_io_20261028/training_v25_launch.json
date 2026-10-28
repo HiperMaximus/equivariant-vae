@@ -1,0 +1,35 @@
+{
+  "kernel": "maximshtefan/eqvae-spec0054-mil-fold0/25",
+  "url": "https://www.kaggle.com/code/maximshtefan/eqvae-spec0054-mil-fold0",
+  "submitted_at_utc": "2026-10-28T16:06:05Z",
+  "status_observed_at_utc": "2026-10-28T16:06:55.228355+00:00",
+  "api_status": "KernelWorkerStatus.RUNNING",
+  "source_commit": "d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e",
+  "entry_commit": "888d74a",
+  "resume_dataset": "maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/2",
+  "resume_progress": {
+    "committed_update": 360,
+    "exposure_count": 1440,
+    "epoch": 5,
+    "within_epoch_cursor": 0,
+    "last_assessment_exposure": 864
+  },
+  "expected_devices": {
+    "normal_vae": "physical T4 0",
+    "so2_vae": "physical T4 1"
+  },
+  "budget_minutes_from_execution": 705,
+  "initial_logs": "No worker output available at the single initial read. API RUNNING alone does not verify device, restore, or input throughput.",
+  "next_useful_inspection_bogota": "2026-10-28T11:45:00-05:00",
+  "verification": [
+    "13 focused tests passed",
+    "py_compile passed",
+    "Ruff passed",
+    "targeted BasedPyright 0 errors/0 warnings",
+    "build/validate passed",
+    "scientific AST/config/file parity audit passed",
+    "private resume v2 ready; 14 downloaded files hash-match staged payloads"
+  ],
+  "entry_sha256": "68bcd88aac714c3faee0a36745fdc52aabe9c5303cc3d5553f5c2da27a9c1d3a",
+  "metadata_sha256": "fd9f51e0ffbee675d117a1e52ceccb1068756979d2b149d839f999b0cb1aa3a5"
+}

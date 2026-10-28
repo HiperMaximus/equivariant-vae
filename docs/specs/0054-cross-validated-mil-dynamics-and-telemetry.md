@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: v18 continuation with selected training I/O prepared; CPU full-cycle v3 complete and reviewed
+Status: selected training I/O integrated; v25 continuation RUNNING from v18; CPU full-cycle v3 reviewed
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-28
@@ -38,10 +38,16 @@ comparison remains active. The original v18 artifacts and resume dataset
 version1 remain preserved. Version2 is ready and verified private; all14
 files round-trip byte-identically against the staged payloads. Migration receipt:
 `reports/spec0054_io_20261028/resume_v18_migration.json`.
-The next session completes the pending epoch5 assessment before advancing
+The continuation completes the pending epoch5 assessment before advancing
 training, with normal/SO2 on physical GPUs0/1 and a705-minute execution budget.
 The CPU benchmark establishes input-preparation improvement; actual GPU
 throughput and memory must be measured in this continuation.
+
+Submitted around11:06 Bogota as `maximshtefan/eqvae-spec0054-mil-fold0/25`,
+entry `888d74a`. API status is RUNNING. The single initial log read contains
+no worker output yet; actual restore/device/throughput remain unverified.
+Inspect around11:45 Bogota. Launch receipt:
+`reports/spec0054_io_20261028/training_v25_launch.json`.
 
 ## Accepted dropout, smoothing and C4 candidate (2026-10-22)
 

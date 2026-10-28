@@ -11,7 +11,7 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
-### Training continuation preparation — 2026-10-28
+### Training continuation v25 — 2026-10-28
 
 The user authorized integrating the selected reader and resuming v18 with a
 subagent assisting implementation. Source `d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e`
@@ -31,8 +31,14 @@ unchanged. Both branches resume360 updates/1440 presentations, epoch5/cursor0,
 last assessment864, and must finish the pending epoch5 assessment first.
 Receipt: `reports/spec0054_io_20261028/resume_v18_migration.json`.
 Entry restores normal/SO2 on T4 physical GPUs0/1, all probes disabled, source
-d03bb63, and705min from execution. No new GPU session has been submitted yet.
-Actual GPU throughput/memory remains to measure. Earlier CPU evidence below
+d03bb63, and705min from execution. Submitted around11:06 Bogota as
+`maximshtefan/eqvae-spec0054-mil-fold0/25`, entry `888d74a`; API confirms
+RUNNING. A single initial log read has no worker output yet, so actual device
+mapping, resume_done and GPU throughput/memory remain to verify. Inspect
+around11:45 Bogota for restored360/1440/epoch5/cursor0 and pending epoch5
+assessment progress, then measure read/wait and complete training-cycle timing.
+Launch receipt: `reports/spec0054_io_20261028/training_v25_launch.json`.
+Stop polling unchanged startup state; no new submission is needed. Earlier CPU evidence below
 is historical; its statement that integration was pending has been superseded.
 
 ### Continuation snapshot — CPU I/O, 2026-10-28
