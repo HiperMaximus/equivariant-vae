@@ -13,13 +13,36 @@ The 152 external WSI remain reserved for final evaluation.
 
 ### Continuation snapshot — CPU I/O, 2026-10-28
 
-All three CPU I/O probes below are COMPLETE. Latest review on2026-10-28
+The three earlier CPU I/O probes below are COMPLETE. Latest review on2026-10-28
 confirms coalescing v2 completed1296 reads and all18 branch/arm blocks, with
 worker exits[0,0]. No GPU/pinning/H2D or model training. No new session or
 training continuation was launched by this review. Source `1126d6a`, entry
 `d35a152`; ten focused tests,396 synthetic reads and independent subagent
 design/diff review preceded submission. Preparation evidence and historical
 launch/live receipts remain in `reports/spec0054_io_20261027/`.
+
+The authorized full-scale followup is prepared in the existing read probe:
+original sampled/queue2 versus gap1/queue8 versus gap1/queue8 with training-only
+WILLNEED/discard. Each arm reads the entire288-WSI sampled epoch, then sorted
+full288 train and73 validation bags as evaluate() does:649 requests per cycle
+per branch, at most11,682 reads over three Latin-square repetitions. Full
+evaluation is serialized, unaugmented and unchanged across arms; training
+futures drain before it. Reset all361 unique ranges once per arm, with no
+reset between phases, preserving natural cache carryover. No GPU/model/pinning/
+H2D, diagnostics, gradient probes or speculative next-epoch reads. This is a
+benchmark cycle, not replay of the pending v18 assessment. The entry budget
+is660min from execution. Largest audited full bag910,950,400B fits the3GiB
+reservation; actual RSS/page cache remain additional. Ten tests,828 synthetic
+reads and independent subagent design/diff review found no blocking issue.
+The review caught and corrected full-source lifetime through host conversion.
+Preparation evidence: `reports/spec0054_io_20261028/{check_full_epoch.py,full_epoch_verification.json}`.
+No full-scale result is available yet; training/checkpoints remain unchanged.
+Prepared source is `69ba6951b44f395481a88a624ae5877bdaee963c`. Analysis must
+key rows/hashes by phase as well as WSI/method/repetition: the training WSI
+reappears as a different full, unaugmented input during evaluation. Use matched
+complete whole-arm cycles for total comparisons; phase timings from the two
+independent branches need not add to joint cycle wall. Historical72-WSI
+analysis scripts do not implement this new phase grouping.
 
 | Probe | Exact Kaggle reference | Source / entry commits | Last observed state |
 | --- | --- | --- | --- |

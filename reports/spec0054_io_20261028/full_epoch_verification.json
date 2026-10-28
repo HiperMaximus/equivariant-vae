@@ -1,0 +1,41 @@
+{
+  "scope": "local synthetic correctness, not throughput",
+  "synthetic_reads": 828,
+  "branches": 2,
+  "budget_cases": 2,
+  "methods": 3,
+  "passes": 3,
+  "requests_per_synthetic_cycle": 23,
+  "synthetic_phase_sizes": {
+    "train_sampled": 11,
+    "assessment_train": 11,
+    "assessment_validation": 1
+  },
+  "willneed_calls_per_budget_both_branches": 66,
+  "dontneed_calls_per_budget_both_branches": 282,
+  "unit_tests": 10,
+  "verified": [
+    "VERIFIED normal normal_vae 207 reads; sampled/full values, phase order, assessment serialization, byte budget, cache policy fences and immutable sources",
+    "VERIFIED normal so2_vae 207 reads; sampled/full values, phase order, assessment serialization, byte budget, cache policy fences and immutable sources",
+    "VERIFIED byte_cap normal_vae 207 reads; sampled/full values, phase order, assessment serialization, byte budget, cache policy fences and immutable sources",
+    "VERIFIED byte_cap so2_vae 207 reads; sampled/full values, phase order, assessment serialization, byte budget, cache policy fences and immutable sources"
+  ],
+  "shared_reader_sha256": "3226c9f4064e54580b510521dada699f8eaa044605b05388dc5e0e5df7c751b3",
+  "review": "Independent subagent reviewed phase boundaries, FIFO, true full-byte reservations, serialized assessment and deadlines; source-lifetime issue fixed by retaining full read through host conversion. Final review found no blocking issue.",
+  "gpu_used": false,
+  "real_phase_sizes": {
+    "train_sampled": 288,
+    "assessment_train": 288,
+    "assessment_validation": 73
+  },
+  "maximum_real_cycle_requests_per_branch": 649,
+  "maximum_reads_total": 11682,
+  "largest_audited_full_bag_bytes": 910950400,
+  "max_reserved_prepared_bytes_per_branch": 3221225472,
+  "limitations": [
+    "evaluate() I/O only; no model compute, diagnostic/gradient probes, speculative next-epoch reads, GPU pinning or H2D.",
+    "Client reset only before whole cycle, not between phases.",
+    "Shared NFS phase counters may include the other branch in a neighboring phase.",
+    "Reservation is not a cap on RSS or page cache."
+  ]
+}

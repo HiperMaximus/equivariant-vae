@@ -970,6 +970,71 @@ Raw outputs are in `runs/kaggle/spec0054_io_gap1_queue_v2_handoff/`, recoverable
 from `maximshtefan/eqvae-spec0054-io-coalescing/2`. Historical RUNNING states
 and scheduled checks above predate this final review.
 
+## Full-epoch and evaluate-I/O confirmation (2026-10-28)
+
+Reuse the existing CPU read probe and original frozen twelve inputs. Compare
+A: original sampled-region reader with queue2; B: gap1 scatter with queue8;
+C: the same gap1/queue8 with bounded WILLNEED and post-copy DONTNEED during
+sampled training only. B/A measures the proposed reader package, C/B measures
+the incremental joint cache policy. Model, optimizer, recipe, frozen encoders
+and training checkpoint identity are unchanged.
+
+Each condition follows one complete benchmark cycle: all288 training WSI in
+the epoch-index5 paired permutation with the same60% samples/C4, then the
+sorted288 full training bags and sorted73 full validation bags read by
+evaluate(). This is649 requests per cycle/branch. Three ABC/BCA/CAB repetitions
+give a maximum11,682 combined reads within660 minutes from entry execution.
+No model evaluation, GPU, pinning, H2D, diagnostics/gradient probes or speculative
+next-epoch reads are included; this is not the exact pending-assessment-first
+v18 resume sequence or a measurement of GPU training-step wall.
+
+All assessment phases retain the original serialized behavior: one prepared
+bag at a time, full read followed by an owned copy and channels-last CPU
+conversion, no patch sampling or C4, and no method-specific hints/discard.
+Keep the immutable full source alive through conversion to match load()'s
+source lifetime. Training futures are drained before assessment, and lookahead
+never crosses phase boundaries. No branch barrier or cache reset is inserted
+between phases; client cache evolves naturally from training into assessment.
+Reset the union of361 unique bag ranges once before each whole arm and record
+actual mincore residency, retaining reset/synchronization cost separately.
+
+Reserve actual selected bytes during training and actual full bytes during
+assessment. The3GiB per-branch prepared-buffer reservation is not an RSS cap:
+full-source storage, owned arrays, channels-last buffers, scatter/C4 work and
+OS cache are additional. The maximum frozen full bag is910,950,400B and the
+maximum validation bag756,056,064B, audited from the original predictions;
+both fit a single reservation. Two reader threads per branch remain active
+for training; the assessment admission limit is one. Whole-arm completion,
+phase completion/timing, actual consumed counts, request phase/order, physical
+offsets, full/identity markers, raw/prepared hashes and byte/region counts are
+recorded. A deadline can leave an incomplete phase/cycle; comparisons must
+retain only matched completed conditions rather than mixing unmatched totals.
+
+Whole-arm joint wall is the primary cycle measure. Per-branch phase costs
+describe training versus assessment; cross-branch phase spans need not add
+to whole-arm wall because the branches progress independently. Shared NFS
+phase-counter intervals can include the other branch's neighboring phase;
+deduplicate aliases/branch snapshots and use whole-arm scope for traffic
+comparisons. CPU verification/persistence is included in measured wall, while
+GPU compute pacing and remote-cache/backend load remain unmeasured. Latin
+position balance does not remove nonlinear load or all carryover effects.
+
+Ten focused tests, compilation, Ruff and targeted BasedPyright pass. The
+adapted one-shot synthetic checker performs828 reads: eleven sampled train
+bags, eleven full train bags and one full validation bag per arm, both branches,
+three repetitions and normal/tight byte budgets. It verifies independent raw/
+prepared values, sampled/C4 versus full/identity markers, physical offsets,
+phase order/drain, serialized assessment, true full-byte reservations, source
+immutability and policy fences. Per budget case,66 WILLNEED and282 DONTNEED
+calls across both branches correspond to training-only hints/discard and the
+once-per-arm unique-bag reset. Independent subagent design/diff review found
+no blocking issue after correcting full-source lifetime. Evidence:
+`reports/spec0054_io_20261028/{check_full_epoch.py,full_epoch_verification.json}`.
+Prepared source `69ba6951b44f395481a88a624ae5877bdaee963c` is pinned in the
+thin entry. Value/hash comparisons must include phase in the key because a
+training WSI is reread in full without augmentation during evaluation; the
+historical72-WSI analysis grouping by WSI alone is not applicable.
+
 ## Bounded I/O followup (2026-10-23)
 
 Reuse the existing read-probe mode in a private Kaggle CPU session, mounting
