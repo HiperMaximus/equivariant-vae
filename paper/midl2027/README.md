@@ -47,7 +47,11 @@ preserved in the project. No previous-experiment narrative is added to the
 manuscript.
 
 The professor's review marker and152/361 formatting are preserved. The five
-comment threads remain open; no replies were posted. Two threads inadvertently
+comment threads remain open. Four replies individually approved by the user
+were posted and verified verbatim on2026-10-28: cohort partitions, the MIL-bag
+explanation/equation, Figure4 and class order. The kernel-support thread retains
+its existing reply. Manuscript sources and PDF are unchanged by these replies.
+Two threads inadvertently
 marked resolved during own-change acceptance were immediately reopened to
 restore their original states; their histories remain intact.
 

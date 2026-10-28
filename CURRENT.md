@@ -873,7 +873,16 @@ in Equation1 on page7, followed by the MIL bag definition. "Large" is omitted,
 and foreground selection is referenced through the preceding procedure.
 
 All own tracked suggestions are accepted. All22 professor comment histories
-remain, with5 open and17 resolved; no replies were posted. Two threads
+remain, with5 open and17 resolved. On2026-10-28 the individually approved
+partition reply was posted in thread6adb9a2add1a807d276c00af and verified
+verbatim; its thread remains open. The separately approved MIL-bag reply was
+also posted verbatim in thread6adb9ad2e78e0c132e6f07c6 on2026-10-28; all5
+threads remain open. The separately approved Figure4 reply was posted verbatim
+in thread6abd25b2aa87f469191c3c57 on2026-10-28 and verified open. The separately
+approved class-order reply was posted verbatim in thread6adb9c4bdd1a807d276c0135
+on2026-10-28. All four new replies are published and verified; all5 threads
+remain open. The kernel-support thread retains its existing valid reply.
+No manuscript source changed during these reply-only actions. Two threads
 inadvertently resolved during own-change acceptance were immediately reopened
 to restore their original state. Only the professor closes comments.
 Read live Overleaf before further edits and preserve those states and edits.
