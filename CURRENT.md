@@ -13,7 +13,7 @@ The 152 external WSI remain reserved for final evaluation.
 
 ### Continuation snapshot — CPU I/O, 2026-10-28
 
-The three earlier CPU I/O probes below are COMPLETE. Latest review on2026-10-28
+All four CPU I/O probes below are COMPLETE. The earlier review on2026-10-28
 confirms coalescing v2 completed1296 reads and all18 branch/arm blocks, with
 worker exits[0,0]. No GPU/pinning/H2D or model training. No new session or
 training continuation was launched by this review. Source `1126d6a`, entry
@@ -21,7 +21,7 @@ training continuation was launched by this review. Source `1126d6a`, entry
 design/diff review preceded submission. Preparation evidence and historical
 launch/live receipts remain in `reports/spec0054_io_20261027/`.
 
-The authorized full-scale followup is RUNNING in the existing read probe:
+The full-scale followup is COMPLETE and reviewed around07:10 Bogota on2026-10-28:
 original sampled/queue2 versus gap1/queue8 versus gap1/queue8 with training-only
 WILLNEED/discard. Each arm reads the entire288-WSI sampled epoch, then sorted
 full288 train and73 validation bags as evaluate() does:649 requests per cycle
@@ -36,33 +36,54 @@ reservation; actual RSS/page cache remain additional. Ten tests,828 synthetic
 reads and independent subagent design/diff review found no blocking issue.
 The review caught and corrected full-source lifetime through host conversion.
 Preparation evidence: `reports/spec0054_io_20261028/{check_full_epoch.py,full_epoch_verification.json}`.
-No full-scale result is available yet; training/checkpoints remain unchanged.
+All11,682 planned reads,18 whole-arm blocks and54 phase blocks complete;
+worker exits[0,0]. Training/checkpoints remain unchanged. Mean joint complete
+cycle wall is2692.177s original (44.87min),2057.965s gap1/queue8 (34.30min,
+-23.56%),2032.698s with training-only discard/WILLNEED (33.88min,-24.50%).
+The cache-policy increment over gap1/queue8 is1.23%, positive in all three
+repetitions (0.80/2.58/0.29%), but small and confined to this session. The main
+gain is the reader/queue package. Sampled-training branch-phase wall falls
+about53%; this is CPU input preparation/verification, not GPU training speedup.
+Evaluation occupies about72% of candidate branch-phase wall in this probe,
+including substantial verification overhead, not a production model profile.
+
+All649 phase/WSI groups have nine identical raw/prepared/subset/C4 observations
+per branch; branch requests/read plans pair, JSONL matches final JSON, full/
+identity markers and counts are correct, and assessment stays serialized.
+Peak HWM3.36GiB per branch, minimum observed available host memory8.08GB.
+NFS reply traffic per joint cycle is about298.21/356.86/359.07GB for A/B/C:
+gap1/queue8 adds19.67% versus original; cache policy adds another0.62%.
+These are deduplicated shared-client reply counters including overhead;
+no retransmissions/timeouts/READ errors are observed. Counter selection uses
+the earliest-start branch's before snapshot and latest-end branch's after
+snapshot, without adding aliases or branches. Independent subagent audit
+confirmed request identities, phase behavior, bounds and contrast arithmetic.
+Results and phase-aware analysis:
+`reports/spec0054_io_20261028/{full_epoch_v3_summary.json,analyze_full_epoch_v3.py}`.
 Source is `69ba6951b44f395481a88a624ae5877bdaee963c`, entry `352f8d1`.
 Submitted as `maximshtefan/eqvae-spec0054-io-coalescing/3` around00:47 Bogota
-on2026-10-28, API RUNNING. Entry/metadata build, validation and Ruff pass;
+on2026-10-28; final API state COMPLETE. Entry/metadata build, validation and Ruff pass;
 metadata is identical to the earlier separate coalescing kernel, GPU-off with
-all original12 inputs. Inspection around01:14 Bogota confirms source69ba695,
-both CPU workers and code start00:58:15; the actual deadline is11:58:15.
-The live snapshot contains263 normal/262 SO2 completed reads, all in the first
-sampled-training phase of the original reader (of288). No completed649-request
-cycle or candidate-arm comparison yet, and no traceback is visible. This is
-progress evidence, not a method result. Session unchanged; next useful check
-remains around05:00 Bogota. Live receipt:
+all original12 inputs. Actual entry start00:58:15; final timed blocks end
+06:39:03, before the11:58:15 deadline. Historical first-phase live receipt:
 `reports/spec0054_io_20261028/full_epoch_v3_live_0114.json`.
 Launch receipt:
 `reports/spec0054_io_20261028/full_epoch_launch_receipt.json`.
-When complete, download v3 to a new destination such as
-`runs/kaggle/spec0054_io_full_epoch_v3_handoff` using the existing wrapper.
-No resubmission or training continuation is needed for this check. Analysis must
+Final outputs are downloaded to `runs/kaggle/spec0054_io_full_epoch_v3_handoff`,
+recoverable from the exact v3 reference with the existing wrapper. No further
+polling or resubmission is needed. Analysis must
 key rows/hashes by phase as well as WSI/method/repetition: the training WSI
 reappears as a different full, unaugmented input during evaluation. Use matched
 complete whole-arm cycles for total comparisons; phase timings from the two
 independent branches need not add to joint cycle wall. Historical72-WSI
-analysis scripts do not implement this new phase grouping.
+analysis scripts do not implement this new phase grouping. The next step is
+to integrate the selected reader package with explicit resume-identity/input-
+order preservation, then resume v18 only when authorized; no integration,
+checkpoint migration or GPU session was performed by this review.
 
 | Probe | Exact Kaggle reference | Source / entry commits | Last observed state |
 | --- | --- | --- | --- |
-| full epoch plus evaluate-I/O | `maximshtefan/eqvae-spec0054-io-coalescing/3` | `69ba695` / `352f8d1` | RUNNING,01:14 Bogota; first training phase |
+| full epoch plus evaluate-I/O | `maximshtefan/eqvae-spec0054-io-coalescing/3` | `69ba695` / `352f8d1` | COMPLETE,11,682 reads |
 | gap1 queue/cache combination | `maximshtefan/eqvae-spec0054-io-coalescing/2` | `1126d6a` / `d35a152` | COMPLETE,1296 reads |
 | mmap/discard/prefetch and deeper queues | `maximshtefan/eqvae-spec0054-mil-fold0/24` | `f032095` / `faa3e97` | COMPLETE,864 reads |
 | sampled versus scatter-coalescing gaps1/2 | `maximshtefan/eqvae-spec0054-io-coalescing/1` | `e902d26` / `6d64577` | COMPLETE,1296 reads |
@@ -93,9 +114,9 @@ blocks run20:38:50--21:10:04. Thus the earlier18:36 RUNNING/empty-stream
 observation preceded entry execution; it does not measure a slow reader.
 Raw final outputs: `runs/kaggle/spec0054_io_gap1_queue_v2_handoff/`, recoverable
 from the exact v2 reference. No polling or resubmission is needed for these
-completed versions. The next step is to decide how to validate gap1+queue8 at
-training scale while explicitly preserving resume identity and input order;
-no checkpoint migration or GPU session has been performed.
+completed versions. The completed v3 result above supersedes the earlier
+proposal to measure this package at full I/O scale; no checkpoint migration
+or GPU session has been performed.
 
 All disable GPU/pinning/H2D and preserve the frozen inputs. Independent CPU
 probes may run concurrently; inter-session storage interference is unmeasured
@@ -133,7 +154,7 @@ unmeasured. Full summaries/one-shot analysis:
 [v24](reports/spec0054_io_20261027/v24_combined_summary.json),
 [coalescing v1](reports/spec0054_io_20261027/coalescing_v1_summary.json).
 
-The earlier versions are complete; full-cycle v3 is running. A fresh checkout
+All four versions are complete. A fresh checkout
 can verify their remote state without resubmitting them:
 
 ```bash

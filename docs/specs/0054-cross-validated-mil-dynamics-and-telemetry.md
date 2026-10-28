@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v18 paused at5 epochs; CPU full-cycle v3 RUNNING; v24/v1/v2 reviewed; training reader unchanged
+Status: dropout/smoothing/C4 v18 paused at5 epochs; CPU full-cycle v3 complete and reviewed; training reader unchanged
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-26
@@ -1056,6 +1056,79 @@ traceback is visible. These partial counts establish code/data-read progress,
 not a method result or final output audit. Session unchanged; next useful
 inspection remains around05:00. Snapshot:
 `reports/spec0054_io_20261028/full_epoch_v3_live_0114.json`.
+
+## Completed full-cycle comparison (reviewed2026-10-28)
+
+V3 is COMPLETE with both workers exit0. All11,682 reads,18 branch/arm cycles
+and54 phase blocks complete. Each branch has5841 unique expected requests:
+2592 sampled-training,2592 full-training assessment and657 full-validation
+assessment. Each of649 phase/WSI groups has nine identical raw/prepared/subset/
+C4 observations across arms and repetitions. Requests and physical read plans
+pair across branches; JSONL equals final JSON. Full/identity markers, byte
+counts, phase populations/order, serialized assessment and buffer bounds agree.
+No GPU/pinning/H2D/model execution; source69ba695 and entry352f8d1 match the
+submitted pins. Actual timed interval is00:58:49--06:39:03 Bogota, before the
+11:58:15 admission cutoff. Historical RUNNING snapshots above predate this result.
+
+Primary wall is joint whole-cycle time for both branches, including pipeline
+verification/persistence and excluding the initial reset/barrier controls.
+Each repetition includes the complete288-sampled +288-full-train +73-full-val
+sequence per branch. Three repetitions are complete and matched for all arms.
+
+| Arm | Mean joint cycle, s | Minutes | Saving versus original |
+| --- | ---: | ---: | ---: |
+| A: original sampled/queue2 | 2692.177 | 44.87 | — |
+| B: gap1/queue8 | 2057.965 | 34.30 | 23.56% |
+| C: gap1/queue8 + training-only discard/WILLNEED | 2032.698 | 33.88 | 24.50% |
+
+B/A saves19.76/27.37/23.02% across repetitions. C/A saves20.40/29.24/23.24%.
+C/B saves0.80/2.58/0.29%, or1.23% pooled: a small positive increment in all
+three passes of this session. Unlike v2, its sign is consistent, but this
+single-session result does not establish a robust benefit across backend
+regimes or GPU/model pacing. The reader/queue package provides the main gain;
+the earlier separate probe percentages must not be added to these estimates.
+
+Per-branch phase mean wall, which is descriptive and not additive across
+independent branches, is:
+
+| Phase | Original, s | Gap1/queue8, s | With cache policy, s |
+| --- | ---: | ---: | ---: |
+| Sampled training | 1201.754 | 567.845 | 559.492 |
+| Full training evaluation | 1187.366 | 1199.136 | 1172.255 |
+| Full validation evaluation | 292.007 | 287.611 | 296.722 |
+
+The sampled-training phase falls52.75/53.44% for B/C. Assessment phases account
+for about72.4% of candidate branch-phase wall, including tensor hashing and
+other verification. This is not a production assessment profile or evidence
+of the GPU training bottleneck; no model compute or real training pacing was
+measured. Whole-cycle wall includes additional between-phase persistence and
+is the authoritative aggregate. Queue8 reaches eight pending/five observed
+ready training bags, with1.963GB reserved selected buffers. Assessment remains
+one bag at a time, using true full-byte reservations. Peak HWM is3.36GiB per
+branch; minimum observed host MemAvailable is8.08GB. RSS/page cache remain
+distinct from the3GiB prepared-buffer budget.
+
+NFS counters for the joint cycle use the earliest-start branch's before
+snapshot and latest-end branch's after snapshot. All twelve views are identical
+within each selected snapshot, so a single view is retained; neither aliases
+nor branches are summed. Mean reply traffic is298.21/356.86/359.07GB for A/B/C,
+including shared-client work and protocol overhead. B/A adds19.67% traffic,
+while C/B adds0.62%. Mean READ operations are about1.532million/.703million/
+.705million respectively; no retransmissions, major timeouts or READ errors
+are observed in these intervals. The gain trades larger traffic for fewer
+operations, and behavior in the previously slow regime remains unmeasured.
+Shared phase snapshots can overlap neighboring phases across branches and
+are not independent per-phase network attribution.
+
+An independent subagent audited expected requests, phase/identity matching,
+serialization, reservations and contrast arithmetic and found no issue. Value
+and memory checks support the package as a training-reader candidate, while
+GPU throughput and resume-identity compatibility still require explicit work.
+No training reader was promoted, checkpoint migrated or GPU session launched
+by this review. Portable phase-aware analysis and summary:
+`reports/spec0054_io_20261028/{analyze_full_epoch_v3.py,full_epoch_v3_summary.json}`.
+Raw outputs: `runs/kaggle/spec0054_io_full_epoch_v3_handoff/`, recoverable from
+`maximshtefan/eqvae-spec0054-io-coalescing/3`.
 
 ## Bounded I/O followup (2026-10-23)
 
