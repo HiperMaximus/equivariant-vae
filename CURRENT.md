@@ -21,7 +21,7 @@ training continuation was launched by this review. Source `1126d6a`, entry
 design/diff review preceded submission. Preparation evidence and historical
 launch/live receipts remain in `reports/spec0054_io_20261027/`.
 
-The authorized full-scale followup is prepared in the existing read probe:
+The authorized full-scale followup is RUNNING in the existing read probe:
 original sampled/queue2 versus gap1/queue8 versus gap1/queue8 with training-only
 WILLNEED/discard. Each arm reads the entire288-WSI sampled epoch, then sorted
 full288 train and73 validation bags as evaluate() does:649 requests per cycle
@@ -37,7 +37,18 @@ reads and independent subagent design/diff review found no blocking issue.
 The review caught and corrected full-source lifetime through host conversion.
 Preparation evidence: `reports/spec0054_io_20261028/{check_full_epoch.py,full_epoch_verification.json}`.
 No full-scale result is available yet; training/checkpoints remain unchanged.
-Prepared source is `69ba6951b44f395481a88a624ae5877bdaee963c`. Analysis must
+Source is `69ba6951b44f395481a88a624ae5877bdaee963c`, entry `352f8d1`.
+Submitted as `maximshtefan/eqvae-spec0054-io-coalescing/3` around00:47 Bogota
+on2026-10-28, API RUNNING. Entry/metadata build, validation and Ruff pass;
+metadata is identical to the earlier separate coalescing kernel, GPU-off with
+all original12 inputs. Worker start and measurements have not been inspected.
+First useful check around05:00 Bogota, with later inspection if still active;
+the660-minute budget starts at actual entry execution, so preparation can
+extend time after submission. Receipt:
+`reports/spec0054_io_20261028/full_epoch_launch_receipt.json`.
+When complete, download v3 to a new destination such as
+`runs/kaggle/spec0054_io_full_epoch_v3_handoff` using the existing wrapper.
+No resubmission or training continuation is needed for this check. Analysis must
 key rows/hashes by phase as well as WSI/method/repetition: the training WSI
 reappears as a different full, unaugmented input during evaluation. Use matched
 complete whole-arm cycles for total comparisons; phase timings from the two
@@ -46,6 +57,7 @@ analysis scripts do not implement this new phase grouping.
 
 | Probe | Exact Kaggle reference | Source / entry commits | Last observed state |
 | --- | --- | --- | --- |
+| full epoch plus evaluate-I/O | `maximshtefan/eqvae-spec0054-io-coalescing/3` | `69ba695` / `352f8d1` | RUNNING,00:47 Bogota |
 | gap1 queue/cache combination | `maximshtefan/eqvae-spec0054-io-coalescing/2` | `1126d6a` / `d35a152` | COMPLETE,1296 reads |
 | mmap/discard/prefetch and deeper queues | `maximshtefan/eqvae-spec0054-mil-fold0/24` | `f032095` / `faa3e97` | COMPLETE,864 reads |
 | sampled versus scatter-coalescing gaps1/2 | `maximshtefan/eqvae-spec0054-io-coalescing/1` | `e902d26` / `6d64577` | COMPLETE,1296 reads |
@@ -116,10 +128,11 @@ unmeasured. Full summaries/one-shot analysis:
 [v24](reports/spec0054_io_20261027/v24_combined_summary.json),
 [coalescing v1](reports/spec0054_io_20261027/coalescing_v1_summary.json).
 
-All three versions are complete. A fresh checkout
+The earlier versions are complete; full-cycle v3 is running. A fresh checkout
 can verify their remote state without resubmitting them:
 
 ```bash
+./scripts/kaggle_kernel.sh status maximshtefan/eqvae-spec0054-io-coalescing/3
 ./scripts/kaggle_kernel.sh status maximshtefan/eqvae-spec0054-io-coalescing/2
 ./scripts/kaggle_kernel.sh status maximshtefan/eqvae-spec0054-mil-fold0/24
 ./scripts/kaggle_kernel.sh status maximshtefan/eqvae-spec0054-io-coalescing/1

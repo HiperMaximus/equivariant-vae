@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: dropout/smoothing/C4 v18 paused at5 epochs; CPU v24/v1/v2 complete and reviewed; training reader unchanged
+Status: dropout/smoothing/C4 v18 paused at5 epochs; CPU full-cycle v3 RUNNING; v24/v1/v2 reviewed; training reader unchanged
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-26
@@ -1034,6 +1034,18 @@ Prepared source `69ba6951b44f395481a88a624ae5877bdaee963c` is pinned in the
 thin entry. Value/hash comparisons must include phase in the key because a
 training WSI is reread in full without augmentation during evaluation; the
 historical72-WSI analysis grouping by WSI alone is not applicable.
+
+Submitted as `maximshtefan/eqvae-spec0054-io-coalescing/3` around00:47 Bogota
+on2026-10-28, API RUNNING. Entry `352f8d1` pins the source above; metadata is
+byte-identical to the earlier coalescing kernel's metadata, retaining GPU-off
+and all original12 input locators. Entry compilation/Ruff and kernel build/
+validation pass. Platform RUNNING does not establish worker start or timing
+measurements. First useful check is around05:00 Bogota, allowing meaningful
+progress on the larger cycle; a slow regime may require the660-minute runtime
+budget plus platform preparation. No further polling accompanies submission.
+Receipt: `reports/spec0054_io_20261028/full_epoch_launch_receipt.json`.
+Final outputs can be downloaded from the exact v3 reference to the fresh path
+`runs/kaggle/spec0054_io_full_epoch_v3_handoff`.
 
 ## Bounded I/O followup (2026-10-23)
 

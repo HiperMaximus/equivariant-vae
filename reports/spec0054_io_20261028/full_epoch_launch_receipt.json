@@ -1,0 +1,30 @@
+{
+  "reference": "maximshtefan/eqvae-spec0054-io-coalescing/3",
+  "version": 3,
+  "source_commit": "69ba6951b44f395481a88a624ae5877bdaee963c",
+  "entry_repository_commit": "352f8d14ab3dc0a62baa7364dfd4c73217b169ff",
+  "entry_sha256": "e6110cfce058d62701684878455af1e3aa1251684030748527d0d29ae504f196",
+  "metadata_sha256": "b6353b799332f23f375b43794bf54811eb36fe7a3a912e0dd89729656d8b90b1",
+  "metadata_archive": "reports/spec0054_io_20261027/coalescing_kernel_metadata.json",
+  "metadata_identical_to_archive": true,
+  "submitted_at_utc": "2026-10-28T05:47:00Z",
+  "time_precision": "approximately_one_minute",
+  "api_status": "RUNNING",
+  "enable_gpu": false,
+  "training": false,
+  "host_pinning": false,
+  "h2d": false,
+  "phase_sizes": {
+    "train_sampled": 288,
+    "assessment_train": 288,
+    "assessment_validation": 73
+  },
+  "requests_per_cycle_per_branch": 649,
+  "maximum_reads_total": 11682,
+  "maximum_runtime_minutes_from_entry": 660,
+  "next_useful_check_bogota": "2026-10-28T05:00:00-05:00",
+  "worker_start_confirmed": false,
+  "measurements_available": false,
+  "scope": "CPU input-pipeline benchmark; no model compute, diagnostics, gradient probes, speculative next-epoch reads or resume replay",
+  "subagent_design_and_diff_review_received": true
+}
