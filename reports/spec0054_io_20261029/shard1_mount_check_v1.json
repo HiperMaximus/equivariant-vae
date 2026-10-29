@@ -1,0 +1,253 @@
+{
+  "source_commit": "a129a5125a2617576af04e6d4fff52ee8b0d3dfc",
+  "gpu_used": false,
+  "scope": "Mount, frozen metadata and three 32KiB records twice per branch/source; not a WSI-throughput benchmark.",
+  "files": {
+    "dataset": {
+      "path": "/kaggle/input/datasets/maximusshtefan/eqvae-spec0054-frozen-latent-shard-1/spec0054_fp16_latents",
+      "result_sha256": "638adb54b68bcb2057166ffac8016cfb5c9ee6a28b4cad8e479a6ba54bea76b6",
+      "frozen_result_equal": true,
+      "index_hash_equal": true,
+      "binary_sizes_equal": {
+        "normal_vae": true,
+        "so2_vae": true
+      }
+    },
+    "kernel_output": {
+      "path": "/kaggle/input/notebooks/maximshtefan/eqvae-spec0054-fp16-latent-shard-1/spec0054_fp16_latents",
+      "result_sha256": "638adb54b68bcb2057166ffac8016cfb5c9ee6a28b4cad8e479a6ba54bea76b6",
+      "frozen_result_equal": true,
+      "index_hash_equal": true,
+      "binary_sizes_equal": {
+        "normal_vae": true,
+        "so2_vae": true
+      }
+    }
+  },
+  "reads": [
+    {
+      "source": "dataset",
+      "branch": "normal_vae",
+      "repeat": 0,
+      "record": 0,
+      "seconds": 0.169121921999988,
+      "bytes": 32768,
+      "sha256": "26ddc9807eb364c05cf5dfdc341b754804f3e610e9c0eb0b4b92c6b26e5589d3"
+    },
+    {
+      "source": "dataset",
+      "branch": "normal_vae",
+      "repeat": 0,
+      "record": 127263,
+      "seconds": 0.2870200649999788,
+      "bytes": 32768,
+      "sha256": "20ccafab5b1634685c8a1bbc19c2bd2b5a13c4cb3f5caa4f51f8ebd0cf89ff2f"
+    },
+    {
+      "source": "dataset",
+      "branch": "normal_vae",
+      "repeat": 0,
+      "record": 254526,
+      "seconds": 0.3241821129999778,
+      "bytes": 32768,
+      "sha256": "96157fc87202c59d152b7a643ec56aa5f314148a65fd102a4ee180f92ebbb0fb"
+    },
+    {
+      "source": "dataset",
+      "branch": "normal_vae",
+      "repeat": 1,
+      "record": 0,
+      "seconds": 1.7776999982288544e-05,
+      "bytes": 32768,
+      "sha256": "26ddc9807eb364c05cf5dfdc341b754804f3e610e9c0eb0b4b92c6b26e5589d3"
+    },
+    {
+      "source": "dataset",
+      "branch": "normal_vae",
+      "repeat": 1,
+      "record": 127263,
+      "seconds": 1.3558999995666454e-05,
+      "bytes": 32768,
+      "sha256": "20ccafab5b1634685c8a1bbc19c2bd2b5a13c4cb3f5caa4f51f8ebd0cf89ff2f"
+    },
+    {
+      "source": "dataset",
+      "branch": "normal_vae",
+      "repeat": 1,
+      "record": 254526,
+      "seconds": 1.2288999982956739e-05,
+      "bytes": 32768,
+      "sha256": "96157fc87202c59d152b7a643ec56aa5f314148a65fd102a4ee180f92ebbb0fb"
+    },
+    {
+      "source": "dataset",
+      "branch": "so2_vae",
+      "repeat": 0,
+      "record": 0,
+      "seconds": 0.12260821699999269,
+      "bytes": 32768,
+      "sha256": "c586989d9c0ddf256b411891f4d678f3884deb2586f903f2c9947f610871dec2"
+    },
+    {
+      "source": "dataset",
+      "branch": "so2_vae",
+      "repeat": 0,
+      "record": 127263,
+      "seconds": 0.31907392499999787,
+      "bytes": 32768,
+      "sha256": "cf1eb6b84018435f398ccb63a19272591491d8415adfa5186f89594d392e8c6c"
+    },
+    {
+      "source": "dataset",
+      "branch": "so2_vae",
+      "repeat": 0,
+      "record": 254526,
+      "seconds": 0.1508012479999934,
+      "bytes": 32768,
+      "sha256": "f874e2070f520a68a6774bec509e19b48ae01282b55cff4060bc0e3ee263979d"
+    },
+    {
+      "source": "dataset",
+      "branch": "so2_vae",
+      "repeat": 1,
+      "record": 0,
+      "seconds": 1.9211999983781425e-05,
+      "bytes": 32768,
+      "sha256": "c586989d9c0ddf256b411891f4d678f3884deb2586f903f2c9947f610871dec2"
+    },
+    {
+      "source": "dataset",
+      "branch": "so2_vae",
+      "repeat": 1,
+      "record": 127263,
+      "seconds": 1.4733999989857693e-05,
+      "bytes": 32768,
+      "sha256": "cf1eb6b84018435f398ccb63a19272591491d8415adfa5186f89594d392e8c6c"
+    },
+    {
+      "source": "dataset",
+      "branch": "so2_vae",
+      "repeat": 1,
+      "record": 254526,
+      "seconds": 1.389499999504551e-05,
+      "bytes": 32768,
+      "sha256": "f874e2070f520a68a6774bec509e19b48ae01282b55cff4060bc0e3ee263979d"
+    },
+    {
+      "source": "kernel_output",
+      "branch": "normal_vae",
+      "repeat": 0,
+      "record": 0,
+      "seconds": 0.14132475899998553,
+      "bytes": 32768,
+      "sha256": "26ddc9807eb364c05cf5dfdc341b754804f3e610e9c0eb0b4b92c6b26e5589d3"
+    },
+    {
+      "source": "kernel_output",
+      "branch": "normal_vae",
+      "repeat": 0,
+      "record": 127263,
+      "seconds": 0.12024027399999682,
+      "bytes": 32768,
+      "sha256": "20ccafab5b1634685c8a1bbc19c2bd2b5a13c4cb3f5caa4f51f8ebd0cf89ff2f"
+    },
+    {
+      "source": "kernel_output",
+      "branch": "normal_vae",
+      "repeat": 0,
+      "record": 254526,
+      "seconds": 0.08733764699999824,
+      "bytes": 32768,
+      "sha256": "96157fc87202c59d152b7a643ec56aa5f314148a65fd102a4ee180f92ebbb0fb"
+    },
+    {
+      "source": "kernel_output",
+      "branch": "normal_vae",
+      "repeat": 1,
+      "record": 0,
+      "seconds": 1.759999997830164e-05,
+      "bytes": 32768,
+      "sha256": "26ddc9807eb364c05cf5dfdc341b754804f3e610e9c0eb0b4b92c6b26e5589d3"
+    },
+    {
+      "source": "kernel_output",
+      "branch": "normal_vae",
+      "repeat": 1,
+      "record": 127263,
+      "seconds": 1.3684000009561714e-05,
+      "bytes": 32768,
+      "sha256": "20ccafab5b1634685c8a1bbc19c2bd2b5a13c4cb3f5caa4f51f8ebd0cf89ff2f"
+    },
+    {
+      "source": "kernel_output",
+      "branch": "normal_vae",
+      "repeat": 1,
+      "record": 254526,
+      "seconds": 1.0922999990725657e-05,
+      "bytes": 32768,
+      "sha256": "96157fc87202c59d152b7a643ec56aa5f314148a65fd102a4ee180f92ebbb0fb"
+    },
+    {
+      "source": "kernel_output",
+      "branch": "so2_vae",
+      "repeat": 0,
+      "record": 0,
+      "seconds": 0.07656604899997888,
+      "bytes": 32768,
+      "sha256": "c586989d9c0ddf256b411891f4d678f3884deb2586f903f2c9947f610871dec2"
+    },
+    {
+      "source": "kernel_output",
+      "branch": "so2_vae",
+      "repeat": 0,
+      "record": 127263,
+      "seconds": 0.1418482119999851,
+      "bytes": 32768,
+      "sha256": "cf1eb6b84018435f398ccb63a19272591491d8415adfa5186f89594d392e8c6c"
+    },
+    {
+      "source": "kernel_output",
+      "branch": "so2_vae",
+      "repeat": 0,
+      "record": 254526,
+      "seconds": 0.10595459099999971,
+      "bytes": 32768,
+      "sha256": "f874e2070f520a68a6774bec509e19b48ae01282b55cff4060bc0e3ee263979d"
+    },
+    {
+      "source": "kernel_output",
+      "branch": "so2_vae",
+      "repeat": 1,
+      "record": 0,
+      "seconds": 1.8082999986290815e-05,
+      "bytes": 32768,
+      "sha256": "c586989d9c0ddf256b411891f4d678f3884deb2586f903f2c9947f610871dec2"
+    },
+    {
+      "source": "kernel_output",
+      "branch": "so2_vae",
+      "repeat": 1,
+      "record": 127263,
+      "seconds": 1.2395999988257245e-05,
+      "bytes": 32768,
+      "sha256": "cf1eb6b84018435f398ccb63a19272591491d8415adfa5186f89594d392e8c6c"
+    },
+    {
+      "source": "kernel_output",
+      "branch": "so2_vae",
+      "repeat": 1,
+      "record": 254526,
+      "seconds": 1.3138000014123463e-05,
+      "bytes": 32768,
+      "sha256": "f874e2070f520a68a6774bec509e19b48ae01282b55cff4060bc0e3ee263979d"
+    }
+  ],
+  "completed": true,
+  "record_hashes_equal": true,
+  "all_read_lengths_equal": true,
+  "kernel": "maximshtefan/eqvae-spec0054-shard1-mount-check/1",
+  "status": "COMPLETE",
+  "entry_commit": "e4593e4",
+  "source_commit_expected": "a129a51",
+  "test_claim": "Both original notebook output and dataset mount and preserve audited metadata plus 24 sampled reads. No full-binary hash or full-WSI throughput claim."
+}

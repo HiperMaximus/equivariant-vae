@@ -81,6 +81,39 @@ Exact checkpoints and cumulative tables are downloaded under
 A future continuation must restore v25 branch-specific cursors; private
 resume dataset version2 still contains v18. No new run accompanies this review.
 
+### Subsequent-read and original-input check (2026-10-29)
+
+Removing the first consumed training read per shard leaves v25's maxima
+unchanged at1386.63/1445.71s. Removing the first training read per WSI also
+leaves them unchanged. Both are WSI3055 in shard1, presentation1862, epoch7,
+after the initial epoch5 full assessment and an epoch6 training presentation.
+These are repeated accesses; cache residency is not established by read order.
+Evidence: `reports/spec0054_io_20261029/v25_revisit_maxima.json`.
+
+The original producer's current output endpoint permits bounded HTTP206 reads
+from both8,340,340,736B binaries; first-record hashes match the earlier access
+evidence. The2502B result equals the frozen result hash and reports254527 rows.
+The explicit version-label3 output request returns404, while the current
+session-output request succeeds. The installed CLI2.2.4 parses versions but
+does not pass them to output/files requests; its file-list sizes also disagree
+with the session-output artifacts. Readability by HTTP does not establish a
+working notebook input mount. Sanitized evidence:
+`reports/spec0054_io_20261029/shard1_original_access.json`.
+
+The separate CPU-only mount check is COMPLETE as
+`maximshtefan/eqvae-spec0054-shard1-mount-check/1`, source a129a51, entry e4593e4.
+It mounts the original notebook output and frozen dataset together, checks
+result/index identity and file sizes, then reads three32KiB records twice per
+branch/source. The24 reads establish accessibility and sampled-byte identity;
+they do not measure complete WSI performance or a full-atlas working set.
+No training state or input locator in the ABMIL continuation is changed.
+Both inputs mount successfully under distinct notebooks/datasets paths.
+Result/index hashes and all binary sizes match, and all24 complete32KiB
+sampled reads have matching cross-source/repeat hashes. This establishes
+original notebook-input usability; complete-WSI/revisit throughput remains
+unmeasured. Receipt:
+`reports/spec0054_io_20261029/shard1_mount_check_v1.json`.
+
 ## Accepted dropout, smoothing and C4 candidate (2026-10-22)
 
 Train a new paired fold0 candidate from the original classifier initialization.

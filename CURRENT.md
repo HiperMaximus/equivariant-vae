@@ -33,13 +33,21 @@ API observations establish downloadable original artifacts, not notebook-input
 mount recovery or performance. Evidence:
 `reports/spec0054_io_20261029/shard1_original_access.json` (no signed URLs).
 
-A minimal CPU-only mount check is prepared using the existing wrapper, mounting
-both original notebook output and the unchanged private dataset. It checks
-result/index hashes, binary sizes, and three32KiB records twice per VAE branch
-per input (24 tiny reads total). This is input accessibility/identity evidence,
-not a WSI throughput comparison. The experiment loads repository code; no
-training/resume artifact or scientific parameter changes. Source `a129a5125a2617576af04e6d4fff52ee8b0d3dfc`;
-not submitted yet. Entry: `kaggle/kernels/spec0054_shard1_mount_check/`.
+The minimal CPU-only mount check is COMPLETE as
+`maximshtefan/eqvae-spec0054-shard1-mount-check/1`; source a129a51, entry e4593e4.
+Both original notebook output and unchanged private dataset mount successfully.
+Both result hashes equal the frozen SHA, both index hashes equal their audited
+result, all four binary sizes agree, and24 tiny reads have full32KiB lengths
+and identical hashes across input sources/repeats. Exact paths distinguish
+`/kaggle/input/notebooks/maximshtefan/eqvae-spec0054-fp16-latent-shard-1/`
+from `/kaggle/input/datasets/maximusshtefan/eqvae-spec0054-frozen-latent-shard-1/`.
+This establishes recovered notebook-input usability; it does not establish
+full-binary equality or WSI-throughput improvement. The next useful storage
+comparison is matched complete WSI/subsets/revisits from both source types,
+CPU-only, before changing ABMIL metadata. The current training input and resume
+artifacts are unchanged. No GPU or embedding regeneration. Receipt:
+`reports/spec0054_io_20261029/shard1_mount_check_v1.json`; outputs:
+`runs/kaggle/spec0054_shard1_mount_check_v1/`.
 
 ### V25 completed review — 2026-10-29
 
