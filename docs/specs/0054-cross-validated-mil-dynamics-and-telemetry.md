@@ -1,9 +1,9 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: selected training I/O integrated; v25 continuation RUNNING from v18; CPU full-cycle v3 reviewed
+Status: v25 COMPLETE at epoch10; typical I/O faster but long-tail average bottleneck persists
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-10-28
+Last updated: 2026-10-29
 
 ## Training I/O integration and v18 continuation (2026-10-28)
 
@@ -48,6 +48,38 @@ entry `888d74a`. API status is RUNNING. The single initial log read contains
 no worker output yet; actual restore/device/throughput remain unverified.
 Inspect around11:45 Bogota. Launch receipt:
 `reports/spec0054_io_20261028/training_v25_launch.json`.
+
+### Completed v25 continuation (2026-10-29)
+
+Both workers exit0 and restore the intended v18 state on physical T4 GPUs0/1.
+Latest states are normal749 updates/2996 exposures (epoch10 cursor116) and
+SO2 729/2916 (epoch10 cursor36), with last assessment2880. Both best-by-CE
+checkpoints advance to epoch10: validation CE/macro-F1 is1.45129/.24481 normal
+and1.35623/.31171 SO2. Epoch5 values were1.49570/.18400 and1.51328/.18184.
+V18 telemetry prefixes remain exactly equal; the common2916-presentation
+prefix preserves paired WSI, target, subset, C4, update, exposure, LR and AEM.
+No AMP skips or observed nonfinite loss/activation/gradient values occur.
+Maximum step GPU allocations are3.90/3.81GiB. The configured FIFO reaches eight
+pending inputs and2.084GiB selected-byte reservations per branch; eight unused
+prepared reads drain at final session pause.
+
+Consumed-read medians fall to2.93/5.57s from22.17/21.95s in v18, but means
+are45.02/46.98s versus39.19/39.14s. Step medians fall to23.57/30.79s from
+63.06/62.30s, while means are93.60/96.79s versus90.12/90.01s. The samples span
+different epochs and storage sessions, so these are descriptive observations
+rather than an isolated reader effect. Queue waits still consume98.65/98.66%
+of summed step wall. Longest consumed reads are1386.63/1445.71s; shard1 means
+are307.35/293.74s and represent62.73/56.77% of accumulated per-reader read wall,
+which overlaps between threads. Shards2/11/12 also show slow means. Maximum
+H2D transfer is about0.047s. Unchanged full evaluation grows from986.74/1016.03s
+at epoch5 to4802.34/5521.44s at epoch10. Typical reads improve, but a stable
+average GPU training speedup is not established and storage tails persist.
+
+Exact checkpoints and cumulative tables are downloaded under
+`runs/kaggle/spec0054_cls_fold0_c4_v25/`. Review:
+`reports/spec0054_io_20261029/{analyze_v25.py,v25_summary.json}`.
+A future continuation must restore v25 branch-specific cursors; private
+resume dataset version2 still contains v18. No new run accompanies this review.
 
 ## Accepted dropout, smoothing and C4 candidate (2026-10-22)
 

@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-10-28
+Last updated: 2026-10-29
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -10,6 +10,45 @@ The 152 external WSI remain reserved for final evaluation.
 
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
+
+### V25 completed review — 2026-10-29
+
+`maximshtefan/eqvae-spec0054-mil-fold0/25` is COMPLETE, worker exits[0,0].
+Logs verify source d03bb63, Tesla T4 physical0/1, strict identity resume at
+360 updates/1440 exposures/epoch5 cursor0 and last assessment864. Original
+v18 cumulative telemetry is preserved exactly in both branches. Both finish
+the pending epoch5 assessment and epoch10 assessment. Latest saved progress:
+normal749 updates/2996 presentations, epoch10 cursor116; SO2 729/2916,
+epoch10 cursor36. Both last assessment2880 and best-by-CE epoch10.
+Normal validation CE/macro-F1=1.45129/.24481; SO2=1.35623/.31171.
+At epoch5 these were1.49570/.18400 and1.51328/.18184 respectively.
+The shared2916-presentation prefix matches WSI/target/subset/C4/update/exposure/
+LR/AEM fields. No AMP skips, nonfinite loss or nonfinite monitored activations/
+gradients; maximum step GPU allocation3.90/3.81GiB. Eight pending inputs,
+maximum selected reservation2.084GiB per branch, eight unused reads drained
+at final pause. No new training or dataset version was launched by this review.
+
+I/O is improved for the typical read, but the session does not establish an
+average training speedup. Consumed-read medians2.93/5.57s versus22.17/21.95s
+in v18; means45.02/46.98s versus39.19/39.14s. Step medians23.57/30.79s versus
+63.06/62.30s; means93.60/96.79s versus90.12/90.01s. These historical comparisons
+use different epochs and storage sessions, not a randomized GPU reader A/B.
+Queue waits still occupy98.65/98.66% of summed training-step wall. Long tails
+remain: consumed reads max1386.63/1445.71s; step p95=440.62/439.13s. Shard1
+mean reads307.35/293.74s and accounts for62.73/56.77% of accumulated per-reader
+read wall (overlapping threads, not additive session wall). Other slow shards
+include2/11/12, so the slowdown is not exclusive to shard1. Maximum H2D transfer
+about0.047s. Full evaluation remains unchanged; epoch5 costs986.74/1016.03s,
+epoch10 4802.34/5521.44s, demonstrating substantial within-session slowdown
+also in the original evaluation path. The new reader has not solved the
+long-tail storage bottleneck; actual overall average benefit remains unproven.
+
+Next continuation must use these v25 latest checkpoints, with each branch's
+own cursor, and source d03bb63. Private resume dataset version2 still contains
+v18 and must be updated from v25 before another submission. The105-epoch
+horizon remains unfinished. Outputs:
+`runs/kaggle/spec0054_cls_fold0_c4_v25/`; reproducible read-only review:
+`reports/spec0054_io_20261029/{analyze_v25.py,v25_summary.json}`.
 
 ### Training continuation v25 — 2026-10-28
 
