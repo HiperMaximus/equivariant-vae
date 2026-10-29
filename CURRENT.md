@@ -11,6 +11,33 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
+### Training continuation adapted to original shard1 output — prepared 2026-10-29
+
+The ABMIL metadata replaces only the private shard1 latent dataset with
+`maximshtefan/eqvae-spec0054-fp16-latent-shard-1` as a notebook input. All12
+latent shards are mounted exactly once; the other11 source locators, T4 GPU
+configuration, normal/SO2 physical0/1 mapping and705min deadline are unchanged.
+The entry still pins `d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e`, RESUME=True,
+all probes disabled. Runner/reader/config/model and the scientific recipe are
+unchanged; existing source/result hashes continue to validate the notebook copy.
+The subagent's exact-diff review, JSON parse, compilation and kernel build/
+validation pass. No new runtime/workflow code or identity migration is needed.
+
+Private resume dataset `maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/3` is
+ready, verified private, and all14 version3 files were downloaded individually
+and hash-verified against v25. It copies latest/best, identities and cumulative tables byte for
+byte, preserving optimizer/scaler/RNG and branch-specific cursors:
+normal749 updates/2996 presentations, epoch10 cursor116; SO2 729/2916,
+epoch10 cursor36. Both last assessment2880 and best epoch10. Older dataset
+versions remain preserved. Receipt:
+`reports/spec0054_io_20261029/resume_v25_dataset_v3.json`.
+
+The adapted entry is ready for the next GPU continuation;
+no new training session is submitted by this adaptation. On launch, verify the
+above restored states, the original notebook shard1 path, both physical T4s,
+and full-atlas read/wait behavior. The CPU panel favored the output route but
+did not reproduce v25's minute-scale tails.
+
 ### Shard1 dataset versus notebook-output comparison — v2 COMPLETE 2026-10-29
 
 The authorized CPU comparison extends the existing mount-check module/entry
@@ -75,13 +102,10 @@ panel per source supports selecting the output route, but does not establish
 that changing it solves the full~200GB/GPU long-tail behavior. No new training
 session or additional probe was launched by this review.
 
-Recommended next training continuation: use the original notebook output only
-for shard1, retaining the reader/recipe and all other input locators. First
-publish a new private resume version from v25's749/729-update branch-specific
-states; resume dataset v2 still contains v18. Keep training source d03bb63,
-whose strict identities remain current; this input metadata change needs no
-checkpoint identity migration. Current ABMIL metadata has not been changed by
-this review. Final outputs: `runs/kaggle/spec0054_shard1_source_v2/`.
+The comparison recommended the original notebook output for shard1 while
+retaining the reader/recipe and other latent inputs. The preparation above
+implements that recommendation and supersedes the review-time v2/v18 resume
+limitation. Training remains at v25. Final outputs: `runs/kaggle/spec0054_shard1_source_v2/`.
 Read-only analysis: `reports/spec0054_io_20261029/{analyze_source_benchmark_v2.py,source_benchmark_v2_summary.json}`.
 
 ### Shard1 revisit and original-output availability — 2026-10-29

@@ -1,0 +1,169 @@
+{
+  "dataset": "maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/3",
+  "source_kernel": "maximshtefan/eqvae-spec0054-mil-fold0/25",
+  "source_commit": "d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e",
+  "visibility": "private",
+  "identity_migration": false,
+  "all_identical_to_v25": true,
+  "branches": {
+    "normal_vae": {
+      "state": {
+        "committed_update": 749,
+        "exposure_count": 2996,
+        "epoch": 10,
+        "within_epoch_cursor": 116
+      },
+      "scheduler": {
+        "last_exposure": 2996,
+        "last_assessment_exposure": 2880
+      },
+      "effective_batch": 4,
+      "current_order_length": 288,
+      "best_epoch": 10.0,
+      "identity_unchanged": true
+    },
+    "so2_vae": {
+      "state": {
+        "committed_update": 729,
+        "exposure_count": 2916,
+        "epoch": 10,
+        "within_epoch_cursor": 36
+      },
+      "scheduler": {
+        "last_exposure": 2916,
+        "last_assessment_exposure": 2880
+      },
+      "effective_batch": 4,
+      "current_order_length": 288,
+      "best_epoch": 10.0,
+      "identity_unchanged": true
+    }
+  },
+  "files": [
+    {
+      "path": "normal_vae/latest.pt",
+      "bytes": 1857385,
+      "sha256": "a3f1e31f66ab4c8e200020eebfad17dd5d6dc8d648a99418ceca2e75dd9cfb4e",
+      "identical_to_v25": true,
+      "download_sha256": "a3f1e31f66ab4c8e200020eebfad17dd5d6dc8d648a99418ceca2e75dd9cfb4e",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/best.pt",
+      "bytes": 1856941,
+      "sha256": "b4ecc27a1e6a405a348f1fb0c0db2088cf3437f26051e32fe18a441eb36fc185",
+      "identical_to_v25": true,
+      "download_sha256": "b4ecc27a1e6a405a348f1fb0c0db2088cf3437f26051e32fe18a441eb36fc185",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/identity.json",
+      "bytes": 809,
+      "sha256": "42facaafe25bc21473cd2d55c84971d571c2a6cc9bcf581ef04946dee6a32512",
+      "identical_to_v25": true,
+      "download_sha256": "42facaafe25bc21473cd2d55c84971d571c2a6cc9bcf581ef04946dee6a32512",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/t0.npz",
+      "bytes": 1799695,
+      "sha256": "1ad11ada5d54c2214b831aa32932dc2bb0db27ffde85c1369cd73f2beac8cd76",
+      "identical_to_v25": true,
+      "download_sha256": "1ad11ada5d54c2214b831aa32932dc2bb0db27ffde85c1369cd73f2beac8cd76",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/t1.npz",
+      "bytes": 195475,
+      "sha256": "e158f6373e9f2bb633fa1e36ea8e3e98c8acf42920634ea5578b1d87a55c5cf6",
+      "identical_to_v25": true,
+      "download_sha256": "e158f6373e9f2bb633fa1e36ea8e3e98c8acf42920634ea5578b1d87a55c5cf6",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/t2.npz",
+      "bytes": 17293,
+      "sha256": "f7bf3f50c6c6c48888216e8401473574a679e442892c3855caab8133ac730fc5",
+      "identical_to_v25": true,
+      "download_sha256": "f7bf3f50c6c6c48888216e8401473574a679e442892c3855caab8133ac730fc5",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/predictions.npz",
+      "bytes": 922199,
+      "sha256": "024926ee9f7e434b463232ee2d9b9d31b23123477be9fa1192fae70a3ba72ccd",
+      "identical_to_v25": true,
+      "download_sha256": "024926ee9f7e434b463232ee2d9b9d31b23123477be9fa1192fae70a3ba72ccd",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/latest.pt",
+      "bytes": 1857385,
+      "sha256": "3294cc9f7e84c0c3008a98739344ca163d2c9980d0c76a7b19061adc3b69c371",
+      "identical_to_v25": true,
+      "download_sha256": "3294cc9f7e84c0c3008a98739344ca163d2c9980d0c76a7b19061adc3b69c371",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/best.pt",
+      "bytes": 1856941,
+      "sha256": "a44f06139b3e9b3a3a100dd3e2fdf649971a0a3868bbf2e545cc9b360d605152",
+      "identical_to_v25": true,
+      "download_sha256": "a44f06139b3e9b3a3a100dd3e2fdf649971a0a3868bbf2e545cc9b360d605152",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/identity.json",
+      "bytes": 806,
+      "sha256": "805827a9efd19717e0bb2af97e99885e9a205b38c568a793febc440ec6a1ced1",
+      "identical_to_v25": true,
+      "download_sha256": "805827a9efd19717e0bb2af97e99885e9a205b38c568a793febc440ec6a1ced1",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/t0.npz",
+      "bytes": 1755933,
+      "sha256": "73bfcd974dc2e3cad8912db91137834b12b7a8f1128799441a60fceb06b10585",
+      "identical_to_v25": true,
+      "download_sha256": "73bfcd974dc2e3cad8912db91137834b12b7a8f1128799441a60fceb06b10585",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/t1.npz",
+      "bytes": 197058,
+      "sha256": "fb6cae9e90e5284a8b686a815a3a9832c4f604808e5fbcff223af6722ff294de",
+      "identical_to_v25": true,
+      "download_sha256": "fb6cae9e90e5284a8b686a815a3a9832c4f604808e5fbcff223af6722ff294de",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/t2.npz",
+      "bytes": 17300,
+      "sha256": "05efb81dadca593a990d4d03e45c8fdd7ae361d4f23ff069a4d82caa850e64f4",
+      "identical_to_v25": true,
+      "download_sha256": "05efb81dadca593a990d4d03e45c8fdd7ae361d4f23ff069a4d82caa850e64f4",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/predictions.npz",
+      "bytes": 933973,
+      "sha256": "e4ed2679e337bd250d061b37a39c445996040ede43331c117975269c967cf412",
+      "identical_to_v25": true,
+      "download_sha256": "e4ed2679e337bd250d061b37a39c445996040ede43331c117975269c967cf412",
+      "roundtrip_identical": true
+    }
+  ],
+  "input_change": {
+    "removed_dataset": "maximusshtefan/eqvae-spec0054-frozen-latent-shard-1",
+    "added_kernel_source": "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
+    "other_latent_sources_unchanged": true
+  },
+  "subagent_review": "adapt_shard1_training: exact source-only metadata diff; original12 shards unique; source d03bb63 and entry unchanged; build/validate pass.",
+  "entry_unchanged": true,
+  "build_validate": "passed",
+  "status": "ready",
+  "current_version_number": 3,
+  "verified_private": true,
+  "verified_download": "runs/kaggle/spec0054_cls_c4_fold0_resume_v3_verified_files",
+  "all_roundtrip_identical": true
+}

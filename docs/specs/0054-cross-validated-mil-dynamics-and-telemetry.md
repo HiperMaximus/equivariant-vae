@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: v25 COMPLETE at epoch10; CPU source comparison favors original shard1 output; full-training tail mitigation unverified
+Status: v25 continuation prepared with original shard1 output and private resume v3; full-training tail mitigation unverified
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-29
@@ -177,6 +177,27 @@ mount by the original output while retaining all scientific parameters and
 training source d03bb63; it first needs a resume version containing v25 latest
 states rather than v18. No new session accompanies this review. Analysis:
 `reports/spec0054_io_20261029/{analyze_source_benchmark_v2.py,source_benchmark_v2_summary.json}`.
+
+### Original shard1 input adopted for the next continuation (2026-10-29)
+
+ABMIL kernel metadata removes only
+`maximusshtefan/eqvae-spec0054-frozen-latent-shard-1` from dataset_sources and
+adds `maximshtefan/eqvae-spec0054-fp16-latent-shard-1` to kernel_sources.
+All12 latent shards remain unique and the other11 exact locators are preserved.
+Existing result/index hashes retain the frozen artifact identity. The entry
+continues to pin d03bb63, effective batch4, normal/SO2 physical T4 GPUs0/1 and
+the705-minute execution budget. No scientific parameter, reader implementation,
+checkpoint identity or model changes. A subagent reviewed the exact metadata
+diff; JSON, compilation and the existing kernel build/validation pass.
+
+Private resume version3 preserves all14 v25 files, including the identities,
+byte for byte. Normal restores749 updates/2996 presentations/epoch10 cursor116;
+SO2 restores729/2916/epoch10 cursor36. Both last completed assessment2880 and
+best epoch10, with complete optimizer/scaler/RNG state preserved. No migration
+of identity fields is required. Remote version3 is ready and verified private;
+all14 downloaded files match their staged v25 hashes. Receipt:
+`reports/spec0054_io_20261029/resume_v25_dataset_v3.json`.
+This prepares a continuation; no GPU session is submitted by the adaptation.
 
 ## Accepted dropout, smoothing and C4 candidate (2026-10-22)
 

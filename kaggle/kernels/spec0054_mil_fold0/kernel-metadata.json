@@ -9,11 +9,11 @@
   "enable_internet": "true",
   "machine_shape": "NvidiaTeslaT4",
   "dataset_sources": [
-    "maximusshtefan/eqvae-spec0054-frozen-latent-shard-1",
     "maximshtefan/eqvae-spec0054-cls-c4-fold0-resume"
   ],
   "competition_sources": [],
   "kernel_sources": [
+    "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
     "maximshtefan/eqvae-spec0054-fp16-latent-shard-2",
     "maximshtefan/eqvae-spec0054-amp-latent-shard-3",
     "maximshtefan/eqvae-spec0054-amp-latent-shard-4",
