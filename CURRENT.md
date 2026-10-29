@@ -38,7 +38,7 @@ both original notebook output and the unchanged private dataset. It checks
 result/index hashes, binary sizes, and three32KiB records twice per VAE branch
 per input (24 tiny reads total). This is input accessibility/identity evidence,
 not a WSI throughput comparison. The experiment loads repository code; no
-training/resume artifact or scientific parameter changes. Source pending;
+training/resume artifact or scientific parameter changes. Source `a129a5125a2617576af04e6d4fff52ee8b0d3dfc`;
 not submitted yet. Entry: `kaggle/kernels/spec0054_shard1_mount_check/`.
 
 ### V25 completed review — 2026-10-29
