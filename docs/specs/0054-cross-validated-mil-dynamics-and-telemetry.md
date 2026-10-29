@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: v25 COMPLETE at epoch10; shard1 source comparison v2 CPU RUNNING; long-tail bottleneck persists
+Status: v25 COMPLETE at epoch10; CPU source comparison favors original shard1 output; full-training tail mitigation unverified
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-29
@@ -149,9 +149,34 @@ Submitted around09:51 Bogota as
 `maximshtefan/eqvae-spec0054-shard1-input-comparison/2`, source88cfffb,
 entry5d57384, GPU disabled. Kaggle returned the new canonical slug after the
 existing mount-check kernel title changed; local metadata follows that id.
-API is RUNNING; the single initial log read has no worker output yet.
-Inspect around10:30 Bogota, then after the360min budget if needed.
-Launch receipt: `reports/spec0054_io_20261029/source_benchmark_v2_launch.json`.
+The completed review around11:00 Bogota confirms all832 reads,4 arms and32
+windows complete in629.7s benchmark wall, without deadline hit or logged
+exception. Launch receipt:
+`reports/spec0054_io_20261029/source_benchmark_v2_launch.json`.
+
+Output whole-arm times are142.18/142.46s versus dataset181.37/161.22s,
+with21.61/11.64% savings in the two opposite-order comparisons. Mean joint
+whole-arm wall including verification decreases16.92% (171.29 to142.32s).
+Pooled full-read means are2.036 vs1.504s; sampled subsequent-read means1.764
+vs1.348s (-23.59%), medians1.604 vs1.237s and maxima6.947 vs5.142s. The first
+sampled pass after full bags shows a larger85.21% mean advantage, while later
+sampled epochs6/7 retain14.26/14.59% advantages. Sampled output means for its
+source visits0/1 are1.345/1.351s versus dataset1.913/1.615s. Hotspot3055 sampled
+mean decreases4.603 to3.140s. Neither route reproduces minute-scale stalls.
+
+All208 branch/phase/epoch/WSI groups contain four equal raw or prepared/subset/
+C4 observations and read plans across sources/visits. All32 phase orders match
+the sorted/full or globally filtered/sampled schedule; JSONL matches final JSON.
+HWM is3.538GiB,
+minimum observed available host memory11.135GiB, pending peak8 and selected
+reservation peak1.413GiB. File identities are distinct inodes on the same
+visible device52. The observation favors the original output route in this
+CPU panel; a full-atlas GPU speedup and elimination of long storage tails remain
+unmeasured. The next training continuation can replace only shard1's dataset
+mount by the original output while retaining all scientific parameters and
+training source d03bb63; it first needs a resume version containing v25 latest
+states rather than v18. No new session accompanies this review. Analysis:
+`reports/spec0054_io_20261029/{analyze_source_benchmark_v2.py,source_benchmark_v2_summary.json}`.
 
 ## Accepted dropout, smoothing and C4 candidate (2026-10-22)
 

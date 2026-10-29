@@ -11,7 +11,7 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
-### Shard1 dataset versus notebook-output comparison — v2 RUNNING 2026-10-29
+### Shard1 dataset versus notebook-output comparison — v2 COMPLETE 2026-10-29
 
 The authorized CPU comparison extends the existing mount-check module/entry
 with --benchmark; the original tiny check remains unchanged. It uses all26
@@ -45,15 +45,44 @@ training runner/reader/config/model remain unchanged. Evidence:
 The entry reuses the same mount-check kernel and two exact inputs, GPU disabled.
 Source `88cfffb68b1947f032bcc8b5bbbf1d379f4ed570`;
 entry `5d57384`. Submitted around09:51 Bogota as
-`maximshtefan/eqvae-spec0054-shard1-input-comparison/2`, API RUNNING. Kaggle
-renamed the existing kernel from mount-check to input-comparison using its new
-title; local metadata now uses the returned canonical id, without a second
-submission. Single initial log read has no worker output yet. Inspect around
-10:30 Bogota for initial full and subsequent-read progress, and later if the
-360min budget is needed. Actual timings and paired hashes are still pending.
-No training continuation was launched. Receipt:
+`maximshtefan/eqvae-spec0054-shard1-input-comparison/2`. COMPLETE on review
+around11:00 Bogota; all832 reads,4 arms and32 branch windows finish in629.7s
+benchmark wall (~10.5min), no deadline hit or logged exception. Kaggle renamed
+the existing mount-check kernel from its new title; local metadata uses the
+canonical input-comparison id. Launch receipt:
 `reports/spec0054_io_20261029/source_benchmark_v2_launch.json`.
-Stop polling unchanged startup state.
+
+The output wins both matched whole-arm comparisons:142.18 vs181.37s and
+142.46 vs161.22s (21.61% and11.64% lower wall). Mean whole-arm wall including
+verification is142.32s output versus171.29s dataset,16.92% lower. Pooled full
+read mean1.504 vs2.036s (-26.09%); sampled subsequent-read mean1.348 vs1.764s
+(-23.59%), median1.237 vs1.604s and max5.142 vs6.947s. The epoch5 sampled pass
+immediately after full bags accounts for a larger85.21% read-mean advantage;
+later sampled epochs6/7 retain14.26/14.59% savings (2.048 vs2.389s and1.894
+vs2.218s). Sampled source-visit0/1 means are1.345/1.351s output versus
+1.913/1.615s dataset. For hotspot3055, sampled means3.140 vs4.603s, maxima
+5.142 vs6.947s. No minute-scale slowdown is reproduced in either source.
+
+All208 phase/epoch/WSI/branch identity groups have four equal observations
+(two sources x two visits), including raw/prepared/subset/C4 hashes and read
+plans. All32 phase orders match the sorted/full or globally filtered/sampled
+schedule, JSONL agrees
+with final JSON, and all source/index hashes and sizes are preserved. Queue
+peaks8 futures and1.413GiB reserved selected bytes; process HWM3.538GiB,
+minimum observed host memory available11.135GiB. Source files have distinct
+inodes on the same visible device52. This one CPU session with12GiB paired
+panel per source supports selecting the output route, but does not establish
+that changing it solves the full~200GB/GPU long-tail behavior. No new training
+session or additional probe was launched by this review.
+
+Recommended next training continuation: use the original notebook output only
+for shard1, retaining the reader/recipe and all other input locators. First
+publish a new private resume version from v25's749/729-update branch-specific
+states; resume dataset v2 still contains v18. Keep training source d03bb63,
+whose strict identities remain current; this input metadata change needs no
+checkpoint identity migration. Current ABMIL metadata has not been changed by
+this review. Final outputs: `runs/kaggle/spec0054_shard1_source_v2/`.
+Read-only analysis: `reports/spec0054_io_20261029/{analyze_source_benchmark_v2.py,source_benchmark_v2_summary.json}`.
 
 ### Shard1 revisit and original-output availability — 2026-10-29
 

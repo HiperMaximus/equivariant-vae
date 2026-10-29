@@ -1,0 +1,483 @@
+{
+  "kernel": "maximshtefan/eqvae-spec0054-shard1-input-comparison/2",
+  "api_status": "COMPLETE",
+  "source_commit": "88cfffb68b1947f032bcc8b5bbbf1d379f4ed570",
+  "completed": true,
+  "deadline_reached": false,
+  "gpu_used": false,
+  "session_seconds_including_hashing": 629.727991819,
+  "verified_reads": 832,
+  "complete_arms": 4,
+  "complete_windows": 32,
+  "identity_groups": 208,
+  "all_groups_four_equal_observations": true,
+  "all_orders_equal_expected": true,
+  "jsonl_matches_final_json": true,
+  "sources": {
+    "dataset": {
+      "joint_arm_wall_seconds_including_hashing": {
+        "n": 2,
+        "mean": 171.2947160265,
+        "median": 171.2947160265,
+        "p95": 180.35809692045004,
+        "max": 181.36513924200005,
+        "sum": 342.589432053
+      },
+      "whole_arm_process_cpu_seconds": {
+        "n": 2,
+        "mean": 230.51363072550004,
+        "median": 230.51363072550004,
+        "p95": 237.79210982775,
+        "max": 238.600829728,
+        "sum": 461.0272614510001
+      },
+      "phases": {
+        "full": {
+          "read_seconds": {
+            "n": 104,
+            "mean": 2.0355742102499956,
+            "median": 1.7662673890000065,
+            "p95": 4.0887269548,
+            "max": 4.951748008000095,
+            "sum": 211.69971786599956
+          },
+          "consumer_hash_seconds": {
+            "n": 104,
+            "mean": 0.8412607437980848,
+            "median": 0.7752824365001061,
+            "p95": 1.7785406826499401,
+            "max": 2.7613061439999456,
+            "sum": 87.49111735500082
+          },
+          "branch_window_wall_seconds_including_hashing": {
+            "n": 4,
+            "mean": 75.53593842824998,
+            "median": 73.55264083249995,
+            "p95": 85.76825872714997,
+            "max": 87.21622399399996,
+            "sum": 302.1437537129999
+          },
+          "hotspot3055_read_seconds": {
+            "n": 4,
+            "mean": 4.469532213000008,
+            "median": 4.653818957999931,
+            "p95": 4.910264501650073,
+            "max": 4.951748008000095,
+            "sum": 17.87812885200003
+          },
+          "by_source_visit": {
+            "0": {
+              "n": 52,
+              "mean": 2.260609133249998,
+              "median": 2.1402556344999653,
+              "p95": 4.223196877850004,
+              "max": 4.675191298999948,
+              "sum": 117.55167492899989
+            },
+            "1": {
+              "n": 52,
+              "mean": 1.8105392872499937,
+              "median": 1.4787169070000346,
+              "p95": 3.892269018749981,
+              "max": 4.951748008000095,
+              "sum": 94.14804293699967
+            }
+          },
+          "by_epoch": {
+            "None": {
+              "n": 104,
+              "mean": 2.0355742102499956,
+              "median": 1.7662673890000065,
+              "p95": 4.0887269548,
+              "max": 4.951748008000095,
+              "sum": 211.69971786599956
+            }
+          }
+        },
+        "sampled": {
+          "read_seconds": {
+            "n": 312,
+            "mean": 1.7642245082339805,
+            "median": 1.6041532744999927,
+            "p95": 3.8891534237500185,
+            "max": 6.946938551000017,
+            "sum": 550.4380465690019
+          },
+          "consumer_hash_seconds": {
+            "n": 312,
+            "mean": 0.601336253624998,
+            "median": 0.5137070340000491,
+            "p95": 1.279664424100042,
+            "max": 2.0004703799999106,
+            "sum": 187.61691113099937
+          },
+          "branch_window_wall_seconds_including_hashing": {
+            "n": 12,
+            "mean": 31.443670870583315,
+            "median": 35.72170325600001,
+            "p95": 38.10139945675002,
+            "max": 39.099014577999924,
+            "sum": 377.32405044699976
+          },
+          "hotspot3055_read_seconds": {
+            "n": 12,
+            "mean": 4.603017757583378,
+            "median": 5.345113265500004,
+            "p95": 6.464173416500056,
+            "max": 6.946938551000017,
+            "sum": 55.236213091000536
+          },
+          "by_source_visit": {
+            "0": {
+              "n": 156,
+              "mean": 1.9132461900512812,
+              "median": 1.6918105235000098,
+              "p95": 4.036234177999972,
+              "max": 6.946938551000017,
+              "sum": 298.46640564799986
+            },
+            "1": {
+              "n": 156,
+              "mean": 1.6152028264166798,
+              "median": 1.492801241000052,
+              "p95": 3.8076956594999842,
+              "max": 5.743413143000225,
+              "sum": 251.97164092100206
+            }
+          },
+          "by_epoch": {
+            "5": {
+              "n": 104,
+              "mean": 0.6858387877019243,
+              "median": 0.12183609049998267,
+              "p95": 3.1563508448499302,
+              "max": 6.946938551000017,
+              "sum": 71.32723392100013
+            },
+            "6": {
+              "n": 104,
+              "mean": 2.389164106788466,
+              "median": 2.1411335810000196,
+              "p95": 4.662987450150012,
+              "max": 6.06918376100009,
+              "sum": 248.47306710600049
+            },
+            "7": {
+              "n": 104,
+              "mean": 2.217670630211551,
+              "median": 2.1045572369999945,
+              "p95": 3.590162256800022,
+              "max": 5.433338036999999,
+              "sum": 230.6377455420013
+            }
+          }
+        }
+      },
+      "by_branch": {
+        "normal_vae": {
+          "full": {
+            "n": 52,
+            "mean": 2.1193793229807536,
+            "median": 1.8105946714999845,
+            "p95": 4.190060967349954,
+            "max": 4.951748008000095,
+            "sum": 110.2077247949992
+          },
+          "sampled": {
+            "n": 156,
+            "mean": 1.7338555935192357,
+            "median": 1.5957233460000566,
+            "p95": 3.851926855750065,
+            "max": 5.450583736999988,
+            "sum": 270.48147258900076
+          }
+        },
+        "so2_vae": {
+          "full": {
+            "n": 52,
+            "mean": 1.9517690975192379,
+            "median": 1.7025942845000372,
+            "p95": 4.061502119600032,
+            "max": 4.632446616999914,
+            "sum": 101.49199307100037
+          },
+          "sampled": {
+            "n": 156,
+            "mean": 1.7945934229487255,
+            "median": 1.6157336315000066,
+            "p95": 3.8934688477500856,
+            "max": 6.946938551000017,
+            "sum": 279.95657398000117
+          }
+        }
+      }
+    },
+    "kernel_output": {
+      "joint_arm_wall_seconds_including_hashing": {
+        "n": 2,
+        "mean": 142.3194022055,
+        "median": 142.3194022055,
+        "p95": 142.44644800685006,
+        "max": 142.46056420700006,
+        "sum": 284.638804411
+      },
+      "whole_arm_process_cpu_seconds": {
+        "n": 2,
+        "mean": 224.28613118599998,
+        "median": 224.28613118599998,
+        "p95": 225.05291790380002,
+        "max": 225.13811642800002,
+        "sum": 448.57226237199995
+      },
+      "phases": {
+        "full": {
+          "read_seconds": {
+            "n": 104,
+            "mean": 1.5044738032980798,
+            "median": 1.3919048795000322,
+            "p95": 3.099421665149997,
+            "max": 3.7103122919999123,
+            "sum": 156.4652755430003
+          },
+          "consumer_hash_seconds": {
+            "n": 104,
+            "mean": 0.7743621517692313,
+            "median": 0.7159804639999834,
+            "p95": 1.601306887049975,
+            "max": 1.8257069740000134,
+            "sum": 80.53366378400005
+          },
+          "branch_window_wall_seconds_including_hashing": {
+            "n": 4,
+            "mean": 59.955897514750006,
+            "median": 59.902103033999936,
+            "p95": 60.83330276470005,
+            "max": 60.98749275400007,
+            "sum": 239.82359005900003
+          },
+          "hotspot3055_read_seconds": {
+            "n": 4,
+            "mean": 3.4611690417499688,
+            "median": 3.5001502179999875,
+            "p95": 3.691737765299922,
+            "max": 3.7103122919999123,
+            "sum": 13.844676166999875
+          },
+          "by_source_visit": {
+            "0": {
+              "n": 52,
+              "mean": 1.520219536250002,
+              "median": 1.3475673245000053,
+              "p95": 2.89844718665006,
+              "max": 3.4138183219999974,
+              "sum": 79.0514158850001
+            },
+            "1": {
+              "n": 52,
+              "mean": 1.4887280703461578,
+              "median": 1.4160286105000068,
+              "p95": 3.540518437449964,
+              "max": 3.7103122919999123,
+              "sum": 77.4138596580002
+            }
+          },
+          "by_epoch": {
+            "None": {
+              "n": 104,
+              "mean": 1.5044738032980798,
+              "median": 1.3919048795000322,
+              "p95": 3.099421665149997,
+              "max": 3.7103122919999123,
+              "sum": 156.4652755430003
+            }
+          }
+        },
+        "sampled": {
+          "read_seconds": {
+            "n": 312,
+            "mean": 1.3479626884102607,
+            "median": 1.236757564999948,
+            "p95": 3.168557962800048,
+            "max": 5.14202956400004,
+            "sum": 420.56435878400134
+          },
+          "consumer_hash_seconds": {
+            "n": 312,
+            "mean": 0.6127365407019217,
+            "median": 0.5204250854999373,
+            "p95": 1.3827110587999298,
+            "max": 2.027773841999988,
+            "sum": 191.17380069899957
+          },
+          "branch_window_wall_seconds_including_hashing": {
+            "n": 12,
+            "mean": 27.316627373249997,
+            "median": 31.72024035299995,
+            "p95": 33.513069343650024,
+            "max": 33.55918755699997,
+            "sum": 327.79952847899995
+          },
+          "hotspot3055_read_seconds": {
+            "n": 12,
+            "mean": 3.140407679416645,
+            "median": 4.467555036499959,
+            "p95": 4.884620676549946,
+            "max": 5.14202956400004,
+            "sum": 37.68489215299974
+          },
+          "by_source_visit": {
+            "0": {
+              "n": 156,
+              "mean": 1.3452905609999999,
+              "median": 1.2374329250000073,
+              "p95": 3.094743121000107,
+              "max": 4.6036927280000555,
+              "sum": 209.86532751599998
+            },
+            "1": {
+              "n": 156,
+              "mean": 1.3506348158205215,
+              "median": 1.236757564999948,
+              "p95": 3.21645982425008,
+              "max": 5.14202956400004,
+              "sum": 210.69903126800136
+            }
+          },
+          "by_epoch": {
+            "5": {
+              "n": 104,
+              "mean": 0.10143970538461335,
+              "median": 0.0846624430000702,
+              "p95": 0.23347432854994846,
+              "max": 0.3141632670000263,
+              "sum": 10.549729359999787
+            },
+            "6": {
+              "n": 104,
+              "mean": 2.0483868958653892,
+              "median": 1.928271200999859,
+              "p95": 3.9946313394999544,
+              "max": 4.547392330999969,
+              "sum": 213.03223717000049
+            },
+            "7": {
+              "n": 104,
+              "mean": 1.8940614639807796,
+              "median": 1.8332828009999957,
+              "p95": 3.1594506272999867,
+              "max": 5.14202956400004,
+              "sum": 196.98239225400107
+            }
+          }
+        }
+      },
+      "by_branch": {
+        "normal_vae": {
+          "full": {
+            "n": 52,
+            "mean": 1.5058990150961489,
+            "median": 1.391336390000049,
+            "p95": 3.1329332989000287,
+            "max": 3.7103122919999123,
+            "sum": 78.30674878499974
+          },
+          "sampled": {
+            "n": 156,
+            "mean": 1.3463007568076926,
+            "median": 1.2317869294999468,
+            "p95": 3.2011058227499802,
+            "max": 5.14202956400004,
+            "sum": 210.02291806200003
+          }
+        },
+        "so2_vae": {
+          "full": {
+            "n": 52,
+            "mean": 1.503048591500011,
+            "median": 1.392249379500015,
+            "p95": 3.002372508200027,
+            "max": 3.5999381970000286,
+            "sum": 78.15852675800056
+          },
+          "sampled": {
+            "n": 156,
+            "mean": 1.349624620012829,
+            "median": 1.2602143560000059,
+            "p95": 3.1645336060000204,
+            "max": 4.674013404999869,
+            "sum": 210.5414407220013
+          }
+        }
+      }
+    }
+  },
+  "paired_arms": [
+    {
+      "pair": 0,
+      "dataset_seconds": 181.36513924200005,
+      "output_seconds": 142.17824020399996,
+      "saving_percent": 21.60663245526585
+    },
+    {
+      "pair": 1,
+      "dataset_seconds": 161.22429281099994,
+      "output_seconds": 142.46056420700006,
+      "saving_percent": 11.638276265225256
+    }
+  ],
+  "whole_arm_mean_saving_percent": 16.91547439006664,
+  "read_mean_saving_percent": {
+    "full": 26.090938088996996,
+    "sampled": 23.594605895164953
+  },
+  "pending_wsi_peak": 8,
+  "reserved_selected_bytes_peak": 1516765184,
+  "min_available_host_bytes": 11955748864,
+  "peak_process_rss_bytes": 3798798336,
+  "file_identities": {
+    "dataset": {
+      "root": "/kaggle/input/datasets/maximusshtefan/eqvae-spec0054-frozen-latent-shard-1",
+      "result_sha256": "638adb54b68bcb2057166ffac8016cfb5c9ee6a28b4cad8e479a6ba54bea76b6",
+      "index_sha256": "475465347cca68517a3f16627bfdb55f3eafd0ccc59aa840ff73dae08b5f3083",
+      "binaries": {
+        "normal_vae": {
+          "path": "/kaggle/input/datasets/maximusshtefan/eqvae-spec0054-frozen-latent-shard-1/spec0054_fp16_latents/normal_vae_mu_shard_01_of_12.fp16.bin",
+          "bytes": 8340340736,
+          "device": 52,
+          "inode": 42148260403
+        },
+        "so2_vae": {
+          "path": "/kaggle/input/datasets/maximusshtefan/eqvae-spec0054-frozen-latent-shard-1/spec0054_fp16_latents/so2_vae_mu_shard_01_of_12.fp16.bin",
+          "bytes": 8340340736,
+          "device": 52,
+          "inode": 42148260402
+        }
+      }
+    },
+    "kernel_output": {
+      "root": "/kaggle/input/notebooks/maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
+      "result_sha256": "638adb54b68bcb2057166ffac8016cfb5c9ee6a28b4cad8e479a6ba54bea76b6",
+      "index_sha256": "475465347cca68517a3f16627bfdb55f3eafd0ccc59aa840ff73dae08b5f3083",
+      "binaries": {
+        "normal_vae": {
+          "path": "/kaggle/input/notebooks/maximshtefan/eqvae-spec0054-fp16-latent-shard-1/spec0054_fp16_latents/normal_vae_mu_shard_01_of_12.fp16.bin",
+          "bytes": 8340340736,
+          "device": 52,
+          "inode": 42211055181
+        },
+        "so2_vae": {
+          "path": "/kaggle/input/notebooks/maximshtefan/eqvae-spec0054-fp16-latent-shard-1/spec0054_fp16_latents/so2_vae_mu_shard_01_of_12.fp16.bin",
+          "bytes": 8340340736,
+          "device": 52,
+          "inode": 42211055180
+        }
+      }
+    }
+  },
+  "limitations": [
+    "Single CPU session with natural cache and ABBA order, no isolated cold-cache claim.",
+    "Paired panel is12.04GiB per source, full atlas ~200GB was not cycled.",
+    "Read timers exclude hashes but whole-arm/window times include verification.",
+    "No GPU, H2D or model training, and the minute-scale slowdown did not recur."
+  ]
+}
