@@ -1,0 +1,27 @@
+{
+  "kernel": "maximshtefan/eqvae-spec0054-shard1-input-comparison/2",
+  "url": "https://www.kaggle.com/code/maximshtefan/eqvae-spec0054-shard1-input-comparison",
+  "api_status": "KernelWorkerStatus.RUNNING",
+  "submitted_utc": "2026-10-29T14:51:27Z",
+  "checked_utc": "2026-10-29T14:52:54.192419+00:00",
+  "source_commit": "88cfffb68b1947f032bcc8b5bbbf1d379f4ed570",
+  "entry_commit": "5d57384",
+  "entry_sha256": "770cd4029c89f44dbca8eab8cac14edd6b42c614f8b86bc53746bdefd1065b32",
+  "submitted_metadata_sha256": "dd3b8f792cb2001a02753ed52c12c6ade698106e8b0bf94fd277597b4ecd9111",
+  "canonical_slug_note": "Kaggle renamed existing mount-check kernel to shard1-input-comparison from its new title; version2 push returned this canonical URL. Local metadata id updated without resubmitting. Historical v1 evidence retains its launch reference.",
+  "dataset_source": "maximusshtefan/eqvae-spec0054-frozen-latent-shard-1",
+  "kernel_source": "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
+  "gpu_enabled": false,
+  "planned_reads": 832,
+  "training_wsi": 26,
+  "source_order": [
+    "dataset",
+    "kernel_output",
+    "kernel_output",
+    "dataset"
+  ],
+  "deadline_minutes_from_entry": 360,
+  "initial_log": "Single read contains no worker output yet. API RUNNING does not establish worker start or throughput.",
+  "next_useful_inspection_bogota": "2026-10-29T10:30:00-05:00",
+  "preparation": "reports/spec0054_io_20261029/source_benchmark_preparation.json"
+}

@@ -11,7 +11,7 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
-### Shard1 dataset versus notebook-output comparison — prepared 2026-10-29
+### Shard1 dataset versus notebook-output comparison — v2 RUNNING 2026-10-29
 
 The authorized CPU comparison extends the existing mount-check module/entry
 with --benchmark; the original tiny check remains unchanged. It uses all26
@@ -42,9 +42,18 @@ bounds, immutable files, preserved RNG and an expired-deadline zero-read case.
 Compilation, Ruff and targeted BasedPyright pass. The original tiny-check AST,
 training runner/reader/config/model remain unchanged. Evidence:
 `reports/spec0054_io_20261029/{check_shard1_sources.py,source_benchmark_verification.json,source_benchmark_preparation.json}`.
-The entry will reuse `maximshtefan/eqvae-spec0054-shard1-mount-check` with the
-same two exact mounts, GPU disabled. Source `88cfffb68b1947f032bcc8b5bbbf1d379f4ed570`;
-prepared, not submitted yet.
+The entry reuses the same mount-check kernel and two exact inputs, GPU disabled.
+Source `88cfffb68b1947f032bcc8b5bbbf1d379f4ed570`;
+entry `5d57384`. Submitted around09:51 Bogota as
+`maximshtefan/eqvae-spec0054-shard1-input-comparison/2`, API RUNNING. Kaggle
+renamed the existing kernel from mount-check to input-comparison using its new
+title; local metadata now uses the returned canonical id, without a second
+submission. Single initial log read has no worker output yet. Inspect around
+10:30 Bogota for initial full and subsequent-read progress, and later if the
+360min budget is needed. Actual timings and paired hashes are still pending.
+No training continuation was launched. Receipt:
+`reports/spec0054_io_20261029/source_benchmark_v2_launch.json`.
+Stop polling unchanged startup state.
 
 ### Shard1 revisit and original-output availability — 2026-10-29
 

@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: v25 COMPLETE at epoch10; typical I/O faster but long-tail average bottleneck persists
+Status: v25 COMPLETE at epoch10; shard1 source comparison v2 CPU RUNNING; long-tail bottleneck persists
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-29
@@ -144,6 +144,14 @@ The independent320-read synthetic check verifies values, order, RNG, immutable
 inputs, queue bounds and a zero-read expired deadline. The original tiny mount
 check and all training implementation/config files are unchanged. Evidence:
 `reports/spec0054_io_20261029/{check_shard1_sources.py,source_benchmark_verification.json,source_benchmark_preparation.json}`.
+
+Submitted around09:51 Bogota as
+`maximshtefan/eqvae-spec0054-shard1-input-comparison/2`, source88cfffb,
+entry5d57384, GPU disabled. Kaggle returned the new canonical slug after the
+existing mount-check kernel title changed; local metadata follows that id.
+API is RUNNING; the single initial log read has no worker output yet.
+Inspect around10:30 Bogota, then after the360min budget if needed.
+Launch receipt: `reports/spec0054_io_20261029/source_benchmark_v2_launch.json`.
 
 ## Accepted dropout, smoothing and C4 candidate (2026-10-22)
 
