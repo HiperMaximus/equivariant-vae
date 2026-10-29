@@ -1,0 +1,42 @@
+{
+  "kernel": "maximshtefan/eqvae-spec0054-mil-fold0/26",
+  "url": "https://www.kaggle.com/code/maximshtefan/eqvae-spec0054-mil-fold0",
+  "submitted_utc": "2026-10-29T16:31:04Z",
+  "api_status": "KernelWorkerStatus.RUNNING",
+  "checked_utc": "2026-10-29T16:32:14.256868+00:00",
+  "submitted_commit": "82b109c899f1287e9619168f5190e68acfe41c26",
+  "source_commit": "d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e",
+  "entry_sha256": "68bcd88aac714c3faee0a36745fdc52aabe9c5303cc3d5553f5c2da27a9c1d3a",
+  "metadata_sha256": "717a117f65c876986be87e0a2efd00553e95c188711a8702bac7e6c82503c8bc",
+  "resume_dataset": "maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/3",
+  "expected_resume": {
+    "normal_vae": {
+      "update": 749,
+      "exposures": 2996,
+      "epoch": 10,
+      "cursor": 116,
+      "physical_gpu": "0"
+    },
+    "so2_vae": {
+      "update": 729,
+      "exposures": 2916,
+      "epoch": 10,
+      "cursor": 36,
+      "physical_gpu": "1"
+    }
+  },
+  "last_assessment_exposures": 2880,
+  "changed_input": "shard1 original notebook output; remaining11 latent sources unchanged",
+  "shard1_source": "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
+  "deadline_minutes_from_execution": 705,
+  "initial_log": "Single initial read contains no worker output. API RUNNING does not yet verify source fetch, device, resume_done or throughput.",
+  "next_useful_inspection_bogota": "2026-10-29T12:15:00-05:00",
+  "preparation_receipt": "reports/spec0054_io_20261029/resume_v25_dataset_v3.json",
+  "validation": [
+    "build/validate passed",
+    "private resume v3 ready;14 files previously roundtrip verified",
+    "prior v25 COMPLETE",
+    "training source/entry/recipe retained"
+  ],
+  "identity_migration": false
+}

@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: v25 continuation prepared with original shard1 output and private resume v3; full-training tail mitigation unverified
+Status: v26 continuation RUNNING with original shard1 output and v25 resume states; full-training tail mitigation unverified
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-29
@@ -197,7 +197,12 @@ best epoch10, with complete optimizer/scaler/RNG state preserved. No migration
 of identity fields is required. Remote version3 is ready and verified private;
 all14 downloaded files match their staged v25 hashes. Receipt:
 `reports/spec0054_io_20261029/resume_v25_dataset_v3.json`.
-This prepares a continuation; no GPU session is submitted by the adaptation.
+The prepared entry is submitted on2026-10-29 around11:31 Bogota as
+`maximshtefan/eqvae-spec0054-mil-fold0/26`, commit82b109c, source d03bb63 and
+private resume v3. API confirms RUNNING; one initial log read has no worker
+output yet. Actual device mapping/restoration and GPU throughput remain to
+verify. Inspect around12:15 Bogota; the705min cutoff starts at entry execution.
+Launch receipt: `reports/spec0054_io_20261029/training_v26_launch.json`.
 
 ## Accepted dropout, smoothing and C4 candidate (2026-10-22)
 

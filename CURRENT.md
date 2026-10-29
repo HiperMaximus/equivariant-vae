@@ -11,7 +11,7 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
-### Training continuation adapted to original shard1 output — prepared 2026-10-29
+### Training continuation v26 — RUNNING 2026-10-29
 
 The ABMIL metadata replaces only the private shard1 latent dataset with
 `maximshtefan/eqvae-spec0054-fp16-latent-shard-1` as a notebook input. All12
@@ -32,11 +32,17 @@ epoch10 cursor36. Both last assessment2880 and best epoch10. Older dataset
 versions remain preserved. Receipt:
 `reports/spec0054_io_20261029/resume_v25_dataset_v3.json`.
 
-The adapted entry is ready for the next GPU continuation;
-no new training session is submitted by this adaptation. On launch, verify the
-above restored states, the original notebook shard1 path, both physical T4s,
-and full-atlas read/wait behavior. The CPU panel favored the output route but
-did not reproduce v25's minute-scale tails.
+Submitted on2026-10-29 around11:31 Bogota as
+`maximshtefan/eqvae-spec0054-mil-fold0/26`, submission commit82b109c; API confirms
+RUNNING. The user explicitly authorized the GPU continuation after preparation.
+The single initial log read contains no worker output yet, so actual source
+fetch, physical device mapping, resume_done and throughput are still unverified.
+Inspect around12:15 Bogota for the above restored states, original notebook
+shard1 input, both physical T4s and full-atlas read/wait behavior. The CPU panel
+favored the output route but did not reproduce v25's minute-scale tails.
+Source d03bb63, private resume v3,705min from actual entry execution, all probes
+disabled. Stop polling unchanged startup state; no further submission is needed.
+Launch receipt: `reports/spec0054_io_20261029/training_v26_launch.json`.
 
 ### Shard1 dataset versus notebook-output comparison — v2 COMPLETE 2026-10-29
 
