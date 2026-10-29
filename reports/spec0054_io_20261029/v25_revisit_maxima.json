@@ -1,0 +1,60 @@
+{
+  "normal_vae": {
+    "all": {
+      "n": 1556,
+      "wsi_id": 3055,
+      "shard": 1,
+      "seconds": 1386.6340997809984,
+      "presentation": 1862,
+      "epoch": 7,
+      "prior_read_starts_same_wsi": 2
+    },
+    "excluding_first_training_read_per_shard": {
+      "n": 1544,
+      "wsi_id": 3055,
+      "shard": 1,
+      "seconds": 1386.6340997809984,
+      "presentation": 1862,
+      "epoch": 7,
+      "prior_read_starts_same_wsi": 2
+    },
+    "excluding_first_training_read_per_wsi": {
+      "n": 1268,
+      "wsi_id": 3055,
+      "shard": 1,
+      "seconds": 1386.6340997809984,
+      "presentation": 1862,
+      "epoch": 7,
+      "prior_read_starts_same_wsi": 2
+    }
+  },
+  "so2_vae": {
+    "all": {
+      "n": 1476,
+      "wsi_id": 3055,
+      "shard": 1,
+      "seconds": 1445.7070982130008,
+      "presentation": 1862,
+      "epoch": 7,
+      "prior_read_starts_same_wsi": 2
+    },
+    "excluding_first_training_read_per_shard": {
+      "n": 1464,
+      "wsi_id": 3055,
+      "shard": 1,
+      "seconds": 1445.7070982130008,
+      "presentation": 1862,
+      "epoch": 7,
+      "prior_read_starts_same_wsi": 2
+    },
+    "excluding_first_training_read_per_wsi": {
+      "n": 1188,
+      "wsi_id": 3055,
+      "shard": 1,
+      "seconds": 1445.7070982130008,
+      "presentation": 1862,
+      "epoch": 7,
+      "prior_read_starts_same_wsi": 2
+    }
+  }
+}

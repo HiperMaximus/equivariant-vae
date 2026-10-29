@@ -1,0 +1,73 @@
+{
+  "producer": "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
+  "versions": {
+    "3": {
+      "output_listing_http_status": 404
+    },
+    "latest": {
+      "files": [
+        {
+          "file_name": "spec0054_fp16_latents/index_shard_01_of_12.csv",
+          "http_status": 206,
+          "content_type": "text/plain; charset=utf-8",
+          "content_range": "bytes 0-32767/12321099",
+          "content_length": "32768",
+          "read_bytes": 32768,
+          "prefix_sha256": "ec29a45fe065ebed325a919dfcc772356dd2a3291ffbd8a42cccf7839417478c"
+        },
+        {
+          "file_name": "spec0054_fp16_latents/normal_vae_mu_shard_01_of_12.fp16.bin",
+          "http_status": 206,
+          "content_type": "application/octet-stream",
+          "content_range": "bytes 0-32767/8340340736",
+          "content_length": "32768",
+          "read_bytes": 32768,
+          "prefix_sha256": "26ddc9807eb364c05cf5dfdc341b754804f3e610e9c0eb0b4b92c6b26e5589d3"
+        },
+        {
+          "file_name": "spec0054_fp16_latents/result_shard_01_of_12.json",
+          "http_status": 206,
+          "content_type": "text/plain; charset=utf-8",
+          "content_range": "bytes 0-2501/2502",
+          "content_length": "2502",
+          "read_bytes": 2502,
+          "prefix_sha256": "638adb54b68bcb2057166ffac8016cfb5c9ee6a28b4cad8e479a6ba54bea76b6",
+          "json_fields": [
+            "cohort_sha256",
+            "contract_sha256",
+            "dtype",
+            "elapsed_seconds",
+            "expected_rows",
+            "files",
+            "numerical_probe",
+            "record_bytes",
+            "record_shape",
+            "row_limit",
+            "rows_per_second",
+            "rows_written",
+            "runtime",
+            "schema_version",
+            "shard",
+            "source_commit",
+            "wsi_ids"
+          ],
+          "rows_written": 254527,
+          "frozen_result_equal": true
+        },
+        {
+          "file_name": "spec0054_fp16_latents/so2_vae_mu_shard_01_of_12.fp16.bin",
+          "http_status": 206,
+          "content_type": "application/octet-stream",
+          "content_range": "bytes 0-32767/8340340736",
+          "content_length": "32768",
+          "read_bytes": 32768,
+          "prefix_sha256": "c586989d9c0ddf256b411891f4d678f3884deb2586f903f2c9947f610871dec2"
+        }
+      ],
+      "next_page_token_present": false,
+      "metadata_ref": "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
+      "source_bytes": 1548,
+      "source_sha256": "03ef0d4826551b092db572b53cc745b86695a4e46825e803a84e6857dcac126c"
+    }
+  }
+}

@@ -11,6 +11,36 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
+### Shard1 revisit and original-output availability — 2026-10-29
+
+Recalculating v25 after removing the first consumed training read per shard
+(12 per branch) retains the same1386.63/1445.71s maxima. Removing the first
+training read per WSI (288 per branch) also retains them. Both maxima are
+WSI3055, shard1, presentation1862, training epoch7; the same WSI already had
+its full initial epoch5 assessment read and epoch6 training read in this
+session. Subsequent access does not guarantee cache residency, particularly
+with the training-only discard policy. Evidence:
+`reports/spec0054_io_20261029/v25_revisit_maxima.json`.
+
+The original producer `maximshtefan/eqvae-spec0054-fp16-latent-shard-1` remains
+COMPLETE. Current session-output API allows HTTP206 reads from both original
+8,340,340,736B binary files, with first-record hashes matching the2026-10-05
+access evidence. Its complete2502B result has the frozen SHA638adb54..., and
+its index total length is12,321,099B. The exact version-label3 output request
+returns404; the installed CLI2.2.4 output/files methods discard the parsed
+version and files listing is inconsistent with actual session output. These
+API observations establish downloadable original artifacts, not notebook-input
+mount recovery or performance. Evidence:
+`reports/spec0054_io_20261029/shard1_original_access.json` (no signed URLs).
+
+A minimal CPU-only mount check is prepared using the existing wrapper, mounting
+both original notebook output and the unchanged private dataset. It checks
+result/index hashes, binary sizes, and three32KiB records twice per VAE branch
+per input (24 tiny reads total). This is input accessibility/identity evidence,
+not a WSI throughput comparison. The experiment loads repository code; no
+training/resume artifact or scientific parameter changes. Source pending;
+not submitted yet. Entry: `kaggle/kernels/spec0054_shard1_mount_check/`.
+
 ### V25 completed review — 2026-10-29
 
 `maximshtefan/eqvae-spec0054-mil-fold0/25` is COMPLETE, worker exits[0,0].
