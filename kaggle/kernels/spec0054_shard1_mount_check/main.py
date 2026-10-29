@@ -1,13 +1,15 @@
-"""Thin CPU-only shard-1 mount check entry."""
+"""Thin CPU-only shard-1 source comparison entry."""
 import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 REPOSITORY = "https://github.com/HiperMaximus/equivariant-vae.git"
-SOURCE_COMMIT = "a129a5125a2617576af04e6d4fff52ee8b0d3dfc"
+SOURCE_COMMIT = "88cfffb68b1947f032bcc8b5bbbf1d379f4ed570"
 SOURCE_ROOT = Path("/kaggle/temp/equivariant-vae")
+SESSION_DEADLINE_UNIX = int(time.time()) + 360 * 60
 
 def main():
     print(json.dumps({"event": "source_fetch_start", "commit": SOURCE_COMMIT}), flush=True)
@@ -19,8 +21,12 @@ def main():
     print(json.dumps({"event": "source_fetch_done", "commit": SOURCE_COMMIT}), flush=True)
     environment = os.environ.copy()
     environment["CUDA_VISIBLE_DEVICES"] = ""
+    environment["OMP_NUM_THREADS"] = "1"
+    environment["MKL_NUM_THREADS"] = "1"
+    environment["OPENBLAS_NUM_THREADS"] = "1"
     environment["PYTHONPATH"] = f"{SOURCE_ROOT}:{SOURCE_ROOT / 'src'}"
-    subprocess.run([sys.executable, "-m", "experiments.spec0054_shard1_mount_check"], env=environment, check=True)
+    subprocess.run([sys.executable, "-m", "experiments.spec0054_shard1_mount_check",
+                    "--benchmark", "--deadline-unix", str(SESSION_DEADLINE_UNIX)], env=environment, check=True)
 
 if __name__ == "__main__":
     main()

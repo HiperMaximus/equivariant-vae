@@ -43,7 +43,8 @@ Compilation, Ruff and targeted BasedPyright pass. The original tiny-check AST,
 training runner/reader/config/model remain unchanged. Evidence:
 `reports/spec0054_io_20261029/{check_shard1_sources.py,source_benchmark_verification.json,source_benchmark_preparation.json}`.
 The entry will reuse `maximshtefan/eqvae-spec0054-shard1-mount-check` with the
-same two exact mounts, GPU disabled. Prepared; not submitted yet.
+same two exact mounts, GPU disabled. Source `88cfffb68b1947f032bcc8b5bbbf1d379f4ed570`;
+prepared, not submitted yet.
 
 ### Shard1 revisit and original-output availability — 2026-10-29
 
