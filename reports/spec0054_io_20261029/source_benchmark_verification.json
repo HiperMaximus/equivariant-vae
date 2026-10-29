@@ -1,0 +1,19 @@
+{
+  "synthetic_verified_reads": 320,
+  "branches": 2,
+  "arms": 4,
+  "training_wsi": 10,
+  "full_and_sampled_hashes_match_independent_formula": true,
+  "source_order": [
+    "dataset",
+    "kernel_output",
+    "kernel_output",
+    "dataset"
+  ],
+  "global_epoch_order_filter_matches": true,
+  "rng_unchanged": true,
+  "files_immutable": true,
+  "pending_peak": 8,
+  "byte_reservations_bounded": true,
+  "deadline_zero_reads": true
+}

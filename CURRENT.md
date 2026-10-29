@@ -11,6 +11,40 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
+### Shard1 dataset versus notebook-output comparison — prepared 2026-10-29
+
+The authorized CPU comparison extends the existing mount-check module/entry
+with --benchmark; the original tiny check remains unchanged. It uses all26
+fold0-training WSI in shard1 (including3055), with both normal/SO2 stores read
+concurrently. Each source arm first reads sorted full bags, then three60%
+sampled C4 passes at epochs5/6/7 using the production gap1/two-reader/eight-
+future/3GiB/WILLNEED/DONTNEED CPU preparation helper. Sampled order is the
+full288-training-WSI epoch order filtered to shard1. Source conditions are
+serialized in balanced ABBA order: dataset, notebook output, notebook output,
+dataset. Both branches drain before a source switch. Planned832 reads total:
+208 full and624 subsequent sampled reads. The first arm for each source and
+its later source visit are labeled separately. No global or per-arm cache
+reset; normal production sampled discard remains active.
+
+Each source's paired26-WSI panel is12.04GiB, and the two copies total24.07GiB;
+this does not reproduce the full~200GB atlas working set. Result/index hashes
+and sizes are validated through the unchanged ShardBags reader; full raw and
+sampled prepared/subset/C4 hashes are recorded across sources/repetitions.
+Read timers exclude consumer hashes; window/arm wall and process CPU include
+hashing/logging. Whole-arm process CPU is not added across overlapping branches.
+Available memory/RSS and file device/inode identities are recorded. The360min
+cutoff is checked before scheduling/consumption; blocked reads and queued-future
+draining may overrun. GPU, pinning, H2D, training and checkpoints are unused.
+
+A subagent implemented the module; independent synthetic verification covers
+320 full/sampled reads, exact bit hashes/C4, global order filtering, FIFO/byte
+bounds, immutable files, preserved RNG and an expired-deadline zero-read case.
+Compilation, Ruff and targeted BasedPyright pass. The original tiny-check AST,
+training runner/reader/config/model remain unchanged. Evidence:
+`reports/spec0054_io_20261029/{check_shard1_sources.py,source_benchmark_verification.json,source_benchmark_preparation.json}`.
+The entry will reuse `maximshtefan/eqvae-spec0054-shard1-mount-check` with the
+same two exact mounts, GPU disabled. Prepared; not submitted yet.
+
 ### Shard1 revisit and original-output availability — 2026-10-29
 
 Recalculating v25 after removing the first consumed training read per shard

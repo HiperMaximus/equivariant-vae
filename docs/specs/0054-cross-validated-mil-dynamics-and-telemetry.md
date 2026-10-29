@@ -114,6 +114,37 @@ original notebook-input usability; complete-WSI/revisit throughput remains
 unmeasured. Receipt:
 `reports/spec0054_io_20261029/shard1_mount_check_v1.json`.
 
+### Paired shard1 source-performance comparison (2026-10-29)
+
+A CPU-only comparison reuses the mount-check module and its two original input
+locators. All26 shard1 training WSI are included, without validation or sealed
+WSIs. Both VAE embedding stores run concurrently within a source condition;
+source conditions are serialized in dataset/output/output/dataset order. Each
+arm reads all full bags in sorted order followed by sampled C4 passes for
+epochs5/6/7, using the unchanged production prefetch helper on CPU. Sampled
+order filters the original full288-training-WSI epoch permutation to shard1,
+and subsets/rotations remain stateless and identical across source/repetition.
+There are832 planned reads (208 full,624 sampled), and the two sources each
+occur first and second within one paired repetition.
+
+Natural cache is retained, with production sampled WILLNEED/DONTNEED and no
+additional resets. Source-first arms, later source visits and panel-pass indices
+are labeled separately; initial reads are not claimed to have cold lower-layer
+cache. The paired training panel is12.04GiB per source, so this experiment
+isolates source-route observations under a smaller working set than the full
+atlas. Source index/result identity and binary sizes use existing ShardBags
+validation; full raw and sampled prepared/subset/C4 hashes allow input parity
+checks. Read/prepare timers exclude consumer hashes; window/arm wall includes
+hashing/logging. Process CPU is collected once per joint arm, and memory/file
+identity observations accompany timings. A360-minute deadline checks scheduling
+and consumption boundaries; blocking reads and queued-future drain may overrun.
+No GPU, pinning, H2D, training update or checkpoint modification occurs.
+
+The independent320-read synthetic check verifies values, order, RNG, immutable
+inputs, queue bounds and a zero-read expired deadline. The original tiny mount
+check and all training implementation/config files are unchanged. Evidence:
+`reports/spec0054_io_20261029/{check_shard1_sources.py,source_benchmark_verification.json,source_benchmark_preparation.json}`.
+
 ## Accepted dropout, smoothing and C4 candidate (2026-10-22)
 
 Train a new paired fold0 candidate from the original classifier initialization.

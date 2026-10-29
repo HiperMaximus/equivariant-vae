@@ -1,0 +1,28 @@
+{
+  "tiny_mount_check_main_ast_unchanged": true,
+  "training_runner_reader_config_model_unchanged": [
+    "experiments/spec0054_mil_fold0.py",
+    "experiments/spec0054_shard_bags.py",
+    "docs/data/spec0054_fold0_run.json",
+    "src/eqvae/models/gated_abmil.py"
+  ],
+  "production_prefetch_reused": true,
+  "subagent": "shard1_source_compare",
+  "synthetic_verification": "reports/spec0054_io_20261029/source_benchmark_verification.json",
+  "verification": [
+    "py_compile passed",
+    "Ruff passed",
+    "BasedPyright 0 errors/0 warnings"
+  ],
+  "planned_reads": 832,
+  "full_reads": 208,
+  "sampled_revisit_reads": 624,
+  "scope_limitations": [
+    "26 WSI training panel ~12GiB paired per source; not full ~200GB cohort",
+    "Natural cache and order balancing; first full pass not necessarily cold",
+    "Consumer hashes excluded from read/prepare timers but included in whole-window/arm wall",
+    "Four whole-source arms serialized; two VAE stores read concurrently within each arm",
+    "360min deadline checked between reads; blocking calls and queued-future drain may overrun"
+  ],
+  "module_sha256": "1d1b114f0f5f845b4c956af936b7cfdb7d8b542d70c25021cdc5a5c67d11c4b4"
+}
