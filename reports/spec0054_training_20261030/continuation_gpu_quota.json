@@ -1,0 +1,20 @@
+{
+  "attempted_kernel": "maximshtefan/eqvae-spec0054-mil-fold0",
+  "attempted_at_utc": "2026-10-30T05:51:11Z",
+  "outcome": "rejected_by_kaggle_weekly_gpu_quota",
+  "provider_message": "Kernel push error: Maximum weekly GPU quota of 30.00 hours reached.",
+  "new_training_version": null,
+  "last_training_version": "maximshtefan/eqvae-spec0054-mil-fold0/26",
+  "last_training_status": "COMPLETE",
+  "resume_dataset": "maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/4",
+  "resume_status": "ready",
+  "resume_verified_private": true,
+  "resume_files_roundtrip_verified": 14,
+  "source_commit": "d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e",
+  "local_base_commit": "f7f3c36316369d272824de5c8dde79ae770a4d8e",
+  "entry_sha256": "68bcd88aac714c3faee0a36745fdc52aabe9c5303cc3d5553f5c2da27a9c1d3a",
+  "metadata_sha256": "717a117f65c876986be87e0a2efd00553e95c188711a8702bac7e6c82503c8bc",
+  "next_action": "Submit the unchanged prepared GPU entry when account GPU quota is available. No retry loop or CPU replacement launched.",
+  "reset_time": null,
+  "resume_receipt": "reports/spec0054_training_20261030/resume_v26_dataset_v4.json"
+}

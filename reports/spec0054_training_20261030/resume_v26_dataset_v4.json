@@ -1,0 +1,164 @@
+{
+  "dataset": "maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/4",
+  "source_kernel": "maximshtefan/eqvae-spec0054-mil-fold0/26",
+  "source_commit": "d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e",
+  "visibility": "private",
+  "identity_migration": false,
+  "all_identical_to_v26": true,
+  "files": [
+    {
+      "path": "normal_vae/latest.pt",
+      "bytes": 1857385,
+      "sha256": "0c9adacab6d44777ddb18b05ee00c5fa17d04148556d0ffa5291cce3d93e7012",
+      "identical_to_v26": true,
+      "download_sha256": "0c9adacab6d44777ddb18b05ee00c5fa17d04148556d0ffa5291cce3d93e7012",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/best.pt",
+      "bytes": 1856941,
+      "sha256": "028a91bbb8ed7aea770339033610a12aec707fdfed85629fc5ee11bb5d5acf1e",
+      "identical_to_v26": true,
+      "download_sha256": "028a91bbb8ed7aea770339033610a12aec707fdfed85629fc5ee11bb5d5acf1e",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/identity.json",
+      "bytes": 809,
+      "sha256": "42facaafe25bc21473cd2d55c84971d571c2a6cc9bcf581ef04946dee6a32512",
+      "identical_to_v26": true,
+      "download_sha256": "42facaafe25bc21473cd2d55c84971d571c2a6cc9bcf581ef04946dee6a32512",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/t0.npz",
+      "bytes": 14273162,
+      "sha256": "15a74251f225d20e1da046fb3d804635903988b87b30fbb6644c843e9fc61599",
+      "identical_to_v26": true,
+      "download_sha256": "15a74251f225d20e1da046fb3d804635903988b87b30fbb6644c843e9fc61599",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/t1.npz",
+      "bytes": 817189,
+      "sha256": "93d4f582066fbaa4689eab3899e5244c0367f462228f12e80db0cec3762f03d1",
+      "identical_to_v26": true,
+      "download_sha256": "93d4f582066fbaa4689eab3899e5244c0367f462228f12e80db0cec3762f03d1",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/t2.npz",
+      "bytes": 43392,
+      "sha256": "aec0b07984e517b3c1ee1e78d214dd104a3280897c0f5ee4f30e6c0d21b17e92",
+      "identical_to_v26": true,
+      "download_sha256": "aec0b07984e517b3c1ee1e78d214dd104a3280897c0f5ee4f30e6c0d21b17e92",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/predictions.npz",
+      "bytes": 2846414,
+      "sha256": "6728d307208578e21eceadd938ca50c42c90a09e8deef8f110652892581ee200",
+      "identical_to_v26": true,
+      "download_sha256": "6728d307208578e21eceadd938ca50c42c90a09e8deef8f110652892581ee200",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/latest.pt",
+      "bytes": 1857385,
+      "sha256": "616da912ac6b92440505ba2167095d80d539facdf75c692daf34b54c23a47c25",
+      "identical_to_v26": true,
+      "download_sha256": "616da912ac6b92440505ba2167095d80d539facdf75c692daf34b54c23a47c25",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/best.pt",
+      "bytes": 1856941,
+      "sha256": "91b8c5b6997f3c9e1b424c04aeb9c622b909e2510d7b601728fb1f6c47dc4681",
+      "identical_to_v26": true,
+      "download_sha256": "91b8c5b6997f3c9e1b424c04aeb9c622b909e2510d7b601728fb1f6c47dc4681",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/identity.json",
+      "bytes": 806,
+      "sha256": "805827a9efd19717e0bb2af97e99885e9a205b38c568a793febc440ec6a1ced1",
+      "identical_to_v26": true,
+      "download_sha256": "805827a9efd19717e0bb2af97e99885e9a205b38c568a793febc440ec6a1ced1",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/t0.npz",
+      "bytes": 14068936,
+      "sha256": "25620c5dbcde9da5c675040cac2b29ccb91ac771c88437c47953659b1f2364cf",
+      "identical_to_v26": true,
+      "download_sha256": "25620c5dbcde9da5c675040cac2b29ccb91ac771c88437c47953659b1f2364cf",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/t1.npz",
+      "bytes": 818084,
+      "sha256": "8fdaaf70e3794b72e37ddcec5b5540430929e42a5ff17240d34e5cc63d91c838",
+      "identical_to_v26": true,
+      "download_sha256": "8fdaaf70e3794b72e37ddcec5b5540430929e42a5ff17240d34e5cc63d91c838",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/t2.npz",
+      "bytes": 43512,
+      "sha256": "3e13fef4e00a382062d707488d88c5916c1d36c0aaabf89a2a2cc5bc61c2ab11",
+      "identical_to_v26": true,
+      "download_sha256": "3e13fef4e00a382062d707488d88c5916c1d36c0aaabf89a2a2cc5bc61c2ab11",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/predictions.npz",
+      "bytes": 2856280,
+      "sha256": "1f8a46693dcb14a0c8a1070e6556578ff3207d38b663cbf472e2726afc128587",
+      "identical_to_v26": true,
+      "download_sha256": "1f8a46693dcb14a0c8a1070e6556578ff3207d38b663cbf472e2726afc128587",
+      "roundtrip_identical": true
+    }
+  ],
+  "branches": {
+    "normal_vae": {
+      "state": {
+        "committed_update": 6120,
+        "exposure_count": 24480,
+        "epoch": 85,
+        "within_epoch_cursor": 0
+      },
+      "scheduler": {
+        "last_exposure": 24480,
+        "last_assessment_exposure": 23040
+      },
+      "effective_batch": 4,
+      "best_epoch": 55.0,
+      "current_order_length": 288,
+      "pending_boundary_assessment": true,
+      "identity_unchanged": true
+    },
+    "so2_vae": {
+      "state": {
+        "committed_update": 6030,
+        "exposure_count": 24120,
+        "epoch": 83,
+        "within_epoch_cursor": 216
+      },
+      "scheduler": {
+        "last_exposure": 24120,
+        "last_assessment_exposure": 23040
+      },
+      "effective_batch": 4,
+      "best_epoch": 55.0,
+      "current_order_length": 288,
+      "pending_boundary_assessment": false,
+      "identity_unchanged": true
+    }
+  },
+  "partial_assessment_policy": "Preserve all saved tables byte-for-byte. Existing runner removes incomplete epoch85 rows and replays normal assessment before training; SO2 resumes its ordinary epoch83 cursor216.",
+  "status": "ready",
+  "current_version_number": 4,
+  "verified_private": true,
+  "verified_download": "runs/kaggle/spec0054_cls_c4_fold0_resume_v4_verified_files",
+  "all_roundtrip_identical": true
+}

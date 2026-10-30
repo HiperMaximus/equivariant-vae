@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: v26 COMPLETE through epochs85/83.75; input throughput recovered; best CE checkpoints epoch55
+Status: v26 continuation ready in private resume v4; GPU submission rejected by exhausted weekly quota
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-10-30
@@ -244,6 +244,25 @@ Artifacts: `runs/kaggle/spec0054_cls_fold0_c4_v26/`. Reproducible review:
 A later continuation needs a new private resume version containing v26 latest
 states, preserving source d03bb63 and the output input route. Private resume
 version3 still contains v25. No new run or recipe change accompanies the review.
+
+### Continuation input refreshed; weekly GPU quota rejection (2026-10-30)
+
+Private resume version4 preserves all14 v26 files byte for byte, including
+identities and partial assessment tables. Remote state is ready and private;
+all14 downloaded files match the source hashes. Normal restores6120 updates/
+24,480 exposures/epoch85 cursor0; SO2 restores6030/24,120/epoch83 cursor216.
+Both last completed assessment is epoch80 and best checkpoint epoch55. The
+unchanged runner removes partial normal epoch85 assessment rows and repeats
+that assessment before further training. Model, optimizer/scaler/RNG, source
+d03bb63, input route and scientific settings remain preserved.
+
+The authorized continuation submission around00:51 Bogota was rejected by
+Kaggle with `Maximum weekly GPU quota of 30.00 hours reached.` No new training
+version was returned; v26 remains the last completed training run. Preparation,
+compilation and kernel build/validation pass, but the next GPU execution is
+pending account quota availability. No quota reset time is established and no
+CPU substitute or automatic resubmission loop is started. Evidence:
+`reports/spec0054_training_20261030/{resume_v26_dataset_v4.json,continuation_gpu_quota.json}`.
 
 ## Accepted dropout, smoothing and C4 candidate (2026-10-22)
 

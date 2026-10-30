@@ -11,6 +11,38 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
+### V26 continuation prepared; Kaggle GPU quota exhausted — 2026-10-30
+
+Private resume dataset `maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/4` is
+READY and verified private. All14 files were copied unchanged from v26, then
+downloaded individually and hash-verified. Normal restores6120 updates/24,480
+presentations/epoch85 cursor0; SO2 restores6030/24,120/epoch83 cursor216. Both
+last complete assessment23,040 and best epoch55, preserving complete optimizer,
+scaler, RNG and identities. Partial normal epoch85 assessment tables remain
+byte-identical; the existing runner drops those partial rows and replays the
+assessment before training. No identity migration or recipe/source change.
+Receipt: `reports/spec0054_training_20261030/resume_v26_dataset_v4.json`.
+
+The user authorized updating and submitting the next training session. Build,
+validation and compilation passed. Submission through the existing wrapper
+around00:51 Bogota on2026-10-30 was rejected by Kaggle:
+`Maximum weekly GPU quota of 30.00 hours reached.` No new training version or
+running job was reported; the last training remains v26 COMPLETE. CLI returned
+exit0 while printing this push error, so its process exit code alone does not
+establish submission. No retry loop or CPU training replacement was launched.
+No reset timestamp was obtained from the available CLI/SDK inspection.
+Submission receipt:
+`reports/spec0054_training_20261030/continuation_gpu_quota.json`.
+
+When GPU quota is available, submit the unchanged
+`kaggle/kernels/spec0054_mil_fold0/` entry. It pins source d03bb63, resumes
+private dataset v4, uses the original notebook output for shard1 and the other
+unchanged11 latent sources, and assigns normal/SO2 to physical T4 GPUs0/1 with
+a705min execution cutoff. Verify the restored branch-specific states and
+normal's assessment replay; continue toward the unchanged105-epoch horizon.
+The preparation below that says resume v3 was current is historical and is
+superseded by this verified v4.
+
 ### V26 completed training review — 2026-10-30
 
 `maximshtefan/eqvae-spec0054-mil-fold0/26` is COMPLETE, worker exits[0,0].
