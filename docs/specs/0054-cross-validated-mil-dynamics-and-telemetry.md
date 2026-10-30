@@ -1,9 +1,9 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: v26 continuation RUNNING with original shard1 output and v25 resume states; full-training tail mitigation unverified
+Status: v26 COMPLETE through epochs85/83.75; input throughput recovered; best CE checkpoints epoch55
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-10-29
+Last updated: 2026-10-30
 
 ## Training I/O integration and v18 continuation (2026-10-28)
 
@@ -203,6 +203,47 @@ private resume v3. API confirms RUNNING; one initial log read has no worker
 output yet. Actual device mapping/restoration and GPU throughput remain to
 verify. Inspect around12:15 Bogota; the705min cutoff starts at entry execution.
 Launch receipt: `reports/spec0054_io_20261029/training_v26_launch.json`.
+
+### Completed v26 training continuation (2026-10-30)
+
+Both workers exit0 after restoring the exact v25 states on physical T4 GPUs0/1.
+Remote current version26 and the entry hash match the submitted configuration:
+shard1 is the original notebook output, and the only dataset input is the private
+resume copy. Branch identities and cumulative v25 telemetry prefixes remain
+unchanged. The common24,120-presentation history matches all paired input,
+subset/C4, update/exposure, LR and AEM fields. The remote stdout stream is a
+truncated final tail; complete branch events/tables supply this review.
+
+Normal latest is6120 updates/24,480 presentations, epoch85 cursor0; SO2 latest
+6030/24,120, epoch83 cursor216. Session additions are5371/5301 updates and
+21,484/21,204 presentations. Both last completed assessment is epoch80. Normal
+pauses partway through epoch85 assessment, which the existing resume logic must
+replay before advancing. SO2 resumes its ordinary saved cursor. The horizon105
+remains unchanged and incomplete.
+
+Both best-by-ordinary-validation-CE checkpoints are epoch55. Normal validation
+CE/macro-F1/accuracy is1.06104/.48189/.54795; SO2 is.89970/.57336/.61644.
+At the latest complete epoch80 assessment these are1.07110/.58223/.63014 and
+.96017/.57960/.60274. Checkpoint selection remains the prescribed CE criterion,
+not the later F1 value. No sealed observations enter the review.
+
+Mean step time is4.802/4.913s and median4.150/4.246s, versus v25 mean
+93.600/96.794s. Successful consumed-read means are2.212/2.254s, medians
+1.754/1.789s, p99=10.168/10.445s and maxima24.787/25.505s. Shard1 means
+1.937/1.939s and maxima15.421/19.203s replace the earlier minute-scale tails
+in this session. Other unchanged shards also return to~1.9--2.6s mean reads;
+therefore the full speedup is not identified as a causal shard1-route effect.
+Session/storage conditions and epochs differ. Queue waits still occupy
+93.74/93.71% of summed step wall; GPU allocations peak3.378/3.367GiB.
+AMP records2/3 backoffs with successful retries and no committed nonfinite loss
+or monitored activation/gradient values. Input timing uses the last preparation
+per unique committed input key to separate failed-attempt/drained records.
+
+Artifacts: `runs/kaggle/spec0054_cls_fold0_c4_v26/`. Reproducible review:
+`reports/spec0054_training_20261030/{analyze_v26.py,v26_summary.json,v26_remote_identity.json}`.
+A later continuation needs a new private resume version containing v26 latest
+states, preserving source d03bb63 and the output input route. Private resume
+version3 still contains v25. No new run or recipe change accompanies the review.
 
 ## Accepted dropout, smoothing and C4 candidate (2026-10-22)
 

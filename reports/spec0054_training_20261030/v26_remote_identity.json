@@ -1,0 +1,21 @@
+{
+  "current_version_number": 26,
+  "dataset_sources": [
+    "maximshtefan/eqvae-spec0054-cls-c4-fold0-resume"
+  ],
+  "kernel_sources": [
+    "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
+    "maximshtefan/eqvae-spec0054-fp16-latent-shard-2",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-3",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-5",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-6",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-4",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-7",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-8",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-9",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-10",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-11",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-12"
+  ],
+  "entry_sha256": "68bcd88aac714c3faee0a36745fdc52aabe9c5303cc3d5553f5c2da27a9c1d3a"
+}

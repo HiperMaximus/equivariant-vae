@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-10-29
+Last updated: 2026-10-30
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -11,7 +11,52 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
-### Training continuation v26 — RUNNING 2026-10-29
+### V26 completed training review — 2026-10-30
+
+`maximshtefan/eqvae-spec0054-mil-fold0/26` is COMPLETE, worker exits[0,0].
+Remote metadata confirms current version26, the submitted entry hash, original
+shard1 notebook output and only the private resume dataset. Full branch event
+files verify d03bb63 identities, physical T4 GPUs0/1 and exact v25 restore states.
+Both v25 telemetry prefixes remain identical; the common24,120-presentation
+history matches WSI/target/subset/C4/update/exposure/LR/AEM across branches.
+Remote stdout only contains the final tail (starts38,382s); use downloaded
+branch events/tables for complete-session evidence.
+
+Latest saved states: normal6120 updates/24,480 presentations, epoch85 cursor0;
+SO2 6030/24,120, epoch83 cursor216 (83.75). This session adds5371/5301 updates
+and21,484/21,204 presentations. Both last complete assessment23,040 (epoch80).
+Normal stopped during epoch85 assessment; discard its partial assessment rows
+and replay that assessment on continuation using the existing runner behavior.
+SO2 resumes its ordinary epoch83 cursor216. The105-epoch horizon is unfinished.
+Both best-by-ordinary-validation-CE checkpoints are epoch55:
+normal CE1.06104,macro-F1.48189,accuracy.54795; SO2 CE.89970,F1.57336,
+accuracy.61644. Last complete epoch80 CE/F1 is1.07110/.58223 normal and
+.96017/.57960 SO2. Keep the prescribed CE-based checkpoint selection.
+
+Input throughput improves sharply in this session. Mean step4.802/4.913s,
+median4.150/4.246s, versus93.600/96.794s in v25 (~19.5/19.7x throughput).
+Consumed successful training-read means2.212/2.254s, medians1.754/1.789s,
+p99=10.168/10.445s and maxima24.787/25.505s. Shard1 means1.937/1.939s,
+maxima15.421/19.203s, versus v25 means307.35/293.74s and minute-scale tails.
+All other shard means also recover to~1.9--2.6s, so the whole improvement
+cannot be attributed to changing shard1's route; time/session/storage conditions
+also differ. This session does not reproduce the earlier long read stalls.
+Queue waits still occupy93.74/93.71% of summed training-step wall. Max GPU
+allocation3.378/3.367GiB; pending8 and original selected-byte bound retained.
+AMP performs2/3 backoffs/retries; no committed nonfinite loss or monitored
+nonfinite activation/gradient values. Successful-input timing joins select the
+last preparation for each unique committed input hash to exclude AMP retry/
+drained preparation records (24/44 such extra records).
+
+Outputs are downloaded to `runs/kaggle/spec0054_cls_fold0_c4_v26/`.
+Read-only analysis and remote identity receipt:
+`reports/spec0054_training_20261030/{analyze_v26.py,v26_summary.json,v26_remote_identity.json}`.
+A future session must publish a new private resume version from these v26
+states before submission: current private resume v3 still contains v25.
+Retain source d03bb63 and original shard1 output; no identity migration or
+recipe/LR change is indicated by this review. No new session was launched.
+
+### Training continuation v26 — launch 2026-10-29
 
 The ABMIL metadata replaces only the private shard1 latent dataset with
 `maximshtefan/eqvae-spec0054-fp16-latent-shard-1` as a notebook input. All12
