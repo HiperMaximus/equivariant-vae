@@ -280,6 +280,21 @@ The single initial log read has no worker output yet, so actual restoration,
 device mapping and throughput remain to verify. Inspect around17:00 Bogota.
 Launch receipt: `reports/spec0054_training_20261031/training_v27_launch.json`.
 
+### Descriptive generalization-gap review (2026-10-31)
+
+At the last complete epoch80 assessment, ordinary full-bag train/validation
+CE is.81600/1.07110 normal and.77942/.96017 SO2. Macro-F1 is.69467/.58223 and
+.71626/.57960. Both splits disable dropout and latent-input C4 augmentation.
+From the selected epoch55 to80, train CE falls by.06462/.04369 while validation
+CE rises by.01006/.06047. These patterns indicate residual overfitting, but
+validation F1 improves from.48189 to.58223 normal and.57336 to.57960 SO2,
+so deterioration is not uniform across metrics. Trends are descriptive for
+one exploratory fold with73 validation WSI; no uncertainty interval or causal
+regularization effect is established. The selection rule stays minimum ordinary
+validation CE and the105-epoch horizon is unchanged. The live v27 check remains
+RUNNING with no new worker log output. Evidence:
+`reports/spec0054_training_20261031/{overfit_review.py,overfit_review.json,train_validation_v26.png}`.
+
 ## Accepted dropout, smoothing and C4 candidate (2026-10-22)
 
 Train a new paired fold0 candidate from the original classifier initialization.

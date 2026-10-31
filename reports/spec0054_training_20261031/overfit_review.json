@@ -1,0 +1,91 @@
+{
+  "source_kernel": "maximshtefan/eqvae-spec0054-mil-fold0/26",
+  "last_complete_assessment_epoch": 80,
+  "validation_wsi": 73,
+  "training_wsi": 288,
+  "v27_status": "RUNNING; single current log read has no worker output",
+  "comparison": "Ordinary unweighted CE and macro-F1 on full unaugmented bags with dropout disabled in both splits.",
+  "interpretation": "A train/validation gap and worse CE after the selected epoch55 are indications of overfitting; metric fluctuations and F1 improvement prevent claiming monotonic generalization deterioration.",
+  "branches": {
+    "normal_vae": {
+      "selected_epoch": 55.0,
+      "selected": {
+        "exposures": 15840,
+        "epoch": 55.0,
+        "train": {
+          "n": 288,
+          "ce": 0.8806233018662574,
+          "macro_f1": 0.6450981004593205,
+          "accuracy": 0.6736111111111112
+        },
+        "validation": {
+          "n": 73,
+          "ce": 1.0610433405086601,
+          "macro_f1": 0.4818861150538532,
+          "accuracy": 0.547945205479452
+        }
+      },
+      "last_complete": {
+        "exposures": 23040,
+        "epoch": 80.0,
+        "train": {
+          "n": 288,
+          "ce": 0.816002118553216,
+          "macro_f1": 0.6946698718368698,
+          "accuracy": 0.7048611111111112
+        },
+        "validation": {
+          "n": 73,
+          "ce": 1.071104840617882,
+          "macro_f1": 0.5822315970922782,
+          "accuracy": 0.6301369863013698
+        }
+      },
+      "ce_gap_last": 0.255102722064666,
+      "f1_gap_last": 0.11243827474459156,
+      "train_ce_change_selected_to_last": -0.06462118331304134,
+      "validation_ce_change_selected_to_last": 0.01006150010922191,
+      "validation_f1_change_selected_to_last": 0.10034548203842503
+    },
+    "so2_vae": {
+      "selected_epoch": 55.0,
+      "selected": {
+        "exposures": 15840,
+        "epoch": 55.0,
+        "train": {
+          "n": 288,
+          "ce": 0.8231064341056885,
+          "macro_f1": 0.6797087251828631,
+          "accuracy": 0.6979166666666666
+        },
+        "validation": {
+          "n": 73,
+          "ce": 0.8997011182651128,
+          "macro_f1": 0.573358286401591,
+          "accuracy": 0.6164383561643836
+        }
+      },
+      "last_complete": {
+        "exposures": 23040,
+        "epoch": 80.0,
+        "train": {
+          "n": 288,
+          "ce": 0.7794205710460018,
+          "macro_f1": 0.7162639309567709,
+          "accuracy": 0.7118055555555556
+        },
+        "validation": {
+          "n": 73,
+          "ce": 0.9601663420971942,
+          "macro_f1": 0.5795967907189356,
+          "accuracy": 0.6027397260273972
+        }
+      },
+      "ce_gap_last": 0.18074577105119238,
+      "f1_gap_last": 0.13666714023783533,
+      "train_ce_change_selected_to_last": -0.04368586305968669,
+      "validation_ce_change_selected_to_last": 0.060465223832081416,
+      "validation_f1_change_selected_to_last": 0.006238504317344518
+    }
+  }
+}

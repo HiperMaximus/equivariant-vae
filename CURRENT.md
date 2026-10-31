@@ -35,6 +35,22 @@ Bogota for restored state, normal assessment replay and initial progression.
 Stop polling unchanged startup state; no further submission is needed.
 Launch receipt: `reports/spec0054_training_20261031/training_v27_launch.json`.
 
+### Train/validation gap review — 2026-10-31
+
+The last complete comparison remains epoch80. Both splits use full unaugmented
+bags in evaluation mode, ordinary unweighted CE and macro-F1. Normal train/
+validation CE=.81600/1.07110 and F1=.69467/.58223; SO2 CE=.77942/.96017 and
+F1=.71626/.57960. From the CE-selected epoch55 to80, train CE decreases
+.06462/.04369 while validation CE increases.01006/.06047. This is consistent
+with residual overfitting; the gap is not evidence of uniform deterioration:
+normal validation F1 improves.48189 to.58223 and SO2.57336 to.57960. Single
+exploratory fold0 and73 validation WSI limit the precision of these trends.
+Checkpoint selection remains validation CE; the epoch55 best states are kept,
+and the105-epoch horizon/recipe remain unchanged. A single status/log check
+around16:39 Bogota finds v27 RUNNING with no worker log output yet; no new
+v27 validation value is inferred. Existing17:00 inspection remains appropriate.
+Evidence/plot: `reports/spec0054_training_20261031/{overfit_review.py,overfit_review.json,train_validation_v26.png}`.
+
 ### V26 continuation preparation and prior GPU quota rejection — 2026-10-30
 
 Private resume dataset `maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/4` is
