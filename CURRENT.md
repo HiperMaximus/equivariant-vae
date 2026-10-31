@@ -11,6 +11,53 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
+### Resume here — ABMIL handoff
+
+Read this snapshot first, then the current Spec0054 and
+`docs/data/spec0054_fold0_run.json` for definitions and exact numerical recipe.
+The detailed dated sections below are historical evidence, not competing
+instructions. Recheck Kaggle state when resuming; saved RUNNING labels are
+observations at a stated time, not live state.
+
+- Active submission: `maximshtefan/eqvae-spec0054-mil-fold0/27`, source
+  `d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e`. Last status check around16:39
+  Bogota2026-10-31 was RUNNING with no worker logs yet. Do not submit another
+  training session while it is active. Next useful inspection was17:00 Bogota.
+- Resume input: private `maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/4`,
+  14 files hash-verified from v26. Normal starts6120 updates/epoch85 cursor0
+  and replays the incomplete epoch85 assessment; SO2 starts6030/epoch83
+  cursor216. Both last complete assessment80, best-by-validation-CE epoch55.
+  Source d03bb63 preserves strict identities and full optimizer/scaler/RNG.
+- Target: finish the unchanged105-epoch fold0 candidate. Recipe includes CNN/
+  MLP/bag dropout, label smoothing, weight decay and C4, as recorded in the
+  existing contract. The two frozen60k-update VAEs are not being retrained.
+  Keep best-by-ordinary-validation-CE selection; the newest checkpoint need
+  not be the selected checkpoint. No sealed152 evidence is used for tuning.
+- Current input route: all12 shards are notebook outputs, including shard1.
+  Its former latent dataset is absent; the only dataset is private resume.
+  The reader retains gap1 coalescing, bounded FIFO and production cache hints;
+  numeric I/O settings are in the contract. CPU source A/B favored the original
+  shard1 output. V26's large GPU throughput recovery also affected unchanged
+  shards, so it is not wholly identified as a shard1-route effect.
+- Last complete evidence is v26 through epoch80 assessments, latest saved
+  training85/83.75. Train/validation gaps remain; normal validation F1 still
+  improves after the CE-selected epoch55. Curves and numbers:
+  `reports/spec0054_training_20261031/overfit_review.{json,py}` and
+  `train_validation_v26.png` in that directory. Full v26 review:
+  `reports/spec0054_training_20261030/v26_summary.json`.
+- Inspect using `scripts/kaggle_kernel.sh status/logs`, then download finished
+  outputs through the same wrapper before preparing a later continuation.
+  CLI2.2.4 output/files calls ignore the parsed kernel version: verify actual
+  remote version, source identity and checkpoint progress rather than assuming
+  a numeric URL retrieved historical artifacts. Exact v26 continuation bytes
+  remain available in private resume dataset v4 even after newer kernel output.
+- `runs/` holds ignored local downloads, not Git-tracked model artifacts. The
+  public receipts/reports plus private Kaggle resume input carry the handoff.
+  Recover missing v26 bytes with the existing dataset-download wrapper and the
+  exact v4 dataset reference. Do not expose account credentials. Once v27 is
+  finished, preserve and review its own latest/best/tables; v4 remains a v26
+  snapshot and must not be mistaken for a later checkpoint.
+
 ### Training continuation v27 — RUNNING 2026-10-31
 
 The user authorized reattempting the prepared continuation. Kaggle accepted
