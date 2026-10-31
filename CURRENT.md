@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-10-30
+Last updated: 2026-10-31
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -11,7 +11,31 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
-### V26 continuation prepared; Kaggle GPU quota exhausted — 2026-10-30
+### Training continuation v27 — RUNNING 2026-10-31
+
+The user authorized reattempting the prepared continuation. Kaggle accepted
+`maximshtefan/eqvae-spec0054-mil-fold0/27` around16:21 Bogota on2026-10-31;
+API confirms RUNNING, superseding the prior weekly-quota rejection. Build and
+validation pass; the private resume dataset is still current version4 READY.
+All14 files were already downloaded/hash-verified and are unchanged from v26.
+No new dataset upload or scientific/code change is needed for this reattempt.
+
+The unchanged entry pins source d03bb63 and resumes normal6120 updates/24,480
+presentations/epoch85 cursor0 and SO2 6030/24,120/epoch83 cursor216. Both last
+complete assessment23,040 and best checkpoint epoch55. Normal must discard
+partial epoch85 assessment rows and replay the assessment through existing
+resume logic before training; SO2 resumes ordinary accumulation from its
+saved cursor. Original shard1 notebook output is retained, its old dataset is
+absent, and the only dataset input is the private resume. Normal/SO2 remain
+assigned to physical T4 GPUs0/1,705min cutoff from execution, horizon105.
+
+One initial log read contains no worker output, so actual fetch, GPU mapping,
+resume_done and full-atlas throughput remain to verify. Inspect around17:00
+Bogota for restored state, normal assessment replay and initial progression.
+Stop polling unchanged startup state; no further submission is needed.
+Launch receipt: `reports/spec0054_training_20261031/training_v27_launch.json`.
+
+### V26 continuation preparation and prior GPU quota rejection — 2026-10-30
 
 Private resume dataset `maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/4` is
 READY and verified private. All14 files were copied unchanged from v26, then

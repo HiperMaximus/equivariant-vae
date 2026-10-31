@@ -1,0 +1,45 @@
+{
+  "kernel": "maximshtefan/eqvae-spec0054-mil-fold0/27",
+  "url": "https://www.kaggle.com/code/maximshtefan/eqvae-spec0054-mil-fold0",
+  "submitted_utc": "2026-10-31T21:21:35Z",
+  "api_status": "KernelWorkerStatus.RUNNING",
+  "checked_utc": "2026-10-31T21:22:34.026226+00:00",
+  "submitted_commit": "27f3e6cf2bc2dffc1026e6349167d05e231301f9",
+  "source_commit": "d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e",
+  "resume_dataset": "maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/4",
+  "resume_receipt": "reports/spec0054_training_20261030/resume_v26_dataset_v4.json",
+  "expected_resume": {
+    "normal_vae": {
+      "updates": 6120,
+      "exposures": 24480,
+      "epoch": 85,
+      "cursor": 0,
+      "physical_gpu": "0",
+      "pending_assessment_epoch": 85
+    },
+    "so2_vae": {
+      "updates": 6030,
+      "exposures": 24120,
+      "epoch": 83,
+      "cursor": 216,
+      "physical_gpu": "1",
+      "pending_assessment_epoch": null
+    }
+  },
+  "last_complete_assessment_exposures": 23040,
+  "horizon_epochs": 105,
+  "execution_budget_minutes": 705,
+  "shard1_input": "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
+  "shard1_dataset_mounted": false,
+  "previous_quota_failure": "reports/spec0054_training_20261030/continuation_gpu_quota.json",
+  "initial_logs": "Single initial read has no worker output. API RUNNING confirms platform state, not source fetch, device mapping or checkpoint restoration.",
+  "next_useful_inspection_bogota": "2026-10-31T17:00:00-05:00",
+  "validation": [
+    "build and validate passed",
+    "remote resume current version4 ready; same14 previously verified files",
+    "prior training status COMPLETE before submission",
+    "entry, input metadata and scientific recipe unchanged"
+  ],
+  "entry_sha256": "68bcd88aac714c3faee0a36745fdc52aabe9c5303cc3d5553f5c2da27a9c1d3a",
+  "metadata_sha256": "717a117f65c876986be87e0a2efd00553e95c188711a8702bac7e6c82503c8bc"
+}

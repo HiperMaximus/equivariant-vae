@@ -1,9 +1,9 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: v26 continuation ready in private resume v4; GPU submission rejected by exhausted weekly quota
+Status: v27 continuation RUNNING from v26 via private resume v4 toward105 epochs
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-10-30
+Last updated: 2026-10-31
 
 ## Training I/O integration and v18 continuation (2026-10-28)
 
@@ -263,6 +263,22 @@ compilation and kernel build/validation pass, but the next GPU execution is
 pending account quota availability. No quota reset time is established and no
 CPU substitute or automatic resubmission loop is started. Evidence:
 `reports/spec0054_training_20261030/{resume_v26_dataset_v4.json,continuation_gpu_quota.json}`.
+
+### Prepared continuation accepted as v27 (2026-10-31)
+
+The reattempt is accepted as `maximshtefan/eqvae-spec0054-mil-fold0/27` around
+16:21 Bogota; API confirms RUNNING. Source d03bb63, private resume version4,
+original shard1 notebook output, remaining11 latent inputs and the scientific
+recipe are unchanged. The preparation already verified all14 v26 resume files;
+remote dataset status remains version4 READY, and kernel build/validation pass.
+Normal is configured to restore6120 updates/epoch85 cursor0, replay its pending
+epoch85 assessment, and continue. SO2 restores6030 updates/epoch83 cursor216.
+The105-epoch horizon, separate physical T4 GPUs0/1 and705-minute execution cutoff
+are retained. The prior quota rejection no longer blocks this submission.
+
+The single initial log read has no worker output yet, so actual restoration,
+device mapping and throughput remain to verify. Inspect around17:00 Bogota.
+Launch receipt: `reports/spec0054_training_20261031/training_v27_launch.json`.
 
 ## Accepted dropout, smoothing and C4 candidate (2026-10-22)
 
