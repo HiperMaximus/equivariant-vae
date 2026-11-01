@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-10-31
+Last updated: 2026-11-01
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -19,11 +19,12 @@ The detailed dated sections below are historical evidence, not competing
 instructions. Recheck Kaggle state when resuming; saved RUNNING labels are
 observations at a stated time, not live state.
 
-- Active submission: `maximshtefan/eqvae-spec0054-mil-fold0/27`, source
-  `d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e`. Last status check around16:39
-  Bogota2026-10-31 was RUNNING with no worker logs yet. Do not submit another
-  training session while it is active. Next useful inspection was17:00 Bogota.
-- Resume input: private `maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/4`,
+- Latest training: `maximshtefan/eqvae-spec0054-mil-fold0/27` COMPLETE,
+  reviewed2026-11-01. Normal latest6684 updates/epoch92 cursor240; SO2
+  latest6480/epoch90 cursor0, pending epoch90 assessment. Last complete
+  assessments normal90/SO2 85; both best-by-CE epoch55. No active training.
+  Source remains `d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e`.
+- Previous resume input (v26 snapshot, superseded by local v27 outputs): private `maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/4`,
   14 files hash-verified from v26. Normal starts6120 updates/epoch85 cursor0
   and replays the incomplete epoch85 assessment; SO2 starts6030/epoch83
   cursor216. Both last complete assessment80, best-by-validation-CE epoch55.
@@ -39,12 +40,11 @@ observations at a stated time, not live state.
   numeric I/O settings are in the contract. CPU source A/B favored the original
   shard1 output. V26's large GPU throughput recovery also affected unchanged
   shards, so it is not wholly identified as a shard1-route effect.
-- Last complete evidence is v26 through epoch80 assessments, latest saved
-  training85/83.75. Train/validation gaps remain; normal validation F1 still
-  improves after the CE-selected epoch55. Curves and numbers:
-  `reports/spec0054_training_20261031/overfit_review.{json,py}` and
-  `train_validation_v26.png` in that directory. Full v26 review:
-  `reports/spec0054_training_20261030/v26_summary.json`.
+- Latest evidence: `reports/spec0054_training_20261101/v27_summary.json`.
+  The105-epoch horizon remains unfinished. Preserve v27 latest/best/tables
+  in a new private resume version before continuation; existing v4 is v26.
+  Multi-shard read stalls return (mean31--34s, max~420s); see review below.
+  Historical v26 curves remain in `reports/spec0054_training_20261031/`.
 - Inspect using `scripts/kaggle_kernel.sh status/logs`, then download finished
   outputs through the same wrapper before preparing a later continuation.
   CLI2.2.4 output/files calls ignore the parsed kernel version: verify actual
@@ -57,6 +57,46 @@ observations at a stated time, not live state.
   exact v4 dataset reference. Do not expose account credentials. Once v27 is
   finished, preserve and review its own latest/best/tables; v4 remains a v26
   snapshot and must not be mistaken for a later checkpoint.
+
+### V27 completed training review — 2026-11-01
+
+`maximshtefan/eqvae-spec0054-mil-fold0/27` is COMPLETE; both workers exit0.
+Remote version27 and entry SHA match the launch receipt; all12 latent inputs
+remain notebook outputs, with no old shard1 dataset. Full branch events confirm
+source d03bb63, physical T4 GPUs0/1 and exact v26 restore states. Both cumulative
+v26 telemetry prefixes match; the common25,920-presentation history preserves
+paired WSI/target/subset/C4/update/exposure/LR/AEM. Normal successfully replays
+its pending epoch85 assessment. Outputs are downloaded under
+`runs/kaggle/spec0054_cls_fold0_c4_v27/`; remote stdout is only the final tail.
+
+Latest normal state:6684 updates/26,736 presentations, epoch92 cursor240
+(92.8333); session adds564 updates/2256 presentations. SO2:6480/25,920,
+epoch90 cursor0; session adds450 updates/1800 presentations. SO2 pauses during
+its epoch90 assessment, so continuation must replay that assessment through
+existing runner logic. Last complete assessments: normal90, SO2 85.
+The105-epoch horizon remains unfinished. Private resume dataset v4 still holds
+v26, not these newer states; prepare a new exact resume snapshot before another
+submission. No new training session is submitted by this review.
+
+Both best-by-validation-CE states remain epoch55, with CE/F1=1.06104/.48189
+normal and.89970/.57336 SO2. Latest complete validation CE/F1 is1.11039/.58866
+normal at90 and.95693/.58528 SO2 at85; these are different boundaries. At the
+common85 boundary normal CE/F1=1.14375/.52214 versus SO2 .95693/.58528.
+Checkpoint selection remains ordinary validation CE. One exploratory fold
+with73 validation WSI does not establish a general branch advantage.
+
+Storage slowdown returns across multiple shards under unchanged entry, routes
+and recipe. Mean step63.818/68.269s versus v26 4.802/4.913s; consumed-read
+mean31.409/33.678s versus2.212/2.254s. Read medians11.346/17.395s and maxima
+419.439/419.520s. The maxima are shard9 WSI46435 and shard7 WSI36513; removing
+the first read per shard or per WSI leaves both maxima unchanged. Shard1 means
+35.861/29.585s, maxima310.983/258.814s. Queue waits account for98.57/98.27%
+of summed step wall. Thus the original shard1 output remains usable but does
+not eliminate session-dependent multi-shard stalls. Different epochs/sessions
+prevent treating these timing changes as a controlled code comparison.
+One normal AMP backoff retries successfully; no committed nonfinite loss or
+monitored activation/gradient value occurs. Evidence and reproducible analysis:
+`reports/spec0054_training_20261101/{analyze_v27.py,v27_summary.json,v27_remote_identity.json}`.
 
 ### Training continuation v27 — RUNNING 2026-10-31
 

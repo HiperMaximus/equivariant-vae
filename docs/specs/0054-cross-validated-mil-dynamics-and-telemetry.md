@@ -1,9 +1,9 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: v27 continuation RUNNING from v26 via private resume v4 toward105 epochs
+Status: v27 COMPLETE; normal92.8333/SO2 90 epochs;105-epoch horizon unfinished
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-10-31
+Last updated: 2026-11-01
 
 ## Training I/O integration and v18 continuation (2026-10-28)
 
