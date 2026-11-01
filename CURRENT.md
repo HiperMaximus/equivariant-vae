@@ -19,16 +19,15 @@ The detailed dated sections below are historical evidence, not competing
 instructions. Recheck Kaggle state when resuming; saved RUNNING labels are
 observations at a stated time, not live state.
 
-- Latest training: `maximshtefan/eqvae-spec0054-mil-fold0/27` COMPLETE,
-  reviewed2026-11-01. Normal latest6684 updates/epoch92 cursor240; SO2
-  latest6480/epoch90 cursor0, pending epoch90 assessment. Last complete
-  assessments normal90/SO2 85; both best-by-CE epoch55. No active training.
+- Active submission: `maximshtefan/eqvae-spec0054-mil-fold0/28`, accepted
+  around11:45 Bogota2026-11-01; API RUNNING at11:47. Initial logs empty.
   Source remains `d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e`.
-- Previous resume input (v26 snapshot, superseded by local v27 outputs): private `maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/4`,
-  14 files hash-verified from v26. Normal starts6120 updates/epoch85 cursor0
-  and replays the incomplete epoch85 assessment; SO2 starts6030/epoch83
-  cursor216. Both last complete assessment80, best-by-validation-CE epoch55.
-  Source d03bb63 preserves strict identities and full optimizer/scaler/RNG.
+  Next useful inspection:12:30 Bogota. Do not submit a duplicate session.
+- Current resume: private `maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/5`,
+  READY/private and all14 v27 files round-trip hash-verified. Normal starts
+  6684 updates/epoch92 cursor240; SO2 6480/epoch90 cursor0 with epoch90
+  assessment pending. Last complete assessments90/85; both best-by-CE55.
+  Full optimizer/scaler/RNG and strict identities remain unchanged.
 - Target: finish the unchanged105-epoch fold0 candidate. Recipe includes CNN/
   MLP/bag dropout, label smoothing, weight decay and C4, as recorded in the
   existing contract. The two frozen60k-update VAEs are not being retrained.
@@ -41,8 +40,8 @@ observations at a stated time, not live state.
   shard1 output. V26's large GPU throughput recovery also affected unchanged
   shards, so it is not wholly identified as a shard1-route effect.
 - Latest evidence: `reports/spec0054_training_20261101/v27_summary.json`.
-  The105-epoch horizon remains unfinished. Preserve v27 latest/best/tables
-  in a new private resume version before continuation; existing v4 is v26.
+  The105-epoch horizon remains unfinished; v28 continues from exact v27
+  bytes in private resume v5. Earlier v4 remains a v26 snapshot.
   Multi-shard read stalls return (mean31--34s, max~420s); see review below.
   Historical v26 curves remain in `reports/spec0054_training_20261031/`.
 - Inspect using `scripts/kaggle_kernel.sh status/logs`, then download finished
@@ -57,6 +56,28 @@ observations at a stated time, not live state.
   exact v4 dataset reference. Do not expose account credentials. Once v27 is
   finished, preserve and review its own latest/best/tables; v4 remains a v26
   snapshot and must not be mistaken for a later checkpoint.
+
+### Training continuation v28 — RUNNING 2026-11-01
+
+Kaggle accepted `maximshtefan/eqvae-spec0054-mil-fold0/28` around11:45 Bogota;
+API confirms RUNNING around11:47 after an initial QUEUED state at11:46. Remote metadata confirms version28 and the same
+entry SHA as v27. The unchanged entry pins d03bb63 and retains physical T4
+GPUs0/1, effective batch4,705min execution cutoff and105-epoch horizon. All12
+latent shards are notebook outputs; shard1's old dataset remains absent.
+
+Private resume dataset `maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/5` is
+READY and verified private. All14 checkpoint/identity/table files are copied
+unchanged from v27 and downloaded individually with matching SHA256 values.
+Normal resumes6684 updates/26,736 presentations/epoch92 cursor240, last complete
+assessment90. SO2 resumes6480/25,920/epoch90 cursor0, last complete85, and must
+replay its pending epoch90 assessment through existing runner logic. Both
+best checkpoints remain55. Optimizer/scaler/RNG and strict identities remain
+unchanged; no source or scientific recipe migration occurs.
+
+The single initial log read has no worker output. Actual restore, device mapping
+and progression remain to verify. Inspect next around12:30 Bogota2026-11-01;
+do not submit another session while this one is queued/running.
+Receipts: `reports/spec0054_training_20261101/{resume_v27_dataset_v5.json,training_v28_launch.json,v28_remote_identity.json}`.
 
 ### V27 completed training review — 2026-11-01
 

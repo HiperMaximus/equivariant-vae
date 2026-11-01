@@ -1,0 +1,164 @@
+{
+  "dataset": "maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/5",
+  "source_kernel": "maximshtefan/eqvae-spec0054-mil-fold0/27",
+  "source_commit": "d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e",
+  "visibility": "private",
+  "identity_migration": false,
+  "files": [
+    {
+      "path": "normal_vae/latest.pt",
+      "bytes": 1857385,
+      "sha256": "7d5f16a6da95cdec8a2f9f8c2120d6b36b741c075d81060004be7cfecb3c70a8",
+      "identical_to_v27": true,
+      "download_sha256": "7d5f16a6da95cdec8a2f9f8c2120d6b36b741c075d81060004be7cfecb3c70a8",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/best.pt",
+      "bytes": 1856941,
+      "sha256": "028a91bbb8ed7aea770339033610a12aec707fdfed85629fc5ee11bb5d5acf1e",
+      "identical_to_v27": true,
+      "download_sha256": "028a91bbb8ed7aea770339033610a12aec707fdfed85629fc5ee11bb5d5acf1e",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/identity.json",
+      "bytes": 809,
+      "sha256": "42facaafe25bc21473cd2d55c84971d571c2a6cc9bcf581ef04946dee6a32512",
+      "identical_to_v27": true,
+      "download_sha256": "42facaafe25bc21473cd2d55c84971d571c2a6cc9bcf581ef04946dee6a32512",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/t0.npz",
+      "bytes": 15581529,
+      "sha256": "99f1f8485789ee449f91744319c98b7ef6d8bf548088e40a2983de05ba77be51",
+      "identical_to_v27": true,
+      "download_sha256": "99f1f8485789ee449f91744319c98b7ef6d8bf548088e40a2983de05ba77be51",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/t1.npz",
+      "bytes": 905821,
+      "sha256": "f165318ec0914aea5dc7039e31b0d841e8b361a932539895aa5573354ad03f56",
+      "identical_to_v27": true,
+      "download_sha256": "f165318ec0914aea5dc7039e31b0d841e8b361a932539895aa5573354ad03f56",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/t2.npz",
+      "bytes": 46943,
+      "sha256": "5864e02ef060372040d83f6241717bdbf93cc005cedecf1b79ae95f803170a8b",
+      "identical_to_v27": true,
+      "download_sha256": "5864e02ef060372040d83f6241717bdbf93cc005cedecf1b79ae95f803170a8b",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "normal_vae/predictions.npz",
+      "bytes": 3117696,
+      "sha256": "6fea794c1d2ddf7dfebcd16363ad3b3400b58b1b1ad4e1ddf7fa8f45ed1dfc19",
+      "identical_to_v27": true,
+      "download_sha256": "6fea794c1d2ddf7dfebcd16363ad3b3400b58b1b1ad4e1ddf7fa8f45ed1dfc19",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/latest.pt",
+      "bytes": 1857385,
+      "sha256": "ed9b941d4f5797b6a7a51d525739033119a2b18d57b7092084b924022e735bca",
+      "identical_to_v27": true,
+      "download_sha256": "ed9b941d4f5797b6a7a51d525739033119a2b18d57b7092084b924022e735bca",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/best.pt",
+      "bytes": 1856941,
+      "sha256": "91b8c5b6997f3c9e1b424c04aeb9c622b909e2510d7b601728fb1f6c47dc4681",
+      "identical_to_v27": true,
+      "download_sha256": "91b8c5b6997f3c9e1b424c04aeb9c622b909e2510d7b601728fb1f6c47dc4681",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/identity.json",
+      "bytes": 806,
+      "sha256": "805827a9efd19717e0bb2af97e99885e9a205b38c568a793febc440ec6a1ced1",
+      "identical_to_v27": true,
+      "download_sha256": "805827a9efd19717e0bb2af97e99885e9a205b38c568a793febc440ec6a1ced1",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/t0.npz",
+      "bytes": 15113878,
+      "sha256": "51e61b84552bf39fc796f27ea44de4e45553c02d0bcd16c944d48e9c9053c4e8",
+      "identical_to_v27": true,
+      "download_sha256": "51e61b84552bf39fc796f27ea44de4e45553c02d0bcd16c944d48e9c9053c4e8",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/t1.npz",
+      "bytes": 862365,
+      "sha256": "fa94e7af6490e0816befeeae71a9a4fcf25c5e5c7a4c41d111f4683d0ac75e03",
+      "identical_to_v27": true,
+      "download_sha256": "fa94e7af6490e0816befeeae71a9a4fcf25c5e5c7a4c41d111f4683d0ac75e03",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/t2.npz",
+      "bytes": 43512,
+      "sha256": "3e13fef4e00a382062d707488d88c5916c1d36c0aaabf89a2a2cc5bc61c2ab11",
+      "identical_to_v27": true,
+      "download_sha256": "3e13fef4e00a382062d707488d88c5916c1d36c0aaabf89a2a2cc5bc61c2ab11",
+      "roundtrip_identical": true
+    },
+    {
+      "path": "so2_vae/predictions.npz",
+      "bytes": 2991735,
+      "sha256": "c81570a85396d6ee82727644b299dd8851c387ea72a3b00655aee37cb9a43220",
+      "identical_to_v27": true,
+      "download_sha256": "c81570a85396d6ee82727644b299dd8851c387ea72a3b00655aee37cb9a43220",
+      "roundtrip_identical": true
+    }
+  ],
+  "branches": {
+    "normal_vae": {
+      "state": {
+        "committed_update": 6684,
+        "exposure_count": 26736,
+        "epoch": 92,
+        "within_epoch_cursor": 240
+      },
+      "scheduler": {
+        "last_exposure": 26736,
+        "last_assessment_exposure": 25920
+      },
+      "effective_batch": 4,
+      "best_epoch": 55.0,
+      "current_order_length": 288,
+      "pending_boundary_assessment": false,
+      "identity_unchanged": true
+    },
+    "so2_vae": {
+      "state": {
+        "committed_update": 6480,
+        "exposure_count": 25920,
+        "epoch": 90,
+        "within_epoch_cursor": 0
+      },
+      "scheduler": {
+        "last_exposure": 25920,
+        "last_assessment_exposure": 24480
+      },
+      "effective_batch": 4,
+      "best_epoch": 55.0,
+      "current_order_length": 288,
+      "pending_boundary_assessment": true,
+      "identity_unchanged": true
+    }
+  },
+  "partial_assessment_policy": "Preserve all saved tables byte-for-byte. Existing runner removes incomplete epoch90 rows and replays SO2 assessment before training; normal resumes epoch92 cursor240.",
+  "all_identical_to_v27": true,
+  "all_roundtrip_identical": true,
+  "verified_download": "runs/kaggle/spec0054_cls_c4_fold0_resume_v5_verified_files",
+  "verified_private": true,
+  "status": "ready",
+  "current_version_number": 5
+}

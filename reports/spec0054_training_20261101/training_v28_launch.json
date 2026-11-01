@@ -1,0 +1,86 @@
+{
+  "kernel": "maximshtefan/eqvae-spec0054-mil-fold0/28",
+  "url": "https://www.kaggle.com/code/maximshtefan/eqvae-spec0054-mil-fold0",
+  "submitted_utc": "2026-11-01T16:45:00Z",
+  "submission_time_precision": "minute, approximate",
+  "api_status": "RUNNING",
+  "checked_utc": "2026-11-01T16:46:56Z",
+  "source_commit": "d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e",
+  "resume_dataset": "maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/5",
+  "resume_receipt": "reports/spec0054_training_20261101/resume_v27_dataset_v5.json",
+  "expected_resume": {
+    "normal_vae": {
+      "state": {
+        "committed_update": 6684,
+        "exposure_count": 26736,
+        "epoch": 92,
+        "within_epoch_cursor": 240
+      },
+      "scheduler": {
+        "last_exposure": 26736,
+        "last_assessment_exposure": 25920
+      },
+      "effective_batch": 4,
+      "best_epoch": 55.0,
+      "current_order_length": 288,
+      "pending_boundary_assessment": false,
+      "identity_unchanged": true
+    },
+    "so2_vae": {
+      "state": {
+        "committed_update": 6480,
+        "exposure_count": 25920,
+        "epoch": 90,
+        "within_epoch_cursor": 0
+      },
+      "scheduler": {
+        "last_exposure": 25920,
+        "last_assessment_exposure": 24480
+      },
+      "effective_batch": 4,
+      "best_epoch": 55.0,
+      "current_order_length": 288,
+      "pending_boundary_assessment": true,
+      "identity_unchanged": true
+    }
+  },
+  "horizon_epochs": 105,
+  "execution_budget_minutes": 705,
+  "physical_gpus": {
+    "normal_vae": "0",
+    "so2_vae": "1"
+  },
+  "shard1_input": "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
+  "shard1_dataset_mounted": false,
+  "remote_identity": {
+    "current_version_number": 28,
+    "dataset_sources": [
+      "maximshtefan/eqvae-spec0054-cls-c4-fold0-resume"
+    ],
+    "kernel_sources": [
+      "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
+      "maximshtefan/eqvae-spec0054-fp16-latent-shard-2",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-3",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-5",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-6",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-4",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-7",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-8",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-9",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-10",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-11",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-12"
+    ],
+    "entry_sha256": "68bcd88aac714c3faee0a36745fdc52aabe9c5303cc3d5553f5c2da27a9c1d3a"
+  },
+  "initial_logs": "Single initial read has no worker output. Initially QUEUED, then API RUNNING confirms platform state; restore and actual progression remain to verify.",
+  "next_useful_inspection_bogota": "2026-11-01T12:30:00-05:00",
+  "validation": [
+    "build/validate pass; scientific recipe and pinned source unchanged",
+    "resume v5 ready, private, all14 file SHA256 values match v27 after download",
+    "v27 COMPLETE before submission",
+    "Kaggle explicitly reports version28 successfully pushed"
+  ],
+  "entry_sha256": "68bcd88aac714c3faee0a36745fdc52aabe9c5303cc3d5553f5c2da27a9c1d3a",
+  "metadata_sha256": "717a117f65c876986be87e0a2efd00553e95c188711a8702bac7e6c82503c8bc"
+}
