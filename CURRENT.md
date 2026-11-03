@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-11-01
+Last updated: 2026-11-02
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -19,31 +19,31 @@ The detailed dated sections below are historical evidence, not competing
 instructions. Recheck Kaggle state when resuming; saved RUNNING labels are
 observations at a stated time, not live state.
 
-- Active submission: `maximshtefan/eqvae-spec0054-mil-fold0/28`, accepted
-  around11:45 Bogota2026-11-01; API RUNNING at11:47. Initial logs empty.
+- Latest training: `maximshtefan/eqvae-spec0054-mil-fold0/28` COMPLETE,
+  reviewed2026-11-02. Both branches finish105 epochs/7560 committed updates/
+  30,240 presentations, including complete final assessments and final.pt.
+  No active training or pending continuation for this fold0 candidate.
   Source remains `d03bb63c134c2a3f89ce7c3f73eb5ff6fcf4d39e`.
-  Next useful inspection:12:30 Bogota. Do not submit a duplicate session.
-- Current resume: private `maximshtefan/eqvae-spec0054-cls-c4-fold0-resume/5`,
-  READY/private and all14 v27 files round-trip hash-verified. Normal starts
-  6684 updates/epoch92 cursor240; SO2 6480/epoch90 cursor0 with epoch90
-  assessment pending. Last complete assessments90/85; both best-by-CE55.
-  Full optimizer/scaler/RNG and strict identities remain unchanged.
-- Target: finish the unchanged105-epoch fold0 candidate. Recipe includes CNN/
-  MLP/bag dropout, label smoothing, weight decay and C4, as recorded in the
-  existing contract. The two frozen60k-update VAEs are not being retrained.
-  Keep best-by-ordinary-validation-CE selection; the newest checkpoint need
-  not be the selected checkpoint. No sealed152 evidence is used for tuning.
+- Both selected best-by-ordinary-validation-CE checkpoints remain epoch55.
+  Their validation CE/F1 is1.06104/.48189 normal and.89970/.57336 SO2.
+  At105, validation CE/F1 is1.08974/.56638 and.94392/.61950. Keep the
+  prescribed CE-based selection. This is exploratory fold0 with73 validation
+  WSI; sealed152 evidence remains unused for selection.
+- Artifacts: `runs/kaggle/spec0054_cls_fold0_c4_v28/spec0054_cls_fold0/`
+  contains both branches' final/latest/best and complete tables. Kaggle v28
+  output also retains them. Private resume v5 is the older v27 snapshot,
+  not a final-state snapshot. No new training run accompanies this review.
 - Current input route: all12 shards are notebook outputs, including shard1.
   Its former latent dataset is absent; the only dataset is private resume.
   The reader retains gap1 coalescing, bounded FIFO and production cache hints;
   numeric I/O settings are in the contract. CPU source A/B favored the original
   shard1 output. V26's large GPU throughput recovery also affected unchanged
   shards, so it is not wholly identified as a shard1-route effect.
-- Latest evidence: `reports/spec0054_training_20261101/v27_summary.json`.
-  The105-epoch horizon remains unfinished; v28 continues from exact v27
-  bytes in private resume v5. Earlier v4 remains a v26 snapshot.
-  Multi-shard read stalls return (mean31--34s, max~420s); see review below.
-  Historical v26 curves remain in `reports/spec0054_training_20261031/`.
+- Latest evidence: `reports/spec0054_training_20261102/v28_summary.json`;
+  complete curves `train_validation_v28.png` in the same directory. Both
+  v27 telemetry prefixes match; the full30,240-presentation paired history
+  matches. Read means recover to2.35--2.38s, maxima~21--23s in v28 under
+  unchanged entry/routes/recipe. Earlier session slowdowns remain documented.
 - Inspect using `scripts/kaggle_kernel.sh status/logs`, then download finished
   outputs through the same wrapper before preparing a later continuation.
   CLI2.2.4 output/files calls ignore the parsed kernel version: verify actual
@@ -56,6 +56,46 @@ observations at a stated time, not live state.
   exact v4 dataset reference. Do not expose account credentials. Once v27 is
   finished, preserve and review its own latest/best/tables; v4 remains a v26
   snapshot and must not be mistaken for a later checkpoint.
+
+### V28 completed105-epoch training review — 2026-11-02
+
+`maximshtefan/eqvae-spec0054-mil-fold0/28` is COMPLETE, worker exits[0,0].
+Both branches finish7560 committed updates/30,240 presentations, epoch105
+cursor0, with final assessment30,240 complete and final.pt saved. No assessment
+or training continuation remains for this fold0 candidate. Normal adds876
+updates/3504 presentations and SO2 1080/4320. Full events confirm exact v27
+restore, d03bb63 source and physical T4 GPUs0/1. SO2 completes its replayed
+pending epoch90 assessment. Both v27 cumulative telemetry prefixes match;
+the full30,240-presentation history matches WSI/target/subset/C4/update/exposure/
+LR/AEM across branches. Remote current version28 and entry SHA are verified.
+
+At105, train/validation CE is.80123/1.08974 normal and.74134/.94392 SO2;
+macro-F1 is.70897/.56638 and.74454/.61950; validation accuracy.60274/.64384.
+Both best-by-ordinary-validation-CE checkpoints remain55 and are byte-identical
+to v27's best.pt. Their validation CE/F1 is1.06104/.48189 normal and
+.89970/.57336 SO2. Later F1 improvement does not change the prescribed CE-based
+selection. Final train--validation gaps remain; neither the final metrics nor
+this single exploratory73-WSI validation fold establish a general branch
+advantage or unbiased selected-procedure performance. The sealed152 remain
+unused for selection.
+
+Consumed training-read means2.377/2.351s and medians1.674/1.662s recover from
+v27's31.409/33.678s means. Read maxima22.603/20.973s; shard1 means1.930/2.106s,
+maxima13.652/14.543s. Mean step5.377/5.262s; queue waits account for86.94/87.10%
+of summed step wall. The unchanged entry/routes/recipe and improvement across
+shards show session-dependent variability rather than an isolated reader effect.
+No AMP backoff, committed nonfinite loss or monitored nonfinite activation/
+gradient occurs in v28. Step maxima302.144/255.123s exceed consumed-read maxima;
+read timing alone does not account for every step delay.
+
+All checkpoints, including final.pt/latest.pt/best.pt and complete tables, are
+saved locally under `runs/kaggle/spec0054_cls_fold0_c4_v28/spec0054_cls_fold0/`
+and in the completed Kaggle output. Private resume dataset v5 remains the
+older v27 snapshot; no new resume upload is needed for the completed horizon.
+Review: `reports/spec0054_training_20261102/{analyze_v28.py,v28_summary.json,v28_remote_identity.json}`.
+Complete train/validation curves: `train_validation_v28.png` in that directory,
+generated by `plot_v28.py`. The v27 report's kernel-label typo (/26) is corrected
+to/27; its measurements and source identities are unchanged.
 
 ### Training continuation v28 — RUNNING 2026-11-01
 

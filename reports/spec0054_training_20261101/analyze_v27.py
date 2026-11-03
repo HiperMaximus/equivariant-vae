@@ -48,7 +48,7 @@ def assessments(table, last):
 
 
 review_log = json.loads((ROOT / 'runs/local/spec0054_mil_v27_review_events.json').read_text())
-result = {'kernel': 'maximshtefan/eqvae-spec0054-mil-fold0/26', 'api_status': 'COMPLETE', 'checked_utc': datetime.now(timezone.utc).isoformat(),
+result = {'kernel': 'maximshtefan/eqvae-spec0054-mil-fold0/27', 'api_status': 'COMPLETE', 'checked_utc': datetime.now(timezone.utc).isoformat(),
           'worker_exit_codes': next(e['statuses'] for e in review_log if e.get('event') == 'workers_exit'),
           'remote_identity': json.loads((OUTPUT / 'v27_remote_identity.json').read_text()),
           'log_scope': 'Remote stdout stream contains only its final tail; branch events.jsonl and saved tables are authoritative for full-session counts.',
