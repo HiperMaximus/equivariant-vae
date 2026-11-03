@@ -5,6 +5,18 @@ Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-11-02
 
+## Latest executed state — 2026-11-02
+
+The paired exploratory CLS-C4 ABMIL fold0 candidate is complete in
+`maximshtefan/eqvae-spec0054-mil-fold0/28`, including both final assessments.
+The prescribed ordinary-validation-CE selection retains epoch55 in both
+branches; final/latest checkpoints describe epoch105. This completes one
+candidate/fold, not the broader cross-validation plan below. The current
+handoff and artifact-recovery instructions are in `CURRENT.md`; complete
+measurements and provenance are in
+`reports/spec0054_training_20261102/v28_summary.json`. Older dated launch
+records are historical and do not require another continuation.
+
 ## Training I/O integration and v18 continuation (2026-10-28)
 
 The full-cycle CPU comparison selects gap1 scatter-coalesced reads with two
