@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import csv
 import ctypes
 import hashlib
 import json
@@ -23,6 +24,7 @@ from threading import Lock, local
 import numpy as np
 import torch
 from torch.nn import functional
+from torch.nn.attention import SDPBackend, sdpa_kernel
 
 from experiments.spec0054_shard_bags import RECORD_BYTES, ShardBags
 from eqvae.models.gated_abmil import GatedABMILClassifier
@@ -89,6 +91,53 @@ def _compiled_closure(model, *, label_smoothing: float = 0.0):
         torch._dynamo.maybe_mark_dynamic(latents, 0)
         return compiled(latents, target, class_weight, aem_weight)
     return forward
+
+
+def _classification_gradient_norm_squared(model, training_ce: torch.Tensor, *,
+                                           gradient_scale: float = 1.0) -> torch.Tensor:
+    """Exact per-WSI squared norm; differentiate CE before class weighting/AEM.
+
+    Scale the inner derivative for AMP, then unscale its returned tensors before
+    squaring. autograd.grad leaves accumulated parameter .grad buffers untouched.
+    """
+    gradients = torch.autograd.grad(
+        training_ce * gradient_scale,
+        tuple(parameter for parameter in model.parameters() if parameter.requires_grad),
+        create_graph=True,
+    )
+    return torch.stack([(gradient / gradient_scale).square().sum() for gradient in gradients]).sum()
+
+
+def _gradient_penalty_forward_loss(model, latents, target, class_weight, aem_weight, *,
+                                   label_smoothing: float, gradient_scale: float):
+    """One eager AMP forward with SDPA supporting exact double backward.
+
+    Return the base objective separately so AEM telemetry never includes the
+    new positive penalty. Both objectives use this same forward/dropout draw.
+    """
+    with sdpa_kernel(SDPBackend.MATH):
+        logits, ordinary_ce, base_objective, summary = _forward_loss(
+            model, latents, target, class_weight, aem_weight, label_smoothing)
+    training_ce = functional.cross_entropy(
+        logits.float().unsqueeze(0), target, label_smoothing=label_smoothing)
+    norm_squared = _classification_gradient_norm_squared(
+        model, training_ce, gradient_scale=gradient_scale)
+    return logits, ordinary_ce, base_objective, summary, norm_squared
+
+
+def _gradient_penalty_calibration(model, base_objective, penalty, *, gradient_scale: float):
+    """Smoke-only gradient magnitudes on the same graph, without .grad writes."""
+    parameters = tuple(parameter for parameter in model.parameters() if parameter.requires_grad)
+    base = torch.autograd.grad(base_objective * gradient_scale, parameters, retain_graph=True)
+    added = torch.autograd.grad(penalty * gradient_scale, parameters, retain_graph=True)
+    base = torch.cat([(value / gradient_scale).detach().double().reshape(-1) for value in base])
+    added = torch.cat([(value / gradient_scale).detach().double().reshape(-1) for value in added])
+    base_norm, added_norm = base.norm(), added.norm()
+    denominator = base_norm * added_norm
+    cosine = torch.where(denominator > 0, (base @ added) / denominator, torch.nan)
+    return {"base_objective_gradient_l2": float(base_norm.item()),
+            "gradient_penalty_gradient_l2": float(added_norm.item()),
+            "gradient_penalty_base_cosine": float(cosine.item())}
 
 
 def _aem_weight(exposure: int, train_count: int, config: dict) -> float:
@@ -396,6 +445,9 @@ def run_branch(
     device: torch.device = torch.device("cuda:0"),
     stop_after_updates: int | None = None,
     session_deadline_unix: float | None = None,
+    class_weights: list[float] | None = None,
+    calibrate_gradient_penalty: bool = False,
+    schedule_train_count: int | None = None,
 ) -> bool:
     torch.backends.cudnn.benchmark = True
     directory = output_root / branch
@@ -427,6 +479,11 @@ def run_branch(
         cnn_dropout=config["cnn_dropout"], mlp_dropout=config["mlp_dropout"],
         bag_dropout=config["bag_dropout"], label_smoothing=config["label_smoothing"],
         c4_augmentation=config["c4_augmentation"],
+        gradient_penalty_weight=config["gradient_penalty_weight"],
+        gradient_penalty_definition="half_squared_l2_unweighted_smoothed_ce_per_wsi",
+        gradient_penalty_execution="eager_amp_math_sdpa" if config["gradient_penalty_weight"] else "compiled_amp",
+        diagnostic_gradient_objective="weighted_smoothed_ce_minus_aem_without_gradient_penalty",
+        gradient_penalty_calibration=calibrate_gradient_penalty,
         checkpoint_every_exposures=config["checkpoint_every_exposures"],
         training_io=config["training_io"])
     prior = resume_root / branch if resume_root is not None else None
@@ -444,7 +501,10 @@ def run_branch(
     lr_search = config.get("run_mode") == "lr_search"
     lr_confirmation = config.get("run_mode") == "lr_confirmation"
     counts = Counter(bags.locations[wsi_id].diagnosis_index for wsi_id in train_ids)
-    weights = [count / (5 * counts[index]) for index in range(5)]
+    weights = [count / (5 * counts[index]) for index in range(5)] if class_weights is None else class_weights
+    scheduler_count = count if schedule_train_count is None else schedule_train_count
+    log("class_weights", values=weights, source="current_training_population" if class_weights is None else "full_fold_training_population",
+        schedule_train_count=scheduler_count)
     covariates = {}
     for wsi_id in ids:
         coordinates = np.asarray(bags.locations[wsi_id].coordinates, dtype=np.int64) // 256
@@ -464,8 +524,9 @@ def run_branch(
     scaler = torch.amp.GradScaler(device.type, enabled=device.type == "cuda")
     telemetry = AdamWTelemetry()
     dynamics = ExampleDynamicsTracker(ids)
-    scheduler = ExposureSchedule(optimizer, count, config)
-    compiled = _compiled_closure(model, label_smoothing=config["label_smoothing"])
+    scheduler = ExposureSchedule(optimizer, scheduler_count, config)
+    penalty_weight = config["gradient_penalty_weight"]
+    compiled = None if penalty_weight else _compiled_closure(model, label_smoothing=config["label_smoothing"])
     tables = {name: [] for name in ("t0", "t1", "t2", "predictions")}
     epoch = 0
     cursor = 0
@@ -820,10 +881,26 @@ def run_branch(
                     target = torch.tensor([target_index], device=device)
                     weight = torch.tensor(weights[target_index], device=device)
                     log("forward_start", wsi_id=wsi_id, update=update + 1)
-                    logits, unweighted, weighted, summary = compiled(latents, target, weight, aem_tensor)
+                    if penalty_weight:
+                        logits, unweighted, base_objective, summary, norm_squared = _gradient_penalty_forward_loss(
+                            model, latents, target, weight, aem_tensor,
+                            label_smoothing=config["label_smoothing"], gradient_scale=initial_scale)
+                        gradient_penalty = 0.5 * penalty_weight * norm_squared
+                        weighted = base_objective + gradient_penalty
+                    else:
+                        # Constructed above exactly when this zero-penalty branch is used.
+                        logits, unweighted, base_objective, summary = compiled(latents, target, weight, aem_tensor)  # pyright: ignore[reportOptionalCall]
+                        weighted = base_objective
+                        # Norm is unmeasured when disabled, rather than a measured zero.
+                        norm_squared = unweighted.new_tensor(float("nan"))
+                        gradient_penalty = unweighted.new_zeros(())
                     training_ce = functional.cross_entropy(
                         logits.detach().float().unsqueeze(0), target,
                         label_smoothing=config["label_smoothing"])
+                    aem_penalty = (training_ce * weight - base_objective.detach()).detach()
+                    calibration = _gradient_penalty_calibration(
+                        model, base_objective, gradient_penalty, gradient_scale=initial_scale
+                    ) if calibrate_gradient_penalty else {}
                     if lr_search and not bool(torch.isfinite(torch.stack((unweighted, weighted))).all()):
                         # An actual nonfinite loss is a search observation; do
                         # not backward/step it or retry this forward indefinitely.
@@ -832,7 +909,10 @@ def run_branch(
                             objective_loss=float(weighted.item()),
                             weighted_ce=float((unweighted * weight).item()),
                             aem_coefficient=aem,
-                            aem_penalty=float((training_ce * weight - weighted).item()),
+                            aem_penalty=float(aem_penalty.item()),
+                            classification_gradient_norm_squared=float(norm_squared.detach().item()),
+                            gradient_penalty_weight=penalty_weight,
+                            gradient_penalty=float(gradient_penalty.detach().item()),
                             sampled_bag_size=len(indices[wsi_id]),
                             sample_indices_sha256=hashlib.sha256(indices[wsi_id].tobytes()).hexdigest())
                         optimizer.zero_grad(set_to_none=True)
@@ -846,8 +926,10 @@ def run_branch(
                     scaler.scale(weighted / len(selected_ids)).backward()
                     log("backward_done", wsi_id=wsi_id)
                     observations.append((wsi_id, logits.detach(), unweighted.detach(),
-                                         weighted.detach(), training_ce, summary.detach()))
-                    del latents
+                                         weighted.detach(), training_ce, summary.detach(),
+                                         aem_penalty, norm_squared.detach(), gradient_penalty.detach(), calibration))
+                    # Do not retain this WSI's higher-order graph into the next bag.
+                    del latents, logits, unweighted, weighted, base_objective, summary, norm_squared, gradient_penalty
                 log("optimizer_start", update=update + 1)
                 scaler.unscale_(optimizer)
                 telemetry.begin_step(model, optimizer)
@@ -878,7 +960,7 @@ def run_branch(
             exposure = next_exposure
             cursor += len(selected_ids)
             scheduler.last_exposure = exposure
-            for wsi_id, logits, unweighted, weighted, training_ce, summary in observations:
+            for wsi_id, logits, unweighted, weighted, training_ce, summary, aem_penalty, norm_squared, gradient_penalty, calibration in observations:
                 target_index = bags.locations[wsi_id].diagnosis_index
                 record = classification_example_record(
                     logits=logits, target=target_index,
@@ -903,7 +985,11 @@ def run_branch(
                     "c4_rotations_sha256": hashlib.sha256(
                         _sample_c4(len(indices[wsi_id]), config["seed"], epoch, wsi_id).tobytes()
                     ).hexdigest() if config["c4_augmentation"] else "identity",
-                    "aem_penalty": float((training_ce * weights[target_index] - weighted).item()),
+                    "aem_penalty": float(aem_penalty.item()),
+                    "gradient_penalty_weight": penalty_weight,
+                    "classification_gradient_norm_squared": float(norm_squared.item()),
+                    "gradient_penalty": float(gradient_penalty.item()),
+                    **calibration,
                     **covariates[wsi_id],
                     "amp_scale_before": initial_scale,
                     "amp_scale_after": float(scaler.get_scale()),
@@ -924,6 +1010,7 @@ def run_branch(
                 amp_skipped_attempts=skipped, lr=lr,
                 mean_weighted_ce=float(np.mean([row["weighted_loss"] for row in tables["t0"][-len(selected_ids):]])),
                 mean_aem_contribution=-float(np.mean([row["aem_penalty"] for row in tables["t0"][-len(selected_ids):]])),
+                mean_gradient_penalty=float(np.mean([row["gradient_penalty"] for row in tables["t0"][-len(selected_ids):]])),
                 mean_objective_loss=float(np.mean([row["objective_loss"] for row in tables["t0"][-len(selected_ids):]])))
             if lr_search and update == config["lr_search"]["preparation_updates"]:
                 payload = save()
@@ -1459,16 +1546,24 @@ def _read_coalesced(descriptor: int, first_record: int, indices: np.ndarray,
 
 
 
-def run_smoke(repo_root: Path, latent_root: Path, output_root: Path, branch: str, effective_batch: int) -> None:
-    """Eight real optimizer updates, restoring after four; train-only T1/T2."""
+def run_smoke(repo_root: Path, latent_root: Path, output_root: Path, branch: str, effective_batch: int,
+              session_deadline_unix: float | None = None) -> None:
+    """Eight penalty-calibration updates, restoring after four; train-only T1/T2."""
     config = json.loads((repo_root / "docs/data/spec0054_fold0_run.json").read_text())
     config["effective_batch"] = effective_batch
+    config["gradient_penalty_weight"] = config["gradient_penalty_smoke"]["weight"]
     config["t1_train_wsi"] = 1080  # Shard-1 train sentinel, 4,505 patches.
     contract = json.loads((repo_root / "docs/data/spec0054_fp16_latent_extraction.json").read_text())
     shard = contract["shards"][0]
     contract = {**contract, "shards": [shard]}
     output_root.mkdir(parents=True, exist_ok=True)
-    cohort_lines = (repo_root / "docs/data/spec0054_cohort_folds.csv").read_text().splitlines(keepends=True)
+    full_cohort = repo_root / "docs/data/spec0054_cohort_folds.csv"
+    with full_cohort.open() as source:
+        full_train_counts = Counter(int(row["diagnosis_index"]) for row in csv.DictReader(source)
+                                    if int(row["fold"]) != config["fold"])
+    full_train_count = sum(full_train_counts.values())
+    class_weights = [full_train_count / (5 * full_train_counts[index]) for index in range(5)]
+    cohort_lines = full_cohort.read_text().splitlines(keepends=True)
     cohort_path = output_root / f"smoke_cohort_{branch}.csv"
     cohort_path.write_text(cohort_lines[0] + "".join(
         line for line in cohort_lines[1:]
@@ -1482,19 +1577,28 @@ def run_smoke(repo_root: Path, latent_root: Path, output_root: Path, branch: str
     print(json.dumps({"event": "smoke_index_done", "branch": branch}), flush=True)
     session_started = time.time()
     identity = {"smoke": True, "effective_batch": effective_batch,
-                "config": config, "source_commit": subprocess.check_output(
+                "config": config, "class_weights": class_weights, "schedule_train_count": full_train_count,
+                "source_commit": subprocess.check_output(
                     ["git", "-C", str(repo_root), "rev-parse", "HEAD"], text=True).strip()}
     initial_root = output_root / "smoke_initial"
     try:
-        run_branch(branch, bags, config, initial_root, None, identity, session_started,
-                   stop_after_updates=4)
+        completed = run_branch(branch, bags, config, initial_root, None, identity, session_started,
+                               stop_after_updates=4, session_deadline_unix=session_deadline_unix,
+                               class_weights=class_weights, calibrate_gradient_penalty=True,
+                               schedule_train_count=full_train_count)
+        if not completed:
+            return
         checkpoint = load_dynamics_checkpoint(initial_root / branch / "latest.pt")
         print(json.dumps({"branch": branch, "event": "smoke_resume_start",
                           "update": checkpoint["committed_update"],
                           "exposures": checkpoint["exposure_count"],
                           "amp_scale": checkpoint["scaler"]["scale"]}), flush=True)
-        run_branch(branch, bags, config, output_root, initial_root, identity, session_started,
-                   stop_after_updates=8)
+        completed = run_branch(branch, bags, config, output_root, initial_root, identity, session_started,
+                               stop_after_updates=8, session_deadline_unix=session_deadline_unix,
+                               class_weights=class_weights, calibrate_gradient_penalty=True,
+                               schedule_train_count=full_train_count)
+        if not completed:
+            return
         branch_dir = output_root / branch
         checkpoint = load_dynamics_checkpoint(branch_dir / "latest.pt")
         rows = {name: len(load_telemetry_table(branch_dir / f"{name}.npz")["update"])
@@ -1505,6 +1609,10 @@ def run_smoke(repo_root: Path, latent_root: Path, output_root: Path, branch: str
                   "resume_after_update": 4, "amp_scale": checkpoint["scaler"]["scale"],
                   "saved_telemetry_rows": rows, "mounted_shards": [1],
                   "architecture": config["architecture"], "weight_decay": config["weight_decay"],
+                  "gradient_penalty_weight": config["gradient_penalty_weight"],
+                  "class_weights": class_weights,
+                  "schedule_train_count": full_train_count,
+                  "gradient_penalty_calibration": True,
                   "train_wsi_count": sum(bag.fold != config["fold"] for bag in bags.locations.values())}
         (branch_dir / "smoke.json").write_text(json.dumps(result, indent=2) + "\n")
         print(json.dumps({"event": "smoke_done", **result}), flush=True)
@@ -1529,7 +1637,8 @@ if __name__ == "__main__":
     if args.read_probe:
         run_read_probe(args.repo_root, args.latent_root, args.output_root, args.branch, args.session_deadline_unix)
     elif args.smoke:
-        run_smoke(args.repo_root, args.latent_root, args.output_root, args.branch, args.effective_batch)
+        run_smoke(args.repo_root, args.latent_root, args.output_root, args.branch, args.effective_batch,
+                  args.session_deadline_unix)
     else:
         run(args.repo_root, args.latent_root, args.output_root, args.resume_root, args.effective_batch, args.branch,
             lr_search=args.lr_search, lr_confirmation=args.lr_confirmation,

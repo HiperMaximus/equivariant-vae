@@ -32,6 +32,21 @@ def one_cpu_thread():
     torch.set_num_threads(previous)
 
 
+def _install_synthetic_coalesced_reads(monkeypatch, bags):
+    """Route the production FIFO's binary-read seam to existing test arrays."""
+    bags.descriptors["normal_vae", 1] = 12345
+    for wsi_id, location in bags.locations.items():
+        location.first_record = wsi_id
+
+    def read(descriptor, first_record, indices, gap):
+        assert descriptor == 12345
+        values = bags.read("normal_vae", first_record, indices).copy()
+        return values, len(indices) * fold.RECORD_BYTES, len(indices)
+
+    monkeypatch.setattr(fold, "_read_coalesced", read)
+    monkeypatch.setattr(fold.os, "posix_fadvise", lambda *args: None)
+
+
 def test_attention_matches_formula_gradients_and_bag_symmetries():
     torch.manual_seed(7)
     attention = GatedAttention()
@@ -136,6 +151,150 @@ def test_smoothing_preserves_ordinary_ce_and_matches_soft_target_gradients():
         torch.testing.assert_close(measured.grad, reference.grad)
 
 
+@pytest.mark.parametrize("gradient_scale", [1.0, 65536.0])
+def test_classification_gradient_norm_matches_quadratic_hessian_vector(gradient_scale):
+    model = torch.nn.Linear(2, 1, dtype=torch.float64)
+    with torch.no_grad():
+        model.weight.copy_(torch.tensor([[0.4, -0.7]], dtype=torch.float64))
+        model.bias.fill_(0.2)
+    inputs = torch.tensor([[1.0, -0.3], [0.2, 0.9]], dtype=torch.float64)
+    targets = torch.tensor([0.6, -0.5], dtype=torch.float64)
+    design = torch.cat((inputs, torch.ones(2, 1, dtype=torch.float64)), dim=1)
+    theta = torch.cat((model.weight.detach().reshape(-1), model.bias.detach()))
+    loss = 0.5 * (model(inputs).squeeze(-1) - targets).square().sum()
+    gradient = design.T @ (design @ theta - targets)
+    hessian = design.T @ design
+    # Existing accumulated .grad must be unaffected by the inner differentiation.
+    for parameter in model.parameters():
+        parameter.grad = torch.full_like(parameter, 0.125)
+    squared = fold._classification_gradient_norm_squared(
+        model, loss, gradient_scale=gradient_scale)
+    torch.testing.assert_close(squared, gradient.square().sum(), rtol=1e-12, atol=1e-12)
+    for parameter in model.parameters():
+        torch.testing.assert_close(parameter.grad, torch.full_like(parameter, 0.125))
+    squared.backward()
+    outer = torch.cat([cast(torch.Tensor, parameter.grad).reshape(-1) for parameter in model.parameters()])
+    torch.testing.assert_close(outer, 0.125 + 2 * hessian @ gradient, rtol=1e-12, atol=1e-12)
+    # Independent central difference of the closed-form squared gradient norm.
+    epsilon = 1e-6
+    differences = []
+    for axis in torch.eye(3, dtype=torch.float64):
+        positive = design.T @ (design @ (theta + epsilon * axis) - targets)
+        negative = design.T @ (design @ (theta - epsilon * axis) - targets)
+        differences.append((positive.square().sum() - negative.square().sum()) / (2 * epsilon))
+    torch.testing.assert_close(outer - 0.125, torch.stack(differences), rtol=1e-8, atol=1e-9)
+
+
+def test_gradient_penalty_uses_smoothed_ce_without_class_weight_or_aem():
+    torch.manual_seed(81)
+    model = GatedABMILClassifier(8).eval()
+    with torch.no_grad():
+        model.classifier.weight.normal_(std=0.07)
+        model.attention.score.weight.normal_(std=0.2)
+    latents = torch.randn(3, 16, 32, 32)
+    target = torch.tensor([3])
+    measured = []
+    for weight, aem, scale in ((1.0, 0.0, 1.0), (2.7, 0.05, 65536.0)):
+        logits, ordinary, base, _, squared = fold._gradient_penalty_forward_loss(
+            model, latents, target, weight, aem,
+            label_smoothing=0.1, gradient_scale=scale)
+        soft_target = torch.full((5,), 0.02)
+        soft_target[3] += 0.9
+        reference_ce = -(soft_target * logits.log_softmax(0)).sum()
+        gradients = torch.autograd.grad(reference_ce, tuple(model.parameters()), retain_graph=True)
+        reference_squared = sum(value.square().sum() for value in gradients)
+        torch.testing.assert_close(squared, reference_squared, rtol=1e-5, atol=1e-6)
+        torch.testing.assert_close(ordinary, -logits.log_softmax(0)[3])
+        assert all(parameter.grad is None for parameter in model.parameters())
+        # Nonzero head weights exercise second derivatives through the encoder/SDPA.
+        (base + 0.5e-4 * squared).backward()
+        projection_gradient = model.patch_encoder.projection.weight.grad
+        assert projection_gradient is not None
+        assert projection_gradient.abs().sum() > 0
+        for parameter in model.parameters():
+            assert parameter.grad is not None
+            assert torch.isfinite(parameter.grad).all()
+        measured.append(squared.detach())
+        model.zero_grad(set_to_none=True)
+    torch.testing.assert_close(measured[0], measured[1], rtol=1e-5, atol=1e-6)
+
+
+@pytest.mark.parametrize("gradient_scale", [1.0, 65536.0])
+def test_penalty_calibration_matches_quadratic_base_and_penalty_gradients(gradient_scale):
+    model = torch.nn.Linear(2, 1, dtype=torch.float64)
+    with torch.no_grad():
+        model.weight.copy_(torch.tensor([[0.4, -0.7]], dtype=torch.float64))
+        model.bias.fill_(0.2)
+    inputs = torch.tensor([[1.0, -0.3], [0.2, 0.9]], dtype=torch.float64)
+    targets = torch.tensor([0.6, -0.5], dtype=torch.float64)
+    design = torch.cat((inputs, torch.ones(2, 1, dtype=torch.float64)), dim=1)
+    theta = torch.cat((model.weight.reshape(-1), model.bias))
+    reference_theta = theta.detach()
+    loss = 0.5 * (model(inputs).squeeze(-1) - targets).square().sum()
+    squared = fold._classification_gradient_norm_squared(model, loss, gradient_scale=gradient_scale)
+    weight, alpha, coefficient = 1.7, 0.05, 1e-4
+    base = weight * loss - alpha / 2 * theta.square().sum()
+    penalty = coefficient / 2 * squared
+    expected_gradient = design.T @ (design @ reference_theta - targets)
+    expected_base = weight * expected_gradient - alpha * reference_theta
+    expected_added = coefficient * design.T @ design @ expected_gradient
+    for parameter in model.parameters():
+        parameter.grad = torch.full_like(parameter, 0.125)
+    measured = fold._gradient_penalty_calibration(
+        model, base, penalty, gradient_scale=gradient_scale)
+    assert measured["base_objective_gradient_l2"] == pytest.approx(float(expected_base.norm()), rel=1e-12)
+    assert measured["gradient_penalty_gradient_l2"] == pytest.approx(float(expected_added.norm()), rel=1e-12)
+    expected_cosine = (expected_base @ expected_added) / (expected_base.norm() * expected_added.norm())
+    assert measured["gradient_penalty_base_cosine"] == pytest.approx(float(expected_cosine), rel=1e-12)
+    for parameter in model.parameters():
+        torch.testing.assert_close(parameter.grad, torch.full_like(parameter, 0.125))
+    # Diagnostic autograd must retain the training graph and leave .grad untouched.
+    (base + penalty).backward()
+    outer = torch.cat([cast(torch.Tensor, parameter.grad).reshape(-1) for parameter in model.parameters()])
+    torch.testing.assert_close(outer, 0.125 + expected_base + expected_added, rtol=1e-12, atol=1e-12)
+
+
+def test_gradient_penalty_is_averaged_per_example_before_accumulation():
+    model = torch.nn.Linear(1, 1, bias=False, dtype=torch.float64)
+    with torch.no_grad():
+        model.weight.fill_(0.3)
+    regularization = 0.2
+    squared_norms = []
+    for target in (-1.0, 1.0):
+        loss = 0.5 * (model.weight.squeeze() - target).square()
+        squared = fold._classification_gradient_norm_squared(model, loss)
+        squared_norms.append(squared.detach())
+        ((loss + regularization / 2 * squared) / 2).backward()
+    # Gradients are 1.3 and -0.7: averaging first would erase their variance.
+    torch.testing.assert_close(torch.stack(squared_norms).mean(), torch.tensor(1.09, dtype=torch.float64))
+    torch.testing.assert_close(model.weight.grad, torch.tensor([[0.36]], dtype=torch.float64))
+    assert torch.stack(squared_norms).mean() > torch.tensor(0.3 ** 2)
+
+
+def test_gradient_penalty_reuses_dropout_forward_without_extra_rng():
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+
+    torch.manual_seed(93)
+    model = GatedABMILClassifier(8, cnn_dropout=0.1, mlp_dropout=0.2, bag_dropout=0.2).train()
+    with torch.no_grad():
+        model.classifier.weight.normal_(std=0.05)
+    reference = copy.deepcopy(model)
+    latents = torch.randn(2, 16, 32, 32)
+    target = torch.tensor([1])
+    rng = torch.get_rng_state()
+    logits, _, base, _, squared = fold._gradient_penalty_forward_loss(
+        model, latents, target, 1.7, 0.05, label_smoothing=0.1, gradient_scale=1.0)
+    after = torch.get_rng_state()
+    (base + 0.5e-4 * squared).backward()
+    assert torch.equal(torch.get_rng_state(), after)
+    torch.set_rng_state(rng)
+    with sdpa_kernel(SDPBackend.MATH):
+        expected = fold._forward_loss(reference, latents, target, 1.7, 0.05, 0.1)
+    assert torch.equal(torch.get_rng_state(), after)
+    torch.testing.assert_close(logits, expected[0], rtol=0, atol=0)
+    torch.testing.assert_close(base, expected[2], rtol=0, atol=0)
+
+
 def test_c4_is_exact_spatial_permutation_with_paired_independent_schedule():
     array = np.arange(8 * 16 * 32 * 32).reshape(8, 16, 32, 32)
     original = array.copy()
@@ -209,6 +368,7 @@ def test_t2_uniform_attention_and_nonfinite_observations():
 def test_prefetch_overlaps_training_and_keeps_only_two_future_inputs(tmp_path, monkeypatch):
     config = json.loads(Path("docs/data/spec0054_fold0_run.json").read_text())
     config.update(effective_batch=1, t1_train_wsi=0)
+    config["training_io"] = {**config["training_io"], "future_wsi": 2}
     bags = SimpleNamespace(files={"normal_vae": {}}, descriptors={}, locations={i: SimpleNamespace(
         fold=1, diagnosis_index=i % 5, count=6,
         coordinates=tuple((j * 256, 0) for j in range(6)), shard=1,
@@ -234,6 +394,7 @@ def test_prefetch_overlaps_training_and_keeps_only_two_future_inputs(tmp_path, m
         return arrays[wsi_id] if indices is None else arrays[wsi_id][indices]
 
     bags.read = read
+    _install_synthetic_coalesced_reads(monkeypatch, bags)
     forwards = 0
 
     def closure(model, *, label_smoothing=0.0):
@@ -270,12 +431,15 @@ def test_prefetch_overlaps_training_and_keeps_only_two_future_inputs(tmp_path, m
     np.testing.assert_allclose(t0["weighted_loss"], t0["unweighted_loss"] * t0["class_weight"], rtol=1e-6)
 
 
-@pytest.mark.parametrize("batch", [1, 4, 8])
-def test_runner_resume_matches_uninterrupted_after_interrupted_assessment(tmp_path: Path, monkeypatch, batch):
+@pytest.mark.parametrize(("batch", "gradient_penalty_weight"), [(1, 0.0), (4, 0.0), (8, 0.0), (4, 1e-4)])
+def test_runner_resume_matches_uninterrupted_after_interrupted_assessment(tmp_path: Path, monkeypatch, batch, gradient_penalty_weight):
     config = json.loads(Path("docs/data/spec0054_fold0_run.json").read_text())
     config.update(epochs=2, warmup_epochs=1, effective_batch=batch,
                   checkpoint_every_exposures=4, t1_train_wsi=0, t2_holdout_wsi=10,
-                  gradient_probe_wsi_ids=list(range(10)), gradient_probe_epochs=[0, 1, 2])
+                  gradient_probe_wsi_ids=list(range(10)), gradient_probe_epochs=[0, 1, 2],
+                  gradient_penalty_weight=gradient_penalty_weight)
+    options = {"calibrate_gradient_penalty": True, "class_weights": [0.8, 1.1, 0.6, 1.4, 1.6],
+               "schedule_train_count": 288} if gradient_penalty_weight else {}
     # Ten train bags and five holdouts. A tail batch tests complete epoch coverage.
     bags = SimpleNamespace(files={"normal_vae": {}}, descriptors={}, locations={i: SimpleNamespace(
         fold=1 if i < 10 else 0, diagnosis_index=i % 5, count=5 + i % 2,
@@ -284,6 +448,12 @@ def test_runner_resume_matches_uninterrupted_after_interrupted_assessment(tmp_pa
     generator = np.random.default_rng(32)
     arrays = {i: generator.standard_normal((bag.count, 16, 32, 32)).astype(np.float32) for i, bag in bags.locations.items()}
     bags.read = lambda branch, wsi_id, indices=None: arrays[wsi_id] if indices is None else arrays[wsi_id][indices]
+    _install_synthetic_coalesced_reads(monkeypatch, bags)
+    original_boundaries = fold._boundaries
+    # Unlike the real 288-WSI cohort (half144), synthetic half5 is unreachable
+    # by batch4/8. Keep epoch assessments and the two-WSI tail batch here.
+    monkeypatch.setattr(fold, "_boundaries", lambda count, recipe:
+                        original_boundaries(count, recipe) - ({count // 2} if batch > 1 else set()))
     monkeypatch.setattr(fold, "_compiled_closure", lambda model, *, label_smoothing=0.0: lambda x, y, w, aem=0.0: fold._forward_loss(model, x, y, w, aem, label_smoothing))
     monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: False)
     full = tmp_path / "full"
@@ -295,7 +465,7 @@ def test_runner_resume_matches_uninterrupted_after_interrupted_assessment(tmp_pa
     # Synchronous reference versus asynchronous interruption + continuation.
     with monkeypatch.context() as sync:
         sync.setattr(fold, "ThreadPoolExecutor", InlineReader)
-        assert fold.run_branch("normal_vae", cast(ShardBags, bags), config, full, None, {}, time.time(), device=torch.device("cpu"))
+        assert fold.run_branch("normal_vae", cast(ShardBags, bags), config, full, None, {}, time.time(), device=torch.device("cpu"), **options)
     # Graceful session guard during evaluation, after the epoch's training save.
     part = tmp_path / "part"
     saved_exposure = -1
@@ -317,13 +487,13 @@ def test_runner_resume_matches_uninterrupted_after_interrupted_assessment(tmp_pa
     def pause(**kwargs):
         return assessment_reads >= 2  # Two full-bag reads into epoch-1 evaluation.
     monkeypatch.setattr(fold, "should_pause_for_session", pause)
-    assert not fold.run_branch("normal_vae", cast(ShardBags, bags), config, part, None, {}, time.time(), device=torch.device("cpu"))
+    assert not fold.run_branch("normal_vae", cast(ShardBags, bags), config, part, None, {}, time.time(), device=torch.device("cpu"), **options)
     saved = load_dynamics_checkpoint(part / "normal_vae/latest.pt")
     assert saved["exposure_count"] == 10
     assert saved["scheduler"]["last_assessment_exposure"] == (5 if batch == 1 else 0)
     monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: False)
     resumed = tmp_path / "resumed"
-    assert fold.run_branch("normal_vae", cast(ShardBags, bags), config, resumed, part, {}, time.time(), device=torch.device("cpu"))
+    assert fold.run_branch("normal_vae", cast(ShardBags, bags), config, resumed, part, {}, time.time(), device=torch.device("cpu"), **options)
     a = load_dynamics_checkpoint(full / "normal_vae/final.pt")
     b = load_dynamics_checkpoint(resumed / "normal_vae/final.pt")
     def exact(a, b):
@@ -342,6 +512,24 @@ def test_runner_resume_matches_uninterrupted_after_interrupted_assessment(tmp_pa
     exact(a, b)
     t0 = load_telemetry_table(resumed / "normal_vae/t0.npz")
     assert len(t0["wsi_id"]) == 20
+    np.testing.assert_allclose(t0["gradient_penalty_weight"], gradient_penalty_weight)
+    np.testing.assert_allclose(t0["objective_loss"],
+                               t0["weighted_smoothed_ce"] - t0["aem_penalty"] + t0["gradient_penalty"], atol=2e-7)
+    if gradient_penalty_weight:
+        np.testing.assert_allclose(t0["gradient_penalty"],
+                                   0.5 * gradient_penalty_weight * t0["classification_gradient_norm_squared"], rtol=1e-6)
+        assert (t0["classification_gradient_norm_squared"] > 0).all()
+        assert (t0["base_objective_gradient_l2"] > 0).all()
+        assert (t0["gradient_penalty_gradient_l2"] >= 0).all()
+        assert np.isfinite(t0["gradient_penalty_base_cosine"]).all()
+        expected_weights = np.array([0.8, 1.1, 0.6, 1.4, 1.6])[t0["target"].astype(int)]
+        np.testing.assert_array_equal(t0["class_weight"], expected_weights)
+        warmup = 288 * config["warmup_epochs"]
+        expected_lr = config["peak_lr"] * (0.1 + 0.9 * (t0["exposures"] - 1) / (warmup - 1))
+        np.testing.assert_allclose(t0["lr"], expected_lr, rtol=1e-12)
+    else:
+        assert np.isnan(t0["classification_gradient_norm_squared"]).all()
+        np.testing.assert_array_equal(t0["gradient_penalty"], np.zeros(20))
     assert t0["wsi_id"].tolist() == [*fold.paired_epoch_order(row_count=10, epoch=0, seed=config["seed"]), *fold.paired_epoch_order(row_count=10, epoch=1, seed=config["seed"])]
     for table in ("t1", "t2", "predictions"):
         before = load_telemetry_table(full / f"normal_vae/{table}.npz")
@@ -389,6 +577,7 @@ def test_lr_confirmation_resume_replays_pending_boundary_and_stops_at_eight_epoc
     # Holdouts have no array: accessing one fails naturally.
     arrays = {i: generator.standard_normal((3, 16, 32, 32)).astype(np.float32) for i in range(10)}
     bags.read = lambda branch, wsi_id, indices=None: arrays[wsi_id] if indices is None else arrays[wsi_id][indices]
+    _install_synthetic_coalesced_reads(monkeypatch, bags)
     monkeypatch.setattr(fold, "_compiled_closure", lambda model, *, label_smoothing=0.0: lambda x, y, w, aem: fold._forward_loss(model, x, y, w, aem, label_smoothing))
     monkeypatch.setattr(fold, "should_pause_for_session", lambda **kwargs: False)
     full, part, resumed = (tmp_path / name for name in ("full", "part", "resumed"))
@@ -441,6 +630,7 @@ def test_lr_search_tail_batch_resume_and_completed_bound(tmp_path, monkeypatch):
     generator = np.random.default_rng(74)
     arrays = {i: generator.standard_normal((3, 16, 32, 32)).astype(np.float32) for i in range(10)}
     bags.read = lambda branch, wsi_id, indices=None: arrays[wsi_id] if indices is None else arrays[wsi_id][indices]
+    _install_synthetic_coalesced_reads(monkeypatch, bags)
     calls = []
     def closure(model, *, label_smoothing=0.0):
         def forward(x, y, w, aem=0.0):

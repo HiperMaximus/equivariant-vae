@@ -17,6 +17,79 @@ measurements and provenance are in
 `reports/spec0054_training_20261102/v28_summary.json`. Older dated launch
 records are historical and do not require another continuation.
 
+### Exact per-WSI squared-gradient implementation (2026-11-02)
+
+The authorized local implementation adds a configurable squared-L2 penalty to
+the existing runner. For one sampled, C4-augmented WSI and its single dropout
+draw, define ell_i as the unweighted label-smoothed classification CE and
+g_i = grad_theta ell_i over every trainable classifier parameter. The effective
+batch objective is `mean_i(w_yi*ell_i - alpha*H(a_i) + lambda/2*||g_i||_2^2)`.
+Compute each norm before accumulating gradients across WSI; the class weight
+and AEM term do not enter g_i. The two VAE encoders and frozen bags are unchanged.
+The numerical coefficient is `gradient_penalty_weight` in the existing fold0
+contract. It remains zero for the control; no positive production coefficient
+has been selected. A nonzero candidate starts from the original classifier
+initialization, rather than continuing the completed control checkpoints.
+
+For a nonzero coefficient, the runner uses eager autograd with create_graph
+and the mathematical SDPA backend, which supports the required double
+backward. The existing CUDA autocast forward remains in use. Scale the inner
+CE derivative by the current GradScaler scale and divide the returned gradients
+by that scale before squaring; scale the outer combined loss normally and
+unscale the accumulated optimizer gradients only once per effective batch.
+This computes higher-order derivatives of the AMP computation, not a separate
+FP32 surrogate. No second WSI read or independent dropout forward is introduced.
+The zero-coefficient control retains its compiled AMP path.
+
+T0 records the raw classification gradient norm squared, its positive weighted
+contribution and the coefficient separately from AEM. The decomposition is
+`objective_loss = weighted_smoothed_ce - aem_penalty + gradient_penalty`.
+When disabled, the raw norm is unmeasured (NaN), while the contribution is zero.
+The per-WSI higher-order graph is released after its backward, before the next
+bag. T1 and the fixed gradient panel retain their historical base objective
+(weighted smoothed CE minus AEM) and are explicitly labeled in the recipe log;
+the actual optimizer gradient telemetry in T0 includes the new penalty.
+Evaluation and checkpoint selection remain ordinary unweighted validation CE.
+Existing source/config identity checks prevent importing control optimizer
+states into a changed recipe. GPU memory, AMP behavior and wall time still
+require the existing Kaggle smoke on a published/pinned source before training;
+no new Kaggle submission accompanies this implementation.
+
+### Train-only initial-scale calibration smoke (2026-11-02)
+
+The authorized GPU smoke reuses the existing eight-update/four-update-resume
+path and the frozen shard1 training population. Normal and SO2 execute
+concurrently on physical GPUs0/1, with identical initialization/order/subset/C4
+schedules and one shared provisional coefficient from the existing contract's
+`gradient_penalty_smoke` settings. Class weights are derived from the full
+canonical fold-training cohort and passed unchanged into the shard-only smoke;
+they are not recomputed from shard1. The exposure-indexed LR schedule also uses
+the full fold-training count, preserving the production warmup and cosine
+scales rather than shortening them to the shard population. No validation or
+sealed WSI is evaluated.
+
+On each already loaded training input, retained-graph autograd separately
+measures the base-objective gradient and actual penalty gradient, unscaled
+before their norm and cosine reductions. These diagnostic derivatives do not
+write optimizer .grad buffers; the ordinary combined-objective backward and
+effective-batch averaging follow. They add computation to this instrumented
+smoke, so its wall time is not an uninstrumented production-throughput estimate.
+The existing session deadline applies to both smoke phases. Events, cumulative
+T0 tables and checkpoints retain memory, step/read timing, AMP state, raw norm,
+loss contribution, gradient magnitudes and restored state.
+
+For each branch, compare the added-gradient norm with the base-gradient norm
+and the positive penalty with weighted smoothed CE (not the possibly negative
+CE-minus-AEM objective). Report initialization/first-update values separately.
+Use pooled post-first-update observations across both branches to propose one
+coefficient targeting the contract's median gradient ratio, subject to its
+median loss-ratio cap. A zero denominator defines an undefined diagnostic;
+nonfinite observations are reported, not silently removed. The chosen scale
+is an early-training hypothesis, not a validation-selected optimum or a
+guarantee about late training, AdamW update magnitude, the full-atlas largest
+bag, or generalization. No full105-epoch experiment follows automatically.
+
+
 ## Training I/O integration and v18 continuation (2026-10-28)
 
 The full-cycle CPU comparison selects gap1 scatter-coalesced reads with two
