@@ -1,0 +1,53 @@
+{
+  "kernel": "maximshtefan/eqvae-spec0054-mil-fold0/30",
+  "submitted_utc": "2026-11-03T07:11:54.627573+00:00",
+  "source_commit": "e0d1b81433e5b6787b2329f9ec31afc9bf854a6b",
+  "entry_commit": "ad90482",
+  "entry_sha256": "09fd7df16162c5cac40194e6689bdae560ba532e0b31000e6ac66ed0deb849c8",
+  "config_sha256": "03010761836c47dcb3a7e32f1f1fd51d3ba75c20a4c796f99e4c00a9c00e0cce",
+  "metadata": {
+    "id": "maximshtefan/eqvae-spec0054-mil-fold0",
+    "title": "eqvae spec0054 mil fold0",
+    "code_file": "abmil.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "true",
+    "machine_shape": "NvidiaTeslaT4",
+    "dataset_sources": [],
+    "competition_sources": [],
+    "kernel_sources": [
+      "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
+      "maximshtefan/eqvae-spec0054-fp16-latent-shard-2",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-3",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-4",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-5",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-6",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-7",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-8",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-9",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-10",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-11",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-12"
+    ],
+    "model_sources": []
+  },
+  "gradient_penalty_weight": 0.0016,
+  "fresh_initialization": true,
+  "resume": false,
+  "smoke": false,
+  "effective_batch": 4,
+  "target_epochs": 105,
+  "physical_gpus": {
+    "normal_vae": 0,
+    "so2_vae": 1
+  },
+  "scope": "Fresh paired exploratory fold0 classification training on existing development bags; VAE checkpoints frozen. Largest-bag memory observed during training, no separate probe. Ordinary validation CE checkpoint selection; sealed152 not consumed. Session705min execution cutoff; continuation may be needed.",
+  "initial_status_check": {
+    "checked_utc": "2026-11-03T07:13:15.001553+00:00",
+    "status": "RUNNING",
+    "worker_logs": "No worker output returned yet",
+    "next_inspection_bogota": "2026-11-03T02:45:00-05:00"
+  }
+}

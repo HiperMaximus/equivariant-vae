@@ -11,6 +11,33 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
+### Active fresh gradient-penalty training — 2026-11-03
+
+The user authorized direct training from scratch with the calibrated coefficient,
+observing largest-bag memory within the training run instead of a separate probe.
+Kaggle accepted `maximshtefan/eqvae-spec0054-mil-fold0/30` around02:12 Bogota;
+initial status is RUNNING. Source `e0d1b81433e5b6787b2329f9ec31afc9bf854a6b`,
+entry `ad90482`. Both classifiers start at the original initialization with
+lambda0.0016, effective batch4 and the unchanged105-epoch horizon. The entry
+uses RESUME=False, SMOKE=False, no LR/read probes, all12 original notebook
+shards and no dataset/resume inputs. Normal/SO2 are assigned physical T4 GPUs0/1
+concurrently. The two VAE checkpoints remain frozen; the existing Otsu-selected
+bags, fold, order/subset/C4 pairing and ordinary-validation-CE selection remain.
+The penalty excludes class weighting/AEM; smoke-only extra gradient calibration
+is disabled in full training. Output root is `spec0054_cls_fold0_gp`, separate
+from control v28 and calibration v29. The705min session cutoff remains, so
+finishing105 epochs may need exact continuation of this candidate's own state.
+
+The first log read returns no worker output: actual source/device mapping,
+zero-state start, full-atlas memory and progression remain to verify. Next
+useful inspection:02:45 Bogota2026-11-03; stop polling unchanged startup.
+Do not submit a second session while v30 is active. No sealed152 evaluation.
+Receipt: `reports/spec0054_training_20261103/training_v30_launch.json`.
+The targeted entry/config parse, runner/entry compilation, build and validation
+pass. Source and launch entry are published on origin/main. Preserve the
+separate completed control and smoke artifacts; never resume their weights
+into this fresh candidate.
+
 ### Completed train-only gradient calibration — 2026-11-03
 
 `maximshtefan/eqvae-spec0054-mil-fold0/29` is COMPLETE; worker exits[0,0].
@@ -36,11 +63,10 @@ The instrumented smoke is not a controlled uninstrumented speed comparison.
 
 Artifacts: `runs/kaggle/spec0054_gradient_smoke_v29/` (ignored local download).
 Evidence/analysis: `reports/spec0054_gradient_smoke_20261102/{v29_launch.json,analyze_v29.py,v29_summary.json}`.
-Independent agent arithmetic/provenance review agrees. Before full training,
-measure the largest training bag, restore all12 original notebook inputs,
-publish/pin the candidate source and use a fresh output/initialization. The
-current entry remains the shard1 smoke pinned to6c1ad07; it does not execute
-later local contract changes. No active job or inspection timer remains.
+Independent agent arithmetic/provenance review agrees. This completed smoke
+has no pending inspection. The later authorized v30 above starts full training
+directly and observes largest-case memory within that run, using its own fresh
+initialization and all12 inputs; the historical smoke remains pinned to6c1ad07.
 
 ### Resume here — ABMIL handoff
 
@@ -51,7 +77,7 @@ instructions. Recheck Kaggle state when resuming; saved RUNNING labels are
 observations at a stated time, not live state. The completed result below
 supersedes every older launch instruction or proposed inspection time.
 
-- Latest training: `maximshtefan/eqvae-spec0054-mil-fold0/28` COMPLETE,
+- Completed control training: `maximshtefan/eqvae-spec0054-mil-fold0/28` COMPLETE,
   reviewed2026-11-02. Both branches finish105 epochs/7560 committed updates/
   30,240 presentations, including complete final assessments and final.pt.
   No active training or pending continuation for this fold0 candidate.
@@ -68,7 +94,7 @@ supersedes every older launch instruction or proposed inspection time.
   output also retains them. Private resume v5 is the older v27 snapshot,
   not a final-state snapshot. No new training run accompanies this review.
 - Current input route: all12 shards are notebook outputs, including shard1.
-  Its former latent dataset is absent; the only dataset is private resume.
+  Its former latent dataset is absent; v30 has no dataset/resume inputs.
   The reader retains gap1 coalescing, bounded FIFO and production cache hints;
   numeric I/O settings are in the contract. CPU source A/B favored the original
   shard1 output. V26's large GPU throughput recovery also affected unchanged
@@ -91,10 +117,9 @@ supersedes every older launch instruction or proposed inspection time.
   `v28_summary.json` before using downloaded bytes. If the kernel is later
   superseded, do not assume this command still retrieves v28. Private resume
   v5 contains v27; v4 contains v26. Neither is a final105-epoch snapshot.
-- Gradient regularization is implemented and the train-only v29 smoke is
-  complete, as described above. Before full training, measure largest-case
-  memory and prepare a fresh all12-input candidate with the calibrated recipe.
-  No full training or sealed152 evaluation is submitted by this review.
+- The fresh gradient-penalty candidate is now v30 above, with all12 inputs
+  and fresh initialization. Observe largest-case memory in its own training
+  telemetry; no separate memory-probe gate or sealed152 evaluation is added.
   Preserve best/final control artifacts separately.
 
 ### V28 completed105-epoch training review — 2026-11-02

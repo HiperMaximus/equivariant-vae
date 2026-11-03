@@ -1,6 +1,6 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: v28 training COMPLETE; v29 train-only gradient calibration COMPLETE
+Status: v30 fresh gradient-penalty training RUNNING; v28/v29 complete
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
 Last updated: 2026-11-03
@@ -112,6 +112,25 @@ production overhead. Full evidence is in
 adjacent `analyze_v29.py`. Only the coefficient is changed for the next
 candidate; no full training or sealed evaluation is launched by this review.
 
+
+### Fresh gradient-penalty candidate launched (2026-11-03)
+
+The user authorizes starting the paired fold0 candidate directly from the
+original classifier initialization with the calibrated coefficient in the
+existing contract. V30 is accepted and initially RUNNING, sourcee0d1b81,
+entryad90482. The existing kernel restores all12 frozen notebook shards,
+removes the smoke/resume inputs and uses a distinct candidate output root.
+Normal/SO2 execute concurrently on physical GPUs0/1. The105-epoch budget,
+effective batch, pairing, regularizers and ordinary-validation-CE selection
+are retained; only the squared-gradient term is added to the control recipe.
+The smoke-only extra calibration derivatives are disabled. Largest-bag memory
+is observed within this authorized training run, without a separate probe gate.
+The session cutoff can require later continuation from this candidate's own
+optimizer/scaler/RNG states; neither control nor smoke checkpoints initialize
+it. The two VAE checkpoints and sealed152 boundary remain unchanged. The
+initial API status does not yet verify worker-level start or GPU memory;
+source/entry hashes and current inspection state are in
+`reports/spec0054_training_20261103/training_v30_launch.json` and `CURRENT.md`.
 
 ## Training I/O integration and v18 continuation (2026-10-28)
 
