@@ -23,5 +23,11 @@
     "model_sources": []
   },
   "provisional_lambda": 0.0001,
-  "scope": "Train-only shard1,8updates perbranch,resume after4; canonicalfull-fold weights/LRschedule; no validation or sealed evaluation. Instrumented gradient-calibration timings are not productionthroughput."
+  "scope": "Train-only shard1,8updates perbranch,resume after4; canonicalfull-fold weights/LRschedule; no validation or sealed evaluation. Instrumented gradient-calibration timings are not productionthroughput.",
+  "last_status_check": {
+    "checked_utc": "2026-11-03T04:31:19.486755+00:00",
+    "status": "RUNNING",
+    "worker_logs": "No worker output returned",
+    "next_inspection_bogota": "2026-11-02T23:45:00-05:00"
+  }
 }

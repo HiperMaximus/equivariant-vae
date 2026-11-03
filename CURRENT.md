@@ -23,9 +23,16 @@ Full-fold class weights and exposure schedule are preserved. Extra retained-
 graph calibration derivatives measure base/penalty gradient magnitudes and
 cosine; timings include that instrumentation. The production lambda remains0
 until the train-only evidence supports a shared initial-scale candidate.
-Initial source/GPU/AMP/memory observations remain to verify from worker logs.
-Next useful inspection:23:30 Bogota. Do not launch another kernel while active.
+The23:30 Bogota check still reports RUNNING with no worker log output.
+Actual source/GPU/AMP/memory observations remain to verify. Next useful
+inspection:23:45 Bogota; stop polling unchanged startup. Do not launch another
+kernel while active.
 Receipt: `reports/spec0054_gradient_smoke_20261102/v29_launch.json`.
+The one-shot `analyze_v29.py` in the same directory is prepared but unexecuted:
+first download completed outputs to `runs/kaggle/spec0054_gradient_smoke_v29/`,
+then run it with `.venv/bin/python`. It preserves nonfinite/undefined evidence
+and proposes one shared initial lambda from the declared ratios, without
+claiming validation improvement or uninstrumented production throughput.
 The22 affected tests and the additional positive-resume production-schedule
 check pass; subagent math/entry review, Ruff, BasedPyright, build/validation pass.
 The source and entry are pushed to origin/main. Existing v28 final/best states
