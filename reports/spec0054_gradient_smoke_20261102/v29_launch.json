@@ -1,0 +1,27 @@
+{
+  "kernel": "maximshtefan/eqvae-spec0054-mil-fold0/29",
+  "submitted_utc": "2026-11-03T04:24:43.951171+00:00",
+  "source_commit": "6c1ad07688095453cd709bd7e6b988b292b2ee7b",
+  "entry_commit": "45e1ab7",
+  "entry_sha256": "0ae8841216b9660704ed91723a39b070e54550e78da46566e87572cec92a4864",
+  "config_sha256": "199f10faababba6db7181ffc22a195a56224e999b001213946bc3c102202f362",
+  "metadata": {
+    "id": "maximshtefan/eqvae-spec0054-mil-fold0",
+    "title": "eqvae spec0054 mil fold0",
+    "code_file": "abmil.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "true",
+    "machine_shape": "NvidiaTeslaT4",
+    "dataset_sources": [],
+    "competition_sources": [],
+    "kernel_sources": [
+      "maximshtefan/eqvae-spec0054-fp16-latent-shard-1"
+    ],
+    "model_sources": []
+  },
+  "provisional_lambda": 0.0001,
+  "scope": "Train-only shard1,8updates perbranch,resume after4; canonicalfull-fold weights/LRschedule; no validation or sealed evaluation. Instrumented gradient-calibration timings are not productionthroughput."
+}

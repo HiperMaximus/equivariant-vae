@@ -11,6 +11,27 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
+### Active train-only gradient calibration — 2026-11-02
+
+The user authorized publishing and running the calibration smoke.
+`maximshtefan/eqvae-spec0054-mil-fold0/29` is accepted and RUNNING around23:25
+Bogota2026-11-02. Source `6c1ad07688095453cd709bd7e6b988b292b2ee7b`, entry
+`45e1ab7`, provisional lambda0.0001. The existing smoke runs8 updates per
+branch with resume after4, normal/SO2 on physical GPUs0/1. Only frozen shard1
+is mounted; no resume dataset, validation or sealed inputs are consumed.
+Full-fold class weights and exposure schedule are preserved. Extra retained-
+graph calibration derivatives measure base/penalty gradient magnitudes and
+cosine; timings include that instrumentation. The production lambda remains0
+until the train-only evidence supports a shared initial-scale candidate.
+Initial source/GPU/AMP/memory observations remain to verify from worker logs.
+Next useful inspection:23:30 Bogota. Do not launch another kernel while active.
+Receipt: `reports/spec0054_gradient_smoke_20261102/v29_launch.json`.
+The22 affected tests and the additional positive-resume production-schedule
+check pass; subagent math/entry review, Ruff, BasedPyright, build/validation pass.
+The source and entry are pushed to origin/main. Existing v28 final/best states
+remain under `runs/kaggle/spec0054_cls_fold0_c4_v28/`; newer kernel output must
+not be mistaken for those control artifacts.
+
 ### Resume here — ABMIL handoff
 
 Read this snapshot first, then the current Spec0054 and
