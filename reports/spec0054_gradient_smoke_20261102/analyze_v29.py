@@ -34,12 +34,25 @@ def ratio(numerator, denominator):
 
 with (ROOT / 'docs/data/spec0054_cohort_folds.csv').open() as source:
     cohort = {int(row['wsi_id']): row for row in csv.DictReader(source)}
+log_rows = json.loads((RUN.parent / 'eqvae-spec0054-mil-fold0.log').read_text())
+log_events, decoder = [], json.JSONDecoder()
+for row in log_rows:
+    for line in row['data'].splitlines():
+        while line.startswith('{'):
+            event, end = decoder.raw_decode(line)
+            log_events.append({'seconds': row['time'], **event})
+            line = line[end:].strip()
+fetch_start = next(event for event in log_events if event['event'] == 'source_fetch_start')
+workers_exit = next(event for event in log_events if event['event'] == 'workers_exit')
 report = {'kernel': 'maximshtefan/eqvae-spec0054-mil-fold0/29', 'expected_source': SOURCE,
           'scope': 'Eight early updates per branch, shard1 fold-train only; first update excluded from coefficient estimation.',
           'limitations': ['Candidate is conditional on these smoke states; no generalization estimate.',
                          'A 5% Euclidean gradient norm ratio is not a 5% AdamW parameter-update effect.',
                          'Timing includes two extra calibration derivatives, not uninstrumented production throughput.',
                          'Shard1 observations do not establish maximum full-atlas memory.'], 'branches': {}}
+report['kernel_log'] = {'source_fetch_events': [event for event in log_events if event['event'].startswith('source_fetch')],
+                        'workers_exit': workers_exit, 'last_log_seconds': max(row['time'] for row in log_rows),
+                        'source_fetch_to_workers_exit_seconds': workers_exit['seconds'] - fetch_start['seconds']}
 tables, gradient_ratios, loss_ratios, valid_rows = {}, [], [], []
 for branch in ('normal_vae', 'so2_vae'):
     directory, initial = RUN / branch, RUN / 'smoke_initial' / branch
@@ -61,18 +74,25 @@ for branch in ('normal_vae', 'so2_vae'):
              & np.isfinite(data['gradient_penalty_base_cosine']))
     gradient_ratios.append(gradient_ratio[post]); loss_ratios.append(loss_ratio[post]); valid_rows.append(valid[post])
     _, steps = np.unique(data['update'], return_index=True)
-    phases = {}
+    phases, prepared_reads = {}, []
     for phase, path in (('initial', initial), ('resumed', directory)):
         events = [json.loads(line) for line in (path / 'events.jsonl').read_text().splitlines()]
         step_events = [event for event in events if event['event'] == 'step_done']
+        reads = [event['read_seconds'] for event in events if event['event'] == 'bag_transfer_start' and event.get('prefetch')]
+        prepared_reads.extend(reads)
         cp = load_dynamics_checkpoint(path / 'latest.pt')
         phases[phase] = {'worker_start': next(event for event in events if event['event'] == 'worker_start'),
                          'resume_events': [event for event in events if event['event'] == 'resume_done'],
                          'checkpoint': {key: cp[key] for key in ('committed_update', 'exposure_count', 'epoch', 'within_epoch_cursor')},
                          'max_step_allocated_bytes': max(event['peak_allocated_bytes'] for event in step_events),
+                         'step_wall_seconds': sum(event['step_seconds'] for event in step_events),
+                         'queue_wait_seconds': sum(event['wait_seconds'] for event in events if event['event'] == 'bag_prefetch_consume'),
+                         'prepared_read_seconds': {**stats(reads), 'mean': float(np.mean(reads))},
                          'amp_backoffs': sum(event['event'] == 'amp_backoff' for event in events),
                          'evaluation_event_count': sum(event['event'].startswith('evaluation') for event in events),
                          'prediction_file_exists': (path / 'predictions.npz').exists()}
+    step_wall = sum(phase['step_wall_seconds'] for phase in phases.values())
+    wait_wall = sum(phase['queue_wait_seconds'] for phase in phases.values())
     groups = {}
     for name, selected in (('first_update', ~post), ('post_first_update', post)):
         groups[name] = {key: stats(value[selected]) for key, value in (
@@ -87,6 +107,11 @@ for branch in ('normal_vae', 'so2_vae'):
         'canonical_schedule_count_matches': smoke['schedule_train_count'] == expected_count,
         'restored_t0_prefix_equal': all(prefix.values()), 'prefix_differences': [key for key, equal in prefix.items() if not equal],
         'phases': phases, 'groups': groups, 'step_seconds': stats(data['step_seconds'][steps]),
+        'timing': {'step_wall_seconds': step_wall, 'queue_wait_seconds': wait_wall,
+                   'queue_wait_fraction': wait_wall / step_wall, 'nonwait_step_residual_seconds': step_wall - wait_wall,
+                   'prepared_reads': {**stats(prepared_reads), 'mean': float(np.mean(prepared_reads))},
+                   'prepared_minus_committed_presentations': len(prepared_reads) - len(data['update']),
+                   'prepared_read_scope': 'All prepared reads include inputs drained on segment termination; overlapping reader times are not pipeline wall time.'},
         'max_allocated_bytes': int(data['peak_allocated_bytes'].max()),
         'amp_skipped_attempts': int(data['amp_skipped_attempts'][steps].sum()),
         'full_bag_patches': stats(data['bag_size']), 'sampled_bag_patches': stats(data['sampled_bag_size']),
@@ -102,13 +127,20 @@ recipe = report['branches']['normal_vae']['identity']['config']['gradient_penalt
 gradient, losses = np.concatenate(gradient_ratios), [np.median(values) for values in loss_ratios]
 report['selection_recipe'] = recipe
 report['pooled_post_first_gradient_ratio'] = stats(gradient)
+report['configured_initial_lambda'] = 0.0016
 if np.concatenate(valid_rows).all() and np.median(gradient) > 0 and max(losses) > 0:
     by_gradient = recipe['weight'] * recipe['target_median_gradient_ratio'] / float(np.median(gradient))
     by_loss = recipe['weight'] * recipe['maximum_median_loss_ratio'] / float(max(losses))
     report['shared_initial_candidate'] = {'lambda': min(by_gradient, by_loss), 'gradient_based_lambda': by_gradient,
                                          'loss_cap_lambda': by_loss, 'reason': 'Smaller of shared gradient-scale estimate and worst-branch median loss cap.'}
+    factor = report['configured_initial_lambda'] / recipe['weight']
+    report['fixed_state_projection_at_configured_lambda'] = {
+        'scope': 'Linear scaling at the measured smoke states; these ratios were not measured on a trajectory trained with the configured lambda.',
+        'pooled_post_first_gradient_ratio_median': float(np.median(gradient) * factor),
+        'per_branch_post_first_loss_ratio_median': dict(zip(report['branches'], map(float, np.asarray(losses) * factor)))}
 else:
     report['shared_initial_candidate'] = None
     report['candidate_undefined_reason'] = 'Nonfinite/undefined post-first calibration observation or nonpositive ratio median; no rows silently removed.'
+    report['fixed_state_projection_at_configured_lambda'] = None
 Path(__file__).with_name('v29_summary.json').write_text(json.dumps(report, indent=2, allow_nan=False) + '\n')
 print(json.dumps(report['shared_initial_candidate']))

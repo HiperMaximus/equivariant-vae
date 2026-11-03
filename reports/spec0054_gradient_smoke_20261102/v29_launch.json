@@ -25,9 +25,20 @@
   "provisional_lambda": 0.0001,
   "scope": "Train-only shard1,8updates perbranch,resume after4; canonicalfull-fold weights/LRschedule; no validation or sealed evaluation. Instrumented gradient-calibration timings are not productionthroughput.",
   "last_status_check": {
-    "checked_utc": "2026-11-03T04:31:19.486755+00:00",
-    "status": "RUNNING",
-    "worker_logs": "No worker output returned",
-    "next_inspection_bogota": "2026-11-02T23:45:00-05:00"
+    "checked_utc": "2026-11-03T07:03:06.594401+00:00",
+    "status": "COMPLETE",
+    "worker_exit_codes": [
+      0,
+      0
+    ],
+    "downloaded_to": "runs/kaggle/spec0054_gradient_smoke_v29",
+    "worker_logs": "Source6c, bothGPUworkers completed8updates30presentations and smoke_done; no active run."
+  },
+  "full_atlas_training_memory_context": {
+    "source": "runs/kaggle/spec0054_cls_fold0_c4_v28/spec0054_cls_fold0/{normal_vae,so2_vae}/t0.npz",
+    "largest_sampled_training_bag": 16680,
+    "full_bag_patches": 27800,
+    "wsi_id": 8713,
+    "largest_memory_not_measured_by_shard1_smoke": true
   }
 }

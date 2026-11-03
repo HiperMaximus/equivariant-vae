@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-11-02
+Last updated: 2026-11-03
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -11,33 +11,36 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
-### Active train-only gradient calibration — 2026-11-02
+### Completed train-only gradient calibration — 2026-11-03
 
-The user authorized publishing and running the calibration smoke.
-`maximshtefan/eqvae-spec0054-mil-fold0/29` is accepted and RUNNING around23:25
-Bogota2026-11-02. Source `6c1ad07688095453cd709bd7e6b988b292b2ee7b`, entry
-`45e1ab7`, provisional lambda0.0001. The existing smoke runs8 updates per
-branch with resume after4, normal/SO2 on physical GPUs0/1. Only frozen shard1
-is mounted; no resume dataset, validation or sealed inputs are consumed.
-Full-fold class weights and exposure schedule are preserved. Extra retained-
-graph calibration derivatives measure base/penalty gradient magnitudes and
-cosine; timings include that instrumentation. The production lambda remains0
-until the train-only evidence supports a shared initial-scale candidate.
-The23:30 Bogota check still reports RUNNING with no worker log output.
-Actual source/GPU/AMP/memory observations remain to verify. Next useful
-inspection:23:45 Bogota; stop polling unchanged startup. Do not launch another
-kernel while active.
-Receipt: `reports/spec0054_gradient_smoke_20261102/v29_launch.json`.
-The one-shot `analyze_v29.py` in the same directory is prepared but unexecuted:
-first download completed outputs to `runs/kaggle/spec0054_gradient_smoke_v29/`,
-then run it with `.venv/bin/python`. It preserves nonfinite/undefined evidence
-and proposes one shared initial lambda from the declared ratios, without
-claiming validation improvement or uninstrumented production throughput.
-The22 affected tests and the additional positive-resume production-schedule
-check pass; subagent math/entry review, Ruff, BasedPyright, build/validation pass.
-The source and entry are pushed to origin/main. Existing v28 final/best states
-remain under `runs/kaggle/spec0054_cls_fold0_c4_v28/`; newer kernel output must
-not be mistaken for those control artifacts.
+`maximshtefan/eqvae-spec0054-mil-fold0/29` is COMPLETE; worker exits[0,0].
+Source6c1ad07688095453cd709bd7e6b988b292b2ee7b and the expected physical
+T4 GPUs0/1 are verified. Both branches complete8 updates/30 presentations,
+with exact16-row T0 restoration after4 updates. Paired order, targets, subsets,
+C4, weights, LR and AEM agree. Full-fold weights and schedule count288 match;
+no validation/test rows or evaluation events occur. No AMP backoff or nonfinite
+T0 observation occurs; GradScaler remains65536. Control v28 stays preserved.
+
+The declared train-only scale rule gives shared lambda0.0016040793; the existing
+contract now uses rounded initial candidate0.0016. At that coefficient, fixed-
+state projections are4.99% pooled median added/base gradient norm and median
+penalty/weighted-smoothed-CE2.43% normal,2.45% SO2. These are projections from
+lambda0.0001 smoke states, not measurements of a new trajectory or validation
+improvement. No105-epoch run is launched by this review.
+
+Peak allocation is9.30GiB on10,850 sampled patches. Historical full-atlas
+training reaches16,680 sampled patches (WSI8713); that largest-case memory is
+not established by shard1. Queue waits occupy99.35% of summed step wall;
+~80.4min kernel duration includes input stalls, drained prefetch and diagnostics.
+The instrumented smoke is not a controlled uninstrumented speed comparison.
+
+Artifacts: `runs/kaggle/spec0054_gradient_smoke_v29/` (ignored local download).
+Evidence/analysis: `reports/spec0054_gradient_smoke_20261102/{v29_launch.json,analyze_v29.py,v29_summary.json}`.
+Independent agent arithmetic/provenance review agrees. Before full training,
+measure the largest training bag, restore all12 original notebook inputs,
+publish/pin the candidate source and use a fresh output/initialization. The
+current entry remains the shard1 smoke pinned to6c1ad07; it does not execute
+later local contract changes. No active job or inspection timer remains.
 
 ### Resume here — ABMIL handoff
 
@@ -88,11 +91,11 @@ supersedes every older launch instruction or proposed inspection time.
   `v28_summary.json` before using downloaded bytes. If the kernel is later
   superseded, do not assume this command still retrieves v28. Private resume
   v5 contains v27; v4 contains v26. Neither is a final105-epoch snapshot.
-- Next work is analysis of the completed trajectory and the existing telemetry.
-  Gradient regularization/SAM are discussion proposals, not implemented arms.
-  No additional fold, recipe change, GPU run or sealed152 evaluation follows
-  automatically from completion. Preserve best/final artifacts separately
-  and use only development evidence for any future model decision.
+- Gradient regularization is implemented and the train-only v29 smoke is
+  complete, as described above. Before full training, measure largest-case
+  memory and prepare a fresh all12-input candidate with the calibrated recipe.
+  No full training or sealed152 evaluation is submitted by this review.
+  Preserve best/final control artifacts separately.
 
 ### V28 completed105-epoch training review — 2026-11-02
 

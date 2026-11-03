@@ -143,7 +143,7 @@
   "mlp_dropout": 0.2,
   "bag_dropout": 0.2,
   "label_smoothing": 0.1,
-  "gradient_penalty_weight": 0.0,
+  "gradient_penalty_weight": 0.0016,
   "gradient_penalty_smoke": {
     "weight": 0.0001,
     "target_median_gradient_ratio": 0.05,
