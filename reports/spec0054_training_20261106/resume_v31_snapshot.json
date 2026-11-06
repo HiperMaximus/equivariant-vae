@@ -1,0 +1,132 @@
+{
+  "source_kernel": "maximshtefan/eqvae-spec0054-mil-fold0/31",
+  "source_commit": "e0d1b81433e5b6787b2329f9ec31afc9bf854a6b",
+  "gradient_penalty_weight": 0.0016,
+  "files": {
+    "normal_vae/latest.pt": {
+      "sha256": "0d215c510cce930adcb6dc2f33d140a9071db2995b3d679fab3ce740522405f1",
+      "bytes": 1857385
+    },
+    "normal_vae/best.pt": {
+      "sha256": "2630829769ad46caf915b400c849f51640e2f25e7bee63274b697a4a000ae449",
+      "bytes": 1856941
+    },
+    "normal_vae/identity.json": {
+      "sha256": "70e92240229c32430bd5e8b5583f72e072a8d64782b434a74047a46d2a45abe5",
+      "bytes": 809
+    },
+    "normal_vae/t0.npz": {
+      "sha256": "fdbfd67828a2453bfa551d9536d36f705781dfd34d05b08b2b7b4456ed6b0065",
+      "bytes": 2609988
+    },
+    "normal_vae/t1.npz": {
+      "sha256": "f936ac49ce6c4288c65edeba1ca4945a253b6ed1c434499be0f61178becd68a6",
+      "bytes": 240726
+    },
+    "normal_vae/t2.npz": {
+      "sha256": "f6e566dbb31193b44f69372087dbbf15d37eaee900a23ccbc3418ddbc4c68660",
+      "bytes": 17286
+    },
+    "normal_vae/predictions.npz": {
+      "sha256": "98c4f5c7ccf0ca8f7c64108ef3bc0aa6e68392d55a122faa0e688e99f6c3c842",
+      "bytes": 1083628
+    },
+    "so2_vae/latest.pt": {
+      "sha256": "eb335e070e93571eba50b68869799170e58caaf0b763685eea99edde6ce665cf",
+      "bytes": 1857385
+    },
+    "so2_vae/best.pt": {
+      "sha256": "6343bb49b3bf5e03799c2878e73e5968a0ea0fc269b5188dbafc353546b0083e",
+      "bytes": 1856941
+    },
+    "so2_vae/identity.json": {
+      "sha256": "3be6ef2e81d4d383b71783d3d33cf704f34b816590cd79640e241655b0fbf07a",
+      "bytes": 806
+    },
+    "so2_vae/t0.npz": {
+      "sha256": "833606a43508e19027728aaf3a7f4d355c2f73f70752ba6f55ef9f61b30261f1",
+      "bytes": 2466075
+    },
+    "so2_vae/t1.npz": {
+      "sha256": "5db493647281bbeeff104062c88073b0c5694eecd74bcffde6a12f58aff90418",
+      "bytes": 197046
+    },
+    "so2_vae/t2.npz": {
+      "sha256": "efa6700576563dfc9dcb868645fc0e0f679e362967694df06e8f4f6018fd7971",
+      "bytes": 17270
+    },
+    "so2_vae/predictions.npz": {
+      "sha256": "ce2fd96caf3f85e451fadd2e2dc8b0897faf011ccf4e71a90b1c26543f7abdcf",
+      "bytes": 948270
+    }
+  },
+  "branches": {
+    "normal_vae": {
+      "committed_update": 1091,
+      "exposure_count": 4364,
+      "epoch": 15,
+      "within_epoch_cursor": 44,
+      "identity": {
+        "branch": "normal_vae",
+        "cohort_sha256": "777b1a3f6ec72c40c7b96a914f9e59f6bc6d57df13636a99dfdcb478e2e9397e",
+        "config_sha256": "03010761836c47dcb3a7e32f1f1fd51d3ba75c20a4c796f99e4c00a9c00e0cce",
+        "dynamics_sha256": "863989c8a7cb20c540a189808d129095a6e7b16aebf93eb0c6658667d147d95e",
+        "effective_batch": 4,
+        "extraction_sha256": "56eda2a6f6358677a62002d7092358470efff1f2db83f59d097c50317c03946e",
+        "model_sha256": "0c0356ea38aab5ffa60fad846fbf2a4acf428128bf9a41078a36f3018e66bff9",
+        "reader_sha256": "3226c9f4064e54580b510521dada699f8eaa044605b05388dc5e0e5df7c751b3",
+        "run_mode": "fold",
+        "runner_sha256": "0a916956f3d0899d1e3998a57dbec061eaf677d4b1d9a49bdf9b254859f4aa33",
+        "source_commit": "e0d1b81433e5b6787b2329f9ec31afc9bf854a6b",
+        "t2_sha256": "2969a647244c277ded6be4dd5a815f58feed723264beee9f984827a5416829f5"
+      }
+    },
+    "so2_vae": {
+      "committed_update": 1030,
+      "exposure_count": 4120,
+      "epoch": 14,
+      "within_epoch_cursor": 88,
+      "identity": {
+        "branch": "so2_vae",
+        "cohort_sha256": "777b1a3f6ec72c40c7b96a914f9e59f6bc6d57df13636a99dfdcb478e2e9397e",
+        "config_sha256": "03010761836c47dcb3a7e32f1f1fd51d3ba75c20a4c796f99e4c00a9c00e0cce",
+        "dynamics_sha256": "863989c8a7cb20c540a189808d129095a6e7b16aebf93eb0c6658667d147d95e",
+        "effective_batch": 4,
+        "extraction_sha256": "56eda2a6f6358677a62002d7092358470efff1f2db83f59d097c50317c03946e",
+        "model_sha256": "0c0356ea38aab5ffa60fad846fbf2a4acf428128bf9a41078a36f3018e66bff9",
+        "reader_sha256": "3226c9f4064e54580b510521dada699f8eaa044605b05388dc5e0e5df7c751b3",
+        "run_mode": "fold",
+        "runner_sha256": "0a916956f3d0899d1e3998a57dbec061eaf677d4b1d9a49bdf9b254859f4aa33",
+        "source_commit": "e0d1b81433e5b6787b2329f9ec31afc9bf854a6b",
+        "t2_sha256": "2969a647244c277ded6be4dd5a815f58feed723264beee9f984827a5416829f5"
+      }
+    }
+  },
+  "publication_status": "Private snapshot created in maximusshtefan;14 files round-trip byte-identical to v31. Original artifacts preserved.",
+  "access_observation": {
+    "oauth_account": "maximusshtefan",
+    "v31_owner": "maximshtefan",
+    "v31_access": "denied with current OAuth and existing legacy authentication",
+    "same_slug_current_account": "Accessible but contains historical source0f1868f35a7bffaea0b66189b2dbd8ee47659348; not the v31 gradient-penalty candidate."
+  },
+  "resume_dataset": "maximusshtefan/eqvae-spec0054-cls-gp-fold0-resume/1",
+  "target_kernel": "maximusshtefan/eqvae-spec0054-mil-gp-fold0",
+  "account_transfer": "User authorized sharing the v31 candidate with maximusshtefan to continue training; new private kernel preserves the other account kernel.",
+  "roundtrip_sha256_matches": 14,
+  "remote_is_private": true,
+  "remote_dataset_id": 13142507,
+  "original_input_access": {
+    "maximshtefan/eqvae-spec0054-fp16-latent-shard-1": "COMPLETE; accessible to maximusshtefan via authenticated status",
+    "maximshtefan/eqvae-spec0054-fp16-latent-shard-2": "COMPLETE; accessible to maximusshtefan via authenticated status",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-3": "COMPLETE; accessible to maximusshtefan via authenticated status",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-4": "COMPLETE; accessible to maximusshtefan via authenticated status",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-5": "COMPLETE; accessible to maximusshtefan via authenticated status",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-6": "COMPLETE; accessible to maximusshtefan via authenticated status",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-7": "COMPLETE; accessible to maximusshtefan via authenticated status",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-8": "COMPLETE; accessible to maximusshtefan via authenticated status",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-9": "COMPLETE; accessible to maximusshtefan via authenticated status",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-10": "COMPLETE; accessible to maximusshtefan via authenticated status",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-11": "COMPLETE; accessible to maximusshtefan via authenticated status",
+    "maximshtefan/eqvae-spec0054-amp-latent-shard-12": "COMPLETE; accessible to maximusshtefan via authenticated status"
+  }
+}

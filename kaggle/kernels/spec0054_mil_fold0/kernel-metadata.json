@@ -1,6 +1,6 @@
 {
-  "id": "maximshtefan/eqvae-spec0054-mil-fold0",
-  "title": "eqvae spec0054 mil fold0",
+  "id": "maximusshtefan/eqvae-spec0054-mil-gp-fold0",
+  "title": "eqvae spec0054 gradient penalty fold0",
   "code_file": "abmil.py",
   "language": "python",
   "kernel_type": "script",
@@ -9,7 +9,7 @@
   "enable_internet": "true",
   "machine_shape": "NvidiaTeslaT4",
   "dataset_sources": [
-    "maximshtefan/eqvae-spec0054-cls-gp-fold0-resume"
+    "maximusshtefan/eqvae-spec0054-cls-gp-fold0-resume"
   ],
   "competition_sources": [],
   "kernel_sources": [
