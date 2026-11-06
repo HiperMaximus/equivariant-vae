@@ -1,0 +1,81 @@
+{
+  "source_kernel": "maximshtefan/eqvae-spec0054-mil-fold0/30",
+  "resume_dataset": "maximshtefan/eqvae-spec0054-cls-gp-fold0-resume/1",
+  "source_commit": "e0d1b81433e5b6787b2329f9ec31afc9bf854a6b",
+  "gradient_penalty_weight": 0.0016,
+  "files": {
+    "normal_vae/latest.pt": {
+      "sha256": "a490cec192ec50a0fa103da1ee899978b53e15ef0c00da9f7349ed63330919a6",
+      "bytes": 1857385
+    },
+    "normal_vae/best.pt": {
+      "sha256": "74978f462ba5ec7957ab1f392c6d58b16adc15a7e6b693bd03ca88c3f441bc39",
+      "bytes": 1856941
+    },
+    "normal_vae/identity.json": {
+      "sha256": "70e92240229c32430bd5e8b5583f72e072a8d64782b434a74047a46d2a45abe5",
+      "bytes": 809
+    },
+    "normal_vae/t0.npz": {
+      "sha256": "b9e8aab72fbdde6cfffabb589810ab6f136c4d013d70e1b3e9c2187358e79607",
+      "bytes": 1469163
+    },
+    "normal_vae/t1.npz": {
+      "sha256": "5cc750ca3e8c0c6a4790dd25e739297395a001827d45304550e9671c68324683",
+      "bytes": 152455
+    },
+    "normal_vae/t2.npz": {
+      "sha256": "0b448417074e928275ac9ac29a931d926d3c9dd286590339e9b113fb7ea1eaf8",
+      "bytes": 13561
+    },
+    "normal_vae/predictions.npz": {
+      "sha256": "3c2a8646cfc9d1e3bd008cb69b2471556fa0f3c5d80ead2d2a77d8143cbffc40",
+      "bytes": 805388
+    },
+    "so2_vae/latest.pt": {
+      "sha256": "f0b873d894174beb8b0ac0a5dc49cf5df7a21cb5269bf1b234928c36264725f8",
+      "bytes": 1857385
+    },
+    "so2_vae/best.pt": {
+      "sha256": "0dcff88756956cfe05ebf83be009081ddcb65e6d7a679f43dccfaaca16ec1079",
+      "bytes": 1856941
+    },
+    "so2_vae/identity.json": {
+      "sha256": "3be6ef2e81d4d383b71783d3d33cf704f34b816590cd79640e241655b0fbf07a",
+      "bytes": 806
+    },
+    "so2_vae/t0.npz": {
+      "sha256": "c7b89de70b9f1bc275c29843ece66d8deb6b17506fcd6ed5c741921e5702b114",
+      "bytes": 1299643
+    },
+    "so2_vae/t1.npz": {
+      "sha256": "21962f9ebcd3d0021b62867e867de88496101d1342b109ee1d5d49e2846749dd",
+      "bytes": 152986
+    },
+    "so2_vae/t2.npz": {
+      "sha256": "9d09ea6f22437bc3c58b3cc2b23c0151fc9a5594c9770e7a8ac3805883c1c89b",
+      "bytes": 13547
+    },
+    "so2_vae/predictions.npz": {
+      "sha256": "e4d2954b4961eb6e1e2d122f4f03dd93b77f48e8a75b3c7e3f47ea11d289cbc0",
+      "bytes": 808664
+    }
+  },
+  "branches": {
+    "normal_vae": {
+      "committed_update": 604,
+      "exposure_count": 2416,
+      "epoch": 8,
+      "within_epoch_cursor": 112
+    },
+    "so2_vae": {
+      "committed_update": 531,
+      "exposure_count": 2124,
+      "epoch": 7,
+      "within_epoch_cursor": 108
+    }
+  },
+  "roundtrip_sha256_matches": 14,
+  "remote_is_private": true,
+  "remote_dataset_id": 13124907
+}
