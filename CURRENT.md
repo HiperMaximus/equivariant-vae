@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-11-03
+Last updated: 2026-11-05
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -11,32 +11,70 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
-### Active fresh gradient-penalty training — 2026-11-03
+### Resume here — gradient-penalty v31 continuation (2026-11-05)
 
-The user authorized direct training from scratch with the calibrated coefficient,
-observing largest-bag memory within the training run instead of a separate probe.
-Kaggle accepted `maximshtefan/eqvae-spec0054-mil-fold0/30` around02:12 Bogota;
-initial status is RUNNING. Source `e0d1b81433e5b6787b2329f9ec31afc9bf854a6b`,
-entry `ad90482`. Both classifiers start at the original initialization with
-lambda0.0016, effective batch4 and the unchanged105-epoch horizon. The entry
-uses RESUME=False, SMOKE=False, no LR/read probes, all12 original notebook
-shards and no dataset/resume inputs. Normal/SO2 are assigned physical T4 GPUs0/1
-concurrently. The two VAE checkpoints remain frozen; the existing Otsu-selected
-bags, fold, order/subset/C4 pairing and ordinary-validation-CE selection remain.
-The penalty excludes class weighting/AEM; smoke-only extra gradient calibration
-is disabled in full training. Output root is `spec0054_cls_fold0_gp`, separate
-from control v28 and calibration v29. The705min session cutoff remains, so
-finishing105 epochs may need exact continuation of this candidate's own state.
+`maximshtefan/eqvae-spec0054-mil-fold0/31` is accepted and RUNNING as of
+2026-11-05 22:43 Bogota. Entry `b4a678f`, scientific source
+`e0d1b81433e5b6787b2329f9ec31afc9bf854a6b`, lambda0.0016 and the
+105-epoch horizon are unchanged. RESUME=True restores v30 latest states:
+normal604 updates/2416 presentations (epoch8 cursor112), SO2 531/2124
+(epoch7 cursor108). Both branches are configured concurrently on physical
+GPUs0/1 with all12 original frozen notebook shards and the705min cutoff.
 
-The first log read returns no worker output: actual source/device mapping,
-zero-state start, full-atlas memory and progression remain to verify. Next
-useful inspection:02:45 Bogota2026-11-03; stop polling unchanged startup.
-Do not submit a second session while v30 is active. No sealed152 evaluation.
-Receipt: `reports/spec0054_training_20261103/training_v30_launch.json`.
-The targeted entry/config parse, runner/entry compilation, build and validation
-pass. Source and launch entry are published on origin/main. Preserve the
-separate completed control and smoke artifacts; never resume their weights
-into this fresh candidate.
+Private resume input: `maximshtefan/eqvae-spec0054-cls-gp-fold0-resume/1`.
+All14 latest/best/identity/table files round-trip byte-identically to v30,
+including optimizer/scaler/RNG states. Source identities are unchanged.
+Snapshot verification and launch receipt:
+`reports/spec0054_training_20261105/{resume_v30_snapshot.json,training_v31_launch.json}`.
+The first remote log read has no worker output; actual restore/device mapping
+and advancement are pending worker evidence. Next useful inspection:
+2026-11-05 23:23 Bogota. Stop polling after this RUNNING confirmation.
+Frozen VAEs and sealed152 are untouched. Earlier session status below is
+historical; the active run is v31.
+
+### Completed gradient-penalty v30 session (2026-11-03)
+
+`maximshtefan/eqvae-spec0054-mil-fold0/30` is COMPLETE, workers exit[0,0]
+after the705min cutoff; the105-epoch candidate is unfinished. No active job.
+Sourcee0d1b81433e5b6787b2329f9ec31afc9bf854a6b, physical T4 GPUs0/1 and
+fresh start (zero resume events) are verified in full downloaded branch events.
+Lambda0.0016, full288-training-WSI class weights, all12 frozen notebook shards
+and production gradient penalty are verified; extra smoke calibration is off.
+
+Latest saved states:
+- normal:604 committed updates/2416 presentations, epoch8 cursor112 (8.3889).
+- SO2:531 updates/2124 presentations, epoch7 cursor108 (7.3750).
+Both last complete assessments and best-by-validation-CE checkpoints are epoch5
+(1440 presentations). Neither has an interrupted boundary assessment pending.
+Resume from these candidate-specific states, preserving optimizer/scaler/RNG,
+identities and cumulative tables; never initialize from control or smoke states.
+The common2124-presentation paired prefix matches all input/order/subset/C4,
+class weights, LR, AEM and penalty fields. No recipe change is indicated by
+this early review, and no continuation is submitted by this inspection.
+
+Epoch5 ordinary full-bag train/validation CE is1.53764/1.53033 normal and
+1.51833/1.49342 SO2; macro-F1=.17298/.14692 and.18043/.17512. These are early
+exploratory73-validation-WSI measurements, insufficient to conclude a
+regularization or generalization improvement. Selection remains ordinary CE.
+The sealed152 remain unused.
+
+The actual largest training bag (WSI8713) with16,680 retained patches completes
+8/7 presentations in normal/SO2. Peak training allocations13.93/14.16GiB.
+No AMP backoff, committed nonfinite loss or monitored nonfinite gradient/
+activation is observed. Mean consumed read22.60/25.28s; maxima515.56/527.35s;
+queue waits97.72/97.98% of summed step wall. Mean step46.64/51.65s. This
+session is storage limited; different sessions do not isolate a penalty effect.
+
+Artifacts: `runs/kaggle/spec0054_cls_fold0_gp_v30/spec0054_cls_fold0_gp/`.
+`latest.pt`, `best.pt`, identities and complete tables are downloaded separately
+from control v28 and smoke v29. `final.pt` is absent because105 is unfinished.
+The output contains complete branch events; remote stdout is only a final tail.
+Review: `reports/spec0054_training_20261103/{analyze_v30.py,v30_summary.json}`;
+launch/provenance receipt:`training_v30_launch.json` in the same directory.
+A later continuation needs a candidate-specific private resume snapshot of
+these14 latest/best/identity/table files, then the same source/recipe with
+RESUME=True and all12 inputs. The reviewed v30 entry used RESUME=False; v31 above enables resume and
+mounts the candidate-specific private snapshot.
 
 ### Completed train-only gradient calibration — 2026-11-03
 

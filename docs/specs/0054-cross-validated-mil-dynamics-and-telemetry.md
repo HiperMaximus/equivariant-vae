@@ -1,11 +1,34 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: v30 fresh gradient-penalty training RUNNING; v28/v29 complete
+Status: v31 gradient-penalty continuation RUNNING;105-epoch horizon unfinished
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-11-03
+Last updated: 2026-11-05
 
-## Latest executed state — 2026-11-02
+## Latest executed state — 2026-11-05
+
+V31 continues the same gradient-penalty candidate from the exact v30 latest
+states, using private resume snapshot version1. All14 files are verified
+byte-identical after download; identities, sourcee0d1b81, lambda0.0016 and
+ordinary-validation-CE selection remain unchanged. Both branches are configured
+on separate GPUs with all12 frozen notebook inputs and the705min session
+cutoff. Kaggle reports RUNNING; initial logs contain no worker evidence yet.
+Launch and snapshot receipts are in `reports/spec0054_training_20261105/`;
+`CURRENT.md` records the next inspection. No sealed-test input is added.
+
+## Completed first gradient-penalty session — 2026-11-03
+
+The first fresh gradient-penalty session v30 ends at the705min guard with
+normal604 updates/2416 presentations and SO2 531/2124. Both workers exit0;
+continuation toward105 epochs remains pending. Both latest complete and
+CE-selected assessments are epoch5. The full candidate-specific checkpoint
+and numerical review is in
+`reports/spec0054_training_20261103/v30_summary.json`; `CURRENT.md` records
+exact resume cursors and artifacts. This session passes the16,680-patch largest
+training bag without observed OOM or monitored nonfinite values. Early epoch5
+metrics do not establish a generalization or regularization advantage.
+
+## Completed control state — 2026-11-02
 
 The paired exploratory CLS-C4 ABMIL fold0 candidate is complete in
 `maximshtefan/eqvae-spec0054-mil-fold0/28`, including both final assessments.

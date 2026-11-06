@@ -49,5 +49,16 @@
     "status": "RUNNING",
     "worker_logs": "No worker output returned yet",
     "next_inspection_bogota": "2026-11-03T02:45:00-05:00"
+  },
+  "completed_review": {
+    "checked_utc": "2026-11-03T23:35:49.157315+00:00",
+    "status": "COMPLETE",
+    "worker_exit_codes": [
+      0,
+      0
+    ],
+    "reason": "Both workers paused at705min session cutoff;105-epoch horizon unfinished.",
+    "artifacts": "runs/kaggle/spec0054_cls_fold0_gp_v30",
+    "summary": "reports/spec0054_training_20261103/v30_summary.json"
   }
 }
