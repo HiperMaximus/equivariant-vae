@@ -1,20 +1,36 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: v31 gradient-penalty continuation RUNNING;105-epoch horizon unfinished
+Status: alternate-account continuation v1 RUNNING;105-epoch horizon unfinished
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-11-05
+Last updated: 2026-11-06
 
-## Latest executed state — 2026-11-05
+## Latest executed state — 2026-11-06
 
-V31 continues the same gradient-penalty candidate from the exact v30 latest
-states, using private resume snapshot version1. All14 files are verified
-byte-identical after download; identities, sourcee0d1b81, lambda0.0016 and
-ordinary-validation-CE selection remain unchanged. Both branches are configured
-on separate GPUs with all12 frozen notebook inputs and the705min session
-cutoff. Kaggle reports RUNNING; initial logs contain no worker evidence yet.
-Launch and snapshot receipts are in `reports/spec0054_training_20261105/`;
-`CURRENT.md` records the next inspection. No sealed-test input is added.
+`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/1` continues original-account v31 from
+the exact1091/1030-update latest states. The private snapshot's14 files are
+byte-identical after download, including optimizer/scaler/RNG and cumulative
+tables. The user authorized using `maximusshtefan`; this new private kernel
+preserves both historical kernels. Scientific sourcee0d1b81, lambda0.0016,
+all12 original frozen notebook inputs and validation-CE selection are unchanged.
+Kaggle reports RUNNING; initial logs contain no worker evidence yet. Exact
+locator, account distinction, launch provenance and next inspection are in
+`CURRENT.md` and `reports/spec0054_training_20261106/training_alternate_v1_launch.json`.
+No sealed-test input is added.
+
+## Completed original-account v31 session — 2026-11-06
+
+V31 completes its705min session with both workers exiting0. Exact v30 restore,
+unchanged identities/source/lambda and paired cumulative prefixes are verified.
+Latest normal/SO2 states contain1091/1030 updates and4364/4120 presentations;
+the105-epoch horizon is unfinished. Both CE-selected checkpoints are epoch10;
+latest complete assessments are normal15 and SO2 10. The common epoch10
+comparison with control gives mixed CE/F1 changes and does not establish a
+regularization advantage. No coefficient or selection-rule change is made.
+No AMP skips or nonfinite numeric T0 values are observed; input queue waits
+occupy over98% of accumulated step wall. Complete measurements and provenance:
+`reports/spec0054_training_20261106/v31_summary.json`; resume state and artifact
+locations: `CURRENT.md`. No active continuation or sealed evaluation is added.
 
 ## Completed first gradient-penalty session — 2026-11-03
 

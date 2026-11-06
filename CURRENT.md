@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-11-05
+Last updated: 2026-11-06
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -11,26 +11,72 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
-### Resume here — gradient-penalty v31 continuation (2026-11-05)
+### Resume here — alternate-account gradient continuation (2026-11-06)
 
-`maximshtefan/eqvae-spec0054-mil-fold0/31` is accepted and RUNNING as of
-2026-11-05 22:43 Bogota. Entry `b4a678f`, scientific source
-`e0d1b81433e5b6787b2329f9ec31afc9bf854a6b`, lambda0.0016 and the
-105-epoch horizon are unchanged. RESUME=True restores v30 latest states:
-normal604 updates/2416 presentations (epoch8 cursor112), SO2 531/2124
-(epoch7 cursor108). Both branches are configured concurrently on physical
-GPUs0/1 with all12 original frozen notebook shards and the705min cutoff.
+`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/1` is accepted and RUNNING as of
+2026-11-06 14:21 Bogota. This is the continuation of original-account v31,
+not a fresh classifier. New private kernel and private resume dataset are owned
+by `maximusshtefan`, as authorized for use of that account. Its existing
+`eqvae-spec0054-mil-fold0` kernel is historical and remains separate.
+Original-account `maximshtefan` artifacts remain preserved. The active OAuth
+account cannot access that private v31 kernel; its checkpoints are recovered
+from the previously verified local v31 download.
 
-Private resume input: `maximshtefan/eqvae-spec0054-cls-gp-fold0-resume/1`.
-All14 latest/best/identity/table files round-trip byte-identically to v30,
-including optimizer/scaler/RNG states. Source identities are unchanged.
-Snapshot verification and launch receipt:
-`reports/spec0054_training_20261105/{resume_v30_snapshot.json,training_v31_launch.json}`.
-The first remote log read has no worker output; actual restore/device mapping
-and advancement are pending worker evidence. Next useful inspection:
-2026-11-05 23:23 Bogota. Stop polling after this RUNNING confirmation.
-Frozen VAEs and sealed152 are untouched. Earlier session status below is
-historical; the active run is v31.
+Resume input: `maximusshtefan/eqvae-spec0054-cls-gp-fold0-resume/1`, verified
+private; all14 latest/best/identity/table files round-trip byte-identically.
+Normal starts1091 updates/4364 presentations (epoch15 cursor44); SO2 starts
+1030/4120 (epoch14 cursor88), preserving optimizer/scaler/RNG and cumulative
+tables. Sourcee0d1b81, lambda0.0016, ordinary-validation-CE selection, all12
+original frozen notebook locators and105-epoch horizon are unchanged. All12
+source status queries succeed from the current account. Workers are configured
+concurrently on physical GPUs0/1 with the705min execution cutoff.
+
+Kaggle generated the new slug from its title; the entry metadata now records
+the accepted slug above. Entry commit145e07f; launch and snapshot receipts:
+`reports/spec0054_training_20261106/{training_alternate_v1_launch.json,resume_v31_snapshot.json}`.
+Initial logs contain no worker output; actual restore/device assignment awaits
+worker evidence. Next useful inspection: 2026-11-06 15:01 Bogota.
+Stop polling after this RUNNING confirmation. Frozen VAEs and sealed152 remain
+untouched. Original v31 completion below is historical; the active run is the
+alternate-account version1 above.
+
+### Completed gradient-penalty v31 session (2026-11-06)
+
+`maximshtefan/eqvae-spec0054-mil-fold0/31` is COMPLETE; both workers exit0
+at the705min guard. No active job; the105-epoch horizon remains unfinished.
+Resume events confirm the exact v30 cursors (normal604 updates/2416 exposures,
+SO2 531/2124), unchanged sourcee0d1b81/identities/lambda0.0016 and physical
+T4 GPUs0/1. Every restored T0 prefix column matches v30; the common4120-row
+paired input/order/subset/C4/weight/LR/AEM/lambda history also matches.
+
+Latest saved states:
+- normal1091 updates/4364 presentations, epoch15 cursor44 (15.1528 epochs).
+- SO2 1030 updates/4120 presentations, epoch14 cursor88 (14.3056 epochs).
+Session additions:487/499 updates,1948/1996 presentations. Last completed
+assessments are normalepoch15 and SO2epoch10. Both best-by-validation-CE
+checkpoints are epoch10. Neither has an incomplete boundary assessment pending.
+
+At the common epoch10 assessment, ordinary train/validation CE is
+1.44056/1.43797 normal and1.39368/1.36752 SO2; validation macro-F1 is
+.20392/.33175. Control v28 at10 has validation CE1.45129/1.35623 and
+F1.24481/.31171. These early mixed comparisons do not establish a gradient-
+penalty benefit. Normal's epoch15 validation CE/F1 worsens to1.55957/.18945,
+with train CE1.51194; keep the prescribed epoch10 CE-selected checkpoint.
+No recipe/lambda change follows this inspection. Sealed152 remain unused.
+
+No AMP skips or nonfinite numeric T0 measurements occur. Session peak training
+allocations12.16/12.11GiB; both branches again consume16,680-patch bags.
+Mean consumed read33.48/36.49s; mean step67.50/73.62s. Queue waits occupy
+98.52/98.68% of summed step wall; storage remains the limiting resource.
+Session timing excludes prior v30 steps, while cumulative tables retain them.
+
+Downloaded artifacts: `runs/kaggle/spec0054_cls_fold0_gp_v31/spec0054_cls_fold0_gp/`.
+Reproducible saved-artifact analysis:
+`reports/spec0054_training_20261106/{analyze_v31.py,v31_summary.json}`.
+The v31 launch receipt records this completed review. Future continuation must
+snapshot these v31 latest/best/identity/tables, preserving optimizer/scaler/RNG.
+The mounted private resume version1 still contains v30; resubmitting the
+unchanged entry would replay from v30. No new continuation is submitted here.
 
 ### Completed gradient-penalty v30 session (2026-11-03)
 

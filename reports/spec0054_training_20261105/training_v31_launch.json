@@ -63,5 +63,16 @@
     }
   },
   "next_inspection_bogota": "2026-11-05T23:23:07.269700-05:00",
-  "scope": "Paired continuation of v30 from latest optimizer/scaler/RNG states; unchanged recipe/source, all12 frozen notebook inputs; frozen VAE checkpoints; sealed152 unused."
+  "scope": "Paired continuation of v30 from latest optimizer/scaler/RNG states; unchanged recipe/source, all12 frozen notebook inputs; frozen VAE checkpoints; sealed152 unused.",
+  "completed_review": {
+    "checked_utc": "2026-11-06T16:43:59.044048+00:00",
+    "status": "COMPLETE",
+    "worker_exit_codes": [
+      0,
+      0
+    ],
+    "reason": "Both workers reached the705min session guard;105-epoch horizon unfinished.",
+    "artifacts": "runs/kaggle/spec0054_cls_fold0_gp_v31/spec0054_cls_fold0_gp",
+    "summary": "reports/spec0054_training_20261106/v31_summary.json"
+  }
 }

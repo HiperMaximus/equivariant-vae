@@ -110,7 +110,7 @@
     "same_slug_current_account": "Accessible but contains historical source0f1868f35a7bffaea0b66189b2dbd8ee47659348; not the v31 gradient-penalty candidate."
   },
   "resume_dataset": "maximusshtefan/eqvae-spec0054-cls-gp-fold0-resume/1",
-  "target_kernel": "maximusshtefan/eqvae-spec0054-mil-gp-fold0",
+  "target_kernel": "maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/1",
   "account_transfer": "User authorized sharing the v31 candidate with maximusshtefan to continue training; new private kernel preserves the other account kernel.",
   "roundtrip_sha256_matches": 14,
   "remote_is_private": true,
@@ -128,5 +128,6 @@
     "maximshtefan/eqvae-spec0054-amp-latent-shard-10": "COMPLETE; accessible to maximusshtefan via authenticated status",
     "maximshtefan/eqvae-spec0054-amp-latent-shard-11": "COMPLETE; accessible to maximusshtefan via authenticated status",
     "maximshtefan/eqvae-spec0054-amp-latent-shard-12": "COMPLETE; accessible to maximusshtefan via authenticated status"
-  }
+  },
+  "requested_kernel_id": "maximusshtefan/eqvae-spec0054-mil-gp-fold0"
 }
