@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-11-06
+Last updated: 2026-11-09
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -11,34 +11,74 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
-### Resume here — alternate-account gradient continuation (2026-11-06)
+### Resume here — alternate-account segment2 RUNNING (2026-11-09)
 
-`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/1` is accepted and RUNNING as of
-2026-11-06 14:21 Bogota. This is the continuation of original-account v31,
-not a fresh classifier. New private kernel and private resume dataset are owned
-by `maximusshtefan`, as authorized for use of that account. Its existing
-`eqvae-spec0054-mil-fold0` kernel is historical and remains separate.
-Original-account `maximshtefan` artifacts remain preserved. The active OAuth
-account cannot access that private v31 kernel; its checkpoints are recovered
-from the previously verified local v31 download.
+`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/2` is accepted and
+RUNNING as of2026-11-09 18:58 Bogota. This continues the reviewed version1
+latest states: normal1585 updates/6340 presentations (epoch22 cursor4),
+SO2 1451/5804 (epoch20 cursor44). Scientific sourcee0d1b81, lambda0.0016,
+ordinary-validation-CE selection and105-epoch horizon are unchanged. RESUME=True;
+smoke and extra calibration derivatives remain disabled. Both workers are
+configured concurrently on physical GPUs0/1, with all12 original frozen
+notebook inputs and the705min execution cutoff.
 
-Resume input: `maximusshtefan/eqvae-spec0054-cls-gp-fold0-resume/1`, verified
-private; all14 latest/best/identity/table files round-trip byte-identically.
-Normal starts1091 updates/4364 presentations (epoch15 cursor44); SO2 starts
-1030/4120 (epoch14 cursor88), preserving optimizer/scaler/RNG and cumulative
-tables. Sourcee0d1b81, lambda0.0016, ordinary-validation-CE selection, all12
-original frozen notebook locators and105-epoch horizon are unchanged. All12
-source status queries succeed from the current account. Workers are configured
-concurrently on physical GPUs0/1 with the705min execution cutoff.
+Private resume input `maximusshtefan/eqvae-spec0054-cls-gp-fold0-resume/2`
+is ready; all14 latest/best/identity/table files round-trip byte-identically.
+Optimizer/scaler/RNG, source identities and cumulative tables are preserved.
+Input version1 and all earlier kernel outputs remain retained. The existing
+entry/contract are unchanged; only the mounted resume dataset advances.
+Snapshot and launch receipts:
+`reports/spec0054_training_20261109/{resume_alternate_v1_snapshot.json,training_alternate_v2_launch.json}`.
+Preparation commit3c0e2ff; entrye47a2fd. The first log read has no worker output;
+actual restoration/GPU assignment and advancement await worker evidence.
+Next useful inspection: 2026-11-09 19:38 Bogota. Stop polling after this
+RUNNING confirmation. Frozen VAEs and sealed152 remain unchanged. The
+completed version1 below is historical; active training is version2 above.
 
-Kaggle generated the new slug from its title; the entry metadata now records
-the accepted slug above. Entry commit145e07f; launch and snapshot receipts:
-`reports/spec0054_training_20261106/{training_alternate_v1_launch.json,resume_v31_snapshot.json}`.
-Initial logs contain no worker output; actual restore/device assignment awaits
-worker evidence. Next useful inspection: 2026-11-06 15:01 Bogota.
-Stop polling after this RUNNING confirmation. Frozen VAEs and sealed152 remain
-untouched. Original v31 completion below is historical; the active run is the
-alternate-account version1 above.
+### Completed alternate-account session1 (2026-11-09)
+
+`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/1` is COMPLETE; both
+workers exit0 at the705min session guard. No active job;105 epochs unfinished.
+Sourcee0d1b81, lambda0.0016, physical T4 GPUs0/1 and exact v31 restoration
+are verified. Identities and every restored T0 prefix column match v31; the
+common5804-presentation paired schedule/input/subset/C4/weight/LR/AEM/lambda
+prefix matches. No scientific recipe or sealed152 change occurs.
+
+Latest saved states:
+- normal1585 updates/6340 presentations, epoch22 cursor4 (22.0139 epochs).
+- SO2 1451 updates/5804 presentations, epoch20 cursor44 (20.1528 epochs).
+Session additions:494/421 updates and1976/1684 presentations. Both last
+complete assessments are epoch20 (5760 presentations), with no incomplete
+boundary assessment pending. CE-selected best is normalepoch10, SO2epoch20.
+Continue from these latest states, preserving optimizer/scaler/RNG and tables;
+never resume from best.pt or the current older input snapshot.
+
+Matched epoch20 ordinary train/validation CE:
+normal1.40162/1.45573; SO2 1.28863/1.29318. Validation macro-F1=.35834/.39763.
+Control v28 at20 has validation CE1.37544/1.36591 and F1.30014/.32928.
+Thus SO2 improves both validation measures; normal improves F1 but worsens CE.
+This early single-fold observation does not establish a generalization benefit
+across the full trajectory or a resolved overfitting problem. Selection remains
+ordinary validation CE; no lambda change follows this review.
+
+The two full-bag sentinels retain broad bag attention at20: normalized entropy
+.9918--.9962 and top100 mass1.04--1.65% across branches/slides. This is a
+bag-attention measurement on two sentinels, not a cohort-wide attention claim.
+One AMP backoff per branch (normalupdate1385, SO2update1321) reduces scale
+65536 to32768; each affected update is replayed and committed. Saved numeric
+T0 columns contain no nonfinite values. No OOM occurs. Session peak training
+allocations7.20/7.04GiB; largest sampled training bag16,680 patches recurs.
+Mean consumed reads35.83/34.57s, mean steps72.57/70.57s; queue waits occupy
+98.48/98.29% of summed step wall. Timing/memory are session-specific; stored
+T0 and largest-bag counts are cumulative across the candidate.
+
+Artifacts: `runs/kaggle/spec0054_cls_fold0_gp_alternate_v1/spec0054_cls_fold0_gp/`.
+Analysis: `reports/spec0054_training_20261109/{analyze_alternate_v1.py,alternate_v1_summary.json}`.
+The launch receipt in `reports/spec0054_training_20261106/` records completion.
+A later continuation must upload a new private snapshot of these14 latest/best/
+identity/table files. Current input `maximusshtefan/eqvae-spec0054-cls-gp-fold0-resume/1`
+still contains original v31 (1091/1030 updates); submitting the unchanged entry
+would replay from that older state. No new continuation is submitted here.
 
 ### Completed gradient-penalty v31 session (2026-11-06)
 

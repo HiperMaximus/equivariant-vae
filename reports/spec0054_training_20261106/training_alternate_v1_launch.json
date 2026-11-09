@@ -65,5 +65,16 @@
     "so2_vae": 1
   },
   "next_inspection_bogota": "2026-11-06T15:01:13.496652-05:00",
-  "scope": "User-authorized private copy of v31 states to maximusshtefan. New private kernel preserves the account historical kernel; unchanged scientific source/recipe and all12 original notebook inputs. Frozen VAEs and sealed152 unchanged."
+  "scope": "User-authorized private copy of v31 states to maximusshtefan. New private kernel preserves the account historical kernel; unchanged scientific source/recipe and all12 original notebook inputs. Frozen VAEs and sealed152 unchanged.",
+  "completed_review": {
+    "checked_utc": "2026-11-09T23:48:56.645115+00:00",
+    "status": "COMPLETE",
+    "worker_exit_codes": [
+      0,
+      0
+    ],
+    "reason": "Both workers paused at the705min session guard;105-epoch horizon unfinished.",
+    "artifacts": "runs/kaggle/spec0054_cls_fold0_gp_alternate_v1/spec0054_cls_fold0_gp",
+    "summary": "reports/spec0054_training_20261109/alternate_v1_summary.json"
+  }
 }
