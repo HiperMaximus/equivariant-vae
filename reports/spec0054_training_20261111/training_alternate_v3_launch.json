@@ -1,0 +1,72 @@
+{
+  "kernel": "maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/3",
+  "checked_utc": "2026-11-11T23:33:58.004726+00:00",
+  "preparation_commit": "0d10ef5",
+  "entry_commit": "e47a2fd",
+  "source_commit": "e0d1b81433e5b6787b2329f9ec31afc9bf854a6b",
+  "entry_sha256": "1a2d4d47510474f5e9c842e09973ec111488dabd8403bacd2394fa3cd3ff4405",
+  "config_sha256": "03010761836c47dcb3a7e32f1f1fd51d3ba75c20a4c796f99e4c00a9c00e0cce",
+  "metadata": {
+    "id": "maximusshtefan/eqvae-spec0054-gradient-penalty-fold0",
+    "title": "eqvae spec0054 gradient penalty fold0",
+    "code_file": "abmil.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "true",
+    "machine_shape": "NvidiaTeslaT4",
+    "dataset_sources": [
+      "maximusshtefan/eqvae-spec0054-cls-gp-fold0-resume"
+    ],
+    "competition_sources": [],
+    "kernel_sources": [
+      "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
+      "maximshtefan/eqvae-spec0054-fp16-latent-shard-2",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-3",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-4",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-5",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-6",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-7",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-8",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-9",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-10",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-11",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-12"
+    ],
+    "model_sources": []
+  },
+  "resume_dataset": "maximusshtefan/eqvae-spec0054-cls-gp-fold0-resume/3",
+  "resume_snapshot_receipt": "reports/spec0054_training_20261111/resume_alternate_v2_snapshot.json",
+  "starting_states": {
+    "normal_vae": {
+      "committed_update": 2160,
+      "exposure_count": 8640,
+      "epoch": 30,
+      "within_epoch_cursor": 0,
+      "last_assessment_exposure": 7200,
+      "pending_boundary_assessment": true
+    },
+    "so2_vae": {
+      "committed_update": 2083,
+      "exposure_count": 8332,
+      "epoch": 28,
+      "within_epoch_cursor": 268,
+      "last_assessment_exposure": 7200,
+      "pending_boundary_assessment": false
+    }
+  },
+  "initial_status": "RUNNING",
+  "initial_logs": "No worker output returned yet; actual restoration/GPU mapping and pending normal assessment await worker evidence.",
+  "resume": true,
+  "smoke": false,
+  "gradient_penalty_weight": 0.0016,
+  "target_epochs": 105,
+  "session_minutes": 705,
+  "physical_gpus": {
+    "normal_vae": 0,
+    "so2_vae": 1
+  },
+  "next_inspection_bogota": "2026-11-11T19:13:58.004726-05:00",
+  "scope": "Continue alternate-account v2 latest optimizer/scaler/RNG and cumulative tables. Normal must complete pending epoch30 assessment before advancing; SO2 continues epoch28 cursor268. Same scientific source/recipe and12 frozen inputs; VAEs frozen and sealed152 unused."
+}

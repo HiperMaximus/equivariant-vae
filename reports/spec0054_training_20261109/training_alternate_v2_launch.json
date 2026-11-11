@@ -64,5 +64,24 @@
     "so2_vae": 1
   },
   "next_inspection_bogota": "2026-11-09T19:38:52.713817-05:00",
-  "scope": "Continuation from alternate-account v1 latest optimizer/scaler/RNG states and cumulative tables. Scientific source/recipe and all12 original frozen inputs unchanged; VAEs frozen and sealed152 unused."
+  "scope": "Continuation from alternate-account v1 latest optimizer/scaler/RNG states and cumulative tables. Scientific source/recipe and all12 original frozen inputs unchanged; VAEs frozen and sealed152 unused.",
+  "live_review": {
+    "checked_utc": "2026-11-10T07:36:34.142499+00:00",
+    "checked_bogota": "2026-11-10T02:36:34.142499-05:00",
+    "status": "RUNNING",
+    "logs": "No worker output returned by the single live logs query. Exact restored states/current updates, evaluations and numerical health remain unverified for this segment.",
+    "last_verified_artifacts": "Alternate-account version1: normal1585 updates/6340 presentations and SO2 1451/5804; mounted snapshotversion2 preserves these states.",
+    "next_inspection_bogota": "2026-11-10T07:15:00-05:00"
+  },
+  "completed_review": {
+    "checked_utc": "2026-11-11T23:20:14.923082+00:00",
+    "status": "COMPLETE",
+    "worker_exit_codes": [
+      0,
+      0
+    ],
+    "reason": "Both workers reached the705min session guard. Normal paused during epoch30 assessment; SO2 paused during training.105-epoch horizon unfinished.",
+    "artifacts": "runs/kaggle/spec0054_cls_fold0_gp_alternate_v2/spec0054_cls_fold0_gp",
+    "summary": "reports/spec0054_training_20261111/alternate_v2_summary.json"
+  }
 }

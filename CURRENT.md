@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-11-09
+Last updated: 2026-11-11
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -11,29 +11,74 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
-### Resume here — alternate-account segment2 RUNNING (2026-11-09)
+### Resume here — alternate-account segment3 RUNNING (2026-11-11)
 
-`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/2` is accepted and
-RUNNING as of2026-11-09 18:58 Bogota. This continues the reviewed version1
-latest states: normal1585 updates/6340 presentations (epoch22 cursor4),
-SO2 1451/5804 (epoch20 cursor44). Scientific sourcee0d1b81, lambda0.0016,
-ordinary-validation-CE selection and105-epoch horizon are unchanged. RESUME=True;
-smoke and extra calibration derivatives remain disabled. Both workers are
+`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/3` is accepted and
+RUNNING as of2026-11-11 18:33 Bogota. Starts from reviewed version2 latest states:
+normal2160 updates/8640 presentations, epoch30 cursor0; SO2 2083/8332,
+epoch28 cursor268. Both last complete assessments are25. Normal resumes its
+pending epoch30 evaluation before advancing training. Scientific sourcee0d1b81,
+lambda0.0016, ordinary-validation-CE selection and105-epoch horizon remain
+unchanged. RESUME=True; no smoke or calibration derivatives. Workers are
 configured concurrently on physical GPUs0/1, with all12 original frozen
 notebook inputs and the705min execution cutoff.
 
-Private resume input `maximusshtefan/eqvae-spec0054-cls-gp-fold0-resume/2`
-is ready; all14 latest/best/identity/table files round-trip byte-identically.
-Optimizer/scaler/RNG, source identities and cumulative tables are preserved.
-Input version1 and all earlier kernel outputs remain retained. The existing
-entry/contract are unchanged; only the mounted resume dataset advances.
+Private resume input `maximusshtefan/eqvae-spec0054-cls-gp-fold0-resume/3`
+is ready and private; all14 latest/best/identity/table files round-trip
+byte-identically. Optimizer/scaler/RNG, source identities, cumulative tables and
+normal's pending assessment state are preserved. Earlier input versions/output
+states remain retained. No runner, contract or entry change is needed.
 Snapshot and launch receipts:
-`reports/spec0054_training_20261109/{resume_alternate_v1_snapshot.json,training_alternate_v2_launch.json}`.
-Preparation commit3c0e2ff; entrye47a2fd. The first log read has no worker output;
-actual restoration/GPU assignment and advancement await worker evidence.
-Next useful inspection: 2026-11-09 19:38 Bogota. Stop polling after this
-RUNNING confirmation. Frozen VAEs and sealed152 remain unchanged. The
-completed version1 below is historical; active training is version2 above.
+`reports/spec0054_training_20261111/{resume_alternate_v2_snapshot.json,training_alternate_v3_launch.json}`.
+Preparation commit0d10ef5; entrye47a2fd. Initial logs have no worker output;
+actual restore/GPU mapping and completion of normal's assessment await evidence.
+Next useful inspection: 2026-11-11 19:13 Bogota. Stop polling after this
+RUNNING confirmation. Frozen VAEs and sealed152 remain unchanged. The completed
+segment2 below is historical; active training is segment3 above.
+
+### Completed alternate-account segment2 (2026-11-11)
+
+`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/2` is COMPLETE;
+both workers exit0 at the705min session guard. No active job;105 epochs
+remain unfinished. Exact version1 restore, unchanged sourcee0d1b81/identities/
+lambda0.0016 and physical T4 GPUs0/1 are verified. All restored T0 columns
+match their version1 prefix; the common8332-row paired input/order/subset/C4/
+weights/LR/AEM/lambda schedule matches. Frozen VAEs and sealed152 are unchanged.
+
+Latest saved states:
+- normal2160 updates/8640 presentations, epoch30 cursor0 (30.0000 epochs).
+- SO2 2083 updates/8332 presentations, epoch28 cursor268 (28.9306 epochs).
+Session additions:575/632 updates,2300/2528 presentations. Both latest complete
+assessments and best-by-validation-CE checkpoints are epoch25 (7200 exposures).
+Normal pauses during its epoch30 evaluation: last_assessment_exposure stays
+7200, so that boundary assessment must be completed before normal advances.
+SO2 is between boundaries. Resume from these latest optimizer/scaler/RNG states
+and cumulative tables; preserve the existing interrupted-assessment behavior.
+The partial epoch30 read pass supplies no complete metric and is excluded.
+
+Matched epoch25 ordinary train/validation CE is1.32172/1.36652 normal and
+1.24341/1.20342 SO2; validation macro-F1=.40571/.51070. Control v28 at25 has
+validation CE1.29590/1.26233 and F1.47300/.45729. SO2 improves both measures,
+while normal worsens both. This follows the favorable SO2 epoch20 comparison,
+but remains an early single-fold trajectory, not a general regularization claim.
+Keep lambda0.0016 and ordinary-CE selection; no recipe change follows this review.
+
+No new AMP backoff, nonfinite numeric T0 value or OOM is observed. Session peak
+training allocations7.06/7.07GiB. Mean consumed reads29.77/29.17s, mean steps
+60.04/58.83s; queue waits98.38/98.40% of summed step wall. Both branches again
+consume the16,680-patch sampled bag. Latest complete full-bag sentinel attention
+remains epoch20; there is no new epoch25 T2 attention assessment. The stored
+epoch20 broad-attention observation must not be relabeled as epoch25/30.
+
+Artifacts: `runs/kaggle/spec0054_cls_fold0_gp_alternate_v2/spec0054_cls_fold0_gp/`.
+Reproducible analysis:
+`reports/spec0054_training_20261111/{analyze_alternate_v2.py,alternate_v2_summary.json}`.
+The segment2 launch receipt now records completion. A later continuation must
+snapshot these14 latest/best/identity/table files in a new private input version,
+including normal's pending epoch30 assessment state. Current mounted resume
+version2 still contains version1 checkpoints (normal1585/SO2 1451 updates);
+submitting the unchanged entry would replay from that older state. No further
+segment is submitted by this review.
 
 ### Completed alternate-account session1 (2026-11-09)
 
