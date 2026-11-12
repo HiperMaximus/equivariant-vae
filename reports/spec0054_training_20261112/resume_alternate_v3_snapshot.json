@@ -1,0 +1,89 @@
+{
+  "source_kernel": "maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/3",
+  "resume_dataset": "maximusshtefan/eqvae-spec0054-cls-gp-fold0-resume/4",
+  "target_kernel": "maximusshtefan/eqvae-spec0054-gradient-penalty-fold0",
+  "source_commit": "e0d1b81433e5b6787b2329f9ec31afc9bf854a6b",
+  "gradient_penalty_weight": 0.0016,
+  "files": {
+    "normal_vae/latest.pt": {
+      "sha256": "c2db8dc2b546906302fdf5f27f3b6e62a0cd2456598a3ec047fa2db95598eaec",
+      "bytes": 1857385
+    },
+    "normal_vae/best.pt": {
+      "sha256": "eba418810c774ebe881d464533448d76b3cc0406833bb1a30895fbdada16d108",
+      "bytes": 1856941
+    },
+    "normal_vae/identity.json": {
+      "sha256": "70e92240229c32430bd5e8b5583f72e072a8d64782b434a74047a46d2a45abe5",
+      "bytes": 809
+    },
+    "normal_vae/t0.npz": {
+      "sha256": "10dae751ba71b78592ef0220fa6198828caf80ed0e3ec2a8a355360c55c9d4ff",
+      "bytes": 7277277
+    },
+    "normal_vae/t1.npz": {
+      "sha256": "63a2ffa3cc7655122d7d3969567b42b44f1ba508d1c90f1e988f13b8c27f39eb",
+      "bytes": 462923
+    },
+    "normal_vae/t2.npz": {
+      "sha256": "033228b1d575f1db6761a77dcfac4b9dfd12ff7618d14655283f6ffce328ffcf",
+      "bytes": 28600
+    },
+    "normal_vae/predictions.npz": {
+      "sha256": "7e62740f005d8f759bcd2eb68cb10565874774a0e421c7e1d281965fd5ed2183",
+      "bytes": 1774021
+    },
+    "so2_vae/latest.pt": {
+      "sha256": "20a0a10f1bc6562d2e298caa317fcb3bf1ed9e8e8e208f8ce0905514ce7c5555",
+      "bytes": 1857385
+    },
+    "so2_vae/best.pt": {
+      "sha256": "9fd56f277c4051c93c805649fbb2017f3b013c5f9f43da181db820b15ede5235",
+      "bytes": 1856941
+    },
+    "so2_vae/identity.json": {
+      "sha256": "3be6ef2e81d4d383b71783d3d33cf704f34b816590cd79640e241655b0fbf07a",
+      "bytes": 806
+    },
+    "so2_vae/t0.npz": {
+      "sha256": "a9a5ac99bb0e7b8dd2625eea9e768ca48cb581bfeda5f8c90500490c876d983e",
+      "bytes": 6540964
+    },
+    "so2_vae/t1.npz": {
+      "sha256": "f5f98e67291e1d308ca5c14063568c79de844fb35181e993506c0e65ec0fecf4",
+      "bytes": 419292
+    },
+    "so2_vae/t2.npz": {
+      "sha256": "ad4e6756038324e30bd7bc11a0773b4c218f108b82eb49a1128685ba0e8df9ae",
+      "bytes": 24851
+    },
+    "so2_vae/predictions.npz": {
+      "sha256": "0c92eaaccac4a4f989d14daa344b36d2bdf03645626a95f3babc3802dc305050",
+      "bytes": 1638078
+    }
+  },
+  "branches": {
+    "normal_vae": {
+      "committed_update": 3085,
+      "exposure_count": 12340,
+      "epoch": 42,
+      "within_epoch_cursor": 244,
+      "last_assessment_exposure": 11520,
+      "pending_boundary_assessment": false
+    },
+    "so2_vae": {
+      "committed_update": 2772,
+      "exposure_count": 11088,
+      "epoch": 38,
+      "within_epoch_cursor": 144,
+      "last_assessment_exposure": 10080,
+      "pending_boundary_assessment": false
+    }
+  },
+  "roundtrip_sha256_matches": 14,
+  "remote_is_private": true,
+  "remote_dataset_id": 13142507,
+  "remote_current_version": 4,
+  "remote_status": "ready",
+  "roundtrip_method": "All14 individual files downloaded from explicit datasetversion4 using the existing Kaggle OAuth CLI helper; SHA256 equals reviewed source. Aggregate archive endpoint returned404 twice despite ready metadata; individual file downloads all succeeded."
+}
