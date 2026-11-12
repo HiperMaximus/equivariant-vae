@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-11-11
+Last updated: 2026-11-12
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -11,30 +11,78 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
-### Resume here — alternate-account segment3 RUNNING (2026-11-11)
+### Resume here — alternate-account segment4 RUNNING (2026-11-12)
 
-`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/3` is accepted and
-RUNNING as of2026-11-11 18:33 Bogota. Starts from reviewed version2 latest states:
-normal2160 updates/8640 presentations, epoch30 cursor0; SO2 2083/8332,
-epoch28 cursor268. Both last complete assessments are25. Normal resumes its
-pending epoch30 evaluation before advancing training. Scientific sourcee0d1b81,
+`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/4` is accepted and
+RUNNING as of2026-11-12 18:49 Bogota. Starts from reviewed segment3 latest states:
+normal3085 updates/12340 presentations, epoch42 cursor244; SO2 2772/11088,
+epoch38 cursor144. Neither has a pending boundary assessment. Sourcee0d1b81,
 lambda0.0016, ordinary-validation-CE selection and105-epoch horizon remain
 unchanged. RESUME=True; no smoke or calibration derivatives. Workers are
 configured concurrently on physical GPUs0/1, with all12 original frozen
 notebook inputs and the705min execution cutoff.
 
-Private resume input `maximusshtefan/eqvae-spec0054-cls-gp-fold0-resume/3`
+Private resume input `maximusshtefan/eqvae-spec0054-cls-gp-fold0-resume/4`
 is ready and private; all14 latest/best/identity/table files round-trip
-byte-identically. Optimizer/scaler/RNG, source identities, cumulative tables and
-normal's pending assessment state are preserved. Earlier input versions/output
-states remain retained. No runner, contract or entry change is needed.
+byte-identically. Its aggregate download returned404, while all14 individual
+version4 files download successfully and match their reviewed source hashes.
+Optimizer/scaler/RNG, source identities and cumulative tables are preserved.
+Earlier input versions/output states remain retained. Entry/contract unchanged.
 Snapshot and launch receipts:
-`reports/spec0054_training_20261111/{resume_alternate_v2_snapshot.json,training_alternate_v3_launch.json}`.
-Preparation commit0d10ef5; entrye47a2fd. Initial logs have no worker output;
-actual restore/GPU mapping and completion of normal's assessment await evidence.
-Next useful inspection: 2026-11-11 19:13 Bogota. Stop polling after this
-RUNNING confirmation. Frozen VAEs and sealed152 remain unchanged. The completed
-segment2 below is historical; active training is segment3 above.
+`reports/spec0054_training_20261112/{resume_alternate_v3_snapshot.json,training_alternate_v4_launch.json}`.
+Preparation commit80985ed; entrye47a2fd. Initial logs have no worker output;
+actual restoration/GPU mapping and advancement await worker evidence.
+Next useful inspection: 2026-11-12 19:29 Bogota. Stop polling after this
+RUNNING confirmation. Frozen VAEs and sealed152 remain unchanged. Completed
+segment3 below is historical; active training is segment4 above.
+
+### Completed alternate-account segment3 (2026-11-12)
+
+`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/3` is COMPLETE;
+both workers exit0 at the705min session guard. No active job;105 epochs
+remain unfinished. Exact version2 restore, unchanged sourcee0d1b81/identities/
+lambda0.0016 and physical T4 GPUs0/1 are verified. All restored T0 columns
+match their version2 prefix; the common11088-row paired input/order/subset/C4/
+weights/LR/AEM/lambda history matches. Normal completes its previously pending
+epoch30 assessment before its first new training update. Frozen VAEs and
+sealed152 remain unchanged.
+
+Latest saved states:
+- normal3085 updates/12340 presentations, epoch42 cursor244 (42.8472 epochs).
+- SO2 2772 updates/11088 presentations, epoch38 cursor144 (38.5000 epochs).
+Session additions:925/689 updates and3700/2756 presentations. Latest complete
+assessments are normal40/SO2 35. Neither has a pending boundary assessment.
+Best-by-ordinary-validation-CE checkpoints are normal30/SO2 35, with validation
+CE/F1 1.27446/.43443 and1.16663/.47853. Resume from latest optimizer/scaler/RNG
+states and tables, preserving the selected best checkpoints separately.
+
+At the common epoch35 assessment, ordinary train/validation CE is
+1.23619/1.31174 normal and1.20654/1.16663 SO2; validation macro-F1=.42160/.47853.
+Control v28 at35 has validation CE1.31980/1.16821 and F1.34986/.43345.
+Both F1 values are higher; CE is slightly lower, nearly equal for SO2.
+Normal's later40 validation CE/F1 is1.40113/.37971, compared with control40
+1.45208/.36508. Candidate metrics still fluctuate: neither a resolved overfit
+problem nor a general regularization benefit follows from this single fold.
+Ordinary-CE selection and lambda0.0016 are retained.
+
+Latest full-bag sentinel attention is normal40 (top100 mass3.14--4.27%,
+normalized entropy.9510--.9868) and SO2 30 (1.30--1.44%,.9918--.9971).
+Normal is more concentrated than its epoch20 measurement but neither sentinel
+has most bag attention on a few patches. These two-slide measurements do not
+establish cohort-wide attention behavior; their epochs differ across branches.
+No new AMP backoffs, nonfinite numeric T0 values or OOM are observed. Session
+peak training allocations7.53/7.11GiB. Mean consumed reads19.13/24.32s, mean
+steps39.21/49.50s; queue waits97.42/98.03% of summed step wall. Both branches
+again consume16,680-patch sampled bags; these timing/memory values are specific
+to this session, while stored training tables are cumulative.
+
+Artifacts: `runs/kaggle/spec0054_cls_fold0_gp_alternate_v3/spec0054_cls_fold0_gp/`.
+Analysis: `reports/spec0054_training_20261112/{analyze_alternate_v3.py,alternate_v3_summary.json}`.
+The segment3 launch receipt records completion. Future continuation must upload
+a new private snapshot of these14 latest/best/identity/table files. Current
+mounted resume version3 still contains version2 checkpoints2160/2083 updates;
+submitting the unchanged entry would replay from that older state. No new
+segment is submitted by this review.
 
 ### Completed alternate-account segment2 (2026-11-11)
 

@@ -1,23 +1,41 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: alternate-account segment3 RUNNING;105-epoch horizon unfinished
+Status: alternate-account segment4 RUNNING;105-epoch horizon unfinished
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-11-11
+Last updated: 2026-11-12
 
-## Latest executed state — 2026-11-11
+## Latest executed state — 2026-11-12
 
-`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/3` continues segment2
-latest states (normal2160/SO2 2083 updates) from private snapshot version3.
-All14 files round-trip byte-identically, including optimizer/scaler/RNG and
-normal's pending epoch30 assessment. Existing resume behavior completes that
-boundary before normal training advances. Sourcee0d1b81, lambda0.0016, all12
-original frozen notebook inputs and ordinary-validation-CE selection remain
-unchanged. Workers are configured on physical GPUs0/1 with a705min session
-cutoff. Kaggle reports RUNNING; initial logs contain no worker evidence yet.
-Exact states/provenance and next inspection are in `CURRENT.md` and
-`reports/spec0054_training_20261111/training_alternate_v3_launch.json`.
+`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/4` continues segment3
+latest states (normal3085/SO2 2772 updates) from private snapshot version4.
+All14 individual files round-trip byte-identically, including optimizer/scaler/
+RNG and cumulative tables. Neither branch has a pending boundary assessment.
+Sourcee0d1b81, lambda0.0016, all12 original frozen notebook inputs and ordinary-
+validation-CE selection remain unchanged. Workers are configured on physical
+GPUs0/1 with a705min session cutoff. Kaggle reports RUNNING; initial logs
+contain no worker evidence yet. Exact states/provenance and next inspection
+are in `CURRENT.md` and
+`reports/spec0054_training_20261112/training_alternate_v4_launch.json`.
 No sealed-test input is added.
+
+## Completed alternate-account segment3 — reviewed2026-11-12
+
+`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/3` completes its705min
+session with workers exiting[0,0]. Normal finishes the resumed epoch30 assessment
+before advancing training. Exact source/identity/recipe restoration and the
+paired cumulative schedule are verified. Latest normal/SO2 states are3085/2772
+updates and12340/11088 presentations (epochs42.8472/38.5000), with no pending
+assessment. Last complete assessments are normal40/SO2 35; ordinary-CE selection
+retains normal30/SO2 35. At matched epoch35 both have higher validation macro-F1
+and slightly lower CE than control; SO2 CE is nearly equal. Metrics fluctuate
+and the single-fold trajectory does not establish a general regularization
+benefit. Latest two-sentinel bag attention remains broad, although normal40 is
+more concentrated than normal20. No new AMP backoffs or nonfinite numeric T0
+values occur. Input queue waits occupy97--98% of summed step wall. Numerical
+review: `reports/spec0054_training_20261112/alternate_v3_summary.json`;
+exact resume states: `CURRENT.md`. No active continuation or sealed evaluation
+accompanies this review.
 
 ## Completed alternate-account segment2 — reviewed2026-11-11
 

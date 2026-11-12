@@ -68,5 +68,16 @@
     "so2_vae": 1
   },
   "next_inspection_bogota": "2026-11-11T19:13:58.004726-05:00",
-  "scope": "Continue alternate-account v2 latest optimizer/scaler/RNG and cumulative tables. Normal must complete pending epoch30 assessment before advancing; SO2 continues epoch28 cursor268. Same scientific source/recipe and12 frozen inputs; VAEs frozen and sealed152 unused."
+  "scope": "Continue alternate-account v2 latest optimizer/scaler/RNG and cumulative tables. Normal must complete pending epoch30 assessment before advancing; SO2 continues epoch28 cursor268. Same scientific source/recipe and12 frozen inputs; VAEs frozen and sealed152 unused.",
+  "completed_review": {
+    "checked_utc": "2026-11-12T23:18:05.182012+00:00",
+    "status": "COMPLETE",
+    "worker_exit_codes": [
+      0,
+      0
+    ],
+    "reason": "Both workers paused during training at705min guard; normal completed its resumed epoch30 assessment before advancing.105-epoch horizon unfinished.",
+    "artifacts": "runs/kaggle/spec0054_cls_fold0_gp_alternate_v3/spec0054_cls_fold0_gp",
+    "summary": "reports/spec0054_training_20261112/alternate_v3_summary.json"
+  }
 }
