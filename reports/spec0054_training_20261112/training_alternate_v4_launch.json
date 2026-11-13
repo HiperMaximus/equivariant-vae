@@ -68,5 +68,16 @@
     "so2_vae": 1
   },
   "next_inspection_bogota": "2026-11-12T19:29:00.166201-05:00",
-  "scope": "Continue alternate-account v3 latest optimizer/scaler/RNG and cumulative tables; no pending assessment. Same source/recipe and12 frozen inputs; VAEs frozen and sealed152 unused."
+  "scope": "Continue alternate-account v3 latest optimizer/scaler/RNG and cumulative tables; no pending assessment. Same source/recipe and12 frozen inputs; VAEs frozen and sealed152 unused.",
+  "completed_review": {
+    "checked_utc": "2026-11-13T13:54:21.354792+00:00",
+    "status": "COMPLETE",
+    "worker_exit_codes": [
+      0,
+      0
+    ],
+    "reason": "Both workers paused during training at705min guard;105-epoch horizon unfinished.",
+    "artifacts": "runs/kaggle/spec0054_cls_fold0_gp_alternate_v4/spec0054_cls_fold0_gp",
+    "summary": "reports/spec0054_training_20261113/alternate_v4_summary.json"
+  }
 }

@@ -1,0 +1,72 @@
+{
+  "kernel": "maximshtefan/eqvae-spec0054-mil-fold0/32",
+  "checked_utc": "2026-11-13T15:30:58.927235+00:00",
+  "entry_commit": "8a6e4ce",
+  "source_commit": "e0d1b81433e5b6787b2329f9ec31afc9bf854a6b",
+  "entry_sha256": "1a2d4d47510474f5e9c842e09973ec111488dabd8403bacd2394fa3cd3ff4405",
+  "config_sha256": "03010761836c47dcb3a7e32f1f1fd51d3ba75c20a4c796f99e4c00a9c00e0cce",
+  "metadata": {
+    "id": "maximshtefan/eqvae-spec0054-mil-fold0",
+    "title": "eqvae spec0054 mil fold0",
+    "code_file": "abmil.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "true",
+    "enable_gpu": "true",
+    "enable_internet": "true",
+    "machine_shape": "NvidiaTeslaT4",
+    "dataset_sources": [
+      "maximshtefan/eqvae-spec0054-cls-gp-fold0-resume"
+    ],
+    "competition_sources": [],
+    "kernel_sources": [
+      "maximshtefan/eqvae-spec0054-fp16-latent-shard-1",
+      "maximshtefan/eqvae-spec0054-fp16-latent-shard-2",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-3",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-4",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-5",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-6",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-7",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-8",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-9",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-10",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-11",
+      "maximshtefan/eqvae-spec0054-amp-latent-shard-12"
+    ],
+    "model_sources": []
+  },
+  "resume_dataset": "maximshtefan/eqvae-spec0054-cls-gp-fold0-resume/2",
+  "resume_snapshot_receipt": "reports/spec0054_training_20261113/resume_alternate_v4_snapshot.json",
+  "starting_states": {
+    "normal_vae": {
+      "committed_update": 3613,
+      "exposure_count": 14452,
+      "epoch": 50,
+      "within_epoch_cursor": 52,
+      "last_assessment_exposure": 14400,
+      "pending_boundary_assessment": false
+    },
+    "so2_vae": {
+      "committed_update": 3259,
+      "exposure_count": 13036,
+      "epoch": 45,
+      "within_epoch_cursor": 76,
+      "last_assessment_exposure": 12960,
+      "pending_boundary_assessment": false
+    }
+  },
+  "initial_status": "RUNNING",
+  "initial_logs": "No worker output returned yet; actual checkpoint restoration/GPU mapping await worker evidence.",
+  "resume": true,
+  "smoke": false,
+  "gradient_penalty_weight": 0.0016,
+  "target_epochs": 105,
+  "session_minutes": 705,
+  "physical_gpus": {
+    "normal_vae": 0,
+    "so2_vae": 1
+  },
+  "next_inspection_bogota": "2026-11-13T11:10:58.927235-05:00",
+  "account_route": "Current OAuth account maximshtefan; its original kernel source is byte-identical to the current entry. Exact states copied from the verified local alternate-account v4 download. Earlier outputs on both accounts remain retained.",
+  "scope": "Continue alternate-account v4 latest optimizer/scaler/RNG and cumulative tables on the original kernel. Same source/recipe and12 frozen inputs; VAEs frozen and sealed152 unused."
+}

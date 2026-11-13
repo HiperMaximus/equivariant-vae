@@ -1,23 +1,44 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: alternate-account segment4 RUNNING;105-epoch horizon unfinished
+Status: original-account v32 RUNNING;105-epoch horizon unfinished
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-11-12
+Last updated: 2026-11-13
 
-## Latest executed state — 2026-11-12
+## Latest executed state — 2026-11-13
 
-`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/4` continues segment3
-latest states (normal3085/SO2 2772 updates) from private snapshot version4.
-All14 individual files round-trip byte-identically, including optimizer/scaler/
-RNG and cumulative tables. Neither branch has a pending boundary assessment.
-Sourcee0d1b81, lambda0.0016, all12 original frozen notebook inputs and ordinary-
-validation-CE selection remain unchanged. Workers are configured on physical
+`maximshtefan/eqvae-spec0054-mil-fold0/32` continues alternate-account segment4
+latest states (normal3613/SO2 3259 updates) from original-account private resume
+snapshot version2. All14 files round-trip byte-identically, including optimizer,
+scaler, RNG and cumulative tables. The active OAuth account returned to the
+original owner; its existing kernel entry is byte-identical to the current
+runner entry. Earlier outputs on both accounts remain preserved. Scientific
+sourcee0d1b81, lambda0.0016, all12 original frozen notebook inputs and ordinary-
+validation-CE selection are unchanged. Workers are configured on physical
 GPUs0/1 with a705min session cutoff. Kaggle reports RUNNING; initial logs
 contain no worker evidence yet. Exact states/provenance and next inspection
 are in `CURRENT.md` and
-`reports/spec0054_training_20261112/training_alternate_v4_launch.json`.
+`reports/spec0054_training_20261113/training_original_v32_launch.json`.
 No sealed-test input is added.
+
+## Completed alternate-account segment4 — reviewed2026-11-13
+
+`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/4` completes its705min
+session with workers exiting[0,0]. Exact segment3 restoration and paired
+cumulative schedules are verified. Latest normal/SO2 states are3613/3259 updates
+and14452/13036 presentations (epochs50.1806/45.2639); neither has a pending
+assessment. Latest complete assessments are normal50/SO2 45, with both ordinary-
+CE-selected checkpoints at45. At matched45 both candidate macro-F1 values
+exceed control, while both CE values are worse; the joint advantage at35 does
+not persist. These changing single-fold comparisons do not establish a general
+regularization benefit. Lambda and checkpoint selection remain unchanged.
+Each branch has one recovered AMP backoff; committed numeric T0 values remain
+finite. The two full-bag attention sentinels retain broad attention, with normal
+more concentrated over measured epochs. Input queue waits still occupy~98% of
+summed step wall. Numerical review:
+`reports/spec0054_training_20261113/alternate_v4_summary.json`; exact resume
+states: `CURRENT.md`. No active continuation or sealed evaluation accompanies
+this review.
 
 ## Completed alternate-account segment3 — reviewed2026-11-12
 

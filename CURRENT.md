@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-11-12
+Last updated: 2026-11-13
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -11,30 +11,78 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
-### Resume here — alternate-account segment4 RUNNING (2026-11-12)
+### Resume here — original-account v32 RUNNING (2026-11-13)
 
-`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/4` is accepted and
-RUNNING as of2026-11-12 18:49 Bogota. Starts from reviewed segment3 latest states:
-normal3085 updates/12340 presentations, epoch42 cursor244; SO2 2772/11088,
-epoch38 cursor144. Neither has a pending boundary assessment. Sourcee0d1b81,
-lambda0.0016, ordinary-validation-CE selection and105-epoch horizon remain
-unchanged. RESUME=True; no smoke or calibration derivatives. Workers are
-configured concurrently on physical GPUs0/1, with all12 original frozen
-notebook inputs and the705min execution cutoff.
+`maximshtefan/eqvae-spec0054-mil-fold0/32` is accepted and RUNNING as of
+2026-11-13 10:30 Bogota. This continues the same gradient-penalty candidate from
+alternate-account segment4 latest states: normal3613 updates/14452 presentations,
+epoch50 cursor52; SO2 3259/13036, epoch45 cursor76. Neither has a pending boundary
+assessment. Sourcee0d1b81, lambda0.0016, ordinary-validation-CE selection and105-
+epoch horizon are unchanged. RESUME=True; no smoke/calibration derivatives.
+Workers are configured concurrently on physical GPUs0/1, with all12 original
+frozen notebook inputs and the705min execution cutoff.
 
-Private resume input `maximusshtefan/eqvae-spec0054-cls-gp-fold0-resume/4`
-is ready and private; all14 latest/best/identity/table files round-trip
-byte-identically. Its aggregate download returned404, while all14 individual
-version4 files download successfully and match their reviewed source hashes.
-Optimizer/scaler/RNG, source identities and cumulative tables are preserved.
-Earlier input versions/output states remain retained. Entry/contract unchanged.
-Snapshot and launch receipts:
-`reports/spec0054_training_20261112/{resume_alternate_v3_snapshot.json,training_alternate_v4_launch.json}`.
-Preparation commit80985ed; entrye47a2fd. Initial logs have no worker output;
-actual restoration/GPU mapping and advancement await worker evidence.
-Next useful inspection: 2026-11-12 19:29 Bogota. Stop polling after this
-RUNNING confirmation. Frozen VAEs and sealed152 remain unchanged. Completed
-segment3 below is historical; active training is segment4 above.
+The active OAuth account returned to `maximshtefan`; the original kernel entry
+is byte-identical to the reviewed current entry. Private resume input is now
+`maximshtefan/eqvae-spec0054-cls-gp-fold0-resume/2`. All14 latest/best/identity/
+table files round-trip byte-identically to alternate-account segment4, including
+optimizer/scaler/RNG and cumulative tables. Original datasetversion1 and all
+outputs on both accounts remain retained. The `maximusshtefan` kernel and its
+resume datasetversion4 remain historical; the active locator is v32 above.
+
+Entry commit8a6e4ce; source/recipe unchanged. Snapshot and launch receipts:
+`reports/spec0054_training_20261113/{resume_alternate_v4_snapshot.json,training_original_v32_launch.json}`.
+Initial logs have no worker output; actual restoration/GPU mapping and progress
+await worker evidence. Next useful inspection: 2026-11-13 11:10 Bogota.
+Stop polling after this RUNNING confirmation. Frozen VAEs and sealed152 remain
+unchanged. The completed alternate-account segment4 below is historical.
+
+### Completed alternate-account segment4 (2026-11-13)
+
+`maximusshtefan/eqvae-spec0054-gradient-penalty-fold0/4` is COMPLETE;
+both workers exit0 at the705min session guard. No active job;105 epochs
+remain unfinished. Exact segment3 restore, unchanged sourcee0d1b81/identities/
+lambda0.0016 and physical T4 GPUs0/1 are verified. All restored T0 columns
+match their segment3 prefix; the common13036-row paired input/order/subset/C4/
+weights/LR/AEM/lambda history matches. Frozen VAEs and sealed152 are unchanged.
+
+Latest saved states:
+- normal3613 updates/14452 presentations, epoch50 cursor52 (50.1806 epochs).
+- SO2 3259 updates/13036 presentations, epoch45 cursor76 (45.2639 epochs).
+Session additions:528/487 updates and2112/1948 presentations. Latest complete
+assessments are normal50/SO2 45. Neither has a pending boundary assessment.
+Both best-by-ordinary-validation-CE checkpoints are45. Selected validation
+CE/F1: normal1.12139/.53623; SO2 .95053/.60299. Continue from latest optimizer/
+scaler/RNG states and cumulative tables, preserving these selected states.
+
+At matched epoch45, ordinary train/validation CE is.99093/1.12139 normal and
+.96711/.95053 SO2; validation macro-F1=.53623/.60299. Control v28 at45 has
+validation CE1.09630/.93924 and F1.48779/.57996. Both candidate F1 values
+are higher, but both CE values are worse. The joint CE/F1 advantage seen at35
+therefore does not persist at45. Normal's later50 validation CE/F1 is
+1.37723/.45582 versus control50 1.38895/.44730. Metrics still fluctuate; this
+single-fold trajectory supports no general regularization or resolved-overfit
+claim. Lambda0.0016 and ordinary-CE selection remain unchanged.
+
+Latest full-bag sentinel attention is normal50 (top100 mass4.16--5.95%,
+normalized entropy.9323--.9805) and SO2 40 (1.81--2.23%,.9804--.9931).
+Normal becomes more concentrated across measured epochs, while these two
+sentinels still retain broad attention. Their different assessment epochs and
+two-slide scope do not establish cohort-wide concentration or causation.
+Each branch has one recovered AMP backoff: normalupdate3393 scale65536->32768;
+SO2update2937 scale32768->16384. Both affected updates are replayed/committed;
+saved numeric T0 columns remain finite. No OOM occurs. Session peak training
+allocations7.18/7.00GiB; largest sampled bag16,680 patches recurs. Mean consumed
+reads30.72/32.76s, mean steps62.22/66.33s; queue waits98.15/98.06% of summed
+step wall. Timing/memory are session-specific; tables remain cumulative.
+
+Artifacts: `runs/kaggle/spec0054_cls_fold0_gp_alternate_v4/spec0054_cls_fold0_gp/`.
+Analysis: `reports/spec0054_training_20261113/{analyze_alternate_v4.py,alternate_v4_summary.json}`.
+The segment4 launch receipt records completion. Future continuation needs a new
+private snapshot of these14 latest/best/identity/table files. Current mounted
+resume version4 still contains segment3 checkpoints3085/2772 updates; submitting
+the unchanged entry would replay from that older state. No new segment is
+submitted by this review.
 
 ### Completed alternate-account segment3 (2026-11-12)
 
