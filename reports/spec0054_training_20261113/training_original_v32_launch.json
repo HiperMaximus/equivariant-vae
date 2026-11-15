@@ -68,5 +68,16 @@
   },
   "next_inspection_bogota": "2026-11-13T11:10:58.927235-05:00",
   "account_route": "Current OAuth account maximshtefan; its original kernel source is byte-identical to the current entry. Exact states copied from the verified local alternate-account v4 download. Earlier outputs on both accounts remain retained.",
-  "scope": "Continue alternate-account v4 latest optimizer/scaler/RNG and cumulative tables on the original kernel. Same source/recipe and12 frozen inputs; VAEs frozen and sealed152 unused."
+  "scope": "Continue alternate-account v4 latest optimizer/scaler/RNG and cumulative tables on the original kernel. Same source/recipe and12 frozen inputs; VAEs frozen and sealed152 unused.",
+  "completed_review": {
+    "checked_utc": "2026-11-15T22:07:53.962664+00:00",
+    "status": "COMPLETE",
+    "worker_exit_codes": [
+      0,
+      0
+    ],
+    "reason": "Both workers paused during training at705min guard;105-epoch horizon unfinished.",
+    "artifacts": "runs/kaggle/spec0054_cls_fold0_gp_original_v32/spec0054_cls_fold0_gp",
+    "summary": "reports/spec0054_training_20261115/original_v32_summary.json"
+  }
 }
