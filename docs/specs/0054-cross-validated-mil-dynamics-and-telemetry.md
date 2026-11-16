@@ -1,14 +1,14 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: original-account v33 RUNNING;105-epoch horizon unfinished
+Status: original-account v34 RUNNING;105-epoch horizon unfinished
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-11-15
+Last updated: 2026-11-16
 
-## Latest executed state — 2026-11-15
+## Latest executed state — 2026-11-16
 
-`maximshtefan/eqvae-spec0054-mil-fold0/33` continues reviewed v32 latest states
-(normal4073/SO2 3842 updates) from original-account private snapshot version3.
+`maximshtefan/eqvae-spec0054-mil-fold0/34` continues reviewed v33 latest states
+(normal4478/SO2 4256 updates) from original-account private snapshot version4.
 All14 files round-trip byte-identically, including optimizer/scaler/RNG and
 cumulative tables. Neither branch has a pending boundary assessment. Scientific
 sourcee0d1b81, lambda0.0016, all12 original frozen notebook inputs and ordinary-
@@ -16,8 +16,27 @@ validation-CE selection remain unchanged. Workers are configured on physical
 GPUs0/1 with a705min session cutoff. Kaggle reports RUNNING; initial logs
 contain no worker evidence yet. Exact states/provenance and next inspection
 are in `CURRENT.md` and
-`reports/spec0054_training_20261115/training_original_v33_launch.json`.
+`reports/spec0054_training_20261116/training_original_v34_launch.json`.
 No sealed-test input is added.
+
+## Completed original-account v33 — reviewed2026-11-16
+
+`maximshtefan/eqvae-spec0054-mil-fold0/33` completes its705min session with
+workers exiting[0,0]. Exact v32 restoration and paired cumulative schedules
+are verified. Latest normal/SO2 states are4478/4256 updates and17912/17024
+presentations (epochs62.1944/59.1111); neither has a pending assessment. Latest
+complete assessments are normal60/SO2 55. Ordinary-CE selection now retains55
+in both branches. At this shared selected epoch, both macro-F1 values exceed
+control while both CE values are worse. Normal's later60 evaluation improves
+both metrics versus control60, illustrating that the direction still fluctuates.
+These single-fold results do not establish a general regularization benefit.
+Lambda and checkpoint selection remain unchanged. No new AMP backoffs or
+nonfinite numeric T0 values occur. The two full-bag attention sentinels remain
+broad, with different latest capture epochs across branches. Input queue waits
+occupy~99% of summed step wall. Numerical review:
+`reports/spec0054_training_20261116/original_v33_summary.json`; exact resume
+states: `CURRENT.md`. No active continuation or sealed evaluation accompanies
+this review.
 
 ## Completed original-account v32 — reviewed2026-11-15
 
