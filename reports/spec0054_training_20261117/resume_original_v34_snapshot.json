@@ -1,0 +1,88 @@
+{
+  "source_kernel": "maximshtefan/eqvae-spec0054-mil-fold0/34",
+  "resume_dataset": "maximshtefan/eqvae-spec0054-cls-gp-fold0-resume/5",
+  "target_kernel": "maximshtefan/eqvae-spec0054-mil-fold0",
+  "source_commit": "e0d1b81433e5b6787b2329f9ec31afc9bf854a6b",
+  "gradient_penalty_weight": 0.0016,
+  "files": {
+    "normal_vae/latest.pt": {
+      "sha256": "a32c50ff03be63971e168b98367a02ca1170785865aee6f418083cb745ac1f66",
+      "bytes": 1857385
+    },
+    "normal_vae/best.pt": {
+      "sha256": "06c78f3f688cb59913a19416b6f3be5c4e680fc08ab56baf5a9f212311b81639",
+      "bytes": 1856941
+    },
+    "normal_vae/identity.json": {
+      "sha256": "70e92240229c32430bd5e8b5583f72e072a8d64782b434a74047a46d2a45abe5",
+      "bytes": 809
+    },
+    "normal_vae/t0.npz": {
+      "sha256": "5b55f2eb525f6ac78419f82e5ba821e5e521b0fc2f96b756b7c314d76d1c9608",
+      "bytes": 11681034
+    },
+    "normal_vae/t1.npz": {
+      "sha256": "69092de8ab43a837942aacb30f3d221d4db6ed28546a03699aa831f25a08dea8",
+      "bytes": 685036
+    },
+    "normal_vae/t2.npz": {
+      "sha256": "377c7a351ce147f4e3e5a1d2703162200d02e669093a7ccc5652e5eff2ef3de2",
+      "bytes": 36014
+    },
+    "normal_vae/predictions.npz": {
+      "sha256": "2fe8739d1d4c89ef6d3bd788502381fffe05fcaf16e553dab6dcbaa44323a9cd",
+      "bytes": 2460517
+    },
+    "so2_vae/latest.pt": {
+      "sha256": "20e949c7d667052d7841cd56278811d6673bbee960c000634d1f0946730456f4",
+      "bytes": 1857385
+    },
+    "so2_vae/best.pt": {
+      "sha256": "61618d4a563609180c8c170e4bb8d3c3b304bbf914d4fc985d4d538a33acc92c",
+      "bytes": 1856941
+    },
+    "so2_vae/identity.json": {
+      "sha256": "3be6ef2e81d4d383b71783d3d33cf704f34b816590cd79640e241655b0fbf07a",
+      "bytes": 806
+    },
+    "so2_vae/t0.npz": {
+      "sha256": "933ef56a2878b61dbee9e92fbd11b12618034fb39155872978d25ef32e469db6",
+      "bytes": 11093199
+    },
+    "so2_vae/t1.npz": {
+      "sha256": "d7c47039746dd2b572a7eb956052e70bcc2ba33ac93a46d4ab305e0110728328",
+      "bytes": 685669
+    },
+    "so2_vae/t2.npz": {
+      "sha256": "109ffd8bf39ff0b5de4e2167a4203d312b8f11e196a1df5a2db0145563b0c3e9",
+      "bytes": 36114
+    },
+    "so2_vae/predictions.npz": {
+      "sha256": "3e30a77354cafb44f160b09ad6f5eaaff019e4ac52e6cbc56707793f7b910d98",
+      "bytes": 2460379
+    }
+  },
+  "branches": {
+    "normal_vae": {
+      "committed_update": 4969,
+      "exposure_count": 19876,
+      "epoch": 69,
+      "within_epoch_cursor": 4,
+      "last_assessment_exposure": 18720,
+      "pending_boundary_assessment": false
+    },
+    "so2_vae": {
+      "committed_update": 4721,
+      "exposure_count": 18884,
+      "epoch": 65,
+      "within_epoch_cursor": 164,
+      "last_assessment_exposure": 18720,
+      "pending_boundary_assessment": false
+    }
+  },
+  "roundtrip_sha256_matches": 14,
+  "remote_is_private": true,
+  "remote_dataset_id": 13124907,
+  "remote_current_version": 5,
+  "remote_status": "ready"
+}
