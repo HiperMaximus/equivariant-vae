@@ -1,14 +1,14 @@
 # Spec 0054: Cross-Validated MIL Dynamics And Telemetry Plan
 
-Status: original-account v34 RUNNING;105-epoch horizon unfinished
+Status: original-account v35 RUNNING;105-epoch horizon unfinished
 Owner/workstream: repeated downstream evaluation of the frozen normal and
 continuous-`SO(2)` VAE representations
-Last updated: 2026-11-16
+Last updated: 2026-11-17
 
-## Latest executed state — 2026-11-16
+## Latest executed state — 2026-11-17
 
-`maximshtefan/eqvae-spec0054-mil-fold0/34` continues reviewed v33 latest states
-(normal4478/SO2 4256 updates) from original-account private snapshot version4.
+`maximshtefan/eqvae-spec0054-mil-fold0/35` continues reviewed v34 latest states
+(normal4969/SO2 4721 updates) from original-account private snapshot version5.
 All14 files round-trip byte-identically, including optimizer/scaler/RNG and
 cumulative tables. Neither branch has a pending boundary assessment. Scientific
 sourcee0d1b81, lambda0.0016, all12 original frozen notebook inputs and ordinary-
@@ -16,8 +16,27 @@ validation-CE selection remain unchanged. Workers are configured on physical
 GPUs0/1 with a705min session cutoff. Kaggle reports RUNNING; initial logs
 contain no worker evidence yet. Exact states/provenance and next inspection
 are in `CURRENT.md` and
-`reports/spec0054_training_20261116/training_original_v34_launch.json`.
+`reports/spec0054_training_20261117/training_original_v35_launch.json`.
 No sealed-test input is added.
+
+## Completed original-account v34 — reviewed2026-11-17
+
+`maximshtefan/eqvae-spec0054-mil-fold0/34` completes its705min session with
+workers exiting[0,0]. Exact v33 restoration and paired cumulative schedules
+are verified. Latest normal/SO2 states are4969/4721 updates and19876/18884
+presentations (epochs69.0139/65.5694); neither has a pending assessment. Both
+latest complete assessments are65. Ordinary-CE-selected states remain55 in
+both branches. At matched65, candidate macro-F1 is slightly lower than control
+in both branches; normal CE is slightly worse, while SO2 CE improves. Earlier
+F1 advantages do not persist at this boundary, and selected best CE states do
+not improve in this session. These changing single-fold comparisons establish
+no general regularization benefit. Lambda and checkpoint selection remain
+unchanged. No new AMP backoffs or nonfinite numeric T0 values occur. The two
+full-bag attention sentinels remain broad at their latest60 capture. Input queue
+waits occupy~98% of summed step wall. Numerical review:
+`reports/spec0054_training_20261117/original_v34_summary.json`; exact resume
+states: `CURRENT.md`. No active continuation or sealed evaluation accompanies
+this review.
 
 ## Completed original-account v33 — reviewed2026-11-16
 

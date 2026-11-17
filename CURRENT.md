@@ -1,6 +1,6 @@
 # Current Repository Status
 
-Last updated: 2026-11-16
+Last updated: 2026-11-17
 
 The two VAE checkpoints remain frozen at 60,000 updates. Scientific boundaries
 and foreground limitations are in [AGENTS.md](AGENTS.md) and [GOAL.md](GOAL.md).
@@ -11,30 +11,73 @@ The 152 external WSI remain reserved for final evaluation.
 [Scientific spec](docs/specs/0054-cross-validated-mil-dynamics-and-telemetry.md)
 · [classical contract](docs/data/spec0054_classical_wsi.json).
 
-### Resume here — original-account v34 RUNNING (2026-11-16)
+### Resume here — original-account v35 RUNNING (2026-11-17)
 
-`maximshtefan/eqvae-spec0054-mil-fold0/34` is accepted and RUNNING as of
-2026-11-16 11:21 Bogota. Continues reviewed v33 latest states: normal4478 updates/
-17912 presentations, epoch62 cursor56; SO2 4256/17024, epoch59 cursor32.
+`maximshtefan/eqvae-spec0054-mil-fold0/35` is accepted and RUNNING as of
+2026-11-17 01:39 Bogota. Continues reviewed v34 latest states: normal4969 updates/
+19876 presentations, epoch69 cursor4; SO2 4721/18884, epoch65 cursor164.
 Neither has a pending boundary assessment. Scientific sourcee0d1b81,
 lambda0.0016, ordinary-validation-CE selection and105-epoch horizon remain
 unchanged. RESUME=True; no smoke/calibration derivatives. Workers are configured
 concurrently on physical GPUs0/1, with all12 original frozen notebook inputs
 and the705min execution cutoff.
 
-Private resume input `maximshtefan/eqvae-spec0054-cls-gp-fold0-resume/4`
+Private resume input `maximshtefan/eqvae-spec0054-cls-gp-fold0-resume/5`
 is ready and private. All14 latest/best/identity/table files round-trip
 byte-identically, including optimizer/scaler/RNG and cumulative tables.
 Earlier input versions and all outputs on both accounts remain retained.
 No runner/contract/entry change is needed; only the resume snapshot advances.
-Preparation commit50ff5eb; entry8a6e4ce. Snapshot and launch receipts:
-`reports/spec0054_training_20261116/{resume_original_v33_snapshot.json,training_original_v34_launch.json}`.
+Preparation commite0eaaf7; entry8a6e4ce. Snapshot and launch receipts:
+`reports/spec0054_training_20261117/{resume_original_v34_snapshot.json,training_original_v35_launch.json}`.
 Initial logs have no worker output; actual restoration/GPU mapping and progress
-await worker evidence. Next useful inspection: 2026-11-16 23:51 Bogota,
-after the expected session/output window. Prior live-log queries repeatedly
-returned no worker output while RUNNING. Stop polling after this confirmation;
-no automation is created. Frozen VAEs and sealed152 remain unchanged. Completed
-v33 below is historical; active training is v34 above.
+await worker evidence. Next useful inspection: 2026-11-17 14:09 Bogota,
+after the expected session/output window. Stop polling after this RUNNING
+confirmation; no automation is created. Frozen VAEs and sealed152 remain
+unchanged. Completed v34 below is historical; active training is v35 above.
+
+### Completed original-account v34 (2026-11-17)
+
+`maximshtefan/eqvae-spec0054-mil-fold0/34` is COMPLETE; both workers exit0
+at the705min session guard. No active job for this candidate;105 epochs remain
+unfinished. Exact v33 restore, unchanged sourcee0d1b81/identities/lambda0.0016
+and physical T4 GPUs0/1 are verified. All restored T0 columns match v33; the
+common18884-row paired input/order/subset/C4/weights/LR/AEM/lambda history
+matches. Frozen VAEs and sealed152 remain unchanged.
+
+Latest saved states:
+- normal4969 updates/19876 presentations, epoch69 cursor4 (69.0139 epochs).
+- SO2 4721 updates/18884 presentations, epoch65 cursor164 (65.5694 epochs).
+Session additions:491/465 updates and1964/1860 presentations. Both latest
+complete assessments are65; neither has a pending boundary assessment.
+Both ordinary-validation-CE-selected best checkpoints remain55, with validation
+CE/F1 normal1.09357/.53992 and SO2 .92443/.61098. Continue from latest optimizer/
+scaler/RNG states and cumulative tables, preserving selected states separately.
+
+At the matched65 assessment, ordinary train/validation CE is1.04345/1.25540
+normal and.93504/1.07015 SO2; validation macro-F1=.48870/.53418. Control v28
+at65 has validation CE1.24798/1.09862 and F1.49459/.54252. Both candidate F1
+values are slightly lower at this boundary; normal CE is slightly worse and
+SO2 CE better. Earlier F1 advantages therefore do not persist at65. Best-by-CE
+states do not improve this session. Metrics continue to fluctuate, and the
+single-fold trajectory establishes no general regularization benefit.
+Lambda0.0016 and ordinary-CE checkpoint selection remain unchanged.
+
+Latest full-bag sentinel attention is epoch60 for both branches: top100 mass
+normal3.56--7.63%, SO2 1.78--5.49%; normalized entropy.9315--.9881 across four
+branch/slide measurements. The two WSI retain broad attention; there is no new
+T2 capture at65 and no cohort-wide concentration inference follows. No new
+AMP backoffs, nonfinite numeric T0 values or OOM occur. Session peak training
+allocations12.29/11.89GiB;16,680-patch sampled bags recur. Mean consumed reads
+35.84/32.25s, mean steps72.19/65.00s; queue waits98.65/98.46% of summed step
+wall. Timing/memory are session-specific; stored tables remain cumulative.
+
+Artifacts: `runs/kaggle/spec0054_cls_fold0_gp_original_v34/spec0054_cls_fold0_gp/`.
+Analysis: `reports/spec0054_training_20261117/{analyze_original_v34.py,original_v34_summary.json}`.
+The v34 launch receipt records completion. Future continuation needs a new
+private snapshot of these14 latest/best/identity/table files. Current mounted
+original-account resume version4 still contains v33 checkpoints4478/4256 updates;
+submitting the unchanged entry would replay that older state. No new segment
+is submitted by this review.
 
 ### Completed original-account v33 (2026-11-16)
 
